@@ -52,18 +52,20 @@ def _detect_question(text: str) -> Question | None:
     tail = "\n".join(lines[-6:])
     last = lines[-1]
 
-    # Numbered menu: collect consecutive trailing "N. option" lines.
-    options: list[str] = []
-    for ln in lines[-12:]:
-        m = _MENU_ITEM_RE.match(ln)
-        if m:
-            options.append(m.group(2))
-    if options:
-        # Prompt = the last line before the menu that isn't itself a menu item.
-        prompt = next(
-            (ln.strip() for ln in reversed(lines) if not _MENU_ITEM_RE.match(ln)),
-            "Select an option",
-        )
+    # Numbered menu — only a *live* prompt, i.e. the menu block sits at (or one input
+    # line away from) the bottom. If real output appears below the last menu item, the
+    # prompt was already answered and we must not report it as waiting.
+    last_menu_idx = max(
+        (i for i, ln in enumerate(lines) if _MENU_ITEM_RE.match(ln)), default=-1
+    )
+    if last_menu_idx != -1 and last_menu_idx >= len(lines) - 2:
+        # Walk up from the last menu item to gather the contiguous option block.
+        options = []
+        i = last_menu_idx
+        while i >= 0 and _MENU_ITEM_RE.match(lines[i]):
+            options.insert(0, _MENU_ITEM_RE.match(lines[i]).group(2))
+            i -= 1
+        prompt = _clean_prompt(lines[i]) if i >= 0 else "Select an option"
         return Question(prompt=prompt, options=options)
 
     if _YN_RE.search(tail):
