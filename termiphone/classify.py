@@ -67,10 +67,16 @@ def _detect_question(text: str) -> Question | None:
         return Question(prompt=prompt, options=options)
 
     if _YN_RE.search(tail):
-        return Question(prompt=last.strip(), options=["yes", "no"])
+        return Question(prompt=_clean_prompt(last), options=["yes", "no"])
     if _QUESTION_TAIL_RE.search(last):
-        return Question(prompt=last.strip(), options=[])
+        return Question(prompt=_clean_prompt(last), options=[])
     return None
+
+
+def _clean_prompt(line: str) -> str:
+    """Trim a trailing shell prompt that bled onto the same line as a prompt (common
+    when a tool prints a question without a newline before the shell redraws)."""
+    return _SHELL_PROMPT_RE.sub("", line).strip() or line.strip()
 
 
 def _detect_context_pct(text: str) -> int | None:
