@@ -1,1 +1,75 @@
-<!doctype html><title>termiphone</title><h1>placeholder</h1>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
+<link rel="manifest" href="/manifest.json" />
+<title>termiphone</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; font: 15px/1.4 -apple-system, system-ui, sans-serif;
+    background: #0b0f14; color: #e6edf3;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  header {
+    padding: 14px 16px; font-weight: 600; font-size: 17px;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; background: #0b0f14e6; backdrop-filter: blur(8px);
+  }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+  header .off { background: #6e7681; }
+  #panes { padding: 8px 12px 40px; display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 14px;
+    padding: 12px 14px; overflow: hidden;
+  }
+  .card.waiting { border-color: #d29922; background: #1c1a12; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .icon { font-size: 20px; width: 24px; text-align: center; }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-weight: 600; }
+  .status { color: #8b949e; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600;
+    white-space: nowrap;
+  }
+  .b-running { background: #12331f; color: #3fb950; }
+  .b-idle { background: #21262d; color: #8b949e; }
+  .b-waiting { background: #3d2e0a; color: #e3b341; }
+  .ctx { height: 4px; border-radius: 4px; background: #21262d; margin-top: 8px; overflow: hidden; }
+  .ctx > i { display: block; height: 100%; background: #388bfd; }
+  .q { margin-top: 12px; }
+  .q .prompt { font-weight: 600; margin-bottom: 8px; }
+  .opts { display: flex; flex-direction: column; gap: 8px; }
+  button.opt {
+    appearance: none; text-align: left; width: 100%;
+    background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+    border-radius: 10px; padding: 12px 14px; font-size: 15px; cursor: pointer;
+  }
+  button.opt:active { background: #30363d; }
+  .freetext { display: flex; gap: 8px; }
+  .freetext input { flex: 1; background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
+  .freetext button { background: #388bfd; border: 0; color: #fff; border-radius: 10px; padding: 0 16px; font-weight: 600; }
+  .timeline { margin-top: 12px; }
+  .timeline summary { color: #8b949e; font-size: 13px; cursor: pointer; }
+  .snaps { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 2px; }
+  .snap {
+    flex: 0 0 auto; width: 240px; height: 150px; overflow: hidden;
+    background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+    padding: 8px; font: 10px/1.25 ui-monospace, monospace; color: #8b949e;
+    white-space: pre; }
+  .empty { text-align: center; color: #6e7681; padding: 60px 20px; }
+</style>
+</head>
+<body>
+  <header>
+    <span>termiphone</span>
+    <span id="live" class="dot off" title="connection"></span>
+  </header>
+  <div id="panes"><div class="empty">Connecting…</div></div>
+  <script src="/app.js"></script>
+</body>
+</html>
