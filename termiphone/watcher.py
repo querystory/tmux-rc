@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 
 from . import tmux
@@ -22,6 +23,29 @@ POLL_SECONDS = 1.5
 SNAPSHOT_HISTORY = 50  # per pane
 IDLE_LLM_AFTER = 6  # seconds of no change before a proactive LLM pass on a stable screen
 
+# Volatile bits that repaint constantly on an agent status line even when nothing
+# meaningful is happening. Confirmed by diffing live captures: elapsed timers, token
+# counts, spinner glyphs, AND the status-line metrics that drift every tick — cost
+# ($38.15→$38.31), context %, and the history counters (prompts/tools/MB). Strip them
+# so "is this the same screen?" is judged on real content; otherwise the LLM re-fires
+# every tick and the card flickers. (These values still reach the UI via the LLM's
+# structured fields — we only ignore them for the change check.)
+_VOLATILE_RE = re.compile(
+    r"\d+h\d+m|\d+m\s*\d+s|\d+s\b"  # durations
+    r"|↓\s*[\d.]+k?|[\d.]+k tokens"  # token counts
+    r"|\$[\d.]+"  # cost
+    r"|\d+%\s*ctx"  # context percent
+    r"|\d+\s*(prompts|tools|imgs)|[\d.]+\s*[KMG]B"  # history counters
+    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    r"|[ \t]+$",  # trailing whitespace
+    re.MULTILINE,
+)
+
+
+def _fingerprint(text: str) -> str:
+    """Content signature of a pane, ignoring volatile timer/spinner churn."""
+    return _VOLATILE_RE.sub("", text)
+
 
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
@@ -31,10 +55,12 @@ class Watcher:
         self.use_llm = use_llm
         self.states: list[PaneState] = []
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
-        self._prev_text: dict[str, str] = {}
+        self._prev_text: dict[str, str] = {}  # pane_id -> last fingerprint (for change detect)
+        self._prev_raw: dict[str, str] = {}  # pane_id -> last raw capture (for classify's diff)
         self._unchanged_since: dict[str, float] = {}
-        self._llm_seen: dict[str, str] = {}  # pane_id -> text already given a forced pass
+        self._llm_seen: dict[str, str] = {}  # pane_id -> fingerprint already given a forced pass
         self._tool: dict[str, str] = {}  # pane_id -> sticky tool once identified as an agent
+        self._state: dict[str, PaneState] = {}  # pane_id -> last classification (reused when stable)
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -69,22 +95,29 @@ class Watcher:
 
         text = tmux.capture_pane(pane.id)
         now = time.time()
-        prev = self._prev_text.get(pane.id)
-        if text != prev:
+        fp = _fingerprint(text)
+        prev_fp = self._prev_text.get(pane.id)
+        changed = fp != prev_fp  # ignore timer/spinner churn
+        prev = self._prev_raw.get(pane.id)  # raw text for classify's own diff
+        if changed:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
 
-        # Proactive LLM pass: once a screen has been stable for a bit, do a single
-        # pass on it to populate a good status_line / activity (thinking vs idle) even
-        # if heuristics didn't flag it as weak. Gated by _llm_seen so each distinct
-        # screen is sent at most once — a stable screen never re-triggers.
-        force_llm = (
-            self.use_llm
-            and idle >= IDLE_LLM_AFTER
-            and self._llm_seen.get(pane.id) != text
-        )
+        # Stable screen ⇒ reuse the last classification verbatim. This is the key
+        # anti-flicker rule: when the real content hasn't changed, we do NOT re-run the
+        # LLM (which returns slightly different JSON each time) and do NOT let the card
+        # flip between question/no-question or waiting/idle. Only refresh the timer.
+        cached = self._state.get(pane.id)
+        if not changed and cached is not None:
+            cached.idle_seconds = idle
+            cached.updated_at = now
+            self.states = [cached]
+            return
+
+        # Content changed (or first sight): classify. Fire the LLM once per new screen.
+        force_llm = self.use_llm and idle >= IDLE_LLM_AFTER and self._llm_seen.get(pane.id) != fp
         if force_llm:
-            self._llm_seen[pane.id] = text
+            self._llm_seen[pane.id] = fp
 
         state = classify(
             pane, text, prev, idle,
@@ -100,8 +133,10 @@ class Watcher:
         elif state.tool in ("shell", "unknown") and pane.id in self._tool:
             state.tool = self._tool[pane.id]
 
+        self._state[pane.id] = state
+
         # Record a snapshot whenever the pane changed (bounded ring buffer).
-        if text != prev:
+        if changed:
             hist = self.snapshots.setdefault(pane.id, [])
             snap_id = f"{int(now * 1000)}"
             hist.append({"id": snap_id, "text": text, "ts": now})
@@ -110,5 +145,6 @@ class Watcher:
         state.snapshot_id = hist[-1]["id"] if hist else None
         state.updated_at = now
 
-        self._prev_text[pane.id] = text
+        self._prev_text[pane.id] = fp
+        self._prev_raw[pane.id] = text
         self.states = [state]
