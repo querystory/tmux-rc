@@ -9,29 +9,38 @@
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* Flex-column layout: header + scrolling panes + bar. The bar is a normal flex
+     child (NOT position:fixed), so when the mobile keyboard opens and shrinks the
+     visual viewport, the layout compresses and the bar stays right above the keyboard
+     — cards scroll within #panes instead of the whole page scrolling off. Uses dvh so
+     it tracks the keyboard-adjusted viewport. */
+  html, body { height: 100%; }
   body {
     margin: 0; font: 15px/1.4 -apple-system, system-ui, sans-serif;
     background: #0b0f14; color: #e6edf3;
-    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    padding: env(safe-area-inset-top) 0 0;
+    height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
   }
   header {
-    padding: 14px 16px; font-weight: 600; font-size: 17px;
+    padding: 14px 16px; font-weight: 600; font-size: 17px; flex: 0 0 auto;
     display: flex; justify-content: space-between; align-items: center;
-    position: sticky; top: 0; background: #0b0f14e6; backdrop-filter: blur(8px);
+    background: #0b0f14e6;
   }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
   header .off { background: #6e7681; }
-  #panes { padding: 8px 12px 40px; display: flex; flex-direction: column; gap: 10px; }
+  #panes { flex: 1 1 auto; overflow-y: auto; padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
     padding: 12px 14px; overflow: hidden;
   }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
   .card.active { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
-  #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    background: #0d1117f2; backdrop-filter: blur(8px); border-top: 1px solid #30363d;
+  #bar { flex: 0 0 auto; background: #0d1117; border-top: 1px solid #30363d;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
-  #panes { padding-bottom: 150px; }  /* clear the fixed bar */
+  /* attach clip lives INSIDE the input field (like a chat composer) */
+  .inputwrap { flex: 1; display: flex; align-items: center; background: #21262d; border: 1px solid #30363d; border-radius: 10px; padding-left: 6px; }
+  .inputwrap input { flex: 1; background: transparent; border: 0; color: #e6edf3; padding: 10px 12px 10px 4px; font-size: 15px; }
+  .inputwrap .attach { background: transparent; border: 0; color: #8b949e; font-size: 17px; cursor: pointer; padding: 0 4px; }
   .row { display: flex; align-items: center; gap: 10px; }
   .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
   .icon svg { display: block; }
@@ -142,13 +151,6 @@
   <div id="panes"><div class="empty">Connecting…</div></div>
   <!-- Single persistent input bar, fixed at the bottom. Targets the active card. -->
   <div id="bar">
-    <div class="freetext">
-      <button id="bar-attach" class="attach" title="Attach image">📎</button>
-      <button id="bar-paste" class="paste" title="Paste image from clipboard">📋</button>
-      <input id="bar-input" placeholder="Type…" />
-      <button id="bar-send" class="send">Send</button>
-      <input id="bar-file" type="file" accept="image/*" hidden />
-    </div>
     <div class="keys">
       <button data-k="Enter">⏎ Enter</button>
       <button data-k="Escape">Esc</button>
@@ -157,6 +159,14 @@
       <button data-k="C-o">Ctrl-O</button>
       <button data-k="C-b">Ctrl-B</button>
       <button data-k="C-c">Ctrl-C</button>
+    </div>
+    <div class="freetext">
+      <div class="inputwrap">
+        <button id="bar-attach" class="attach" title="Attach image">📎</button>
+        <input id="bar-input" placeholder="Type…" />
+      </div>
+      <button id="bar-send" class="send">Send</button>
+      <input id="bar-file" type="file" accept="image/*" hidden />
     </div>
   </div>
   <script src="/app.js"></script>

@@ -287,7 +287,6 @@ const bar = {
   input: document.getElementById("bar-input"),
   send: document.getElementById("bar-send"),
   attach: document.getElementById("bar-attach"),
-  paste: document.getElementById("bar-paste"),
   file: document.getElementById("bar-file"),
 };
 function activeState() {
@@ -307,7 +306,8 @@ if (bar.input) {
   });
   bar.attach.onclick = () => bar.file.click();
   bar.file.onchange = () => bar.file.files[0] && uploadImage(activeState(), bar.file.files[0], bar.input);
-  bar.paste.onclick = () => pasteImage(activeState(), bar.input);
+  // Desktop image-paste into the field still works; the dedicated 📋 button is gone
+  // (redundant with 📎, and clipboard-read needs HTTPS anyway).
   bar.input.onpaste = (e) => {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) { e.preventDefault(); uploadImage(activeState(), item.getAsFile(), bar.input); }
