@@ -85,6 +85,16 @@ def server_running() -> bool:
         return False
 
 
+def active_pane_id() -> str | None:
+    """The pane id tmux currently has focused (active window's active pane), so the
+    phone can default its selection to the pane the user is actually on."""
+    try:
+        out = _run(["display-message", "-p", "#{pane_id}"]).strip()
+        return out or None
+    except subprocess.CalledProcessError:
+        return None
+
+
 def list_panes() -> list[Pane]:
     """All panes across all sessions/windows."""
     out = _run(["list-panes", "-a", "-F", _PANE_FMT])

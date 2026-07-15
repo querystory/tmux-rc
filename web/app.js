@@ -12,14 +12,16 @@ const liveEl = document.getElementById("live");
 const openTimelines = new Set();
 let busy = false; // suppress polling flicker while an answer is in flight
 
-// The single bottom input bar targets ONE pane at a time (activePane). Tap a card to
-// set it; defaults to the top card. Sticky across re-renders so typing isn't lost.
-let activePane = null;
+// The web surface is a dumb remote control for tmux — ALL state is in tmux. The active
+// pane is whatever tmux reports as focused (state.tmux_active). Tapping a card just
+// tells tmux to focus that pane; the next poll renders the new truth. No client-side
+// selection state.
 let panesById = {}; // latest state per pane, for the bottom bar to act on
+function activeId() {
+  const focused = Object.values(panesById).find((s) => s.tmux_active);
+  return focused ? focused.pane_id : Object.keys(panesById)[0] || null;
+}
 function setActive(id) {
-  activePane = id;
-  render(Object.values(panesById)); // re-render to move the highlight + placeholder
-  // Also focus this pane in tmux itself, so the host follows what you tapped.
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
 }
 
@@ -101,8 +103,13 @@ function render(states) {
   // Waiting first, then running, then idle; stable within group.
   const order = { waiting: 0, running: 1, idle: 2, unknown: 3 };
   states.sort((a, b) => (order[a.activity] ?? 9) - (order[b.activity] ?? 9));
-  // Default the active pane to the top card if unset or the active pane vanished.
-  if (!activePane || !panesById[activePane]) activePane = states[0].pane_id;
+  // Default the active pane (when unset or it vanished) to the pane tmux has focused,
+  // falling back to the top card. This makes a fresh load land on the pane the user is
+  // actually on, not just whatever sorts to the top.
+  if (!activePane || !panesById[activePane]) {
+    const focused = states.find((s) => s.tmux_active);
+    activePane = (focused || states[0]).pane_id;
+  }
   panesEl.replaceChildren(...states.map(card));
   updateBar(panesById[activePane]);
 }

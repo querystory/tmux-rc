@@ -131,6 +131,11 @@ class Watcher:
                 s = {"pane_id": p.id, "label": p.label, "tool": "unknown",
                      "activity": "unknown", "updated_at": time.time()}
             states.append(s)
+        # Mark the pane tmux currently has focused, so the phone can default its
+        # selection to the pane the user is actually on (not just the top-sorted one).
+        focused = tmux.active_pane_id()
+        for s in states:
+            s["tmux_active"] = s.get("pane_id") == focused
         # Waiting first, then running, then idle — most-actionable panes on top.
         order = {"waiting": 0, "running": 1, "idle": 2, "unknown": 3}
         states.sort(key=lambda s: order.get(s.get("activity"), 9))
