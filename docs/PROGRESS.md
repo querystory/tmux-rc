@@ -4,6 +4,12 @@ Running log of what changed, newest first. Commit after meaningful changes.
 
 ## 2026-07-14 (session: termiphone-dev)
 
+- Card redesign (single-pane quality): status_line leads as a wrapping task summary;
+  working subline (verb·elapsed·tokens); metadata chip row (model · ctx% · cost ·
+  mode badge · agent count). Added PaneState.agents. VERIFIED live: tool sticky as
+  claude, real task summary, model/ctx/cost/mode all populated. User confirmed logo
+  fixed + oscillation stopped.
+
 - Wrote REQUIREMENTS.md + this PROGRESS.md after user (rightly) called out that I'd
   been churning without capturing requirements or committing. Process fix: update both
   files and commit after each meaningful change from here on.
