@@ -69,13 +69,16 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "question": {"prompt": "...", "options": ["..."]},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
+  "files": [{"path": "...", "added": <int lines>, "removed": <int lines>}],
   "notable": ["short bullets of anything else useful to show — errors, test results, "
-              "files changed, what just happened, etc."]
+              "what just happened, etc."]
 }
-"notable" is ONLY for things not already captured in a dedicated field above. Do NOT
-restate the mode, model, cost, context %, or tool there (those have their own UI) —
-e.g. never add a bullet like "session is in bypass permissions mode". Keep notable for
-new/interesting events the other fields don't cover.
+Put file changes in "files" (path + lines added/removed) as structured data — the UI
+shows them as filename + green +N / red -N chips. Do NOT describe file edits as prose
+in "notable" (e.g. no "added 4 lines to X"). "notable" is ONLY for things not already
+captured in a dedicated field above — do NOT restate mode, model, cost, context %,
+tool, or file changes there (each has its own UI). Keep notable for other
+new/interesting events (errors, test outcomes, decisions) the other fields don't cover.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown; "tasks" only when a checklist is visible.
 """.strip()

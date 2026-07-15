@@ -95,11 +95,28 @@ function card(s) {
   el.appendChild(metaRow(s));
   if (s.rewind) el.appendChild(rewindView(s));
   if (s.question) el.appendChild(question(s));
+  if (Array.isArray(s.files) && s.files.length) el.appendChild(filesView(s.files));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
   if (Array.isArray(s.notable) && s.notable.length) el.appendChild(notableView(s.notable));
   el.appendChild(inputRow(s));
   el.appendChild(timeline(s));
   return el;
+}
+
+// Changed files as filename + green +N / red -N chips — from structured files[], NOT
+// prose. Anything with visual meaning gets a typed field + rich client rendering.
+function filesView(files) {
+  const box = document.createElement("div");
+  box.className = "files";
+  box.innerHTML = files
+    .map((f) => {
+      const add = f.added ? `<span class="add">+${f.added}</span>` : "";
+      const del = f.removed ? `<span class="del">-${f.removed}</span>` : "";
+      return `<div class="file"><span class="fpath">${esc(f.path || "")}</span>` +
+             `<span class="fstat">${add} ${del}</span></div>`;
+    })
+    .join("");
+  return box;
 }
 
 // Task/TODO checklist the agent is tracking (done vs open) — from parser JSON tasks[].
