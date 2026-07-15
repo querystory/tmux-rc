@@ -22,9 +22,11 @@ async function poll() {
   if (busy) return;
   try {
     const r = await fetch("/api/state");
-    const states = await r.json();
-    liveEl.className = "dot";
-    render(states);
+    const data = await r.json();
+    // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
+    liveEl.className = data.stale ? "dot off" : "dot";
+    liveEl.title = data.stale ? "watcher stalled — cards may be frozen" : "live";
+    render(data.panes || []);
   } catch {
     liveEl.className = "dot off";
   }

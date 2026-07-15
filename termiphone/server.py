@@ -77,7 +77,8 @@ def get_version():
 
 @app.get("/api/state")
 def get_state():
-    return app.state.watcher.states
+    w = app.state.watcher
+    return {"stale": w.is_stale(), "panes": w.states}
 
 
 @app.get("/api/panes/{pane_id}/snapshots")

@@ -65,7 +65,14 @@ class Watcher:
         self._last_parse: dict[str, float] = {}  # pane_id -> when we last called the LLM
         self._tool: dict[str, str] = {}  # pane_id -> sticky tool once identified as an agent
         self._state: dict[str, dict] = {}  # pane_id -> last parsed dict (reused between parses)
+        self._last_tick: float = 0.0  # wall time of the last loop iteration (staleness check)
         self._task: asyncio.Task | None = None
+
+    def is_stale(self) -> bool:
+        """True if the loop hasn't ticked recently — the watcher is dead/stalled and
+        the served state is frozen. Surfaced to the UI so a dead loop is VISIBLE
+        instead of silently serving stale cards (as happened after a resize/reload)."""
+        return self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
@@ -86,6 +93,7 @@ class Watcher:
                 await asyncio.to_thread(self._tick)
             except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
+            self._last_tick = time.time()
             await asyncio.sleep(POLL_SECONDS)
 
     def _tick(self) -> None:
