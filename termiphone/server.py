@@ -110,6 +110,15 @@ def send(pane_id: str, body: SendBody):
     return {"ok": True}
 
 
+@app.post("/api/panes/{pane_id}/select")
+def select(pane_id: str):
+    """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
+    if tmux.find_pane(pane_id) is None:
+        raise HTTPException(404, "pane not found")
+    tmux.select_pane(pane_id)
+    return {"ok": True}
+
+
 @app.post("/api/panes/{pane_id}/image")
 async def send_image(pane_id: str, file: UploadFile):
     """Attach an image to the pane the way the user does on the host: put it on the

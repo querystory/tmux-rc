@@ -113,6 +113,13 @@ def find_pane(target: str | None) -> Pane | None:
     return None
 
 
+def select_pane(pane_id: str) -> None:
+    """Make this pane the active one in tmux (focus its window + the pane within it),
+    so tapping a card on the phone focuses the same pane on the host."""
+    _run(["select-window", "-t", pane_id])
+    _run(["select-pane", "-t", pane_id])
+
+
 def capture_pane(pane_id: str, lines: int = 200) -> str:
     """Current visible text of a pane, most recent `lines` rows. `-p` prints to
     stdout, `-J` joins wrapped lines so long lines aren't split mid-word."""

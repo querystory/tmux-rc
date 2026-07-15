@@ -19,6 +19,8 @@ let panesById = {}; // latest state per pane, for the bottom bar to act on
 function setActive(id) {
   activePane = id;
   render(Object.values(panesById)); // re-render to move the highlight + placeholder
+  // Also focus this pane in tmux itself, so the host follows what you tapped.
+  fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
 }
 
 // Client-side accumulated activity log per pane. Each parse only returns the events
