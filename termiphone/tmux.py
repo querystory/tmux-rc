@@ -23,6 +23,7 @@ _PANE_FMT = "\t".join(
         "#{pane_id}",
         "#{pane_current_command}",
         "#{pane_title}",
+        "#{pane_current_path}",
     ]
 )
 
@@ -38,13 +39,26 @@ class Pane:
     id: str
     current_command: str
     title: str
+    cwd: str = ""
 
     @property
     def label(self) -> str:
-        """Human label — the tmux window name (e.g. "claude", "Resolve PR 38"), which
-        is what the user recognizes. Falls back to session:window if the window has no
-        meaningful name (tmux defaults window_name to the running command)."""
-        return self.window_name or f"{self.session}:{self.window_index}"
+        """Human label. A window the user named (e.g. "Resolve PR 38") is best. But
+        tmux auto-names windows after the running command (bash/node/python), which is
+        noise — in that case fall back to the working-directory basename (e.g.
+        "termiphone"), which is what the user actually recognizes, then session:window."""
+        name = self.window_name
+        if name and name.lower() not in _GENERIC_NAMES:
+            return name
+        if self.cwd:
+            base = self.cwd.rstrip("/").rsplit("/", 1)[-1]
+            if base:
+                return base
+        return f"{self.session}:{self.window_index}"
+
+
+# tmux auto-assigns these as window names from the running command — not user intent.
+_GENERIC_NAMES = {"bash", "zsh", "sh", "fish", "node", "python", "python3", "tmux", "ssh"}
 
 
 def _run(args: list[str]) -> str:
@@ -71,7 +85,7 @@ def list_panes() -> list[Pane]:
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) != 7:
+        if len(parts) != 8:
             continue
         panes.append(Pane(*parts))
     return panes
