@@ -145,15 +145,15 @@ function inputRow(s) {
   // Attach: open the file/camera picker (the reliable mobile path — Photo Library
   // shows recent screenshots). Upload the chosen image.
   wrap.querySelector(".attach").onclick = () => filePicker.click();
-  filePicker.onchange = () => filePicker.files[0] && uploadImage(s, filePicker.files[0]);
+  filePicker.onchange = () => filePicker.files[0] && uploadImage(s, filePicker.files[0], input);
   // Paste button: read the clipboard via the async Clipboard API (works on mobile on
   // a tap, unlike input.onpaste). Requires a secure context (HTTPS or localhost);
   // over plain-HTTP LAN the API is unavailable and we say so instead of failing silently.
-  wrap.querySelector(".paste").onclick = () => pasteImage(s);
+  wrap.querySelector(".paste").onclick = () => pasteImage(s, input);
   // Also keep desktop input-paste working.
   input.onpaste = (e) => {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (item) { e.preventDefault(); uploadImage(s, item.getAsFile()); }
+    if (item) { e.preventDefault(); uploadImage(s, item.getAsFile(), input); }
   };
   // Special keys are tmux key-names, sent literally (no appended Enter).
   wrap.querySelectorAll(".keys button").forEach((b) => {
@@ -167,7 +167,7 @@ function inputRow(s) {
 // CONTEXT — HTTPS or localhost. Over plain http:// on the LAN it's undefined, which
 // is almost certainly why paste "does nothing". We surface that instead of failing
 // silently, and point the user at the 📎 attach button (which always works).
-async function pasteImage(s) {
+async function pasteImage(s, input) {
   if (!navigator.clipboard || !navigator.clipboard.read) {
     alert(
       "Clipboard paste needs HTTPS (or localhost). You're on plain http over the LAN, " +
@@ -180,7 +180,7 @@ async function pasteImage(s) {
     const items = await navigator.clipboard.read();
     for (const item of items) {
       const type = item.types.find((t) => t.startsWith("image/"));
-      if (type) { uploadImage(s, await item.getType(type)); return; }
+      if (type) { uploadImage(s, await item.getType(type), input); return; }
     }
     alert("No image on the clipboard. Copy a screenshot first, or use 📎.");
   } catch (e) {
@@ -188,12 +188,22 @@ async function pasteImage(s) {
   }
 }
 
-// Upload an image to the pane: the server saves it to a host temp file and types the
-// path into the terminal (no Enter) so the agent can read it. Shows a brief hint.
-async function uploadImage(s, file) {
+// Upload an image and paste it into the pane (server puts it on the clipboard and
+// sends Ctrl-V). If the user already typed text in the web box, send that text to the
+// pane FIRST (no Enter), so the text and image land together in the agent's prompt in
+// order — otherwise the typed text would be stranded in the web box and lost on the
+// next re-render.
+async function uploadImage(s, file, input) {
   if (!file) return;
   busy = true;
   try {
+    if (input && input.value) {
+      await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keys: input.value, enter: false, literal: true }),
+      });
+      input.value = "";
+    }
     const fd = new FormData();
     fd.append("file", file);
     const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
