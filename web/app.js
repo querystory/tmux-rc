@@ -123,7 +123,8 @@ function inputRow(s) {
   wrap.innerHTML = `
     <div class="freetext">
       <button class="attach" title="Attach image">📎</button>
-      <input data-pane="${esc(s.pane_id)}" placeholder="Type or paste an image into ${esc(s.label)}…" />
+      <button class="paste" title="Paste image from clipboard">📋</button>
+      <input data-pane="${esc(s.pane_id)}" placeholder="Type into ${esc(s.label)}…" />
       <button class="send">Send</button>
       <input type="file" accept="image/*" hidden />
     </div>
@@ -141,10 +142,15 @@ function inputRow(s) {
   wrap.querySelector(".send").onclick = () => {
     if (input.value) { answer(s, input.value); input.value = ""; }
   };
-  // Attach: open the file/camera picker; upload the chosen image.
+  // Attach: open the file/camera picker (the reliable mobile path — Photo Library
+  // shows recent screenshots). Upload the chosen image.
   wrap.querySelector(".attach").onclick = () => filePicker.click();
   filePicker.onchange = () => filePicker.files[0] && uploadImage(s, filePicker.files[0]);
-  // Paste: if the clipboard has an image, upload it instead of pasting text.
+  // Paste button: read the clipboard via the async Clipboard API (works on mobile on
+  // a tap, unlike input.onpaste). Requires a secure context (HTTPS or localhost);
+  // over plain-HTTP LAN the API is unavailable and we say so instead of failing silently.
+  wrap.querySelector(".paste").onclick = () => pasteImage(s);
+  // Also keep desktop input-paste working.
   input.onpaste = (e) => {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) { e.preventDefault(); uploadImage(s, item.getAsFile()); }
@@ -154,6 +160,32 @@ function inputRow(s) {
     b.onclick = () => sendRaw(s, b.dataset.k);
   });
   return wrap;
+}
+
+// Read an image off the clipboard and upload it. navigator.clipboard.read() is the
+// only path that works on mobile (input.onpaste doesn't), but it needs a SECURE
+// CONTEXT — HTTPS or localhost. Over plain http:// on the LAN it's undefined, which
+// is almost certainly why paste "does nothing". We surface that instead of failing
+// silently, and point the user at the 📎 attach button (which always works).
+async function pasteImage(s) {
+  if (!navigator.clipboard || !navigator.clipboard.read) {
+    alert(
+      "Clipboard paste needs HTTPS (or localhost). You're on plain http over the LAN, " +
+      "so the browser blocks it.\n\nUse the 📎 button instead — pick the screenshot " +
+      "from your Photo Library."
+    );
+    return;
+  }
+  try {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (type) { uploadImage(s, await item.getType(type)); return; }
+    }
+    alert("No image on the clipboard. Copy a screenshot first, or use 📎.");
+  } catch (e) {
+    alert("Couldn't read clipboard: " + e.message + "\n\nTry the 📎 button instead.");
+  }
 }
 
 // Upload an image to the pane: the server saves it to a host temp file and types the
@@ -267,7 +299,14 @@ function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+// Purge any previously-installed service worker + caches. An old SW (from before we
+// went cache-less) keeps serving a stale app.js on the phone even after edits — which
+// is why new buttons didn't appear on reload. Unregister everything so the phone
+// always fetches fresh from the network. (No SW ⇒ not installable, fine for the PoC.)
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
+}
+if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
 poll();
 setInterval(poll, 2000);
 
