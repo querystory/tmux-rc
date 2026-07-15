@@ -20,6 +20,25 @@ class Question(BaseModel):
     options: list[str] = []  # empty ⇒ free-text answer expected
 
 
+class RewindEntry(BaseModel):
+    """One entry in Claude Code's Esc-Esc Rewind picker (a past message you can
+    restore to). `selected` marks the one under the ❯ cursor."""
+
+    text: str  # the message summary line
+    note: str = ""  # e.g. "No code changes" / a code-change note
+    selected: bool = False
+
+
+class Rewind(BaseModel):
+    """The Rewind/restore-history picker. `more_above` is how many entries scrolled
+    off the top (from tmux's "↑ N more above"). Navigated with ↑/↓ (moves the ❯
+    cursor) and Enter (restores)."""
+
+    entries: list[RewindEntry] = []
+    more_above: int = 0
+    more_below: int = 0
+
+
 class PaneState(BaseModel):
     """Everything the phone needs to render one pane. The rich fields (model, cost,
     mode, working_*) are populated by the LLM pass from an agent's status line — see
@@ -33,6 +52,7 @@ class PaneState(BaseModel):
     idle_seconds: int = 0
     status_line: str = ""  # one short human phrase: "Editing models.py", "14/52 tests"
     question: Question | None = None
+    rewind: Rewind | None = None  # Claude Code's Esc-Esc restore-history picker
 
     # Agent status-line detail (mostly Claude Code; nullable when not applicable).
     model: str | None = None  # e.g. "Sonnet 5", "Opus 4.8"

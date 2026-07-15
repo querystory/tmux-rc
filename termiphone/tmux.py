@@ -43,13 +43,15 @@ class Pane:
 
     @property
     def label(self) -> str:
-        """Human label. A window the user named (e.g. "Resolve PR 38") is best. But
-        tmux auto-names windows after the running command (bash/node/python), which is
-        noise — in that case fall back to the working-directory basename (e.g.
-        "termiphone"), which is what the user actually recognizes, then session:window."""
-        name = self.window_name
-        if name and name.lower() not in _GENERIC_NAMES:
-            return name
+        """Human label, best identity first. A window the user named (e.g. "Resolve PR
+        38") wins. Otherwise tmux auto-named the window after its command (bash/node),
+        which is noise — prefer the SESSION name the user deliberately set (e.g.
+        "termiphone-dev", shown in the tmux status bar), then the cwd basename, then
+        session:window."""
+        if _meaningful(self.window_name):
+            return self.window_name
+        if _meaningful(self.session):
+            return self.session
         if self.cwd:
             base = self.cwd.rstrip("/").rsplit("/", 1)[-1]
             if base:
@@ -59,6 +61,12 @@ class Pane:
 
 # tmux auto-assigns these as window names from the running command — not user intent.
 _GENERIC_NAMES = {"bash", "zsh", "sh", "fish", "node", "python", "python3", "tmux", "ssh"}
+
+
+def _meaningful(name: str) -> bool:
+    """True if a session/window name looks user-chosen (not a tmux default). Rejects
+    empties, generic command names, and pure numbers (tmux's default "0","1",…)."""
+    return bool(name) and name.lower() not in _GENERIC_NAMES and not name.isdigit()
 
 
 def _run(args: list[str]) -> str:

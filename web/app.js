@@ -89,10 +89,43 @@ function card(s) {
   el.appendChild(row);
 
   el.appendChild(metaRow(s));
+  if (s.rewind) el.appendChild(rewindView(s));
   if (s.question) el.appendChild(question(s));
   el.appendChild(inputRow(s));
   el.appendChild(timeline(s));
   return el;
+}
+
+// Render Claude Code's Esc-Esc Rewind picker as a scrollable history list. The ❯
+// entry is highlighted; ↑/↓ (the key buttons, which move the real terminal cursor)
+// scroll the selection and the card reflects it each poll; Enter restores. A tap on a
+// row is a convenience: send ↑ to reveal more when it's the top "N more above" marker.
+// Colorize a Rewind note's diff stats: "+58" green, "-3" red; other text dim.
+function diffStat(note) {
+  return esc(note).replace(/([+-]\d+)/g, (m) =>
+    `<span class="${m[0] === "+" ? "add" : "del"}">${m}</span>`
+  );
+}
+
+function rewindView(s) {
+  const box = document.createElement("div");
+  box.className = "rewind";
+  const rows = s.rewind.entries
+    .map(
+      (e) =>
+        `<div class="rw-entry${e.selected ? " sel" : ""}">` +
+        `<span class="rw-cursor">${e.selected ? "❯" : ""}</span>` +
+        `<span class="rw-text">${esc(e.text)}</span>` +
+        (e.note ? `<span class="rw-note">${diffStat(e.note)}</span>` : "") +
+        `</div>`
+    )
+    .join("");
+  box.innerHTML =
+    `<div class="rw-head">⟲ Rewind — restore to a previous point` +
+    (s.rewind.more_above ? ` <span class="rw-more">↑ ${s.rewind.more_above} more above</span>` : "") +
+    `</div>${rows}` +
+    `<div class="rw-hint">Use ↑ / ↓ to move, Enter to restore, Esc to cancel</div>`;
+  return box;
 }
 
 // Compact metadata row: model, context bar, cost, mode badge, agent count. Only

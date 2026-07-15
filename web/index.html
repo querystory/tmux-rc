@@ -77,6 +77,17 @@
   .freetext input { flex: 1; background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
   .freetext button.send { background: #388bfd; border: 0; color: #fff; border-radius: 10px; padding: 0 16px; font-weight: 600; }
   .freetext button.attach, .freetext button.paste { background: #21262d; border: 1px solid #30363d; color: #adbac7; border-radius: 10px; padding: 0 10px; font-size: 17px; cursor: pointer; }
+  .rewind { margin-top: 12px; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
+  .rw-head { padding: 8px 12px; font-weight: 600; font-size: 13px; background: #161b22; border-bottom: 1px solid #30363d; }
+  .rw-more { color: #6e7681; font-weight: 400; }
+  .rw-entry { display: flex; gap: 8px; align-items: baseline; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #21262d; }
+  .rw-entry.sel { background: #1f2b3d; }
+  .rw-cursor { width: 12px; color: #58a6ff; font-weight: 700; }
+  .rw-text { flex: 1; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rw-entry.sel .rw-text { color: #fff; font-weight: 600; }
+  .rw-note { color: #6e7681; font-size: 11px; white-space: nowrap; }
+  .rw-note .add { color: #3fb950; } .rw-note .del { color: #f85149; }
+  .rw-hint { padding: 8px 12px; font-size: 12px; color: #6e7681; }
   .raw { margin-top: 12px; }
   .raw .freetext { margin-bottom: 8px; }
   .keys { display: flex; gap: 6px; flex-wrap: wrap; }

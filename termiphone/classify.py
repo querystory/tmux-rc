@@ -133,6 +133,60 @@ def _has_frame(text: str) -> bool:
     return bool(re.search(r"[│╭╮╰╯─┌┐└┘|]", "\n".join(text.splitlines()[-8:])))
 
 
+# Claude Code's Esc-Esc Rewind picker. Header + "↑ N more above" scroll marker; each
+# entry is a message line optionally followed by a code-change note; the selected one
+# carries a ❯ cursor. Detected purely by heuristic (fixed format) so it never flickers.
+_REWIND_HEADER_RE = re.compile(r"Restore the code and/or conversation", re.IGNORECASE)
+_MORE_ABOVE_RE = re.compile(r"↑\s*(\d+)\s+more above", re.IGNORECASE)
+_MORE_BELOW_RE = re.compile(r"↓\s*(\d+)\s+more below", re.IGNORECASE)
+_REWIND_CURSOR_RE = re.compile(r"^\s*❯")
+# The sub-label under a Rewind entry. Claude renders one of:
+#   "No code changes" · "N files changed +A -B" · "path/file.ext +A -B" (single file)
+# Match any of these so the diff-stat line attaches to its entry, not a phantom row.
+_NOTE_RE = re.compile(
+    r"^\s*(No code changes"
+    r"|\d+\s+files?\s+changed.*"
+    r"|.*code change.*"
+    r"|\S+\s+[+-]\d+(\s+[+-]\d+)?)\s*$",  # "file.ext +5 -3" / "file +18"
+    re.IGNORECASE,
+)
+
+
+def _detect_rewind(text: str):
+    """Parse the Rewind picker into (entries, more_above), or None if not present."""
+    from .models import Rewind, RewindEntry
+
+    lines = text.splitlines()
+    hdr = next((i for i, ln in enumerate(lines) if _REWIND_HEADER_RE.search(ln)), None)
+    if hdr is None:
+        return None
+    body = lines[hdr + 1 :]
+    more_above = more_below = 0
+    entries: list[RewindEntry] = []
+    for ln in body:
+        s = ln.strip()
+        if not s:
+            continue
+        if m := _MORE_ABOVE_RE.search(s):
+            more_above = int(m.group(1))
+            continue
+        if m := _MORE_BELOW_RE.search(s):
+            more_below = int(m.group(1))
+            continue
+        if s.startswith(("Enter to", "Esc to")) or "─────" in ln:
+            continue  # footer / rules
+        selected = bool(_REWIND_CURSOR_RE.match(ln))
+        cleaned = re.sub(r"^\s*❯\s*", "", ln).strip()
+        # A note line ("No code changes"/"…code change…") attaches to the prior entry.
+        if entries and _NOTE_RE.match(cleaned) and not selected and not entries[-1].note:
+            entries[-1].note = cleaned
+            continue
+        entries.append(RewindEntry(text=cleaned, selected=selected))
+    if not entries:
+        return None
+    return Rewind(entries=entries, more_above=more_above, more_below=more_below)
+
+
 def classify(
     pane: Pane,
     text: str,
@@ -145,12 +199,18 @@ def classify(
     None, heuristics-only. `idle_seconds` is how long the text has been unchanged.
     `force_llm` asks for a proactive pass even when heuristics look fine (see below)."""
     tool = _detect_tool(pane, text)
-    question = _detect_question(text)
+    rewind = _detect_rewind(text)
+    question = None if rewind else _detect_question(text)
     context_pct = _detect_context_pct(text)
     status = _short_status(text)
     changed = text != prev_text
 
-    if question is not None:
+    # Rewind picker is a deterministic heuristic match ⇒ always "waiting", never runs
+    # the LLM (which is what made this screen flicker before).
+    if rewind is not None:
+        activity = "waiting"
+        status = "Rewind — restore to a previous point"
+    elif question is not None:
         activity = "waiting"
     elif not changed and _SHELL_PROMPT_RE.search(text):
         activity = "idle"
@@ -168,6 +228,7 @@ def classify(
         status_line=status,
         context_pct=context_pct,
         question=question,
+        rewind=rewind,
     )
 
     # Lazy LLM pass. Two triggers:
@@ -181,7 +242,9 @@ def classify(
         or (question is not None and not question.options)
         or (question is None and _has_frame(text))
     )
-    if llm_fn is not None and (force_llm or (changed and weak)):
+    # Never run the LLM on the Rewind picker — it's fully handled by heuristic and the
+    # LLM would just reintroduce nondeterminism (flicker) on a framed screen.
+    if rewind is None and llm_fn is not None and (force_llm or (changed and weak)):
         _apply_llm(state, text, llm_fn)
 
     return state
