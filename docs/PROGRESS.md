@@ -1,8 +1,8 @@
-# termiphone — Progress Log
+# tmux-rc — Progress Log
 
 Running log of what changed, newest first. Commit after meaningful changes.
 
-## 2026-07-14 (session: termiphone-dev)
+## 2026-07-14 (session: tmux-rc-dev)
 
 - Added Rewind history picker (Esc-Esc): scrollable entry list on the card, ❯-selected
   highlight, +N/-N diff-stat notes (green/red), ↑/↓ move cursor + Enter restores.
@@ -35,7 +35,7 @@ Running log of what changed, newest first. Commit after meaningful changes.
   been churning without capturing requirements or committing. Process fix: update both
   files and commit after each meaningful change from here on.
 - Set Gemini model to **gemini-3.1-flash-lite** (was 2.5-flash-lite — outdated).
-- Added LLM trace logging → `/tmp/termiphone-llm.log` (grep to debug misclassification).
+- Added LLM trace logging → `/tmp/tmux-rc-llm.log` (grep to debug misclassification).
 - `_detect_tool` now sniffs agent signatures (✳/context left/bypass/shift+tab) so a
   pane shelling out doesn't immediately read as a subprocess — stickiness in watcher
   still TODO. UNVERIFIED.

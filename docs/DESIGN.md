@@ -1,14 +1,14 @@
-# termiphone — Design
+# tmux-rc — Design
 
 This documents the *why* behind the architecture and the decisions that were weighed
-and rejected. For how the code is laid out, read the source under `termiphone/`.
+and rejected. For how the code is laid out, read the source under `tmux-rc/`.
 
 ## Guiding constraint: the terminal is the interface, not the agent
 
 Every design choice flows from one decision: **observe the terminal, not the agent.**
 We do not integrate with Claude Code's, Codex's, or Gemini CLI's internal protocols.
 We read the rendered text of a tmux pane and send keystrokes back. This is what makes
-termiphone vendor-agnostic — a raw `psql` prompt and a Claude Code permission dialog
+tmux-rc vendor-agnostic — a raw `psql` prompt and a Claude Code permission dialog
 are the same kind of thing to us: text on a screen, possibly waiting for input.
 
 The cost of this choice is that classification is inherently fuzzy — we're parsing
@@ -28,7 +28,7 @@ problems for free:
   the terminal ourselves — far more code and a source of bugs.
 - **Bidirectional multiplexing.** Multiple clients can attach to one tmux session
   simultaneously, and `send-keys` injects input from outside. So the user can stay
-  attached on their laptop while termiphone (and the phone) also watch and act on the
+  attached on their laptop while tmux-rc (and the phone) also watch and act on the
   same session — no client is exclusive. This is exactly the "both the app and a human
   connected at once" property we want, and tmux gives it natively.
 
@@ -87,7 +87,7 @@ Crucially we **reimplement** the ~30-line Vertex call rather than importing qs-a
 `backend.genai.llm`. That library is excellent but pulls in FastAPI/SQLAlchemy/WorkOS
 and a config-loading lifecycle we don't want in a standalone tool. Copying the small,
 stable slice (client construction, inline image parts, `response_mime_type=json`) keeps
-termiphone independent and lets the watcher be rewritten in another language later.
+tmux-rc independent and lets the watcher be rewritten in another language later.
 
 ## Why Python (rejected: Go, C)
 

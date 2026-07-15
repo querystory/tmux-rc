@@ -25,7 +25,7 @@ from .watcher import Watcher
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
-IMG_DIR = Path(tempfile.gettempdir()) / "termiphone-images"
+IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
 _EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
 
 
@@ -37,15 +37,15 @@ class SendBody(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    target = os.environ.get("TERMIPHONE_TARGET")
-    use_llm = os.environ.get("TERMIPHONE_NO_LLM") != "1"
+    target = os.environ.get("TMUXRC_TARGET")
+    use_llm = os.environ.get("TMUXRC_NO_LLM") != "1"
     app.state.watcher = Watcher(target=target, use_llm=use_llm)
     app.state.watcher.start()
     yield
     await app.state.watcher.stop()
 
 
-app = FastAPI(title="termiphone", lifespan=lifespan)
+app = FastAPI(title="tmux-rc", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -160,14 +160,14 @@ def main() -> None:
 
     # Reload watches the package source and restarts the process on edits (resetting
     # the watcher's in-memory cache — safe, tmux is the source of truth and state
-    # rebuilds within a couple ticks). ON by default; set TERMIPHONE_RELOAD=0 to disable.
-    reload = os.environ.get("TERMIPHONE_RELOAD", "1") != "0"
+    # rebuilds within a couple ticks). ON by default; set TMUXRC_RELOAD=0 to disable.
+    reload = os.environ.get("TMUXRC_RELOAD", "1") != "0"
     uvicorn.run(
-        "termiphone.server:app" if reload else app,
-        host=os.environ.get("TERMIPHONE_HOST", "0.0.0.0"),
-        port=int(os.environ.get("TERMIPHONE_PORT", "8080")),
+        "daemon.server:app" if reload else app,
+        host=os.environ.get("TMUXRC_HOST", "0.0.0.0"),
+        port=int(os.environ.get("TMUXRC_PORT", "8080")),
         reload=reload,
-        reload_dirs=["termiphone"] if reload else None,
+        reload_dirs=["daemon"] if reload else None,
     )
 
 

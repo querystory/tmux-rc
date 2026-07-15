@@ -5,7 +5,7 @@ features and the storage decision underneath them.
 
 ## The problem
 
-termiphone's card is a *point-in-time summary* — it abstracts the terminal into
+tmux-rc's card is a *point-in-time summary* — it abstracts the terminal into
 glanceable structured fields (headline, tasks, notable, question, rewind). That is
 the right default. But two needs recur that the summary card cannot serve:
 
@@ -32,13 +32,13 @@ edits, or reads a file**, the pane shows a truncated preview ("Wrote 89 lines to
 +80 lines") — the actual content never fully scrolls by. So the card can say a doc was
 *written* but not what it *says*. Two philosophies for solving it, an open question:
 
-- **Reach into the filesystem.** termiphone runs on the same machine; on detecting
+- **Reach into the filesystem.** tmux-rc runs on the same machine; on detecting
   "wrote/edited/read file X" it could read X from disk and summarize/show it ("created
   a doc covering X, Y, Z, concluding W"). Richer, but breaks the clean "observe the
   terminal" abstraction — now it reaches outside the pane, must identify the file, track
   edits, handle the file changing under it, and it's no longer purely vendor-agnostic.
 - **Stay a terminal observer.** To see the file you do what a real user does — open it
-  in another pane (`less`/`cat`/editor) and page through; termiphone sees those panes
+  in another pane (`less`/`cat`/editor) and page through; tmux-rc sees those panes
   and summarizes. Pure abstraction, no FS coupling, but more steps and the summary is
   only as good as what scrolled past. Note this "open X and page through it" is itself
   an **intent the control plane could automate** (open the pager, page to the end,

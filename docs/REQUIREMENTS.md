@@ -1,16 +1,16 @@
-# termiphone — Requirements
+# tmux-rc — Requirements
 
 Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]` partial/unverified.
 
 ## Dev experience
 - [x] `make dev` runs uvicorn with auto-reload (reload ON by default). Verified: edits take effect ~1s.
 - [x] Makefile with dev/run/test/fmt.
-- [x] LLM trace log to grep (`/tmp/termiphone-llm.log`, override `TERMIPHONE_LLM_LOG`).
+- [x] LLM trace log to grep (`/tmp/tmux-rc-llm.log`, override `TMUXRC_LLM_LOG`).
 - [ ] **Keep this REQUIREMENTS.md and PROGRESS.md current, and COMMIT to git as we go.** (Was dropped — user had to ask 3×.)
 
 ## Model / LLM
-- [x] Use current Gemini flash-lite: **gemini-3.1-flash-lite** (was wrongly on 2.5-flash-lite). Override `TERMIPHONE_GEMINI_MODEL`.
-- [ ] status_line must SUMMARIZE THE TASK ("Building termiphone remote control…"), optionally a subtask — not just echo the working verb.
+- [x] Use current Gemini flash-lite: **gemini-3.1-flash-lite** (was wrongly on 2.5-flash-lite). Override `TMUXRC_GEMINI_MODEL`.
+- [ ] status_line must SUMMARIZE THE TASK ("Building tmux-rc remote control…"), optionally a subtask — not just echo the working verb.
 - [ ] Shell panes: describe running command / finished / exit status, not just Claude Code.
 
 ## Classification correctness
@@ -27,7 +27,7 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
       "N files changed +X -Y" diff-stat lines render as separate entries instead of
       attaching to their entry as a red/green colored sub-label. Fix the note parser.
 - [x] **Label uses the agent's session name** (c758f73). Parser reads the title
-      Claude Code prints (e.g. "termiphone-dev") and it wins over tmux/cwd label.
+      Claude Code prints (e.g. "tmux-rc-dev") and it wins over tmux/cwd label.
       Verified live.
 - [ ] **Reconsider ↑/↓ buttons** — only clearly useful for navigating pickers like
       Rewind; keep them for that. Shell history recall from a phone is marginal.
@@ -53,7 +53,7 @@ The classifier has drifted into a pile of brittle regexes that hard-code the EXA
 text of Claude Code's UI (Rewind header, ❯ cursor, "No code changes", "N files
 changed", status-line fields, spinner glyphs). This DEFEATS THE POINT of using an LLM:
 it breaks the instant Anthropic changes a label, the user edits their status line, or
-termiphone points at Codex/Gemini (which render completely differently).
+tmux-rc points at Codex/Gemini (which render completely differently).
 
 **Correct architecture (to refactor toward): the LLM is the parser.** Feed the pane
 text (and later the screenshot) to Flash Lite and get back structured JSON for whatever

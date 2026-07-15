@@ -46,7 +46,7 @@ class Pane:
         """Human label, best identity first. A window the user named (e.g. "Resolve PR
         38") wins. Otherwise tmux auto-named the window after its command (bash/node),
         which is noise — prefer the SESSION name the user deliberately set (e.g.
-        "termiphone-dev", shown in the tmux status bar), then the cwd basename, then
+        "tmux-rc-dev", shown in the tmux status bar), then the cwd basename, then
         session:window."""
         if _meaningful(self.window_name):
             return self.window_name

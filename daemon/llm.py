@@ -1,7 +1,7 @@
 """Minimal Gemini-Flash-Lite-via-Vertex client for the lazy classification pass.
 
 This is a deliberate ~1-screen reimplementation of the small slice of qs-app's
-`backend.genai.llm` we need, so termiphone stays standalone (no FastAPI/SQLAlchemy/
+`backend.genai.llm` we need, so tmux-rc stays standalone (no FastAPI/SQLAlchemy/
 WorkOS pull-in). Credentials come from Google ADC; only GOOGLE_CLOUD_PROJECT and an
 optional region are read from the environment.
 """
@@ -17,19 +17,19 @@ from functools import cache
 logger = logging.getLogger(__name__)
 
 # Gemini 3.1 Flash Lite — cheap/fast, strong at reading terminal text & screenshots.
-# Override with TERMIPHONE_GEMINI_MODEL if a newer flash-lite ships.
-_MODEL = os.environ.get("TERMIPHONE_GEMINI_MODEL", "gemini-3.1-flash-lite")
+# Override with TMUXRC_GEMINI_MODEL if a newer flash-lite ships.
+_MODEL = os.environ.get("TMUXRC_GEMINI_MODEL", "gemini-3.1-flash-lite")
 # Flash-Lite pricing (USD per 1M tokens); override if it changes.
-_IN_PER_M = float(os.environ.get("TERMIPHONE_IN_PER_M", "0.10"))
-_OUT_PER_M = float(os.environ.get("TERMIPHONE_OUT_PER_M", "0.40"))
+_IN_PER_M = float(os.environ.get("TMUXRC_IN_PER_M", "0.10"))
+_OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "0.40"))
 
 # Durable per-call metrics log (JSONL): one line per LLM call with tokens/cost/latency,
 # so "add it all up / averages" is a real query (and the seed for QueryStory
 # introspection). We had this data in every response's usage_metadata and were throwing
 # it away — now it's recorded. Live totals also kept in-memory (see usage_totals()).
-_metrics = logging.getLogger("termiphone.llm.metrics")
+_metrics = logging.getLogger("daemon.llm.metrics")
 if not _metrics.handlers:
-    _mpath = os.environ.get("TERMIPHONE_METRICS_LOG", "/tmp/termiphone-metrics.jsonl")
+    _mpath = os.environ.get("TMUXRC_METRICS_LOG", "/tmp/tmux-rc-metrics.jsonl")
     _mh = logging.FileHandler(_mpath)
     _mh.setFormatter(logging.Formatter("%(message)s"))
     _metrics.addHandler(_mh)
@@ -47,10 +47,10 @@ def usage_totals() -> dict:
     return {**_totals, "rate_per_min": round(_totals["calls"] / mins, 1)}
 
 # Dedicated LLM trace log so we can grep exactly what the model saw and returned.
-# Path override via TERMIPHONE_LLM_LOG; default alongside the repo. tail -f to watch.
-_trace = logging.getLogger("termiphone.llm.trace")
+# Path override via TMUXRC_LLM_LOG; default alongside the repo. tail -f to watch.
+_trace = logging.getLogger("daemon.llm.trace")
 if not _trace.handlers:
-    _path = os.environ.get("TERMIPHONE_LLM_LOG", "/tmp/termiphone-llm.log")
+    _path = os.environ.get("TMUXRC_LLM_LOG", "/tmp/tmux-rc-llm.log")
     _h = logging.FileHandler(_path)
     _h.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     _trace.addHandler(_h)
@@ -90,7 +90,7 @@ def classify_text(system: str, text: str, image_png: bytes | None = None) -> dic
             ),
         )
         result = json.loads(resp.text)
-        # Trace the tail we sent and what came back — grep /tmp/termiphone-llm.log.
+        # Trace the tail we sent and what came back — grep /tmp/tmux-rc-llm.log.
         _trace.info("IN%s: %r", "+img" if image_png else "", text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
         _record(resp)  # tokens/cost/latency → metrics jsonl + running totals

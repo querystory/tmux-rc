@@ -81,7 +81,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
               "what is being worked on (prefer the task over echoing a spinner word)",
   "model": "...", "context_pct": <int>, "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
   "session": "the agent's session name/title if it shows one (Claude Code prints it at "
-             "the far right of the line just above its status bar, e.g. 'termiphone-dev') — "
+             "the far right of the line just above its status bar, e.g. 'tmux-rc-dev') — "
              "use it as the pane's name; omit if none is shown",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
   "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
@@ -187,7 +187,7 @@ def classify(
         result["activity"] = "waiting"
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
-    # "termiphone-dev") over the tmux-derived label — it's what the user recognizes.
+    # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.
     sess = result.get("session")
     result["label"] = str(sess)[:40] if isinstance(sess, str) and sess.strip() else pane.label
     return result

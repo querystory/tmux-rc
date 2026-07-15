@@ -1,4 +1,4 @@
-# termiphone — Product Requirements
+# tmux-rc — Product Requirements
 
 ## Problem
 

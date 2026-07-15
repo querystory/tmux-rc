@@ -1,6 +1,6 @@
 {
-  "name": "termiphone",
-  "short_name": "termiphone",
+  "name": "tmux-rc",
+  "short_name": "tmux-rc",
   "description": "Phone control plane for terminal AI agents",
   "start_url": "/",
   "display": "standalone",

@@ -4,11 +4,11 @@ Status: **draft / thinking** — no code yet.
 
 ## What this is (and isn't)
 
-termiphone should show **work done**, structured as a tree — not "Claude usage
+tmux-rc should show **work done**, structured as a tree — not "Claude usage
 stats". The unit is a *chunk of work*, and chunks nest and link:
 
 ```
-termiphone build
+tmux-rc build
 ├─ phase 1: initial prototype        (28m · $2.10 · +1.2k LOC)
 │  ├─ scaffold repo + PRD/design      (6m · +300)
 │  ├─ tmux wrappers + classifier      (14m · +600)

@@ -17,9 +17,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from termiphone import tmux
-from termiphone.llm import _MODEL, _client
-from termiphone.render import render_png
+from daemon import tmux
+from daemon.llm import _MODEL, _client
+from daemon.render import render_png
 
 SAMPLES = Path(__file__).parent / "samples"
 

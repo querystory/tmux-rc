@@ -1,21 +1,21 @@
-# termiphone — Progress Log
+# tmux-rc — Progress Log
 
 Running log of what happened, newest at top. Paired with `REQUIREMENTS.md` (what to
 build) — this is the "what I did / what broke" narrative. Committed as we go.
 
-## 2026-07-14 (dogfooding session — building termiphone from inside termiphone)
+## 2026-07-14 (dogfooding session — building tmux-rc from inside tmux-rc)
 
 - **Docs discipline restored.** User (rightly) called out that I was churning on code
   without keeping `REQUIREMENTS.md` + this log current and without committing. Fixing
   now: write docs → commit → then fix bugs, committing each fix.
 - **Model: switched Gemini 2.5 Flash Lite → 3.1 Flash Lite** (`gemini-3.1-flash-lite`,
-  env override `TERMIPHONE_GEMINI_MODEL`). 2.5 was stale; I'd blindly copied it from
+  env override `TMUXRC_GEMINI_MODEL`). 2.5 was stale; I'd blindly copied it from
   qs-app config.
 - **LLM trace logging added.** Every classify call appends IN (tail sent) + OUT
-  (parsed JSON) to `/tmp/termiphone-llm.log` (override `TERMIPHONE_LLM_LOG`). Grep it
+  (parsed JSON) to `/tmp/tmux-rc-llm.log` (override `TMUXRC_LLM_LOG`). Grep it
   to see what the model actually saw/returned.
 - **Auto-reload fixed & confirmed.** `make dev` runs uvicorn with reload ON by default
-  (`TERMIPHONE_RELOAD=0` to disable). Verified: editing a source file logs
+  (`TMUXRC_RELOAD=0` to disable). Verified: editing a source file logs
   "StatReload detected changes… Reloading" and spawns a fresh worker. Earlier confusion
   was because the running instance had been started by hand without reload.
 - **Conservative question detection (heuristic).** A scrolling transcript with prose
@@ -51,7 +51,7 @@ build) — this is the "what I did / what broke" narrative. Committed as we go.
    https://claude.ai/favicon.ico as the real asset — should just use that.
 3. **LLM invents questions** from transcript lists/bullets → false "waiting".
 4. **status_line echoes the verb, not the task.** Should summarize WHAT is being
-   worked on ("Building termiphone…"), not just "running Orbiting…".
+   worked on ("Building tmux-rc…"), not just "running Orbiting…".
 
 ### Prior (overnight / M1)
 

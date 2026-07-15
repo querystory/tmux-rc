@@ -1,8 +1,8 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
-from termiphone.classify import classify
-from termiphone.tmux import Pane
+from daemon.classify import classify
+from daemon.tmux import Pane
 
 
 def _pane(cmd="bash"):

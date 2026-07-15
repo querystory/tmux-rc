@@ -672,7 +672,7 @@ wheels = [
 ]
 
 [[package]]
-name = "termiphone"
+name = "tmux-rc"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

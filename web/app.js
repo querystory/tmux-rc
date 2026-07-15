@@ -1,4 +1,4 @@
-// termiphone PWA. Polls /api/state, renders one card per pane, floats waiting
+// tmux-rc PWA. Polls /api/state, renders one card per pane, floats waiting
 // panes to the top, and posts answers back. No framework, no build step.
 
 // Real Claude app icon (downloaded from claude.ai) — no hand-drawn SVG.
