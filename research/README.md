@@ -23,6 +23,26 @@ Working Claude Code pane (`samples/working`):
 - All three parsed the working screen correctly, incl. a real task headline
   ("Fixing argument parsing bug in probe.py") — not just the spinner word.
 - Text and image are ~equal in cost/latency; text+image is redundant here.
-- STILL TO TEST — the discriminating cases where text loses info: a menu/Rewind
-  picker where selection is shown by highlight/color, and red error output. That's
-  where image should beat text.
+Rewind picker (`samples/rewind`) — the supposed image-wins case:
+
+| mode | in tok | out tok | latency | $/1k calls |
+|------|-------:|--------:|--------:|-----------:|
+| text | 591 | 282 | 1.6s | 0.172 |
+| image | 1120 | 257 | 3.1s | 0.215 |
+| text+image | 1711 | 278 | 2.3s | 0.282 |
+
+- ALL THREE parsed the picker correctly: 3 entries, notes, the selected entry,
+  more_above=40 / more_below=15. Image did NOT win — because Claude Code marks
+  selection with a ❯ CHARACTER (survives in text), not pure color/highlight.
+- Text was faster (1.6s vs image 3.1s), cheaper, and captured the selected entry's
+  full text where image truncated slightly.
+
+## Emerging conclusion
+Across working + rewind, TEXT wins: equal-or-better accuracy, cheaper, faster. Image's
+theoretical edge (color/highlight) hasn't materialized because Claude Code encodes
+state in CHARACTERS (❯, box art, labels), not pure color. Text+image is never worth
+the extra cost so far.
+
+STILL TO TEST — the only cases where image should truly win: selection shown ONLY by
+background highlight (no cursor char), and red=error where color is the whole signal.
+If text handles those too, ship text-only and drop the renderer from the hot path.
