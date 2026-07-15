@@ -480,12 +480,42 @@ async function openScreen(paneId, label) {
   ov.className = "screen-overlay";
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><button class="screen-close">✕</button></div>` +
-    `<pre class="screen-body"></pre>`;
-  ov.querySelector(".screen-body").textContent = text;  // textContent = safe, no esc needed
+    `<div class="screen-body"><pre class="screen-pre"></pre></div>`;
+  ov.querySelector(".screen-pre").textContent = text;  // textContent = safe, no esc needed
   const close = () => ov.remove();
   ov.querySelector(".screen-close").onclick = close;
-  ov.onclick = (e) => { if (e.target === ov) close(); };
   document.body.appendChild(ov);
+  pinchZoom(ov.querySelector(".screen-body"), ov.querySelector(".screen-pre"));
+}
+
+// Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the
+// page). One-finger drag pans; two-finger pinch zooms around the gesture midpoint.
+function pinchZoom(container, el) {
+  let scale = 1, tx = 0, ty = 0;
+  let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
+  const apply = () => { el.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+  el.style.transformOrigin = "0 0";
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+  container.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: scale, tx, ty, cx: m.x, cy: m.y }; }
+    else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - tx, y: e.touches[0].clientY - ty };
+  }, { passive: false });
+  container.addEventListener("touchmove", (e) => {
+    if (!start) return;
+    e.preventDefault();
+    if (start.pan && e.touches.length === 1) {
+      tx = e.touches[0].clientX - start.x; ty = e.touches[0].clientY - start.y;
+    } else if (e.touches.length === 2) {
+      const f = dist(e.touches) / start.dist;
+      scale = Math.min(6, Math.max(0.4, start.s * f));
+      // keep the pinch midpoint stationary
+      tx = start.cx - (start.cx - start.tx) * (scale / start.s);
+      ty = start.cy - (start.cy - start.ty) * (scale / start.s);
+    }
+    apply();
+  }, { passive: false });
+  container.addEventListener("touchend", (e) => { if (e.touches.length === 0) start = null; });
 }
 
 function esc(s) {
