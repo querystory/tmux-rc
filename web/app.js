@@ -112,8 +112,10 @@ function filesView(files) {
     .map((f) => {
       const add = f.added ? `<span class="add">+${f.added}</span>` : "";
       const del = f.removed ? `<span class="del">-${f.removed}</span>` : "";
-      return `<div class="file"><span class="fpath">${esc(f.path || "")}</span>` +
-             `<span class="fstat">${add} ${del}</span></div>`;
+      // Stat to the LEFT of the filename (git-style), tight together — not pushed
+      // to the far right where it reads disjoint from the file it belongs to.
+      return `<div class="file"><span class="fstat">${add}${del}</span>` +
+             `<span class="fpath">${esc(f.path || "")}</span></div>`;
     })
     .join("");
   return box;
