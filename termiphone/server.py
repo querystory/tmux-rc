@@ -48,6 +48,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="termiphone", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def no_cache(request, call_next):
+    """Never let the browser cache anything. StaticFiles sends an ETag but no
+    Cache-Control, so phones serve stale JS/HTML heuristically and edits never appear.
+    Force no-store on every response — fine for a live dev tool on the LAN."""
+    resp = await call_next(request)
+    resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    for h in ("etag", "last-modified"):
+        if h in resp.headers:
+            del resp.headers[h]
+    return resp
+
+
 @app.get("/api/version")
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
