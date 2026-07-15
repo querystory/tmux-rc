@@ -80,14 +80,25 @@
   .ctx { height: 4px; border-radius: 4px; background: #21262d; margin-top: 8px; overflow: hidden; }
   .ctx > i { display: block; height: 100%; background: #388bfd; }
   .q { margin-top: 12px; }
-  .q .prompt { font-weight: 600; margin-bottom: 8px; }
-  .opts { display: flex; flex-direction: column; gap: 8px; }
+  /* Prompt is the prominent part (the context); options are secondary and compact so
+     a long option list doesn't eat the whole card. */
+  .q .prompt { font-weight: 600; font-size: 15px; margin-bottom: 8px; color: #e6edf3; }
+  .opts { display: flex; flex-direction: column; gap: 5px; max-height: 40vh; overflow-y: auto; }
   button.opt {
     appearance: none; text-align: left; width: 100%;
-    background: #21262d; color: #e6edf3; border: 1px solid #30363d;
-    border-radius: 10px; padding: 12px 14px; font-size: 15px; cursor: pointer;
+    background: #21262d; color: #adbac7; border: 1px solid #30363d;
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer;
   }
   button.opt:active { background: #30363d; }
+  /* Structured tables: scroll horizontally AND vertically, capped so a big one doesn't
+     dominate the card. */
+  .tablewrap { margin-top: 12px; }
+  .tbl-title { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+  .tbl-scroll { max-height: 40vh; overflow: auto; border: 1px solid #30363d; border-radius: 8px; }
+  .tbl-scroll table { border-collapse: collapse; font: 12px/1.3 ui-monospace, monospace; min-width: 100%; }
+  .tbl-scroll th, .tbl-scroll td { padding: 5px 10px; border-bottom: 1px solid #21262d; border-right: 1px solid #21262d; white-space: nowrap; text-align: left; }
+  .tbl-scroll th { background: #161b22; color: #c9d1d9; position: sticky; top: 0; }
+  .tbl-scroll td { color: #adbac7; }
   .freetext { display: flex; gap: 8px; }
   .freetext input { flex: 1; background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
   .freetext button.send { background: #388bfd; border: 0; color: #fff; border-radius: 10px; padding: 0 16px; font-weight: 600; }
@@ -163,7 +174,9 @@
     <div class="freetext">
       <div class="inputwrap">
         <button id="bar-attach" class="attach" title="Attach image">📎</button>
-        <input id="bar-input" placeholder="Type…" />
+        <input id="bar-input" placeholder="Type…" type="text" inputmode="text"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+               enterkeyhint="send" name="termiphone-cmd" />
       </div>
       <button id="bar-send" class="send">Send</button>
       <input id="bar-file" type="file" accept="image/*" hidden />

@@ -84,6 +84,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
              "the far right of the line just above its status bar, e.g. 'termiphone-dev') — "
              "use it as the pane's name; omit if none is shown",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
+  "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
@@ -105,6 +106,16 @@ edit is just an event whose metadata is a file diff — do NOT emit a bare "adde
 to X"; make text say what changed and put the numbers in "file". Do NOT put things that
 have their own dedicated field (mode, model, cost, context %, tool, tasks, question,
 rewind) into events.
+"tables": extract any tabular data visible on screen (ASCII/box-drawn tables, aligned
+columns) as structured {headers, rows} so the UI can render a real scrollable table —
+do NOT flatten a table into prose or events. Include the caption in "title" if there is
+one. Omit if no table is shown.
+
+"question.prompt" must carry ENOUGH CONTEXT to stand alone on a phone — don't just echo
+a terse line like "Want me to tackle any of these?". Include what "these" refers to
+(e.g. "Which doc-update task should I start? (from the audit above)"). If the question
+is about a table/list shown on screen, put that table in "tables" so it renders as
+context above the options.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown; "tasks" only when a checklist is visible.
 

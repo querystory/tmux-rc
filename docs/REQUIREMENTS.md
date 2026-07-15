@@ -13,9 +13,9 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
 - [ ] status_line must SUMMARIZE THE TASK ("Building termiphone remote control…"), optionally a subtask — not just echo the working verb.
 - [ ] Shell panes: describe running command / finished / exit status, not just Claude Code.
 
-## Classification correctness (TOP PRIORITY — actively broken)
-- [ ] **Tool oscillates claude→shell** when Claude shells out (foreground becomes bash/git). Must be STICKY: once a pane is a known agent, keep it. Sticky state lives in the watcher; `_detect_tool` now sniffs agent signatures (✳/context left/bypass) but stickiness not yet wired in the watcher. UNVERIFIED.
-- [ ] **False-positive questions**: transcript prose ending in "?" or with 1./2. bullets read as a live prompt, by heuristic AND LLM. Only real affordances (boxed prompt, ❯ on options, input line) = waiting. Heuristic tightened; LLM prompt NOT yet. UNVERIFIED.
+## Classification correctness
+- [x] **Tool oscillates claude→shell** — FIXED (c758f73). Prompt now decides tool from the whole picture; stickiness is time-bounded (bridge shell→agent only if agent seen <8s ago). Verified live: Claude pane stays "claude" while shelling out.
+- [~] **False-positive questions**: heuristic tightened; LLM prompt improved (only real affordances = waiting). Better but not fully verified — architecture reckoning will subsume this.
 
 ## UI / presentation
 - [ ] **Surface the agent's task/TODO list** on the card. Claude Code shows "N tasks
@@ -26,9 +26,9 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
       Enter restores; visible + scroll to load more. WORKING on phone. TODO: the
       "N files changed +X -Y" diff-stat lines render as separate entries instead of
       attaching to their entry as a red/green colored sub-label. Fix the note parser.
-- [ ] **Label should use the tmux SESSION name** (e.g. "termiphone-dev", shown in the
-      tmux status bar) — currently falls back to cwd basename ("qs-app") for a
-      generic-named window, ignoring the session name the user deliberately set.
+- [x] **Label uses the agent's session name** (c758f73). Parser reads the title
+      Claude Code prints (e.g. "termiphone-dev") and it wins over tmux/cwd label.
+      Verified live.
 - [ ] **Reconsider ↑/↓ buttons** — only clearly useful for navigating pickers like
       Rewind; keep them for that. Shell history recall from a phone is marginal.
 - [x] Claude logo — use the real claude.ai icon (web/claude.png). Confirmed by user.
@@ -43,12 +43,10 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
       typing a path does NOT work. Verified E2E on the host (pasted the real image).
       HOST DEP: needs `wl-clipboard` on Wayland (sudo apt install wl-clipboard).
 - [x] Special-key buttons: Enter/Esc/↑/↓/Ctrl-O/Ctrl-B/Ctrl-C.
-- [ ] **Turn-timeline view** — a history of the agent's long turns, e.g.
-      "✻ Churned for 12m13s", "✳ Cultivated for 8m02s" — one entry per turn with its
-      verb, duration, and (if available) tokens. Distinct from the snapshot strip: this
-      is a durable log of completed turns, so you can scroll back and see "it spent 12m
-      on X, then 8m on Y." Requires detecting turn boundaries (working-line appears →
-      disappears) in the watcher and recording {verb, start, end, tokens}.
+- [x] **Persistent bottom input bar** (76a22ee). Single bar with special keys + text
+      input + attach. Tap a card to target it (input goes to that pane). Tapping also
+      focuses the pane in tmux (d61d4eb).
+- [ ] **Turn-timeline view** — see Activity narrative section below.
 
 ## ⚠️ ARCHITECTURE — READ BEFORE ADDING FEATURES
 The classifier has drifted into a pile of brittle regexes that hard-code the EXACT
@@ -65,22 +63,23 @@ hot loop (change detection / obvious idle), NEVER the source of truth for parsin
 UI. Before adding any more UI-specific detection: move parsing into the LLM schema.
 PAUSED here (2026-07-14) to redesign around this before writing more scrapers.
 
-## Activity narrative (HIGH VALUE — next big feature)
-- [ ] **Aggregated "what's been going on" narrative.** Today the card shows only the
-      CURRENT frame. For a long-running agent you can't tell what it's been doing
-      without reading scrollback (which the user does a lot in real sessions). Build a
-      running, append-only, time-stamped activity log summarized by Flash Lite: as the
-      pane scrolls, periodically summarize the new scrollback into short entries with
-      time tickers — e.g. "12m ago: churned on Rewind parsing · 5m ago: ran tests (8
-      passed) · 2m ago: editing classify.py". Show recent large tasks. This is the
-      feature that turns termiphone from "current state" into "session story".
-      Design notes: dedup against already-summarized text (fingerprint); append not
-      replace; bound the log; one Flash Lite call per meaningful scroll delta, not per
-      tick.
+## Activity narrative
+- [x] **Accumulated activity log** (e7edfdd). Events accumulate client-side per-pane
+      into a scrollable region (max 40vh, sticks to newest, scroll-back preserved).
+      Model-side dedup: watcher feeds prior events back to parser so it only emits
+      genuinely new ones. Verified live: distinct entries, no spam.
+- [x] **Idle burst summary** (c758f73). After 60s idle with accumulated events, one
+      LLM call summarizes the recent burst into a {from, to, text, count} span. UI
+      collapses oldest events under an expandable summary line.
+- [ ] **Turn-timeline view** — durable log of completed turns (verb, duration, tokens).
+      Requires detecting turn boundaries in the watcher. (Moved from UI section.)
 
 ## Milestone 2 — all panes
-- [~] Label = window NAME (done in tmux.py); fan-out still single-pane.
-- [ ] Fan out to ALL tmux windows/panes (user has ~11). API/state already list-shaped → watcher change only.
+- [x] Label = window NAME (done in tmux.py).
+- [x] **Fan out to ALL panes** (bd56a84). Watcher loops over `tmux.list_panes()`,
+      per-tick work extracted into `_tick_pane`. Cards sorted waiting > running > idle.
+      Per-pane state independent (fingerprint, parse cadence, events, sticky tool).
+      GC drops state for closed panes. Verified live with multiple panes.
 
 ## Non-goals for PoC
 - Push notifications; auth (LAN/tunnel only, do NOT expose); PNG snapshots; tmux control-mode.

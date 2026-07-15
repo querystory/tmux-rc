@@ -145,6 +145,8 @@ function card(s) {
 
   el.appendChild(metaRow(s));
   if (s.rewind) el.appendChild(rewindView(s));
+  // Tables render BEFORE the question so they act as context above the options.
+  if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
   if (s.question) el.appendChild(question(s));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
   const log = eventLog[s.pane_id] || [];
@@ -153,6 +155,21 @@ function card(s) {
   // handles text/keys/images for whichever card is active (see the #bar element).
   el.appendChild(timeline(s));
   return el;
+}
+
+// Render structured table data as a real HTML table in a box that scrolls both ways
+// (horizontal for wide tables, vertical for tall ones) — from the parser's `tables`.
+function tableView(t) {
+  const box = document.createElement("div");
+  box.className = "tablewrap";
+  const head = (t.headers || []).map((h) => `<th>${esc(h)}</th>`).join("");
+  const body = (t.rows || [])
+    .map((r) => `<tr>${(r || []).map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`)
+    .join("");
+  box.innerHTML =
+    (t.title ? `<div class="tbl-title">${esc(t.title)}</div>` : "") +
+    `<div class="tbl-scroll"><table>${head ? `<thead><tr>${head}</tr></thead>` : ""}<tbody>${body}</tbody></table></div>`;
+  return box;
 }
 
 // The activity feed: "what the thing did". Each event's `text` is the primary line;
@@ -494,3 +511,19 @@ setInterval(async () => {
     else if (version !== _ver) location.reload();
   } catch {}
 }, 5000);
+
+// Keyboard fit: CSS 100dvh doesn't reliably shrink for the on-screen keyboard (or its
+// autofill strip) on mobile Chrome, so the bottom bar gets covered. Pin the body height
+// to the VISUAL viewport (the area actually visible above the keyboard) and keep the
+// active input scrolled into view. This makes the whole bar sit above the keyboard.
+if (window.visualViewport) {
+  const fit = () => {
+    document.body.style.height = window.visualViewport.height + "px";
+    if (document.activeElement === bar.input)
+      bar.input.scrollIntoView({ block: "nearest" });
+  };
+  window.visualViewport.addEventListener("resize", fit);
+  window.visualViewport.addEventListener("scroll", fit);
+  bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
+  fit();
+}
