@@ -113,6 +113,28 @@ def classify_text(system: str, text: str, image_png: bytes | None = None) -> dic
         return None
 
 
+def summarize_events(event_texts: list[str]) -> str | None:
+    """One-line summary of a burst of activity events (for the idle collapse). Returns
+    plain text, or None on failure. Cheap: no schema, tiny output."""
+    if not event_texts:
+        return None
+    try:
+        from google.genai import types
+
+        joined = "\n".join(f"- {t}" for t in event_texts[-60:])
+        resp = _client().models.generate_content(
+            model=_MODEL,
+            contents=[f"Summarize this burst of terminal activity in ONE short sentence "
+                      f"(what was accomplished, past tense):\n{joined}"],
+            config=types.GenerateContentConfig(temperature=0.0),
+        )
+        _record(resp)
+        return (resp.text or "").strip()[:200] or None
+    except Exception:  # noqa: BLE001
+        _totals["errors"] += 1
+        return None
+
+
 def _record(resp) -> None:
     """Pull tokens from the response, estimate cost, update running totals, and append a
     metrics line. Best-effort — metering must never break a parse."""

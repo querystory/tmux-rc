@@ -63,10 +63,14 @@ function showUsage(u, err) {
   if (!u) { usageEl.textContent = ""; return; }
   // Rate is a plain session average (calls/uptime) computed server-side — stable.
   const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
+  const total = u.calls + u.errors;
+  // Show SUCCEEDED/total (e.g. 648/657) — reads as "almost all fine", not the
+  // alarming failed/total. Only tint red when there actually are failures.
+  const okColor = u.errors ? ' class="warn"' : "";
   const parts = [
     `${tok}k tok`,
     `$${u.cost.toFixed(3)}`,
-    `<span class="${u.errors ? "err" : ""}">${u.errors}/${u.calls + u.errors}</span>`,
+    `<span${okColor}>${u.calls}/${total} ok</span>`,
     `${u.rate_per_min}/min`,
   ];
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
@@ -117,21 +121,20 @@ function card(s) {
       : s.activity === "running"
         ? '<span class="pulse"></span>working'
         : s.activity;
-  // Header: icon, name + headline (the task summary), activity badge. The working
-  // detail (verb·elapsed·↓tokens) is a subline. Fields come straight from the parser
-  // JSON (headline, nested working.*), so the UI renders whatever the model provides.
+  // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
+  // save vertical space), headline below, activity badge. Fields come straight from
+  // the parser JSON, so the UI renders whatever the model provides.
   const w = s.working || {};
   const working =
-    s.activity === "running" && (w.elapsed || w.tokens)
-      ? `<div class="sub">${[w.verb, w.elapsed, w.tokens && "↓" + w.tokens]
-          .filter(Boolean).map(esc).join(" · ")}</div>`
+    s.activity === "running" && (w.verb || w.elapsed || w.tokens)
+      ? `<span class="worksub">${[w.verb, w.elapsed, w.tokens && "↓" + w.tokens]
+          .filter(Boolean).map(esc).join(" ")}</span>`
       : "";
   row.innerHTML = `
     <span class="icon">${iconFor(s.tool)}</span>
     <div class="meta">
-      <div class="name">${esc(s.label || "")}</div>
+      <div class="name">${esc(s.label || "")} ${working}</div>
       <div class="status">${esc(s.headline || "—")}</div>
-      ${working}
     </div>
     <span class="badge b-${s.activity}">${badge}</span>`;
   el.appendChild(row);
@@ -141,7 +144,7 @@ function card(s) {
   if (s.question) el.appendChild(question(s));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
   const log = eventLog[s.pane_id] || [];
-  if (log.length) el.appendChild(eventsView(log));
+  if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // A question already renders its own reply box, so don't also show the standalone
   // text input (that's the double-input/double-Send wart). Keep the special-key row
   // either way (Enter/Esc/arrows/Ctrl are still useful during a question).
@@ -153,23 +156,39 @@ function card(s) {
 // The activity feed: "what the thing did". Each event's `text` is the primary line;
 // optional metadata (a file diff, or a `meta` string) renders as a small, muted,
 // right-justified side-note. A file edit is just an event whose metadata is a diff.
-function eventsView(events, paneId) {
+function evHtml(e) {
+  let note = "";
+  if (e.file) {
+    const add = e.file.added ? `<span class="add">+${e.file.added}</span>` : "";
+    const del = e.file.removed ? `<span class="del">-${e.file.removed}</span>` : "";
+    note = `<span class="ev-note ev-file">${esc(e.file.path || "")} ${add}${del}</span>`;
+  } else if (e.meta) {
+    note = `<span class="ev-note">${esc(e.meta)}</span>`;
+  }
+  return `<div class="ev"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
+}
+
+function eventsView(events, paneId, summary) {
   const box = document.createElement("div");
   box.className = "events";
   box.dataset.pane = paneId || "";
-  box.innerHTML = events
-    .map((e) => {
-      let note = "";
-      if (e.file) {
-        const add = e.file.added ? `<span class="add">+${e.file.added}</span>` : "";
-        const del = e.file.removed ? `<span class="del">-${e.file.removed}</span>` : "";
-        note = `<span class="ev-note ev-file">${esc(e.file.path || "")} ${add}${del}</span>`;
-      } else if (e.meta) {
-        note = `<span class="ev-note">${esc(e.meta)}</span>`;
-      }
-      return `<div class="ev"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
-    })
-    .join("");
+  // When the pane went idle and the server summarized a burst of `count` events,
+  // collapse the OLDEST `count` events under a summary line (expandable). We fold by
+  // count, not timestamp, to avoid client-ms vs server-sec clock skew — the log is
+  // time-ordered so the oldest N are the summarized burst.
+  let head = "";
+  let rest = events;
+  if (summary && summary.text && summary.count > 1 && events.length > summary.count) {
+    const folded = events.slice(0, summary.count);
+    rest = events.slice(summary.count);
+    const open = openTimelines.has(paneId + ":sum");
+    head =
+      `<details class="ev-summary"${open ? " open" : ""} data-sum="${esc(paneId)}">` +
+      `<summary>▤ ${esc(summary.text)} <span class="dim">(${summary.count})</span></summary>` +
+      folded.map(evHtml).join("") +
+      `</details>`;
+  }
+  box.innerHTML = head + rest.map(evHtml).join("");
   // Newest events are at the bottom. The card re-renders every poll, so after it's in
   // the DOM, restore the user's scroll — but if they were at (or near) the bottom,
   // stick to the bottom so new activity stays in view. Scrolling up to read history
@@ -183,6 +202,9 @@ function eventsView(events, paneId) {
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
     eventScroll[paneId] = { top: box.scrollTop, atBottom };
   });
+  const det = box.querySelector("details.ev-summary");
+  if (det) det.ontoggle = () =>
+    det.open ? openTimelines.add(paneId + ":sum") : openTimelines.delete(paneId + ":sum");
   return box;
 }
 const eventScroll = {}; // pane_id -> {top, atBottom} to preserve scroll across re-renders

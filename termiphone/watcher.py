@@ -14,7 +14,7 @@ import time
 
 from . import tmux
 from .classify import classify
-from .llm import classify_text
+from .llm import classify_text, summarize_events
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,10 @@ SNAPSHOT_HISTORY = 50  # per pane
 # LLM calls, because that churn is stripped from the fingerprint.
 HEARTBEAT_SECONDS = 10
 PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continuity
+# When a pane has been idle this long with accumulated events, summarize the recent
+# activity burst once (a {from,to,text} span). The UI collapses events in that time
+# range under the summary. Generated once per idle period; reset when the pane works.
+IDLE_SUMMARY_AFTER = 60
 
 # Volatile bits that repaint constantly on an agent status line even when nothing
 # meaningful is happening. Confirmed by diffing live captures: elapsed timers, token
@@ -63,9 +67,11 @@ class Watcher:
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
         self._last_parse: dict[str, float] = {}  # pane_id -> when we last called the LLM
-        self._tool: dict[str, str] = {}  # pane_id -> sticky tool once identified as an agent
+        self._tool: dict[str, tuple[str, float]] = {}  # pane_id -> (agent tool, last-seen ts)
         self._state: dict[str, dict] = {}  # pane_id -> last parsed dict (reused between parses)
         self._recent_events: dict[str, list[str]] = {}  # pane_id -> recently-emitted event texts
+        self._burst: dict[str, dict] = {}  # pane_id -> {start, events:[{text,ts}]} for the current activity burst
+        self._summary: dict[str, dict] = {}  # pane_id -> cached {from,to,text} idle summary
         self._last_tick: float = 0.0  # wall time of the last loop iteration (staleness check)
         self._task: asyncio.Task | None = None
 
@@ -135,9 +141,32 @@ class Watcher:
         """Drop per-pane state for panes that no longer exist, so closing windows
         doesn't leak memory over a long session."""
         for store in (self._prev_fp, self._unchanged_since, self._last_parse,
-                      self._tool, self._state, self._recent_events, self.snapshots):
+                      self._tool, self._state, self._recent_events, self.snapshots,
+                      self._burst, self._summary):
             for pid in [k for k in store if k not in alive]:
                 del store[pid]
+
+    def _maybe_summarize(self, pane_id: str, idle: int) -> dict | None:
+        """Once a pane has been idle past the threshold, summarize its recent activity
+        burst into a {from, to, text} span (one LLM call, cached until new activity).
+        Returns the cached/new summary, or None if there's nothing to summarize yet."""
+        if pane_id in self._summary:
+            return self._summary[pane_id]  # already summarized this idle period
+        burst = self._burst.get(pane_id)
+        if not self.use_llm or idle < IDLE_SUMMARY_AFTER or not burst or not burst["events"]:
+            return None
+        texts = [e["text"] for e in burst["events"]]
+        summary_text = summarize_events(texts)  # may be None on LLM failure
+        if not summary_text:
+            return None
+        span = {
+            "from": burst["events"][0]["ts"],
+            "to": burst["events"][-1]["ts"],
+            "text": summary_text,
+            "count": len(texts),
+        }
+        self._summary[pane_id] = span
+        return span
 
     def _tick_pane(self, pane) -> dict:
         text = tmux.capture_pane(pane.id)
@@ -162,6 +191,9 @@ class Watcher:
         if cached is not None and not changed and not due:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
+            # Idle a while with unsummarized activity → summarize the burst once, so the
+            # UI can collapse those events under a {from,to,text} span.
+            cached["summary"] = self._maybe_summarize(pane.id, idle)
             return cached
 
         # Recent prior captures (before the current one) give the model continuity, so
@@ -177,11 +209,20 @@ class Watcher:
             pane, text, llm_fn=classify_text if self.use_llm else None,
             prior=prior, recent_events=recent,
         )
-        # Remember the events this parse produced (bounded) for the next call's context.
-        for e in state.get("events", []) or []:
-            if isinstance(e, dict) and e.get("text"):
-                recent.append(e["text"])
+        # Remember the events this parse produced (bounded) for the next call's context,
+        # and add them (timestamped) to the current activity burst. New activity clears
+        # any cached idle summary — it'll be regenerated when the pane goes idle again.
+        new_events = [e for e in (state.get("events") or []) if isinstance(e, dict) and e.get("text")]
+        for e in new_events:
+            recent.append(e["text"])
         self._recent_events[pane.id] = recent[-30:]
+        if new_events:
+            burst = self._burst.setdefault(pane.id, {"start": now, "events": []})
+            for e in new_events:
+                burst["events"].append({"text": e["text"], "ts": now})
+            burst["events"] = burst["events"][-60:]
+            self._summary.pop(pane.id, None)  # activity invalidates the idle summary
+        state["summary"] = self._summary.get(pane.id)  # may be None (only set once idle)
         self._prev_fp[pane.id] = fp
         self._last_parse[pane.id] = now
 
@@ -190,11 +231,21 @@ class Watcher:
         # a stale sticky value override that (that bug put the Claude icon on a bash
         # pane). Only bridge "unknown"/missing (a transient we genuinely can't tell) with
         # the last known agent, to cover the brief moment an agent shells out.
+        # Tool identity. The prompt decides claude-vs-shell from the whole picture, so we
+        # mostly trust it. Sticky bridge is TIME-BOUNDED to resolve the two failure modes
+        # that fought each other: a Claude pane shelling out was claude *just now* (bridge
+        # it), while a shell mis-tagged claude once was claude *a while ago* (let it go).
+        # So: only override a shell/unknown read with a remembered agent if we saw that
+        # agent within the last few seconds.
         tool = state.get("tool")
-        if tool in ("claude", "codex", "gemini", "shell"):
-            self._tool[pane.id] = tool  # confident read wins and is remembered
-        elif tool in ("unknown", None) and self._tool.get(pane.id):
-            state["tool"] = self._tool[pane.id]
+        if tool in ("claude", "codex", "gemini"):
+            self._tool[pane.id] = (tool, now)
+        elif tool in ("shell", "unknown", None):
+            prev = self._tool.get(pane.id)
+            if prev and now - prev[1] < 8:
+                state["tool"] = prev[0]
+            else:
+                self._tool.pop(pane.id, None)  # agent is genuinely gone; forget it
 
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None

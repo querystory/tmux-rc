@@ -52,6 +52,14 @@ below it (or a fresh prompt after it). A lone token like "d" or "git ad" at the 
 a prompt line is in-progress input — say the pane is idle at the prompt, not that a
 command "d" ran and failed.
 
+TOOL — decide claude vs shell by the WHOLE picture, not just the last lines. A pane
+running Claude Code stays "claude" even when a shell command it launched fills the
+screen with output — the agent is driving it. Use the earlier frames and the nature of
+the activity: if you see Claude Code's box/status line anywhere recently, or the work
+is clearly agent-driven (editing files, running tools, a "thinking"/gerund line), it is
+"claude". Only call it "shell" when it is genuinely a plain interactive shell the human
+is typing into with no agent present. When recent frames were claude, prefer "claude".
+
 This is very often CLAUDE CODE (an AI coding agent). Recognize it by its style: a
 rounded input box drawn with box characters, and a two-line STATUS LINE near the
 bottom that typically shows — in order — the working directory and git branch, the
@@ -72,6 +80,9 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word)",
   "model": "...", "context_pct": <int>, "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
+  "session": "the agent's session name/title if it shows one (Claude Code prints it at "
+             "the far right of the line just above its status bar, e.g. 'termiphone-dev') — "
+             "use it as the pane's name; omit if none is shown",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
@@ -164,5 +175,8 @@ def classify(
     if result.get("question") or result.get("rewind"):
         result["activity"] = "waiting"
     result["pane_id"] = pane.id
-    result["label"] = pane.label
+    # Prefer the agent's own session name (read from the pane by the LLM, e.g.
+    # "termiphone-dev") over the tmux-derived label — it's what the user recognizes.
+    sess = result.get("session")
+    result["label"] = str(sess)[:40] if isinstance(sess, str) and sess.strip() else pane.label
     return result
