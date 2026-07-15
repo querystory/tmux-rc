@@ -66,8 +66,20 @@ def classify_text(system: str, text: str, image_png: bytes | None = None) -> dic
         # Trace the tail we sent and what came back — grep /tmp/termiphone-llm.log.
         _trace.info("IN%s: %r", "+img" if image_png else "", text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
+        last_error["msg"] = None  # success clears any prior error
         return result
-    except Exception:  # noqa: BLE001 - parse pass must never break the watcher
+    except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
         logger.warning("Gemini parse pass failed", exc_info=True)
         _trace.info("ERROR on IN: %r", text[-500:])
+        # Remember WHY, so the UI can say "LLM unavailable: <reason>" instead of
+        # silently degrading to a blank heuristic card. Map the common expired-ADC case
+        # to actionable text.
+        msg = str(e)
+        if "Reauthentication is needed" in msg or "RefreshError" in type(e).__name__:
+            msg = "Google auth expired — run: gcloud auth application-default login"
+        last_error["msg"] = msg[:200]
         return None
+
+
+# Last LLM failure reason (or None if the last call succeeded), surfaced to the UI.
+last_error: dict = {"msg": None}

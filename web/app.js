@@ -48,10 +48,24 @@ async function poll() {
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
     liveEl.title = data.stale ? "watcher stalled — cards may be frozen" : "live";
+    // Surface an LLM failure (e.g. expired Google auth) as a banner instead of letting
+    // cards silently degrade to blank shell cards with no explanation.
+    showBanner(data.llm_error);
     render(data.panes || []);
   } catch {
     liveEl.className = "dot off";
   }
+}
+
+function showBanner(msg) {
+  let b = document.getElementById("banner");
+  if (!msg) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement("div");
+    b.id = "banner";
+    document.body.insertBefore(b, panesEl);
+  }
+  b.textContent = "⚠ LLM unavailable — " + msg;
 }
 
 function render(states) {

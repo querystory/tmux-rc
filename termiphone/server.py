@@ -77,8 +77,10 @@ def get_version():
 
 @app.get("/api/state")
 def get_state():
+    from .llm import last_error
+
     w = app.state.watcher
-    return {"stale": w.is_stale(), "panes": w.states}
+    return {"stale": w.is_stale(), "llm_error": last_error["msg"], "panes": w.states}
 
 
 @app.get("/api/panes/{pane_id}/snapshots")
