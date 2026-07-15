@@ -112,7 +112,19 @@ class Watcher:
             self.states = []
             return
         alive = {p.id for p in panes}
-        states = [self._tick_pane(p) for p in panes]
+        # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
+        # Tick each pane defensively: on error, degrade to a stub card, keep going.
+        states = []
+        for p in panes:
+            try:
+                s = self._tick_pane(p)
+            except Exception:  # noqa: BLE001 - isolate per-pane failures
+                logger.warning("pane tick failed: %s", p.id, exc_info=True)
+                s = None
+            if not isinstance(s, dict):
+                s = {"pane_id": p.id, "label": p.label, "tool": "unknown",
+                     "activity": "unknown", "updated_at": time.time()}
+            states.append(s)
         # Waiting first, then running, then idle — most-actionable panes on top.
         order = {"waiting": 0, "running": 1, "idle": 2, "unknown": 3}
         states.sort(key=lambda s: order.get(s.get("activity"), 9))
