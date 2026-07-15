@@ -95,29 +95,30 @@ function card(s) {
   el.appendChild(metaRow(s));
   if (s.rewind) el.appendChild(rewindView(s));
   if (s.question) el.appendChild(question(s));
-  if (Array.isArray(s.files) && s.files.length) el.appendChild(filesView(s.files));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
-  if (Array.isArray(s.notable) && s.notable.length) el.appendChild(notableView(s.notable));
+  if (Array.isArray(s.events) && s.events.length) el.appendChild(eventsView(s.events));
   el.appendChild(inputRow(s));
   el.appendChild(timeline(s));
   return el;
 }
 
-// Changed files as filename + green +N / red -N chips — from structured files[], NOT
-// prose. Anything with visual meaning gets a typed field + rich client rendering.
-function filesView(files) {
+// The activity feed: "what the thing did". Each event's `text` is the primary line;
+// optional metadata (a file diff, or a `meta` string) renders as a small, muted,
+// right-justified side-note. A file edit is just an event whose metadata is a diff.
+function eventsView(events) {
   const box = document.createElement("div");
-  box.className = "files";
-  box.innerHTML = files
-    .map((f) => {
-      const add = f.added ? `<span class="add">+${f.added}</span>` : "";
-      const del = f.removed ? `<span class="del">-${f.removed}</span>` : "";
-      // Row: git-style "+N/-N  path" (mono), then a regular-font subtext of WHAT
-      // changed (the LLM is good at this — richer than a bare line count).
-      const sum = f.summary ? `<div class="fsum">${esc(f.summary)}</div>` : "";
-      return `<div class="file-item"><div class="file">` +
-             `<span class="fstat">${add}${del}</span>` +
-             `<span class="fpath">${esc(f.path || "")}</span></div>${sum}</div>`;
+  box.className = "events";
+  box.innerHTML = events
+    .map((e) => {
+      let note = "";
+      if (e.file) {
+        const add = e.file.added ? `<span class="add">+${e.file.added}</span>` : "";
+        const del = e.file.removed ? `<span class="del">-${e.file.removed}</span>` : "";
+        note = `<span class="ev-note ev-file">${esc(e.file.path || "")} ${add}${del}</span>`;
+      } else if (e.meta) {
+        note = `<span class="ev-note">${esc(e.meta)}</span>`;
+      }
+      return `<div class="ev"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
     })
     .join("");
   return box;
@@ -136,15 +137,6 @@ function tasksView(tasks) {
           `<span class="tick">${t.done ? "✓" : "○"}</span>${esc(t.text || "")}</div>`
       )
       .join("");
-  return box;
-}
-
-// "What's going on" bullets — from parser JSON notable[]. The activity narrative in
-// miniature until the full scrollback-summary feature lands.
-function notableView(items) {
-  const box = document.createElement("div");
-  box.className = "notable";
-  box.innerHTML = items.map((n) => `<div class="note-item">${esc(n)}</div>`).join("");
   return box;
 }
 

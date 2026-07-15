@@ -69,16 +69,21 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "question": {"prompt": "...", "options": ["..."]},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
-  "files": [{"path": "...", "added": <int lines>, "removed": <int lines>, "summary": "short phrase: WHAT changed, e.g. 'added file-diff chip styles'"}],
-  "notable": ["short bullets of anything else useful to show — errors, test results, "
-              "what just happened, etc."]
+  "events": [
+    {"text": "WHAT happened, human phrase — e.g. 'Reworked the file list into an activity view'",
+     "file": {"path": "...", "added": <int>, "removed": <int>},   // OPTIONAL: if this event was a file edit
+     "meta": "OPTIONAL short side-note for non-file events, e.g. 'ran 3 commands', 'exit 1'"}
+  ]
 }
-Put file changes in "files" (path + lines added/removed) as structured data — the UI
-shows them as filename + green +N / red -N chips. Do NOT describe file edits as prose
-in "notable" (e.g. no "added 4 lines to X"). "notable" is ONLY for things not already
-captured in a dedicated field above — do NOT restate mode, model, cost, context %,
-tool, or file changes there (each has its own UI). Keep notable for other
-new/interesting events (errors, test outcomes, decisions) the other fields don't cover.
+"events" is the activity feed — a list of "what the thing did", newest-relevant first.
+The PRIMARY content of each event is "text" (what happened, plain language). Attach
+OPTIONAL metadata: "file" when the event was editing a file (path + lines +/-), or
+"meta" for a short programmatic side-note (command count, exit code). The UI shows
+`text` as the main line and file/meta as a small right-justified side-note. So a file
+edit is just an event whose metadata is a file diff — do NOT emit a bare "added 4 lines
+to X"; make text say what changed and put the numbers in "file". Do NOT put things that
+have their own dedicated field (mode, model, cost, context %, tool, tasks, question,
+rewind) into events.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown; "tasks" only when a checklist is visible.
 """.strip()
