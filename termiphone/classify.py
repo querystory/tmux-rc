@@ -28,8 +28,12 @@ _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 PARSER_PROMPT = """
 You are the parser behind a phone dashboard that mirrors what's happening in a
 developer's terminal panes so they can watch and control coding agents from their
-phone. You are given a snapshot of ONE terminal pane as text. It is a fixed-width
-character grid; treat alignment and columns as meaningful.
+phone. You are given one or more recent snapshots of ONE terminal pane as text, in
+time order and labeled ("[earlier frame -N]" … "[current frame]"). Report the state
+for the CURRENT frame; use the earlier frames only for continuity (stay consistent as
+output trickles in — don't re-decide from scratch) and to describe what just happened
+in "notable". A pane is a fixed-width character grid; treat alignment/columns as
+meaningful.
 
 Describe what is happening in a way that lets the phone UI light up usefully. Reason
 about GENERAL terminal patterns by how they look/behave, NOT by exact wording (which
@@ -80,11 +84,25 @@ def _obvious_idle(text: str) -> bool:
     return False
 
 
-def classify(pane: Pane, text: str, llm_fn=None) -> dict:
+def _with_prior(text: str, prior: list[str]) -> str:
+    """Prepend recent prior captures (oldest→newest) as labeled context, so the model
+    sees the trajectory. This keeps classification STABLE when content trickles in one
+    line at a time (no re-deciding from scratch each frame → no flicker) and gives it
+    material to describe what JUST happened. Prompt tokens are cheap, so this is nearly
+    free. The LAST block is the current screen — the one to report state for."""
+    if not prior:
+        return text
+    blocks = [f"[earlier frame -{len(prior) - i}]\n{p}" for i, p in enumerate(prior)]
+    blocks.append(f"[current frame — report state for THIS one]\n{text}")
+    return "\n\n".join(blocks)
+
+
+def classify(pane: Pane, text: str, llm_fn=None, prior: list[str] | None = None) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
-    is the Gemini parser. Returns the model's JSON with pane_id/label merged in; on
-    no/failed LLM, a minimal heuristic dict (idle vs running) so the pipe never breaks."""
-    result = llm_fn(PARSER_PROMPT, text) if llm_fn else None
+    is the Gemini parser. `prior` is recent prior captures (oldest→newest) for
+    continuity. Returns the model's JSON with pane_id/label merged in; on no/failed
+    LLM, a minimal heuristic dict (idle vs running) so the pipe never breaks."""
+    result = llm_fn(PARSER_PROMPT, _with_prior(text, prior or [])) if llm_fn else None
     if not isinstance(result, dict):
         result = {
             "tool": "shell" if pane.current_command in ("bash", "zsh", "sh", "fish") else "unknown",

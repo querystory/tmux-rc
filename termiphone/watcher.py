@@ -26,6 +26,7 @@ SNAPSHOT_HISTORY = 50  # per pane
 # working — spinner + timer + token counter ticking, no content change — costs ZERO
 # LLM calls, because that churn is stripped from the fingerprint.
 HEARTBEAT_SECONDS = 10
+PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continuity
 
 # Volatile bits that repaint constantly on an agent status line even when nothing
 # meaningful is happening. Confirmed by diffing live captures: elapsed timers, token
@@ -121,7 +122,14 @@ class Watcher:
             self.states = [cached]
             return
 
-        state = classify(pane, text, llm_fn=classify_text if self.use_llm else None)
+        # Recent prior captures (before the current one) give the model continuity, so
+        # slow line-by-line output doesn't make it re-decide each frame (anti-flicker)
+        # and it can describe what just happened. Cheap — prompt tokens are cheap.
+        hist = self.snapshots.get(pane.id, [])
+        prior = [s["text"] for s in hist[-(PRIOR_FRAMES + 1):-1]]
+        state = classify(
+            pane, text, llm_fn=classify_text if self.use_llm else None, prior=prior
+        )
         self._prev_fp[pane.id] = fp
         self._last_parse[pane.id] = now
 

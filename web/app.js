@@ -71,18 +71,20 @@ function card(s) {
       : s.activity === "running"
         ? '<span class="pulse"></span>working'
         : s.activity;
-  // Header: icon, name/summary, activity badge. Status_line leads (the summary of
-  // what's being worked on); the working detail (verb·elapsed·tokens) is a subline.
+  // Header: icon, name + headline (the task summary), activity badge. The working
+  // detail (verb·elapsed·↓tokens) is a subline. Fields come straight from the parser
+  // JSON (headline, nested working.*), so the UI renders whatever the model provides.
+  const w = s.working || {};
   const working =
-    s.activity === "running" && (s.elapsed || s.tokens)
-      ? `<div class="sub">${[s.working_verb, s.elapsed, s.tokens && "↓" + s.tokens]
+    s.activity === "running" && (w.elapsed || w.tokens)
+      ? `<div class="sub">${[w.verb, w.elapsed, w.tokens && "↓" + w.tokens]
           .filter(Boolean).map(esc).join(" · ")}</div>`
       : "";
   row.innerHTML = `
     <span class="icon">${iconFor(s.tool)}</span>
     <div class="meta">
-      <div class="name">${esc(s.label)}</div>
-      <div class="status">${esc(s.status_line || "—")}</div>
+      <div class="name">${esc(s.label || "")}</div>
+      <div class="status">${esc(s.headline || "—")}</div>
       ${working}
     </div>
     <span class="badge b-${s.activity}">${badge}</span>`;
@@ -91,9 +93,36 @@ function card(s) {
   el.appendChild(metaRow(s));
   if (s.rewind) el.appendChild(rewindView(s));
   if (s.question) el.appendChild(question(s));
+  if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
+  if (Array.isArray(s.notable) && s.notable.length) el.appendChild(notableView(s.notable));
   el.appendChild(inputRow(s));
   el.appendChild(timeline(s));
   return el;
+}
+
+// Task/TODO checklist the agent is tracking (done vs open) — from parser JSON tasks[].
+function tasksView(tasks) {
+  const box = document.createElement("div");
+  box.className = "tasks";
+  box.innerHTML =
+    `<div class="tasks-head">Tasks</div>` +
+    tasks
+      .map(
+        (t) =>
+          `<div class="task${t.done ? " done" : ""}">` +
+          `<span class="tick">${t.done ? "✓" : "○"}</span>${esc(t.text || "")}</div>`
+      )
+      .join("");
+  return box;
+}
+
+// "What's going on" bullets — from parser JSON notable[]. The activity narrative in
+// miniature until the full scrollback-summary feature lands.
+function notableView(items) {
+  const box = document.createElement("div");
+  box.className = "notable";
+  box.innerHTML = items.map((n) => `<div class="note-item">${esc(n)}</div>`).join("");
+  return box;
 }
 
 // Render Claude Code's Esc-Esc Rewind picker as a scrollable history list. The ❯
