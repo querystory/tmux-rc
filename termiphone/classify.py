@@ -69,7 +69,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "question": {"prompt": "...", "options": ["..."]},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
-  "files": [{"path": "...", "added": <int lines>, "removed": <int lines>}],
+  "files": [{"path": "...", "added": <int lines>, "removed": <int lines>, "summary": "short phrase: WHAT changed, e.g. 'added file-diff chip styles'"}],
   "notable": ["short bullets of anything else useful to show — errors, test results, "
               "what just happened, etc."]
 }

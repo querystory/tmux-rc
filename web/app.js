@@ -112,10 +112,12 @@ function filesView(files) {
     .map((f) => {
       const add = f.added ? `<span class="add">+${f.added}</span>` : "";
       const del = f.removed ? `<span class="del">-${f.removed}</span>` : "";
-      // Stat to the LEFT of the filename (git-style), tight together — not pushed
-      // to the far right where it reads disjoint from the file it belongs to.
-      return `<div class="file"><span class="fstat">${add}${del}</span>` +
-             `<span class="fpath">${esc(f.path || "")}</span></div>`;
+      // Row: git-style "+N/-N  path" (mono), then a regular-font subtext of WHAT
+      // changed (the LLM is good at this — richer than a bare line count).
+      const sum = f.summary ? `<div class="fsum">${esc(f.summary)}</div>` : "";
+      return `<div class="file-item"><div class="file">` +
+             `<span class="fstat">${add}${del}</span>` +
+             `<span class="fpath">${esc(f.path || "")}</span></div>${sum}</div>`;
     })
     .join("");
   return box;
