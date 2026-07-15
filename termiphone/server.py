@@ -11,10 +11,11 @@ Endpoints:
 from __future__ import annotations
 
 import os
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,6 +24,9 @@ from . import tmux
 from .watcher import Watcher
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+# Uploaded images land here so the agent can read them by path. Kept out of the repo.
+IMG_DIR = Path(tempfile.gettempdir()) / "termiphone-images"
+_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
 
 
 class SendBody(BaseModel):
@@ -83,6 +87,27 @@ def send(pane_id: str, body: SendBody):
         raise HTTPException(404, "pane not found")
     tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
     return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/image")
+async def send_image(pane_id: str, file: UploadFile):
+    """Save an uploaded/pasted image to a host temp file and type its path into the
+    pane. Claude Code (and others) accept an image by a file path in the prompt, so
+    this is how a phone attaches an image to a terminal agent. No Enter is sent — the
+    path lands in the input for the user to send with the rest of their message."""
+    if tmux.find_pane(pane_id) is None:
+        raise HTTPException(404, "pane not found")
+    ext = _EXT.get(file.content_type or "", "")
+    if not ext:
+        raise HTTPException(415, f"unsupported image type: {file.content_type}")
+    IMG_DIR.mkdir(parents=True, exist_ok=True)
+    data = await file.read()
+    fd, path = tempfile.mkstemp(suffix=ext, dir=IMG_DIR)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    # Type the path with a trailing space so it reads as a complete token.
+    tmux.send_keys(pane_id, path + " ", enter=False, literal=True)
+    return {"ok": True, "path": path, "bytes": len(data)}
 
 
 # PWA static files last so /api/* wins. html=True serves index.html at /.

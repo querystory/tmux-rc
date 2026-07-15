@@ -24,9 +24,10 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
 - [x] Background-agent count per pane (PaneState.agents, extracted by LLM).
 - [x] Lead with a human task summary (status_line), working subline verb·elapsed·tokens.
 - [x] Preserve typed input across the 2s re-render (was clearing after ~1s).
-- [~] **Attach images (phone → agent).** Upload/take a photo on the phone; termiphone
-      saves it to a host temp file and injects the path into the pane via send-keys, so
-      Claude Code (which accepts image file paths in the prompt) picks it up. Building now.
+- [x] **Attach images (phone → agent).** 📎 button (file/camera) + paste-image handler
+      upload to /api/panes/{id}/image; server saves to a host temp file and types the
+      path into the pane (no Enter), so Claude Code picks it up. Verified E2E.
+- [x] Special-key buttons: Enter/Esc/↑/↓/Ctrl-O/Ctrl-B/Ctrl-C.
 - [ ] **Turn-timeline view** — a history of the agent's long turns, e.g.
       "✻ Churned for 12m13s", "✳ Cultivated for 8m02s" — one entry per turn with its
       verb, duration, and (if available) tokens. Distinct from the snapshot strip: this

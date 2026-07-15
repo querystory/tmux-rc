@@ -122,25 +122,53 @@ function inputRow(s) {
   wrap.className = "raw";
   wrap.innerHTML = `
     <div class="freetext">
-      <input data-pane="${esc(s.pane_id)}" placeholder="Type into ${esc(s.label)}…" />
+      <button class="attach" title="Attach image">📎</button>
+      <input data-pane="${esc(s.pane_id)}" placeholder="Type or paste an image into ${esc(s.label)}…" />
       <button class="send">Send</button>
+      <input type="file" accept="image/*" hidden />
     </div>
     <div class="keys">
       <button data-k="Enter">⏎ Enter</button>
       <button data-k="Escape">Esc</button>
       <button data-k="Up">↑</button>
       <button data-k="Down">↓</button>
+      <button data-k="C-o">Ctrl-O</button>
+      <button data-k="C-b">Ctrl-B</button>
       <button data-k="C-c">Ctrl-C</button>
     </div>`;
-  const input = wrap.querySelector("input");
+  const input = wrap.querySelector('input[data-pane]');
+  const filePicker = wrap.querySelector('input[type=file]');
   wrap.querySelector(".send").onclick = () => {
     if (input.value) { answer(s, input.value); input.value = ""; }
+  };
+  // Attach: open the file/camera picker; upload the chosen image.
+  wrap.querySelector(".attach").onclick = () => filePicker.click();
+  filePicker.onchange = () => filePicker.files[0] && uploadImage(s, filePicker.files[0]);
+  // Paste: if the clipboard has an image, upload it instead of pasting text.
+  input.onpaste = (e) => {
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (item) { e.preventDefault(); uploadImage(s, item.getAsFile()); }
   };
   // Special keys are tmux key-names, sent literally (no appended Enter).
   wrap.querySelectorAll(".keys button").forEach((b) => {
     b.onclick = () => sendRaw(s, b.dataset.k);
   });
   return wrap;
+}
+
+// Upload an image to the pane: the server saves it to a host temp file and types the
+// path into the terminal (no Enter) so the agent can read it. Shows a brief hint.
+async function uploadImage(s, file) {
+  if (!file) return;
+  busy = true;
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
+    if (!r.ok) alert("Image upload failed: " + r.status);
+  } finally {
+    setTimeout(() => { busy = false; poll(); }, 400);
+  }
 }
 
 function question(s) {
