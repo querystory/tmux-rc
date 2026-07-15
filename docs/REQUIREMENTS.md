@@ -24,9 +24,11 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
 - [x] Background-agent count per pane (PaneState.agents, extracted by LLM).
 - [x] Lead with a human task summary (status_line), working subline verb·elapsed·tokens.
 - [x] Preserve typed input across the 2s re-render (was clearing after ~1s).
-- [x] **Attach images (phone → agent).** 📎 button (file/camera) + paste-image handler
-      upload to /api/panes/{id}/image; server saves to a host temp file and types the
-      path into the pane (no Enter), so Claude Code picks it up. Verified E2E.
+- [x] **Attach images (phone → agent).** 📎 button (file/camera) uploads to
+      /api/panes/{id}/image; server puts the bytes on the system clipboard (wl-copy on
+      Wayland, xclip on X11) and sends Ctrl-V so Claude Code embeds the image inline —
+      typing a path does NOT work. Verified E2E on the host (pasted the real image).
+      HOST DEP: needs `wl-clipboard` on Wayland (sudo apt install wl-clipboard).
 - [x] Special-key buttons: Enter/Esc/↑/↓/Ctrl-O/Ctrl-B/Ctrl-C.
 - [ ] **Turn-timeline view** — a history of the agent's long turns, e.g.
       "✻ Churned for 12m13s", "✳ Cultivated for 8m02s" — one entry per turn with its

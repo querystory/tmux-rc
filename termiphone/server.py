@@ -104,23 +104,32 @@ def send(pane_id: str, body: SendBody):
 
 @app.post("/api/panes/{pane_id}/image")
 async def send_image(pane_id: str, file: UploadFile):
-    """Save an uploaded/pasted image to a host temp file and type its path into the
-    pane. Claude Code (and others) accept an image by a file path in the prompt, so
-    this is how a phone attaches an image to a terminal agent. No Enter is sent — the
-    path lands in the input for the user to send with the rest of their message."""
+    """Attach an image to the pane the way the user does on the host: put it on the
+    system clipboard, then send Ctrl-V so Claude Code embeds it inline. (Typing a file
+    path doesn't work — Claude reads the clipboard on paste.) Also keeps a temp file as
+    a fallback path in the response."""
     if tmux.find_pane(pane_id) is None:
         raise HTTPException(404, "pane not found")
-    ext = _EXT.get(file.content_type or "", "")
-    if not ext:
-        raise HTTPException(415, f"unsupported image type: {file.content_type}")
-    IMG_DIR.mkdir(parents=True, exist_ok=True)
+    mime = file.content_type or "image/png"
+    if mime not in _EXT:
+        raise HTTPException(415, f"unsupported image type: {mime}")
     data = await file.read()
-    fd, path = tempfile.mkstemp(suffix=ext, dir=IMG_DIR)
+
+    # Save a temp copy (fallback / debugging) and put the bytes on the clipboard.
+    IMG_DIR.mkdir(parents=True, exist_ok=True)
+    fd, path = tempfile.mkstemp(suffix=_EXT[mime], dir=IMG_DIR)
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
-    # Type the path with a trailing space so it reads as a complete token.
-    tmux.send_keys(pane_id, path + " ", enter=False, literal=True)
-    return {"ok": True, "path": path, "bytes": len(data)}
+
+    tools = tmux.set_clipboard_image(data, mime)
+    if not tools:
+        raise HTTPException(
+            500,
+            "No clipboard tool succeeded (need wl-copy or xclip on the host). "
+            f"Image saved at {path}.",
+        )
+    tmux.send_keys(pane_id, "C-v", enter=False, literal=False)  # paste into the agent
+    return {"ok": True, "clipboard": tools, "path": path, "bytes": len(data)}
 
 
 # PWA static files last so /api/* wins. html=True serves index.html at /.

@@ -7,6 +7,8 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 
@@ -104,3 +106,34 @@ def send_keys(pane_id: str, keys: str, enter: bool = True, literal: bool = True)
     _run(["send-keys", "-t", pane_id, *(["-l"] if literal else []), keys])
     if enter and literal:
         _run(["send-keys", "-t", pane_id, "Enter"])
+
+
+def set_clipboard_image(data: bytes, mime: str = "image/png") -> list[str]:
+    """Put image bytes on the host's system clipboard so a terminal app can paste them
+    (Claude Code embeds an image on Ctrl-V from the clipboard). Writes to both the
+    Wayland (wl-copy) and X11/XWayland (xclip) clipboards when available, since which
+    one the terminal reads depends on the session. Returns the tools that succeeded."""
+    ok: list[str] = []
+    env_x = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
+    attempts = [
+        ("wl-copy", ["wl-copy", "-t", mime]),
+        ("xclip", ["xclip", "-selection", "clipboard", "-t", mime]),
+    ]
+    for name, cmd in attempts:
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            # These tools do NOT exit — they persist to own/serve the clipboard
+            # selection (X11) or hold it (Wayland). So we must feed stdin and detach,
+            # NOT wait for completion (which would hang). Write bytes, close stdin,
+            # and leave the process running in the background.
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, env=env_x if name == "xclip" else None,
+            )
+            proc.stdin.write(data)
+            proc.stdin.close()
+            ok.append(name)
+        except Exception:  # noqa: BLE001 - try the next tool
+            continue
+    return ok
