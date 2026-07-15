@@ -1,0 +1,6 @@
+printf '\033[31mFAILED tests/test_auth.py::test_login - AssertionError: 401 != 200\033[0m\n\033[32mPASSED tests/test_health.py\033[0m\n\033[31mERROR: 3 tests failed, 12 passed\033[0m\n'
+shapor@volatile:~/src/qs/termiphone$ printf '\033[31mFAILED tests/test_auth.py::test_login - AssertionError: 401 != 200\033[0m\n\033[32mPASSED tests/test_health.py\033[0m\n\033[31mERROR: 3 tests failed, 12 passed\033[0m\n'
+FAILED tests/test_auth.py::test_login - AssertionError: 401 != 200
+PASSED tests/test_health.py
+ERROR: 3 tests failed, 12 passed
+shapor@volatile:~/src/qs/termiphone$ 

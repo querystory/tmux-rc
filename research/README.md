@@ -37,12 +37,25 @@ Rewind picker (`samples/rewind`) — the supposed image-wins case:
 - Text was faster (1.6s vs image 3.1s), cheaper, and captured the selected entry's
   full text where image truncated slightly.
 
-## Emerging conclusion
-Across working + rewind, TEXT wins: equal-or-better accuracy, cheaper, faster. Image's
-theoretical edge (color/highlight) hasn't materialized because Claude Code encodes
-state in CHARACTERS (❯, box art, labels), not pure color. Text+image is never worth
-the extra cost so far.
+Red-error output (`samples/error`) — the "color is the whole signal" case:
 
-STILL TO TEST — the only cases where image should truly win: selection shown ONLY by
-background highlight (no cursor char), and red=error where color is the whole signal.
-If text handles those too, ship text-only and drop the renderer from the hot path.
+| mode | in tok | out tok | latency | $/1k calls |
+|------|-------:|--------:|--------:|-----------:|
+| text | 270 | 85 | 1.0s | 0.061 |
+| image | 1120 | 85 | 1.4s | 0.146 |
+| text+image | 1390 | 98 | 1.9s | 0.178 |
+
+- Text recognized the failures perfectly ("finished with errors", listed the failed
+  test) — because the WORDS ("FAILED", "ERROR", "AssertionError") carry the meaning;
+  the red color was redundant. Text was 2.4x cheaper and faster.
+
+## CONCLUSION — ship text-only
+Across all three cases (working, rewind picker, red errors) TEXT wins: equal-or-better
+accuracy, 2–2.4x cheaper, consistently faster. Image's theoretical edge (color/
+highlight) never materialized, because agent UIs encode state in CHARACTERS and WORDS
+(❯, box art, "FAILED"), not pure color. Text+image is never worth the extra cost.
+
+Decision: hot-path parser = TEXT only. Keep render.py + the image switch wired but OFF
+— the sole remaining image-only case is a picker that shows selection ONLY by
+background highlight with no cursor char/label (rare); if we ever hit it, flip the flag.
+Do NOT pay the renderer/token cost on every call for a case we haven't even seen.
