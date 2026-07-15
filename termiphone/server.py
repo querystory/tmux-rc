@@ -1,7 +1,7 @@
 """FastAPI app: serves the PWA and the state/answer API.
 
 Endpoints:
-  GET  /api/state                 -> list[PaneState] (list-shaped for M2)
+  GET  /api/state                 -> list of raw parser-JSON dicts (list-shaped for M2)
   GET  /api/panes/{id}/snapshots  -> recent snapshot ids + timestamps
   GET  /api/panes/{id}/snapshots/{snap} -> raw captured text of one snapshot
   POST /api/panes/{id}/send       -> inject keys / answer a prompt

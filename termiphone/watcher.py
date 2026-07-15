@@ -15,7 +15,6 @@ import time
 from . import tmux
 from .classify import classify
 from .llm import classify_text
-from .models import PaneState
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +57,13 @@ class Watcher:
     def __init__(self, target: str | None, use_llm: bool = True):
         self.target = target
         self.use_llm = use_llm
-        self.states: list[PaneState] = []
+        self.states: list[dict] = []  # raw LLM JSON dicts, piped straight to the UI
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
         self._last_parse: dict[str, float] = {}  # pane_id -> when we last called the LLM
         self._tool: dict[str, str] = {}  # pane_id -> sticky tool once identified as an agent
-        self._state: dict[str, PaneState] = {}  # pane_id -> last parsed state (reused between parses)
+        self._state: dict[str, dict] = {}  # pane_id -> last parsed dict (reused between parses)
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -117,8 +116,8 @@ class Watcher:
         cached = self._state.get(pane.id)
         due = now - self._last_parse.get(pane.id, 0) >= HEARTBEAT_SECONDS
         if cached is not None and not changed and not due:
-            cached.idle_seconds = idle  # just tick the timer, reuse everything else
-            cached.updated_at = now
+            cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            cached["updated_at"] = now
             self.states = [cached]
             return
 
@@ -128,14 +127,15 @@ class Watcher:
 
         # Sticky tool: once identified as an agent, keep that identity even when the
         # agent shells out (foreground briefly becomes bash/git). Stops claude⇄shell flap.
-        if state.tool in ("claude", "codex", "gemini"):
-            self._tool[pane.id] = state.tool
-        elif state.tool in ("shell", "unknown") and pane.id in self._tool:
-            state.tool = self._tool[pane.id]
+        tool = state.get("tool")
+        if tool in ("claude", "codex", "gemini"):
+            self._tool[pane.id] = tool
+        elif tool in ("shell", "unknown", None) and pane.id in self._tool:
+            state["tool"] = self._tool[pane.id]
 
         hist = self.snapshots.get(pane.id, [])
-        state.snapshot_id = hist[-1]["id"] if hist else None
-        state.idle_seconds = idle
-        state.updated_at = now
+        state["snapshot_id"] = hist[-1]["id"] if hist else None
+        state["idle_seconds"] = idle
+        state["updated_at"] = now
         self._state[pane.id] = state
         self.states = [state]
