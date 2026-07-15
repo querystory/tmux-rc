@@ -35,10 +35,28 @@ function render(states) {
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     return;
   }
+  // Preserve the focused text input across the re-render (re-rendering replaces all
+  // cards, which would otherwise wipe what the user is typing). Remember which pane's
+  // input had focus, its value, and caret, then restore after rebuilding.
+  const active = document.activeElement;
+  const saved =
+    active && active.tagName === "INPUT" && active.dataset.pane
+      ? { pane: active.dataset.pane, value: active.value, start: active.selectionStart, end: active.selectionEnd }
+      : null;
+
   // Waiting first, then running, then idle; stable within group.
   const order = { waiting: 0, running: 1, idle: 2, unknown: 3 };
   states.sort((a, b) => (order[a.activity] ?? 9) - (order[b.activity] ?? 9));
   panesEl.replaceChildren(...states.map(card));
+
+  if (saved) {
+    const input = panesEl.querySelector(`input[data-pane="${CSS.escape(saved.pane)}"]`);
+    if (input) {
+      input.value = saved.value;
+      input.focus();
+      try { input.setSelectionRange(saved.start, saved.end); } catch {}
+    }
+  }
 }
 
 function card(s) {
@@ -104,7 +122,7 @@ function inputRow(s) {
   wrap.className = "raw";
   wrap.innerHTML = `
     <div class="freetext">
-      <input placeholder="Type into ${esc(s.label)}…" />
+      <input data-pane="${esc(s.pane_id)}" placeholder="Type into ${esc(s.label)}…" />
       <button class="send">Send</button>
     </div>
     <div class="keys">
@@ -148,7 +166,7 @@ function question(s) {
   } else {
     const ft = document.createElement("div");
     ft.className = "freetext";
-    ft.innerHTML = `<input placeholder="Type a reply…" /><button>Send</button>`;
+    ft.innerHTML = `<input data-pane="${esc(s.pane_id)}:q" placeholder="Type a reply…" /><button>Send</button>`;
     const input = ft.querySelector("input");
     ft.querySelector("button").onclick = () => input.value && answer(s, input.value);
     q.appendChild(ft);
