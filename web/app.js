@@ -298,28 +298,34 @@ function question(s) {
   prompt.textContent = s.question.prompt;
   q.appendChild(prompt);
 
-  if (s.question.options.length) {
+  // Real options as buttons — but drop any "type something"/"Other" pseudo-option;
+  // the free-text input below always covers that, so it's client-side, not an answer.
+  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
+  if (realOpts.length) {
     const opts = document.createElement("div");
     opts.className = "opts";
-    s.question.options.forEach((opt, i) => {
+    realOpts.forEach((opt, i) => {
       const b = document.createElement("button");
       b.className = "opt";
       b.textContent = opt;
-      // For numbered menus we send the index+1; for y/n send first letter.
       b.onclick = () => answer(s, keyFor(s.question, opt, i));
       opts.appendChild(b);
     });
     q.appendChild(opts);
-  } else {
-    const ft = document.createElement("div");
-    ft.className = "freetext";
-    ft.innerHTML = `<input data-pane="${esc(s.pane_id)}:q" placeholder="Type a reply…" /><button>Send</button>`;
-    const input = ft.querySelector("input");
-    ft.querySelector("button").onclick = () => input.value && answer(s, input.value);
-    q.appendChild(ft);
   }
+
+  // ALWAYS offer a free-text reply — a natural-language question can be answered in
+  // your own words, and this is the client-side "type something" affordance.
+  const ft = document.createElement("div");
+  ft.className = "freetext";
+  ft.innerHTML = `<input data-pane="${esc(s.pane_id)}:q" placeholder="Type a reply…" /><button>Send</button>`;
+  const input = ft.querySelector("input");
+  ft.querySelector("button").onclick = () => input.value && answer(s, input.value);
+  q.appendChild(ft);
   return q;
 }
+
+const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|write )/i;
 
 // Decide what keystroke represents the chosen option. y/n prompts want a letter;
 // numbered menus want the number; otherwise send the literal option text.

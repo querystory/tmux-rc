@@ -19,6 +19,34 @@ Examples of intent (what you say) → actions (what it does):
 This is "terminal use" as an agentic capability — the mobile control plane can operate
 the whole terminal, not just relay keystrokes to one pane.
 
+## Two LLM-mediated directions (perception AND action)
+
+The LLM-first pivot solved *perception*: screen → structured JSON. This control plane
+is the *action* side of the same idea, and it's just as important: **user intent +
+live screen state → the correct keystroke sequence to achieve the outcome.**
+
+This surfaced concretely from a bug. The user tapped "option 4" on a question; the
+client sent the literal `4`, which typed a stray digit into a natural-language prompt
+instead of answering it. The first fix was a hardcoded rule (`answer_style: text|menu`
+→ type the option's text vs. send a digit). But that rule is a lookup table standing in
+for a general question: *"the user did a thing — what do I send to THIS pane, in ITS
+current state, to actually get that outcome?"* Typing "Call it here" vs. pressing `4`
+vs. arrowing-and-Enter vs. focusing a text field are all answers to that, and which is
+right depends on what's on screen — exactly an LLM judgment, not a table.
+
+Design implication: the mapping from a UI action (tap an option, "answer this",
+"pick that history entry") to concrete keystrokes should be **LLM-planned against the
+current parse**, not encoded as per-widget rules. `answer_style` is a stopgap; the
+robust version is "given the screen and the user's chosen intent, emit the keystroke
+sequence + verify it landed." Same grounding/verification loop as the intent examples
+below.
+
+Corollary — some taps are intents, not answers. "Type something" / the free-text
+"Other" option is not a submittable answer; it means *"let me type a custom reply."*
+That affordance belongs on the **client** (the card always offers a text input), so the
+parser shouldn't need to surface it, and tapping such an option should focus the input,
+never send a canned/empty answer (which registered as "user declined to answer").
+
 ## Autonomy model: intent → confirm → execute
 
 Decision: **intent → confirm → execute.** You state intent; termiphone *plans* the
