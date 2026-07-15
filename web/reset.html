@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>termiphone reset</title>
+<style>body{font:16px system-ui;background:#0b0f14;color:#e6edf3;padding:24px}pre{background:#161b22;padding:12px;border-radius:8px;white-space:pre-wrap}a{color:#58a6ff}</style>
+</head>
+<body>
+<h2>termiphone — cache reset</h2>
+<p>This unregisters any service worker and clears all caches on this device, then you can go back to the app fresh.</p>
+<pre id="log">working…</pre>
+<p><a href="/">← back to termiphone</a></p>
+<script>
+const log = document.getElementById("log");
+const out = [];
+function p(m){ out.push(m); log.textContent = out.join("\n"); }
+(async () => {
+  if ("serviceWorker" in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    p("service workers found: " + regs.length);
+    for (const r of regs) { await r.unregister(); p("  unregistered: " + (r.active && r.active.scriptURL || r.scope)); }
+  } else p("serviceWorker API not available");
+  if (window.caches) {
+    const ks = await caches.keys();
+    p("caches found: " + ks.length + (ks.length ? " ("+ks.join(", ")+")" : ""));
+    for (const k of ks) { await caches.delete(k); p("  deleted cache: " + k); }
+  }
+  p("\nDONE. Now tap 'back to termiphone' and pull-to-refresh once.");
+})();
+</script>
+</body>
+</html>
