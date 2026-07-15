@@ -77,10 +77,15 @@ def get_version():
 
 @app.get("/api/state")
 def get_state():
-    from .llm import last_error
+    from .llm import last_error, usage_totals
 
     w = app.state.watcher
-    return {"stale": w.is_stale(), "llm_error": last_error["msg"], "panes": w.states}
+    return {
+        "stale": w.is_stale(),
+        "llm_error": last_error["msg"],  # transient; UI shows it subtly, not a big banner
+        "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
+        "panes": w.states,
+    }
 
 
 @app.get("/api/panes/{pane_id}/snapshots")

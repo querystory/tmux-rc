@@ -48,25 +48,38 @@ async function poll() {
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
     liveEl.title = data.stale ? "watcher stalled — cards may be frozen" : "live";
-    // Surface an LLM failure (e.g. expired Google auth) as a banner instead of letting
-    // cards silently degrade to blank shell cards with no explanation.
-    showBanner(data.llm_error);
+    // Compact usage readout in the top bar (next to the live dot): tokens · $cost ·
+    // failed/total calls · calls/min. Lets you SEE the API-call volume (what tripped
+    // the 429) at a glance, without a big scary banner for transient errors.
+    showUsage(data.usage, data.llm_error);
     render(data.panes || []);
   } catch {
     liveEl.className = "dot off";
   }
 }
 
-function showBanner(msg) {
-  let b = document.getElementById("banner");
-  if (!msg) { if (b) b.remove(); return; }
-  if (!b) {
-    b = document.createElement("div");
-    b.id = "banner";
-    document.body.insertBefore(b, panesEl);
+const usageEl = document.getElementById("usage");
+let _callRate = { n: 0, at: Date.now(), rate: 0 };
+function showUsage(u, err) {
+  if (!u) { usageEl.textContent = ""; return; }
+  // Estimate calls/min from the growing total between polls.
+  const now = Date.now();
+  if (u.calls > _callRate.n) {
+    const dt = (now - _callRate.at) / 60000;
+    if (dt > 0) _callRate.rate = Math.round((u.calls - _callRate.n) / dt);
+    _callRate = { n: u.calls, at: now, rate: _callRate.rate };
   }
-  b.textContent = "⚠ LLM unavailable — " + msg;
+  const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
+  const parts = [
+    `${tok}k tok`,
+    `$${u.cost.toFixed(3)}`,
+    `<span class="${u.errors ? "err" : ""}">${u.errors}/${u.calls + u.errors}</span>`,
+    `${_callRate.rate}/min`,
+  ];
+  if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
+  usageEl.innerHTML = parts.join(" · ");
 }
+function escAttr(s) { return String(s).replace(/"/g, "&quot;"); }
 
 function render(states) {
   // Accumulate this poll's events into each pane's running client-side log first.

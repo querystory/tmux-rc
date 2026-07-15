@@ -119,14 +119,19 @@
     padding: 8px; font: 10px/1.25 ui-monospace, monospace; color: #8b949e;
     white-space: pre; }
   .empty { text-align: center; color: #6e7681; padding: 60px 20px; }
-  #banner { margin: 8px 12px 0; padding: 10px 14px; border-radius: 10px; font-size: 13px;
-    background: #3d1416; border: 1px solid #b62324; color: #ffb3b0; }
+  .hdr-right { display: flex; align-items: center; gap: 10px; }
+  .usage { font-size: 11px; color: #8b949e; font-family: ui-monospace, monospace; font-weight: 400; }
+  .usage .err { color: #f85149; }
+  .usage .warn { color: #e3b341; }  /* transient LLM error hint, subtle not shouty */
 </style>
 </head>
 <body>
   <header>
     <span>termiphone</span>
-    <span id="live" class="dot off" title="connection"></span>
+    <span class="hdr-right">
+      <span id="usage" class="usage"></span>
+      <span id="live" class="dot off" title="connection"></span>
+    </span>
   </header>
   <div id="panes"><div class="empty">Connecting…</div></div>
   <script src="/app.js"></script>
