@@ -94,10 +94,11 @@ def capture_pane(pane_id: str, lines: int = 200) -> str:
     return out.rstrip("\n")
 
 
-def send_keys(pane_id: str, keys: str, enter: bool = True) -> None:
-    """Send `keys` to a pane as if typed. With `enter`, append a Return. Literal
-    text is sent with `-l` so it isn't interpreted as tmux key names; the Enter is
-    sent separately as the named key."""
-    _run(["send-keys", "-t", pane_id, "-l", keys])
-    if enter:
+def send_keys(pane_id: str, keys: str, enter: bool = True, literal: bool = True) -> None:
+    """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
+    isn't interpreted as tmux key names — for typed answers. When not literal, `keys`
+    is a tmux key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends
+    a Return (only meaningful for literal text)."""
+    _run(["send-keys", "-t", pane_id, *(["-l"] if literal else []), keys])
+    if enter and literal:
         _run(["send-keys", "-t", pane_id, "Enter"])

@@ -1,7 +1,16 @@
 // termiphone PWA. Polls /api/state, renders one card per pane, floats waiting
 // panes to the top, and posts answers back. No framework, no build step.
 
-const ICONS = { claude: "☁️", codex: "🔷", gemini: "💎", shell: "$", unknown: "•" };
+// Claude's mark: an Anthropic-clay burst of radiating spokes. Built from rotated
+// rects so it reads as the sunburst glyph at small sizes (no fragile bezier path).
+const CLAUDE_SVG = (() => {
+  const spokes = Array.from({ length: 12 }, (_, i) =>
+    `<rect x="11" y="2" width="2" height="8" rx="1" fill="#d97757" transform="rotate(${i * 30} 12 12)"/>`
+  ).join("");
+  return `<svg viewBox="0 0 24 24" width="22" height="22" aria-label="Claude">${spokes}</svg>`;
+})();
+const ICONS = { codex: "🔷", gemini: "💎", shell: "$", unknown: "•" };
+const iconFor = (tool) => (tool === "claude" ? CLAUDE_SVG : (ICONS[tool] ?? "•"));
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
@@ -44,13 +53,19 @@ function card(s) {
 
   const row = document.createElement("div");
   row.className = "row";
+  const badge =
+    s.activity === "idle"
+      ? "idle " + fmtIdle(s.idle_seconds)
+      : s.activity === "running"
+        ? '<span class="pulse"></span>working'
+        : s.activity;
   row.innerHTML = `
-    <span class="icon">${ICONS[s.tool] ?? "•"}</span>
+    <span class="icon">${iconFor(s.tool)}</span>
     <div class="meta">
       <div class="name">${esc(s.label)} <span style="color:#6e7681;font-weight:400">${esc(s.tool)}</span></div>
       <div class="status">${esc(s.status_line || "—")}</div>
     </div>
-    <span class="badge b-${s.activity}">${s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity}</span>`;
+    <span class="badge b-${s.activity}">${badge}</span>`;
   el.appendChild(row);
 
   if (s.context_pct != null) {
@@ -61,8 +76,37 @@ function card(s) {
   }
 
   if (s.question) el.appendChild(question(s));
+  el.appendChild(inputRow(s));
   el.appendChild(timeline(s));
   return el;
+}
+
+// Always-available raw input: type any text into the pane, plus special keys. This
+// is the escape hatch for anything the classifier didn't turn into a button.
+function inputRow(s) {
+  const wrap = document.createElement("div");
+  wrap.className = "raw";
+  wrap.innerHTML = `
+    <div class="freetext">
+      <input placeholder="Type into ${esc(s.label)}…" />
+      <button class="send">Send</button>
+    </div>
+    <div class="keys">
+      <button data-k="Enter">⏎ Enter</button>
+      <button data-k="Escape">Esc</button>
+      <button data-k="Up">↑</button>
+      <button data-k="Down">↓</button>
+      <button data-k="C-c">Ctrl-C</button>
+    </div>`;
+  const input = wrap.querySelector("input");
+  wrap.querySelector(".send").onclick = () => {
+    if (input.value) { answer(s, input.value); input.value = ""; }
+  };
+  // Special keys are tmux key-names, sent literally (no appended Enter).
+  wrap.querySelectorAll(".keys button").forEach((b) => {
+    b.onclick = () => sendRaw(s, b.dataset.k);
+  });
+  return wrap;
 }
 
 function question(s) {
@@ -106,12 +150,21 @@ function keyFor(question, opt, i) {
 }
 
 async function answer(s, keys) {
+  await send(s, { keys, enter: true, literal: true });
+}
+
+// Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter.
+async function sendRaw(s, keyName) {
+  await send(s, { keys: keyName, enter: false, literal: false });
+}
+
+async function send(s, body) {
   busy = true;
   try {
     await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ keys, enter: true }),
+      body: JSON.stringify(body),
     });
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);

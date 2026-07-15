@@ -25,8 +25,18 @@ _CONTEXT_RE = re.compile(r"context[^0-9%]{0,20}(\d{1,3})\s*%", re.IGNORECASE)
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 
 
+# Signatures of an agent in the transcript, so a pane keeps its identity even when
+# the agent shells out (foreground command briefly becomes git/grep/bash).
+_CLAUDE_SIG = re.compile(
+    r"claude code|✳|✻|✶|✷|context left|bypass permissions|accept edits|shift\+tab to cycle",
+    re.IGNORECASE,
+)
+
+
 def _detect_tool(pane: Pane, text: str) -> Tool:
-    """Prefer the running command; fall back to banners in the pane text."""
+    """Identify the tool. Prefer the running command, then agent signatures in the
+    transcript. Returns "unknown" for a bare subprocess so the caller's sticky logic
+    can keep a previously-known agent identity instead of flapping to "shell"."""
     cmd = pane.current_command.lower()
     if "claude" in cmd:
         return "claude"
@@ -35,7 +45,7 @@ def _detect_tool(pane: Pane, text: str) -> Tool:
     if "gemini" in cmd:
         return "gemini"
     low = text.lower()
-    if "claude code" in low or "anthropic" in low:
+    if _CLAUDE_SIG.search(text) or "anthropic" in low:
         return "claude"
     if "codex" in low:
         return "codex"
@@ -45,33 +55,36 @@ def _detect_tool(pane: Pane, text: str) -> Tool:
 
 
 def _detect_question(text: str) -> Question | None:
-    """Look at the last non-empty lines for a prompt awaiting input."""
+    """Detect a prompt genuinely awaiting input. Deliberately CONSERVATIVE: a full
+    agent transcript scrolls prose that ends in '?' or has '1.'/'2.' numbering, which
+    must NOT be mistaken for a live prompt. We only fire on a numbered menu whose block
+    reaches the last line, or a y/N affordance ON the last line. Ambiguous framed
+    prompts are left to the LLM pass (see _has_frame)."""
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         return None
-    tail = "\n".join(lines[-6:])
     last = lines[-1]
 
-    # Numbered menu — only a *live* prompt, i.e. the menu block sits at (or one input
-    # line away from) the bottom. If real output appears below the last menu item, the
-    # prompt was already answered and we must not report it as waiting.
+    # Numbered menu — require the option block to run to (or one chrome line from) the
+    # bottom, so scrollback numbering earlier in a transcript can't trigger it.
     last_menu_idx = max(
         (i for i, ln in enumerate(lines) if _MENU_ITEM_RE.match(ln)), default=-1
     )
-    if last_menu_idx != -1 and last_menu_idx >= len(lines) - 2:
-        # Walk up from the last menu item to gather the contiguous option block.
-        options = []
-        i = last_menu_idx
-        while i >= 0 and _MENU_ITEM_RE.match(lines[i]):
-            options.insert(0, _MENU_ITEM_RE.match(lines[i]).group(2))
-            i -= 1
-        prompt = _clean_prompt(lines[i]) if i >= 0 else "Select an option"
-        return Question(prompt=prompt, options=options)
+    if last_menu_idx >= len(lines) - 2 and last_menu_idx != -1:
+        below = lines[last_menu_idx + 1 :]
+        if not any(_SHELL_PROMPT_RE.search(ln) for ln in below):
+            options = []
+            i = last_menu_idx
+            while i >= 0 and _MENU_ITEM_RE.match(lines[i]):
+                options.insert(0, _MENU_ITEM_RE.match(lines[i]).group(2))
+                i -= 1
+            if len(options) >= 2:  # a single "1." line is not a menu
+                prompt = _clean_prompt(lines[i]) if i >= 0 else "Select an option"
+                return Question(prompt=prompt, options=options)
 
-    if _YN_RE.search(tail):
+    # y/N only when it's the affordance on the very last line.
+    if _YN_RE.search(last):
         return Question(prompt=_clean_prompt(last), options=["yes", "no"])
-    if _QUESTION_TAIL_RE.search(last):
-        return Question(prompt=_clean_prompt(last), options=[])
     return None
 
 
@@ -89,13 +102,17 @@ def _detect_context_pct(text: str) -> int | None:
     return pct if 0 <= pct <= 100 else None
 
 
+# Editor / multiplexer chrome that is NOT the agent's state (vim mode, tmux footer).
+_NOISE_RE = re.compile(r"--\s*(INSERT|NORMAL|VISUAL|REPLACE)\s*--|shift\+tab to cycle", re.I)
+
+
 def _short_status(text: str) -> str:
     """Last meaningful line, trimmed — the cheap 'what's happening' phrase. Skips
-    lines that are pure box-drawing / punctuation (Claude Code's UI frames), which
-    carry no information and should defer to the LLM."""
+    box-drawing frames and editor/multiplexer chrome (vim '-- INSERT --', tmux
+    footers), which carry no info and should defer to the LLM."""
     for ln in reversed(text.splitlines()):
         s = ln.strip()
-        if s and _has_words(s):
+        if s and _has_words(s) and not _NOISE_RE.search(s):
             return s[:120]
     return ""
 
@@ -117,9 +134,11 @@ def classify(
     prev_text: str | None,
     idle_seconds: int,
     llm_fn=None,
+    force_llm: bool = False,
 ) -> PaneState:
     """Build a PaneState. `llm_fn(system, text) -> dict|None` is the lazy pass; when
-    None, heuristics-only. `idle_seconds` is how long the text has been unchanged."""
+    None, heuristics-only. `idle_seconds` is how long the text has been unchanged.
+    `force_llm` asks for a proactive pass even when heuristics look fine (see below)."""
     tool = _detect_tool(pane, text)
     question = _detect_question(text)
     context_pct = _detect_context_pct(text)
@@ -146,30 +165,50 @@ def classify(
         question=question,
     )
 
-    # Lazy LLM pass: only when it can actually add value. Fires when the pane changed
-    # and heuristics are weak — no clean status, an unparsed prompt, or a framed
-    # (box-drawing) UI where an in-frame prompt likely hides from line-based rules.
+    # Lazy LLM pass. Two triggers:
+    #   1. The pane changed and heuristics are weak — no clean status, an unparsed
+    #      prompt, or a framed (box-drawing) UI likely hiding an in-frame prompt.
+    #   2. force_llm — the watcher asks for a proactive pass (e.g. a pane that has
+    #      been idle a while and hasn't been LLM-classified on its current content).
+    #      When in doubt on a stable screen, a cheap pass beats a wrong heuristic.
     weak = (
         not status
         or (question is not None and not question.options)
         or (question is None and _has_frame(text))
     )
-    if changed and weak and llm_fn is not None:
+    if llm_fn is not None and (force_llm or (changed and weak)):
         _apply_llm(state, text, llm_fn)
 
     return state
 
 
 _LLM_SYSTEM = (
-    "You read a snapshot of a terminal pane and report its state as compact JSON. "
-    "Output ONLY an object with keys: "
-    '"status_line" (a short phrase, <=80 chars, describing what is happening, e.g. '
-    '"editing models.py" or "running tests 14/52"), '
-    '"activity" (one of "running","idle","waiting"), and optionally '
-    '"question" (an object {"prompt": string, "options": [string,...]}) when the '
-    "terminal is blocked waiting for the user to choose or confirm. Omit question "
-    "if nothing is waiting. Options should be the literal choices the user can pick."
+    "You read a snapshot of a terminal pane running a coding agent (usually Claude "
+    "Code) or a shell, and report its state as compact JSON. Coding agents render a "
+    "status line at the bottom (model, context %, cost, session stats) and, while "
+    "working, a line like '✳ Cultivating… (11m46s · ↓13.3k tokens)'. IGNORE editor/"
+    "multiplexer chrome such as vim's '-- INSERT --' or tmux mode footers — that is "
+    "not the agent's state. Output ONLY a JSON object with these keys (omit any you "
+    "cannot determine, do not guess):\n"
+    '"status_line": short phrase (<=80 chars) of what is happening now, e.g. '
+    '"Cultivating — editing classify.py" or "waiting at shell".\n'
+    '"activity": one of "running" (spinner/Thinking/streaming/a working line with an '
+    'elapsed timer), "waiting" (blocked, needs the user to type or choose), "idle" '
+    "(bare shell prompt, nothing happening).\n"
+    '"model": the model name if shown, e.g. "Sonnet 5", "Opus 4.8".\n'
+    '"context_pct": integer percent of context shown (e.g. 78 from "78% ctx").\n'
+    '"cost": dollar cost if shown, e.g. "$10.64".\n'
+    '"mode": one of "plan","accept-edits","bypass","normal" — from indicators like '
+    '"plan mode on", "accept edits on", "bypass permissions on"; else "normal".\n'
+    '"working_verb": the whimsical gerund shown while working, e.g. "Cultivating".\n'
+    '"elapsed": elapsed working time if shown, e.g. "11m46s".\n'
+    '"tokens": tokens streamed if shown, e.g. "13.3k".\n'
+    '"question": {"prompt": string, "options": [string,...]} ONLY when blocked '
+    "waiting for a choice/confirm; give literal choices cleaned of trailing "
+    "descriptions. Omit otherwise."
 )
+
+_MODES = {"plan", "accept-edits", "bypass", "normal"}
 
 
 def _apply_llm(state: PaneState, text: str, llm_fn) -> None:
@@ -180,9 +219,20 @@ def _apply_llm(state: PaneState, text: str, llm_fn) -> None:
         return
     if s := result.get("status_line"):
         state.status_line = str(s)[:120]
-    if a := result.get("activity"):
-        if a in ("running", "idle", "waiting"):
-            state.activity = a
+    if (a := result.get("activity")) in ("running", "idle", "waiting"):
+        state.activity = a
+    if m := result.get("model"):
+        state.model = str(m)[:40]
+    if isinstance(result.get("context_pct"), int):
+        pct = result["context_pct"]
+        state.context_pct = pct if 0 <= pct <= 100 else None
+    if c := result.get("cost"):
+        state.cost = str(c)[:16]
+    if (mode := result.get("mode")) in _MODES:
+        state.mode = mode
+    for field in ("working_verb", "elapsed", "tokens"):
+        if v := result.get(field):
+            setattr(state, field, str(v)[:24])
     q = result.get("question")
     if isinstance(q, dict) and q.get("prompt"):
         state.question = Question(

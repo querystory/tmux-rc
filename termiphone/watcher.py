@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
 SNAPSHOT_HISTORY = 50  # per pane
+IDLE_LLM_AFTER = 6  # seconds of no change before a proactive LLM pass on a stable screen
 
 
 class Watcher:
@@ -32,6 +33,7 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_text: dict[str, str] = {}
         self._unchanged_since: dict[str, float] = {}
+        self._llm_seen: dict[str, str] = {}  # pane_id -> text already given a forced pass
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -71,9 +73,22 @@ class Watcher:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
 
+        # Proactive LLM pass: once a screen has been stable for a bit, do a single
+        # pass on it to populate a good status_line / activity (thinking vs idle) even
+        # if heuristics didn't flag it as weak. Gated by _llm_seen so each distinct
+        # screen is sent at most once — a stable screen never re-triggers.
+        force_llm = (
+            self.use_llm
+            and idle >= IDLE_LLM_AFTER
+            and self._llm_seen.get(pane.id) != text
+        )
+        if force_llm:
+            self._llm_seen[pane.id] = text
+
         state = classify(
             pane, text, prev, idle,
             llm_fn=classify_text if self.use_llm else None,
+            force_llm=force_llm,
         )
 
         # Record a snapshot whenever the pane changed (bounded ring buffer).

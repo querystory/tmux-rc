@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 Activity = Literal["running", "idle", "waiting", "unknown"]
 Tool = Literal["claude", "codex", "gemini", "shell", "unknown"]
+# Permission/interaction mode, mirroring Claude Code's shift-tab cycle.
+Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
 
 
 class Question(BaseModel):
@@ -19,7 +21,10 @@ class Question(BaseModel):
 
 
 class PaneState(BaseModel):
-    """Everything the phone needs to render one pane."""
+    """Everything the phone needs to render one pane. The rich fields (model, cost,
+    mode, working_*) are populated by the LLM pass from an agent's status line — see
+    classify.py — since regex-picking one line grabs the wrong thing (e.g. the vim/
+    tmux "-- INSERT --" footer)."""
 
     pane_id: str
     label: str  # "session:window"
@@ -27,7 +32,18 @@ class PaneState(BaseModel):
     activity: Activity = "unknown"
     idle_seconds: int = 0
     status_line: str = ""  # one short human phrase: "Editing models.py", "14/52 tests"
-    context_pct: int | None = None  # Claude Code context-window %, when detectable
     question: Question | None = None
+
+    # Agent status-line detail (mostly Claude Code; nullable when not applicable).
+    model: str | None = None  # e.g. "Sonnet 5", "Opus 4.8"
+    context_pct: int | None = None  # context-window % used/left
+    cost: str | None = None  # e.g. "$10.64"
+    mode: Mode = "unknown"  # plan / accept-edits / bypass / normal
+
+    # Present while actively working: the whimsical verb, elapsed, and tokens streamed.
+    working_verb: str | None = None  # e.g. "Cultivating"
+    elapsed: str | None = None  # e.g. "11m46s"
+    tokens: str | None = None  # e.g. "13.3k"
+
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0

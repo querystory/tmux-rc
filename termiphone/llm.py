@@ -15,7 +15,20 @@ from functools import cache
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "gemini-2.5-flash-lite"
+# Gemini 3.1 Flash Lite — cheap/fast, strong at reading terminal text & screenshots.
+# Override with TERMIPHONE_GEMINI_MODEL if a newer flash-lite ships.
+_MODEL = os.environ.get("TERMIPHONE_GEMINI_MODEL", "gemini-3.1-flash-lite")
+
+# Dedicated LLM trace log so we can grep exactly what the model saw and returned.
+# Path override via TERMIPHONE_LLM_LOG; default alongside the repo. tail -f to watch.
+_trace = logging.getLogger("termiphone.llm.trace")
+if not _trace.handlers:
+    _path = os.environ.get("TERMIPHONE_LLM_LOG", "/tmp/termiphone-llm.log")
+    _h = logging.FileHandler(_path)
+    _h.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    _trace.addHandler(_h)
+    _trace.setLevel(logging.INFO)
+    _trace.propagate = False
 
 
 @cache
@@ -45,7 +58,12 @@ def classify_text(system: str, text: str) -> dict | None:
                 temperature=0.0,
             ),
         )
-        return json.loads(resp.text)
+        result = json.loads(resp.text)
+        # Trace the tail we sent and what came back — grep /tmp/termiphone-llm.log.
+        _trace.info("IN: %r", text[-500:])
+        _trace.info("OUT: %s", json.dumps(result))
+        return result
     except Exception:  # noqa: BLE001 - lazy pass must never break the watcher
         logger.warning("Gemini classify pass failed; using heuristics only", exc_info=True)
+        _trace.info("ERROR on IN: %r", text[-500:])
         return None

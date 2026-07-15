@@ -28,7 +28,14 @@
   }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
   .row { display: flex; align-items: center; gap: 10px; }
-  .icon { font-size: 20px; width: 24px; text-align: center; }
+  .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
+  .icon svg { display: block; }
+  .pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: #3fb950; margin-right: 5px; vertical-align: middle;
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
   .meta { flex: 1; min-width: 0; }
   .name { font-weight: 600; }
   .status { color: #8b949e; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -53,6 +60,14 @@
   .freetext { display: flex; gap: 8px; }
   .freetext input { flex: 1; background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
   .freetext button { background: #388bfd; border: 0; color: #fff; border-radius: 10px; padding: 0 16px; font-weight: 600; }
+  .raw { margin-top: 12px; }
+  .raw .freetext { margin-bottom: 8px; }
+  .keys { display: flex; gap: 6px; flex-wrap: wrap; }
+  .keys button {
+    background: #21262d; color: #adbac7; border: 1px solid #30363d;
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  .keys button:active { background: #30363d; }
   .timeline { margin-top: 12px; }
   .timeline summary { color: #8b949e; font-size: 13px; cursor: pointer; }
   .snaps { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 2px; }

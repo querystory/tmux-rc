@@ -28,6 +28,7 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 class SendBody(BaseModel):
     keys: str
     enter: bool = True
+    literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
 
 
 @asynccontextmanager
@@ -66,7 +67,7 @@ def get_snapshot(pane_id: str, snap_id: str):
 def send(pane_id: str, body: SendBody):
     if tmux.find_pane(pane_id) is None:
         raise HTTPException(404, "pane not found")
-    tmux.send_keys(pane_id, body.keys, enter=body.enter)
+    tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
     return {"ok": True}
 
 
@@ -78,10 +79,16 @@ if WEB_DIR.is_dir():
 def main() -> None:
     import uvicorn
 
+    # Reload watches the package source and restarts the process on edits (resetting
+    # the watcher's in-memory cache — safe, tmux is the source of truth and state
+    # rebuilds within a couple ticks). ON by default; set TERMIPHONE_RELOAD=0 to disable.
+    reload = os.environ.get("TERMIPHONE_RELOAD", "1") != "0"
     uvicorn.run(
-        app,
+        "termiphone.server:app" if reload else app,
         host=os.environ.get("TERMIPHONE_HOST", "0.0.0.0"),
         port=int(os.environ.get("TERMIPHONE_PORT", "8080")),
+        reload=reload,
+        reload_dirs=["termiphone"] if reload else None,
     )
 
 

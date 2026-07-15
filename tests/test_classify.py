@@ -32,14 +32,32 @@ def test_live_menu_detected():
 
 
 def test_answered_menu_not_waiting():
-    # Output below the menu ⇒ the prompt was already answered.
+    # A shell prompt below the menu ⇒ control returned to the shell, so it was
+    # answered and is no longer waiting. (A live TUI picker has chrome below its
+    # options but NO shell prompt — see test_live_picker_with_footer.)
     text = (
         "Which approach?\n  1. Refactor\n  2. New file\n  3. Skip\n"
-        "Enter choice: 1\n>>> PROCEEDING WITH 1 <<<"
+        "Enter choice: 1\n>>> PROCEEDING WITH 1 <<<\nshapor@host:~/src$ "
     )
     s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
     assert s.question is None
     assert s.activity != "waiting"
+
+
+def test_live_picker_with_footer():
+    # A real TUI picker (Claude Code model selector): options followed by footer
+    # chrome, no shell prompt. Must be detected as waiting.
+    text = (
+        "Select model\n"
+        "  1. Default    Opus 4.8\n"
+        "  2. Sonnet     Sonnet 5\n"
+        "❯ 3. Haiku      Haiku 4.5\n"
+        "● High effort (default)\n"
+        "Enter to set as default · s to use this session only · Esc to cancel"
+    )
+    s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
+    assert s.activity == "waiting"
+    assert s.question and len(s.question.options) == 3
 
 
 def test_context_pct():
