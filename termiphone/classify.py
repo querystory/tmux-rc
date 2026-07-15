@@ -72,6 +72,10 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "notable": ["short bullets of anything else useful to show — errors, test results, "
               "files changed, what just happened, etc."]
 }
+"notable" is ONLY for things not already captured in a dedicated field above. Do NOT
+restate the mode, model, cost, context %, or tool there (those have their own UI) —
+e.g. never add a bullet like "session is in bypass permissions mode". Keep notable for
+new/interesting events the other fields don't cover.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown; "tasks" only when a checklist is visible.
 """.strip()
