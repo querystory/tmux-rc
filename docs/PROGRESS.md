@@ -4,6 +4,18 @@ Running log of what changed, newest first. Commit after meaningful changes.
 
 ## 2026-07-14 (session: termiphone-dev)
 
+- Added Rewind history picker (Esc-Esc): scrollable entry list on the card, ❯-selected
+  highlight, +N/-N diff-stat notes (green/red), ↑/↓ move cursor + Enter restores.
+  Label now prefers user-chosen window/session name, falls back to cwd basename
+  (rejects tmux defaults incl. numeric "0"). Attach images via clipboard+Ctrl-V (needs
+  wl-clipboard on Wayland). Fixed input-clearing on re-render, no-store headers + SW
+  self-destruct so the phone stops serving stale assets.
+- **PAUSED — architecture reckoning.** The classifier is now a pile of regexes that
+  hard-code Claude Code's exact UI text. This is fragile (breaks on any UI/status-line
+  change or a different agent) and defeats the reason we chose an LLM. Next step is a
+  redesign: make the LLM the parser (structured JSON from pane text/screenshot),
+  regexes only as a hot-loop fast-path. See the ARCHITECTURE block in REQUIREMENTS.md.
+
 - **Fixed card oscillation on static multiple-choice prompts** (options ⇄ blank input).
   Debugged with data: LLM is deterministic on identical text (5/5); the real cause was
   the watcher reclassifying every tick because a "static" Claude screen still drifts

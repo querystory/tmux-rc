@@ -50,6 +50,34 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
       on X, then 8m on Y." Requires detecting turn boundaries (working-line appears →
       disappears) in the watcher and recording {verb, start, end, tokens}.
 
+## ⚠️ ARCHITECTURE — READ BEFORE ADDING FEATURES
+The classifier has drifted into a pile of brittle regexes that hard-code the EXACT
+text of Claude Code's UI (Rewind header, ❯ cursor, "No code changes", "N files
+changed", status-line fields, spinner glyphs). This DEFEATS THE POINT of using an LLM:
+it breaks the instant Anthropic changes a label, the user edits their status line, or
+termiphone points at Codex/Gemini (which render completely differently).
+
+**Correct architecture (to refactor toward): the LLM is the parser.** Feed the pane
+text (and later the screenshot) to Flash Lite and get back structured JSON for whatever
+it sees — status, question, rewind picker, task list, narrative — vendor-agnostic and
+resilient to UI wording changes. Regexes should be at most a cheap fast-path for the
+hot loop (change detection / obvious idle), NEVER the source of truth for parsing agent
+UI. Before adding any more UI-specific detection: move parsing into the LLM schema.
+PAUSED here (2026-07-14) to redesign around this before writing more scrapers.
+
+## Activity narrative (HIGH VALUE — next big feature)
+- [ ] **Aggregated "what's been going on" narrative.** Today the card shows only the
+      CURRENT frame. For a long-running agent you can't tell what it's been doing
+      without reading scrollback (which the user does a lot in real sessions). Build a
+      running, append-only, time-stamped activity log summarized by Flash Lite: as the
+      pane scrolls, periodically summarize the new scrollback into short entries with
+      time tickers — e.g. "12m ago: churned on Rewind parsing · 5m ago: ran tests (8
+      passed) · 2m ago: editing classify.py". Show recent large tasks. This is the
+      feature that turns termiphone from "current state" into "session story".
+      Design notes: dedup against already-summarized text (fingerprint); append not
+      replace; bound the log; one Flash Lite call per meaningful scroll delta, not per
+      tick.
+
 ## Milestone 2 — all panes
 - [~] Label = window NAME (done in tmux.py); fan-out still single-pane.
 - [ ] Fan out to ALL tmux windows/panes (user has ~11). API/state already list-shaped → watcher change only.
