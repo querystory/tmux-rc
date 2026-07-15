@@ -18,15 +18,22 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
 - [ ] **False-positive questions**: transcript prose ending in "?" or with 1./2. bullets read as a live prompt, by heuristic AND LLM. Only real affordances (boxed prompt, ❯ on options, input line) = waiting. Heuristic tightened; LLM prompt NOT yet. UNVERIFIED.
 
 ## UI / presentation
-- [ ] **Claude logo STILL not showing** — user asked 3×. Use the real mark. Reference: https://claude.ai/favicon.ico. My inline-SVG attempts failed. NEEDS a definitive fix + visual verification in the browser.
-- [ ] Mode as icon/badge (plan / accept-edits / bypass / normal) like Claude web.
-- [ ] Clean metadata row: model · ctx% bar · cost · mode (not a run-on string).
-- [ ] Background-agent count per pane; collapsible.
-- [ ] Don't waste horizontal space; lead with a human summary.
+- [x] Claude logo — use the real claude.ai icon (web/claude.png). Confirmed by user.
+- [x] Mode as badge (plan / accept-edits / bypass), color-coded like Claude web.
+- [x] Clean metadata chip row: model · ctx% bar · cost · mode · agent count.
+- [x] Background-agent count per pane (PaneState.agents, extracted by LLM).
+- [x] Lead with a human task summary (status_line), working subline verb·elapsed·tokens.
+- [x] Preserve typed input across the 2s re-render (was clearing after ~1s).
+- [ ] **Turn-timeline view** — a history of the agent's long turns, e.g.
+      "✻ Churned for 12m13s", "✳ Cultivated for 8m02s" — one entry per turn with its
+      verb, duration, and (if available) tokens. Distinct from the snapshot strip: this
+      is a durable log of completed turns, so you can scroll back and see "it spent 12m
+      on X, then 8m on Y." Requires detecting turn boundaries (working-line appears →
+      disappears) in the watcher and recording {verb, start, end, tokens}.
 
 ## Milestone 2 — all panes
+- [~] Label = window NAME (done in tmux.py); fan-out still single-pane.
 - [ ] Fan out to ALL tmux windows/panes (user has ~11). API/state already list-shaped → watcher change only.
-- [ ] Label = window NAME (e.g. "Resolve PR 38"), not "work:0".
 
 ## Non-goals for PoC
 - Push notifications; auth (LAN/tunnel only, do NOT expose); PNG snapshots; tmux control-mode.
