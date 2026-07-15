@@ -512,18 +512,26 @@ setInterval(async () => {
   } catch {}
 }, 5000);
 
-// Keyboard fit: CSS 100dvh doesn't reliably shrink for the on-screen keyboard (or its
-// autofill strip) on mobile Chrome, so the bottom bar gets covered. Pin the body height
-// to the VISUAL viewport (the area actually visible above the keyboard) and keep the
-// active input scrolled into view. This makes the whole bar sit above the keyboard.
-if (window.visualViewport) {
+// Keyboard fit: CSS 100dvh / flex compression doesn't reliably clear the on-screen
+// keyboard on mobile Chrome (the bar ends up half-covered). Explicitly PIN the bar to
+// the bottom of the visual viewport (the visible area above the keyboard) via a fixed
+// transform, and pad #panes so nothing hides behind it. This positions the whole bar —
+// keys + input + send — right above the keyboard regardless of flex math.
+const barEl = document.getElementById("bar");
+if (window.visualViewport && barEl) {
+  const vv = window.visualViewport;
   const fit = () => {
-    document.body.style.height = window.visualViewport.height + "px";
-    if (document.activeElement === bar.input)
-      bar.input.scrollIntoView({ block: "nearest" });
+    // Distance from the layout viewport's top to the visual viewport's bottom.
+    const bottom = vv.offsetTop + vv.height;
+    barEl.style.position = "fixed";
+    barEl.style.left = "0";
+    barEl.style.right = "0";
+    barEl.style.top = bottom - barEl.offsetHeight + "px";
+    barEl.style.zIndex = "20";
+    panesEl.style.paddingBottom = barEl.offsetHeight + 12 + "px";
   };
-  window.visualViewport.addEventListener("resize", fit);
-  window.visualViewport.addEventListener("scroll", fit);
+  vv.addEventListener("resize", fit);
+  vv.addEventListener("scroll", fit);
   bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
-  fit();
+  setTimeout(fit, 50);
 }
