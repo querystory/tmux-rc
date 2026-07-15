@@ -72,6 +72,7 @@ class Watcher:
         self._recent_events: dict[str, list[str]] = {}  # pane_id -> recently-emitted event texts
         self._burst: dict[str, dict] = {}  # pane_id -> {start, events:[{text,ts}]} for the current activity burst
         self._summary: dict[str, dict] = {}  # pane_id -> cached {from,to,text} idle summary
+        self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
         self._last_tick: float = 0.0  # wall time of the last loop iteration (staleness check)
         self._task: asyncio.Task | None = None
 
@@ -118,6 +119,13 @@ class Watcher:
             self.states = []
             return
         alive = {p.id for p in panes}
+        # tmux recycles pane ids on close ("%3" freed, reassigned to a new pane). If an
+        # id's pid changed, it's a different pane wearing the old id — evict the previous
+        # pane's buffers so its snapshots/events don't bleed into the new one.
+        for p in panes:
+            if p.id in self._birth and self._birth[p.id] != p.pid:
+                self._forget(p.id)
+            self._birth[p.id] = p.pid
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
         states = []
@@ -142,14 +150,22 @@ class Watcher:
         self.states = states
         self._gc(alive)
 
+    # Every per-pane store, keyed by pane id. One tuple so gc (vanished panes) and
+    # reuse-eviction (recycled ids) can't drift apart.
+    def _stores(self):
+        return (self._prev_fp, self._unchanged_since, self._last_parse,
+                self._tool, self._state, self._recent_events, self.snapshots,
+                self._burst, self._summary, self._birth)
+
+    def _forget(self, pane_id: str) -> None:
+        for store in self._stores():
+            store.pop(pane_id, None)
+
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows
         doesn't leak memory over a long session."""
-        for store in (self._prev_fp, self._unchanged_since, self._last_parse,
-                      self._tool, self._state, self._recent_events, self.snapshots,
-                      self._burst, self._summary):
-            for pid in [k for k in store if k not in alive]:
-                del store[pid]
+        for pid in {k for store in self._stores() for k in store} - alive:
+            self._forget(pid)
 
     def _maybe_summarize(self, pane_id: str, idle: int) -> dict | None:
         """Once a pane has been idle past the threshold, summarize its recent activity

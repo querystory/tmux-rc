@@ -24,6 +24,7 @@ _PANE_FMT = "\t".join(
         "#{pane_current_command}",
         "#{pane_title}",
         "#{pane_current_path}",
+        "#{pane_pid}",
     ]
 )
 
@@ -40,6 +41,11 @@ class Pane:
     current_command: str
     title: str
     cwd: str = ""
+    # PID of the pane's process. tmux recycles pane ids ("%3") when panes close, so id
+    # alone isn't a durable identity — the pid disambiguates a reused id from the
+    # original pane, letting the watcher evict stale buffers. (pane_start_time is empty
+    # on tmux 3.4; pane_pid is populated and just as unique.)
+    pid: str = ""
 
     @property
     def label(self) -> str:
@@ -114,7 +120,7 @@ def list_panes() -> list[Pane]:
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) != 8:
+        if len(parts) != 9:
             continue
         panes.append(Pane(*parts))
     return panes
