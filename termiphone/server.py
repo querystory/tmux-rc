@@ -84,6 +84,7 @@ def get_state():
         "stale": w.is_stale(),
         "llm_error": last_error["msg"],  # transient; UI shows it subtly, not a big banner
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
+        "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "panes": w.states,
     }
 

@@ -85,6 +85,17 @@ def server_running() -> bool:
         return False
 
 
+def prefix_key() -> str:
+    """The tmux prefix key (e.g. 'C-a'), auto-detected so the phone's prefix button
+    matches the user's config instead of assuming the C-b default. Falls back to C-b."""
+    try:
+        out = _run(["show-options", "-g", "prefix"]).strip()  # e.g. "prefix C-a"
+        parts = out.split()
+        return parts[1] if len(parts) >= 2 and parts[1] != "None" else "C-b"
+    except subprocess.CalledProcessError:
+        return "C-b"
+
+
 def active_pane_id() -> str | None:
     """The pane id tmux currently has focused (active window's active pane), so the
     phone can default its selection to the pane the user is actually on."""

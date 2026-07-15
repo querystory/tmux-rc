@@ -23,6 +23,10 @@ function activeId() {
 }
 function setActive(id) {
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
+  // Immediately mark this pane as tmux_active so the highlight updates without
+  // waiting for the next poll (which is 2s away — feels broken without this).
+  Object.values(panesById).forEach((s) => { s.tmux_active = s.pane_id === id; });
+  render(Object.values(panesById));
 }
 
 // Client-side accumulated activity log per pane. Each parse only returns the events
@@ -65,6 +69,12 @@ async function poll() {
     // failed/total calls · calls/min. Lets you SEE the API-call volume (what tripped
     // the 429) at a glance, without a big scary banner for transient errors.
     showUsage(data.usage, data.llm_error);
+    // Update the prefix button label/key from the server's auto-detected value.
+    const pfx = document.getElementById("bar-prefix");
+    if (pfx && data.prefix) {
+      pfx.dataset.k = data.prefix;
+      pfx.textContent = data.prefix.replace("C-", "Ctrl-");
+    }
     render(data.panes || []);
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
@@ -107,21 +117,14 @@ function render(states) {
   // Waiting first, then running, then idle; stable within group.
   const order = { waiting: 0, running: 1, idle: 2, unknown: 3 };
   states.sort((a, b) => (order[a.activity] ?? 9) - (order[b.activity] ?? 9));
-  // Default the active pane (when unset or it vanished) to the pane tmux has focused,
-  // falling back to the top card. This makes a fresh load land on the pane the user is
-  // actually on, not just whatever sorts to the top.
-  if (!activePane || !panesById[activePane]) {
-    const focused = states.find((s) => s.tmux_active);
-    activePane = (focused || states[0]).pane_id;
-  }
   panesEl.replaceChildren(...states.map(card));
-  updateBar(panesById[activePane]);
+  updateBar(panesById[activeId()]);
 }
 
 function card(s) {
   const el = document.createElement("div");
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
-    + (s.pane_id === activePane ? " active" : "");
+    + (s.pane_id === activeId() ? " active" : "");
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
     if (e.target.closest("button, input, a, summary, details")) return; // don't steal option/timeline taps
@@ -320,7 +323,8 @@ const bar = {
   file: document.getElementById("bar-file"),
 };
 function activeState() {
-  return panesById[activePane] || { pane_id: activePane, label: "" };
+  const id = activeId();
+  return panesById[id] || { pane_id: id, label: "" };
 }
 function updateBar(s) {
   bar.input.placeholder = s ? `Type into ${s.label || "pane"}…` : "No pane";
@@ -417,7 +421,7 @@ function question(s) {
       const b = document.createElement("button");
       b.className = "opt";
       b.textContent = opt;
-      b.onclick = () => { activePane = s.pane_id; answer(s, keyFor(s.question, opt, i)); };
+      b.onclick = () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); };
       opts.appendChild(b);
     });
     q.appendChild(opts);
