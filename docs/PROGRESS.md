@@ -1,0 +1,26 @@
+# termiphone — Progress Log
+
+Running log of what changed, newest first. Commit after meaningful changes.
+
+## 2026-07-14 (session: termiphone-dev)
+
+- Wrote REQUIREMENTS.md + this PROGRESS.md after user (rightly) called out that I'd
+  been churning without capturing requirements or committing. Process fix: update both
+  files and commit after each meaningful change from here on.
+- Set Gemini model to **gemini-3.1-flash-lite** (was 2.5-flash-lite — outdated).
+- Added LLM trace logging → `/tmp/termiphone-llm.log` (grep to debug misclassification).
+- `_detect_tool` now sniffs agent signatures (✳/context left/bypass/shift+tab) so a
+  pane shelling out doesn't immediately read as a subprocess — stickiness in watcher
+  still TODO. UNVERIFIED.
+- Tightened `_detect_question` heuristic to reduce false "waiting" on transcript prose.
+  LLM prompt still needs tightening. UNVERIFIED.
+- Added rich status extraction (model/ctx/cost/mode/working verb/elapsed/tokens) via
+  the LLM pass; proactive pass on idle screens. `PaneState` extended.
+- Added always-on raw input row + special keys (Enter/Esc/arrows/Ctrl-C) to every card.
+- Claude logo: TWO attempts (bezier, then rotated-rect sunburst) — STILL not rendering
+  correctly per user. Needs definitive fix + browser verification.
+
+### Milestone 1 (earlier) — DONE + verified
+- tmux wrappers, heuristics+lazy-LLM classifier, watcher, FastAPI server, PWA.
+- End-to-end verified: real Claude Code model picker detected as waiting, tapped an
+  option on the phone, agent proceeded.

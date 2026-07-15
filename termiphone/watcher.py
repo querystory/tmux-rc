@@ -34,6 +34,7 @@ class Watcher:
         self._prev_text: dict[str, str] = {}
         self._unchanged_since: dict[str, float] = {}
         self._llm_seen: dict[str, str] = {}  # pane_id -> text already given a forced pass
+        self._tool: dict[str, str] = {}  # pane_id -> sticky tool once identified as an agent
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -90,6 +91,14 @@ class Watcher:
             llm_fn=classify_text if self.use_llm else None,
             force_llm=force_llm,
         )
+
+        # Sticky tool: once a pane is identified as an agent, keep that identity even
+        # when it shells out (foreground becomes bash/git and detection would say
+        # "shell"). This stops the claude→shell→claude oscillation.
+        if state.tool in ("claude", "codex", "gemini"):
+            self._tool[pane.id] = state.tool
+        elif state.tool in ("shell", "unknown") and pane.id in self._tool:
+            state.tool = self._tool[pane.id]
 
         # Record a snapshot whenever the pane changed (bounded ring buffer).
         if text != prev:
