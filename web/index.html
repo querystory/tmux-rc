@@ -27,6 +27,11 @@
     padding: 12px 14px; overflow: hidden;
   }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
+  .card.active { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: #0d1117f2; backdrop-filter: blur(8px); border-top: 1px solid #30363d;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
+  #panes { padding-bottom: 150px; }  /* clear the fixed bar */
   .row { display: flex; align-items: center; gap: 10px; }
   .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
   .icon svg { display: block; }
@@ -135,6 +140,25 @@
     </span>
   </header>
   <div id="panes"><div class="empty">Connecting…</div></div>
+  <!-- Single persistent input bar, fixed at the bottom. Targets the active card. -->
+  <div id="bar">
+    <div class="freetext">
+      <button id="bar-attach" class="attach" title="Attach image">📎</button>
+      <button id="bar-paste" class="paste" title="Paste image from clipboard">📋</button>
+      <input id="bar-input" placeholder="Type…" />
+      <button id="bar-send" class="send">Send</button>
+      <input id="bar-file" type="file" accept="image/*" hidden />
+    </div>
+    <div class="keys">
+      <button data-k="Enter">⏎ Enter</button>
+      <button data-k="Escape">Esc</button>
+      <button data-k="Up">↑</button>
+      <button data-k="Down">↓</button>
+      <button data-k="C-o">Ctrl-O</button>
+      <button data-k="C-b">Ctrl-B</button>
+      <button data-k="C-c">Ctrl-C</button>
+    </div>
+  </div>
   <script src="/app.js"></script>
 </body>
 </html>

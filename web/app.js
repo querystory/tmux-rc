@@ -12,6 +12,15 @@ const liveEl = document.getElementById("live");
 const openTimelines = new Set();
 let busy = false; // suppress polling flicker while an answer is in flight
 
+// The single bottom input bar targets ONE pane at a time (activePane). Tap a card to
+// set it; defaults to the top card. Sticky across re-renders so typing isn't lost.
+let activePane = null;
+let panesById = {}; // latest state per pane, for the bottom bar to act on
+function setActive(id) {
+  activePane = id;
+  render(Object.values(panesById)); // re-render to move the highlight + placeholder
+}
+
 // Client-side accumulated activity log per pane. Each parse only returns the events
 // currently on screen (1-2); we append new ones here so you can scroll back over the
 // last several minutes and see everything the LLM summarized. Dedup by text so the
@@ -81,37 +90,30 @@ function escAttr(s) { return String(s).replace(/"/g, "&quot;"); }
 function render(states) {
   // Accumulate this poll's events into each pane's running client-side log first.
   states.forEach((s) => accumulateEvents(s.pane_id, s.events));
+  panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   if (!states.length) {
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
+    updateBar(null);
     return;
   }
-  // Preserve the focused text input across the re-render (re-rendering replaces all
-  // cards, which would otherwise wipe what the user is typing). Remember which pane's
-  // input had focus, its value, and caret, then restore after rebuilding.
-  const active = document.activeElement;
-  const saved =
-    active && active.tagName === "INPUT" && active.dataset.pane
-      ? { pane: active.dataset.pane, value: active.value, start: active.selectionStart, end: active.selectionEnd }
-      : null;
-
   // Waiting first, then running, then idle; stable within group.
   const order = { waiting: 0, running: 1, idle: 2, unknown: 3 };
   states.sort((a, b) => (order[a.activity] ?? 9) - (order[b.activity] ?? 9));
+  // Default the active pane to the top card if unset or the active pane vanished.
+  if (!activePane || !panesById[activePane]) activePane = states[0].pane_id;
   panesEl.replaceChildren(...states.map(card));
-
-  if (saved) {
-    const input = panesEl.querySelector(`input[data-pane="${CSS.escape(saved.pane)}"]`);
-    if (input) {
-      input.value = saved.value;
-      input.focus();
-      try { input.setSelectionRange(saved.start, saved.end); } catch {}
-    }
-  }
+  updateBar(panesById[activePane]);
 }
 
 function card(s) {
   const el = document.createElement("div");
-  el.className = "card" + (s.activity === "waiting" ? " waiting" : "");
+  el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
+    + (s.pane_id === activePane ? " active" : "");
+  // Tapping a card makes it the target of the single bottom input bar.
+  el.onclick = (e) => {
+    if (e.target.closest("button, input, a, summary, details")) return; // don't steal option/timeline taps
+    setActive(s.pane_id);
+  };
 
   const row = document.createElement("div");
   row.className = "row";
@@ -145,10 +147,8 @@ function card(s) {
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
   const log = eventLog[s.pane_id] || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
-  // A question already renders its own reply box, so don't also show the standalone
-  // text input (that's the double-input/double-Send wart). Keep the special-key row
-  // either way (Enter/Esc/arrows/Ctrl are still useful during a question).
-  el.appendChild(inputRow(s, /*withText=*/ !s.question));
+  // No per-card input anymore — a single persistent bar at the bottom of the page
+  // handles text/keys/images for whichever card is active (see the #bar element).
   el.appendChild(timeline(s));
   return el;
 }
@@ -279,50 +279,43 @@ function metaRow(s) {
 
 // Always-available raw input: type any text into the pane, plus special keys. This
 // is the escape hatch for anything the classifier didn't turn into a button.
-function inputRow(s, withText = true) {
-  const wrap = document.createElement("div");
-  wrap.className = "raw";
-  // withText=false when a question already renders its own reply box (avoids the
-  // double input + double Send). The special-key row always shows.
-  const textRow = withText
-    ? `<div class="freetext">
-      <button class="attach" title="Attach image">📎</button>
-      <button class="paste" title="Paste image from clipboard">📋</button>
-      <input data-pane="${esc(s.pane_id)}" placeholder="Type into ${esc(s.label)}…" />
-      <button class="send">Send</button>
-      <input type="file" accept="image/*" hidden />
-    </div>`
-    : "";
-  wrap.innerHTML = `
-    ${textRow}
-    <div class="keys">
-      <button data-k="Enter">⏎ Enter</button>
-      <button data-k="Escape">Esc</button>
-      <button data-k="Up">↑</button>
-      <button data-k="Down">↓</button>
-      <button data-k="C-o">Ctrl-O</button>
-      <button data-k="C-b">Ctrl-B</button>
-      <button data-k="C-c">Ctrl-C</button>
-    </div>`;
-  const input = wrap.querySelector('input[data-pane]');
-  const filePicker = wrap.querySelector('input[type=file]');
-  if (input && filePicker) {
-    wrap.querySelector(".send").onclick = () => {
-      if (input.value) { answer(s, input.value); input.value = ""; }
-    };
-    wrap.querySelector(".attach").onclick = () => filePicker.click();
-    filePicker.onchange = () => filePicker.files[0] && uploadImage(s, filePicker.files[0], input);
-    wrap.querySelector(".paste").onclick = () => pasteImage(s, input);
-    input.onpaste = (e) => {
-      const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-      if (item) { e.preventDefault(); uploadImage(s, item.getAsFile(), input); }
-    };
-  }
-  // Special keys are tmux key-names, sent literally (no appended Enter).
-  wrap.querySelectorAll(".keys button").forEach((b) => {
-    b.onclick = () => sendRaw(s, b.dataset.k);
+// The single persistent bottom input bar. It's a static element in the HTML, wired
+// ONCE here; it always targets the active pane. Being persistent (never re-rendered)
+// means your typed text survives poll re-renders. All input/keys/images route to
+// activePane via activeState().
+const bar = {
+  input: document.getElementById("bar-input"),
+  send: document.getElementById("bar-send"),
+  attach: document.getElementById("bar-attach"),
+  paste: document.getElementById("bar-paste"),
+  file: document.getElementById("bar-file"),
+};
+function activeState() {
+  return panesById[activePane] || { pane_id: activePane, label: "" };
+}
+function updateBar(s) {
+  bar.input.placeholder = s ? `Type into ${s.label || "pane"}…` : "No pane";
+}
+if (bar.input) {
+  bar.send.onclick = () => {
+    if (bar.input.value) { answer(activeState(), bar.input.value); bar.input.value = ""; }
+  };
+  bar.input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && bar.input.value) {
+      answer(activeState(), bar.input.value); bar.input.value = "";
+    }
   });
-  return wrap;
+  bar.attach.onclick = () => bar.file.click();
+  bar.file.onchange = () => bar.file.files[0] && uploadImage(activeState(), bar.file.files[0], bar.input);
+  bar.paste.onclick = () => pasteImage(activeState(), bar.input);
+  bar.input.onpaste = (e) => {
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (item) { e.preventDefault(); uploadImage(activeState(), item.getAsFile(), bar.input); }
+  };
+  // Special keys → the active pane (tmux key-names, sent literally).
+  document.querySelectorAll("#bar .keys button").forEach((b) => {
+    b.onclick = () => sendRaw(activeState(), b.dataset.k);
+  });
 }
 
 // Read an image off the clipboard and upload it. navigator.clipboard.read() is the
@@ -384,8 +377,8 @@ function question(s) {
   prompt.textContent = s.question.prompt;
   q.appendChild(prompt);
 
-  // Real options as buttons — but drop any "type something"/"Other" pseudo-option;
-  // the free-text input below always covers that, so it's client-side, not an answer.
+  // Option buttons (drop any "type something"/"Other" pseudo-option — the bottom bar
+  // covers free-text). Tapping an option also makes this pane active, then answers it.
   const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
   if (realOpts.length) {
     const opts = document.createElement("div");
@@ -394,20 +387,12 @@ function question(s) {
       const b = document.createElement("button");
       b.className = "opt";
       b.textContent = opt;
-      b.onclick = () => answer(s, keyFor(s.question, opt, i));
+      b.onclick = () => { activePane = s.pane_id; answer(s, keyFor(s.question, opt, i)); };
       opts.appendChild(b);
     });
     q.appendChild(opts);
   }
-
-  // ALWAYS offer a free-text reply — a natural-language question can be answered in
-  // your own words, and this is the client-side "type something" affordance.
-  const ft = document.createElement("div");
-  ft.className = "freetext";
-  ft.innerHTML = `<input data-pane="${esc(s.pane_id)}:q" placeholder="Type a reply…" /><button>Send</button>`;
-  const input = ft.querySelector("input");
-  ft.querySelector("button").onclick = () => input.value && answer(s, input.value);
-  q.appendChild(ft);
+  // Free-text reply goes through the single bottom bar (no per-card input anymore).
   return q;
 }
 
