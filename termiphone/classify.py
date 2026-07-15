@@ -18,7 +18,9 @@ from .tmux import Pane
 _YN_RE = re.compile(r"\[y/n\]|\(y/n\)|\byes/no\b|\[Y/n\]|\[y/N\]", re.IGNORECASE)
 _QUESTION_TAIL_RE = re.compile(r"\?\s*$")
 # A numbered menu: lines like "1. Foo" / "2) Bar" / "❯ 1. Baz".
-_MENU_ITEM_RE = re.compile(r"^\s*[❯>]?\s*(\d+)[.)]\s+(.*\S)\s*$")
+_MENU_ITEM_RE = re.compile(r"^\s*[❯>›]?\s*(\d+)[.)]\s+(.*\S)\s*$")
+# A selection cursor on a menu item — a strong "live picker" signal prose never has.
+_CURSOR_RE = re.compile(r"^\s*[❯›>]\s*\d")
 # Claude Code's context-window status line, e.g. "Context left: 47%".
 _CONTEXT_RE = re.compile(r"context[^0-9%]{0,20}(\d{1,3})\s*%", re.IGNORECASE)
 # A generic shell prompt at the tail (user@host:path$ / #).
@@ -65,12 +67,15 @@ def _detect_question(text: str) -> Question | None:
         return None
     last = lines[-1]
 
-    # Numbered menu — require the option block to run to (or one chrome line from) the
-    # bottom, so scrollback numbering earlier in a transcript can't trigger it.
-    last_menu_idx = max(
-        (i for i, ln in enumerate(lines) if _MENU_ITEM_RE.match(ln)), default=-1
-    )
-    if last_menu_idx >= len(lines) - 2 and last_menu_idx != -1:
+    # Numbered menu. Two ways to qualify as a LIVE picker (vs. scrollback numbering in
+    # a transcript): the block reaches the bottom (within a line), OR one of the items
+    # carries a selection cursor (❯/›/>), which prose never has. Either way, reject if
+    # a shell prompt appears below (that means it was already answered).
+    menu_idxs = [i for i, ln in enumerate(lines) if _MENU_ITEM_RE.match(ln)]
+    last_menu_idx = menu_idxs[-1] if menu_idxs else -1
+    has_cursor = any(_CURSOR_RE.match(lines[i]) for i in menu_idxs)
+    near_bottom = last_menu_idx >= len(lines) - 2
+    if last_menu_idx != -1 and (near_bottom or has_cursor):
         below = lines[last_menu_idx + 1 :]
         if not any(_SHELL_PROMPT_RE.search(ln) for ln in below):
             options = []
@@ -190,8 +195,11 @@ _LLM_SYSTEM = (
     "multiplexer chrome such as vim's '-- INSERT --' or tmux mode footers — that is "
     "not the agent's state. Output ONLY a JSON object with these keys (omit any you "
     "cannot determine, do not guess):\n"
-    '"status_line": short phrase (<=80 chars) of what is happening now, e.g. '
-    '"Cultivating — editing classify.py" or "waiting at shell".\n'
+    '"status_line": short phrase (<=80 chars) of what is happening now. Prefer '
+    "summarizing WHAT is being worked on over echoing the spinner word — e.g. "
+    "\"Cultivating — editing classify.py\" beats \"Cultivating…\". For a plain shell, "
+    'describe the running or last command and whether it finished, e.g. "running '
+    'make test (14/52)", "git rebase in progress", "$ idle at prompt".\n'
     '"activity": one of "running" (spinner/Thinking/streaming/a working line with an '
     'elapsed timer), "waiting" (blocked, needs the user to type or choose), "idle" '
     "(bare shell prompt, nothing happening).\n"
@@ -203,9 +211,15 @@ _LLM_SYSTEM = (
     '"working_verb": the whimsical gerund shown while working, e.g. "Cultivating".\n'
     '"elapsed": elapsed working time if shown, e.g. "11m46s".\n'
     '"tokens": tokens streamed if shown, e.g. "13.3k".\n'
-    '"question": {"prompt": string, "options": [string,...]} ONLY when blocked '
-    "waiting for a choice/confirm; give literal choices cleaned of trailing "
-    "descriptions. Omit otherwise."
+    '"question": {"prompt": string, "options": [string,...]} — include this ONLY if '
+    "the agent has STOPPED and is presenting an interactive prompt the user must "
+    "answer RIGHT NOW: a boxed confirmation dialog, a selection list with a "
+    "highlighted cursor (❯) on the choices, or an explicit input line at the very "
+    "bottom awaiting text. This is rare. Do NOT invent a question from ordinary "
+    "output: an agent's prose that merely contains a question mark, a bulleted or "
+    "numbered list inside its reasoning/plan, or a completed menu with output below "
+    "it is NOT a question — omit the key and use activity 'running' or 'idle'. When "
+    "in doubt, OMIT question."
 )
 
 _MODES = {"plan", "accept-edits", "bypass", "normal"}

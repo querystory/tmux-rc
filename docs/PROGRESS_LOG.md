@@ -29,6 +29,17 @@ build) — this is the "what I did / what broke" narrative. Committed as we go.
   strips vim/tmux chrome from the heuristic path too.
 - **Working indicator captured**: verb ("Cultivating"/"Orbiting"), elapsed, tokens.
 
+- **False-positive questions fixed (both paths).** Heuristic: menu must reach bottom
+  OR carry a `❯` cursor; y/N only on last line; bare-"?" removed. LLM: prompt now
+  forbids inventing a question from prose/lists. Regression test added (8 tests pass).
+- **Shell-awareness + task-summary** added to LLM prompt (describe running command /
+  summarize what's worked on, not just the spinner verb).
+- **Logo root cause was the service worker** caching stale app.js. SW now caches
+  nothing + drops old caches; real claude.png used; /api/version drives client auto-
+  reload on asset change. May need one hard refresh to evict the old SW.
+- **Tool oscillation fixed**: agent signatures keep a pane 'claude' when it shells out.
+- **Label** uses tmux window name, not "0:0".
+
 ### KNOWN BUGS (open)
 
 1. **Tool oscillates claude ⇄ shell.** When Claude Code shells out, the pane's

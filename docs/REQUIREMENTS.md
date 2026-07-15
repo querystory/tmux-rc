@@ -27,16 +27,16 @@ the source of truth for "what did Shapor ask for" — keep it current as we iter
       ("11m46s"), tokens streamed ("13.3k").
 - [x] Ignore editor/multiplexer chrome: vim `-- INSERT --`, tmux footer
       (`shift+tab to cycle`) — NOT the agent's state.
-- [ ] **Stop false-positive questions.** A scrolling transcript with prose ending in
-      "?" or containing "1./2." bullet lists must NOT be read as a live prompt — by
-      the heuristic OR the LLM. Only genuine interactive affordances (boxed prompt,
-      `❯` cursor on options, explicit input line) count as `waiting`.
-- [ ] **status_line should summarize the TASK, not just echo the verb.** Show *what*
-      is being worked on ("Building termiphone remote control for terminal"), ideally
-      with a subtask ("adding status line"), synthesized from the visible transcript —
-      not just "running Orbiting…". Wasted horizontal space today.
-- [ ] **Shell-command awareness.** For a plain shell pane, describe the running
-      command, whether it finished, and exit status — not just Claude Code.
+- [x] **Stop false-positive questions.** Heuristic now requires a menu at the bottom
+      OR a `❯` selection cursor (prose never has one); y/N only on the last line;
+      bare-"?" branch removed. LLM prompt tightened to omit `question` unless a genuine
+      interactive affordance is present. Regression test added.
+- [~] **status_line should summarize the TASK, not just echo the verb.** LLM prompt now
+      asks to summarize WHAT is worked on over echoing the spinner word. Needs live
+      confirmation it actually produces task summaries (may need transcript context,
+      not just the status line, fed to it).
+- [x] **Shell-command awareness.** LLM prompt now covers plain-shell panes (running/
+      last command, finished, exit).
 - [~] Proactive LLM pass when a screen is idle/stable a few seconds (so status is
       populated even when heuristics look "fine"). Implemented; needs the prompt
       tightening above so it doesn't invent questions.

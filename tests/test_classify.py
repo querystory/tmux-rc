@@ -60,6 +60,20 @@ def test_live_picker_with_footer():
     assert s.question and len(s.question.options) == 3
 
 
+def test_transcript_prose_is_not_a_question():
+    # Agent reasoning with a numbered list mid-scroll — must NOT be read as a prompt.
+    text = (
+        "Let me plan the fix:\n"
+        "  1. Remove the bare-? branch\n"
+        "  2. Require y/N on the last line\n"
+        "Now I will make these edits and verify. Does that work?\n"
+        "Editing classify.py to apply the change now."
+    )
+    s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
+    assert s.question is None
+    assert s.activity != "waiting"
+
+
 def test_context_pct():
     text = "Context left: 47%\nAnalyzing codebase..."
     s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
