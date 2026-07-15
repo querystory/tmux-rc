@@ -66,7 +66,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
               "what is being worked on (prefer the task over echoing a spinner word)",
   "model": "...", "context_pct": <int>, "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
-  "question": {"prompt": "...", "options": ["..."]},
+  "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
   "events": [
@@ -86,6 +86,16 @@ have their own dedicated field (mode, model, cost, context %, tool, tasks, quest
 rewind) into events.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown; "tasks" only when a checklist is visible.
+
+"question.answer_style" tells the phone HOW to send an answer — this matters a lot:
+- "text": the agent asked a plain natural-language question and is waiting for a typed
+  reply (NOT a widget). Options you list are suggested answers; the phone will TYPE the
+  chosen option's text and press Enter. Use this for Claude Code's normal conversational
+  questions.
+- "menu": the terminal is showing an actual interactive selection widget (a numbered
+  list you press a digit for, or a cursor list you arrow through) — the options map to
+  keystrokes, not typed text. Use this only for a real on-screen menu/picker.
+When unsure, prefer "text" (typing the answer is safe; sending a stray digit is not).
 """.strip()
 
 

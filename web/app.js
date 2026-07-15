@@ -323,11 +323,18 @@ function question(s) {
 
 // Decide what keystroke represents the chosen option. y/n prompts want a letter;
 // numbered menus want the number; otherwise send the literal option text.
+// What to send when an option is tapped, per answer_style:
+//   "menu"  — a real on-screen widget: options map to keystrokes (digit / y|n letter).
+//   "text"  — a natural-language question (default): TYPE the option's text as a reply.
+// Getting this wrong is what made tapping option 4 type a stray "4" into a prose
+// question instead of answering it — so default to text unless it's truly a menu.
 function keyFor(question, opt, i) {
-  const lc = opt.toLowerCase();
-  if (question.options.length === 2 && (lc === "yes" || lc === "no")) return lc[0];
-  if (question.options.length > 2) return String(i + 1);
-  return opt;
+  if (question.answer_style === "menu") {
+    const lc = opt.toLowerCase();
+    if (question.options.length === 2 && (lc === "yes" || lc === "no")) return lc[0];
+    if (question.options.length > 2) return String(i + 1);
+  }
+  return opt; // text style (default): send the option's literal text
 }
 
 async function answer(s, keys) {
