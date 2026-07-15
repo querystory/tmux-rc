@@ -25,6 +25,30 @@ These are two distinct features — a **point-in-time drill-down** and a **timel
 summaries** — but they share one substrate: what we capture and store, and when we
 summarize. Decide the substrate once; both features fall out of it.
 
+### The file-content blind spot (a distinct case)
+
+A specific, common version of "let me see the actual thing": when the agent **writes,
+edits, or reads a file**, the pane shows a truncated preview ("Wrote 89 lines to X …
++80 lines") — the actual content never fully scrolls by. So the card can say a doc was
+*written* but not what it *says*. Two philosophies for solving it, an open question:
+
+- **Reach into the filesystem.** termiphone runs on the same machine; on detecting
+  "wrote/edited/read file X" it could read X from disk and summarize/show it ("created
+  a doc covering X, Y, Z, concluding W"). Richer, but breaks the clean "observe the
+  terminal" abstraction — now it reaches outside the pane, must identify the file, track
+  edits, handle the file changing under it, and it's no longer purely vendor-agnostic.
+- **Stay a terminal observer.** To see the file you do what a real user does — open it
+  in another pane (`less`/`cat`/editor) and page through; termiphone sees those panes
+  and summarizes. Pure abstraction, no FS coupling, but more steps and the summary is
+  only as good as what scrolled past. Note this "open X and page through it" is itself
+  an **intent the control plane could automate** (open the pager, page to the end,
+  summarize) — turning Option B into one tap.
+
+Leaning: keep the pure-observer model as the floor, but the control-plane-automated
+"page through the file for me" is the elegant reconciliation — ground truth via the
+terminal, without manual paging. Direct FS reads stay a possible optimization, not the
+foundation.
+
 ## Feature A — drill down to the real pane
 
 When the card isn't enough, let the user see the actual terminal content. Options,
