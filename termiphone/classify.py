@@ -45,6 +45,13 @@ changes across versions and tools):
 - Is there an INPUT PROMPT — a yes/no confirmation, a numbered choice, or a free-text
   field the user must fill?
 
+IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
+command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
+command or an error. Only treat a command as run if you can see its OUTPUT or result
+below it (or a fresh prompt after it). A lone token like "d" or "git ad" at the end of
+a prompt line is in-progress input — say the pane is idle at the prompt, not that a
+command "d" ran and failed.
+
 This is very often CLAUDE CODE (an AI coding agent). Recognize it by its style: a
 rounded input box drawn with box characters, and a two-line STATUS LINE near the
 bottom that typically shows — in order — the working directory and git branch, the

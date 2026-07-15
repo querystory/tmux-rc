@@ -173,12 +173,15 @@ class Watcher:
         self._prev_fp[pane.id] = fp
         self._last_parse[pane.id] = now
 
-        # Sticky tool: once identified as an agent, keep that identity even when the
-        # agent shells out (foreground briefly becomes bash/git). Stops claude⇄shell flap.
+        # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
+        # unmistakable status-line/box, so if it says "shell" it IS a shell — never let
+        # a stale sticky value override that (that bug put the Claude icon on a bash
+        # pane). Only bridge "unknown"/missing (a transient we genuinely can't tell) with
+        # the last known agent, to cover the brief moment an agent shells out.
         tool = state.get("tool")
-        if tool in ("claude", "codex", "gemini"):
-            self._tool[pane.id] = tool
-        elif tool in ("shell", "unknown", None) and pane.id in self._tool:
+        if tool in ("claude", "codex", "gemini", "shell"):
+            self._tool[pane.id] = tool  # confident read wins and is remembered
+        elif tool in ("unknown", None) and self._tool.get(pane.id):
             state["tool"] = self._tool[pane.id]
 
         hist = self.snapshots.get(pane.id, [])
