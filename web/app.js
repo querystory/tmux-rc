@@ -455,34 +455,37 @@ async function send(s, body) {
   }
 }
 
+// "View screen" — drill down to the actual terminal. The old inline snapshot strip
+// flickered (rebuilt every poll) and was too small to read. This is a button that
+// opens ONE full-screen, scrollable (both axes) view of the pane's latest raw capture,
+// fetched ON DEMAND — so nothing re-renders on the poll loop.
 function timeline(s) {
-  const d = document.createElement("details");
-  d.className = "timeline";
-  if (openTimelines.has(s.pane_id)) d.open = true;
-  d.ontoggle = () => d.open ? openTimelines.add(s.pane_id) : openTimelines.delete(s.pane_id);
-  const sum = document.createElement("summary");
-  sum.textContent = "Timeline";
-  d.appendChild(sum);
-  const strip = document.createElement("div");
-  strip.className = "snaps";
-  d.appendChild(strip);
-  d.addEventListener("toggle", () => { if (d.open) loadSnaps(s.pane_id, strip); }, { once: false });
-  if (d.open) loadSnaps(s.pane_id, strip);
-  return d;
+  const btn = document.createElement("button");
+  btn.className = "viewbtn";
+  btn.textContent = "▤ View screen";
+  btn.onclick = (e) => { e.stopPropagation(); openScreen(s.pane_id, s.label); };
+  return btn;
 }
 
-async function loadSnaps(paneId, strip) {
-  const r = await fetch(`/api/panes/${encodeURIComponent(paneId)}/snapshots`);
-  const list = await r.json();
-  strip.replaceChildren(...await Promise.all(
-    list.slice(-12).reverse().map(async (snap) => {
-      const t = await (await fetch(`/api/panes/${encodeURIComponent(paneId)}/snapshots/${snap.id}`)).text();
-      const div = document.createElement("div");
-      div.className = "snap";
-      div.textContent = t.split("\n").slice(-14).join("\n");
-      return div;
-    })
-  ));
+async function openScreen(paneId, label) {
+  let text = "(loading…)";
+  try {
+    const list = await (await fetch(`/api/panes/${encodeURIComponent(paneId)}/snapshots`)).json();
+    const last = list[list.length - 1];
+    if (last)
+      text = await (await fetch(`/api/panes/${encodeURIComponent(paneId)}/snapshots/${last.id}`)).text();
+    else text = "(no capture yet)";
+  } catch { text = "(failed to load)"; }
+  const ov = document.createElement("div");
+  ov.className = "screen-overlay";
+  ov.innerHTML =
+    `<div class="screen-head"><span>${esc(label || paneId)}</span><button class="screen-close">✕</button></div>` +
+    `<pre class="screen-body"></pre>`;
+  ov.querySelector(".screen-body").textContent = text;  // textContent = safe, no esc needed
+  const close = () => ov.remove();
+  ov.querySelector(".screen-close").onclick = close;
+  ov.onclick = (e) => { if (e.target === ov) close(); };
+  document.body.appendChild(ov);
 }
 
 function esc(s) {
