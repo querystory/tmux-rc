@@ -520,18 +520,16 @@ setInterval(async () => {
 const barEl = document.getElementById("bar");
 if (window.visualViewport && barEl) {
   const vv = window.visualViewport;
+  // Keyboard height = how much the layout viewport exceeds the visible viewport. Lift
+  // the fixed bar (bottom:0) by that amount so it rides just above the keyboard. No
+  // offsetHeight reads (which mis-measured and pushed it off-screen) — just a bottom
+  // offset, clamped to >=0.
   const fit = () => {
-    // Distance from the layout viewport's top to the visual viewport's bottom.
-    const bottom = vv.offsetTop + vv.height;
-    barEl.style.position = "fixed";
-    barEl.style.left = "0";
-    barEl.style.right = "0";
-    barEl.style.top = bottom - barEl.offsetHeight + "px";
-    barEl.style.zIndex = "20";
-    panesEl.style.paddingBottom = barEl.offsetHeight + 12 + "px";
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    barEl.style.bottom = kb + "px";
   };
   vv.addEventListener("resize", fit);
   vv.addEventListener("scroll", fit);
   bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
-  setTimeout(fit, 50);
+  fit();
 }
