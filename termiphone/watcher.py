@@ -101,11 +101,33 @@ class Watcher:
         if not tmux.server_running():
             self.states = []
             return
-        pane = tmux.find_pane(self.target)
-        if pane is None:
+        # Multi-pane: watch every pane (or just the configured target if set). Each
+        # pane's per-tick work is keyed by pane.id, so panes are fully independent.
+        if self.target:
+            p = tmux.find_pane(self.target)
+            panes = [p] if p else []
+        else:
+            panes = tmux.list_panes()
+        if not panes:
             self.states = []
             return
+        alive = {p.id for p in panes}
+        states = [self._tick_pane(p) for p in panes]
+        # Waiting first, then running, then idle — most-actionable panes on top.
+        order = {"waiting": 0, "running": 1, "idle": 2, "unknown": 3}
+        states.sort(key=lambda s: order.get(s.get("activity"), 9))
+        self.states = states
+        self._gc(alive)
 
+    def _gc(self, alive: set[str]) -> None:
+        """Drop per-pane state for panes that no longer exist, so closing windows
+        doesn't leak memory over a long session."""
+        for store in (self._prev_fp, self._unchanged_since, self._last_parse,
+                      self._tool, self._state, self._recent_events, self.snapshots):
+            for pid in [k for k in store if k not in alive]:
+                del store[pid]
+
+    def _tick_pane(self, pane) -> dict:
         text = tmux.capture_pane(pane.id)
         now = time.time()
         fp = _fingerprint(text)
@@ -128,8 +150,7 @@ class Watcher:
         if cached is not None and not changed and not due:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
-            self.states = [cached]
-            return
+            return cached
 
         # Recent prior captures (before the current one) give the model continuity, so
         # slow line-by-line output doesn't make it re-decide each frame (anti-flicker)
@@ -165,4 +186,4 @@ class Watcher:
         state["idle_seconds"] = idle
         state["updated_at"] = now
         self._state[pane.id] = state
-        self.states = [state]
+        return state
