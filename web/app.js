@@ -59,22 +59,15 @@ async function poll() {
 }
 
 const usageEl = document.getElementById("usage");
-let _callRate = { n: 0, at: Date.now(), rate: 0 };
 function showUsage(u, err) {
   if (!u) { usageEl.textContent = ""; return; }
-  // Estimate calls/min from the growing total between polls.
-  const now = Date.now();
-  if (u.calls > _callRate.n) {
-    const dt = (now - _callRate.at) / 60000;
-    if (dt > 0) _callRate.rate = Math.round((u.calls - _callRate.n) / dt);
-    _callRate = { n: u.calls, at: now, rate: _callRate.rate };
-  }
+  // Rate is a plain session average (calls/uptime) computed server-side — stable.
   const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
   const parts = [
     `${tok}k tok`,
     `$${u.cost.toFixed(3)}`,
     `<span class="${u.errors ? "err" : ""}">${u.errors}/${u.calls + u.errors}</span>`,
-    `${_callRate.rate}/min`,
+    `${u.rate_per_min}/min`,
   ];
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
   usageEl.innerHTML = parts.join(" · ");

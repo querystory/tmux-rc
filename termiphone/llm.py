@@ -37,11 +37,14 @@ if not _metrics.handlers:
     _metrics.propagate = False
 
 _totals = {"calls": 0, "in_tokens": 0, "out_tokens": 0, "cost": 0.0, "errors": 0}
+_started = time.time()
 
 
 def usage_totals() -> dict:
-    """Running totals since process start (calls, tokens, cost, errors) for the UI."""
-    return dict(_totals)
+    """Running totals since the server started, plus a plain average calls/min over the
+    whole session (total calls / uptime) — stable, no noisy per-poll deltas."""
+    mins = max((time.time() - _started) / 60, 1 / 60)
+    return {**_totals, "rate_per_min": round(_totals["calls"] / mins, 1)}
 
 # Dedicated LLM trace log so we can grep exactly what the model saw and returned.
 # Path override via TERMIPHONE_LLM_LOG; default alongside the repo. tail -f to watch.
