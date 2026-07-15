@@ -12,6 +12,28 @@ const liveEl = document.getElementById("live");
 const openTimelines = new Set();
 let busy = false; // suppress polling flicker while an answer is in flight
 
+// Client-side accumulated activity log per pane. Each parse only returns the events
+// currently on screen (1-2); we append new ones here so you can scroll back over the
+// last several minutes and see everything the LLM summarized. Dedup by text so the
+// same on-screen event across polls isn't logged repeatedly. Bounded so it can't grow
+// unbounded. (A durable server-side log is the future feature; this is the cheap
+// version that needs no backend.)
+const eventLog = {}; // pane_id -> [{text, file, meta, ts}]
+const EVENT_LOG_MAX = 500;
+
+function accumulateEvents(paneId, events) {
+  if (!Array.isArray(events) || !events.length) return;
+  const log = (eventLog[paneId] ||= []);
+  const seen = new Set(log.slice(-40).map((e) => e.text));
+  for (const e of events) {
+    if (e && e.text && !seen.has(e.text)) {
+      log.push({ ...e, ts: Date.now() });
+      seen.add(e.text);
+    }
+  }
+  if (log.length > EVENT_LOG_MAX) log.splice(0, log.length - EVENT_LOG_MAX);
+}
+
 function fmtIdle(s) {
   if (s < 60) return s + "s";
   if (s < 3600) return Math.floor(s / 60) + "m";
@@ -33,6 +55,8 @@ async function poll() {
 }
 
 function render(states) {
+  // Accumulate this poll's events into each pane's running client-side log first.
+  states.forEach((s) => accumulateEvents(s.pane_id, s.events));
   if (!states.length) {
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     return;
@@ -96,8 +120,12 @@ function card(s) {
   if (s.rewind) el.appendChild(rewindView(s));
   if (s.question) el.appendChild(question(s));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
-  if (Array.isArray(s.events) && s.events.length) el.appendChild(eventsView(s.events));
-  el.appendChild(inputRow(s));
+  const log = eventLog[s.pane_id] || [];
+  if (log.length) el.appendChild(eventsView(log));
+  // A question already renders its own reply box, so don't also show the standalone
+  // text input (that's the double-input/double-Send wart). Keep the special-key row
+  // either way (Enter/Esc/arrows/Ctrl are still useful during a question).
+  el.appendChild(inputRow(s, /*withText=*/ !s.question));
   el.appendChild(timeline(s));
   return el;
 }
@@ -105,9 +133,10 @@ function card(s) {
 // The activity feed: "what the thing did". Each event's `text` is the primary line;
 // optional metadata (a file diff, or a `meta` string) renders as a small, muted,
 // right-justified side-note. A file edit is just an event whose metadata is a diff.
-function eventsView(events) {
+function eventsView(events, paneId) {
   const box = document.createElement("div");
   box.className = "events";
+  box.dataset.pane = paneId || "";
   box.innerHTML = events
     .map((e) => {
       let note = "";
@@ -121,8 +150,22 @@ function eventsView(events) {
       return `<div class="ev"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
     })
     .join("");
+  // Newest events are at the bottom. The card re-renders every poll, so after it's in
+  // the DOM, restore the user's scroll — but if they were at (or near) the bottom,
+  // stick to the bottom so new activity stays in view. Scrolling up to read history
+  // is preserved and won't get yanked back down.
+  const prev = eventScroll[paneId];
+  requestAnimationFrame(() => {
+    if (prev == null || prev.atBottom) box.scrollTop = box.scrollHeight;
+    else box.scrollTop = prev.top;
+  });
+  box.addEventListener("scroll", () => {
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+    eventScroll[paneId] = { top: box.scrollTop, atBottom };
+  });
   return box;
 }
+const eventScroll = {}; // pane_id -> {top, atBottom} to preserve scroll across re-renders
 
 // Task/TODO checklist the agent is tracking (done vs open) — from parser JSON tasks[].
 function tasksView(tasks) {
@@ -194,17 +237,22 @@ function metaRow(s) {
 
 // Always-available raw input: type any text into the pane, plus special keys. This
 // is the escape hatch for anything the classifier didn't turn into a button.
-function inputRow(s) {
+function inputRow(s, withText = true) {
   const wrap = document.createElement("div");
   wrap.className = "raw";
-  wrap.innerHTML = `
-    <div class="freetext">
+  // withText=false when a question already renders its own reply box (avoids the
+  // double input + double Send). The special-key row always shows.
+  const textRow = withText
+    ? `<div class="freetext">
       <button class="attach" title="Attach image">📎</button>
       <button class="paste" title="Paste image from clipboard">📋</button>
       <input data-pane="${esc(s.pane_id)}" placeholder="Type into ${esc(s.label)}…" />
       <button class="send">Send</button>
       <input type="file" accept="image/*" hidden />
-    </div>
+    </div>`
+    : "";
+  wrap.innerHTML = `
+    ${textRow}
     <div class="keys">
       <button data-k="Enter">⏎ Enter</button>
       <button data-k="Escape">Esc</button>
@@ -216,22 +264,18 @@ function inputRow(s) {
     </div>`;
   const input = wrap.querySelector('input[data-pane]');
   const filePicker = wrap.querySelector('input[type=file]');
-  wrap.querySelector(".send").onclick = () => {
-    if (input.value) { answer(s, input.value); input.value = ""; }
-  };
-  // Attach: open the file/camera picker (the reliable mobile path — Photo Library
-  // shows recent screenshots). Upload the chosen image.
-  wrap.querySelector(".attach").onclick = () => filePicker.click();
-  filePicker.onchange = () => filePicker.files[0] && uploadImage(s, filePicker.files[0], input);
-  // Paste button: read the clipboard via the async Clipboard API (works on mobile on
-  // a tap, unlike input.onpaste). Requires a secure context (HTTPS or localhost);
-  // over plain-HTTP LAN the API is unavailable and we say so instead of failing silently.
-  wrap.querySelector(".paste").onclick = () => pasteImage(s, input);
-  // Also keep desktop input-paste working.
-  input.onpaste = (e) => {
-    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (item) { e.preventDefault(); uploadImage(s, item.getAsFile(), input); }
-  };
+  if (input && filePicker) {
+    wrap.querySelector(".send").onclick = () => {
+      if (input.value) { answer(s, input.value); input.value = ""; }
+    };
+    wrap.querySelector(".attach").onclick = () => filePicker.click();
+    filePicker.onchange = () => filePicker.files[0] && uploadImage(s, filePicker.files[0], input);
+    wrap.querySelector(".paste").onclick = () => pasteImage(s, input);
+    input.onpaste = (e) => {
+      const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+      if (item) { e.preventDefault(); uploadImage(s, item.getAsFile(), input); }
+    };
+  }
   // Special keys are tmux key-names, sent literally (no appended Enter).
   wrap.querySelectorAll(".keys button").forEach((b) => {
     b.onclick = () => sendRaw(s, b.dataset.k);

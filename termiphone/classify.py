@@ -75,7 +75,10 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
      "meta": "OPTIONAL short side-note for non-file events, e.g. 'ran 3 commands', 'exit 1'"}
   ]
 }
-"events" is the activity feed — a list of "what the thing did", newest-relevant first.
+"events" is the activity feed — a list of NEW things that happened since the last
+report. If a list of already-reported events is provided, do NOT repeat them or restate
+the same action in different words — only emit events for genuinely new activity, and
+return an empty list if nothing new happened. Each is "what the thing did", newest-relevant first.
 The PRIMARY content of each event is "text" (what happened, plain language). Attach
 OPTIONAL metadata: "file" when the event was editing a file (path + lines +/-), or
 "meta" for a short programmatic side-note (command count, exit code). The UI shows
@@ -119,12 +122,31 @@ def _with_prior(text: str, prior: list[str]) -> str:
     return "\n\n".join(blocks)
 
 
-def classify(pane: Pane, text: str, llm_fn=None, prior: list[str] | None = None) -> dict:
+def _with_recent_events(text: str, recent: list[str]) -> str:
+    """Append the events we ALREADY reported for this pane, so the model emits only
+    genuinely NEW events instead of restating ongoing work in different words each
+    parse. This deduplicates the activity log at the source (the model knows what it
+    already said) rather than the client guessing whether two phrasings mean the same."""
+    if not recent:
+        return text
+    already = "\n".join(f"- {e}" for e in recent[-20:])
+    return (
+        f"{text}\n\n[events already reported for this pane — do NOT repeat these or "
+        f"restate the same action in different words; only add events for genuinely "
+        f"new activity since them]\n{already}"
+    )
+
+
+def classify(
+    pane: Pane, text: str, llm_fn=None, prior: list[str] | None = None,
+    recent_events: list[str] | None = None,
+) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
-    is the Gemini parser. `prior` is recent prior captures (oldest→newest) for
-    continuity. Returns the model's JSON with pane_id/label merged in; on no/failed
-    LLM, a minimal heuristic dict (idle vs running) so the pipe never breaks."""
-    result = llm_fn(PARSER_PROMPT, _with_prior(text, prior or [])) if llm_fn else None
+    is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
+    = events already reported (so the model doesn't repeat them). Returns the model's
+    JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic dict."""
+    payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
+    result = llm_fn(PARSER_PROMPT, payload) if llm_fn else None
     if not isinstance(result, dict):
         result = {
             "tool": "shell" if pane.current_command in ("bash", "zsh", "sh", "fish") else "unknown",

@@ -77,7 +77,9 @@
   .freetext input { flex: 1; background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
   .freetext button.send { background: #388bfd; border: 0; color: #fff; border-radius: 10px; padding: 0 16px; font-weight: 600; }
   .freetext button.attach, .freetext button.paste { background: #21262d; border: 1px solid #30363d; color: #adbac7; border-radius: 10px; padding: 0 10px; font-size: 17px; cursor: pointer; }
-  .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
+    max-height: 40vh; overflow-y: auto; }
+  .events::-webkit-scrollbar { width: 6px; } .events::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
   .ev { display: flex; align-items: baseline; gap: 10px; }
   .ev-text { flex: 1; color: #c9d1d9; font-size: 13px; min-width: 0; }
   .ev-note { flex: 0 0 auto; color: #6e7681; font-size: 11px; font-family: ui-monospace, monospace;

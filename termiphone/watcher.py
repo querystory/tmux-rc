@@ -65,6 +65,7 @@ class Watcher:
         self._last_parse: dict[str, float] = {}  # pane_id -> when we last called the LLM
         self._tool: dict[str, str] = {}  # pane_id -> sticky tool once identified as an agent
         self._state: dict[str, dict] = {}  # pane_id -> last parsed dict (reused between parses)
+        self._recent_events: dict[str, list[str]] = {}  # pane_id -> recently-emitted event texts
         self._last_tick: float = 0.0  # wall time of the last loop iteration (staleness check)
         self._task: asyncio.Task | None = None
 
@@ -135,9 +136,19 @@ class Watcher:
         # and it can describe what just happened. Cheap — prompt tokens are cheap.
         hist = self.snapshots.get(pane.id, [])
         prior = [s["text"] for s in hist[-(PRIOR_FRAMES + 1):-1]]
+        # Feed back events we already reported so the model emits only NEW ones instead
+        # of restating ongoing work in slightly different words each parse (the source
+        # fix for near-duplicate log entries — dedup at the model, not the client).
+        recent = self._recent_events.get(pane.id, [])
         state = classify(
-            pane, text, llm_fn=classify_text if self.use_llm else None, prior=prior
+            pane, text, llm_fn=classify_text if self.use_llm else None,
+            prior=prior, recent_events=recent,
         )
+        # Remember the events this parse produced (bounded) for the next call's context.
+        for e in state.get("events", []) or []:
+            if isinstance(e, dict) and e.get("text"):
+                recent.append(e["text"])
+        self._recent_events[pane.id] = recent[-30:]
         self._prev_fp[pane.id] = fp
         self._last_parse[pane.id] = now
 
