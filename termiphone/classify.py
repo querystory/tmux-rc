@@ -211,6 +211,8 @@ _LLM_SYSTEM = (
     '"working_verb": the whimsical gerund shown while working, e.g. "Cultivating".\n'
     '"elapsed": elapsed working time if shown, e.g. "11m46s".\n'
     '"tokens": tokens streamed if shown, e.g. "13.3k".\n'
+    '"agents": integer count of running sub-agents/parallel tasks if the agent shows '
+    "them (e.g. a task list or 'N agents running'); else 0.\n"
     '"question": {"prompt": string, "options": [string,...]} — include this ONLY if '
     "the agent has STOPPED and is presenting an interactive prompt the user must "
     "answer RIGHT NOW: a boxed confirmation dialog, a selection list with a "
@@ -247,6 +249,8 @@ def _apply_llm(state: PaneState, text: str, llm_fn) -> None:
     for field in ("working_verb", "elapsed", "tokens"):
         if v := result.get(field):
             setattr(state, field, str(v)[:24])
+    if isinstance(result.get("agents"), int) and result["agents"] > 0:
+        state.agents = result["agents"]
     q = result.get("question")
     if isinstance(q, dict) and q.get("prompt"):
         state.question = Question(

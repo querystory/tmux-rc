@@ -53,26 +53,48 @@ function card(s) {
       : s.activity === "running"
         ? '<span class="pulse"></span>working'
         : s.activity;
+  // Header: icon, name/summary, activity badge. Status_line leads (the summary of
+  // what's being worked on); the working detail (verb·elapsed·tokens) is a subline.
+  const working =
+    s.activity === "running" && (s.elapsed || s.tokens)
+      ? `<div class="sub">${[s.working_verb, s.elapsed, s.tokens && "↓" + s.tokens]
+          .filter(Boolean).map(esc).join(" · ")}</div>`
+      : "";
   row.innerHTML = `
     <span class="icon">${iconFor(s.tool)}</span>
     <div class="meta">
-      <div class="name">${esc(s.label)} <span style="color:#6e7681;font-weight:400">${esc(s.tool)}</span></div>
+      <div class="name">${esc(s.label)}</div>
       <div class="status">${esc(s.status_line || "—")}</div>
+      ${working}
     </div>
     <span class="badge b-${s.activity}">${badge}</span>`;
   el.appendChild(row);
 
-  if (s.context_pct != null) {
-    const bar = document.createElement("div");
-    bar.className = "ctx";
-    bar.innerHTML = `<i style="width:${s.context_pct}%"></i>`;
-    el.appendChild(bar);
-  }
-
+  el.appendChild(metaRow(s));
   if (s.question) el.appendChild(question(s));
   el.appendChild(inputRow(s));
   el.appendChild(timeline(s));
   return el;
+}
+
+// Compact metadata row: model, context bar, cost, mode badge, agent count. Only
+// renders the chips that have values, so a plain shell shows nothing here.
+const MODE_LABEL = { plan: "plan", "accept-edits": "accept edits", bypass: "bypass perms" };
+function metaRow(s) {
+  const row = document.createElement("div");
+  row.className = "metarow";
+  const chips = [];
+  if (s.model) chips.push(`<span class="chip">${esc(s.model)}</span>`);
+  if (s.context_pct != null)
+    chips.push(
+      `<span class="chip ctxchip"><i style="width:${s.context_pct}%"></i>${s.context_pct}% ctx</span>`
+    );
+  if (s.cost) chips.push(`<span class="chip">${esc(s.cost)}</span>`);
+  if (s.mode && s.mode !== "normal" && s.mode !== "unknown")
+    chips.push(`<span class="chip mode mode-${s.mode}">${MODE_LABEL[s.mode] ?? s.mode}</span>`);
+  if (s.agents > 0) chips.push(`<span class="chip agents">⛓ ${s.agents} agents</span>`);
+  row.innerHTML = chips.join("");
+  return row;
 }
 
 // Always-available raw input: type any text into the pane, plus special keys. This

@@ -38,7 +38,23 @@
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
   .meta { flex: 1; min-width: 0; }
   .name { font-weight: 600; }
-  .status { color: #8b949e; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status { color: #c9d1d9; font-size: 14px; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .sub { color: #6e7681; font-size: 12px; margin-top: 3px; }
+  .metarow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .metarow:empty { display: none; }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: 600;
+    background: #21262d; color: #adbac7; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .ctxchip { position: relative; overflow: hidden; }
+  .ctxchip > i { position: absolute; left: 0; top: 0; bottom: 0; background: #1f6feb44; z-index: 0; }
+  .ctxchip { z-index: 1; }
+  .chip.mode { color: #fff; }
+  .mode-plan { background: #1f6feb; }
+  .mode-accept-edits { background: #238636; }
+  .mode-bypass { background: #b62324; }
+  .chip.agents { background: #2d2540; color: #c8a6ff; }
   .badge {
     font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600;
     white-space: nowrap;

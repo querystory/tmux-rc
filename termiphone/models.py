@@ -44,6 +44,7 @@ class PaneState(BaseModel):
     working_verb: str | None = None  # e.g. "Cultivating"
     elapsed: str | None = None  # e.g. "11m46s"
     tokens: str | None = None  # e.g. "13.3k"
+    agents: int = 0  # count of running sub-agents/tasks, when the agent shows them
 
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0
