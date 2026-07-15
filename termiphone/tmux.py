@@ -39,8 +39,10 @@ class Pane:
 
     @property
     def label(self) -> str:
-        """Human label like "work:0" — session plus window."""
-        return f"{self.session}:{self.window_index}"
+        """Human label — the tmux window name (e.g. "claude", "Resolve PR 38"), which
+        is what the user recognizes. Falls back to session:window if the window has no
+        meaningful name (tmux defaults window_name to the running command)."""
+        return self.window_name or f"{self.session}:{self.window_index}"
 
 
 def _run(args: list[str]) -> str:

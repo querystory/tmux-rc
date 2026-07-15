@@ -1,16 +1,10 @@
 // termiphone PWA. Polls /api/state, renders one card per pane, floats waiting
 // panes to the top, and posts answers back. No framework, no build step.
 
-// Claude's mark: an Anthropic-clay burst of radiating spokes. Built from rotated
-// rects so it reads as the sunburst glyph at small sizes (no fragile bezier path).
-const CLAUDE_SVG = (() => {
-  const spokes = Array.from({ length: 12 }, (_, i) =>
-    `<rect x="11" y="2" width="2" height="8" rx="1" fill="#d97757" transform="rotate(${i * 30} 12 12)"/>`
-  ).join("");
-  return `<svg viewBox="0 0 24 24" width="22" height="22" aria-label="Claude">${spokes}</svg>`;
-})();
+// Real Claude app icon (downloaded from claude.ai) — no hand-drawn SVG.
+const CLAUDE_IMG = '<img src="/claude.png" width="22" height="22" alt="Claude" style="border-radius:5px" />';
 const ICONS = { codex: "🔷", gemini: "💎", shell: "$", unknown: "•" };
-const iconFor = (tool) => (tool === "claude" ? CLAUDE_SVG : (ICONS[tool] ?? "•"));
+const iconFor = (tool) => (tool === "claude" ? CLAUDE_IMG : (ICONS[tool] ?? "•"));
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
@@ -208,3 +202,15 @@ function esc(s) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 poll();
 setInterval(poll, 2000);
+
+// Auto-reload the page when the web assets change (dev convenience). All state lives
+// server-side in the watcher, so a full reload loses nothing. Checks every 5s and
+// reloads if the version hash differs from the one seen at load.
+let _ver = null;
+setInterval(async () => {
+  try {
+    const { version } = await (await fetch("/api/version")).json();
+    if (_ver === null) _ver = version;
+    else if (version !== _ver) location.reload();
+  } catch {}
+}, 5000);

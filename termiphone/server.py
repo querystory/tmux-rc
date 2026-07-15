@@ -44,6 +44,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="termiphone", lifespan=lifespan)
 
 
+@app.get("/api/version")
+def get_version():
+    """Hash of the web assets, so the client can reload itself when they change
+    (see app.js). Cheap to recompute per call — the web dir is tiny."""
+    import hashlib
+
+    h = hashlib.md5()
+    for p in sorted(WEB_DIR.glob("*")):
+        if p.is_file():
+            h.update(p.name.encode())
+            h.update(str(p.stat().st_mtime_ns).encode())
+    return {"version": h.hexdigest()}
+
+
 @app.get("/api/state")
 def get_state():
     return app.state.watcher.states
