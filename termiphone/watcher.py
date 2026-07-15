@@ -21,7 +21,12 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
 SNAPSHOT_HISTORY = 50  # per pane
-IDLE_LLM_AFTER = 6  # seconds of no change before a proactive LLM pass on a stable screen
+# LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
+# PARSE when the content fingerprint changed, or when this long since the last parse
+# (a heartbeat so a slowly-evolving screen still refreshes). An agent that's merely
+# working — spinner + timer + token counter ticking, no content change — costs ZERO
+# LLM calls, because that churn is stripped from the fingerprint.
+HEARTBEAT_SECONDS = 10
 
 # Volatile bits that repaint constantly on an agent status line even when nothing
 # meaningful is happening. Confirmed by diffing live captures: elapsed timers, token
@@ -55,12 +60,11 @@ class Watcher:
         self.use_llm = use_llm
         self.states: list[PaneState] = []
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
-        self._prev_text: dict[str, str] = {}  # pane_id -> last fingerprint (for change detect)
-        self._prev_raw: dict[str, str] = {}  # pane_id -> last raw capture (for classify's diff)
+        self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
-        self._llm_seen: dict[str, str] = {}  # pane_id -> fingerprint already given a forced pass
+        self._last_parse: dict[str, float] = {}  # pane_id -> when we last called the LLM
         self._tool: dict[str, str] = {}  # pane_id -> sticky tool once identified as an agent
-        self._state: dict[str, PaneState] = {}  # pane_id -> last classification (reused when stable)
+        self._state: dict[str, PaneState] = {}  # pane_id -> last parsed state (reused between parses)
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -96,55 +100,42 @@ class Watcher:
         text = tmux.capture_pane(pane.id)
         now = time.time()
         fp = _fingerprint(text)
-        prev_fp = self._prev_text.get(pane.id)
-        changed = fp != prev_fp  # ignore timer/spinner churn
-        prev = self._prev_raw.get(pane.id)  # raw text for classify's own diff
+        changed = fp != self._prev_fp.get(pane.id)  # real content change (timers stripped)
         if changed:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
 
-        # Stable screen ⇒ reuse the last classification verbatim. This is the key
-        # anti-flicker rule: when the real content hasn't changed, we do NOT re-run the
-        # LLM (which returns slightly different JSON each time) and do NOT let the card
-        # flip between question/no-question or waiting/idle. Only refresh the timer.
+        # Record a snapshot whenever content changed (bounded ring buffer, for timeline).
+        if changed:
+            hist = self.snapshots.setdefault(pane.id, [])
+            hist.append({"id": f"{int(now * 1000)}", "text": text, "ts": now})
+            del hist[:-SNAPSHOT_HISTORY]
+
+        # Decide whether to PARSE (call the LLM). Parse on real content change, or on a
+        # heartbeat so a slowly-drifting screen refreshes. Merely-working churn (spinner/
+        # timer/tokens) is stripped from the fingerprint ⇒ no change ⇒ no call.
         cached = self._state.get(pane.id)
-        if not changed and cached is not None:
-            cached.idle_seconds = idle
+        due = now - self._last_parse.get(pane.id, 0) >= HEARTBEAT_SECONDS
+        if cached is not None and not changed and not due:
+            cached.idle_seconds = idle  # just tick the timer, reuse everything else
             cached.updated_at = now
             self.states = [cached]
             return
 
-        # Content changed (or first sight): classify. Fire the LLM once per new screen.
-        force_llm = self.use_llm and idle >= IDLE_LLM_AFTER and self._llm_seen.get(pane.id) != fp
-        if force_llm:
-            self._llm_seen[pane.id] = fp
+        state = classify(pane, text, llm_fn=classify_text if self.use_llm else None)
+        self._prev_fp[pane.id] = fp
+        self._last_parse[pane.id] = now
 
-        state = classify(
-            pane, text, prev, idle,
-            llm_fn=classify_text if self.use_llm else None,
-            force_llm=force_llm,
-        )
-
-        # Sticky tool: once a pane is identified as an agent, keep that identity even
-        # when it shells out (foreground becomes bash/git and detection would say
-        # "shell"). This stops the claude→shell→claude oscillation.
+        # Sticky tool: once identified as an agent, keep that identity even when the
+        # agent shells out (foreground briefly becomes bash/git). Stops claude⇄shell flap.
         if state.tool in ("claude", "codex", "gemini"):
             self._tool[pane.id] = state.tool
         elif state.tool in ("shell", "unknown") and pane.id in self._tool:
             state.tool = self._tool[pane.id]
 
-        self._state[pane.id] = state
-
-        # Record a snapshot whenever the pane changed (bounded ring buffer).
-        if changed:
-            hist = self.snapshots.setdefault(pane.id, [])
-            snap_id = f"{int(now * 1000)}"
-            hist.append({"id": snap_id, "text": text, "ts": now})
-            del hist[:-SNAPSHOT_HISTORY]
         hist = self.snapshots.get(pane.id, [])
         state.snapshot_id = hist[-1]["id"] if hist else None
+        state.idle_seconds = idle
         state.updated_at = now
-
-        self._prev_text[pane.id] = fp
-        self._prev_raw[pane.id] = text
+        self._state[pane.id] = state
         self.states = [state]

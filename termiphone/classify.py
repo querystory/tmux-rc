@@ -1,323 +1,164 @@
-"""Turn raw pane text into a PaneState.
+"""LLM-first pane classification.
 
-Heuristics run first and always (free, instant). The LLM is a lazy fallback, invoked
-only when heuristics can't produce a clean status phrase or can't parse a detected
-prompt — and only when the pane changed. See docs/DESIGN.md for the rationale.
+The LLM is the parser. We do NOT hard-code the exact strings of any agent's UI —
+that was the brittle approach (broke on any UI/status-line change or a different
+agent). Instead we send the visible pane text to Gemini Flash Lite with a layered
+prompt: general terminal patterns first, then agent-specific sections describing
+things *semantically*. It returns one structured JSON object; we map it to PaneState.
+
+Regex survives only as a cheap hot-loop fast-path in the watcher (change detection,
+obvious idle shell) so we don't call the LLM every tick — never as the parser.
 """
 
 from __future__ import annotations
 
 import re
 
-from .models import PaneState, Question, Tool
+from .models import PaneState, Question, Rewind, RewindEntry, Tool
 from .tmux import Pane
 
-# --- prompt / waiting detection -------------------------------------------------
-
-# Tail patterns that indicate the pane is blocked waiting for a human answer.
-_YN_RE = re.compile(r"\[y/n\]|\(y/n\)|\byes/no\b|\[Y/n\]|\[y/N\]", re.IGNORECASE)
-_QUESTION_TAIL_RE = re.compile(r"\?\s*$")
-# A numbered menu: lines like "1. Foo" / "2) Bar" / "❯ 1. Baz".
-_MENU_ITEM_RE = re.compile(r"^\s*[❯>›]?\s*(\d+)[.)]\s+(.*\S)\s*$")
-# A selection cursor on a menu item — a strong "live picker" signal prose never has.
-_CURSOR_RE = re.compile(r"^\s*[❯›>]\s*\d")
-# Claude Code's context-window status line, e.g. "Context left: 47%".
-_CONTEXT_RE = re.compile(r"context[^0-9%]{0,20}(\d{1,3})\s*%", re.IGNORECASE)
-# A generic shell prompt at the tail (user@host:path$ / #).
+# --- cheap fast-path only (NOT semantic parsing) --------------------------------
+# A bare shell prompt at the tail — lets the watcher call an idle screen "idle"
+# without spending an LLM call. Everything else is the LLM's job.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 
-
-# Signatures of an agent in the transcript, so a pane keeps its identity even when
-# the agent shells out (foreground command briefly becomes git/grep/bash).
-_CLAUDE_SIG = re.compile(
-    r"claude code|✳|✻|✶|✷|context left|bypass permissions|accept edits|shift\+tab to cycle",
-    re.IGNORECASE,
-)
-
-
-def _detect_tool(pane: Pane, text: str) -> Tool:
-    """Identify the tool. Prefer the running command, then agent signatures in the
-    transcript. Returns "unknown" for a bare subprocess so the caller's sticky logic
-    can keep a previously-known agent identity instead of flapping to "shell"."""
-    cmd = pane.current_command.lower()
-    if "claude" in cmd:
-        return "claude"
-    if "codex" in cmd:
-        return "codex"
-    if "gemini" in cmd:
-        return "gemini"
-    low = text.lower()
-    if _CLAUDE_SIG.search(text) or "anthropic" in low:
-        return "claude"
-    if "codex" in low:
-        return "codex"
-    if cmd in ("bash", "zsh", "sh", "fish"):
-        return "shell"
-    return "unknown"
-
-
-def _detect_question(text: str) -> Question | None:
-    """Detect a prompt genuinely awaiting input. Deliberately CONSERVATIVE: a full
-    agent transcript scrolls prose that ends in '?' or has '1.'/'2.' numbering, which
-    must NOT be mistaken for a live prompt. We only fire on a numbered menu whose block
-    reaches the last line, or a y/N affordance ON the last line. Ambiguous framed
-    prompts are left to the LLM pass (see _has_frame)."""
-    lines = [ln for ln in text.splitlines() if ln.strip()]
-    if not lines:
-        return None
-    last = lines[-1]
-
-    # Numbered menu. Two ways to qualify as a LIVE picker (vs. scrollback numbering in
-    # a transcript): the block reaches the bottom (within a line), OR one of the items
-    # carries a selection cursor (❯/›/>), which prose never has. Either way, reject if
-    # a shell prompt appears below (that means it was already answered).
-    menu_idxs = [i for i, ln in enumerate(lines) if _MENU_ITEM_RE.match(ln)]
-    last_menu_idx = menu_idxs[-1] if menu_idxs else -1
-    has_cursor = any(_CURSOR_RE.match(lines[i]) for i in menu_idxs)
-    near_bottom = last_menu_idx >= len(lines) - 2
-    if last_menu_idx != -1 and (near_bottom or has_cursor):
-        below = lines[last_menu_idx + 1 :]
-        if not any(_SHELL_PROMPT_RE.search(ln) for ln in below):
-            options = []
-            i = last_menu_idx
-            while i >= 0 and _MENU_ITEM_RE.match(lines[i]):
-                options.insert(0, _MENU_ITEM_RE.match(lines[i]).group(2))
-                i -= 1
-            if len(options) >= 2:  # a single "1." line is not a menu
-                prompt = _clean_prompt(lines[i]) if i >= 0 else "Select an option"
-                return Question(prompt=prompt, options=options)
-
-    # y/N only when it's the affordance on the very last line.
-    if _YN_RE.search(last):
-        return Question(prompt=_clean_prompt(last), options=["yes", "no"])
-    return None
-
-
-def _clean_prompt(line: str) -> str:
-    """Trim a trailing shell prompt that bled onto the same line as a prompt (common
-    when a tool prints a question without a newline before the shell redraws)."""
-    return _SHELL_PROMPT_RE.sub("", line).strip() or line.strip()
-
-
-def _detect_context_pct(text: str) -> int | None:
-    m = _CONTEXT_RE.search(text)
-    if not m:
-        return None
-    pct = int(m.group(1))
-    return pct if 0 <= pct <= 100 else None
-
-
-# Editor / multiplexer chrome that is NOT the agent's state (vim mode, tmux footer).
-_NOISE_RE = re.compile(r"--\s*(INSERT|NORMAL|VISUAL|REPLACE)\s*--|shift\+tab to cycle", re.I)
-
-
-def _short_status(text: str) -> str:
-    """Last meaningful line, trimmed — the cheap 'what's happening' phrase. Skips
-    box-drawing frames and editor/multiplexer chrome (vim '-- INSERT --', tmux
-    footers), which carry no info and should defer to the LLM."""
-    for ln in reversed(text.splitlines()):
-        s = ln.strip()
-        if s and _has_words(s) and not _NOISE_RE.search(s):
-            return s[:120]
-    return ""
-
-
-def _has_words(s: str) -> bool:
-    """True if the line contains real alphanumeric content (not just box art)."""
-    return bool(re.search(r"[A-Za-z0-9]", s))
-
-
-def _has_frame(text: str) -> bool:
-    """True if recent lines contain box-drawing characters — a framed TUI prompt
-    (e.g. Claude Code's confirmation dialog) that line-based rules likely miss."""
-    return bool(re.search(r"[│╭╮╰╯─┌┐└┘|]", "\n".join(text.splitlines()[-8:])))
-
-
-# Claude Code's Esc-Esc Rewind picker. Header + "↑ N more above" scroll marker; each
-# entry is a message line optionally followed by a code-change note; the selected one
-# carries a ❯ cursor. Detected purely by heuristic (fixed format) so it never flickers.
-_REWIND_HEADER_RE = re.compile(r"Restore the code and/or conversation", re.IGNORECASE)
-_MORE_ABOVE_RE = re.compile(r"↑\s*(\d+)\s+more above", re.IGNORECASE)
-_MORE_BELOW_RE = re.compile(r"↓\s*(\d+)\s+more below", re.IGNORECASE)
-_REWIND_CURSOR_RE = re.compile(r"^\s*❯")
-# The sub-label under a Rewind entry. Claude renders one of:
-#   "No code changes" · "N files changed +A -B" · "path/file.ext +A -B" (single file)
-# Match any of these so the diff-stat line attaches to its entry, not a phantom row.
-_NOTE_RE = re.compile(
-    r"^\s*(No code changes"
-    r"|\d+\s+files?\s+changed.*"
-    r"|.*code change.*"
-    r"|\S+\s+[+-]\d+(\s+[+-]\d+)?)\s*$",  # "file.ext +5 -3" / "file +18"
-    re.IGNORECASE,
-)
-
-
-def _detect_rewind(text: str):
-    """Parse the Rewind picker into (entries, more_above), or None if not present."""
-    from .models import Rewind, RewindEntry
-
-    lines = text.splitlines()
-    hdr = next((i for i, ln in enumerate(lines) if _REWIND_HEADER_RE.search(ln)), None)
-    if hdr is None:
-        return None
-    body = lines[hdr + 1 :]
-    more_above = more_below = 0
-    entries: list[RewindEntry] = []
-    for ln in body:
-        s = ln.strip()
-        if not s:
-            continue
-        if m := _MORE_ABOVE_RE.search(s):
-            more_above = int(m.group(1))
-            continue
-        if m := _MORE_BELOW_RE.search(s):
-            more_below = int(m.group(1))
-            continue
-        if s.startswith(("Enter to", "Esc to")) or "─────" in ln:
-            continue  # footer / rules
-        selected = bool(_REWIND_CURSOR_RE.match(ln))
-        cleaned = re.sub(r"^\s*❯\s*", "", ln).strip()
-        # A note line ("No code changes"/"…code change…") attaches to the prior entry.
-        if entries and _NOTE_RE.match(cleaned) and not selected and not entries[-1].note:
-            entries[-1].note = cleaned
-            continue
-        entries.append(RewindEntry(text=cleaned, selected=selected))
-    if not entries:
-        return None
-    return Rewind(entries=entries, more_above=more_above, more_below=more_below)
-
-
-def classify(
-    pane: Pane,
-    text: str,
-    prev_text: str | None,
-    idle_seconds: int,
-    llm_fn=None,
-    force_llm: bool = False,
-) -> PaneState:
-    """Build a PaneState. `llm_fn(system, text) -> dict|None` is the lazy pass; when
-    None, heuristics-only. `idle_seconds` is how long the text has been unchanged.
-    `force_llm` asks for a proactive pass even when heuristics look fine (see below)."""
-    tool = _detect_tool(pane, text)
-    rewind = _detect_rewind(text)
-    question = None if rewind else _detect_question(text)
-    context_pct = _detect_context_pct(text)
-    status = _short_status(text)
-    changed = text != prev_text
-
-    # Rewind picker is a deterministic heuristic match ⇒ always "waiting", never runs
-    # the LLM (which is what made this screen flicker before).
-    if rewind is not None:
-        activity = "waiting"
-        status = "Rewind — restore to a previous point"
-    elif question is not None:
-        activity = "waiting"
-    elif not changed and _SHELL_PROMPT_RE.search(text):
-        activity = "idle"
-    elif changed:
-        activity = "running"
-    else:
-        activity = "idle"
-
-    state = PaneState(
-        pane_id=pane.id,
-        label=pane.label,
-        tool=tool,
-        activity=activity,
-        idle_seconds=idle_seconds,
-        status_line=status,
-        context_pct=context_pct,
-        question=question,
-        rewind=rewind,
-    )
-
-    # Lazy LLM pass. Two triggers:
-    #   1. The pane changed and heuristics are weak — no clean status, an unparsed
-    #      prompt, or a framed (box-drawing) UI likely hiding an in-frame prompt.
-    #   2. force_llm — the watcher asks for a proactive pass (e.g. a pane that has
-    #      been idle a while and hasn't been LLM-classified on its current content).
-    #      When in doubt on a stable screen, a cheap pass beats a wrong heuristic.
-    weak = (
-        not status
-        or (question is not None and not question.options)
-        or (question is None and _has_frame(text))
-    )
-    # Never run the LLM on the Rewind picker — it's fully handled by heuristic and the
-    # LLM would just reintroduce nondeterminism (flicker) on a framed screen.
-    if rewind is None and llm_fn is not None and (force_llm or (changed and weak)):
-        _apply_llm(state, text, llm_fn)
-
-    return state
-
-
-_LLM_SYSTEM = (
-    "You read a snapshot of a terminal pane running a coding agent (usually Claude "
-    "Code) or a shell, and report its state as compact JSON. Coding agents render a "
-    "status line at the bottom (model, context %, cost, session stats) and, while "
-    "working, a line like '✳ Cultivating… (11m46s · ↓13.3k tokens)'. IGNORE editor/"
-    "multiplexer chrome such as vim's '-- INSERT --' or tmux mode footers — that is "
-    "not the agent's state. Output ONLY a JSON object with these keys (omit any you "
-    "cannot determine, do not guess):\n"
-    '"status_line": short phrase (<=80 chars) of what is happening now. Prefer '
-    "summarizing WHAT is being worked on over echoing the spinner word — e.g. "
-    "\"Cultivating — editing classify.py\" beats \"Cultivating…\". For a plain shell, "
-    'describe the running or last command and whether it finished, e.g. "running '
-    'make test (14/52)", "git rebase in progress", "$ idle at prompt".\n'
-    '"activity": one of "running" (spinner/Thinking/streaming/a working line with an '
-    'elapsed timer), "waiting" (blocked, needs the user to type or choose), "idle" '
-    "(bare shell prompt, nothing happening).\n"
-    '"model": the model name if shown, e.g. "Sonnet 5", "Opus 4.8".\n'
-    '"context_pct": integer percent of context shown (e.g. 78 from "78% ctx").\n'
-    '"cost": dollar cost if shown, e.g. "$10.64".\n'
-    '"mode": one of "plan","accept-edits","bypass","normal" — from indicators like '
-    '"plan mode on", "accept edits on", "bypass permissions on"; else "normal".\n'
-    '"working_verb": the whimsical gerund shown while working, e.g. "Cultivating".\n'
-    '"elapsed": elapsed working time if shown, e.g. "11m46s".\n'
-    '"tokens": tokens streamed if shown, e.g. "13.3k".\n'
-    '"agents": integer count of running sub-agents/parallel tasks if the agent shows '
-    "them (e.g. a task list or 'N agents running'); else 0.\n"
-    '"question": {"prompt": string, "options": [string,...]} — include this ONLY if '
-    "the agent has STOPPED and is presenting an interactive prompt the user must "
-    "answer RIGHT NOW: a boxed confirmation dialog, a selection list with a "
-    "highlighted cursor (❯) on the choices, or an explicit input line at the very "
-    "bottom awaiting text. This is rare. Do NOT invent a question from ordinary "
-    "output: an agent's prose that merely contains a question mark, a bulleted or "
-    "numbered list inside its reasoning/plan, or a completed menu with output below "
-    "it is NOT a question — omit the key and use activity 'running' or 'idle'. When "
-    "in doubt, OMIT question."
-)
-
+_TOOLS = {"claude", "codex", "gemini", "shell", "unknown"}
+_ACTIVITIES = {"running", "idle", "waiting"}
 _MODES = {"plan", "accept-edits", "bypass", "normal"}
 
 
-def _apply_llm(state: PaneState, text: str, llm_fn) -> None:
-    """Merge an LLM classification into a heuristic PaneState, without overwriting
-    good heuristic values with empty ones."""
-    result = llm_fn(_LLM_SYSTEM, text[-4000:])
+# The layered parser prompt. General terminal reasoning first; then per-agent sections
+# described by BEHAVIOR/APPEARANCE, not exact wording, so it survives UI changes.
+PARSER_PROMPT = """
+You are the parser for a phone dashboard that watches terminal panes running coding
+agents (Claude Code, Codex, Gemini CLI) or a plain shell. You are given the visible
+text of one pane. Report what is happening as a single compact JSON object. Reason
+about GENERAL PATTERNS by how they look/behave — do NOT rely on exact wording, which
+changes between versions and tools.
+
+GENERAL TERMINAL PATTERNS (apply to any tool):
+- Selection menu: a list of choices where one line is marked by a cursor (❯, ›, >,
+  a highlight, or an arrow) and you'd move between them with up/down. Capture the
+  choices in order and which is selected.
+- Input prompt: the pane is blocked waiting for the user to answer — a yes/no
+  confirmation, a numbered choice, or a free-text field. Capture the question and any
+  explicit options.
+- Working/busy: a spinner, a "thinking"/gerund word, an elapsed timer, or streaming
+  output means the agent is actively working (activity="running").
+- Idle: a bare shell prompt with nothing happening → activity="idle".
+
+CLAUDE CODE (recognize it by its style — a rounded input box, a status line, clay/
+orange accents):
+- Status line (usually near the bottom): may show the model, a context-window
+  percentage, a session cost, and a permission mode. Extract whatever is present.
+- Permission/confirmation dialog: a boxed prompt asking to allow an edit/command,
+  often with choices like allow / allow-always / reject. Treat as a menu/question.
+- Rewind picker: appears after Esc-Esc. A header about restoring code/conversation to
+  a previous point, then a list of past user messages (each may have a change note
+  like "No code changes" or a file/diff stat), one marked by a cursor, with "N more
+  above/below" scroll markers. Capture it as `rewind`.
+- Task/TODO list: a checklist of tasks the agent is tracking (done vs open).
+- Working indicator: a whimsical gerund + elapsed time + tokens streamed.
+
+Ignore editor/multiplexer chrome that is not the agent's state (vim's "-- INSERT --",
+tmux mode footers).
+
+Output ONLY this JSON (omit fields you cannot determine — do not guess):
+{
+  "tool": "claude"|"codex"|"gemini"|"shell"|"unknown",
+  "activity": "running"|"waiting"|"idle",
+  "status_line": "<=80 char summary of what is happening; prefer WHAT is being worked
+     on over echoing a spinner word",
+  "model": "<model name if shown>",
+  "context_pct": <int 0-100 if shown>,
+  "cost": "<e.g. $10.64 if shown>",
+  "mode": "plan"|"accept-edits"|"bypass"|"normal",
+  "working_verb": "<gerund if working>",
+  "elapsed": "<e.g. 11m46s if shown>",
+  "tokens": "<e.g. 13.3k if shown>",
+  "agents": <int count of running sub-agents/parallel tasks if shown, else 0>,
+  "question": { "prompt": "...", "options": ["...", ...] },   // only if truly waiting for input
+  "rewind": {
+    "entries": [ { "text": "...", "note": "...", "selected": true|false }, ... ],
+    "more_above": <int>, "more_below": <int>
+  }
+}
+Include "question" ONLY when the pane is genuinely blocked awaiting input (a real
+menu/dialog/field), never for prose that merely contains a question mark or a list.
+Include "rewind" ONLY when the restore-history picker is actually shown.
+""".strip()
+
+
+def _obvious_idle(text: str) -> bool:
+    """Cheap check: does the pane tail look like a bare shell prompt? Lets the watcher
+    skip the LLM for a clearly-idle shell. Not used for anything semantic."""
+    for ln in reversed(text.splitlines()):
+        if ln.strip():
+            return bool(_SHELL_PROMPT_RE.search(ln))
+    return False
+
+
+def classify(pane: Pane, text: str, llm_fn=None) -> PaneState:
+    """Build a PaneState for `pane`. `llm_fn(system, text) -> dict|None` is the parser
+    (Gemini). If it's None or fails, we return a minimal heuristic state (idle vs
+    running) — the LLM is the source of truth for everything semantic."""
+    state = PaneState(pane_id=pane.id, label=pane.label)
+
+    result = llm_fn(PARSER_PROMPT, text) if llm_fn else None
     if not isinstance(result, dict):
-        return
-    if s := result.get("status_line"):
-        state.status_line = str(s)[:120]
-    if (a := result.get("activity")) in ("running", "idle", "waiting"):
+        # Fallback with no LLM: only the crude idle/running guess. No fake parsing.
+        state.tool = "shell" if pane.current_command in ("bash", "zsh", "sh", "fish") else "unknown"
+        state.activity = "idle" if _obvious_idle(text) else "running"
+        return state
+
+    _apply(state, result)
+    return state
+
+
+def _apply(state: PaneState, r: dict) -> None:
+    """Map the LLM's JSON onto PaneState, validating enums and shapes."""
+    if (t := r.get("tool")) in _TOOLS:
+        state.tool = t
+    if (a := r.get("activity")) in _ACTIVITIES:
         state.activity = a
-    if m := result.get("model"):
+    if s := r.get("status_line"):
+        state.status_line = str(s)[:120]
+    if m := r.get("model"):
         state.model = str(m)[:40]
-    if isinstance(result.get("context_pct"), int):
-        pct = result["context_pct"]
-        state.context_pct = pct if 0 <= pct <= 100 else None
-    if c := result.get("cost"):
+    if isinstance(r.get("context_pct"), int) and 0 <= r["context_pct"] <= 100:
+        state.context_pct = r["context_pct"]
+    if c := r.get("cost"):
         state.cost = str(c)[:16]
-    if (mode := result.get("mode")) in _MODES:
+    if (mode := r.get("mode")) in _MODES:
         state.mode = mode
     for field in ("working_verb", "elapsed", "tokens"):
-        if v := result.get(field):
+        if v := r.get(field):
             setattr(state, field, str(v)[:24])
-    if isinstance(result.get("agents"), int) and result["agents"] > 0:
-        state.agents = result["agents"]
-    q = result.get("question")
+    if isinstance(r.get("agents"), int) and r["agents"] > 0:
+        state.agents = r["agents"]
+
+    q = r.get("question")
     if isinstance(q, dict) and q.get("prompt"):
         state.question = Question(
-            prompt=str(q["prompt"]),
-            options=[str(o) for o in q.get("options", []) if o],
+            prompt=str(q["prompt"])[:200],
+            options=[str(o)[:120] for o in q.get("options", []) if o][:12],
+        )
+        state.activity = "waiting"
+
+    rw = r.get("rewind")
+    if isinstance(rw, dict) and isinstance(rw.get("entries"), list) and rw["entries"]:
+        entries = [
+            RewindEntry(
+                text=str(e.get("text", ""))[:200],
+                note=str(e.get("note", ""))[:60],
+                selected=bool(e.get("selected")),
+            )
+            for e in rw["entries"]
+            if isinstance(e, dict)
+        ]
+        state.rewind = Rewind(
+            entries=entries,
+            more_above=rw.get("more_above", 0) if isinstance(rw.get("more_above"), int) else 0,
+            more_below=rw.get("more_below", 0) if isinstance(rw.get("more_below"), int) else 0,
         )
         state.activity = "waiting"

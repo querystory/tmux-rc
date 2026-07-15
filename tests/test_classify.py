@@ -1,89 +1,72 @@
-"""Heuristic classifier regression tests (no network / no LLM)."""
+"""LLM-first classifier tests. The LLM is the parser, so we test the mapping from its
+JSON onto PaneState (via a stub llm_fn) and the no-LLM fallback — NOT regex parsing."""
 
 from termiphone.classify import classify
 from termiphone.tmux import Pane
 
 
 def _pane(cmd="bash", win="bash"):
-    return Pane("work", "0", win, "0", "%0", cmd, "t")
+    return Pane("work", "0", win, "0", "%0", cmd, "t", "/home/x/proj")
 
 
-def test_shell_idle():
-    text = "shapor@host:~/src$ "
-    s = classify(_pane(), text, prev_text=text, idle_seconds=30)
-    assert s.tool == "shell"
-    assert s.activity == "idle"
+def _llm(payload):
+    """A stub parser that returns a fixed JSON payload."""
+    return lambda system, text: payload
 
 
-def test_yes_no_prompt():
-    text = "Editing models.py\nDo you want to proceed? [y/N]"
-    s = classify(_pane("claude", "claude"), text, prev_text="old", idle_seconds=0)
-    assert s.tool == "claude"
+def test_maps_status_and_metadata():
+    s = classify(
+        _pane(),
+        "…",
+        _llm({
+            "tool": "claude", "activity": "running", "status_line": "Editing models.py",
+            "model": "Opus 4.8", "context_pct": 47, "cost": "$10.64", "mode": "bypass",
+            "working_verb": "Cultivating", "elapsed": "11m46s", "tokens": "13.3k", "agents": 2,
+        }),
+    )
+    assert s.tool == "claude" and s.activity == "running"
+    assert s.status_line == "Editing models.py"
+    assert s.model == "Opus 4.8" and s.context_pct == 47 and s.cost == "$10.64"
+    assert s.mode == "bypass" and s.working_verb == "Cultivating" and s.agents == 2
+
+
+def test_question_sets_waiting():
+    s = classify(_pane(), "…", _llm({"activity": "running",
+                 "question": {"prompt": "Proceed?", "options": ["yes", "no"]}}))
     assert s.activity == "waiting"
     assert s.question and s.question.options == ["yes", "no"]
 
 
-def test_live_menu_detected():
-    text = "Which approach?\n  1. Refactor\n  2. New file\n  3. Skip\nEnter choice:"
-    s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
+def test_rewind_sets_waiting_and_entries():
+    s = classify(_pane(), "…", _llm({"rewind": {
+        "entries": [
+            {"text": "did a thing", "note": "No code changes", "selected": False},
+            {"text": "did another", "note": "app.js +18 -8", "selected": True},
+        ],
+        "more_above": 40, "more_below": 1,
+    }}))
     assert s.activity == "waiting"
-    assert s.question.prompt == "Which approach?"
-    assert s.question.options == ["Refactor", "New file", "Skip"]
+    assert s.rewind and len(s.rewind.entries) == 2
+    assert s.rewind.entries[1].selected and s.rewind.more_above == 40
 
 
-def test_answered_menu_not_waiting():
-    # A shell prompt below the menu ⇒ control returned to the shell, so it was
-    # answered and is no longer waiting. (A live TUI picker has chrome below its
-    # options but NO shell prompt — see test_live_picker_with_footer.)
-    text = (
-        "Which approach?\n  1. Refactor\n  2. New file\n  3. Skip\n"
-        "Enter choice: 1\n>>> PROCEEDING WITH 1 <<<\nshapor@host:~/src$ "
-    )
-    s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
-    assert s.question is None
-    assert s.activity != "waiting"
+def test_invalid_enum_ignored():
+    # A bogus activity/mode from the LLM must not corrupt the state.
+    s = classify(_pane(), "…", _llm({"activity": "bogus", "mode": "nonsense",
+                                     "status_line": "hi"}))
+    assert s.activity != "bogus"  # left at default
+    assert s.mode != "nonsense"
+    assert s.status_line == "hi"
 
 
-def test_live_picker_with_footer():
-    # A real TUI picker (Claude Code model selector): options followed by footer
-    # chrome, no shell prompt. Must be detected as waiting.
-    text = (
-        "Select model\n"
-        "  1. Default    Opus 4.8\n"
-        "  2. Sonnet     Sonnet 5\n"
-        "❯ 3. Haiku      Haiku 4.5\n"
-        "● High effort (default)\n"
-        "Enter to set as default · s to use this session only · Esc to cancel"
-    )
-    s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
-    assert s.activity == "waiting"
-    assert s.question and len(s.question.options) == 3
+def test_no_llm_fallback_idle_shell():
+    # No parser available: crude idle/running guess only, no fake semantic parsing.
+    s = classify(_pane(cmd="bash"), "shapor@host:~/proj$ ", llm_fn=None)
+    assert s.tool == "shell"
+    assert s.activity == "idle"
+    assert s.question is None and s.rewind is None
 
 
-def test_transcript_prose_is_not_a_question():
-    # Agent reasoning with a numbered list mid-scroll — must NOT be read as a prompt.
-    text = (
-        "Let me plan the fix:\n"
-        "  1. Remove the bare-? branch\n"
-        "  2. Require y/N on the last line\n"
-        "Now I will make these edits and verify. Does that work?\n"
-        "Editing classify.py to apply the change now."
-    )
-    s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
-    assert s.question is None
-    assert s.activity != "waiting"
-
-
-def test_context_pct():
-    text = "Context left: 47%\nAnalyzing codebase..."
-    s = classify(_pane("claude"), text, prev_text="old", idle_seconds=0)
-    assert s.context_pct == 47
+def test_no_llm_fallback_running():
+    s = classify(_pane(cmd="node"), "Some streaming output...\nmore output", llm_fn=None)
     assert s.activity == "running"
-
-
-def test_heuristic_cases_never_call_llm():
-    def boom(*_):
-        raise AssertionError("LLM must not be called for clean heuristic input")
-
-    text = "Which approach?\n  1. A\n  2. B\nEnter choice:"
-    classify(_pane("claude"), text, prev_text="old", idle_seconds=0, llm_fn=boom)

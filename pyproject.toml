@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.7",
     "google-genai>=0.3",
     "python-multipart>=0.0.32",
+    "pillow>=12.3.0",
 ]
 
 [dependency-groups]

@@ -43,15 +43,19 @@ def _client():
     return genai.Client(vertexai=True, project=project, location=location)
 
 
-def classify_text(system: str, text: str) -> dict | None:
-    """Send pane text to Flash Lite and get structured JSON back. Returns the parsed
-    dict, or None on any failure (the caller falls back to heuristics-only)."""
+def classify_text(system: str, text: str, image_png: bytes | None = None) -> dict | None:
+    """Send pane text (and optionally a rendered screenshot) to Flash Lite and get
+    structured JSON back. Returns the parsed dict, or None on any failure (caller falls
+    back). `image_png` is wired for the future image-input mode; text-only by default."""
     try:
         from google.genai import types
 
+        parts: list = [text]
+        if image_png is not None:
+            parts.append(types.Part.from_bytes(data=image_png, mime_type="image/png"))
         resp = _client().models.generate_content(
             model=_MODEL,
-            contents=[text],
+            contents=parts,
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 response_mime_type="application/json",
@@ -60,10 +64,10 @@ def classify_text(system: str, text: str) -> dict | None:
         )
         result = json.loads(resp.text)
         # Trace the tail we sent and what came back — grep /tmp/termiphone-llm.log.
-        _trace.info("IN: %r", text[-500:])
+        _trace.info("IN%s: %r", "+img" if image_png else "", text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
         return result
-    except Exception:  # noqa: BLE001 - lazy pass must never break the watcher
-        logger.warning("Gemini classify pass failed; using heuristics only", exc_info=True)
+    except Exception:  # noqa: BLE001 - parse pass must never break the watcher
+        logger.warning("Gemini parse pass failed", exc_info=True)
         _trace.info("ERROR on IN: %r", text[-500:])
         return None
