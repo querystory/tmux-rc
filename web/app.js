@@ -66,8 +66,12 @@ async function poll() {
     // the 429) at a glance, without a big scary banner for transient errors.
     showUsage(data.usage, data.llm_error);
     render(data.panes || []);
-  } catch {
+  } catch (e) {
+    // Surface the real error instead of silently sitting on "Connecting…" forever.
     liveEl.className = "dot off";
+    panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
+      `<small>(often a stale cached app.js — hard-refresh)</small></div>`;
+    return;
   }
 }
 
