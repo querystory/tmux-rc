@@ -113,6 +113,29 @@ doesn't grow unbounded.
   we have render.py) vs. capturing real screenshots continuously (heavy). On-demand
   render from stored text is almost certainly right.
 
+## Persist state/history to Postgres (introspect with QueryStory)
+
+Instead of (or alongside) the in-memory ring buffer, log every parse — the full
+state dict plus the raw capture and token/cost/latency — to Postgres, one row per
+parse (pane_id, ts, activity, headline, model, cost, tokens, raw_text, json). Why:
+
+- **Real-time introspection with QueryStory** (dogfooding): query the session's whole
+  history live — cost over time, idle vs working minutes, headline timeline, token
+  burn, how often it hit `waiting`, per-pane breakdowns. The timeline feature becomes
+  "SELECT … ORDER BY ts" instead of bespoke in-memory logic.
+- **Durable substrate for Feature B**: the timeline is just a query/rollup over the
+  rows; drill-down (Feature A) reads `raw_text` for a row. Survives restarts (which,
+  given the reload/resize stalls above, matters).
+- Ties directly into the substrate decision: this is essentially **S1 (store raw) +
+  S2 (store the as-we-go summary)** both landing in durable rows, with rich views as
+  SQL/rollups on top — arguably making S3's "thin in-memory timeline" unnecessary.
+
+Tradeoffs to think through: a Postgres dependency for a PoC (vs. SQLite/JSONL for
+zero-infra); write volume (dedupّd parses only, not every 1.5s tick); retention/rollup
+of old rows; and whether the raw_text column bloats (compress, or keep only changed
+frames). Likely start with SQLite or append-only JSONL to stay zero-infra, with a
+schema shaped so moving to Postgres later (for the QueryStory angle) is trivial.
+
 ## Recommendation (for when we build)
 Build the **S3 substrate**: dedup'd raw-capture trail + a thin incremental timeline.
 Then Feature A (drill-down: verbatim text floor, on-demand image, optional LLM
