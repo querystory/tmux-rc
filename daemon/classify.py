@@ -52,17 +52,37 @@ below it (or a fresh prompt after it). A lone token like "d" or "git ad" at the 
 a prompt line is in-progress input — say the pane is idle at the prompt, not that a
 command "d" ran and failed.
 
-TOOL — decide claude vs shell by the WHOLE picture, not just the last lines. A pane
-running Claude Code stays "claude" even when a shell command it launched fills the
-screen with output — the agent is driving it. Use the earlier frames and the nature of
-the activity: if you see Claude Code's box/status line anywhere recently, or the work
-is clearly agent-driven (editing files, running tools, a "thinking"/gerund line), it is
-"claude". Only call it "shell" when it is genuinely a plain interactive shell the human
-is typing into with no agent present. When recent frames were claude, prefer "claude".
+TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just the last
+lines. The choices are "claude", "codex", "gemini", "shell", "unknown" — do NOT default
+to "claude"; different coding agents look similar (box-drawn input, permission prompts)
+but have distinct signatures. Decide by the evidence on screen:
+- "codex" (OpenAI Codex / ChatGPT CLI): its model line names a GPT/OpenAI model
+  ("gpt-5.5", "gpt-5", "o3", "codex", reasoning-effort words like "xhigh"); permission
+  prompts read like "You approved codex to run …", "Would you like to run the following
+  command?" with a NUMBERED list "1. Yes  2. Yes, and don't ask again for commands that
+  start with X  3. No, and tell Codex what to do differently (esc)"; it refers to itself
+  as "Codex". If you see "Codex" by name or a GPT/o-series model, it is "codex", NOT
+  "claude". Its bottom line reads "<model> <effort> <mode> · <cwd>", e.g.
+  "gpt-5.5 xhigh fast · ~/src/qs/qs-app" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
+  a MODE word, NOT a session name. Do NOT put "fast" (or the cwd) in "session". Codex
+  names its session/thread only when it explicitly says so (e.g. a line like "Thread
+  renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,
+  OMIT "session" — never fall back to a status-line token.
+- "gemini" (Gemini CLI): names a Gemini model.
+- "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku" + a
+  version like "4.8"); status line shows dir/branch · model · context% · elapsed · cost ·
+  prompts/tools counts; whimsical gerund while working (e.g. "Shimmying…"); permission
+  modes "plan mode"/"accept edits"/"bypass permissions"; Esc-Esc REWIND picker.
+An agent pane STAYS that agent even when a shell command it launched fills the screen —
+the agent is driving it. Use earlier frames and the model name for continuity; if recent
+frames identified a specific agent, prefer that SAME agent (do not switch to a different
+agent or to claude without new evidence). Only call it "shell" when it is genuinely a
+plain interactive shell a human is typing into with no agent present. Use "unknown" only
+when you truly cannot tell which agent it is.
 
-This is very often CLAUDE CODE (an AI coding agent). Recognize it by its style: a
-rounded input box drawn with box characters, and a two-line STATUS LINE near the
-bottom that typically shows — in order — the working directory and git branch, the
+CLAUDE CODE in detail (one of the agents above — identify it by its Claude model name,
+not merely by being an agent). Recognize it by its style: a rounded input box drawn with
+box characters, and a two-line STATUS LINE near the bottom that typically shows — in order — the working directory and git branch, the
 model name (e.g. "Opus 4.8"), a context-window percentage, an elapsed session time, a
 session cost in dollars, and counts of prompts/tools; plus a permission-mode indicator
 ("plan mode", "accept edits", "bypass permissions"). While working it shows a whimsical

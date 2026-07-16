@@ -1,10 +1,15 @@
 // tmux-rc PWA. Polls /api/state, renders one card per pane, floats waiting
 // panes to the top, and posts answers back. No framework, no build step.
 
-// Real Claude app icon (downloaded from claude.ai) — no hand-drawn SVG.
-const CLAUDE_IMG = '<img src="/claude.png" width="22" height="22" alt="Claude" style="border-radius:5px" />';
-const ICONS = { codex: "🔷", gemini: "💎", shell: "$", unknown: "•" };
-const iconFor = (tool) => (tool === "claude" ? CLAUDE_IMG : (ICONS[tool] ?? "•"));
+// Real brand marks per agent (served from web/). One img template so every logo-backed
+// tool renders identically; emoji/text fallback for the rest. `tool` comes from parser
+// JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor" would
+// otherwise resolve up the prototype chain and render garbage) and escape it into alt.
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
+const ICONS = { shell: "$", unknown: "•" };
+const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
+const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICONS, tool) ? ICONS[tool] : "•"));
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
@@ -103,7 +108,13 @@ function showUsage(u, err) {
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
   usageEl.innerHTML = parts.join(" · ");
 }
-function escAttr(s) { return String(s).replace(/"/g, "&quot;"); }
+// Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
+// quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
+// a quote and break out of the attribute — these values come from parser JSON (untrusted).
+function escAttr(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
 
 function render(states) {
   // Accumulate this poll's events into each pane's running client-side log first.
