@@ -64,11 +64,22 @@ def _client():
     """Lazily construct the Vertex client once. Cached so we don't rebuild per call."""
     from google import genai
 
+    from google.genai import types
+
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
         raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set; cannot reach Vertex.")
     location = os.environ.get("VERTEX_AI_REGION_GEMINI", "global")
-    return genai.Client(vertexai=True, project=project, location=location)
+    # Per-request timeout (ms) on EVERY call. Without it, a hung ADC token refresh or a
+    # stalled Vertex socket blocks the parse thread forever — the watcher loop awaits that
+    # thread and never ticks again, freezing all cards with NO recorded error (exactly the
+    # ~9h "stale, errors:0" wedge we hit). A timeout turns that hang into a caught
+    # exception the parse path already handles (falls back, records the error).
+    timeout_ms = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
+    return genai.Client(
+        vertexai=True, project=project, location=location,
+        http_options=types.HttpOptions(timeout=timeout_ms),
+    )
 
 
 def classify_text(

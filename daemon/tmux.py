@@ -76,9 +76,13 @@ def _meaningful(name: str) -> bool:
 
 
 def _run(args: list[str]) -> str:
-    """Run a tmux command, returning stdout. Raises on non-zero exit."""
+    """Run a tmux command, returning stdout. Raises on non-zero exit.
+
+    Bounded by a timeout so a wedged tmux (server hang, blocked pipe) surfaces as a
+    TimeoutExpired the watcher's per-tick guard can catch — instead of blocking the poll
+    thread forever and silently freezing all cards (the 'stale, no error' failure)."""
     return subprocess.run(
-        ["tmux", *args], capture_output=True, text=True, check=True
+        ["tmux", *args], capture_output=True, text=True, check=True, timeout=10
     ).stdout
 
 
