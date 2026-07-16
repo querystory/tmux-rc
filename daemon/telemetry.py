@@ -3,8 +3,8 @@
 Every classify call emits a record (model, latency, TTFT, tokens, cost, activity, …)
 to the qsi-automation otel-receiver (../qsi-automation/otel-receiver — Cloud Run, OTLP/
 gRPC, Bearer auth) which flattens it to JSONL in GCS → QueryStory. That lets us switch
-TMUXRC_MODEL between providers during real work and compare latency/cost/accuracy in QS
-instead of running synthetic benchmarks.
+TMUXRC_GEMINI_MODEL during real work and compare latency/cost/accuracy in QS instead of
+running synthetic benchmarks.
 
 Privacy is client-side and fail-closed by policy:
   - DEFAULT: numeric metrics + structural fields + a HASH of the pane text. No pane
@@ -105,26 +105,36 @@ def emit_parse(
     try:
         from opentelemetry._logs import LogRecord, SeverityNumber
 
-        tps = (out_tokens / latency) if latency > 0 and out_tokens else None
+        # tps is generation-phase throughput (out_tokens / generation time), NOT
+        # out_tokens/latency — total latency includes prefill + TTFT and would understate
+        # it (per docs/hint.md). Needs ttft to isolate generation; when ttft is absent
+        # (the non-streaming Vertex path) tps stays None rather than reporting a wrong
+        # number.
+        gen_s = (latency - ttft) if (ttft is not None and latency > ttft) else None
+        tps = (out_tokens / gen_s) if (gen_s and out_tokens) else None
         attrs = {
             "model": model,
             "provider": provider,
             "latency_s": round(latency, 4),
-            "in_tokens": in_tokens,
-            "out_tokens": out_tokens,
-            "cost_usd": round(cost, 6),
             "changed": changed,
             # Hash lets us group repeated parses of the same screen without sending text.
             "input_sha256": hashlib.sha256(pane_text.encode()).hexdigest(),
         }
+        # On a failed parse, OMIT token/cost so they read as NULL/absent (per hint.md:
+        # "exclude error IS NOT NULL" for success-path metrics) rather than skewing
+        # aggregates with zeros.
+        if error is None:
+            attrs["in_tokens"] = in_tokens
+            attrs["out_tokens"] = out_tokens
+            attrs["cost_usd"] = round(cost, 6)
+        else:
+            attrs["error"] = error[:200]
         if ttft is not None:
             attrs["ttft_s"] = round(ttft, 4)
         if tps is not None:
             attrs["tps"] = round(tps, 1)
         if activity:
             attrs["activity"] = activity
-        if error:
-            attrs["error"] = error[:200]
         if _QSDEBUG:  # accuracy-diff mode: attach the actual content
             attrs["pane_text"] = pane_text
             if output is not None:
