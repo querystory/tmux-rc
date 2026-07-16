@@ -88,9 +88,49 @@ def _client():
             "re-check TMUXRC_LLM_TIMEOUT_MS is still milliseconds"
         )
     return genai.Client(
-        vertexai=True, project=project, location=location,
+        vertexai=True,
+        project=project,
+        location=location,
         http_options=types.HttpOptions(timeout=timeout_ms),
     )
+
+
+# Shared 429 backoff. Vertex quota errors come in bursts; without a backoff every
+# heartbeat re-parse burns another call (and logged another full traceback) while the
+# quota window resets. On 429 we stop calling for `delay` seconds (15s doubling to a
+# 2min cap), and any success resets it.
+_backoff = {"delay": 0.0, "until": 0.0}
+
+
+def _backoff_remaining() -> float:
+    """Seconds until we may call Vertex again (0 = not backing off)."""
+    return max(0.0, _backoff["until"] - time.time())
+
+
+def _handle_llm_error(e: Exception) -> str:
+    """Log an LLM failure at the right fidelity and return a short user-facing message.
+
+    Known OPERATIONAL failures — quota (429), expired auth, timeouts — are states of the
+    world, not bugs: they log as one line. A full stack trace for an expected condition
+    is noise that buries real bugs (a 429 burst was dumping dozens of 40-line tracebacks
+    into the daemon output). Unknown failures keep exc_info so real bugs stay debuggable.
+    A 429 also arms the shared backoff so the watcher stops hammering Vertex."""
+    msg = str(e)
+    if getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg:
+        delay = min(_backoff["delay"] * 2, 120.0) or 15.0
+        _backoff.update(delay=delay, until=time.time() + delay)
+        short = f"rate limited (429) — backing off {delay:.0f}s"
+        logger.warning("LLM %s", short)
+    elif "Reauthentication is needed" in msg or "RefreshError" in type(e).__name__:
+        short = "Google auth expired — run: gcloud auth application-default login"
+        logger.warning("LLM parse failed: %s", short)
+    elif "timeout" in msg.lower() or "Timeout" in type(e).__name__:
+        short = "Vertex request timed out"
+        logger.warning("LLM parse failed: %s", short)
+    else:
+        short = msg[:200]
+        logger.warning("LLM parse failed (unexpected)", exc_info=True)
+    return short
 
 
 def classify_text(
@@ -101,6 +141,12 @@ def classify_text(
     back). `image_png` is wired for the future image-input mode; text-only by default.
     `changed` (a real content-change parse vs a heartbeat re-parse) is passed straight
     through to the benchmark telemetry."""
+    wait = _backoff_remaining()
+    if wait > 0:
+        # Rate-limited: skip the call entirely (no tokens burned, no telemetry — nothing
+        # happened). The UI still shows why cards are degrading via last_error.
+        last_error["msg"] = f"rate limited (429) — retrying in {wait:.0f}s"
+        return None
     t0 = time.time()
     try:
         from google.genai import types
@@ -126,18 +172,14 @@ def classify_text(
             text, result, time.time() - t0, resp, changed, None
         )  # OTLP benchmark record
         last_error["msg"] = None  # success clears any prior error
+        _backoff.update(delay=0.0, until=0.0)  # healthy again; forget the 429 streak
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
-        logger.warning("Gemini parse pass failed", exc_info=True)
         _trace.info("ERROR on IN: %r", text[-500:])
-        # Remember WHY, so the UI can say "LLM unavailable: <reason>" instead of
-        # silently degrading to a blank heuristic card. Map the common expired-ADC case
-        # to actionable text.
-        msg = str(e)
-        if "Reauthentication is needed" in msg or "RefreshError" in type(e).__name__:
-            msg = "Google auth expired — run: gcloud auth application-default login"
-        elif "RESOURCE_EXHAUSTED" in msg or "429" in msg:
-            msg = "rate limited (429) — backing off"
+        # Remember WHY (last_error → UI shows "LLM unavailable: <reason>" instead of
+        # silently degrading to a blank heuristic card). _handle_llm_error picks the log
+        # fidelity and arms the 429 backoff.
+        msg = _handle_llm_error(e)
         last_error["msg"] = msg[:200]
         _totals["errors"] += 1
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
@@ -150,8 +192,8 @@ def classify_text(
 def summarize_events(event_texts: list[str]) -> str | None:
     """One-line summary of a burst of activity events (for the idle collapse). Returns
     plain text, or None on failure. Cheap: no schema, tiny output."""
-    if not event_texts:
-        return None
+    if not event_texts or _backoff_remaining() > 0:
+        return None  # skip while rate-limited — same gate as classify_text
     try:
         from google.genai import types
 
@@ -166,7 +208,8 @@ def summarize_events(event_texts: list[str]) -> str | None:
         )
         _record(resp)
         return (resp.text or "").strip()[:200] or None
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        _handle_llm_error(e)  # was fully silent before; now logs + arms 429 backoff
         _totals["errors"] += 1
         return None
 
