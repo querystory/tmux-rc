@@ -216,6 +216,8 @@ def _emit(
     latency: float,
     resp,
     changed: bool,
+    pane_uid: str,
+    pane_label: str,
     error: str | None,
 ) -> None:
     """Adapt a Gemini call to the OTLP benchmark record. Best-effort. TTFT isn't exposed
@@ -228,6 +230,8 @@ def _emit(
         emit_parse(
             model=_MODEL,
             provider="vertex",
+            pane_uid=pane_uid,
+            pane_label=pane_label,
             pane_text=text,
             output=result,
             latency=latency,
