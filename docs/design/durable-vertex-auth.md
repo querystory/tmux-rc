@@ -55,8 +55,10 @@ Vertex role (`roles/aiplatform.user`), mint a JSON key, and point the daemon at 
 `GOOGLE_APPLICATION_CREDENTIALS` in `.env`. google-genai/google-auth honors that env var
 with **zero daemon code change** (it's the first entry in the credential resolution chain).
 
-- **Pros:** never expires; no reauth; no human in the loop; mirrors the proven tun +
-  receiver pattern; zero code change (env-only).
+- **Pros:** no scheduled expiry and no interactive reauth (the key is valid until it's
+  explicitly revoked or rotated — unlike ADC, which lapses on its own on a policy cadence);
+  no human in the loop; mirrors the proven tunnel + receiver pattern; zero code change
+  (env-only).
 - **Cons:** a long-lived key file on disk (mitigate: `chmod 600`, outside the repo under
   `~/.config/tmux-rc/`, gitignored path in `.env`). Key rotation is a manual/periodic
   chore.
@@ -70,7 +72,7 @@ Daemon impersonates a Vertex SA using the developer's ADC to mint short-lived to
 
 - **Pros:** no key file on disk.
 - **Cons:** **does not solve the problem** — it still depends on the developer's ADC being
-  fresh, so it wedges on the same reauth expiry. This is tun's "convenient for a short
+  fresh, so it wedges on the same reauth expiry. This is the tunnel's "convenient for a short
   session" path that it explicitly warns drops on timeout. Rejected.
 
 ### C. Browser re-auth flow in the phone UI
@@ -87,7 +89,7 @@ the browser they're already holding → daemon resumes.
 ## Recommendation
 
 **Do A (long-lived SA key)** as the primary durable fix — it's the same pattern already
-proven on the receiver and tun, needs no daemon code, and structurally ends the expiry
+proven on the receiver and tunnel, needs no daemon code, and structurally ends the expiry
 class. Optionally layer **C** later as a nicer recovery UX for any residual auth failure
 (e.g. key revoked/rotated). **B is rejected** (doesn't fix the root cause).
 
@@ -101,8 +103,10 @@ residual failure is loud and obvious rather than a silent stale-card freeze.
 1. `gcloud iam service-accounts create tmux-rc-classifier --project=qs-backend-dev …`
 2. `gcloud projects add-iam-policy-binding qs-backend-dev --member=serviceAccount:… --role=roles/aiplatform.user`
 3. `gcloud iam service-accounts keys create ~/.config/tmux-rc/vertex-sa.json --iam-account=…` ; `chmod 600`
-4. Add `GOOGLE_APPLICATION_CREDENTIALS=~/.config/tmux-rc/vertex-sa.json` to `.env` (and
-   document in `.env.example`). No `daemon/llm.py` change.
+4. Add `GOOGLE_APPLICATION_CREDENTIALS=/home/YOU/.config/tmux-rc/vertex-sa.json` to `.env`
+   — an **absolute** path, since google-auth does not expand `~` in the env var (the `~` in
+   the `gcloud` commands above is fine; the shell expands it there). Document it in
+   `.env.example`. No `daemon/llm.py` change.
 5. Verify: unset ADC in a shell, confirm the daemon still classifies (creds come from the
    key, not ADC).
 6. Fold the SA-key launch into the durability work (systemd unit) so it's reproducible, not

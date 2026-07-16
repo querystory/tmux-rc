@@ -16,13 +16,16 @@ summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/DESIGN.md`](docs
 
 ## Run
 
-Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google
-Application Default Credentials on the host (for the Gemini Flash Lite classification
-pass via Vertex).
+Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google Cloud
+credentials for Vertex (the Gemini Flash Lite classification pass). Because the daemon
+runs unattended for long stretches, it authenticates with a long-lived **service-account
+key** rather than developer ADC (which expires and needs a browser reauth — see
+[docs/design/durable-vertex-auth.md](docs/design/durable-vertex-auth.md)). Point
+`GOOGLE_APPLICATION_CREDENTIALS` at the key file (`.env.example` has the mint command).
 
 ```bash
 uv sync
-cp .env.example .env          # then edit .env: set GOOGLE_CLOUD_PROJECT (ADC must be available)
+cp .env.example .env          # then edit .env: GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS
 
 # In another terminal, start a tmux session and run an agent in it:
 tmux new -s work
