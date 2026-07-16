@@ -46,6 +46,7 @@ def usage_totals() -> dict:
     mins = max((time.time() - _started) / 60, 1 / 60)
     return {**_totals, "rate_per_min": round(_totals["calls"] / mins, 1)}
 
+
 # Dedicated LLM trace log so we can grep exactly what the model saw and returned.
 # Path override via TMUXRC_LLM_LOG; default alongside the repo. tail -f to watch.
 _trace = logging.getLogger("daemon.llm.trace")
@@ -70,10 +71,15 @@ def _client():
     return genai.Client(vertexai=True, project=project, location=location)
 
 
-def classify_text(system: str, text: str, image_png: bytes | None = None) -> dict | None:
+def classify_text(
+    system: str, text: str, image_png: bytes | None = None, changed: bool = True
+) -> dict | None:
     """Send pane text (and optionally a rendered screenshot) to Flash Lite and get
     structured JSON back. Returns the parsed dict, or None on any failure (caller falls
-    back). `image_png` is wired for the future image-input mode; text-only by default."""
+    back). `image_png` is wired for the future image-input mode; text-only by default.
+    `changed` (a real content-change parse vs a heartbeat re-parse) is passed straight
+    through to the benchmark telemetry."""
+    t0 = time.time()
     try:
         from google.genai import types
 
@@ -94,6 +100,9 @@ def classify_text(system: str, text: str, image_png: bytes | None = None) -> dic
         _trace.info("IN%s: %r", "+img" if image_png else "", text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
         _record(resp)  # tokens/cost/latency → metrics jsonl + running totals
+        _emit(
+            text, result, time.time() - t0, resp, changed, None
+        )  # OTLP benchmark record
         last_error["msg"] = None  # success clears any prior error
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
@@ -110,6 +119,9 @@ def classify_text(system: str, text: str, image_png: bytes | None = None) -> dic
         last_error["msg"] = msg[:200]
         _totals["errors"] += 1
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
+        _emit(
+            text, None, time.time() - t0, None, changed, msg
+        )  # record the failure too
         return None
 
 
@@ -124,8 +136,10 @@ def summarize_events(event_texts: list[str]) -> str | None:
         joined = "\n".join(f"- {t}" for t in event_texts[-60:])
         resp = _client().models.generate_content(
             model=_MODEL,
-            contents=[f"Summarize this burst of terminal activity in ONE short sentence "
-                      f"(what was accomplished, past tense):\n{joined}"],
+            contents=[
+                f"Summarize this burst of terminal activity in ONE short sentence "
+                f"(what was accomplished, past tense):\n{joined}"
+            ],
             config=types.GenerateContentConfig(temperature=0.0),
         )
         _record(resp)
@@ -135,22 +149,68 @@ def summarize_events(event_texts: list[str]) -> str | None:
         return None
 
 
+def _tokens_cost(resp) -> tuple[int, int, float]:
+    """(in_tokens, out_tokens, cost) off a Gemini response — one source of truth for how
+    usage comes off the wire, shared by _record (running totals) and _emit (telemetry)."""
+    u = getattr(resp, "usage_metadata", None)
+    in_tok = getattr(u, "prompt_token_count", 0) or 0
+    out_tok = getattr(u, "candidates_token_count", 0) or 0
+    return in_tok, out_tok, in_tok / 1e6 * _IN_PER_M + out_tok / 1e6 * _OUT_PER_M
+
+
 def _record(resp) -> None:
-    """Pull tokens from the response, estimate cost, update running totals, and append a
-    metrics line. Best-effort — metering must never break a parse."""
+    """Update running totals and append a metrics line. Best-effort — metering must
+    never break a parse."""
     try:
-        u = resp.usage_metadata
-        in_tok = getattr(u, "prompt_token_count", 0) or 0
-        out_tok = getattr(u, "candidates_token_count", 0) or 0
-        cost = in_tok / 1e6 * _IN_PER_M + out_tok / 1e6 * _OUT_PER_M
+        in_tok, out_tok, cost = _tokens_cost(resp)
         _totals["calls"] += 1
         _totals["in_tokens"] += in_tok
         _totals["out_tokens"] += out_tok
         _totals["cost"] += cost
-        _metrics.info(json.dumps(
-            {"ts": time.time(), "in": in_tok, "out": out_tok, "cost": round(cost, 6)}
-        ))
+        _metrics.info(
+            json.dumps(
+                {
+                    "ts": time.time(),
+                    "in": in_tok,
+                    "out": out_tok,
+                    "cost": round(cost, 6),
+                }
+            )
+        )
     except Exception:  # noqa: BLE001
+        pass
+
+
+def _emit(
+    text: str,
+    result: dict | None,
+    latency: float,
+    resp,
+    changed: bool,
+    error: str | None,
+) -> None:
+    """Adapt a Gemini call to the OTLP benchmark record. Best-effort. TTFT isn't exposed
+    by the non-streaming google-genai call, so it's left None here (a streaming provider
+    path can fill it)."""
+    try:
+        from .telemetry import emit_parse
+
+        in_tok, out_tok, cost = _tokens_cost(resp) if resp is not None else (0, 0, 0.0)
+        emit_parse(
+            model=_MODEL,
+            provider="vertex",
+            pane_text=text,
+            output=result,
+            latency=latency,
+            ttft=None,
+            in_tokens=in_tok,
+            out_tokens=out_tok,
+            cost=cost,
+            activity=(result or {}).get("activity"),
+            changed=changed,
+            error=error,
+        )
+    except Exception:  # noqa: BLE001 - telemetry must never break a parse
         pass
 
 
