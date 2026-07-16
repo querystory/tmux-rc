@@ -24,3 +24,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["daemon"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"daemon/parser_prompt.txt" = "daemon/parser_prompt.txt"
