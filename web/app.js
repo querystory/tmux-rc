@@ -108,7 +108,13 @@ function showUsage(u, err) {
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
   usageEl.innerHTML = parts.join(" · ");
 }
-function escAttr(s) { return String(s).replace(/"/g, "&quot;"); }
+// Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
+// quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
+// a quote and break out of the attribute — these values come from parser JSON (untrusted).
+function escAttr(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
 
 function render(states) {
   // Accumulate this poll's events into each pane's running client-side log first.
