@@ -80,10 +80,48 @@ def _logger():
         return None
 
 
+def _emit_record(body: str, attrs: dict) -> None:
+    """Emit one OTLP log record with these attributes. No-op if telemetry is disabled;
+    any failure is swallowed. The single place that touches the SDK — emit_parse and
+    emit_pane_event both go through here so the record shape stays consistent."""
+    lg = _logger()
+    if lg is None:
+        return
+    try:
+        from opentelemetry._logs import LogRecord, SeverityNumber
+
+        now = time.time_ns()
+        lg.emit(
+            LogRecord(
+                timestamp=now,
+                observed_timestamp=now,
+                severity_number=SeverityNumber.INFO,
+                body=body,
+                attributes=attrs,
+            )
+        )
+    except Exception:  # noqa: BLE001 - never let telemetry break the daemon
+        logger.debug("telemetry emit failed", exc_info=True)
+
+
+def emit_pane_event(*, event: str, pane_uid: str, label: str, tool: str | None) -> None:
+    """Emit a pane-lifecycle record (event='pane_created' | 'pane_removed'). Lets a query
+    reconstruct which panes existed when — "active now" = a pane_uid with a created and no
+    later removed — instead of inferring liveness from "a parse exists" (which never
+    expires when a pane closes). `pane_uid` is the same stable id stamped on every parse,
+    so lifecycle and parse records join cleanly. Structural only (no pane content)."""
+    attrs = {"event": event, "pane_uid": pane_uid, "pane_label": label}
+    if tool:
+        attrs["tool"] = tool
+    _emit_record("tmux-rc pane", attrs)
+
+
 def emit_parse(
     *,
     model: str,
     provider: str,
+    pane_uid: str,
+    pane_label: str,
     pane_text: str,
     output: dict | None,
     latency: float,
@@ -97,15 +135,10 @@ def emit_parse(
 ) -> None:
     """Emit one benchmark record for a classify call. No-op if telemetry is disabled.
 
-    Sends numeric metrics + a hash of the pane text always; raw pane text + `output`
-    JSON only under TMUXRC_QSDEBUG. `changed` distinguishes a content-change parse from a
-    heartbeat re-parse. Fully best-effort — any failure is swallowed."""
-    lg = _logger()
-    if lg is None:
-        return
+    Sends numeric metrics + stable pane identity (pane_uid/pane_label) + a hash of the
+    pane text always; raw pane text + `output` JSON only under TMUXRC_QSDEBUG. `changed`
+    distinguishes a content-change parse from a heartbeat re-parse. Best-effort."""
     try:
-        from opentelemetry._logs import LogRecord, SeverityNumber
-
         # tps is generation-phase throughput (out_tokens / generation time), NOT
         # out_tokens/latency — total latency includes prefill + TTFT and would understate
         # it (per docs/hint.md). Needs ttft to isolate generation; when ttft is absent
@@ -116,6 +149,11 @@ def emit_parse(
         attrs = {
             "model": model,
             "provider": provider,
+            # Stable pane identity on EVERY record (not just QSDEBUG): lets a query group
+            # by pane and join to the lifecycle events, so "currently active panes" works
+            # on default metrics without the screen-scraped output_json.session hack.
+            "pane_uid": pane_uid,
+            "pane_label": pane_label,
             "latency_s": round(latency, 4),
             "changed": changed,
             # Hash lets us group repeated parses of the same screen without sending text.
@@ -140,16 +178,7 @@ def emit_parse(
             attrs["pane_text"] = pane_text
             if output is not None:
                 attrs["output_json"] = json.dumps(output, ensure_ascii=False)
-
-        now = time.time_ns()
-        lg.emit(
-            LogRecord(
-                timestamp=now,
-                observed_timestamp=now,
-                severity_number=SeverityNumber.INFO,
-                body="tmux-rc parse",
-                attributes=attrs,
-            )
-        )
     except Exception:  # noqa: BLE001 - never let telemetry break a parse
-        logger.debug("emit_parse failed", exc_info=True)
+        logger.debug("emit_parse attr build failed", exc_info=True)
+        return
+    _emit_record("tmux-rc parse", attrs)

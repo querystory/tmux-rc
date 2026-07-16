@@ -138,10 +138,15 @@ class Watcher:
         alive = {p.id for p in panes}
         # tmux recycles pane ids on close ("%3" freed, reassigned to a new pane). If an
         # id's pid changed, it's a different pane wearing the old id — evict the previous
-        # pane's buffers so its snapshots/events don't bleed into the new one.
+        # pane's buffers so its snapshots/events don't bleed into the new one. Emit
+        # lifecycle telemetry at the two birth transitions: a brand-new id, and a recycled
+        # id (which is a removal of the old occupant + a fresh creation).
         for p in panes:
             if p.id in self._birth and self._birth[p.id] != p.pid:
-                self._forget(p.id)
+                self._forget(p.id)  # emits pane_removed for the old occupant
+                self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
+            elif p.id not in self._birth:
+                self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
             self._birth[p.id] = p.pid
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
@@ -188,7 +193,34 @@ class Watcher:
             self._birth,
         )
 
+    def _pane_event(
+        self, event: str, *, pane_id: str, label: str, tool: str | None
+    ) -> None:
+        """Best-effort pane-lifecycle telemetry. server_uid is constant for this daemon
+        run, so a departing pane's uid is reconstructable from its id alone."""
+        try:
+            from .telemetry import emit_pane_event
+
+            emit_pane_event(
+                event=event,
+                pane_uid=f"{tmux.server_uid()}:{pane_id}",
+                label=label,
+                tool=tool,
+            )
+        except Exception:  # noqa: BLE001 - telemetry must never break the watcher
+            logger.debug("pane-event emit failed", exc_info=True)
+
     def _forget(self, pane_id: str) -> None:
+        # Emit pane_removed from the ONE choke point where a pane's state is dropped
+        # (covers both a vanished pane via _gc and the old occupant of a recycled id),
+        # using its last-known label/tool before we discard them.
+        last = self._state.get(pane_id) or {}
+        self._pane_event(
+            "pane_removed",
+            pane_id=pane_id,
+            label=last.get("label", pane_id),
+            tool=last.get("tool"),
+        )
         for store in self._stores():
             store.pop(pane_id, None)
 
@@ -264,9 +296,20 @@ class Watcher:
         # of restating ongoing work in slightly different words each parse (the source
         # fix for near-duplicate log entries — dedup at the model, not the client).
         recent = self._recent_events.get(pane.id, [])
-        # Bind `changed` (content-change vs heartbeat re-parse) into the parser so it
-        # rides through to the benchmark telemetry without widening the generic llm_fn seam.
-        llm_fn = partial(classify_text, changed=changed) if self.use_llm else None
+        # Bind `changed` (content-change vs heartbeat re-parse) and the pane's stable
+        # identity into the parser so they ride through to the benchmark telemetry without
+        # widening the generic llm_fn seam. Label falls back to the tmux label; the
+        # classifier may refine it (agent session name) before emitting.
+        llm_fn = (
+            partial(
+                classify_text,
+                changed=changed,
+                pane_uid=tmux.pane_uid(pane),
+                pane_label=pane.label,
+            )
+            if self.use_llm
+            else None
+        )
         state = classify(
             pane,
             text,

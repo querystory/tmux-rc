@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from functools import cache
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
@@ -66,7 +67,17 @@ class Pane:
 
 
 # tmux auto-assigns these as window names from the running command — not user intent.
-_GENERIC_NAMES = {"bash", "zsh", "sh", "fish", "node", "python", "python3", "tmux", "ssh"}
+_GENERIC_NAMES = {
+    "bash",
+    "zsh",
+    "sh",
+    "fish",
+    "node",
+    "python",
+    "python3",
+    "tmux",
+    "ssh",
+}
 
 
 def _meaningful(name: str) -> bool:
@@ -89,6 +100,37 @@ def _run(args: list[str]) -> str:
         ).stdout
     except subprocess.TimeoutExpired as e:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
+
+
+@cache
+def server_uid() -> str:
+    """Stable identity of the tmux SERVER: '<boot_id>:<server_pid>'.
+
+    boot_id (a fresh kernel UUID per boot, from /proc) plus the server's pid uniquely
+    pins one tmux server instance: pid can't be reused by two live processes within a
+    boot, and boot_id changes on reboot (so a reused pid across reboots can't collide).
+    No hostname — boot_id already avoids cross-machine collisions. Cached: constant for
+    the life of this daemon (and re-derived identically if the daemon restarts, so a
+    pane's uid survives a tmux-rc restart). Falls back to just the pid if either read
+    fails, so telemetry degrades rather than breaking."""
+    try:
+        boot = open("/proc/sys/kernel/random/boot_id").read().strip()
+    except OSError:
+        boot = "nobootid"
+    try:
+        pid = _run(["display-message", "-p", "#{pid}"]).strip()
+    except subprocess.CalledProcessError:
+        pid = "0"
+    return f"{boot}:{pid}"
+
+
+def pane_uid(pane: Pane) -> str:
+    """Stable per-pane identity: '<boot_id>:<server_pid>:<pane_id>'. The tmux pane_id
+    ('%3') is stable for the pane's whole life — across reorder, resize, moving windows,
+    and restarting the program INSIDE it — and only recycled after the pane closes, which
+    the watcher marks with pane_removed/created events. So this uid identifies one pane
+    instance for real-world telemetry grouping ('which panes are active')."""
+    return f"{server_uid()}:{pane.id}"
 
 
 def server_running() -> bool:
@@ -163,7 +205,9 @@ def capture_pane(pane_id: str, lines: int = 200) -> str:
     return out.rstrip("\n")
 
 
-def send_keys(pane_id: str, keys: str, enter: bool = True, literal: bool = True) -> None:
+def send_keys(
+    pane_id: str, keys: str, enter: bool = True, literal: bool = True
+) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
     isn't interpreted as tmux key names — for typed answers. When not literal, `keys`
     is a tmux key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends
@@ -193,8 +237,11 @@ def set_clipboard_image(data: bytes, mime: str = "image/png") -> list[str]:
             # NOT wait for completion (which would hang). Write bytes, close stdin,
             # and leave the process running in the background.
             proc = subprocess.Popen(
-                cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, env=env_x if name == "xclip" else None,
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env_x if name == "xclip" else None,
             )
             proc.stdin.write(data)
             proc.stdin.close()

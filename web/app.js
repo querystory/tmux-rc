@@ -66,6 +66,21 @@ async function poll() {
   if (busy) return;
   try {
     const r = await fetch("/api/state");
+    // Check status before parsing: when the tunnel/backend is down the relay
+    // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
+    // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
+    // misattribute to a stale app.js. Report the real condition instead.
+    if (!r.ok) {
+      const body = (await r.text()).trim().slice(0, 200);
+      liveEl.className = "dot off";
+      liveEl.title = "backend unavailable";
+      const hint = r.status === 502 || r.status === 503 || r.status === 504
+        ? "tunnel or backend is down — is the tunnel client running?"
+        : "";
+      panesEl.innerHTML = `<div class="empty">backend unavailable (${r.status})` +
+        (body ? `: ${esc(body)}` : "") + (hint ? `<br><small>${esc(hint)}</small>` : "") + `</div>`;
+      return;
+    }
     const data = await r.json();
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
@@ -148,7 +163,7 @@ function card(s) {
     s.activity === "idle"
       ? "idle " + fmtIdle(s.idle_seconds)
       : s.activity === "running"
-        ? '<span class="pulse"></span>working'
+        ? '<span class="pulse"></span>running'
         : s.activity;
   // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
   // save vertical space), headline below, activity badge. Fields come straight from
