@@ -62,7 +62,12 @@ but have distinct signatures. Decide by the evidence on screen:
   command?" with a NUMBERED list "1. Yes  2. Yes, and don't ask again for commands that
   start with X  3. No, and tell Codex what to do differently (esc)"; it refers to itself
   as "Codex". If you see "Codex" by name or a GPT/o-series model, it is "codex", NOT
-  "claude".
+  "claude". Its bottom line reads "<model> <effort> <mode> · <cwd>", e.g.
+  "gpt-5.5 xhigh fast · ~/src/qs/qs-app" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
+  a MODE word, NOT a session name. Do NOT put "fast" (or the cwd) in "session". Codex
+  names its session/thread only when it explicitly says so (e.g. a line like "Thread
+  renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,
+  OMIT "session" — never fall back to a status-line token.
 - "gemini" (Gemini CLI): names a Gemini model.
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku" + a
   version like "4.8"); status line shows dir/branch · model · context% · elapsed · cost ·
