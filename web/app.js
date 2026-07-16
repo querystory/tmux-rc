@@ -1,10 +1,12 @@
 // tmux-rc PWA. Polls /api/state, renders one card per pane, floats waiting
 // panes to the top, and posts answers back. No framework, no build step.
 
-// Real Claude app icon (downloaded from claude.ai) — no hand-drawn SVG.
-const CLAUDE_IMG = '<img src="/claude.png" width="22" height="22" alt="Claude" style="border-radius:5px" />';
-const ICONS = { codex: "🔷", gemini: "💎", shell: "$", unknown: "•" };
-const iconFor = (tool) => (tool === "claude" ? CLAUDE_IMG : (ICONS[tool] ?? "•"));
+// Real brand marks per agent (served from web/). One img template so every logo-backed
+// tool renders identically; emoji/text fallback for the rest.
+const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
+const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${alt}" style="border-radius:5px" />`;
+const ICONS = { shell: "$", unknown: "•" };
+const iconFor = (tool) => (LOGOS[tool] ? img(LOGOS[tool], tool) : (ICONS[tool] ?? "•"));
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
