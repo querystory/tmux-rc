@@ -117,3 +117,62 @@ telemetry.
   doing, not how requests were served.
 - A negative/failed parse still emits a record with an `error` attribute and null token
   fields — exclude `error IS NOT NULL` when measuring success-path latency/cost.
+
+## Inside `output_json` — the parsed card structure
+
+`output_json` is a **JSON string** (parse it before reading sub-fields; e.g. DuckDB
+`json_extract`/`json_extract_string` over the `output_json` column). It is the parser's
+description of one pane screen — the card the phone renders. Only present in debug mode.
+
+**Critical framing:** every value here describes the **agent/screen being watched**, NOT
+the parser call. In particular `output_json.model` and `output_json.cost` are the ON-SCREEN
+agent's own status-line readouts (e.g. the Claude Code session's model + running cost),
+which is a *different* thing from the top-level `model`/`cost_usd` (the parser that
+classified the screen). Never sum `output_json.cost` as if it were spend — it's a string
+like `"$9.99"` scraped off someone's status bar.
+
+Fields (include a field only when determinable, so most are frequently absent — treat
+missing as "not shown on screen / not applicable," not zero):
+
+- **`tool`** — which program occupies the pane: `claude` | `codex` | `gemini` | `shell` |
+  `unknown`. The kind of thing being watched. (Observed mostly `claude`, some `shell`.)
+- **`activity`** — `running` | `waiting` | `idle`. Same meaning as the top-level `activity`
+  column (that column is derived from this).
+- **`headline`** — one human sentence summarizing what's happening / being worked on. The
+  main line of the card. Good for "what was the agent doing" theme analysis.
+- **`model`** — the model NAME shown on the watched agent's status line (e.g. `Opus 4.8`).
+  The on-screen agent's model, NOT the parser. Free-text scraped from the screen.
+- **`context_pct`** — the watched agent's context-window usage percent, from its status
+  line (int).
+- **`cost`** — the watched agent's session cost as a DISPLAY STRING (e.g. `"$9.99"`),
+  scraped from its status line. Not the parser's cost; not summable as-is.
+- **`session`** — the watched agent's own session name/title if it prints one (e.g.
+  `bug-fixes`); used as the card label. Absent if none shown.
+- **`mode`** — the agent's permission mode: `plan` | `accept-edits` | `bypass` | `normal`.
+- **`working`** — present while `activity=running`: `{verb, elapsed, tokens}` — the
+  whimsical gerund (`"Brewed"`), elapsed time string (`"7m 31s"`), and tokens-streamed
+  string. All display strings off the status line.
+- **`events`** — array of NEW activity items since the last parse: each
+  `{text, file?: {path, added, removed}, meta?}`. `text` is what happened in plain
+  language; `file` present when it was a file edit (path + lines +/-); `meta` a short
+  side-note (e.g. `"ran 3 commands"`, `"exit 1"`). This is the activity feed — good for
+  "what kinds of actions happen most" analysis. Newest-relevant first.
+- **`tasks`** — array of `{text, done}` — a TODO/checklist visible on screen.
+- **`question`** — present only when the agent is BLOCKED awaiting input:
+  `{prompt, options[], answer_style}`. `prompt` is the (context-rich) question; `options`
+  are candidate answers; `answer_style` is `text` (parser will TYPE the chosen option +
+  Enter — normal conversational questions) or `menu` (an on-screen picker; options map to
+  keystrokes). When `question` is present the pane is `waiting`.
+- **`tables`** — array of `{title?, headers[], rows[][]}` — tabular data extracted from the
+  screen (ASCII/box-drawn tables), so it renders as a real table rather than prose.
+- **`rewind`** — present only when Claude Code's Esc-Esc restore picker is shown:
+  `{entries: [{text, note?, selected}], more_above, more_below}`.
+
+Querying tips:
+- To analyze what agents work on: `json_extract_string(output_json, '$.headline')`, or
+  unnest `$.events[*].text`.
+- To find blocked/actionable moments: rows where `output_json` has a non-null `$.question`
+  (equivalently the top-level `activity = 'waiting'`).
+- `$.tool` distribution tells you claude-vs-shell mix among watched panes.
+- Do NOT aggregate `$.cost`, `$.model`, `$.context_pct` as parser metrics — they are the
+  watched agent's self-reported values, heterogeneous and screen-scraped.
