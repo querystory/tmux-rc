@@ -43,8 +43,9 @@ to close it.
 ADC is designed for interactive developer use and short-lived tokens with periodic reauth.
 The daemon is a **long-running unattended service** — exactly the workload ADC is not for.
 A credential that requires a human to periodically re-run a browser login is structurally
-incompatible with "runs for days classifying panes." The tunnel service (`qsi-automation/
-tunnel`) already learned this and moved to long-lived SA credentials for the same reason.
+incompatible with "runs for days classifying panes." The tunnel service
+(`qsi-automation/tunnel`) already learned this and moved to long-lived SA credentials for
+the same reason.
 
 ## Options
 
