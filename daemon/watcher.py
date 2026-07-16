@@ -320,11 +320,19 @@ class Watcher:
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
         # any cached idle summary — it'll be regenerated when the pane goes idle again.
+        #
+        # Drop events the model RE-emitted despite the don't-repeat instruction (exact
+        # text match against the feedback list). Without this guard a repeated event is
+        # appended to _recent_events again each parse, the feedback section becomes a
+        # wall of the same line, and that repetition-primed prompt tail degenerates the
+        # model's output — observed in production as it emitting a SECOND copy of the
+        # whole JSON object ("Extra data" parse failures), a self-reinforcing loop.
         new_events = [
             e
             for e in (state.get("events") or [])
-            if isinstance(e, dict) and e.get("text")
+            if isinstance(e, dict) and e.get("text") and e["text"] not in recent
         ]
+        state["events"] = new_events  # dups also don't reach the UI activity feed
         for e in new_events:
             recent.append(e["text"])
         self._recent_events[pane.id] = recent[-30:]
