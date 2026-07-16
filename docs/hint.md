@@ -95,6 +95,15 @@ NONE of the parse metrics (model/latency/tokens/etc.).
 
 - **`event`** — `pane_created` (a pane first observed, or a recycled `%N` reborn) or
   `pane_removed` (a pane vanished, or the old occupant of a recycled `%N`).
+### Action audit records (`body = 'tmux-rc action'`)
+
+One record per state-CHANGING request a user made through the phone UI — the audit trail
+for "what is making changes to my terminals, and who?". Fields: **`event`** (`send_keys` |
+`select_pane` | `paste_image`), **`pane_uid`** (joins to parses/lifecycle), **`actor`**
+(the IAP-authenticated email forwarded by the tunnel, or `local:<ip>` for direct
+requests), optional **`detail`**, and **`keys`** (the injected text — debug mode only).
+These are USER actions, not parser activity — don't mix them into parse metrics.
+
 - **Currently-active panes** = pane_uids with a `pane_created` and no later `pane_removed`.
   This is the RELIABLE way to answer "which panes are active right now" — the old approach
   of "a parse exists for this session" never expires when a pane closes, so it overcounts.

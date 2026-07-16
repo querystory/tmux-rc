@@ -104,6 +104,23 @@ def _emit_record(body: str, attrs: dict) -> None:
         logger.debug("telemetry emit failed", exc_info=True)
 
 
+def emit_action(
+    *, action: str, pane_uid: str, actor: str, detail: str | None, keys: str | None
+) -> None:
+    """Audit record for a state-CHANGING request (send-keys / select / image paste), so
+    "what is making changes to my terminals, and who?" is answerable from telemetry.
+    `actor` is the IAP-authenticated email the tunnel relay forwards (X-Tunnel-User) or
+    'local:<ip>' for direct requests. Key content attaches only under TMUXRC_QSDEBUG —
+    same policy as pane_text (keys may contain sensitive text); the action/actor/pane
+    skeleton is always sent."""
+    attrs = {"event": action, "pane_uid": pane_uid, "actor": actor}
+    if detail:
+        attrs["detail"] = detail[:200]
+    if _QSDEBUG and keys is not None:
+        attrs["keys"] = keys[:500]
+    _emit_record("tmux-rc action", attrs)
+
+
 def emit_pane_event(*, event: str, pane_uid: str, label: str, tool: str | None) -> None:
     """Emit a pane-lifecycle record (event='pane_created' | 'pane_removed'). Lets a query
     reconstruct which panes existed when — "active now" = a pane_uid with a created and no

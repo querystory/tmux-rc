@@ -10,6 +10,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from contextlib import asynccontextmanager
@@ -27,7 +28,7 @@ from dotenv import find_dotenv, load_dotenv
 _repo_env = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
 
-from fastapi import FastAPI, HTTPException, UploadFile  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import PlainTextResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
@@ -35,16 +36,64 @@ from pydantic import BaseModel  # noqa: E402
 from . import tmux  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
+logger = logging.getLogger(__name__)
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
-_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
 
 class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+
+
+def _audit(
+    request: Request,
+    action: str,
+    pane_id: str,
+    detail: str = "",
+    keys: str | None = None,
+) -> None:
+    """One line per state-CHANGING request, with WHO — answers "what is making changes
+    to my terminals?". The tunnel relay authenticates users via IAP and forwards the
+    validated identity as X-Tunnel-User (it strips any spoofed inbound copy); requests
+    that didn't come through the tunnel are labeled with the client address instead.
+    Also emitted as an OTel record so the audit trail is queryable next to the parse
+    telemetry. Keys are shown in the local log (it's the operator's own audit trail);
+    they reach telemetry only under TMUXRC_QSDEBUG (see telemetry.emit_action)."""
+    actor = (
+        request.headers.get("x-tunnel-user")
+        or f"local:{request.client.host if request.client else '?'}"
+    )
+    shown = f" keys={keys[:80]!r}" if keys is not None else ""
+    logger.warning(
+        "AUDIT %s pane=%s by %s%s%s",
+        action,
+        pane_id,
+        actor,
+        f" {detail}" if detail else "",
+        shown,
+    )
+    try:
+        from . import telemetry
+
+        telemetry.emit_action(
+            action=action,
+            pane_uid=f"{tmux.server_uid()}:{pane_id}",
+            actor=actor,
+            detail=detail or None,
+            keys=keys,
+        )
+    except Exception:  # noqa: BLE001 - audit telemetry must never break the request
+        logger.debug("audit emit failed", exc_info=True)
 
 
 @asynccontextmanager
@@ -94,7 +143,9 @@ def get_state():
     w = app.state.watcher
     return {
         "stale": w.is_stale(),
-        "llm_error": last_error["msg"],  # transient; UI shows it subtly, not a big banner
+        "llm_error": last_error[
+            "msg"
+        ],  # transient; UI shows it subtly, not a big banner
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "panes": w.states,
@@ -116,24 +167,32 @@ def get_snapshot(pane_id: str, snap_id: str):
 
 
 @app.post("/api/panes/{pane_id}/send")
-def send(pane_id: str, body: SendBody):
+def send(pane_id: str, body: SendBody, request: Request):
     if tmux.find_pane(pane_id) is None:
         raise HTTPException(404, "pane not found")
+    _audit(
+        request,
+        "send_keys",
+        pane_id,
+        detail=f"enter={body.enter} literal={body.literal}",
+        keys=body.keys,
+    )
     tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
     return {"ok": True}
 
 
 @app.post("/api/panes/{pane_id}/select")
-def select(pane_id: str):
+def select(pane_id: str, request: Request):
     """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
     if tmux.find_pane(pane_id) is None:
         raise HTTPException(404, "pane not found")
+    _audit(request, "select_pane", pane_id)
     tmux.select_pane(pane_id)
     return {"ok": True}
 
 
 @app.post("/api/panes/{pane_id}/image")
-async def send_image(pane_id: str, file: UploadFile):
+async def send_image(pane_id: str, file: UploadFile, request: Request):
     """Attach an image to the pane the way the user does on the host: put it on the
     system clipboard, then send Ctrl-V so Claude Code embeds it inline. (Typing a file
     path doesn't work — Claude reads the clipboard on paste.) Also keeps a temp file as
@@ -144,6 +203,7 @@ async def send_image(pane_id: str, file: UploadFile):
     if mime not in _EXT:
         raise HTTPException(415, f"unsupported image type: {mime}")
     data = await file.read()
+    _audit(request, "paste_image", pane_id, detail=f"{mime} {len(data)}B")
 
     # Save a temp copy (fallback / debugging) and put the bytes on the clipboard.
     IMG_DIR.mkdir(parents=True, exist_ok=True)
