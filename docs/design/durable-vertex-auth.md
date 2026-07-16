@@ -1,6 +1,12 @@
 # Durable Vertex auth for the daemon
 
-Status: **proposed** (not yet implemented). Tracks GitHub issue: daemon Vertex auth wedge.
+Status: **implemented** (option A). Tracks GitHub issue: daemon Vertex auth wedge.
+
+Implemented as: SA `tmux-rc-classifier@qs-backend-dev` (role `roles/aiplatform.user`), key at
+`~/.config/tmux-rc/vertex-sa.json` (chmod 600), wired via `GOOGLE_APPLICATION_CREDENTIALS` in
+`.env` (documented in `.env.example`). Verified: the daemon classifies via the key with
+developer ADC forced unavailable. Remaining follow-up: systemd unit (step 6) so the launch is
+reproducible rather than a manual env var; the actionable auth-expired UI banner (option C layer).
 
 ## Problem
 
