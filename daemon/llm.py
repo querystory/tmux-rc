@@ -88,19 +88,26 @@ def _client():
             "re-check TMUXRC_LLM_TIMEOUT_MS is still milliseconds"
         )
     return genai.Client(
-        vertexai=True, project=project, location=location,
+        vertexai=True,
+        project=project,
+        location=location,
         http_options=types.HttpOptions(timeout=timeout_ms),
     )
 
 
 def classify_text(
-    system: str, text: str, image_png: bytes | None = None, changed: bool = True
+    system: str,
+    text: str,
+    image_png: bytes | None = None,
+    changed: bool = True,
+    pane_uid: str = "",
+    pane_label: str = "",
 ) -> dict | None:
     """Send pane text (and optionally a rendered screenshot) to Flash Lite and get
     structured JSON back. Returns the parsed dict, or None on any failure (caller falls
     back). `image_png` is wired for the future image-input mode; text-only by default.
-    `changed` (a real content-change parse vs a heartbeat re-parse) is passed straight
-    through to the benchmark telemetry."""
+    `changed` (a real content-change parse vs a heartbeat re-parse) and the pane's stable
+    `pane_uid`/`pane_label` are passed straight through to the benchmark telemetry."""
     t0 = time.time()
     try:
         from google.genai import types
@@ -123,7 +130,7 @@ def classify_text(
         _trace.info("OUT: %s", json.dumps(result))
         _record(resp)  # tokens/cost/latency → metrics jsonl + running totals
         _emit(
-            text, result, time.time() - t0, resp, changed, None
+            text, result, time.time() - t0, resp, changed, pane_uid, pane_label, None
         )  # OTLP benchmark record
         last_error["msg"] = None  # success clears any prior error
         return result
@@ -142,7 +149,7 @@ def classify_text(
         _totals["errors"] += 1
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
         _emit(
-            text, None, time.time() - t0, None, changed, msg
+            text, None, time.time() - t0, None, changed, pane_uid, pane_label, msg
         )  # record the failure too
         return None
 
@@ -209,6 +216,8 @@ def _emit(
     latency: float,
     resp,
     changed: bool,
+    pane_uid: str,
+    pane_label: str,
     error: str | None,
 ) -> None:
     """Adapt a Gemini call to the OTLP benchmark record. Best-effort. TTFT isn't exposed
@@ -221,6 +230,8 @@ def _emit(
         emit_parse(
             model=_MODEL,
             provider="vertex",
+            pane_uid=pane_uid,
+            pane_label=pane_label,
             pane_text=text,
             output=result,
             latency=latency,
