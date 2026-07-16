@@ -74,6 +74,33 @@ telemetry.
 - **`input_sha256`** — hash of the exact input text sent to the model. Lets you group
   repeated parses of the identical screen without storing the text. Same hash across rows =
   same screen classified more than once.
+- **`pane_uid`** — STABLE identity of the tmux pane a record belongs to, format
+  `<boot_id>:<server_pid>:<pane_id>` (e.g. `a557…:28816:%3`). Present on every parse record
+  AND on the lifecycle records (below). Unlike the screen-scraped `output_json.session`
+  (only in debug mode, may be blank, may collide), this is machine-stable: it survives
+  reordering/resizing panes, restarting the program inside a pane, and restarting the
+  tmux-rc daemon itself. It changes only when the pane is closed (tmux may recycle its
+  `%N`) or the machine reboots. **Use `pane_uid` — not `session` — to group records by
+  pane, count distinct panes, or track one pane over time.**
+- **`pane_label`** — human name for the pane (window/session name, or the agent's scraped
+  session title), the same string shown on the phone card. Free-text, may repeat across
+  panes; for display/grouping-by-name, not identity (use `pane_uid` for identity).
+
+### Pane lifecycle records (`body = 'tmux-rc pane'`)
+
+Separate records, one per pane appearing or disappearing, so you can reconstruct which
+panes existed when. Distinguished from parse records by **`body = 'tmux-rc pane'`** and an
+**`event`** attribute; they carry `pane_uid`, `pane_label`, and (for created) `tool`, but
+NONE of the parse metrics (model/latency/tokens/etc.).
+
+- **`event`** — `pane_created` (a pane first observed, or a recycled `%N` reborn) or
+  `pane_removed` (a pane vanished, or the old occupant of a recycled `%N`).
+- **Currently-active panes** = pane_uids with a `pane_created` and no later `pane_removed`.
+  This is the RELIABLE way to answer "which panes are active right now" — the old approach
+  of "a parse exists for this session" never expires when a pane closes, so it overcounts.
+  A pane with only parse records but no `pane_removed` is still open; one with a later
+  `pane_removed` is gone. (Lifecycle records need the OTLP endpoint configured, same as
+  parses; they are emitted regardless of QSDEBUG since they carry no screen content.)
 
 ### Content (only present when TMUXRC_QSDEBUG is enabled)
 
