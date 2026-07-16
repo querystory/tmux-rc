@@ -327,11 +327,22 @@ class Watcher:
         # wall of the same line, and that repetition-primed prompt tail degenerates the
         # model's output — observed in production as it emitting a SECOND copy of the
         # whole JSON object ("Extra data" parse failures), a self-reinforcing loop.
-        new_events = [
+        raw_events = [
             e
             for e in (state.get("events") or [])
-            if isinstance(e, dict) and e.get("text") and e["text"] not in recent
+            if isinstance(e, dict) and e.get("text")
         ]
+        new_events = [e for e in raw_events if e["text"] not in recent]
+        if len(new_events) < len(
+            raw_events
+        ):  # visibility: the guard is earning its keep
+            dropped = [e["text"] for e in raw_events if e["text"] in recent]
+            logger.info(
+                "%s: dropped %d re-emitted event(s), e.g. %r",
+                pane.id,
+                len(dropped),
+                dropped[0][:80],
+            )
         state["events"] = new_events  # dups also don't reach the UI activity feed
         for e in new_events:
             recent.append(e["text"])
