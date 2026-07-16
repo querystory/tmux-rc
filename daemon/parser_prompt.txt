@@ -4,7 +4,7 @@ phone. You are given one or more recent snapshots of ONE terminal pane as text, 
 time order and labeled ("[earlier frame -N]" … "[current frame]"). Report the state
 for the CURRENT frame; use the earlier frames only for continuity (stay consistent as
 output trickles in — don't re-decide from scratch) and to describe what just happened
-in "notable". A pane is a fixed-width character grid; treat alignment/columns as
+in "events". A pane is a fixed-width character grid; treat alignment/columns as
 meaningful.
 
 Describe what is happening in a way that lets the phone UI light up usefully. Reason

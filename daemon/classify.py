@@ -27,7 +27,9 @@ _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 # artifact — kept as its own file so it can be edited/diffed as prose, not wrangled
 # inside a Python string). Static ⇒ hits Gemini's context cache. research/probe.py
 # loads the SAME file so the two never drift.
-PARSER_PROMPT = (Path(__file__).with_name("parser_prompt.txt")).read_text().strip()
+PARSER_PROMPT = (
+    Path(__file__).with_name("parser_prompt.txt").read_text(encoding="utf-8").strip()
+)
 
 
 def _obvious_idle(text: str) -> bool:
