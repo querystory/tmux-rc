@@ -4,7 +4,10 @@ These exercise _handle_llm_error and the backoff gate without any network: the
 google.genai import happens lazily inside the try, and the gate returns before it.
 """
 
+import json
 import time
+
+import pytest
 
 from daemon import llm
 
@@ -55,3 +58,21 @@ def test_unknown_error_passes_through_truncated():
     msg = llm._handle_llm_error(ValueError("x" * 500))
     assert msg == "x" * 200
     assert llm._backoff["until"] == 0.0
+
+
+def test_parse_json_salvages_first_object_from_trailing_data():
+    # flash-lite quirk: valid object then a duplicated block ("Extra data" from loads)
+    assert llm._parse_json('{"a": 1}\n{"a": 1}') == {"a": 1}
+
+
+def test_parse_json_raises_on_garbage():
+    with pytest.raises(json.JSONDecodeError):
+        llm._parse_json("not json at all")
+
+
+def test_malformed_json_is_expected_single_line_error():
+    _reset()
+    msg = llm._handle_llm_error(json.JSONDecodeError("Extra data", "{}", 2))
+    assert msg.startswith("model returned malformed JSON:")
+    assert "Extra data" in msg
+    assert llm._backoff["until"] == 0.0  # not a quota event; must not arm the backoff

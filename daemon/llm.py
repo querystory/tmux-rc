@@ -110,10 +110,11 @@ def _backoff_remaining() -> float:
 def _handle_llm_error(e: Exception) -> str:
     """Log an LLM failure at the right fidelity and return a short user-facing message.
 
-    Known OPERATIONAL failures — quota (429), expired auth, timeouts — are states of the
-    world, not bugs: they log as one line. A full stack trace for an expected condition
-    is noise that buries real bugs (a 429 burst was dumping dozens of 40-line tracebacks
-    into the daemon output). Unknown failures keep exc_info so real bugs stay debuggable.
+    Known OPERATIONAL failures — quota (429), expired auth, timeouts, malformed model
+    JSON — are states of the world, not bugs: they log as one line. A full stack trace
+    for an expected condition is noise that buries real bugs (a 429 burst was dumping
+    dozens of 40-line tracebacks into the daemon output). Unknown failures keep
+    exc_info so real bugs stay debuggable.
     A 429 also arms the shared backoff so the watcher stops hammering Vertex."""
     msg = str(e)
     if getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg:
@@ -127,10 +128,34 @@ def _handle_llm_error(e: Exception) -> str:
     elif "timeout" in msg.lower() or "Timeout" in type(e).__name__:
         short = "Vertex request timed out"
         logger.warning("LLM parse failed: %s", short)
+    elif "JSONDecodeError" in type(e).__name__:
+        # A misbehaving model is the same class of event as a 429 — a state of the
+        # world, not a bug in this code. One line, no traceback.
+        short = f"model returned malformed JSON: {msg[:80]}"
+        logger.warning("LLM parse failed: %s", short)
     else:
         short = msg[:200]
         logger.warning("LLM parse failed (unexpected)", exc_info=True)
     return short
+
+
+def _parse_json(text: str) -> dict:
+    """Parse the model's JSON reply, tolerating trailing garbage.
+
+    flash-lite sometimes emits a valid object and then keeps going (e.g. the same block
+    duplicated) even with response_mime_type=application/json. Plain json.loads raises
+    "Extra data" on that tail and throws away a perfectly good parse. Take the first
+    object and ignore the rest; only output with no leading object still raises."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        stripped = text.strip()  # raw_decode chokes on leading whitespace
+        obj, end = json.JSONDecoder().raw_decode(stripped)
+        logger.warning(
+            "LLM model returned trailing data after JSON; salvaged first object"
+        )
+        _trace.info("TRAILING after salvaged JSON: %r", stripped[end:][:500])
+        return obj
 
 
 def classify_text(
@@ -163,7 +188,7 @@ def classify_text(
                 temperature=0.0,
             ),
         )
-        result = json.loads(resp.text)
+        result = _parse_json(resp.text)
         # Trace the tail we sent and what came back — grep /tmp/tmux-rc-llm.log.
         _trace.info("IN%s: %r", "+img" if image_png else "", text[-500:])
         _trace.info("OUT: %s", json.dumps(result))
