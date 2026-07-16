@@ -82,10 +82,11 @@ def _client():
     # the ms contract so such a change fails loudly at startup instead.
     timeout_ms = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
     _desc = (types.HttpOptions.model_fields["timeout"].description or "").lower()
-    assert "millisecond" in _desc, (
-        f"google-genai HttpOptions.timeout unit changed ({_desc!r}); "
-        "re-check TMUXRC_LLM_TIMEOUT_MS is still milliseconds"
-    )
+    if "millisecond" not in _desc:  # not assert: must survive `python -O`
+        raise RuntimeError(
+            f"google-genai HttpOptions.timeout unit changed ({_desc!r}); "
+            "re-check TMUXRC_LLM_TIMEOUT_MS is still milliseconds"
+        )
     return genai.Client(
         vertexai=True, project=project, location=location,
         http_options=types.HttpOptions(timeout=timeout_ms),
