@@ -46,6 +46,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | var | default | meaning |
 | --- | --- | --- |
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
 | `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `0.0.0.0` / `8080` | HTTP bind |
