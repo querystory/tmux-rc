@@ -70,12 +70,22 @@ def _client():
     if not project:
         raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set; cannot reach Vertex.")
     location = os.environ.get("VERTEX_AI_REGION_GEMINI", "global")
-    # Per-request timeout (ms) on EVERY call. Without it, a hung ADC token refresh or a
-    # stalled Vertex socket blocks the parse thread forever — the watcher loop awaits that
-    # thread and never ticks again, freezing all cards with NO recorded error (exactly the
-    # ~9h "stale, errors:0" wedge we hit). A timeout turns that hang into a caught
-    # exception the parse path already handles (falls back, records the error).
+    # Per-request timeout on EVERY call. Without it, a hung ADC token refresh or a stalled
+    # Vertex socket blocks the parse thread forever — the watcher loop awaits that thread
+    # and never ticks again, freezing all cards with NO recorded error (exactly the ~9h
+    # "stale, errors:0" wedge we hit). A timeout turns that hang into a caught exception
+    # the parse path already handles (falls back, records the error).
+    #
+    # HttpOptions.timeout is MILLISECONDS in google-genai (verified against the field's own
+    # description). That unit has historically been seconds in some clients, so a future
+    # SDK bump that flipped it would silently turn 20s into a ~5.5h no-op timeout — assert
+    # the ms contract so such a change fails loudly at startup instead.
     timeout_ms = int(os.environ.get("TMUXRC_LLM_TIMEOUT_MS", "20000"))
+    _desc = (types.HttpOptions.model_fields["timeout"].description or "").lower()
+    assert "millisecond" in _desc, (
+        f"google-genai HttpOptions.timeout unit changed ({_desc!r}); "
+        "re-check TMUXRC_LLM_TIMEOUT_MS is still milliseconds"
+    )
     return genai.Client(
         vertexai=True, project=project, location=location,
         http_options=types.HttpOptions(timeout=timeout_ms),

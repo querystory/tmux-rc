@@ -78,12 +78,17 @@ def _meaningful(name: str) -> bool:
 def _run(args: list[str]) -> str:
     """Run a tmux command, returning stdout. Raises on non-zero exit.
 
-    Bounded by a timeout so a wedged tmux (server hang, blocked pipe) surfaces as a
-    TimeoutExpired the watcher's per-tick guard can catch — instead of blocking the poll
-    thread forever and silently freezing all cards (the 'stale, no error' failure)."""
-    return subprocess.run(
-        ["tmux", *args], capture_output=True, text=True, check=True, timeout=10
-    ).stdout
+    Bounded by a timeout so a wedged tmux (server hang, blocked pipe) can't block the poll
+    thread forever and silently freeze all cards (the 'stale, no error' failure). A
+    timeout is re-raised as CalledProcessError so it flows through the SAME error paths
+    callers already handle (server_running/prefix_key/active_pane_id catch only that) —
+    otherwise a raw TimeoutExpired would leak past them and fail a tick unexpectedly."""
+    try:
+        return subprocess.run(
+            ["tmux", *args], capture_output=True, text=True, check=True, timeout=10
+        ).stdout
+    except subprocess.TimeoutExpired as e:
+        raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
 
 
 def server_running() -> bool:
