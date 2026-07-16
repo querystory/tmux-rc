@@ -1,10 +1,15 @@
 // tmux-rc PWA. Polls /api/state, renders one card per pane, floats waiting
 // panes to the top, and posts answers back. No framework, no build step.
 
-// Real Claude app icon (downloaded from claude.ai) — no hand-drawn SVG.
-const CLAUDE_IMG = '<img src="/claude.png" width="22" height="22" alt="Claude" style="border-radius:5px" />';
-const ICONS = { codex: "🔷", gemini: "💎", shell: "$", unknown: "•" };
-const iconFor = (tool) => (tool === "claude" ? CLAUDE_IMG : (ICONS[tool] ?? "•"));
+// Real brand marks per agent (served from web/). One img template so every logo-backed
+// tool renders identically; emoji/text fallback for the rest. `tool` comes from parser
+// JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor" would
+// otherwise resolve up the prototype chain and render garbage) and escape it into alt.
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
+const ICONS = { shell: "$", unknown: "•" };
+const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
+const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICONS, tool) ? ICONS[tool] : "•"));
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
@@ -61,6 +66,21 @@ async function poll() {
   if (busy) return;
   try {
     const r = await fetch("/api/state");
+    // Check status before parsing: when the tunnel/backend is down the relay
+    // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
+    // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
+    // misattribute to a stale app.js. Report the real condition instead.
+    if (!r.ok) {
+      const body = (await r.text()).trim().slice(0, 200);
+      liveEl.className = "dot off";
+      liveEl.title = "backend unavailable";
+      const hint = r.status === 502 || r.status === 503 || r.status === 504
+        ? "tunnel or backend is down — is the tunnel client running?"
+        : "";
+      panesEl.innerHTML = `<div class="empty">backend unavailable (${r.status})` +
+        (body ? `: ${esc(body)}` : "") + (hint ? `<br><small>${esc(hint)}</small>` : "") + `</div>`;
+      return;
+    }
     const data = await r.json();
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
@@ -103,7 +123,13 @@ function showUsage(u, err) {
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
   usageEl.innerHTML = parts.join(" · ");
 }
-function escAttr(s) { return String(s).replace(/"/g, "&quot;"); }
+// Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
+// quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
+// a quote and break out of the attribute — these values come from parser JSON (untrusted).
+function escAttr(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
 
 function render(states) {
   // Accumulate this poll's events into each pane's running client-side log first.
@@ -137,7 +163,7 @@ function card(s) {
     s.activity === "idle"
       ? "idle " + fmtIdle(s.idle_seconds)
       : s.activity === "running"
-        ? '<span class="pulse"></span>working'
+        ? '<span class="pulse"></span>running'
         : s.activity;
   // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
   // save vertical space), headline below, activity badge. Fields come straight from

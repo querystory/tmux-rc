@@ -23,54 +23,9 @@ from daemon.render import render_png
 
 SAMPLES = Path(__file__).parent / "samples"
 
-# The parser prompt under test. Describes the medium, teaches general TUI patterns,
-# then gives a Claude Code section (semantic, not exact-string), and asks for UI JSON.
-PROMPT = """
-You are the parser behind a phone dashboard that mirrors what's happening in a
-developer's terminal panes so they can watch and control coding agents from their
-phone. You are given a snapshot of ONE terminal pane — as text, as an image, or both.
-It is a fixed-width character grid; treat alignment/columns and (if an image) color
-and bold as meaningful signal.
-
-Describe what is happening in a way that lets the phone UI light up usefully. Reason
-about GENERAL terminal patterns by how they look/behave, NOT by exact wording (which
-changes across versions and tools):
-- Is the pane actively working (a spinner, a "thinking" word, an elapsed timer,
-  streaming output), waiting for the user to answer something, or idle at a prompt?
-- Is there a SELECTION MENU — a list of choices with one marked by a cursor/highlight
-  (❯, ›, >, an arrow, a bold or colored line) that you'd move through with up/down?
-- Is there an INPUT PROMPT — a yes/no confirmation, a numbered choice, or a free-text
-  field the user must fill?
-
-This is very often CLAUDE CODE (an AI coding agent). Recognize it by its style: a
-rounded input box drawn with box characters, clay/orange accents, and a two-line
-STATUS LINE near the bottom that typically shows — in order — the working directory
-and git branch, the model name (e.g. "Opus 4.8"), a context-window percentage, an
-elapsed session time, a session cost in dollars, and counts of prompts/tools; plus a
-permission-mode indicator ("plan mode", "accept edits", "bypass permissions"). While
-working it shows a whimsical gerund + elapsed time + tokens streamed (e.g.
-"Shimmying… (6m 55s · ↓18.1k tokens)"). After Esc-Esc it shows a REWIND picker: a
-header about restoring to a previous point, then a scrollable list of past user
-messages (each may note "No code changes" or a file/diff stat like "app.js +18 -8"),
-one selected, with "N more above/below" markers. It may also show a task/TODO
-checklist. Ignore editor/multiplexer chrome that isn't the agent's own state (vim's
-"-- INSERT --", tmux's mode footer).
-
-Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
-{
-  "tool": "claude"|"codex"|"gemini"|"shell"|"unknown",
-  "activity": "running"|"waiting"|"idle",
-  "headline": "one short human sentence for the top of the card: what is happening / "
-              "what is being worked on (prefer the task over echoing a spinner word)",
-  "model": "...", "context_pct": <int>, "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
-  "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
-  "question": {"prompt": "...", "options": ["..."]},
-  "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
-  "tasks": [{"text": "...", "done": true|false}],
-  "notable": ["short bullets of anything else useful to show — errors (note if red), "
-              "test results, files changed, etc."]
-}
-""".strip()
+# The parser prompt under test IS the production one — import it (single source of
+# truth) rather than keeping a copy here that silently drifts from what ships.
+from daemon.classify import PARSER_PROMPT as PROMPT  # noqa: E402
 
 
 def _capture_ansi(pane_id: str) -> str:

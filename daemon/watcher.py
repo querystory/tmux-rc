@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 import time
+from functools import partial
 
 from . import tmux
 from .classify import classify
@@ -66,21 +67,37 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
-        self._last_parse: dict[str, float] = {}  # pane_id -> when we last called the LLM
-        self._tool: dict[str, tuple[str, float]] = {}  # pane_id -> (agent tool, last-seen ts)
-        self._state: dict[str, dict] = {}  # pane_id -> last parsed dict (reused between parses)
-        self._recent_events: dict[str, list[str]] = {}  # pane_id -> recently-emitted event texts
-        self._burst: dict[str, dict] = {}  # pane_id -> {start, events:[{text,ts}]} for the current activity burst
-        self._summary: dict[str, dict] = {}  # pane_id -> cached {from,to,text} idle summary
+        self._last_parse: dict[
+            str, float
+        ] = {}  # pane_id -> when we last called the LLM
+        self._tool: dict[
+            str, tuple[str, float]
+        ] = {}  # pane_id -> (agent tool, last-seen ts)
+        self._state: dict[
+            str, dict
+        ] = {}  # pane_id -> last parsed dict (reused between parses)
+        self._recent_events: dict[
+            str, list[str]
+        ] = {}  # pane_id -> recently-emitted event texts
+        self._burst: dict[
+            str, dict
+        ] = {}  # pane_id -> {start, events:[{text,ts}]} for the current activity burst
+        self._summary: dict[
+            str, dict
+        ] = {}  # pane_id -> cached {from,to,text} idle summary
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
-        self._last_tick: float = 0.0  # wall time of the last loop iteration (staleness check)
+        self._last_tick: float = (
+            0.0  # wall time of the last loop iteration (staleness check)
+        )
         self._task: asyncio.Task | None = None
 
     def is_stale(self) -> bool:
         """True if the loop hasn't ticked recently — the watcher is dead/stalled and
         the served state is frozen. Surfaced to the UI so a dead loop is VISIBLE
         instead of silently serving stale cards (as happened after a resize/reload)."""
-        return self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS
+        return (
+            self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS
+        )
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
@@ -136,8 +153,13 @@ class Watcher:
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
                 s = None
             if not isinstance(s, dict):
-                s = {"pane_id": p.id, "label": p.label, "tool": "unknown",
-                     "activity": "unknown", "updated_at": time.time()}
+                s = {
+                    "pane_id": p.id,
+                    "label": p.label,
+                    "tool": "unknown",
+                    "activity": "unknown",
+                    "updated_at": time.time(),
+                }
             states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
@@ -153,9 +175,18 @@ class Watcher:
     # Every per-pane store, keyed by pane id. One tuple so gc (vanished panes) and
     # reuse-eviction (recycled ids) can't drift apart.
     def _stores(self):
-        return (self._prev_fp, self._unchanged_since, self._last_parse,
-                self._tool, self._state, self._recent_events, self.snapshots,
-                self._burst, self._summary, self._birth)
+        return (
+            self._prev_fp,
+            self._unchanged_since,
+            self._last_parse,
+            self._tool,
+            self._state,
+            self._recent_events,
+            self.snapshots,
+            self._burst,
+            self._summary,
+            self._birth,
+        )
 
     def _forget(self, pane_id: str) -> None:
         for store in self._stores():
@@ -174,7 +205,12 @@ class Watcher:
         if pane_id in self._summary:
             return self._summary[pane_id]  # already summarized this idle period
         burst = self._burst.get(pane_id)
-        if not self.use_llm or idle < IDLE_SUMMARY_AFTER or not burst or not burst["events"]:
+        if (
+            not self.use_llm
+            or idle < IDLE_SUMMARY_AFTER
+            or not burst
+            or not burst["events"]
+        ):
             return None
         texts = [e["text"] for e in burst["events"]]
         summary_text = summarize_events(texts)  # may be None on LLM failure
@@ -193,7 +229,9 @@ class Watcher:
         text = tmux.capture_pane(pane.id)
         now = time.time()
         fp = _fingerprint(text)
-        changed = fp != self._prev_fp.get(pane.id)  # real content change (timers stripped)
+        changed = fp != self._prev_fp.get(
+            pane.id
+        )  # real content change (timers stripped)
         if changed:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
@@ -221,19 +259,29 @@ class Watcher:
         # slow line-by-line output doesn't make it re-decide each frame (anti-flicker)
         # and it can describe what just happened. Cheap — prompt tokens are cheap.
         hist = self.snapshots.get(pane.id, [])
-        prior = [s["text"] for s in hist[-(PRIOR_FRAMES + 1):-1]]
+        prior = [s["text"] for s in hist[-(PRIOR_FRAMES + 1) : -1]]
         # Feed back events we already reported so the model emits only NEW ones instead
         # of restating ongoing work in slightly different words each parse (the source
         # fix for near-duplicate log entries — dedup at the model, not the client).
         recent = self._recent_events.get(pane.id, [])
+        # Bind `changed` (content-change vs heartbeat re-parse) into the parser so it
+        # rides through to the benchmark telemetry without widening the generic llm_fn seam.
+        llm_fn = partial(classify_text, changed=changed) if self.use_llm else None
         state = classify(
-            pane, text, llm_fn=classify_text if self.use_llm else None,
-            prior=prior, recent_events=recent,
+            pane,
+            text,
+            llm_fn=llm_fn,
+            prior=prior,
+            recent_events=recent,
         )
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
         # any cached idle summary — it'll be regenerated when the pane goes idle again.
-        new_events = [e for e in (state.get("events") or []) if isinstance(e, dict) and e.get("text")]
+        new_events = [
+            e
+            for e in (state.get("events") or [])
+            if isinstance(e, dict) and e.get("text")
+        ]
         for e in new_events:
             recent.append(e["text"])
         self._recent_events[pane.id] = recent[-30:]
@@ -243,7 +291,9 @@ class Watcher:
                 burst["events"].append({"text": e["text"], "ts": now})
             burst["events"] = burst["events"][-60:]
             self._summary.pop(pane.id, None)  # activity invalidates the idle summary
-        state["summary"] = self._summary.get(pane.id)  # may be None (only set once idle)
+        state["summary"] = self._summary.get(
+            pane.id
+        )  # may be None (only set once idle)
         self._prev_fp[pane.id] = fp
         self._last_parse[pane.id] = now
 
