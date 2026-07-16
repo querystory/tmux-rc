@@ -21,7 +21,8 @@ credentials for Vertex (the Gemini Flash Lite classification pass). Because the 
 runs unattended for long stretches, it authenticates with a long-lived **service-account
 key** rather than developer ADC (which expires and needs a browser reauth — see
 [docs/design/durable-vertex-auth.md](docs/design/durable-vertex-auth.md)). Point
-`GOOGLE_APPLICATION_CREDENTIALS` at the key file (`.env.example` has the mint command).
+`GOOGLE_APPLICATION_CREDENTIALS` at the key file — an **absolute** path, since google-auth
+does not expand `~` (`.env.example` has the mint command).
 
 ```bash
 uv sync
