@@ -2,11 +2,14 @@
 // panes to the top, and posts answers back. No framework, no build step.
 
 // Real brand marks per agent (served from web/). One img template so every logo-backed
-// tool renders identically; emoji/text fallback for the rest.
+// tool renders identically; emoji/text fallback for the rest. `tool` comes from parser
+// JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor" would
+// otherwise resolve up the prototype chain and render garbage) and escape it into alt.
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
-const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${alt}" style="border-radius:5px" />`;
 const ICONS = { shell: "$", unknown: "•" };
-const iconFor = (tool) => (LOGOS[tool] ? img(LOGOS[tool], tool) : (ICONS[tool] ?? "•"));
+const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
+const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICONS, tool) ? ICONS[tool] : "•"));
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
