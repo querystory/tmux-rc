@@ -19,9 +19,13 @@ from pathlib import Path
 # os.environ at import time (model, GOOGLE_CLOUD_PROJECT, OTEL endpoint). Without this, a
 # launch that didn't inherit the env (e.g. a stray `make dev`) silently loses Vertex creds
 # and every parse fails. Real environment vars still win over .env (override=False).
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
+# doesn't exist (e.g. installed as a wheel and launched elsewhere), fall back to the
+# usual upward search from cwd. Either way, real env vars still win (override=False).
+_repo_env = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
 
 from fastapi import FastAPI, HTTPException, UploadFile  # noqa: E402
 from fastapi.responses import PlainTextResponse  # noqa: E402
