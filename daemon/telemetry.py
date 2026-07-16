@@ -55,7 +55,6 @@ def _logger():
     if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         return None
     try:
-        from opentelemetry._logs import get_logger, set_logger_provider
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
         from opentelemetry.sdk._logs import LoggerProvider
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
@@ -72,8 +71,10 @@ def _logger():
         )
         provider = LoggerProvider(resource=resource)
         provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
-        set_logger_provider(provider)
-        return get_logger(_SCOPE)
+        # Get the logger from OUR provider instance rather than set_logger_provider()
+        # (the process-global). This can't clobber another component's OTel logging, and
+        # avoids the "provider already set" warning if anything else configures OTel.
+        return provider.get_logger(_SCOPE)
     except Exception:  # noqa: BLE001 - telemetry setup must never break the daemon
         logger.warning("OTLP telemetry setup failed; disabling", exc_info=True)
         return None

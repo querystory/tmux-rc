@@ -22,14 +22,14 @@ pass via Vertex).
 
 ```bash
 uv sync
-cp .env.example .env          # set GOOGLE_CLOUD_PROJECT (ADC must be available)
+cp .env.example .env          # then edit .env: set GOOGLE_CLOUD_PROJECT (ADC must be available)
 
 # In another terminal, start a tmux session and run an agent in it:
 tmux new -s work
 #   ... run claude / codex / gemini / anything ...
 
-# Start tmux-rc (reads env from your shell):
-GOOGLE_CLOUD_PROJECT=<project> uv run python -m daemon.server
+# Start tmux-rc (config is loaded from .env automatically):
+uv run python -m daemon.server
 ```
 
 Open `http://<machine-lan-ip>:8080` on your phone and add it to your home screen.
@@ -38,6 +38,8 @@ For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
 
 ### Config (env)
 
+Loaded from `.env` at startup (real shell env vars still override). See `.env.example`.
+
 | var | default | meaning |
 | --- | --- | --- |
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
@@ -45,6 +47,9 @@ For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
 | `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `0.0.0.0` / `8080` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
+| `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
+| `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |
 
 ## How it works
 

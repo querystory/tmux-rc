@@ -233,7 +233,7 @@ def _emit(
             error=error,
         )
     except Exception:  # noqa: BLE001 - telemetry must never break a parse
-        pass
+        logger.debug("telemetry emit failed", exc_info=True)  # visible, but never fatal
 
 
 # Last LLM failure reason (or None if the last call succeeded), surfaced to the UI.
