@@ -58,6 +58,11 @@ but have distinct signatures. Decide by the evidence on screen:
   working (e.g. "Shimmying…"); permission modes "plan mode"/"accept edits"/"bypass
   permissions"; Esc-Esc REWIND picker. The CHROME identifies it — an unrecognized model
   name inside unmistakable Claude Code chrome is still "claude".
+The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
+not screen content. Agents run as node/claude/codex/gemini processes; a pane whose
+process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
+or model names appear in its OUTPUT (a server printing gemini-… log lines is a log
+viewer, never the Gemini CLI).
 Identify an agent by ITS OWN UI CHROME (status bar, input box, permission prompts,
 banner) — never by agent/model names merely APPEARING IN CONTENT. A pane whose text
 mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:generateContent),

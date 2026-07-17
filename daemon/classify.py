@@ -85,6 +85,10 @@ def classify(
     = events already reported (so the model doesn't repeat them). Returns the model's
     JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic dict."""
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
+    # Ground truth the model can't hallucinate past: tmux's foreground process for the
+    # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
+    # log printing gemini-… lines is not the Gemini CLI).
+    payload = f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{payload}"
     result = llm_fn(parser_prompt(), payload) if llm_fn else None
     if not isinstance(result, dict):
         result = {
