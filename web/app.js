@@ -88,6 +88,7 @@ function activeId() {
   return focused ? focused.pane_id : Object.keys(panesById)[0] || null;
 }
 function setActive(id) {
+  clearAttachChip(); // the chip mirrors the PREVIOUS pane's composer
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
@@ -300,6 +301,14 @@ function joinTab(deck) {
       t = top.getBoundingClientRect();
     n.style.left = s.left - d.left + 1 + "px"; // inset 1px each side: the fillets own
     n.style.width = s.width - 2 + "px";        // the corner pixels
+    // A fillet needs a FLAT border line under it; inside the card's corner-radius
+    // zone the border curves away and nothing lines up. When an edge tab's flare
+    // would land there, square that corner (14 = the .card border-radius).
+    const card = deck.querySelector(".card.active");
+    if (card) {
+      card.classList.toggle("sq-l", s.left - d.left - 7 < 14);
+      card.classList.toggle("sq-r", d.right - s.right - 7 < 14);
+    }
     // Each patch is placed so the arc's center (its top corner) sits radius-8 from the
     // tab border it curves into — tangency by construction, not tuning. The patch spans
     // the tab's 1px side border plus the flare beyond it (the flare replaces the border).
@@ -905,22 +914,32 @@ async function uploadImage(s, file, input) {
     fd.append("file", file);
     const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
     if (!r.ok) alert("Image upload failed: " + r.status);
-    else flashAttach(file); // visible confirmation — the paste is otherwise invisible client-side
+    else attachChip(file); // visible confirmation — the paste is otherwise invisible client-side
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
 }
 
-// The paste happens INSTANTLY in the pane (not staged with the draft), so confirm it
-// with a transient thumbnail in the bar rather than a lingering chip that would read
-// as "attached to what I'm typing".
-function flashAttach(file) {
-  const im = document.createElement("img");
-  im.className = "attach-flash";
-  im.alt = "image pasted";
-  im.src = URL.createObjectURL(file);
-  bar.attach.after(im);
-  im.onanimationend = () => { URL.revokeObjectURL(im.src); im.remove(); };
+// After the paste, the agent holds the image in its OWN composer ([Image #N] in
+// Claude Code) until Enter — so the thumbnail stays, mirroring that staged state,
+// and clears when something is sent to the pane or the active pane changes.
+// Tap the thumbnail to hide just the visual.
+let chipEl = null;
+function attachChip(file) {
+  clearAttachChip();
+  chipEl = document.createElement("img");
+  chipEl.className = "attach-chip";
+  chipEl.alt = "image staged in the pane's composer";
+  chipEl.title = "Pasted into the pane — sends with your next Enter. Tap to hide.";
+  chipEl.src = URL.createObjectURL(file);
+  chipEl.onclick = clearAttachChip;
+  bar.attach.after(chipEl);
+}
+function clearAttachChip() {
+  if (!chipEl) return;
+  URL.revokeObjectURL(chipEl.src);
+  chipEl.remove();
+  chipEl = null;
 }
 
 function question(s) {
@@ -969,11 +988,13 @@ function keyFor(question, opt, i) {
 }
 
 async function answer(s, keys) {
+  clearAttachChip(); // the Enter below also submits any image staged in the composer
   await send(s, { keys, enter: true, literal: true });
 }
 
 // Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter.
 async function sendRaw(s, keyName) {
+  if (keyName === "Enter") clearAttachChip(); // submits the composer, image included
   await send(s, { keys: keyName, enter: false, literal: false });
 }
 

@@ -112,6 +112,10 @@
   .dock.has-sel .dock-icon.sel { border-bottom: 0; border-bottom-left-radius: 0;
     border-bottom-right-radius: 0; margin-bottom: -4px; padding-bottom: 11px; background: #161b22; }
   .tab-notch { position: absolute; top: 0; height: 1px; background: #161b22; z-index: 2; pointer-events: none; }
+  /* Edge tabs: a flare landing inside the card's corner-radius zone has no flat line
+     to join (the border is curving away there) — square that corner instead. */
+  .card.sq-l { border-top-left-radius: 0; }
+  .card.sq-r { border-top-right-radius: 0; }
   /* Chrome-style concave fillets at the tab's feet: the card line flares up into the
      tab's sides. Each is an 8×8 patch over the old sharp L-corner: a radial gradient
      paints the blue quarter-arc — tangent to the tab border's inner edge and the
@@ -134,11 +138,10 @@
   .inputwrap .attach { background: transparent; border: 0; color: #8b949e; font-size: 14px;
     line-height: 1; cursor: pointer; padding: 0 3px; opacity: .8; }
   .inputwrap .attach[aria-pressed="true"] { color: #58a6ff; opacity: 1; }
-  /* Transient "your image made it into the pane" thumbnail (see flashAttach). */
-  .attach-flash { width: 24px; height: 24px; border-radius: 5px; object-fit: cover;
-    flex: none; margin: 0 2px; animation: attflash 2.6s forwards; }
-  @keyframes attflash { 0% { opacity: 0; transform: scale(.6); }
-    12% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
+  /* Pasted-image thumbnail: mirrors the image staged in the pane's own composer
+     ([Image #N] in Claude Code) until the next Enter sends it (see attachChip). */
+  .attach-chip { width: 24px; height: 24px; border-radius: 5px; object-fit: cover;
+    flex: none; margin: 0 2px; cursor: pointer; box-shadow: 0 0 0 1px #30363d; }
   .row { display: flex; align-items: center; gap: 10px; }
   .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
   .icon svg { display: block; }
