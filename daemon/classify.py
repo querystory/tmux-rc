@@ -30,7 +30,7 @@ _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 # change: an import-time constant silently served STALE prompts after edits, because
 # uvicorn's stat reloader only watches *.py (reload_includes needs watchfiles).
 _PROMPT_PATH = Path(__file__).with_name("parser_prompt.txt")
-_prompt_cache: tuple[float, str] = (0.0, "")
+_prompt_cache: tuple[int, str] = (0, "")
 
 
 def parser_prompt() -> str:

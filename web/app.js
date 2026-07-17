@@ -459,16 +459,16 @@ function bgTerm(s) {
   // The window's height changes after we pin the scroll (the card above grows as
   // events/images render, flex re-settles) — each change slid the view off the tail,
   // half-clipping the last line. Re-pin whenever the wrap is resized.
-  if (peekPrev[s.pane_id]) peekRO.unobserve(peekPrev[s.pane_id]);
+  if (peekPrev) peekRO.unobserve(peekPrev);
   peekRO.observe(wrap);
-  peekPrev[s.pane_id] = wrap;
+  peekPrev = wrap;
   return wrap;
 }
 // ONE shared observer for every peek window; each render explicitly unobserves the
 // pane's previous (now detached) wrap, so tracked targets stay bounded at one per pane.
 const peekRO = new ResizeObserver((entries) =>
   entries.forEach((e) => { e.target.scrollTop = e.target.scrollHeight; }));
-const peekPrev = {}; // pane_id -> last observed wrap
+let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
