@@ -922,9 +922,18 @@ function linkifyCapture(raw) {
   // URL chars: the original terminator exclusions (whitespace, quotes, brackets — also
   // the belt-and-braces for attribute safety) PLUS everything non-ASCII, so TUI
   // box-drawing borders (│ etc.) flush against a URL never glue onto the href.
-  const re = /https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)*/gi;
+  // Markdown-style links match FIRST — that's how the capture materializes OSC 8
+  // terminal hyperlinks — and render terminal-style: the LABEL alone, URL hidden
+  // in the href.
+  const re = /\[([^\]\n]{1,120})\]\((https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)\)|https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)*/gi;
   while ((m = re.exec(raw))) {
     out += esc(raw.slice(pos, m.index));
+    if (m[1] !== undefined) {
+      out += `<a href="${escAttr(m[2])}" target="_blank" rel="noopener noreferrer">${esc(m[1])}</a>`;
+      pos = m.index + m[0].length;
+      re.lastIndex = pos;
+      continue;
+    }
     // Accept newline-continuations only while the line being left was full-width
     // (a wrapped line); cut the match at the first newline that isn't.
     let cut = m[0].length, search = 0;

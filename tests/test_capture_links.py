@@ -5,9 +5,9 @@ of the escapes, so the parser and web linkifier see real URLs."""
 from daemon.tmux import _ANSI, _materialize_links
 
 
-def test_osc8_link_materializes_url():
+def test_osc8_link_materializes_as_markdown():
     raw = "see \x1b]8;;https://x.io/pr/7\x1b\\PR #7\x1b]8;;\x1b\\ done"
-    assert _materialize_links(raw) == "see PR #7 (https://x.io/pr/7) done"
+    assert _materialize_links(raw) == "see [PR #7](https://x.io/pr/7) done"
 
 
 def test_osc8_label_equal_to_url_not_duplicated():

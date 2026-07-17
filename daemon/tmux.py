@@ -222,13 +222,15 @@ _ANSI = re.compile(r"\x1b\[[0-9;:?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\
 
 
 def _materialize_links(text: str) -> str:
-    """Turn OSC 8 hyperlinks into plain text carrying the URL — 'label (url)' — so the
-    parser and the web linkifier see URLs that terminals embed invisibly. A label that
-    already IS the url passes through unchanged."""
+    """Turn OSC 8 hyperlinks into markdown — '[label](url)' — so the URL terminals
+    embed invisibly survives in plain text. Markdown because BOTH consumers know it:
+    the LLM parser reads it natively, and the web linkifier collapses it back to a
+    label-only anchor (terminal-like rendering, URL hidden). A label that already IS
+    the url passes through bare."""
 
     def repl(m: re.Match) -> str:
         url, label = m.group(1), m.group(2)
-        return label if not url or url in label else f"{label} ({url})"
+        return label if not url or url in label else f"[{label}]({url})"
 
     return _OSC8.sub(repl, text)
 
