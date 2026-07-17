@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import subprocess
 import time
 from functools import partial
 
@@ -202,6 +203,11 @@ class Watcher:
         for p in panes:
             try:
                 s = self._tick_pane(p)
+            except subprocess.CalledProcessError:
+                # Expected race, not a bug: the pane closed between list-panes and
+                # capture-pane. One line — next tick's gc evicts it.
+                logger.warning("pane %s vanished mid-tick", p.id)
+                s = None
             except Exception:  # noqa: BLE001 - isolate per-pane failures
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
                 s = None
