@@ -187,7 +187,7 @@ function render(states) {
       fs.textContent = "⤢";
       fs.title = "Full screen";
       fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
-      deck.append(bgTerm(a), card(a), fs);
+      deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
     }
     panesEl.replaceChildren(deck);
   }
