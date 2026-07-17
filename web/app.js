@@ -156,6 +156,10 @@ function render(states) {
   // Accumulate this poll's events into each pane's running client-side log first.
   states.forEach((s) => accumulateEvents(s.pane_id, s.events));
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
+  // Prune per-pane caches when panes vanish — otherwise pane churn grows them
+  // without bound over a long-running session.
+  for (const m of [eventLog, eventScroll, peekCache, bgZoom])
+    for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   if (!states.length) {
     dockEl.replaceChildren();
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
@@ -886,7 +890,8 @@ function linkifyCapture(raw) {
 // page). One-finger drag pans; two-finger pinch zooms around the gesture midpoint.
 // Pass `st` to persist the transform across re-renders (the card's background layer
 // is rebuilt every poll); omitted (the full-screen overlay), it starts fresh at the
-// BOTTOM-left — the end of a capture is the live state. `snapHome`: unzoomed pans
+// BOTTOM-left — the end of a capture is the live state. (Captures shorter than the
+// window stay top-aligned: that's the Math.min clamp.) `snapHome`: unzoomed pans
 // spring back on release (drag-to-peek) instead of parking the content askew.
 function pinchZoom(container, el, st, snapHome) {
   st = st || { scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) };
