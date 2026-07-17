@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
+IMG_MAX_BYTES = 20 * 2**20  # generous for phone photos; blocks memory-ballooning uploads
 _EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -299,13 +300,21 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
             outcome="rejected: unsupported type",
         )
         raise HTTPException(415, f"unsupported image type: {mime}")
-    data = await file.read()
+    # Cap the read: an unbounded read() of a huge upload would balloon daemon memory.
+    data = await file.read(IMG_MAX_BYTES + 1)
+    if len(data) > IMG_MAX_BYTES:
+        _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: too large")
+        raise HTTPException(413, f"image too large (max {IMG_MAX_BYTES // 2**20}MB)")
     detail = f"{mime} {len(data)}B"
 
     # Stage to disk, prune stale stagings (the pane reads the file right after the
     # paste; a day of slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
-    os.chmod(IMG_DIR, 0o700)  # /tmp is shared: don't let umask leave stagings listable
+    # /tmp is shared and sticky: someone could pre-create this path as a symlink and
+    # collect our chmod + stagings at a target of their choosing. Refuse to run there.
+    if IMG_DIR.is_symlink() or not IMG_DIR.is_dir():
+        raise HTTPException(500, f"{IMG_DIR} is not a real directory; refusing to stage")
+    os.chmod(IMG_DIR, 0o700)  # don't let umask leave stagings listable
     cutoff = time.time() - 86400
     for old in IMG_DIR.iterdir():
         try:  # regular files only; tolerate races with concurrent prunes
