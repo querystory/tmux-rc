@@ -35,7 +35,7 @@ _prompt_cache: tuple[float, str] = (0.0, "")
 
 def parser_prompt() -> str:
     global _prompt_cache
-    mtime = _PROMPT_PATH.stat().st_mtime
+    mtime = _PROMPT_PATH.stat().st_mtime_ns  # ns: coarse mtime can miss rapid edits
     if mtime != _prompt_cache[0]:
         _prompt_cache = (mtime, _PROMPT_PATH.read_text(encoding="utf-8").strip())
     return _prompt_cache[1]

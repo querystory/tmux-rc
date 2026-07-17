@@ -167,8 +167,8 @@ function render(states) {
   // big fleet doesn't shove the active card off screen.
   const act = activeId();
   // List mode (a dock tally badge or "all" was tapped): just those panes as
-  // one-liners, dock hidden; tapping a row returns to card view.
-  const subset = listFilter && states.filter((s) => listFilter === "all" || s.activity === listFilter);
+  // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
+  const subset = listFilter && states.filter((s) => listFilter === "all" || actOf(s) === listFilter);
   if (subset && subset.length) {
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
     panesEl.replaceChildren(...subset.map((s) => row(s, act))); // server order — same as the dock
@@ -216,8 +216,9 @@ function dock(states, act) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
-    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${actOf(s)}"></i>`;
+    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${actOf(s)}" aria-hidden="true"></i>`;
     b.title = s.title || s.label || s.pane_id;
+    b.setAttribute("aria-label", b.title);
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
@@ -458,13 +459,16 @@ function bgTerm(s) {
   // The window's height changes after we pin the scroll (the card above grows as
   // events/images render, flex re-settles) — each change slid the view off the tail,
   // half-clipping the last line. Re-pin whenever the wrap is resized.
+  if (peekPrev[s.pane_id]) peekRO.unobserve(peekPrev[s.pane_id]);
   peekRO.observe(wrap);
+  peekPrev[s.pane_id] = wrap;
   return wrap;
 }
-// ONE shared observer for every peek window across renders (targets are held weakly,
-// so wraps replaced by the next poll don't accumulate observers or leak).
+// ONE shared observer for every peek window; each render explicitly unobserves the
+// pane's previous (now detached) wrap, so tracked targets stay bounded at one per pane.
 const peekRO = new ResizeObserver((entries) =>
   entries.forEach((e) => { e.target.scrollTop = e.target.scrollHeight; }));
+const peekPrev = {}; // pane_id -> last observed wrap
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
