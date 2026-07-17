@@ -90,7 +90,11 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "tool": "claude"|"codex"|"gemini"|"shell"|"unknown",
   "activity": "running"|"waiting"|"idle",
   "headline": "one short human sentence for the top of the card: what is happening / "
-              "what is being worked on (prefer the task over echoing a spinner word)",
+              "what is being worked on (prefer the task over echoing a spinner word). "
+              "Write it like a mobile push notification the user will REACT to: carry "
+              "the SUBSTANCE, never a meta-description — 'Asking whether to commit to "
+              "main or a branch', not 'Asked for clarification'; 'Tests fail: 3 "
+              "timeouts in auth_test', not 'Reported test results'",
   "model": "...",
   "context_pct": <int — ALWAYS percent USED. Displays differ: "56% ctx" means used -> 56,
                   but wording like "(99% context left)" (Gemini CLI) or "N% until
@@ -128,6 +132,11 @@ approval", "PR #18"), never the URL itself. At most 3.
 report. If a list of already-reported events is provided, do NOT repeat them or restate
 the same action in different words — only emit events for genuinely new activity, and
 return an empty list if nothing new happened. Each is "what the thing did", newest-relevant first.
+Events render on a phone as a chronological notification feed, appended after the
+already-reported ones — so each entry must stand alone in that sequence and carry the
+ACTUAL content (the specific question, decision, file, or outcome), never a
+meta-description: 'Asking: overwrite .env.prod or skip it?', not 'Asked for
+clarification'; 'Chose branch fix/auth over main for the commit', not 'Made a decision'.
 The PRIMARY content of each event is "text" (what happened, plain language). Attach
 OPTIONAL metadata: "file" when the event was editing a file (path + lines +/-), or
 "meta" for a short programmatic side-note (command count, exit code). The UI shows
