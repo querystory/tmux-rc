@@ -106,7 +106,10 @@ const evFetching = new Set();
 function syncEvents(s) {
   const id = s.pane_id;
   const cached = eventLog[id];
-  if (s.events_seq == null || evFetching.has(id)) return;
+  // seq 0 ⇒ the pane has never emitted an event; its log is empty, so skip the
+  // guaranteed-empty fetch (an empty feed renders fine from nothing). Avoids a
+  // request burst on load when many panes are fresh.
+  if (!s.events_seq || evFetching.has(id)) return;
   if (cached && cached.seq === s.events_seq) return;
   evFetching.add(id);
   fetch(`/api/panes/${encodeURIComponent(id)}/events`)
