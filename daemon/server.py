@@ -362,6 +362,12 @@ def _to_png(data: bytes) -> bytes:
 
     buf = io.BytesIO()
     with Image.open(io.BytesIO(data)) as im:
+        # Dimension guard BEFORE any pixel decode (open only parses the header):
+        # a tiny compressed bomb can inflate to gigapixels and pin the daemon.
+        # ~40MP comfortably covers any phone photo. Raising routes the caller to
+        # the path fallback — the daemon never decodes the bomb.
+        if im.width * im.height > 40_000_000:
+            raise ValueError(f"suspicious dimensions {im.width}x{im.height}")
         im.save(buf, "PNG")
     return buf.getvalue()
 

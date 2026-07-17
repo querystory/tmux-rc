@@ -258,6 +258,9 @@ def send_keys(
         _run(["send-keys", "-t", pane_id, "Enter"])
 
 
+_clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping
+
+
 def set_clipboard_image(png: bytes) -> list[str]:
     """Put PNG bytes on the system clipboard so the pane's app embeds them on Ctrl-V.
     ALWAYS image/png — paste handlers ask the clipboard for PNG, so an offer in the
@@ -266,6 +269,9 @@ def set_clipboard_image(png: bytes) -> list[str]:
     and X11 (xclip) since which one the terminal reads depends on the session.
     Returns the tools that succeeded — empty means the caller must fall back."""
     ok: list[str] = []
+    # Reap earlier clipboard holders that have since exited (replaced offers) —
+    # without this each paste could strand a zombie in our process table.
+    _clip_procs[:] = [p for p in _clip_procs if p.poll() is None]
     env_x = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
     attempts = [
         ("wl-copy", ["wl-copy", "-t", "image/png"]),
@@ -293,7 +299,7 @@ def set_clipboard_image(png: bytes) -> list[str]:
                 if proc.wait(timeout=0.15) != 0:
                     continue
             except subprocess.TimeoutExpired:
-                pass  # still alive, owning the clipboard — that's the success case
+                _clip_procs.append(proc)  # alive, owning the clipboard — reap next call
             ok.append(name)
         except Exception:  # noqa: BLE001 - try the next tool
             continue
