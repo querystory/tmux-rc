@@ -9,6 +9,10 @@
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
 const ICONS = { shell: "$", unknown: "•" };
+// activity comes from parser (LLM) output and gets interpolated into class names —
+// whitelist it so an unexpected value can't inject markup/classes.
+const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
+const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICONS, tool) ? ICONS[tool] : "•"));
 const panesEl = document.getElementById("panes");
@@ -167,7 +171,7 @@ function render(states) {
   const subset = listFilter && states.filter((s) => listFilter === "all" || s.activity === listFilter);
   if (subset && subset.length) {
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
-    panesEl.replaceChildren(...subset.map(row)); // server order — same as the dock
+    panesEl.replaceChildren(...subset.map((s) => row(s, act))); // server order — same as the dock
     updateBar(panesById[act]);
     flipIn(panesEl);
     return;
@@ -185,6 +189,7 @@ function render(states) {
       fs.className = "fsbtn";
       fs.textContent = "⤢";
       fs.title = "Full screen";
+      fs.setAttribute("aria-label", "Full screen");
       fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
       deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
     }
@@ -211,7 +216,7 @@ function dock(states, act) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
-    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${s.activity}"></i>`;
+    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${actOf(s)}"></i>`;
     b.title = s.title || s.label || s.pane_id;
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
@@ -223,7 +228,7 @@ function dock(states, act) {
   const counts = document.createElement("span");
   counts.className = "dock-counts";
   const n = {};
-  states.forEach((s) => (n[s.activity] = (n[s.activity] || 0) + 1));
+  states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
   const filt = (label, key) => {
     const b = document.createElement("button");
     b.className = "badge b-" + key;
@@ -283,19 +288,20 @@ function flipIn(root) {
   });
 }
 
-function row(s) {
+function row(s, act) {
+  const a = actOf(s);
   const el = document.createElement("div");
-  el.className = "prow" + (s.activity === "waiting" ? " waiting" : "")
-    + (s.pane_id === activeId() ? " sel" : "");
+  el.className = "prow" + (a === "waiting" ? " waiting" : "")
+    + (s.pane_id === act ? " sel" : "");
   el.dataset.pane = s.pane_id;
   // Tapping a row opens that pane's card (drops back out of list view).
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
-  const badge = s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity;
+  const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds) : a;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
     `<div class="prow-meta"><div class="prow-name">${esc(s.title || s.label || s.pane_id)}</div>` +
     (s.headline ? `<div class="prow-sub">${esc(s.headline)}</div>` : "") +
-    `</div><span class="badge b-${s.activity}">${badge}</span>`;
+    `</div><span class="badge b-${a}">${badge}</span>`;
   return el;
 }
 
@@ -351,6 +357,14 @@ function swipeNav(el, id) {
     if (ghost) ghost.style.transform = "translateX(0)";
     setTimeout(() => { busy = false; setActive(neighbor(dir)); }, 150);
   });
+  // A cancelled gesture (OS interruption) must release the poll freeze and snap back,
+  // or polling stays frozen indefinitely.
+  el.addEventListener("touchcancel", () => {
+    sx = null; busy = false;
+    el.style.transition = "";
+    el.style.transform = "";
+    if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
+  });
 }
 
 function card(s) {
@@ -366,12 +380,13 @@ function card(s) {
 
   const row = document.createElement("div");
   row.className = "row";
+  const a = actOf(s);
   const badge =
-    s.activity === "idle"
+    a === "idle"
       ? "idle " + fmtIdle(s.idle_seconds)
-      : s.activity === "running"
+      : a === "running"
         ? '<span class="pulse"></span>running'
-        : s.activity;
+        : a;
   // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
   // save vertical space), headline below, activity badge. Fields come straight from
   // the parser JSON, so the UI renders whatever the model provides.
@@ -387,7 +402,7 @@ function card(s) {
       <div class="name">${esc(s.title || s.label || "")} ${working}</div>
       <div class="status">${esc(s.headline || "—")}</div>
     </div>
-    <span class="badge b-${s.activity}">${badge}</span>`;
+    <span class="badge b-${a}">${badge}</span>`;
   el.appendChild(row);
 
   if (s.rewind) el.appendChild(rewindView(s));
@@ -423,13 +438,17 @@ function bgTerm(s) {
   const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
   const c = peekCache[s.pane_id];
   if (c) box.textContent = c.text; // last capture (kept while a newer one loads)
-  if (s.snapshot_id && (!c || c.snap !== s.snapshot_id))
-    fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${s.snapshot_id}`)
+  const snap = s.snapshot_id;
+  if (snap && (!c || c.snap !== snap))
+    fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
       .then((r) => (r.ok ? r.text() : ""))
       .then((t) => {
         const txt = t.replace(/\s+$/, "");
-        if (!txt) return;
-        peekCache[s.pane_id] = { snap: s.snapshot_id, text: txt };
+        // Responses can resolve out of order — never let an older snapshot (ids are
+        // ms timestamps) overwrite a newer one already applied.
+        const cur = peekCache[s.pane_id];
+        if (!txt || (cur && Number(cur.snap) >= Number(snap))) return;
+        peekCache[s.pane_id] = { snap, text: txt };
         box.textContent = txt;
         toEnd();
       })
