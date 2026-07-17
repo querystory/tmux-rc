@@ -139,43 +139,31 @@ function render(states) {
   states.forEach((s) => accumulateEvents(s.pane_id, s.events));
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   if (!states.length) {
-    picker.replaceChildren(new Option("No panes", ""));
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     updateBar(null);
     return;
   }
-  // One card at a time: render only the active pane; the picker switches.
+  // Only the ACTIVE pane gets a full card; every other pane is one compact row above
+  // it (icon · title · badge) — whole-fleet status stays visible, tap a row to switch.
   const act = activeId();
-  buildPicker(states, act);
-  panesEl.replaceChildren(...states.filter((s) => s.pane_id === act).map(card));
+  panesEl.replaceChildren(
+    ...states.filter((s) => s.pane_id !== act).map(row),
+    ...states.filter((s) => s.pane_id === act).map(card)
+  );
   updateBar(panesById[act]);
 }
 
-// The pane switcher: a native <select> grouped by tmux session, each option the
-// pane's self-published title plus an activity glyph. Wired once; rebuilt per poll.
-const picker = document.getElementById("picker");
-const waitEl = document.getElementById("waitcount");
-const GLYPH = { waiting: "⏳", running: "●", idle: "○" };
-function buildPicker(states, act) {
-  // Rebuilding a native select while it's open (focused) would snap it shut every
-  // poll — skip; the first poll after it blurs catches up.
-  if (document.activeElement !== picker) {
-    const bySess = {};
-    states.forEach((s) => (bySess[s.tmux_session || "tmux"] ||= []).push(s));
-    picker.replaceChildren(...Object.entries(bySess).map(([sess, list]) => {
-      const g = document.createElement("optgroup");
-      g.label = sess;
-      for (const s of list)
-        g.appendChild(new Option(
-          `${GLYPH[s.activity] || "·"} ${s.title || s.label || s.pane_id}`,
-          s.pane_id, false, s.pane_id === act));
-      return g;
-    }));
-  }
-  const waiting = states.filter((s) => s.activity === "waiting" && s.pane_id !== act).length;
-  waitEl.textContent = waiting ? `⏳ ${waiting} waiting` : "";
+function row(s) {
+  const el = document.createElement("div");
+  el.className = "prow" + (s.activity === "waiting" ? " waiting" : "");
+  el.onclick = () => setActive(s.pane_id);
+  const badge = s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity;
+  el.innerHTML =
+    `<span class="icon">${iconFor(s.tool)}</span>` +
+    `<span class="prow-name">${esc(s.title || s.label || s.pane_id)}</span>` +
+    `<span class="badge b-${s.activity}">${badge}</span>`;
+  return el;
 }
-if (picker) picker.onchange = () => { picker.blur(); setActive(picker.value); };
 
 function card(s) {
   const el = document.createElement("div");
