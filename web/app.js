@@ -496,7 +496,9 @@ function bgTerm(s) {
   wrap.appendChild(box);
   const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
   const c = peekCache[s.pane_id];
-  if (c) box.textContent = c.text; // last capture (kept while a newer one loads)
+  // Same linkification as the full-screen view (escaped text, wrapped URLs rejoined),
+  // so URLs in the peek are tappable in place.
+  if (c) box.innerHTML = linkifyCapture(c.text); // last capture (kept while newer loads)
   const snap = s.snapshot_id;
   if (snap && (!c || c.snap !== snap))
     fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
@@ -508,7 +510,7 @@ function bgTerm(s) {
         const cur = peekCache[s.pane_id];
         if (!txt || (cur && Number(cur.snap) >= Number(snap))) return;
         peekCache[s.pane_id] = { snap, text: txt };
-        box.textContent = txt;
+        box.innerHTML = linkifyCapture(txt);
         toEnd();
       })
       .catch(() => {});
