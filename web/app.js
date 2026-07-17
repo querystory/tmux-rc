@@ -36,11 +36,14 @@ function setFavicon(waiting) {
   if (!waiting) { favLink.href = favBase; return; }
   if (favDotUrl) { favLink.href = favDotUrl; return; }
   const im = new Image();
+  // Any failure resets favWaiting so a later render RETRIES the badge — otherwise the
+  // waiting===favWaiting short-circuit wedges the tab dotless for the whole wait.
+  im.onerror = () => { favWaiting = false; };
   im.onload = () => {
     const c = document.createElement("canvas");
     c.width = c.height = 32;
     const g = c.getContext("2d");
-    if (!g) return; // context can be null (e.g. memory pressure) — skip the badge
+    if (!g) { favWaiting = false; return; } // context can be null (memory pressure)
     g.drawImage(im, 0, 0, 32, 32);
     // Punch a clear ring first so the dot reads over busy icon pixels. Sized like
     // the in-app corner badges — a hint, not an eclipse.
