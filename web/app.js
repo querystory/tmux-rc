@@ -842,9 +842,8 @@ if (bar.input) {
   });
   // ⌨ toggles the special-keys row (hidden by default to save a row of height).
   bar.keysToggle.onclick = () => {
-    const open = bar.keys.hidden;
-    bar.keys.hidden = !open;
-    bar.keysToggle.setAttribute("aria-pressed", String(open));
+    bar.keys.hidden = !bar.keys.hidden;
+    bar.keysToggle.setAttribute("aria-pressed", String(!bar.keys.hidden));
   };
   bar.attach.onclick = () => bar.file.click();
   bar.file.onchange = () => bar.file.files[0] && uploadImage(activeState(), bar.file.files[0], bar.input);
