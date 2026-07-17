@@ -183,7 +183,9 @@ missing as "not shown on screen / not applicable," not zero):
 - **`activity`** — `running` | `waiting` | `idle`. Same meaning as the top-level `activity`
   column (that column is derived from this).
 - **`headline`** — one human sentence summarizing what's happening / being worked on. The
-  main line of the card. Good for "what was the agent doing" theme analysis.
+  main line of the card, written like a mobile push notification: it carries the SUBSTANCE
+  (the actual question/decision/result), not a meta-description. Good for "what was the
+  agent doing" theme analysis.
 - **`model`** — the model NAME shown on the watched agent's status line (e.g. `Opus 4.8`).
   The on-screen agent's model, NOT the parser. Free-text scraped from the screen.
 - **`context_pct`** — the watched agent's context-window usage percent, from its status
@@ -193,6 +195,10 @@ missing as "not shown on screen / not applicable," not zero):
 - **`session`** — the watched agent's own session name/title if it prints one (e.g.
   `bug-fixes`); used as the card label. Absent if none shown.
 - **`mode`** — the agent's permission mode: `plan` | `accept-edits` | `bypass` | `normal`.
+- **`status_entries`** — array of short status-line readout strings with no dedicated
+  field (e.g. a usage-limit readout `36%/30% 5h/7d`, telemetry/history summaries).
+  Deliberately unstructured screen-scraped display strings — group/count them, don't
+  parse numbers out of them for arithmetic.
 - **`working`** — present while `activity=running`: `{verb, elapsed, tokens}` — the
   whimsical gerund (`"Brewed"`), elapsed time string (`"7m 31s"`), and tokens-streamed
   string. All display strings off the status line.

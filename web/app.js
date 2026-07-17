@@ -612,9 +612,11 @@ function metaChips(s) {
     );
   if (s.cost) chips.push(`<span class="chip">${esc(s.cost)}</span>`);
   // Generic status-line entries the parser surfaced (usage-limit %, queue depth, …):
-  // one chip each, no schema change per metric.
-  for (const t of (s.status_entries || []).slice(0, 4))
-    if (t) chips.push(`<span class="chip">${esc(t)}</span>`);
+  // one chip each, no schema change per metric. LLM output — a non-array (e.g. a bare
+  // string) would otherwise .slice() into characters.
+  const entries = Array.isArray(s.status_entries) ? s.status_entries : [];
+  for (const t of entries.slice(0, 4))
+    if (t && String(t).trim()) chips.push(`<span class="chip">${esc(t)}</span>`);
   if (s.mode && s.mode !== "normal" && s.mode !== "unknown")
     chips.push(`<span class="chip mode mode-${s.mode}">${MODE_LABEL[s.mode] ?? s.mode}</span>`);
   if (s.agents > 0) chips.push(`<span class="chip agents">⛓ ${s.agents} agents</span>`);

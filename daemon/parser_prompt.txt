@@ -102,9 +102,9 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
   "status_entries": [<OTHER short readouts from the agent's own status line that have no
                 dedicated field here, passed through as-is (the UI shows each as a small
-                chip). E.g. a usage-limit readout 'limit: 36%/30% 5h/7d' -> one entry
-                "36%/30% 5h/7d" — keep it ONE entry, don't split or restructure it.
-                Never repeat model/context/cost/mode. At most 4.>],
+                chip). E.g. a usage-limit readout of limit: 36%/30% 5h/7d becomes the
+                single entry 36%/30% 5h/7d — keep it ONE entry, don't split or
+                restructure it. Never repeat model/context/cost/mode. At most 4.>],
   "session": "the agent's session name/title if it shows one (Claude Code prints it at "
              "the far right of the line just above its status bar, e.g. 'tmux-rc-dev') — "
              "use it as the pane's name; omit if none is shown",
