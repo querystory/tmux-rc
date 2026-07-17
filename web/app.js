@@ -872,7 +872,10 @@ if (bar.input) {
     bar.keysToggle.setAttribute("aria-pressed", String(!bar.keys.hidden));
   };
   bar.attach.onclick = () => bar.file.click();
-  bar.file.onchange = () => bar.file.files[0] && uploadImage(activeState(), bar.file.files[0], bar.input);
+  bar.file.onchange = () => {
+    if (bar.file.files[0]) uploadImage(activeState(), bar.file.files[0], bar.input);
+    bar.file.value = ""; // else picking the SAME photo again never fires change
+  };
   // Desktop image-paste into the field still works; the dedicated 📋 button is gone
   // (redundant with 📎, and clipboard-read needs HTTPS anyway).
   bar.input.onpaste = (e) => {
