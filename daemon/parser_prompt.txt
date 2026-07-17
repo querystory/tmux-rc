@@ -33,23 +33,32 @@ but have distinct signatures. Decide by the evidence on screen:
   prompts read like "You approved codex to run …", "Would you like to run the following
   command?" with a NUMBERED list "1. Yes  2. Yes, and don't ask again for commands that
   start with X  3. No, and tell Codex what to do differently (esc)"; it refers to itself
-  as "Codex". If you see "Codex" by name or a GPT/o-series model, it is "codex", NOT
-  "claude". Its bottom line reads "<model> <effort> <mode> · <cwd>", e.g.
+  as "Codex". If its OWN chrome (status line, permission prompts, its own responses)
+  names Codex or a GPT/o-series model, it is "codex", NOT "claude". Its bottom line reads "<model> <effort> <mode> · <cwd>", e.g.
   "gpt-5.5 xhigh fast · ~/src/qs/qs-app" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
   a MODE word, NOT a session name. Do NOT put "fast" (or the cwd) in "session". Codex
   names its session/thread only when it explicitly says so (e.g. a line like "Thread
   renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,
   OMIT "session" — never fall back to a status-line token.
-- "gemini" (Gemini CLI): names a Gemini model.
+- "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
+  with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
+  "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku" + a
   version like "4.8"); status line shows dir/branch · model · context% · elapsed · cost ·
   prompts/tools counts; whimsical gerund while working (e.g. "Shimmying…"); permission
   modes "plan mode"/"accept edits"/"bypass permissions"; Esc-Esc REWIND picker.
+Identify an agent by ITS OWN UI CHROME (status bar, input box, permission prompts,
+banner) — never by agent/model names merely APPEARING IN CONTENT. A pane whose text
+mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:generateContent),
+code, or discussion is NOT that agent — a server log spamming Gemini endpoints is
+whatever program is actually running there (a shell running a server, a log tail), not
+"gemini".
 An agent pane STAYS that agent even when a shell command it launched fills the screen —
 the agent is driving it. Use earlier frames and the model name for continuity; if recent
 frames identified a specific agent, prefer that SAME agent (do not switch to a different
-agent or to claude without new evidence). Only call it "shell" when it is genuinely a
-plain interactive shell a human is typing into with no agent present. Use "unknown" only
+agent or to claude without new evidence). Call it "shell" when no agent
+chrome is present — a plain interactive shell, including one running an ordinary
+command or server whose output fills the pane. Use "unknown" only
 when you truly cannot tell which agent it is.
 
 CLAUDE CODE in detail (one of the agents above — identify it by its Claude model name,
@@ -71,7 +80,11 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "activity": "running"|"waiting"|"idle",
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word)",
-  "model": "...", "context_pct": <int>, "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
+  "model": "...",
+  "context_pct": <int — ALWAYS percent USED. Displays differ: "56% ctx" means used -> 56,
+                  but wording like "(99% context left)" (Gemini CLI) or "N% until
+                  compact" means REMAINING -> convert to 100-N>,
+  "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
   "session": "the agent's session name/title if it shows one (Claude Code prints it at "
              "the far right of the line just above its status bar, e.g. 'tmux-rc-dev') — "
              "use it as the pane's name; omit if none is shown",
