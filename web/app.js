@@ -2,10 +2,10 @@
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step.
 
-// Real brand marks per agent (served from web/). One img template so every logo-backed
-// tool renders identically; emoji/text fallback for the rest. `tool` comes from parser
-// JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor" would
-// otherwise resolve up the prototype chain and render garbage) and escape it into alt.
+// Real brand marks per tool (served from web/). One img template so every icon renders
+// identically; unidentified panes fall back to the tmux logomark. `tool` comes from
+// parser JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor"
+// would otherwise resolve up the prototype chain and render garbage) and escape its alt.
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg",
   shell: "/bash.png" }; // official Bash logo (MIT — see bash-logo.LICENSE)
@@ -31,7 +31,7 @@ const favBase = favLink && favLink.href;
 let favDotUrl = null;
 let favWaiting = false;
 function setFavicon(waiting) {
-  if (!favLink || waiting === favWaiting) return;
+  if (!favLink || !favBase || waiting === favWaiting) return;
   favWaiting = waiting;
   if (!waiting) { favLink.href = favBase; return; }
   if (favDotUrl) { favLink.href = favDotUrl; return; }
