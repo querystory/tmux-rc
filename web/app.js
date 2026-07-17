@@ -1,5 +1,5 @@
-// tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the header
-// dropdown, grouped by tmux session, switches panes), and posts answers back.
+// tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
+// tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step.
 
 // Real brand marks per agent (served from web/). One img template so every logo-backed
@@ -813,7 +813,7 @@ async function send(s, body) {
 }
 
 // Full-screen, scrollable (both axes) view of the pane's latest raw capture, fetched
-// ON DEMAND (opened by tapping the card's peek strip).
+// ON DEMAND (opened via the ⤢ full-screen button over the deck).
 async function openScreen(paneId, label) {
   let text = "(loading…)";
   try {
