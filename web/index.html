@@ -58,13 +58,19 @@
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
     padding: 12px 14px; overflow: hidden;
-    /* Stable full-height card: content varies, the peek strip absorbs the slack. */
+    /* Fixed viewport-fit height: the peek strip absorbs leftover space (shrinking to
+       nothing under pressure — JS swaps it for the View link below ~5 lines), and the
+       card scrolls internally in the rare overfull case; the PAGE never scrolls. */
     display: flex; flex-direction: column;
-    min-height: calc(100dvh - 290px);
+    height: calc(100dvh - 290px);
+    overflow-y: auto;
   }
-  .peek { flex: 1; margin: 12px -14px -12px; padding: 8px 12px; overflow: hidden;
-    border-top: 1px solid #21262d; min-height: 90px; cursor: pointer;
+  .peek { flex: 1 1 80px; min-height: 0; margin: 12px -14px -12px; padding: 8px 12px;
+    overflow: hidden; border-top: 1px solid #21262d; cursor: pointer;
     font: 10px/1.35 ui-monospace, monospace; color: #8b949e; white-space: pre; }
+  .viewbtn { margin-top: 12px; background: transparent; border: 0; color: #8b949e;
+    font-size: 13px; cursor: pointer; padding: 2px 0; text-align: left; flex: none; }
+  .viewbtn:active { color: #c9d1d9; }
   .card { transition: transform .15s, opacity .15s; }
   .deck { position: relative; }
   .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; }

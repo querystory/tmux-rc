@@ -347,7 +347,17 @@ function peek(s) {
         toEnd();
       })
       .catch(() => {});
-  requestAnimationFrame(toEnd);
+  // Squeezed below ~5 lines by other content? A sliver of terminal is useless —
+  // swap in the plain View-screen link instead.
+  requestAnimationFrame(() => {
+    if (box.isConnected && box.clientHeight < 70) {
+      const btn = document.createElement("button");
+      btn.className = "viewbtn";
+      btn.textContent = "▤ View screen";
+      btn.onclick = box.onclick;
+      box.replaceWith(btn);
+    } else toEnd();
+  });
   return box;
 }
 
