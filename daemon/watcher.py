@@ -222,6 +222,7 @@ class Watcher:
                 s = {
                     "pane_id": p.id,
                     "label": p.label,
+                    "title": p.display_title,
                     "tool": "unknown",
                     "activity": "unknown",
                     "updated_at": time.time(),
@@ -232,9 +233,10 @@ class Watcher:
         focused = tmux.active_pane_id()
         for s in states:
             s["tmux_active"] = s.get("pane_id") == focused
-        # Waiting first, then running, then idle — most-actionable panes on top.
-        order = {"waiting": 0, "running": 1, "idle": 2, "unknown": 3}
-        states.sort(key=lambda s: order.get(s.get("activity"), 9))
+        # Keep tmux's natural order (session/window/pane, as list-panes emits it) —
+        # the UI's dock, list, and swipe direction all key off this array order, and
+        # it must match the window numbers the user sees in tmux's own status bar.
+        # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self.states = states
         self._gc(alive)
 
@@ -454,6 +456,9 @@ class Watcher:
             else:
                 self._tool.pop(pane.id, None)  # agent is genuinely gone; forget it
 
+        # The pane's self-published title (see Pane.display_title) — the agent's own
+        # words for what it's doing, better than anything we could parse off the screen.
+        state["title"] = pane.display_title
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle

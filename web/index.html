@@ -19,18 +19,72 @@
     background: #0b0f14; color: #e6edf3;
     padding: env(safe-area-inset-top) 0 0;
   }
+  #top { position: sticky; top: 0; z-index: 5; background: #0b0f14e6; backdrop-filter: blur(8px); }
+  #top .dock { margin: 0 12px 8px; }
+  #top .dock:empty { display: none; }
   header {
-    padding: 14px 16px; font-weight: 600; font-size: 17px;
+    padding: 12px 16px 4px; font-weight: 600; font-size: 17px;
     display: flex; justify-content: space-between; align-items: center;
-    position: sticky; top: 0; z-index: 5; background: #0b0f14e6; backdrop-filter: blur(8px);
   }
+  /* Non-active panes: one compact row each (icon · title · badge), stacked above the
+     active pane's full card — whole-fleet status at a glance, tap to switch. */
+  .prow { display: flex; align-items: center; gap: 10px; background: #161b22;
+    border: 1px solid #30363d; border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+  .prow.waiting { border-color: #d29922; background: #1c1a12; }
+  .prow.sel { border-color: #388bfd; }
+  .prow.dock { gap: 4px; padding: 4px 8px; overflow-x: auto; scrollbar-width: none; }
+  .prow.dock::-webkit-scrollbar { display: none; }
+  .dock-icon { position: relative; background: transparent; border: 1px solid transparent;
+    border-radius: 8px; padding: 5px 8px 10px; cursor: pointer; color: #adbac7;
+    font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .dock-icon.sel { background: #21262d; border-color: #388bfd; }
+  .ddot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
+    width: 5px; height: 5px; border-radius: 50%; background: #6e7681; }
+  .dock-counts { margin-left: auto; display: flex; gap: 4px; flex: none; align-items: center; }
+  .dock-counts .badge { border: 0; cursor: pointer; font-family: inherit; }
+  .badge.b-all { background: #21262d; color: #adbac7; }
+  .dim { color: #6e7681; }
+  .d-running { background: #3fb950; } .d-waiting { background: #e3b341; }
+  .prow-meta { flex: 1; min-width: 0; }
+  .prow-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; font-size: 14px; }
+  .prow-sub { color: #8b949e; font-size: 12px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
   header .off { background: #6e7681; }
-  #panes { padding: 8px 12px 150px; display: flex; flex-direction: column; gap: 10px; }
+  /* overflow-x hidden: swipe gestures park the neighbor card off-screen with
+     transforms — without this the page itself grows a horizontal scrollbar. */
+  body { overflow-x: hidden; }
+  /* --bar-h / --top-h are MEASURED by JS (ResizeObserver) — the layout math below
+     uses them instead of eyeballed constants that drift per device/content. */
+  #panes { padding: 8px 12px calc(var(--bar-h, 150px) + 8px); display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
+  /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
+     The pane's capture is its background (bottom-anchored, so the agent's status/input
+     chrome lines hide behind the bar); the card floats over the top, content-sized,
+     with the live terminal tail poking out BELOW it — pan/zoomable in place. The
+     negative margin cancels #panes' bar padding so the page itself never scrolls. */
+  .deck { position: relative; height: calc(100dvh - var(--top-h, 122px) - 8px);
+    margin-bottom: calc(-1 * (var(--bar-h, 150px) + 8px));
+    overflow: hidden; display: flex; flex-direction: column; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
-    padding: 12px 14px; overflow: hidden;
+    padding: 12px 14px; overflow-y: auto; position: relative; z-index: 1; flex: none;
+    max-height: calc(100% - var(--bar-h, 150px) - 80px); /* ≥~5 terminal lines stay visible */
   }
+  /* The capture's window: right below the card down to the bar. Agent panes overlap
+     the bar a little (their tail is status/input chrome); shells stop above it so a
+     trailing prompt stays visible. Long captures are scrolled to their tail. */
+  .bg-wrap { flex: 1; min-height: 0; overflow: hidden; touch-action: none;
+    margin-bottom: calc(var(--bar-h, 150px) - 60px); }
+  .bg-wrap.shell { margin-bottom: calc(var(--bar-h, 150px) + 6px); }
+  .bg-term { margin: 0; padding: 4px 12px; font: 10px/1.35 ui-monospace, monospace;
+    color: #8b949e; white-space: pre; }
+  .fsbtn { position: absolute; right: 10px; bottom: calc(var(--bar-h, 150px) + 14px);
+    z-index: 2; width: 34px; height: 34px;
+    background: #21262dcc; border: 1px solid #30363d; color: #adbac7; border-radius: 8px;
+    font-size: 15px; cursor: pointer; }
+  .card { transition: transform .15s, opacity .15s; }
+  .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; z-index: 1; }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
   .card.active { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
   #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
@@ -51,16 +105,20 @@
   }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
   .meta { flex: 1; min-width: 0; }
-  .name { font-weight: 600; }
+  .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .status { color: #c9d1d9; font-size: 14px; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .sub { color: #6e7681; font-size: 12px; margin-top: 3px; }
   .worksub { color: #6e7681; font-size: 11px; font-weight: 400; }
-  .metarow { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* Bar rows never wrap: one line each, extra chips/keys overflow off the edge
+     (swipeable, scrollbar hidden) instead of growing the bar taller. */
+  .metarow { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .metarow::-webkit-scrollbar { display: none; }
   .metarow:empty { display: none; }
   .chip {
     font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: 600;
     background: #21262d; color: #adbac7; display: inline-flex; align-items: center; gap: 5px;
+    flex: none; white-space: nowrap;
   }
   .ctxchip { position: relative; overflow: hidden; }
   .ctxchip > i { position: absolute; left: 0; top: 0; bottom: 0; background: #1f6feb44; z-index: 0; }
@@ -77,6 +135,7 @@
   .b-running { background: #12331f; color: #3fb950; }
   .b-idle { background: #21262d; color: #8b949e; }
   .b-waiting { background: #3d2e0a; color: #e3b341; }
+  .b-unknown { background: #21262d; color: #8b949e; }
   .ctx { height: 4px; border-radius: 4px; background: #21262d; margin-top: 8px; overflow: hidden; }
   .ctx > i { display: block; height: 100%; background: #388bfd; }
   .q { margin-top: 12px; }
@@ -102,7 +161,6 @@
   .freetext { display: flex; gap: 8px; }
   .freetext input { flex: 1; background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
   .freetext button.send { background: #388bfd; border: 0; color: #fff; border-radius: 10px; padding: 0 16px; font-weight: 600; }
-  .freetext button.attach, .freetext button.paste { background: #21262d; border: 1px solid #30363d; color: #adbac7; border-radius: 10px; padding: 0 10px; font-size: 17px; cursor: pointer; }
   .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
     max-height: 40vh; overflow-y: auto; }
   .events::-webkit-scrollbar { width: 6px; } .events::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
@@ -130,15 +188,14 @@
   .rw-hint { padding: 8px 12px; font-size: 12px; color: #6e7681; }
   .raw { margin-top: 12px; }
   .raw .freetext { margin-bottom: 8px; }
-  .keys { display: flex; gap: 6px; flex-wrap: wrap; }
+  .keys { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .keys::-webkit-scrollbar { display: none; }
   .keys button {
     background: #21262d; color: #adbac7; border: 1px solid #30363d;
     border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+    flex: none; white-space: nowrap;
   }
   .keys button:active { background: #30363d; }
-  .viewbtn { margin-top: 12px; background: transparent; border: 0; color: #8b949e;
-    font-size: 13px; cursor: pointer; padding: 2px 0; }
-  .viewbtn:active { color: #c9d1d9; }
   /* Full-screen raw-capture view, opened on demand (no poll flicker). */
   .screen-overlay { position: fixed; inset: 0; z-index: 50; background: #000000e6;
     display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 0; }
@@ -165,13 +222,18 @@
 </style>
 </head>
 <body>
-  <header>
-    <span>tmux-rc</span>
-    <span class="hdr-right">
-      <span id="usage" class="usage"></span>
-      <span id="live" class="dot off" title="connection"></span>
-    </span>
-  </header>
+  <!-- Sticky top block: header + dock. The dock's height never changes (icons for
+       every pane, always) — expanding rows or swiping cards moves content BELOW it. -->
+  <div id="top">
+    <header>
+      <span>tmux-rc</span>
+      <span class="hdr-right">
+        <span id="usage" class="usage"></span>
+        <span id="live" class="dot off" title="connection"></span>
+      </span>
+    </header>
+    <div id="dock" class="prow dock"></div>
+  </div>
   <div id="panes"><div class="empty">Connecting…</div></div>
   <!-- Single persistent input bar, fixed at the bottom. Targets the active card. -->
   <div id="bar">

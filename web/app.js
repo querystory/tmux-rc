@@ -1,5 +1,6 @@
-// tmux-rc PWA. Polls /api/state, renders one card per pane, floats waiting
-// panes to the top, and posts answers back. No framework, no build step.
+// tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
+// tabs, tally filters — and card swipes switch panes), and posts answers back.
+// No framework, no build step.
 
 // Real brand marks per agent (served from web/). One img template so every logo-backed
 // tool renders identically; emoji/text fallback for the rest. `tool` comes from parser
@@ -8,6 +9,10 @@
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
 const ICONS = { shell: "$", unknown: "•" };
+// activity comes from parser (LLM) output and gets interpolated into class names —
+// whitelist it so an unexpected value can't inject markup/classes.
+const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
+const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICONS, tool) ? ICONS[tool] : "•"));
 const panesEl = document.getElementById("panes");
@@ -22,15 +27,29 @@ let busy = false; // suppress polling flicker while an answer is in flight
 // tells tmux to focus that pane; the next poll renders the new truth. No client-side
 // selection state.
 let panesById = {}; // latest state per pane, for the bottom bar to act on
+// A selection we've told tmux about but the watcher hasn't observed yet. Without this,
+// the poll right after a switch still carries the OLD tmux_active and flips the UI
+// back for a beat (then forward again) — the "ticky" double-switch. Held until the
+// server confirms, with a timeout so a focus change made in tmux itself still wins.
+let pending = null; // {id, ts}
 function activeId() {
+  if (pending) {
+    const s = panesById[pending.id];
+    // Only SERVER data may confirm (panesById is never mutated locally): earlier this
+    // also checked a locally-set tmux_active flag, which "confirmed" the pending pick
+    // instantly — so the next stale poll yanked the selection back to the old pane.
+    if (s && s.tmux_active) pending = null; // server caught up — its truth takes over
+    else if (!s || Date.now() - pending.ts > 8000) pending = null; // pane gone / select never landed
+    else return pending.id;
+  }
   const focused = Object.values(panesById).find((s) => s.tmux_active);
   return focused ? focused.pane_id : Object.keys(panesById)[0] || null;
 }
 function setActive(id) {
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
-  // Immediately mark this pane as tmux_active so the highlight updates without
-  // waiting for the next poll (which is 2s away — feels broken without this).
-  Object.values(panesById).forEach((s) => { s.tmux_active = s.pane_id === id; });
+  // pending makes the switch instant in the UI (the next poll is 2s away, and the
+  // watcher's view of tmux focus lags a tick or two behind that).
+  pending = { id, ts: Date.now() };
   render(Object.values(panesById));
 }
 
@@ -93,7 +112,9 @@ async function poll() {
     const pfx = document.getElementById("bar-prefix");
     if (pfx && data.prefix) {
       pfx.dataset.k = data.prefix;
-      pfx.textContent = data.prefix.replace("C-", "Ctrl-");
+      // Uppercase the key in the LABEL only (Ctrl-A, matching the other key buttons);
+      // dataset.k keeps tmux's exact name (C-a).
+      pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
     render(data.panes || []);
   } catch (e) {
@@ -135,22 +156,227 @@ function render(states) {
   // Accumulate this poll's events into each pane's running client-side log first.
   states.forEach((s) => accumulateEvents(s.pane_id, s.events));
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
+  // Prune per-pane caches when panes vanish — otherwise pane churn grows them
+  // without bound over a long-running session.
+  for (const m of [eventLog, eventScroll, peekCache, bgZoom])
+    for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   if (!states.length) {
+    dockEl.replaceChildren();
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     updateBar(null);
     return;
   }
-  // Waiting first, then running, then idle; stable within group.
-  const order = { waiting: 0, running: 1, idle: 2, unknown: 3 };
-  states.sort((a, b) => (order[a.activity] ?? 9) - (order[b.activity] ?? 9));
-  panesEl.replaceChildren(...states.map(card));
-  updateBar(panesById[activeId()]);
+  // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting)
+  // each get a compact row above it; plain shells fold into one summary line so a
+  // big fleet doesn't shove the active card off screen.
+  const act = activeId();
+  // List mode (a dock tally badge or "all" was tapped): just those panes as
+  // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
+  const subset = listFilter && states.filter((s) => listFilter === "all" || actOf(s) === listFilter);
+  if (subset && subset.length) {
+    dock(states, act); // dock stays up in list mode — icon tap jumps to that card
+    panesEl.replaceChildren(...subset.map((s) => row(s, act))); // server order — same as the dock
+    updateBar(panesById[act]);
+    flipIn(panesEl);
+    return;
+  }
+  listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
+  dock(states, act); // sticky top bar — constant height, content swaps below it
+  {
+    // The deck is a positioning context: the pane's capture as background, the card
+    // floating over its top (swipe ghosts overlay here too), ⤢ for the full view.
+    const deck = document.createElement("div");
+    deck.className = "deck";
+    const a = panesById[act];
+    if (a) {
+      const fs = document.createElement("button");
+      fs.className = "fsbtn";
+      fs.textContent = "⤢";
+      fs.title = "Full screen";
+      fs.setAttribute("aria-label", "Full screen");
+      fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
+      deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
+    }
+    panesEl.replaceChildren(deck);
+  }
+  updateBar(panesById[act]);
+}
+
+// The pane dock: one icon per pane in tmux window order — active highlighted, a
+// colored dot showing each pane's activity. Tap an icon to jump; it doubles as the
+// page indicator while swiping the card. Folded shells and dismissed waiters live here.
+// Pane order everywhere (dock, list, swipe) is the SERVER's array order — tmux's own
+// session/window/pane order, matching the window numbers in tmux's status bar.
+// (%id creation order scrambles as windows come and go; don't sort by it.)
+
+// List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
+// of just those panes (tapped via the dock's tally badges / "all").
+let listFilter = null;
+const dockEl = document.getElementById("dock");
+function dock(states, act) {
+  const el = dockEl;
+  el.replaceChildren();
+  for (const s of states) {
+    const b = document.createElement("button");
+    b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
+    b.dataset.pane = s.pane_id;
+    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${actOf(s)}" aria-hidden="true"></i>`;
+    b.title = s.title || s.label || s.pane_id;
+    b.setAttribute("aria-label", b.title);
+    // Jump to that pane's CARD — including from list mode (a dock tap means "show
+    // me this pane", not "re-highlight it inside the list").
+    b.onclick = () => { listFilter = null; setActive(s.pane_id); };
+    el.appendChild(b);
+  }
+  // Density + navigation: per-activity tallies, right-aligned — each one FILTERS the
+  // list view to those panes; "all" lists everything.
+  const counts = document.createElement("span");
+  counts.className = "dock-counts";
+  const n = {};
+  states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
+  const filt = (label, key) => {
+    const b = document.createElement("button");
+    b.className = "badge b-" + key;
+    b.textContent = label;
+    b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
+    counts.appendChild(b);
+  };
+  ["waiting", "running", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
+  filt("all", "all");
+  el.appendChild(counts);
+}
+
+// "Animate the icons down": capture the dock icons' positions when a filter is
+// tapped, then fly clones to each row's icon once the list renders (FLIP).
+let flipFrom = null; // pane_id -> DOMRect
+function captureIconRects() {
+  flipFrom = {};
+  dockEl.querySelectorAll(".dock-icon").forEach((b) => {
+    if (b.dataset.pane) flipFrom[b.dataset.pane] = b.getBoundingClientRect();
+  });
+}
+function flipIn(root) {
+  if (!flipFrom) return;
+  const from = flipFrom;
+  flipFrom = null;
+  root.querySelectorAll(".prow").forEach((r) => {
+    const src = from[r.dataset.pane];
+    const icon = r.querySelector(".icon");
+    if (!src || !icon) return;
+    const dst = icon.getBoundingClientRect();
+    const fly = icon.cloneNode(true);
+    Object.assign(fly.style, {
+      position: "fixed", left: src.left + "px", top: src.top + "px", margin: "0",
+      zIndex: 30, pointerEvents: "none",
+    });
+    // The row stays INVISIBLE until its icon arrives — only then is the rest of the
+    // summary (outline, title, badge) drawn. The safety timer reveals it even if the
+    // flight animation gets interrupted, so the list can never end up blank.
+    r.style.opacity = "0";
+    const reveal = () => {
+      fly.remove();
+      if (r.style.opacity === "0") {
+        r.style.opacity = "";
+        r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
+      }
+    };
+    document.body.appendChild(fly);
+    // Web Animations API, not CSS-class transitions: keyframes take effect the moment
+    // they're created, so the start states actually paint (the class-toggle version
+    // kept losing the race and text popped in before the flight).
+    fly.animate(
+      [{ transform: "translate(0,0)" },
+       { transform: `translate(${dst.left - src.left}px,${dst.top - src.top}px)` }],
+      { duration: 250, easing: "ease-out", fill: "forwards" }
+    ).onfinish = reveal;
+    setTimeout(reveal, 400);
+  });
+}
+
+function row(s, act) {
+  const a = actOf(s);
+  const el = document.createElement("div");
+  el.className = "prow" + (a === "waiting" ? " waiting" : "")
+    + (s.pane_id === act ? " sel" : "");
+  el.dataset.pane = s.pane_id;
+  // Tapping a row opens that pane's card (drops back out of list view).
+  el.onclick = () => { listFilter = null; setActive(s.pane_id); };
+  const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds) : a;
+  el.innerHTML =
+    `<span class="icon">${iconFor(s.tool)}</span>` +
+    `<div class="prow-meta"><div class="prow-name">${esc(s.title || s.label || s.pane_id)}</div>` +
+    (s.headline ? `<div class="prow-sub">${esc(s.headline)}</div>` : "") +
+    `</div><span class="badge b-${a}">${badge}</span>`;
+  return el;
+}
+
+
+// Horizontal swipe on the active card switches panes (tmux window order, wraps), as a
+// carousel: the NEIGHBOR card slides in alongside your finger (so it reads as paging,
+// not dismissal), both animate home on commit, short/vertical drags snap back.
+// Touches starting in a horizontal scroller (tables) keep their native gesture.
+function swipeNav(el, id) {
+  let sx = null, sy = null, dx = 0, ghost = null, gdir = 0;
+  const ids = () => Object.keys(panesById); // insertion order = server (tmux) order
+  const neighbor = (dir) => { // dir -1: swiping left reveals the NEXT pane; +1: previous
+    const a = ids(), i = a.indexOf(id);
+    return a[(i + (dir < 0 ? 1 : a.length - 1)) % a.length];
+  };
+  const W = () => el.offsetWidth + 12; // card width + gap
+  const clear = () => { if (ghost) ghost.remove(); ghost = null; gdir = 0; };
+  el.addEventListener("touchstart", (e) => {
+    sx = e.target.closest(".tbl-scroll, .bg-wrap") ? null : e.touches[0].clientX;
+    sy = e.touches[0].clientY; dx = 0; clear();
+  }, { passive: true });
+  el.addEventListener("touchmove", (e) => {
+    if (sx == null) return;
+    dx = e.touches[0].clientX - sx;
+    if (Math.abs(dx) <= Math.abs(e.touches[0].clientY - sy) || Math.abs(dx) <= 10) return;
+    busy = true; // freeze poll re-renders mid-drag — they'd replace the card under the finger
+    el.style.transition = "none"; // track the finger 1:1, no easing lag
+    el.style.transform = `translateX(${dx}px)`;
+    const dir = dx < 0 ? -1 : 1;
+    if (dir !== gdir && ids().length > 1) {
+      clear(); gdir = dir;
+      ghost = card(panesById[neighbor(dir)]);
+      ghost.classList.add("ghost");
+      ghost.style.transition = "none";
+      el.parentElement.appendChild(ghost);
+    }
+    if (ghost) ghost.style.transform = `translateX(${dx - gdir * W()}px)`;
+  }, { passive: true });
+  el.addEventListener("touchend", (e) => {
+    if (sx == null) return;
+    const dy = e.changedTouches[0].clientY - sy;
+    sx = null;
+    el.style.transition = "";
+    if (ghost) ghost.style.transition = "";
+    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids().length < 2) {
+      el.style.transform = ""; // snap back, neighbor retreats
+      if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
+      busy = false;
+      return;
+    }
+    const dir = dx < 0 ? -1 : 1;
+    el.style.transform = `translateX(${dir * W()}px)`;
+    if (ghost) ghost.style.transform = "translateX(0)";
+    setTimeout(() => { busy = false; setActive(neighbor(dir)); }, 150);
+  });
+  // A cancelled gesture (OS interruption) must release the poll freeze and snap back,
+  // or polling stays frozen indefinitely.
+  el.addEventListener("touchcancel", () => {
+    sx = null; busy = false;
+    el.style.transition = "";
+    el.style.transform = "";
+    if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
+  });
 }
 
 function card(s) {
   const el = document.createElement("div");
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " active" : "");
+  swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
     if (e.target.closest("button, input, a, summary, details")) return; // don't steal option/timeline taps
@@ -159,12 +385,13 @@ function card(s) {
 
   const row = document.createElement("div");
   row.className = "row";
+  const a = actOf(s);
   const badge =
-    s.activity === "idle"
+    a === "idle"
       ? "idle " + fmtIdle(s.idle_seconds)
-      : s.activity === "running"
+      : a === "running"
         ? '<span class="pulse"></span>running'
-        : s.activity;
+        : a;
   // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
   // save vertical space), headline below, activity badge. Fields come straight from
   // the parser JSON, so the UI renders whatever the model provides.
@@ -177,10 +404,10 @@ function card(s) {
   row.innerHTML = `
     <span class="icon">${iconFor(s.tool)}</span>
     <div class="meta">
-      <div class="name">${esc(s.label || "")} ${working}</div>
+      <div class="name">${esc(s.title || s.label || "")} ${working}</div>
       <div class="status">${esc(s.headline || "—")}</div>
     </div>
-    <span class="badge b-${s.activity}">${badge}</span>`;
+    <span class="badge b-${a}">${badge}</span>`;
   el.appendChild(row);
 
   if (s.rewind) el.appendChild(rewindView(s));
@@ -193,9 +420,59 @@ function card(s) {
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
   // handles text/keys/images for whichever card is active (see the #bar element).
-  el.appendChild(timeline(s));
   return el;
 }
+
+// The deck's background terminal layer: the pane's latest capture, bottom-anchored so
+// its last lines tuck BEHIND the fixed input bar (agent status-line/input chrome, not
+// content — a parser field could size that per tool later). The card floats over the
+// top; the live tail pokes out below it, pan/zoomable in place.
+// Fetched only when the snapshot id changes; pinch/pan state persists per pane.
+const peekCache = {}; // pane_id -> {snap, text}
+const bgZoom = {}; // pane_id -> {scale, tx, ty}
+function bgTerm(s) {
+  // Wrapper = the visible window (starts right below the card, ends near the bar);
+  // the trimmed capture is top-anchored inside it, scrolled to its tail when longer.
+  // So a 1-line shell prompt sits right under the card instead of drowning in the
+  // blank lines tmux pads the capture with.
+  const wrap = document.createElement("div");
+  wrap.className = "bg-wrap" + (has(LOGOS, s.tool) ? "" : " shell");
+  const box = document.createElement("pre");
+  box.className = "bg-term";
+  wrap.appendChild(box);
+  const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
+  const c = peekCache[s.pane_id];
+  if (c) box.textContent = c.text; // last capture (kept while a newer one loads)
+  const snap = s.snapshot_id;
+  if (snap && (!c || c.snap !== snap))
+    fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
+      .then((r) => (r.ok ? r.text() : ""))
+      .then((t) => {
+        const txt = t.replace(/\s+$/, "");
+        // Responses can resolve out of order — never let an older snapshot (ids are
+        // ms timestamps) overwrite a newer one already applied.
+        const cur = peekCache[s.pane_id];
+        if (!txt || (cur && Number(cur.snap) >= Number(snap))) return;
+        peekCache[s.pane_id] = { snap, text: txt };
+        box.textContent = txt;
+        toEnd();
+      })
+      .catch(() => {});
+  pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }), true);
+  requestAnimationFrame(toEnd);
+  // The window's height changes after we pin the scroll (the card above grows as
+  // events/images render, flex re-settles) — each change slid the view off the tail,
+  // half-clipping the last line. Re-pin whenever the wrap is resized.
+  if (peekPrev) peekRO.unobserve(peekPrev);
+  peekRO.observe(wrap);
+  peekPrev = wrap;
+  return wrap;
+}
+// ONE shared observer for every peek window; each render explicitly unobserves the
+// pane's previous (now detached) wrap, so tracked targets stay bounded at one per pane.
+const peekRO = new ResizeObserver((entries) =>
+  entries.forEach((e) => { e.target.scrollTop = e.target.scrollHeight; }));
+let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
@@ -365,6 +642,12 @@ function metaChips(s) {
       `<span class="chip ctxchip"><i style="width:${s.context_pct}%"></i>${s.context_pct}% ctx</span>`
     );
   if (s.cost) chips.push(`<span class="chip">${esc(s.cost)}</span>`);
+  // Generic status-line entries the parser surfaced (usage-limit %, queue depth, …):
+  // one chip each, no schema change per metric. LLM output — a non-array (e.g. a bare
+  // string) would otherwise .slice() into characters.
+  const entries = Array.isArray(s.status_entries) ? s.status_entries : [];
+  for (const t of entries.slice(0, 4))
+    if (t && String(t).trim()) chips.push(`<span class="chip">${esc(t)}</span>`);
   if (s.mode && s.mode !== "normal" && s.mode !== "unknown")
     chips.push(`<span class="chip mode mode-${s.mode}">${MODE_LABEL[s.mode] ?? s.mode}</span>`);
   if (s.agents > 0) chips.push(`<span class="chip agents">⛓ ${s.agents} agents</span>`);
@@ -533,18 +816,8 @@ async function send(s, body) {
   }
 }
 
-// "View screen" — drill down to the actual terminal. The old inline snapshot strip
-// flickered (rebuilt every poll) and was too small to read. This is a button that
-// opens ONE full-screen, scrollable (both axes) view of the pane's latest raw capture,
-// fetched ON DEMAND — so nothing re-renders on the poll loop.
-function timeline(s) {
-  const btn = document.createElement("button");
-  btn.className = "viewbtn";
-  btn.textContent = "▤ View screen";
-  btn.onclick = (e) => { e.stopPropagation(); openScreen(s.pane_id, s.label); };
-  return btn;
-}
-
+// Full-screen, scrollable (both axes) view of the pane's latest raw capture, fetched
+// ON DEMAND (opened via the ⤢ full-screen button over the deck).
 async function openScreen(paneId, label) {
   let text = "(loading…)";
   try {
@@ -615,32 +888,61 @@ function linkifyCapture(raw) {
 
 // Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the
 // page). One-finger drag pans; two-finger pinch zooms around the gesture midpoint.
-function pinchZoom(container, el) {
-  let scale = 1, tx = 0, ty = 0;
+// Pass `st` to persist the transform across re-renders (the card's background layer
+// is rebuilt every poll); omitted (the full-screen overlay), it starts fresh at the
+// BOTTOM-left — the end of a capture is the live state. (Captures shorter than the
+// window stay top-aligned: that's the Math.min clamp.) `snapHome`: unzoomed pans
+// spring back on release (drag-to-peek) instead of parking the content askew.
+function pinchZoom(container, el, st, snapHome) {
+  st = st || { scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) };
   let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
-  const apply = () => { el.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+  const apply = () => { el.style.transform = `translate(${st.tx}px,${st.ty}px) scale(${st.scale})`; };
   el.style.transformOrigin = "0 0";
+  if (st.scale !== 1 || st.tx || st.ty) apply();
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
   container.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: scale, tx, ty, cx: m.x, cy: m.y }; }
-    else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - tx, y: e.touches[0].clientY - ty };
+    busy = true; // freeze poll re-renders mid-gesture
+    if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
+    else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - st.tx, y: e.touches[0].clientY - st.ty };
   }, { passive: false });
   container.addEventListener("touchmove", (e) => {
     if (!start) return;
     e.preventDefault();
     if (start.pan && e.touches.length === 1) {
-      tx = e.touches[0].clientX - start.x; ty = e.touches[0].clientY - start.y;
+      st.tx = e.touches[0].clientX - start.x; st.ty = e.touches[0].clientY - start.y;
     } else if (e.touches.length === 2) {
       const f = dist(e.touches) / start.dist;
-      scale = Math.min(6, Math.max(0.4, start.s * f));
+      st.scale = Math.min(6, Math.max(0.4, start.s * f));
       // keep the pinch midpoint stationary
-      tx = start.cx - (start.cx - start.tx) * (scale / start.s);
-      ty = start.cy - (start.cy - start.ty) * (scale / start.s);
+      st.tx = start.cx - (start.cx - start.tx) * (st.scale / start.s);
+      st.ty = start.cy - (start.cy - start.ty) * (st.scale / start.s);
     }
     apply();
   }, { passive: false });
-  container.addEventListener("touchend", (e) => { if (e.touches.length === 0) start = null; });
+  const release = (e) => {
+    if (e.touches.length !== 0) return;
+    start = null; busy = false;
+    if (!snapHome) return;
+    // Clamp at ANY zoom so no edge ever shows a black gap: slide the content back
+    // until it covers the window (or pins bottom-left when it's smaller than it).
+    const c = container.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    let dx = 0, dy = 0;
+    if (r.width <= c.width) dx = c.left - r.left;
+    else if (r.left > c.left) dx = c.left - r.left;
+    else if (r.right < c.right) dx = c.right - r.right;
+    if (r.height <= c.height) dy = c.bottom - r.bottom; // short content: pin the tail
+    else if (r.top > c.top) dy = c.top - r.top;
+    else if (r.bottom < c.bottom) dy = c.bottom - r.bottom;
+    if (!dx && !dy) return;
+    st.tx += dx; st.ty += dy;
+    el.style.transition = "transform .2s ease-out";
+    apply();
+    setTimeout(() => (el.style.transition = ""), 220);
+  };
+  container.addEventListener("touchend", release);
+  container.addEventListener("touchcancel", release);
 }
 
 function esc(s) {
@@ -676,6 +978,20 @@ setInterval(async () => {
 // transform, and pad #panes so nothing hides behind it. This positions the whole bar —
 // keys + input + send — right above the keyboard regardless of flex math.
 const barEl = document.getElementById("bar");
+// Publish the MEASURED heights of the fixed chrome as CSS vars — deck/peek/card
+// layout math uses them instead of hardcoded px that drift per device and content
+// (a taller chip row made the peek window end mid-line with dead black below it).
+{
+  const topBlock = document.getElementById("top");
+  const sizes = () => {
+    document.documentElement.style.setProperty("--bar-h", barEl.offsetHeight + "px");
+    document.documentElement.style.setProperty("--top-h", topBlock.offsetHeight + "px");
+  };
+  const ro = new ResizeObserver(sizes);
+  ro.observe(barEl);
+  ro.observe(topBlock);
+  sizes();
+}
 if (window.visualViewport && barEl) {
   const vv = window.visualViewport;
   // Keyboard height = how much the layout viewport exceeds the visible viewport. Lift

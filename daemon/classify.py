@@ -25,11 +25,20 @@ _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 
 # The production parser prompt lives in parser_prompt.txt (a load-bearing ~120-line
 # artifact — kept as its own file so it can be edited/diffed as prose, not wrangled
-# inside a Python string). Static ⇒ hits Gemini's context cache. research/probe.py
-# loads the SAME file so the two never drift.
-PARSER_PROMPT = (
-    Path(__file__).with_name("parser_prompt.txt").read_text(encoding="utf-8").strip()
-)
+# inside a Python string). Stable between edits ⇒ hits Gemini's context cache.
+# research/probe.py loads the SAME file so the two never drift. Re-read on mtime
+# change: an import-time constant silently served STALE prompts after edits, because
+# uvicorn's stat reloader only watches *.py (reload_includes needs watchfiles).
+_PROMPT_PATH = Path(__file__).with_name("parser_prompt.txt")
+_prompt_cache: tuple[int, str] = (0, "")
+
+
+def parser_prompt() -> str:
+    global _prompt_cache
+    mtime = _PROMPT_PATH.stat().st_mtime_ns  # ns: coarse mtime can miss rapid edits
+    if mtime != _prompt_cache[0]:
+        _prompt_cache = (mtime, _PROMPT_PATH.read_text(encoding="utf-8").strip())
+    return _prompt_cache[1]
 
 
 def _obvious_idle(text: str) -> bool:
@@ -76,7 +85,11 @@ def classify(
     = events already reported (so the model doesn't repeat them). Returns the model's
     JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic dict."""
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
-    result = llm_fn(PARSER_PROMPT, payload) if llm_fn else None
+    # Ground truth the model can't hallucinate past: tmux's foreground process for the
+    # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
+    # log printing gemini-… lines is not the Gemini CLI).
+    payload = f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{payload}"
+    result = llm_fn(parser_prompt(), payload) if llm_fn else None
     if not isinstance(result, dict):
         result = {
             "tool": "shell" if pane.current_command in ("bash", "zsh", "sh", "fish") else "unknown",
