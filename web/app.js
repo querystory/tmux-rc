@@ -40,6 +40,7 @@ function setFavicon(waiting) {
     const c = document.createElement("canvas");
     c.width = c.height = 32;
     const g = c.getContext("2d");
+    if (!g) return; // context can be null (e.g. memory pressure) — skip the badge
     g.drawImage(im, 0, 0, 32, 32);
     // Punch a clear ring first so the dot reads over busy icon pixels. Sized like
     // the in-app corner badges — a hint, not an eclipse.
