@@ -543,16 +543,47 @@ async function openScreen(paneId, label) {
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><button class="screen-close">✕</button></div>` +
     `<div class="screen-body"><pre class="screen-pre"></pre></div>`;
-  // Escape first, then linkify: URLs in the capture become tappable. Wrapped URLs
-  // (split across lines) stay text — the card's parser-extracted links handle those.
-  ov.querySelector(".screen-pre").innerHTML = esc(text).replace(
-    /https?:\/\/[^\s<>"')\]]+/g,
-    (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`,
-  );
+  ov.querySelector(".screen-pre").innerHTML = linkifyCapture(text);
   const close = () => ov.remove();
   ov.querySelector(".screen-close").onclick = close;
   document.body.appendChild(ov);
   pinchZoom(ov.querySelector(".screen-body"), ov.querySelector(".screen-pre"));
+}
+
+// Linkify URLs in a raw capture, INCLUDING ones the TUI hard-wrapped across lines: a
+// URL run that reaches the end of a full-width line continues on the next line (that's
+// what wrapping means), so those runs are joined into one href while the anchor keeps
+// the original line breaks — every visual fragment is clickable and opens the full URL.
+// (tmux's own soft-wraps are already unwrapped by capture-pane -J; this handles the
+// agent TUIs that print their own hard breaks at pane width.)
+function linkifyCapture(raw) {
+  const lines = raw.split("\n");
+  const maxLen = Math.max(0, ...lines.map((l) => l.length));
+  const lineEndLen = new Map(); // offset of each \n in raw -> length of the line it ends
+  let off = 0;
+  for (const l of lines) { lineEndLen.set(off + l.length, l.length); off += l.length + 1; }
+
+  let out = "", pos = 0, m;
+  const re = /https?:\/\/[^\s<>"')\]]+(?:\n[ \t]*[^\s<>"')\]]+)*/g;
+  while ((m = re.exec(raw))) {
+    out += esc(raw.slice(pos, m.index));
+    // Accept newline-continuations only while the line being left was full-width
+    // (a wrapped line); cut the match at the first newline that isn't.
+    let cut = m[0].length, search = 0;
+    for (;;) {
+      const nl = m[0].indexOf("\n", search);
+      if (nl === -1) break;
+      const endedLine = lineEndLen.get(m.index + nl);
+      if (endedLine !== undefined && endedLine >= maxLen - 1) { search = nl + 1; continue; }
+      cut = nl; break;
+    }
+    const shown = m[0].slice(0, cut);
+    const href = shown.replace(/\n[ \t]*/g, "");
+    out += `<a href="${escAttr(href)}" target="_blank" rel="noopener">${esc(shown)}</a>`;
+    pos = m.index + cut;
+    re.lastIndex = pos;
+  }
+  return out + esc(raw.slice(pos));
 }
 
 // Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the
