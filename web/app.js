@@ -21,6 +21,36 @@ const liveEl = document.getElementById("live");
 // Tab title carries the host, so tabs to different tmux-rc daemons are tellable apart.
 document.title = `tmux-rc - ${location.hostname}`;
 
+// GitHub-style tab badge: while any pane is WAITING, the favicon gets an amber dot
+// (drawn once onto a canvas over the base icon, cached as a data URL) — so a
+// background tab still shows "something needs you".
+const favLink = document.querySelector('link[rel="icon"]');
+const favBase = favLink && favLink.href;
+let favDotUrl = null;
+let favWaiting = false;
+function setFavicon(waiting) {
+  if (!favLink || waiting === favWaiting) return;
+  favWaiting = waiting;
+  if (!waiting) { favLink.href = favBase; return; }
+  if (favDotUrl) { favLink.href = favDotUrl; return; }
+  const im = new Image();
+  im.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 32;
+    const g = c.getContext("2d");
+    g.drawImage(im, 0, 0, 32, 32);
+    // Punch a clear ring first so the dot reads over busy icon pixels.
+    g.globalCompositeOperation = "destination-out";
+    g.beginPath(); g.arc(24, 8, 9, 0, Math.PI * 2); g.fill();
+    g.globalCompositeOperation = "source-over";
+    g.beginPath(); g.arc(24, 8, 7, 0, Math.PI * 2);
+    g.fillStyle = "#e3b341"; g.fill();
+    favDotUrl = c.toDataURL("image/png");
+    if (favWaiting) favLink.href = favDotUrl;
+  };
+  im.src = favBase;
+}
+
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
 let busy = false; // suppress polling flicker while an answer is in flight
@@ -163,6 +193,7 @@ function render(states) {
   // without bound over a long-running session.
   for (const m of [eventLog, eventScroll, peekCache, bgZoom])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
+  setFavicon(states.some((s) => actOf(s) === "waiting"));
   if (!states.length) {
     dockEl.replaceChildren();
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
