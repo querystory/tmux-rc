@@ -204,14 +204,24 @@ function card(s) {
 function linksView(links) {
   const box = document.createElement("div");
   box.className = "links";
-  for (const l of links.slice(0, 3)) {
-    if (!l || !l.href || !/^https?:\/\//i.test(l.href)) continue;
+  const valid = links.filter((l) => l && l.href && /^https?:\/\//i.test(l.href));
+  for (const l of valid.slice(0, 3)) {
+    // The label is MODEL OUTPUT derived from untrusted pane content — a hostile pane
+    // can suggest a reassuring label for a phishing URL. Always show the destination
+    // host next to the label so the user sees where the tap goes; cap the label so a
+    // hostile pane can't bury the card's actionable UI under a wall of text.
+    let host = "";
+    try { host = new URL(l.href).host; } catch { continue; }
     const a = document.createElement("a");
     a.className = "linkbtn";
     a.href = l.href;
     a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = `\u{1F517} ${l.text || l.href}`;
+    a.rel = "noopener noreferrer";
+    a.textContent = `\u{1F517} ${String(l.text || "").slice(0, 80) || host}`;
+    const hostEl = document.createElement("span");
+    hostEl.className = "linkhost";
+    hostEl.textContent = ` ${host}`;
+    a.appendChild(hostEl);
     a.onclick = (e) => e.stopPropagation();
     box.appendChild(a);
   }
@@ -557,14 +567,22 @@ async function openScreen(paneId, label) {
 // (tmux's own soft-wraps are already unwrapped by capture-pane -J; this handles the
 // agent TUIs that print their own hard breaks at pane width.)
 function linkifyCapture(raw) {
+  raw = raw.replace(/\r/g, "");
   const lines = raw.split("\n");
+  // Joining is only plausible at real terminal widths: with a width floor, a short
+  // capture whose longest line happens to END in a URL (or a uniform tiny pane) no
+  // longer glues unrelated following lines into the href.
   const maxLen = Math.max(0, ...lines.map((l) => l.length));
+  const joinWidth = Math.max(60, maxLen - 1);
   const lineEndLen = new Map(); // offset of each \n in raw -> length of the line it ends
   let off = 0;
   for (const l of lines) { lineEndLen.set(off + l.length, l.length); off += l.length + 1; }
 
   let out = "", pos = 0, m;
-  const re = /https?:\/\/[^\s<>"')\]]+(?:\n[ \t]*[^\s<>"')\]]+)*/g;
+  // URL chars: the original terminator exclusions (whitespace, quotes, brackets — also
+  // the belt-and-braces for attribute safety) PLUS everything non-ASCII, so TUI
+  // box-drawing borders (│ etc.) flush against a URL never glue onto the href.
+  const re = /https?:\/\/[^\s<>"')\]\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u007F-\uFFFF]+)*/gi;
   while ((m = re.exec(raw))) {
     out += esc(raw.slice(pos, m.index));
     // Accept newline-continuations only while the line being left was full-width
@@ -574,7 +592,7 @@ function linkifyCapture(raw) {
       const nl = m[0].indexOf("\n", search);
       if (nl === -1) break;
       const endedLine = lineEndLen.get(m.index + nl);
-      if (endedLine !== undefined && endedLine >= maxLen - 1) { search = nl + 1; continue; }
+      if (endedLine !== undefined && endedLine >= joinWidth) { search = nl + 1; continue; }
       cut = nl; break;
     }
     const shown = m[0].slice(0, cut);

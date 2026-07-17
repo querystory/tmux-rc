@@ -209,6 +209,11 @@ missing as "not shown on screen / not applicable," not zero):
   keystrokes). When `question` is present the pane is `waiting`.
 - **`tables`** — array of `{title?, headers[], rows[][]}` — tabular data extracted from the
   screen (ASCII/box-drawn tables), so it renders as a real table rather than prose.
+- **`links`** — array of `{href, text}`: URLs the screen was OFFERING the user to open
+  (auth/approval links, PRs, previews), with the parser reassembling URLs the terminal
+  wrapped across lines. `text` is a short label, not the URL. Rendered as tap-to-open
+  buttons on the phone (which appends the destination host — labels are model output
+  from untrusted screen content and could otherwise disguise a destination).
 - **`rewind`** — present only when Claude Code's Esc-Esc restore picker is shown:
   `{entries: [{text, note?, selected}], more_above, more_below}`.
 
