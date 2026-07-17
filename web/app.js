@@ -200,9 +200,11 @@ function escAttr(s) {
 }
 
 function render(states) {
-  // Refetch each pane's server-side activity log if its events_seq advanced.
-  states.forEach(syncEvents);
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
+  // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
+  // panesById is set, because syncEvents' async completion checks activeId() (which
+  // reads panesById) to decide whether to re-render the visible feed.
+  states.forEach(syncEvents);
   // Prune per-pane caches when panes vanish — otherwise pane churn grows them
   // without bound over a long-running session.
   for (const m of [eventLog, eventScroll, peekCache, bgZoom])
