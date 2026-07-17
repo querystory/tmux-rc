@@ -29,8 +29,12 @@
   .prow { display: flex; align-items: center; gap: 10px; background: #161b22;
     border: 1px solid #30363d; border-radius: 10px; padding: 8px 12px; cursor: pointer; }
   .prow.waiting { border-color: #d29922; background: #1c1a12; }
+  .prow.others { color: #8b949e; gap: 6px; }
+  .prow-meta { flex: 1; min-width: 0; }
   .prow-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; font-size: 14px; }
+  .prow-sub { color: #8b949e; font-size: 12px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
   header .off { background: #6e7681; }
   #panes { padding: 8px 12px 150px; display: flex; flex-direction: column; gap: 10px; }

@@ -143,13 +143,17 @@ function render(states) {
     updateBar(null);
     return;
   }
-  // Only the ACTIVE pane gets a full card; every other pane is one compact row above
-  // it (icon · title · badge) — whole-fleet status stays visible, tap a row to switch.
+  // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting)
+  // each get a compact row above it; plain shells fold into one summary line so a
+  // big fleet doesn't shove the active card off screen.
   const act = activeId();
-  panesEl.replaceChildren(
-    ...states.filter((s) => s.pane_id !== act).map(row),
-    ...states.filter((s) => s.pane_id === act).map(card)
-  );
+  const others = states.filter((s) => s.pane_id !== act);
+  const earnsRow = (s) => s.activity === "waiting" || has(LOGOS, s.tool);
+  const folded = others.filter((s) => !earnsRow(s));
+  const rows = others.filter(earnsRow).map(row);
+  if (folded.length) rows.push(othersRow(folded));
+  if (othersOpen) rows.push(...folded.map(row));
+  panesEl.replaceChildren(...rows, ...states.filter((s) => s.pane_id === act).map(card));
   updateBar(panesById[act]);
 }
 
@@ -160,8 +164,24 @@ function row(s) {
   const badge = s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
-    `<span class="prow-name">${esc(s.title || s.label || s.pane_id)}</span>` +
-    `<span class="badge b-${s.activity}">${badge}</span>`;
+    `<div class="prow-meta"><div class="prow-name">${esc(s.title || s.label || s.pane_id)}</div>` +
+    (s.headline ? `<div class="prow-sub">${esc(s.headline)}</div>` : "") +
+    `</div><span class="badge b-${s.activity}">${badge}</span>`;
+  return el;
+}
+
+// The folded shells, one line: "▸ Other panes · <n> per activity". Tap to expand.
+let othersOpen = false;
+function othersRow(list) {
+  const counts = {};
+  list.forEach((s) => (counts[s.activity] = (counts[s.activity] || 0) + 1));
+  const el = document.createElement("div");
+  el.className = "prow others";
+  el.onclick = () => { othersOpen = !othersOpen; render(Object.values(panesById)); };
+  el.innerHTML =
+    `<span class="prow-name">${othersOpen ? "▾" : "▸"} Other panes</span>` +
+    Object.entries(counts)
+      .map(([a, n]) => `<span class="badge b-${a}">${n} ${a}</span>`).join("");
   return el;
 }
 
