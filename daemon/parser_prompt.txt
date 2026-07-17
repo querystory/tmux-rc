@@ -79,6 +79,9 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word)",
   "model": "...", "context_pct": <int>, "cost": "$...", "mode": "plan|accept-edits|bypass|normal",
+  NOTE context_pct is always percent USED. Tools disagree on what they display: Claude
+  Code's status line shows used ("56% ctx" -> 56); Gemini CLI shows REMAINING
+  ("(99% context left)" -> context_pct = 1). Convert accordingly.
   "session": "the agent's session name/title if it shows one (Claude Code prints it at "
              "the far right of the line just above its status bar, e.g. 'tmux-rc-dev') — "
              "use it as the pane's name; omit if none is shown",
