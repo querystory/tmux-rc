@@ -458,9 +458,13 @@ function bgTerm(s) {
   // The window's height changes after we pin the scroll (the card above grows as
   // events/images render, flex re-settles) — each change slid the view off the tail,
   // half-clipping the last line. Re-pin whenever the wrap is resized.
-  new ResizeObserver(toEnd).observe(wrap);
+  peekRO.observe(wrap);
   return wrap;
 }
+// ONE shared observer for every peek window across renders (targets are held weakly,
+// so wraps replaced by the next poll don't accumulate observers or leak).
+const peekRO = new ResizeObserver((entries) =>
+  entries.forEach((e) => { e.target.scrollTop = e.target.scrollHeight; }));
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
