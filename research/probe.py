@@ -25,7 +25,9 @@ SAMPLES = Path(__file__).parent / "samples"
 
 # The parser prompt under test IS the production one — import it (single source of
 # truth) rather than keeping a copy here that silently drifts from what ships.
-from daemon.classify import PARSER_PROMPT as PROMPT  # noqa: E402
+from daemon.classify import parser_prompt  # noqa: E402
+
+PROMPT = parser_prompt()
 
 
 def _capture_ansi(pane_id: str) -> str:
