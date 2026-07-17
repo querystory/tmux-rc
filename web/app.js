@@ -174,6 +174,14 @@ function dock(states, act) {
     b.onclick = (e) => { e.stopPropagation(); setActive(s.pane_id); };
     el.appendChild(b);
   }
+  // Density: the per-activity tallies, right-aligned after the icons.
+  const counts = document.createElement("span");
+  counts.className = "dock-counts";
+  const n = {};
+  states.forEach((s) => (n[s.activity] = (n[s.activity] || 0) + 1));
+  counts.innerHTML = ["waiting", "running", "idle", "unknown"]
+    .filter((a) => n[a]).map((a) => `<span class="badge b-${a}">${n[a]} ${a}</span>`).join("");
+  el.appendChild(counts);
   return el;
 }
 
@@ -223,24 +231,37 @@ function swipeDismiss(el, onDismiss) {
   });
 }
 
-// Horizontal swipe on the active card switches panes (stable %id order, wraps).
-// Touches that start in a horizontal scroller (tables) keep their native gesture.
+// Horizontal swipe on the active card switches panes (stable %id order, wraps). The
+// card tracks the finger, flies out on commit, and the next card slides in from the
+// same side; short/vertical drags snap back. Touches starting in a horizontal
+// scroller (tables) keep their native gesture.
+let slideFrom = 0; // set right before setActive: -1 next-card-enters-from-right, +1 from left
 function swipeNav(el, id) {
-  let sx = null, sy = null;
+  let sx = null, sy = null, dx = 0;
   el.addEventListener("touchstart", (e) => {
     sx = e.target.closest(".tbl-scroll") ? null : e.touches[0].clientX;
-    sy = e.touches[0].clientY;
+    sy = e.touches[0].clientY; dx = 0;
+  }, { passive: true });
+  el.addEventListener("touchmove", (e) => {
+    if (sx == null) return;
+    dx = e.touches[0].clientX - sx;
+    if (Math.abs(dx) > Math.abs(e.touches[0].clientY - sy) && Math.abs(dx) > 10)
+      el.style.transform = `translateX(${dx}px)`;
   }, { passive: true });
   el.addEventListener("touchend", (e) => {
     if (sx == null) return;
-    const dx = e.changedTouches[0].clientX - sx;
     const dy = e.changedTouches[0].clientY - sy;
     sx = null;
-    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy)) return;
     const ids = Object.keys(panesById).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
-    if (ids.length < 2) return;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids.length < 2) {
+      el.style.transform = ""; // snap back (animated by the .card transition)
+      return;
+    }
+    el.style.transform = `translateX(${dx < 0 ? -110 : 110}%)`;
+    el.style.opacity = "0";
+    slideFrom = dx < 0 ? -1 : 1;
     const i = ids.indexOf(id);
-    setActive(ids[(i + (dx < 0 ? 1 : ids.length - 1)) % ids.length]);
+    setTimeout(() => setActive(ids[(i + (dx < 0 ? 1 : ids.length - 1)) % ids.length]), 120);
   });
 }
 
@@ -248,6 +269,7 @@ function card(s) {
   const el = document.createElement("div");
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " active" : "");
+  if (slideFrom) { el.classList.add(slideFrom < 0 ? "in-r" : "in-l"); slideFrom = 0; }
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {

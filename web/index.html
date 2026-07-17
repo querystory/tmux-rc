@@ -38,6 +38,7 @@
   .dock-icon.sel { background: #21262d; border-color: #388bfd; }
   .ddot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
     width: 5px; height: 5px; border-radius: 50%; background: #6e7681; }
+  .dock-counts { margin-left: auto; display: flex; gap: 4px; flex: none; align-items: center; }
   .d-running { background: #3fb950; } .d-waiting { background: #e3b341; }
   .prow-meta { flex: 1; min-width: 0; }
   .prow-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
@@ -51,6 +52,11 @@
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
     padding: 12px 14px; overflow: hidden;
   }
+  .card { transition: transform .15s, opacity .15s; }
+  @keyframes slide-r { from { transform: translateX(60px); opacity: .3; } }
+  @keyframes slide-l { from { transform: translateX(-60px); opacity: .3; } }
+  .card.in-r { animation: slide-r .18s ease-out; }
+  .card.in-l { animation: slide-l .18s ease-out; }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
   .card.active { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
   #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
