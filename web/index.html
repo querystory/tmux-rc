@@ -116,6 +116,13 @@
      to join (the border is curving away there) — square that corner instead. */
   .card.sq-l { border-top-left-radius: 0; }
   .card.sq-r { border-top-right-radius: 0; }
+  /* FIRST tab selected: no flare on the outer side at all — the tab's edge IS the
+     assembly's edge, one straight contiguous line from the rail's top-left corner
+     down the card's left border. The rail's left border turns blue (it IS the line,
+     collinear with the card's border below) and the icon shifts flush against it. */
+  #top .dock.has-sel.edge-l { border-left-color: #388bfd; border-top-left-radius: 0; }
+  .dock.has-sel.edge-l .dock-icon.sel { margin-left: -8px; border-left: 0;
+    border-top-left-radius: 0; padding-left: 9px; }
   /* Chrome-style concave fillets at the tab's feet: the card line flares up into the
      tab's sides. Each is an 8×8 patch over the old sharp L-corner: a radial gradient
      paints the blue quarter-arc — tangent to the tab border's inner edge and the

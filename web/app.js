@@ -297,8 +297,15 @@ function joinTab(deck) {
     return f;
   });
   const pin = () => {
-    const s = sel.getBoundingClientRect(), d = deck.getBoundingClientRect(),
-      t = top.getBoundingClientRect();
+    let s = sel.getBoundingClientRect();
+    const d = deck.getBoundingClientRect(), t = top.getBoundingClientRect();
+    // FIRST tab selected: flush-left, no flare — one straight line (see .edge-l CSS).
+    // Only the first icon gets this; a mid-list icon scrolled near the edge merely
+    // squares the corner under its flare (sq-l below).
+    const edgeL = sel === dockEl.querySelector(".dock-icon") && s.left - d.left - 7 < 14;
+    dockEl.classList.toggle("edge-l", edgeL);
+    if (edgeL) s = sel.getBoundingClientRect(); // the flush shift moved it; re-measure
+    fl.style.display = edgeL ? "none" : "";
     n.style.left = s.left - d.left + 1 + "px"; // inset 1px each side: the fillets own
     n.style.width = s.width - 2 + "px";        // the corner pixels
     // A fillet needs a FLAT border line under it; inside the card's corner-radius
@@ -341,6 +348,7 @@ function dock(states, act) {
   if (!joined) {
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     el.onscroll = null;
+    el.classList.remove("edge-l");
   }
   for (const s of states) {
     const b = document.createElement("button");
