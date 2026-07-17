@@ -37,6 +37,7 @@ HEARTBEAT_SECONDS = 10
 BOOTSTRAP_LINES = 800
 BOOTSTRAP_ATTEMPTS = 3
 BOOTSTRAP_RETRY_SECONDS = 60
+EVENTS_LOG_MAX = 300  # per-pane activity-log cache served to the UI (~45KB/pane worst case)
 PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continuity
 # When a pane has been idle this long with accumulated events, summarize the recent
 # activity burst once (a {from,to,text} span). The UI collapses events in that time
@@ -76,6 +77,13 @@ def _fingerprint(text: str) -> str:
     return _VOLATILE_RE.sub("", text)
 
 
+def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
+    """Append events (stamped with `ts`) to a pane's activity-log cache, in place,
+    holding it to EVENTS_LOG_MAX by dropping the oldest. See docs/design/activity-log.md."""
+    log.extend({**e, "ts": ts} for e in events)
+    del log[:-EVENTS_LOG_MAX]
+
+
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
 
@@ -83,6 +91,9 @@ class Watcher:
         self.target = target
         self.use_llm = use_llm
         self.states: list[dict] = []  # raw LLM JSON dicts, piped straight to the UI
+        self.events_log: dict[
+            str, list[dict]
+        ] = {}  # pane_id -> activity-log cache [{text, file?, meta?, ts, historical?}]
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
@@ -246,22 +257,18 @@ class Watcher:
         for s in states:
             s["tmux_active"] = s.get("pane_id") == focused
         # One-time scrollback bootstrap (staggered), then merge its products into the
-        # outgoing states: the session summary every tick, the reconstructed events
-        # seeded ONCE into the cached state — they ride along until the next parse
-        # replaces events (clients will have accumulated them by then, and the
-        # parser's feedback list stops the model restating them).
+        # outgoing states. Every state also advertises its event-log length so the
+        # client knows when to (re)fetch /api/panes/{id}/events.
         if self.use_llm:
             self._maybe_bootstrap(panes)
         for s in states:
+            s["events_len"] = len(self.events_log.get(s.get("pane_id"), []))
             b = self._boot.get(s.get("pane_id"))
             if not b:
                 continue
             s["session_summary"] = b["summary"]
             if b["name"] and not s.get("title"):
                 s["title"] = b["name"]
-            if b["events"] and not b.get("seeded"):
-                b["seeded"] = True
-                s["events"] = b["events"] + list(s.get("events") or [])
         # Keep tmux's natural order (session/window/pane, as list-panes emits it) —
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
@@ -298,8 +305,12 @@ class Watcher:
                 result = None
             if result:
                 self._boot[p.id] = result
-                # Feed the seeded texts into the parser's already-reported list so the
-                # next live parse doesn't restate reconstructed history as new events.
+                # Reconstructed history seeds the FRONT of the log cache (it predates
+                # anything observed live), and the parser's already-reported list so
+                # the next live parse doesn't restate it as new events.
+                log = self.events_log.setdefault(p.id, [])
+                log[:0] = [{**e, "ts": now} for e in result["events"]]
+                del log[:-EVENTS_LOG_MAX]
                 recent = self._recent_events.setdefault(p.id, [])
                 recent.extend((e["text"], now) for e in result["events"])
                 logger.info("%s: bootstrapped (%d events)", p.id, len(result["events"]))
@@ -322,6 +333,7 @@ class Watcher:
             self._birth,
             self._boot,
             self._boot_tries,
+            self.events_log,
         )
 
     def _pane_event(
@@ -491,6 +503,13 @@ class Watcher:
             )
         self._last_dropped[pane.id] = dropped_texts
         state["events"] = new_events  # dups also don't reach the UI activity feed
+        # Per-pane activity-log cache (what /api/panes/{id}/events serves): the phone's
+        # feed no longer starts from zero on page reload. IN-MEMORY, not persisted —
+        # tmux is the state; a daemon restart drops this and bootstrap reconstructs an
+        # approximation from scrollback. Same category as the snapshot ring buffer.
+        # See docs/design/activity-log.md.
+        if new_events:
+            _append_events(self.events_log.setdefault(pane.id, []), new_events, now)
         recent.extend((e["text"], now) for e in new_events)
         self._recent_events[pane.id] = recent[-30:]
         if new_events:
