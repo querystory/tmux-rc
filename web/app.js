@@ -179,7 +179,11 @@ async function poll() {
 
 const usageEl = document.getElementById("usage");
 // Touch has no hover: tap the debug readout to reveal it (brightens via .lit).
+// Focusable (tabindex in the HTML) so keyboard users get the same toggle.
 usageEl.onclick = () => usageEl.classList.toggle("lit");
+usageEl.onkeydown = (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); usageEl.click(); }
+};
 function showUsage(u, err) {
   if (!u) { usageEl.textContent = ""; return; }
   // Debug telemetry for the parser LLM, not session-critical — so it sits dimmed in the
@@ -313,9 +317,13 @@ function dock(states, act) {
   const el = dockEl;
   el.replaceChildren();
   // Card view only: the selected icon joins to the card below it (see .has-sel CSS).
-  // In list mode there's no card under the dock, so no seam to open — and no fillets.
+  // In list mode there's no card under the dock, so no seam to open — and no fillets,
+  // and no scroll re-pin handler (it closes over the dead card's nodes).
   const joined = el.classList.toggle("has-sel", !listFilter && states.some((s) => s.pane_id === act));
-  if (!joined) document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+  if (!joined) {
+    document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+    el.onscroll = null;
+  }
   for (const s of states) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");

@@ -307,8 +307,11 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     IMG_DIR.mkdir(parents=True, exist_ok=True)
     cutoff = time.time() - 86400
     for old in IMG_DIR.iterdir():
-        if old.stat().st_mtime < cutoff:
-            old.unlink(missing_ok=True)
+        try:  # regular files only; tolerate races with concurrent prunes
+            if old.is_file() and old.stat().st_mtime < cutoff:
+                old.unlink(missing_ok=True)
+        except OSError:
+            continue
     fd, path = tempfile.mkstemp(prefix="img-", suffix=_EXT[mime], dir=IMG_DIR)
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
