@@ -179,7 +179,7 @@ function card(s) {
   row.innerHTML = `
     <span class="icon">${iconFor(s.tool)}</span>
     <div class="meta">
-      <div class="name">${esc(s.label || "")} ${working}</div>
+      <div class="name">${esc(s.title || s.label || "")} ${working}</div>
       <div class="status">${esc(s.headline || "—")}</div>
     </div>
     <span class="badge b-${s.activity}">${badge}</span>`;

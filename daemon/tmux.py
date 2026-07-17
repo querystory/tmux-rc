@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 from dataclasses import dataclass
 from functools import cache
+
+_HOST = socket.gethostname()
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
@@ -47,6 +50,14 @@ class Pane:
     # original pane, letting the watcher evict stale buffers. (pane_start_time is empty
     # on tmux 3.4; pane_pid is populated and just as unique.)
     pid: str = ""
+
+    @property
+    def display_title(self) -> str | None:
+        """The title the pane's own app set (agents publish their state here: Claude
+        Code writes '<glyph> <task summary>' — free, accurate, no LLM needed). tmux
+        defaults the title to the hostname, which is noise -> None."""
+        t = self.title.strip()
+        return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
 
     @property
     def label(self) -> str:

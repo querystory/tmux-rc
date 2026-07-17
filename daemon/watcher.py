@@ -454,6 +454,9 @@ class Watcher:
             else:
                 self._tool.pop(pane.id, None)  # agent is genuinely gone; forget it
 
+        # The pane's self-published title (see Pane.display_title) — the agent's own
+        # words for what it's doing, better than anything we could parse off the screen.
+        state["title"] = pane.display_title
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
