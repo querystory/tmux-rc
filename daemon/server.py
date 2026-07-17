@@ -49,9 +49,12 @@ logging.basicConfig(
 )
 # Chatty third-party libraries log a line per LLM call at INFO (httpx: every Vertex
 # POST; google_genai: an "AFC is enabled" banner). That's ~2 lines per parse of pure
-# noise drowning our own signal — pin them to WARNING.
-for _noisy in ("httpx", "httpcore", "google_genai"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+# noise drowning our own signal — pin them to WARNING. EXCEPT under DEBUG: those same
+# loggers are the ones you need when debugging the Vertex/HTTP path, so an explicit
+# TMUXRC_LOG_LEVEL=DEBUG unmutes everything.
+if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
+    for _noisy in ("httpx", "httpcore", "google_genai"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 

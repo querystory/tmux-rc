@@ -40,6 +40,7 @@ IDLE_SUMMARY_AFTER = 60
 # costs RAM, not tokens; ~150B/event => ~75KB/pane at 500). The model feedback window
 # stays small and separate (_recent_events); the summarizer slices its own input.
 BURST_HISTORY = 500
+DIGEST_HISTORY = 100  # events returned per pane by /api/digest (slice of the ring)
 # How long a reported event's text suppresses an identical re-report. Long enough to
 # starve the repetition loop (a model re-emitting every heartbeat), short enough that a
 # genuinely repeated action later in the session shows up again.
@@ -149,7 +150,7 @@ class Watcher:
                     # Recent activity, newest last, straight from the burst ring.
                     "history": [
                         {"ts": e["ts"], "text": e["text"]}
-                        for e in (burst.get("events") or [])[-100:]
+                        for e in (burst.get("events") or [])[-DIGEST_HISTORY:]
                     ],
                 }
             )
@@ -203,10 +204,16 @@ class Watcher:
         for p in panes:
             try:
                 s = self._tick_pane(p)
-            except subprocess.CalledProcessError:
-                # Expected race, not a bug: the pane closed between list-panes and
-                # capture-pane. One line — next tick's gc evicts it.
-                logger.warning("pane %s vanished mid-tick", p.id)
+            except subprocess.CalledProcessError as e:
+                # rc=124 is tmux.py's timeout marker: a wedged/slow tmux SERVER, not a
+                # closed pane — labeling it "vanished" would misdirect exactly the
+                # incident class the timeouts exist to expose. Anything else here is
+                # the expected pane-closed race (gone between list-panes and
+                # capture-pane); one line, next tick's gc evicts it.
+                if e.returncode == 124:
+                    logger.warning("tmux timed out mid-tick on pane %s", p.id)
+                else:
+                    logger.warning("pane %s vanished mid-tick", p.id)
                 s = None
             except Exception:  # noqa: BLE001 - isolate per-pane failures
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
