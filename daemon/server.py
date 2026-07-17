@@ -107,6 +107,10 @@ def _audit(
     claimed = request.headers.get("x-tunnel-user")
     if claimed and peer in ("127.0.0.1", "::1"):
         actor = claimed
+        # Untrusted forensics breadcrumb: the relay forwards Cloud Run's XFF chain,
+        # whose first hop is the real browser IP. Annotation only — never the actor.
+        if xff := request.headers.get("x-forwarded-for"):
+            actor = f"{claimed} [via {xff.split(',')[0].strip()[:45]}]"
     elif claimed:
         actor = f"local:{peer} claiming {claimed[:60]!r}"
     else:

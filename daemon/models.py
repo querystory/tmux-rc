@@ -56,7 +56,7 @@ class PaneState(BaseModel):
 
     # Agent status-line detail (mostly Claude Code; nullable when not applicable).
     model: str | None = None  # e.g. "Sonnet 5", "Opus 4.8"
-    context_pct: int | None = None  # context-window % used/left
+    context_pct: int | None = None  # context-window % USED (parser converts 'left' displays)
     cost: str | None = None  # e.g. "$10.64"
     mode: Mode = "unknown"  # plan / accept-edits / bypass / normal
 
