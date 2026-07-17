@@ -251,30 +251,25 @@ function flipIn(root) {
     const icon = r.querySelector(".icon");
     if (!src || !icon) return;
     const dst = icon.getBoundingClientRect();
-    // During the flight the ROW ITSELF is invisible (no bare outlines) — only the
-    // flying icon shows, carrying its title fading in from the dark beside it. The
-    // full row (outline, summary, badge) appears at the moment of touchdown.
-    // Web Animations API: keyframes paint their start state at creation, no CSS
-    // class-commit races.
-    r.style.opacity = "0";
-    const fly = document.createElement("div");
-    fly.className = "fly";
-    const t = document.createElement("span");
-    t.className = "fly-title";
-    t.textContent = (r.querySelector(".prow-name") || {}).textContent || "";
-    fly.append(icon.cloneNode(true), t);
-    Object.assign(fly.style, { left: src.left + "px", top: src.top + "px" });
+    const fly = icon.cloneNode(true);
+    Object.assign(fly.style, {
+      position: "fixed", left: src.left + "px", top: src.top + "px", margin: "0",
+      zIndex: 30, pointerEvents: "none",
+    });
+    icon.style.opacity = "0";
     document.body.appendChild(fly);
-    t.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: "ease-in" });
+    // Web Animations API, not CSS-class transitions: keyframes take effect the moment
+    // they're created, so the start states actually paint (the class-toggle version
+    // kept losing the race and text popped in before the flight).
     fly.animate(
       [{ transform: "translate(0,0)" },
        { transform: `translate(${dst.left - src.left}px,${dst.top - src.top}px)` }],
       { duration: 250, easing: "ease-out", fill: "forwards" }
-    ).onfinish = () => {
-      fly.remove();
-      r.style.opacity = "";
-      r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
-    };
+    ).onfinish = () => { fly.remove(); icon.style.opacity = ""; };
+    // Titles/badges hold invisible while the icon launches, then fade in mid-flight.
+    r.querySelectorAll(".prow-meta, .badge").forEach((n) =>
+      n.animate([{ opacity: 0 }, { opacity: 0, offset: 0.45 }, { opacity: 1 }],
+        { duration: 450, easing: "ease-out" }));
   });
 }
 
