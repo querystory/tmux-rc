@@ -129,9 +129,11 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
 this link", a device-login code page), a PR/issue the agent just created, a preview
 deployment. The phone renders these as tap-to-open buttons, so include them whenever
 opening the link is the point of what's on screen; skip decorative URLs in logs or
-docs. Terminal wrapping splits long URLs across lines — REASSEMBLE the full URL (join
-the wrapped fragments, no spaces). "text" is a short human label ("Google OAuth
-approval", "PR #18"), never the URL itself. At most 3.
+docs. NEVER offer URLs from the agent's own status line / footer chrome (a statusline's
+telemetry/config/docs links, often markdown [label](url)) — chrome, not content the
+user is being asked to open. Terminal wrapping splits long URLs across lines —
+REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
+human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
 
 "events" is the activity feed — a list of NEW things that happened since the last
 report. If a list of already-reported events is provided, do NOT repeat them or restate

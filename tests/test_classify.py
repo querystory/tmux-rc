@@ -1,7 +1,7 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
-from daemon.classify import classify
+from daemon.classify import bootstrap, classify
 from daemon.tmux import Pane
 
 
@@ -11,6 +11,23 @@ def _pane(cmd="bash"):
 
 def _llm(payload):
     return lambda system, text: payload
+
+
+def test_bootstrap_shapes_result_and_flags_history():
+    r = bootstrap(_pane(), "…", _llm({
+        "name": "  tmux-rc overhaul  ",
+        "summary": " shipping PRs #24 and #26 ",
+        "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
+    }))
+    assert r["name"] == "tmux-rc overhaul"
+    assert r["summary"] == "shipping PRs #24 and #26"
+    assert r["events"] == [{"text": "Merged PR #24", "historical": True}]
+
+
+def test_bootstrap_rejects_junk():
+    assert bootstrap(_pane(), "…", _llm(["not a dict"])) is None
+    assert bootstrap(_pane(), "…", _llm({"summary": 3})) is None
+    assert bootstrap(_pane(), "…", lambda s, t: None) is None
 
 
 def test_payload_leads_with_foreground_process():

@@ -15,8 +15,8 @@ import time
 from functools import partial
 
 from . import tmux
-from .classify import classify
-from .llm import classify_text, summarize_events
+from .classify import bootstrap, classify
+from .llm import backing_off, classify_text, summarize_events
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,12 @@ SNAPSHOT_HISTORY = 200
 # working — spinner + timer + token counter ticking, no content change — costs ZERO
 # LLM calls, because that churn is stripped from the fingerprint.
 HEARTBEAT_SECONDS = 10
+# One-time deep read of a pane's scrollback that seeds the card (summary + history)
+# before live watching has accumulated anything. Fat input ⇒ at most ONE per tick,
+# behind the live parses; a few retries with spacing so an LLM hiccup isn't permanent.
+BOOTSTRAP_LINES = 800
+BOOTSTRAP_ATTEMPTS = 3
+BOOTSTRAP_RETRY_SECONDS = 60
 PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continuity
 # When a pane has been idle this long with accumulated events, summarize the recent
 # activity burst once (a {from,to,text} span). The UI collapses events in that time
@@ -102,6 +108,12 @@ class Watcher:
             str, dict
         ] = {}  # pane_id -> cached {from,to,text} idle summary
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
+        self._boot: dict[
+            str, dict
+        ] = {}  # pane_id -> bootstrap {summary, name, events} + seeded flag once served
+        self._boot_tries: dict[
+            str, tuple[int, float]
+        ] = {}  # pane_id -> (attempts, last attempt ts)
         self._last_tick: float = (
             0.0  # wall time of the last loop iteration (staleness check)
         )
@@ -233,12 +245,65 @@ class Watcher:
         focused = tmux.active_pane_id()
         for s in states:
             s["tmux_active"] = s.get("pane_id") == focused
+        # One-time scrollback bootstrap (staggered), then merge its products into the
+        # outgoing states: the session summary every tick, the reconstructed events
+        # seeded ONCE into the cached state — they ride along until the next parse
+        # replaces events (clients will have accumulated them by then, and the
+        # parser's feedback list stops the model restating them).
+        if self.use_llm:
+            self._maybe_bootstrap(panes)
+        for s in states:
+            b = self._boot.get(s.get("pane_id"))
+            if not b:
+                continue
+            s["session_summary"] = b["summary"]
+            if b["name"] and not s.get("title"):
+                s["title"] = b["name"]
+            if b["events"] and not b.get("seeded"):
+                b["seeded"] = True
+                s["events"] = b["events"] + list(s.get("events") or [])
         # Keep tmux's natural order (session/window/pane, as list-panes emits it) —
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self.states = states
         self._gc(alive)
+
+    def _maybe_bootstrap(self, panes) -> None:
+        """Deep-read ONE not-yet-bootstrapped pane's scrollback per tick (staggers the
+        fat LLM calls behind live parses) and stash {summary, name, events}. Failures
+        retry a few times with spacing — a 429 at boot shouldn't be permanent."""
+        if backing_off():
+            return  # rate-limited: a call now would be refused — don't burn attempts
+        now = time.time()
+        for p in panes:
+            if p.id in self._boot:
+                continue
+            tries, last = self._boot_tries.get(p.id, (0, 0.0))
+            if tries >= BOOTSTRAP_ATTEMPTS or (tries and now - last < BOOTSTRAP_RETRY_SECONDS):
+                continue
+            self._boot_tries[p.id] = (tries + 1, now)
+            try:
+                llm_fn = partial(
+                    classify_text,
+                    kind="bootstrap",
+                    pane_uid=tmux.pane_uid(p),
+                    pane_label=p.label,
+                )
+                result = bootstrap(
+                    p, tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES), llm_fn
+                )
+            except Exception:  # noqa: BLE001 - one pane must never wedge the watcher
+                logger.warning("bootstrap failed for %s", p.id, exc_info=True)
+                result = None
+            if result:
+                self._boot[p.id] = result
+                # Feed the seeded texts into the parser's already-reported list so the
+                # next live parse doesn't restate reconstructed history as new events.
+                recent = self._recent_events.setdefault(p.id, [])
+                recent.extend((e["text"], now) for e in result["events"])
+                logger.info("%s: bootstrapped (%d events)", p.id, len(result["events"]))
+            return  # at most one bootstrap attempt per tick
 
     # Every per-pane store, keyed by pane id. One tuple so gc (vanished panes) and
     # reuse-eviction (recycled ids) can't drift apart.
@@ -255,6 +320,8 @@ class Watcher:
             self._burst,
             self._summary,
             self._birth,
+            self._boot,
+            self._boot_tries,
         )
 
     def _pane_event(

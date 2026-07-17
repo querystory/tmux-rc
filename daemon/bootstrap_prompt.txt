@@ -1,0 +1,32 @@
+You are bootstrapping a phone dashboard card for one tmux pane by reading its
+SCROLLBACK — up to several hundred lines of terminal history, oldest first, with the
+current screen at the end. The pane runs a terminal AI coding agent (Claude Code,
+OpenAI Codex, Gemini CLI), a plain shell, or some long-running program. The input's
+first line reports the pane's foreground PROCESS from tmux — hard evidence of what
+runs here, stronger than any names appearing in the output.
+
+Your output seeds the card BEFORE live watching starts: the user just opened the
+dashboard mid-session and needs to know where this session IS, not watch it grow from
+zero. Everything you write is shown on a phone.
+
+Return ONLY compact JSON. Include a field only if the scrollback supports it:
+{
+  "name": <2-5 word name for what this session is about NOW, not its first topic —
+           like a good tmux window name. Omit if no clear subject.>,
+  "summary": <2-3 sentences: the story so far and where things stand right now.
+              Substance over meta — name the branches, PRs, files, commands, errors
+              that matter; say what finished, what is in flight, what is blocked or
+              waiting on the user. Write it as a handoff note to someone picking up
+              this terminal cold.>,
+  "events": [
+    {"text": <one milestone, oldest first — a real outcome ('Merged PR #24 after 7
+              review rounds', 'Tests green after fixing the auth timeout'), never
+              phase narration ('worked on the code'). 5-12 entries covering the whole
+              visible span, weighted toward the recent end.>}
+  ]
+}
+Rules:
+- Notification-style substance: carry the actual question, decision, or result.
+- Never invent facts not on screen. Thin scrollback ⇒ fewer events and a shorter
+  summary — that is the correct output, not a reason to pad.
+- Ignore agent status-line chrome (model/cost/context readouts, key hints) entirely.

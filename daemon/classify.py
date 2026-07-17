@@ -29,16 +29,24 @@ _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 # research/probe.py loads the SAME file so the two never drift. Re-read on mtime
 # change: an import-time constant silently served STALE prompts after edits, because
 # uvicorn's stat reloader only watches *.py (reload_includes needs watchfiles).
-_PROMPT_PATH = Path(__file__).with_name("parser_prompt.txt")
-_prompt_cache: tuple[int, str] = (0, "")
+_prompts: dict[str, tuple[int, str]] = {}  # name -> (mtime_ns, text)
+
+
+def _load_prompt(name: str) -> str:
+    path = Path(__file__).with_name(name)
+    mtime = path.stat().st_mtime_ns  # ns: coarse mtime can miss rapid edits
+    cached = _prompts.get(name)
+    if cached is None or cached[0] != mtime:
+        _prompts[name] = (mtime, path.read_text(encoding="utf-8").strip())
+    return _prompts[name][1]
 
 
 def parser_prompt() -> str:
-    global _prompt_cache
-    mtime = _PROMPT_PATH.stat().st_mtime_ns  # ns: coarse mtime can miss rapid edits
-    if mtime != _prompt_cache[0]:
-        _prompt_cache = (mtime, _PROMPT_PATH.read_text(encoding="utf-8").strip())
-    return _prompt_cache[1]
+    return _load_prompt("parser_prompt.txt")
+
+
+def bootstrap_prompt() -> str:
+    return _load_prompt("bootstrap_prompt.txt")
 
 
 def _obvious_idle(text: str) -> bool:
@@ -74,6 +82,30 @@ def _with_recent_events(text: str, recent: list[str]) -> str:
         f"restate the same action in different words; only add events for genuinely "
         f"new activity since them]\n{already}"
     )
+
+
+def bootstrap(pane: Pane, text: str, llm_fn) -> dict | None:
+    """One-time deep read of a pane's scrollback → {name, summary, events}, seeding the
+    card before live watching has accumulated anything. Events come back flagged
+    historical=True (reconstructed, not observed — the UI dims them). Returns None on
+    any failure so the caller can retry later."""
+    payload = (
+        f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{text}"
+    )
+    result = llm_fn(bootstrap_prompt(), payload)
+    if not isinstance(result, dict) or not isinstance(result.get("summary"), str):
+        return None
+    events = [
+        {"text": str(e["text"]), "historical": True}
+        for e in (result.get("events") or [])
+        if isinstance(e, dict) and e.get("text")
+    ][:12]
+    name = result.get("name")
+    return {
+        "summary": result["summary"].strip(),
+        "name": name.strip()[:60] if isinstance(name, str) and name.strip() else None,
+        "events": events,
+    }
 
 
 def classify(

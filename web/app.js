@@ -461,6 +461,16 @@ function card(s) {
     <span class="badge b-${a}">${badge}</span>`;
   el.appendChild(row);
 
+  // The bootstrap "story so far" — orientation when picking a session up cold.
+  // Clamped to a few lines; tap toggles the full text.
+  if (s.session_summary) {
+    const sum = document.createElement("div");
+    sum.className = "sess-sum";
+    sum.textContent = s.session_summary;
+    sum.onclick = (e) => { e.stopPropagation(); sum.classList.toggle("open"); };
+    el.appendChild(sum);
+  }
+
   if (s.rewind) el.appendChild(rewindView(s));
   // Tables render BEFORE the question so they act as context above the options.
   if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
@@ -516,6 +526,15 @@ function bgTerm(s) {
         toEnd();
       })
       .catch(() => {});
+  // Desktop has no pan gesture — dragging a text selection auto-scrolls the window
+  // sideways with nothing to bring it home (touch pans go through pinchZoom's clamp).
+  // Ease scrollLeft back once the drag settles.
+  let scrollIdle;
+  wrap.addEventListener("scroll", () => {
+    if (!wrap.scrollLeft) return;
+    clearTimeout(scrollIdle);
+    scrollIdle = setTimeout(() => wrap.scrollTo({ left: 0, behavior: "smooth" }), 500);
+  });
   pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }), true);
   requestAnimationFrame(toEnd);
   // The window's height changes after we pin the scroll (the card above grows as
@@ -596,7 +615,9 @@ function evHtml(e) {
   } else if (e.meta) {
     note = `<span class="ev-note">${esc(e.meta)}</span>`;
   }
-  return `<div class="ev"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
+  // historical = reconstructed from scrollback by the bootstrap pass, not observed
+  // live — rendered dimmer so it never masquerades as watched fact.
+  return `<div class="ev${e.historical ? " ev-hist" : ""}"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
 }
 
 function eventsView(events, paneId, summary) {

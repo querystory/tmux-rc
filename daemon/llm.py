@@ -107,6 +107,13 @@ def _backoff_remaining() -> float:
     return max(0.0, _backoff["until"] - time.time())
 
 
+def backing_off() -> bool:
+    """True while the 429 backoff is armed — callers with their own attempt budgets
+    (e.g. bootstrap retries) should skip rather than burn attempts on calls that
+    classify_text will refuse anyway."""
+    return _backoff_remaining() > 0
+
+
 def _handle_llm_error(e: Exception) -> str:
     """Log an LLM failure at the right fidelity and return a short user-facing message.
 
@@ -165,6 +172,7 @@ def classify_text(
     changed: bool = True,
     pane_uid: str = "",
     pane_label: str = "",
+    kind: str = "parse",
 ) -> dict | None:
     """Send pane text (and optionally a rendered screenshot) to Flash Lite and get
     structured JSON back. Returns the parsed dict, or None on any failure (caller falls
@@ -199,7 +207,8 @@ def classify_text(
         _trace.info("OUT: %s", json.dumps(result))
         _record(resp)  # tokens/cost/latency → metrics jsonl + running totals
         _emit(
-            text, result, time.time() - t0, resp, changed, pane_uid, pane_label, None
+            text, result, time.time() - t0, resp, changed, pane_uid, pane_label, None,
+            kind,
         )  # OTLP benchmark record
         last_error["msg"] = None  # success clears any prior error
         _backoff.update(delay=0.0, until=0.0)  # healthy again; forget the 429 streak
@@ -214,7 +223,8 @@ def classify_text(
         _totals["errors"] += 1
         _metrics.info(json.dumps({"ts": time.time(), "error": msg[:120]}))
         _emit(
-            text, None, time.time() - t0, None, changed, pane_uid, pane_label, msg
+            text, None, time.time() - t0, None, changed, pane_uid, pane_label, msg,
+            kind,
         )  # record the failure too
         return None
 
@@ -285,6 +295,7 @@ def _emit(
     pane_uid: str,
     pane_label: str,
     error: str | None,
+    kind: str = "parse",
 ) -> None:
     """Adapt a Gemini call to the OTLP benchmark record. Best-effort. TTFT isn't exposed
     by the non-streaming google-genai call, so it's left None here (a streaming provider
@@ -308,6 +319,7 @@ def _emit(
             activity=(result or {}).get("activity"),
             changed=changed,
             error=error,
+            kind=kind,
         )
     except Exception:  # noqa: BLE001 - telemetry must never break a parse
         logger.debug("telemetry emit failed", exc_info=True)  # visible, but never fatal
