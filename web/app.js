@@ -479,7 +479,7 @@ function card(s) {
 // content — a parser field could size that per tool later). The card floats over the
 // top; the live tail pokes out below it, pan/zoomable in place.
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
-const peekCache = {}; // pane_id -> {snap, text}
+const peekCache = {}; // pane_id -> {snap, html} — linkified once per snapshot
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
 function bgTerm(s) {
   // Wrapper = the visible window (starts right below the card, ends near the bar);
