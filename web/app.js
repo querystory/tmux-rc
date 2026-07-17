@@ -236,7 +236,7 @@ function swipeNav(el, id) {
   const W = () => el.offsetWidth + 12; // card width + gap
   const clear = () => { if (ghost) ghost.remove(); ghost = null; gdir = 0; };
   el.addEventListener("touchstart", (e) => {
-    sx = e.target.closest(".tbl-scroll") ? null : e.touches[0].clientX;
+    sx = e.target.closest(".tbl-scroll, .bg-term") ? null : e.touches[0].clientX;
     sy = e.touches[0].clientY; dx = 0; clear();
   }, { passive: true });
   el.addEventListener("touchmove", (e) => {
@@ -322,19 +322,31 @@ function card(s) {
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
   // handles text/keys/images for whichever card is active (see the #bar element).
-  el.appendChild(peek(s));
+  //
+  // Terminal-as-background: everything above moves into a foreground layer that
+  // covers the capture; the exposed strip below it (≥60px, more when content is
+  // short) shows the live tail of the pane, pan/zoomable in place. ⤢ = full view.
+  const fg = document.createElement("div");
+  fg.className = "card-fg";
+  fg.append(...el.childNodes);
+  const fs = document.createElement("button");
+  fs.className = "fsbtn";
+  fs.textContent = "⤢";
+  fs.title = "Full screen";
+  fs.onclick = (e) => { e.stopPropagation(); openScreen(s.pane_id, s.title || s.label); };
+  el.append(bgTerm(s), fg, fs);
   return el;
 }
 
-// Fills the card's leftover height with the TAIL of the pane's latest capture
-// (bottom-left — the live end of the terminal), a mini View screen. Tap opens the
-// real one. Fetched only when the snapshot id changes; cached across re-renders.
+// The card's background terminal layer: the pane's latest capture, bottom-anchored
+// with the last ~5 lines hung BELOW the card edge — that's agent status-line/input
+// chrome, not content. (A parser field could size that offset per tool later.)
+// Fetched only when the snapshot id changes; pinch/pan state persists per pane.
 const peekCache = {}; // pane_id -> {snap, text}
-function peek(s) {
+const bgZoom = {}; // pane_id -> {scale, tx, ty}
+function bgTerm(s) {
   const box = document.createElement("pre");
-  box.className = "peek";
-  box.onclick = (e) => { e.stopPropagation(); openScreen(s.pane_id, s.title || s.label); };
-  const toEnd = () => { box.scrollTop = box.scrollHeight; box.scrollLeft = 0; };
+  box.className = "bg-term";
   const c = peekCache[s.pane_id];
   if (c) box.textContent = c.text; // last capture (kept while a newer one loads)
   if (s.snapshot_id && (!c || c.snap !== s.snapshot_id))
@@ -344,20 +356,9 @@ function peek(s) {
         if (!t) return;
         peekCache[s.pane_id] = { snap: s.snapshot_id, text: t };
         box.textContent = t;
-        toEnd();
       })
       .catch(() => {});
-  // Squeezed below ~5 lines by other content? A sliver of terminal is useless —
-  // swap in the plain View-screen link instead.
-  requestAnimationFrame(() => {
-    if (box.isConnected && box.clientHeight < 70) {
-      const btn = document.createElement("button");
-      btn.className = "viewbtn";
-      btn.textContent = "▤ View screen";
-      btn.onclick = box.onclick;
-      box.replaceWith(btn);
-    } else toEnd();
-  });
+  pinchZoom(box, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }));
   return box;
 }
 
@@ -773,36 +774,39 @@ function linkifyCapture(raw) {
 
 // Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the
 // page). One-finger drag pans; two-finger pinch zooms around the gesture midpoint.
-function pinchZoom(container, el) {
-  let scale = 1, tx = 0, ty = 0;
+// Pass `st` to persist the transform across re-renders (the card's background layer
+// is rebuilt every poll); omitted (the full-screen overlay), it starts fresh at the
+// BOTTOM-left — the end of a capture is the live state.
+function pinchZoom(container, el, st) {
+  st = st || { scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) };
   let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
-  const apply = () => { el.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+  const apply = () => { el.style.transform = `translate(${st.tx}px,${st.ty}px) scale(${st.scale})`; };
   el.style.transformOrigin = "0 0";
-  // Start at the BOTTOM-left, not the top: the end of a capture is the live state
-  // (everything above a trailing prompt has already exited).
-  ty = Math.min(0, container.clientHeight - el.offsetHeight);
-  apply();
+  if (st.scale !== 1 || st.tx || st.ty) apply();
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
   container.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: scale, tx, ty, cx: m.x, cy: m.y }; }
-    else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - tx, y: e.touches[0].clientY - ty };
+    busy = true; // freeze poll re-renders mid-gesture
+    if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
+    else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - st.tx, y: e.touches[0].clientY - st.ty };
   }, { passive: false });
   container.addEventListener("touchmove", (e) => {
     if (!start) return;
     e.preventDefault();
     if (start.pan && e.touches.length === 1) {
-      tx = e.touches[0].clientX - start.x; ty = e.touches[0].clientY - start.y;
+      st.tx = e.touches[0].clientX - start.x; st.ty = e.touches[0].clientY - start.y;
     } else if (e.touches.length === 2) {
       const f = dist(e.touches) / start.dist;
-      scale = Math.min(6, Math.max(0.4, start.s * f));
+      st.scale = Math.min(6, Math.max(0.4, start.s * f));
       // keep the pinch midpoint stationary
-      tx = start.cx - (start.cx - start.tx) * (scale / start.s);
-      ty = start.cy - (start.cy - start.ty) * (scale / start.s);
+      st.tx = start.cx - (start.cx - start.tx) * (st.scale / start.s);
+      st.ty = start.cy - (start.cy - start.ty) * (st.scale / start.s);
     }
     apply();
   }, { passive: false });
-  container.addEventListener("touchend", (e) => { if (e.touches.length === 0) start = null; });
+  container.addEventListener("touchend", (e) => {
+    if (e.touches.length === 0) { start = null; busy = false; }
+  });
 }
 
 function esc(s) {
