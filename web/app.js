@@ -479,7 +479,7 @@ function card(s) {
 // content — a parser field could size that per tool later). The card floats over the
 // top; the live tail pokes out below it, pan/zoomable in place.
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
-const peekCache = {}; // pane_id -> {snap, text}
+const peekCache = {}; // pane_id -> {snap, html} — linkified once per snapshot
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
 function bgTerm(s) {
   // Wrapper = the visible window (starts right below the card, ends near the bar);
@@ -496,7 +496,10 @@ function bgTerm(s) {
   wrap.appendChild(box);
   const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
   const c = peekCache[s.pane_id];
-  if (c) box.textContent = c.text; // last capture (kept while a newer one loads)
+  // Same linkification as the full-screen view (escaped text, wrapped URLs rejoined),
+  // so URLs in the peek are tappable in place. Linkified ONCE per snapshot, cached —
+  // the deck rebuilds every poll and re-running the regex on a big capture is waste.
+  if (c) box.innerHTML = c.html; // last capture (kept while a newer one loads)
   const snap = s.snapshot_id;
   if (snap && (!c || c.snap !== snap))
     fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
@@ -507,8 +510,9 @@ function bgTerm(s) {
         // ms timestamps) overwrite a newer one already applied.
         const cur = peekCache[s.pane_id];
         if (!txt || (cur && Number(cur.snap) >= Number(snap))) return;
-        peekCache[s.pane_id] = { snap, text: txt };
-        box.textContent = txt;
+        const html = linkifyCapture(txt);
+        peekCache[s.pane_id] = { snap, html };
+        box.innerHTML = html;
         toEnd();
       })
       .catch(() => {});
@@ -918,9 +922,18 @@ function linkifyCapture(raw) {
   // URL chars: the original terminator exclusions (whitespace, quotes, brackets — also
   // the belt-and-braces for attribute safety) PLUS everything non-ASCII, so TUI
   // box-drawing borders (│ etc.) flush against a URL never glue onto the href.
-  const re = /https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)*/gi;
+  // Markdown-style links match FIRST — that's how the capture materializes OSC 8
+  // terminal hyperlinks — and render terminal-style: the LABEL alone, URL hidden
+  // in the href.
+  const re = /\[([^\]\n]{1,120})\]\((https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)\)|https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)*/gi;
   while ((m = re.exec(raw))) {
     out += esc(raw.slice(pos, m.index));
+    if (m[1] !== undefined) {
+      out += `<a href="${escAttr(m[2])}" target="_blank" rel="noopener noreferrer">${esc(m[1])}</a>`;
+      pos = m.index + m[0].length;
+      re.lastIndex = pos;
+      continue;
+    }
     // Accept newline-continuations only while the line being left was full-width
     // (a wrapped line); cut the match at the first newline that isn't.
     let cut = m[0].length, search = 0;

@@ -213,11 +213,37 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
+# OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show
+# only LABEL; a plain capture (no -e) drops the URL entirely.
+_OSC8 = re.compile(r"\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)(.*?)\x1b\]8;;(?:\x07|\x1b\\)", re.S)
+# Everything else escape-shaped, stripped after links are materialized: CSI (colors,
+# cursor), other OSC, and single-char escapes.
+_ANSI = re.compile(r"\x1b\[[0-9;:?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]")
+
+
+def _materialize_links(text: str) -> str:
+    """Turn OSC 8 hyperlinks into markdown — '[label](url)' — so the URL terminals
+    embed invisibly survives in plain text. Markdown because BOTH consumers know it:
+    the LLM parser reads it natively, and the web linkifier collapses it back to a
+    label-only anchor (terminal-like rendering, URL hidden). A label that already IS
+    the url passes through bare."""
+
+    def repl(m: re.Match) -> str:
+        url, label = m.group(1), m.group(2)
+        # Bare-URL labels pass through as-is (the linkifier catches them); anything
+        # else keeps its href via markdown — including labels that merely CONTAIN a URL.
+        return label if not url or label.strip() == url else f"[{label}]({url})"
+
+    return _OSC8.sub(repl, text)
+
+
 def capture_pane(pane_id: str, lines: int = 200) -> str:
     """Current visible text of a pane, most recent `lines` rows. `-p` prints to
-    stdout, `-J` joins wrapped lines so long lines aren't split mid-word."""
-    out = _run(["capture-pane", "-p", "-J", "-t", pane_id, "-S", f"-{lines}"])
-    return out.rstrip("\n")
+    stdout, `-J` joins wrapped lines so long lines aren't split mid-word, `-e` keeps
+    escape sequences so OSC 8 hyperlinks can be materialized before the rest of the
+    escapes are stripped back out."""
+    out = _run(["capture-pane", "-p", "-J", "-e", "-t", pane_id, "-S", f"-{lines}"])
+    return _ANSI.sub("", _materialize_links(out)).rstrip("\n")
 
 
 def send_keys(
