@@ -56,6 +56,18 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |
 
+## API
+
+The daemon serves the phone's PWA and a small HTTP API on `:8080` — usable by anything
+(curl, scripts, agents), not just the phone:
+
+| Endpoint | What it gives you |
+|---|---|
+| `GET /api/digest` | **Start here for "what's going on":** per pane — headline, activity (`running`/`waiting`/`idle`), idle time, pending question, LLM idle-summary, recent timestamped event history |
+| `GET /api/state` | The phone's live view: current cards, usage totals, `llm_error`. `events` carries only what's NEW since the last parse — history lives in `/api/digest` |
+| `GET /api/panes/{id}/snapshots` (+ `/{snap_id}`) | Raw screen captures over time |
+| `POST /api/panes/{id}/send`, `/select`, `/image` | Act on a pane (these exist for the phone's audited path; local consumers can equally use `tmux send-keys` directly) |
+
 ## How it works
 
 - **`tmux.py`** — non-disruptive `capture-pane` reads + `send-keys` writes.
