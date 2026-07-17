@@ -8,6 +8,7 @@ to the session, so a human can stay attached at the same time.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -15,6 +16,9 @@ from dataclasses import dataclass
 from functools import cache
 
 _HOST = socket.gethostname()
+# Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
+# braille dots idle). The UI has its own activity indicators — strip them.
+_TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
@@ -56,7 +60,7 @@ class Pane:
         """The title the pane's own app set (agents publish their state here: Claude
         Code writes '<glyph> <task summary>' — free, accurate, no LLM needed). tmux
         defaults the title to the hostname, which is noise -> None."""
-        t = self.title.strip()
+        t = _TITLE_GLYPHS.sub("", self.title).strip()
         return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
 
     @property

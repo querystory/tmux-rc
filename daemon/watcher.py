@@ -222,6 +222,8 @@ class Watcher:
                 s = {
                     "pane_id": p.id,
                     "label": p.label,
+                    "title": p.display_title,
+                    "tmux_session": p.session,
                     "tool": "unknown",
                     "activity": "unknown",
                     "updated_at": time.time(),
@@ -457,6 +459,7 @@ class Watcher:
         # The pane's self-published title (see Pane.display_title) — the agent's own
         # words for what it's doing, better than anything we could parse off the screen.
         state["title"] = pane.display_title
+        state["tmux_session"] = pane.session  # UI groups the pane picker by session
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
