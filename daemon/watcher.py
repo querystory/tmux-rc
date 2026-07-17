@@ -32,6 +32,10 @@ PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continui
 # activity burst once (a {from,to,text} span). The UI collapses events in that time
 # range under the summary. Generated once per idle period; reset when the pane works.
 IDLE_SUMMARY_AFTER = 60
+# How long a reported event's text suppresses an identical re-report. Long enough to
+# starve the repetition loop (a model re-emitting every heartbeat), short enough that a
+# genuinely repeated action later in the session shows up again.
+RECENT_EVENT_TTL = 15 * 60
 
 # Volatile bits that repaint constantly on an agent status line even when nothing
 # meaningful is happening. Confirmed by diffing live captures: elapsed timers, token
@@ -77,8 +81,11 @@ class Watcher:
             str, dict
         ] = {}  # pane_id -> last parsed dict (reused between parses)
         self._recent_events: dict[
+            str, list[tuple[str, float]]
+        ] = {}  # pane_id -> recently-emitted (event text, ts); TTL-expired on read
+        self._last_dropped: dict[
             str, list[str]
-        ] = {}  # pane_id -> recently-emitted event texts
+        ] = {}  # pane_id -> texts dropped by the dedup guard last parse (log throttle)
         self._burst: dict[
             str, dict
         ] = {}  # pane_id -> {start, events:[{text,ts}]} for the current activity burst
@@ -187,6 +194,7 @@ class Watcher:
             self._tool,
             self._state,
             self._recent_events,
+            self._last_dropped,
             self.snapshots,
             self._burst,
             self._summary,
@@ -295,7 +303,16 @@ class Watcher:
         # Feed back events we already reported so the model emits only NEW ones instead
         # of restating ongoing work in slightly different words each parse (the source
         # fix for near-duplicate log entries — dedup at the model, not the client).
-        recent = self._recent_events.get(pane.id, [])
+        # Entries expire after RECENT_EVENT_TTL so a LEGITIMATE later repeat of the same
+        # action (rerunning the same command an hour on) isn't suppressed forever — the
+        # cost is a bounded worst case of one duplicate per TTL for a persistently
+        # re-emitting model, which the guard below re-drops on the next parse.
+        recent = [
+            (t, ts)
+            for t, ts in self._recent_events.get(pane.id, [])
+            if now - ts < RECENT_EVENT_TTL
+        ]
+        recent_texts = [t for t, _ in recent]
         # Bind `changed` (content-change vs heartbeat re-parse) and the pane's stable
         # identity into the parser so they ride through to the benchmark telemetry without
         # widening the generic llm_fn seam. Label falls back to the tmux label; the
@@ -315,18 +332,41 @@ class Watcher:
             text,
             llm_fn=llm_fn,
             prior=prior,
-            recent_events=recent,
+            recent_events=recent_texts,
         )
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
         # any cached idle summary — it'll be regenerated when the pane goes idle again.
-        new_events = [
-            e
-            for e in (state.get("events") or [])
-            if isinstance(e, dict) and e.get("text")
-        ]
-        for e in new_events:
-            recent.append(e["text"])
+        #
+        # Drop events whose text we already reported recently (whether the model re-emits
+        # one — the feedback list only SHOWS it the last 20, so re-emitting an older
+        # entry isn't disobedience — or duplicates one within a single response, which
+        # `seen` also catches). Without this guard a repeated event is appended to
+        # _recent_events again each parse, the feedback section becomes a wall of the
+        # same line, and that repetition-primed prompt tail degenerates the model's
+        # output — observed in production as it emitting a SECOND copy of the whole JSON
+        # object ("Extra data" parse failures), a self-reinforcing loop.
+        seen = set(recent_texts)
+        new_events, dropped = [], []
+        for e in state.get("events") or []:
+            if not (isinstance(e, dict) and e.get("text")):
+                continue
+            (dropped if e["text"] in seen else new_events).append(e)
+            seen.add(e["text"])
+        # Visibility without spam: WARNING (INFO is invisible under uvicorn's default
+        # logging), but only when the dropped set changes — a heartbeat re-dropping the
+        # same text every 10s stays quiet.
+        dropped_texts = [e["text"] for e in dropped]
+        if dropped_texts and dropped_texts != self._last_dropped.get(pane.id):
+            logger.warning(
+                "%s: dropped %d re-emitted event(s), e.g. %r",
+                pane.id,
+                len(dropped_texts),
+                dropped_texts[0][:80],
+            )
+        self._last_dropped[pane.id] = dropped_texts
+        state["events"] = new_events  # dups also don't reach the UI activity feed
+        recent.extend((e["text"], now) for e in new_events)
         self._recent_events[pane.id] = recent[-30:]
         if new_events:
             burst = self._burst.setdefault(pane.id, {"start": now, "events": []})
