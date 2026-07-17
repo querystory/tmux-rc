@@ -434,8 +434,12 @@ function bgTerm(s) {
         toEnd();
       })
       .catch(() => {});
-  pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }));
+  pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }), true);
   requestAnimationFrame(toEnd);
+  // The window's height changes after we pin the scroll (the card above grows as
+  // events/images render, flex re-settles) — each change slid the view off the tail,
+  // half-clipping the last line. Re-pin whenever the wrap is resized.
+  new ResizeObserver(toEnd).observe(wrap);
   return wrap;
 }
 
@@ -853,8 +857,9 @@ function linkifyCapture(raw) {
 // page). One-finger drag pans; two-finger pinch zooms around the gesture midpoint.
 // Pass `st` to persist the transform across re-renders (the card's background layer
 // is rebuilt every poll); omitted (the full-screen overlay), it starts fresh at the
-// BOTTOM-left — the end of a capture is the live state.
-function pinchZoom(container, el, st) {
+// BOTTOM-left — the end of a capture is the live state. `snapHome`: unzoomed pans
+// spring back on release (drag-to-peek) instead of parking the content askew.
+function pinchZoom(container, el, st, snapHome) {
   st = st || { scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) };
   let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
   const apply = () => { el.style.transform = `translate(${st.tx}px,${st.ty}px) scale(${st.scale})`; };
@@ -881,9 +886,29 @@ function pinchZoom(container, el, st) {
     }
     apply();
   }, { passive: false });
-  container.addEventListener("touchend", (e) => {
-    if (e.touches.length === 0) { start = null; busy = false; }
-  });
+  const release = (e) => {
+    if (e.touches.length !== 0) return;
+    start = null; busy = false;
+    if (!snapHome) return;
+    // Clamp at ANY zoom so no edge ever shows a black gap: slide the content back
+    // until it covers the window (or pins bottom-left when it's smaller than it).
+    const c = container.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    let dx = 0, dy = 0;
+    if (r.width <= c.width) dx = c.left - r.left;
+    else if (r.left > c.left) dx = c.left - r.left;
+    else if (r.right < c.right) dx = c.right - r.right;
+    if (r.height <= c.height) dy = c.bottom - r.bottom; // short content: pin the tail
+    else if (r.top > c.top) dy = c.top - r.top;
+    else if (r.bottom < c.bottom) dy = c.bottom - r.bottom;
+    if (!dx && !dy) return;
+    st.tx += dx; st.ty += dy;
+    el.style.transition = "transform .2s ease-out";
+    apply();
+    setTimeout(() => (el.style.transition = ""), 220);
+  };
+  container.addEventListener("touchend", release);
+  container.addEventListener("touchcancel", release);
 }
 
 function esc(s) {
@@ -919,6 +944,20 @@ setInterval(async () => {
 // transform, and pad #panes so nothing hides behind it. This positions the whole bar —
 // keys + input + send — right above the keyboard regardless of flex math.
 const barEl = document.getElementById("bar");
+// Publish the MEASURED heights of the fixed chrome as CSS vars — deck/peek/card
+// layout math uses them instead of hardcoded px that drift per device and content
+// (a taller chip row made the peek window end mid-line with dead black below it).
+{
+  const topBlock = document.getElementById("top");
+  const sizes = () => {
+    document.documentElement.style.setProperty("--bar-h", barEl.offsetHeight + "px");
+    document.documentElement.style.setProperty("--top-h", topBlock.offsetHeight + "px");
+  };
+  const ro = new ResizeObserver(sizes);
+  ro.observe(barEl);
+  ro.observe(topBlock);
+  sizes();
+}
 if (window.visualViewport && barEl) {
   const vv = window.visualViewport;
   // Keyboard height = how much the layout viewport exceeds the visible viewport. Lift

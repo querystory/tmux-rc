@@ -55,27 +55,32 @@
   /* overflow-x hidden: swipe gestures park the neighbor card off-screen with
      transforms — without this the page itself grows a horizontal scrollbar. */
   body { overflow-x: hidden; }
-  #panes { padding: 8px 12px 150px; display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
+  /* --bar-h / --top-h are MEASURED by JS (ResizeObserver) — the layout math below
+     uses them instead of eyeballed constants that drift per device/content. */
+  #panes { padding: 8px 12px calc(var(--bar-h, 150px) + 8px); display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
   /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
      The pane's capture is its background (bottom-anchored, so the agent's status/input
      chrome lines hide behind the bar); the card floats over the top, content-sized,
      with the live terminal tail poking out BELOW it — pan/zoomable in place. The
      negative margin cancels #panes' bar padding so the page itself never scrolls. */
-  .deck { position: relative; height: calc(100dvh - 130px); margin-bottom: -150px;
+  .deck { position: relative; height: calc(100dvh - var(--top-h, 122px) - 8px);
+    margin-bottom: calc(-1 * (var(--bar-h, 150px) + 8px));
     overflow: hidden; display: flex; flex-direction: column; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
     padding: 12px 14px; overflow-y: auto; position: relative; z-index: 1; flex: none;
-    max-height: calc(100% - 230px); /* keeps ≥~5 terminal lines visible above the bar */
+    max-height: calc(100% - var(--bar-h, 150px) - 80px); /* ≥~5 terminal lines stay visible */
   }
   /* The capture's window: right below the card down to the bar. Agent panes overlap
      the bar a little (their tail is status/input chrome); shells stop above it so a
      trailing prompt stays visible. Long captures are scrolled to their tail. */
-  .bg-wrap { flex: 1; min-height: 0; overflow: hidden; touch-action: none; margin-bottom: 90px; }
-  .bg-wrap.shell { margin-bottom: 160px; }
+  .bg-wrap { flex: 1; min-height: 0; overflow: hidden; touch-action: none;
+    margin-bottom: calc(var(--bar-h, 150px) - 60px); }
+  .bg-wrap.shell { margin-bottom: calc(var(--bar-h, 150px) + 6px); }
   .bg-term { margin: 0; padding: 4px 12px; font: 10px/1.35 ui-monospace, monospace;
     color: #8b949e; white-space: pre; }
-  .fsbtn { position: absolute; right: 10px; bottom: 170px; z-index: 2; width: 34px; height: 34px;
+  .fsbtn { position: absolute; right: 10px; bottom: calc(var(--bar-h, 150px) + 14px);
+    z-index: 2; width: 34px; height: 34px;
     background: #21262dcc; border: 1px solid #30363d; color: #adbac7; border-radius: 8px;
     font-size: 15px; cursor: pointer; }
   .card { transition: transform .15s, opacity .15s; }
