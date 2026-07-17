@@ -44,9 +44,9 @@ function setFavicon(waiting) {
     // Punch a clear ring first so the dot reads over busy icon pixels. Sized like
     // the in-app corner badges — a hint, not an eclipse.
     g.globalCompositeOperation = "destination-out";
-    g.beginPath(); g.arc(25, 7, 6.5, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(26, 6, 5.5, 0, Math.PI * 2); g.fill();
     g.globalCompositeOperation = "source-over";
-    g.beginPath(); g.arc(25, 7, 5, 0, Math.PI * 2);
+    g.beginPath(); g.arc(26, 6, 4, 0, Math.PI * 2);
     g.fillStyle = "#e3b341"; g.fill();
     favDotUrl = c.toDataURL("image/png");
     if (favWaiting) favLink.href = favDotUrl;
