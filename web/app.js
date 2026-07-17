@@ -166,11 +166,19 @@ function render(states) {
   if (allRows) {
     panesEl.replaceChildren(...states.map(row));
   } else {
-    // The active card sits in a .deck (a positioning context) so the swipe gesture
-    // can overlay the incoming neighbor card and slide both together.
+    // The deck is a positioning context: the pane's capture as background, the card
+    // floating over its top (swipe ghosts overlay here too), ⤢ for the full view.
     const deck = document.createElement("div");
     deck.className = "deck";
-    deck.append(...states.filter((s) => s.pane_id === act).map(card));
+    const a = panesById[act];
+    if (a) {
+      const fs = document.createElement("button");
+      fs.className = "fsbtn";
+      fs.textContent = "⤢";
+      fs.title = "Full screen";
+      fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
+      deck.append(bgTerm(a), card(a), fs);
+    }
     panesEl.replaceChildren(deck);
   }
   updateBar(panesById[act]);
@@ -322,25 +330,13 @@ function card(s) {
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
   // handles text/keys/images for whichever card is active (see the #bar element).
-  //
-  // Terminal-as-background: everything above moves into a foreground layer that
-  // covers the capture; the exposed strip below it (≥60px, more when content is
-  // short) shows the live tail of the pane, pan/zoomable in place. ⤢ = full view.
-  const fg = document.createElement("div");
-  fg.className = "card-fg";
-  fg.append(...el.childNodes);
-  const fs = document.createElement("button");
-  fs.className = "fsbtn";
-  fs.textContent = "⤢";
-  fs.title = "Full screen";
-  fs.onclick = (e) => { e.stopPropagation(); openScreen(s.pane_id, s.title || s.label); };
-  el.append(bgTerm(s), fg, fs);
   return el;
 }
 
-// The card's background terminal layer: the pane's latest capture, bottom-anchored
-// with the last ~5 lines hung BELOW the card edge — that's agent status-line/input
-// chrome, not content. (A parser field could size that offset per tool later.)
+// The deck's background terminal layer: the pane's latest capture, bottom-anchored so
+// its last lines tuck BEHIND the fixed input bar (agent status-line/input chrome, not
+// content — a parser field could size that per tool later). The card floats over the
+// top; the live tail pokes out below it, pan/zoomable in place.
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
 const peekCache = {}; // pane_id -> {snap, text}
 const bgZoom = {}; // pane_id -> {scale, tx, ty}

@@ -55,27 +55,25 @@
      transforms — without this the page itself grows a horizontal scrollbar. */
   body { overflow-x: hidden; }
   #panes { padding: 8px 12px 150px; display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
-  /* Fixed viewport-fit card. The terminal capture is the card's BACKGROUND layer,
-     bottom-anchored with its last ~5 lines hung below the card edge (agent status
-     chrome). Content covers it from the top; the exposed strip (≥60px) stays
-     pan/zoomable in place. The page never scrolls. */
+  /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
+     The pane's capture is its background (bottom-anchored, so the agent's status/input
+     chrome lines hide behind the bar); the card floats over the top, content-sized,
+     with the live terminal tail poking out BELOW it — pan/zoomable in place. The
+     negative margin cancels #panes' bar padding so the page itself never scrolls. */
+  .deck { position: relative; height: calc(100dvh - 130px); margin-bottom: -150px; overflow: hidden; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
-    overflow: hidden; position: relative;
-    height: calc(100dvh - 290px);
+    padding: 12px 14px; overflow-y: auto; position: relative; z-index: 1;
+    max-height: calc(100% - 230px); /* keeps ≥~5 terminal lines visible above the bar */
   }
-  .card-fg { position: relative; z-index: 1; background: #161b22; padding: 12px 14px;
-    max-height: calc(100% - 60px); overflow-y: auto; border-bottom: 1px solid #21262d; }
-  .card.waiting .card-fg { background: #1c1a12; }
-  .bg-term { position: absolute; left: 0; right: 0; bottom: -68px; z-index: 0; margin: 0;
+  .bg-term { position: absolute; left: 0; right: 0; bottom: 0; z-index: 0; margin: 0;
     padding: 0 12px; font: 10px/1.35 ui-monospace, monospace; color: #8b949e;
     white-space: pre; touch-action: none; }
-  .fsbtn { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 34px; height: 34px;
+  .fsbtn { position: absolute; right: 10px; bottom: 170px; z-index: 2; width: 34px; height: 34px;
     background: #21262dcc; border: 1px solid #30363d; color: #adbac7; border-radius: 8px;
     font-size: 15px; cursor: pointer; }
   .card { transition: transform .15s, opacity .15s; }
-  .deck { position: relative; }
-  .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; }
+  .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; z-index: 1; }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
   .card.active { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
   #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
