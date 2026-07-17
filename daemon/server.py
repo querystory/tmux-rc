@@ -183,6 +183,15 @@ def get_state():
     }
 
 
+@app.get("/api/digest")
+def get_digest():
+    """Per-pane state + recent history in one GET — the endpoint for agents/scripts.
+    /api/state is shaped for the phone (only NEW events per parse; the phone accumulates
+    its own log); this returns the accumulated picture: headline, activity, idle time,
+    pending question, the LLM idle-summary, and the recent timestamped event history."""
+    return {"panes": app.state.watcher.digest()}
+
+
 @app.get("/api/panes/{pane_id}/snapshots")
 def list_snapshots(pane_id: str):
     hist = app.state.watcher.snapshots.get(pane_id, [])
