@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -279,10 +280,12 @@ def select(pane_id: str, request: Request):
 
 @app.post("/api/panes/{pane_id}/image")
 async def send_image(pane_id: str, file: UploadFile, request: Request):
-    """Attach an image to the pane the way the user does on the host: put it on the
-    system clipboard, then send Ctrl-V so Claude Code embeds it inline. (Typing a file
-    path doesn't work — Claude reads the clipboard on paste.) Also keeps a temp file as
-    a fallback path in the response."""
+    """Attach an image by typing the staged file's PATH into the pane (no Enter, so it
+    joins whatever the user is composing). Agents read files from disk — Claude Code
+    treats an image path in the prompt as an attachment. The old clipboard+Ctrl-V route
+    died whenever the session's clipboard did (Xwayland restarts rotate the auth cookie;
+    wl-copy holders wedge) — and failed SILENTLY, returning 200 with nothing pasted.
+    A path on disk has no such failure mode."""
     if tmux.find_pane(pane_id) is None:
         _audit(request, "paste_image", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
@@ -299,25 +302,21 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     data = await file.read()
     detail = f"{mime} {len(data)}B"
 
-    # Save a temp copy (fallback / debugging) and put the bytes on the clipboard.
+    # Stage to disk, prune stale stagings (the pane reads the file right after the
+    # paste; a day of slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
-    fd, path = tempfile.mkstemp(suffix=_EXT[mime], dir=IMG_DIR)
+    cutoff = time.time() - 86400
+    for old in IMG_DIR.iterdir():
+        if old.stat().st_mtime < cutoff:
+            old.unlink(missing_ok=True)
+    fd, path = tempfile.mkstemp(prefix="img-", suffix=_EXT[mime], dir=IMG_DIR)
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
-    tools = tmux.set_clipboard_image(data, mime)
-    if not tools:
-        _audit(
-            request, "paste_image", pane_id, detail, outcome="error: no clipboard tool"
-        )
-        raise HTTPException(
-            500,
-            "No clipboard tool succeeded (need wl-copy or xclip on the host). "
-            f"Image saved at {path}.",
-        )
-    tmux.send_keys(pane_id, "C-v", enter=False, literal=False)  # paste into the agent
+    # Trailing space keeps the path a clean token next to typed text / later pastes.
+    tmux.send_keys(pane_id, f"{path} ", enter=False, literal=True)
     _audit(request, "paste_image", pane_id, detail)
-    return {"ok": True, "clipboard": tools, "path": path, "bytes": len(data)}
+    return {"ok": True, "path": path, "bytes": len(data)}
 
 
 # PWA static files last so /api/* wins. html=True serves index.html at /.

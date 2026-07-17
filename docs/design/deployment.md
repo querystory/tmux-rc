@@ -84,7 +84,7 @@ Why this shape:
   The tunnel-client already survives the relay's hourly Cloud Run WebSocket timeout by
   reconnecting; systemd extends that resilience to the process itself.
 - **User units, not system units — and never root.** The daemon must run *as the user*:
-  it pastes into the user's clipboard and lives in the user's session context. Root
+  it drives the user's tmux socket and lives in the user's session context. Root
   would have to impersonate all of that and would hand terminal-injection capability to
   a root process. A system unit with `User=` runs as the right uid (file permissions —
   tmux socket, SA key — work fine) but
@@ -93,13 +93,11 @@ Why this shape:
   for free; **linger** (`loginctl enable-linger`) is the piece that moves their start
   from "first login" to "boot": systemd starts the per-user manager (`user@<uid>`) at
   boot with no login, and keeps it across logouts. No root at any layer.
-- **One session-coupled residue: the clipboard.** Image paste shells out to
-  wl-copy/xclip, which need the *graphical session's* socket — absent before login, and
-  its env (`WAYLAND_DISPLAY`) isn't inherited by user units even after login. So image
-  paste degrades until the desktop session exists (harmless: there's no tmux to paste
-  into pre-login either) and the unit needs the standard mitigation (import the
-  graphical env into the user manager at login, or pin `WAYLAND_DISPLAY`). Everything
-  else the daemon does is session-independent.
+- **No session-coupled residue.** Image paste used to shell out to wl-copy/xclip —
+  the *graphical session's* socket, absent pre-login and not inherited by user units —
+  and was the one thing tying the daemon to a desktop session. It now stages the file
+  to disk and types the path into the pane, so everything the daemon does is
+  session-independent: user units need no graphical-env import at all.
 - **Configuration stays where it is.** The daemon already loads the repo-root `.env`
   itself, so the unit is thin: `WorkingDirectory=` the checkout, run the venv's python,
   `TMUXRC_RELOAD=0`. No second copy of the config to drift. The checkout *is* the deploy
@@ -117,16 +115,16 @@ Why this shape:
 - **Keep `setsid`/pane jobs (status quo).** This doc's problem statement is the rejection.
 - **System-level systemd units.** Wrong session context (sterile env, no guaranteed
   runtime dir, root-owned control surface); gains nothing over user units with linger.
-- **Docker/containers.** The daemon's entire job is touching host state — the tmux
-  socket, the clipboard, the display session. A container would need all of those
-  mounted through, making it strictly more fragile than a user unit for zero isolation
-  benefit; and the tool is inherently single-host, single-user.
+- **Docker/containers.** The daemon's entire job is touching host state — above all the
+  tmux socket, plus the staged-image tmp dir the panes read from. A container would need
+  those mounted through, making it strictly more fragile than a user unit for zero
+  isolation benefit; and the tool is inherently single-host, single-user.
 - **Supervising from within (daemon spawns/monitors the tunnel-client).** Tempting DRY —
   one unit instead of two — but couples two programs with independent lifecycles (a
   tunnel binary upgrade shouldn't bounce the watcher and reset its buffers) and
   reimplements restart logic systemd already does better.
 - **User units *without* linger (start at first login).** The cheapest rival: identical
-  units, no linger. Pre-login there is nothing to watch (no tmux) and no clipboard, so
+  units, no linger. Pre-login there is nothing to watch (no tmux), so
   what linger actually buys is narrower than "starts at boot" sounds: the phone regains
   connectivity after an unattended/remote reboot with nobody at the console — which is
   precisely the situation where a dead dashboard hurts most. That one scenario justifies
