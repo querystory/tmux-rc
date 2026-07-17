@@ -159,21 +159,20 @@ function render(states) {
   // each get a compact row above it; plain shells fold into one summary line so a
   // big fleet doesn't shove the active card off screen.
   const act = activeId();
-  // A dismissed row folds into the dock like a swiped notification — until the pane's
-  // state CHANGES (activity flips or a new question appears), which resurfaces it.
-  const earnsRow = (s) =>
-    (s.activity === "waiting" || has(LOGOS, s.tool)) && dismissed[s.pane_id] !== stateKey(s);
-  dock(states, act); // sticky top bar — constant height, everything else moves below it
-  // Rows render BELOW the card and are INDEPENDENT of which pane is active (the
-  // active one is just highlighted) — so switching panes never changes what's above
-  // the card and it never jumps up or down mid-swipe.
-  const rows = states.filter((s) => allRows || earnsRow(s)).map(row);
-  // The active card sits in a .deck (a positioning context) so the swipe gesture can
-  // overlay the incoming neighbor card and slide both together.
-  const deck = document.createElement("div");
-  deck.className = "deck";
-  deck.append(...states.filter((s) => s.pane_id === act).map(card));
-  panesEl.replaceChildren(deck, ...rows);
+  dock(states, act); // sticky top bar — constant height, content swaps below it
+  // Two modes, no mixing: card view (the active pane, full height) or — via the dock
+  // caret — the list view (every pane as a one-liner). Swapping wholesale avoids the
+  // card bouncing as rows come and go.
+  if (allRows) {
+    panesEl.replaceChildren(...states.map(row));
+  } else {
+    // The active card sits in a .deck (a positioning context) so the swipe gesture
+    // can overlay the incoming neighbor card and slide both together.
+    const deck = document.createElement("div");
+    deck.className = "deck";
+    deck.append(...states.filter((s) => s.pane_id === act).map(card));
+    panesEl.replaceChildren(deck);
+  }
   updateBar(panesById[act]);
 }
 
@@ -207,20 +206,12 @@ function dock(states, act) {
   el.appendChild(counts);
 }
 
-// Swipe-to-dismiss state: pane_id -> the state it was dismissed at. Any state change
-// (activity flip, new question) resurfaces the row; meanwhile it lives in the dock.
-const dismissed = {};
-const stateKey = (s) => s.activity + ":" + ((s.question && s.question.prompt) || "");
-
 function row(s) {
   const el = document.createElement("div");
   el.className = "prow" + (s.activity === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " sel" : "");
-  el.onclick = () => { if (!el._swiped) setActive(s.pane_id); };
-  swipeDismiss(el, () => {
-    dismissed[s.pane_id] = stateKey(s);
-    render(Object.values(panesById));
-  });
+  // Tapping a row opens that pane's card (drops back out of list view).
+  el.onclick = () => { allRows = false; setActive(s.pane_id); };
   const badge = s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
@@ -230,31 +221,6 @@ function row(s) {
   return el;
 }
 
-
-// A waiting row behaves like a notification: drag it sideways, past the threshold it
-// dismisses; short drags snap back. Real drags suppress the tap-to-select click.
-function swipeDismiss(el, onDismiss) {
-  let sx = null, sy = null, dx = 0;
-  el.addEventListener("touchstart", (e) => {
-    sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; el._swiped = false;
-  }, { passive: true });
-  el.addEventListener("touchmove", (e) => {
-    if (sx == null) return;
-    dx = e.touches[0].clientX - sx;
-    if (Math.abs(dx) > Math.abs(e.touches[0].clientY - sy) && Math.abs(dx) > 10) {
-      el._swiped = true;
-      busy = true; // freeze poll re-renders mid-drag
-      el.style.transform = `translateX(${dx}px)`;
-      el.style.opacity = String(Math.max(0.15, 1 - Math.abs(dx) / 250));
-    }
-  }, { passive: true });
-  el.addEventListener("touchend", () => {
-    busy = false;
-    if (Math.abs(dx) > 90) onDismiss();
-    else { el.style.transform = ""; el.style.opacity = ""; }
-    sx = null;
-  });
-}
 
 // Horizontal swipe on the active card switches panes (stable %id order, wraps), as a
 // carousel: the NEIGHBOR card slides in alongside your finger (so it reads as paging,
@@ -356,8 +322,33 @@ function card(s) {
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
   // handles text/keys/images for whichever card is active (see the #bar element).
-  el.appendChild(timeline(s));
+  el.appendChild(peek(s));
   return el;
+}
+
+// Fills the card's leftover height with the TAIL of the pane's latest capture
+// (bottom-left — the live end of the terminal), a mini View screen. Tap opens the
+// real one. Fetched only when the snapshot id changes; cached across re-renders.
+const peekCache = {}; // pane_id -> {snap, text}
+function peek(s) {
+  const box = document.createElement("pre");
+  box.className = "peek";
+  box.onclick = (e) => { e.stopPropagation(); openScreen(s.pane_id, s.title || s.label); };
+  const toEnd = () => { box.scrollTop = box.scrollHeight; box.scrollLeft = 0; };
+  const c = peekCache[s.pane_id];
+  if (c) box.textContent = c.text; // last capture (kept while a newer one loads)
+  if (s.snapshot_id && (!c || c.snap !== s.snapshot_id))
+    fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${s.snapshot_id}`)
+      .then((r) => (r.ok ? r.text() : ""))
+      .then((t) => {
+        if (!t) return;
+        peekCache[s.pane_id] = { snap: s.snapshot_id, text: t };
+        box.textContent = t;
+        toEnd();
+      })
+      .catch(() => {});
+  requestAnimationFrame(toEnd);
+  return box;
 }
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
@@ -700,18 +691,8 @@ async function send(s, body) {
   }
 }
 
-// "View screen" — drill down to the actual terminal. The old inline snapshot strip
-// flickered (rebuilt every poll) and was too small to read. This is a button that
-// opens ONE full-screen, scrollable (both axes) view of the pane's latest raw capture,
-// fetched ON DEMAND — so nothing re-renders on the poll loop.
-function timeline(s) {
-  const btn = document.createElement("button");
-  btn.className = "viewbtn";
-  btn.textContent = "▤ View screen";
-  btn.onclick = (e) => { e.stopPropagation(); openScreen(s.pane_id, s.label); };
-  return btn;
-}
-
+// Full-screen, scrollable (both axes) view of the pane's latest raw capture, fetched
+// ON DEMAND (opened by tapping the card's peek strip).
 async function openScreen(paneId, label) {
   let text = "(loading…)";
   try {

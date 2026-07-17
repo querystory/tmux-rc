@@ -58,7 +58,13 @@
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
     padding: 12px 14px; overflow: hidden;
+    /* Stable full-height card: content varies, the peek strip absorbs the slack. */
+    display: flex; flex-direction: column;
+    min-height: calc(100dvh - 290px);
   }
+  .peek { flex: 1; margin: 12px -14px -12px; padding: 8px 12px; overflow: hidden;
+    border-top: 1px solid #21262d; min-height: 90px; cursor: pointer;
+    font: 10px/1.35 ui-monospace, monospace; color: #8b949e; white-space: pre; }
   .card { transition: transform .15s, opacity .15s; }
   .deck { position: relative; }
   .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; }
@@ -172,9 +178,6 @@
     flex: none; white-space: nowrap;
   }
   .keys button:active { background: #30363d; }
-  .viewbtn { margin-top: 12px; background: transparent; border: 0; color: #8b949e;
-    font-size: 13px; cursor: pointer; padding: 2px 0; }
-  .viewbtn:active { color: #c9d1d9; }
   /* Full-screen raw-capture view, opened on demand (no poll flicker). */
   .screen-overlay { position: fixed; inset: 0; z-index: 50; background: #000000e6;
     display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 0; }
