@@ -48,7 +48,10 @@
     text-overflow: ellipsis; }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
   header .off { background: #6e7681; }
-  #panes { padding: 8px 12px 150px; display: flex; flex-direction: column; gap: 10px; }
+  /* overflow-x hidden: swipe gestures park the neighbor card off-screen with
+     transforms — without this the page itself grows a horizontal scrollbar. */
+  body { overflow-x: hidden; }
+  #panes { padding: 8px 12px 150px; display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
     padding: 12px 14px; overflow: hidden;

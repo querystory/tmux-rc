@@ -239,11 +239,13 @@ function swipeDismiss(el, onDismiss) {
     dx = e.touches[0].clientX - sx;
     if (Math.abs(dx) > Math.abs(e.touches[0].clientY - sy) && Math.abs(dx) > 10) {
       el._swiped = true;
+      busy = true; // freeze poll re-renders mid-drag
       el.style.transform = `translateX(${dx}px)`;
       el.style.opacity = String(Math.max(0.15, 1 - Math.abs(dx) / 250));
     }
   }, { passive: true });
   el.addEventListener("touchend", () => {
+    busy = false;
     if (Math.abs(dx) > 90) onDismiss();
     else { el.style.transform = ""; el.style.opacity = ""; }
     sx = null;
@@ -271,6 +273,7 @@ function swipeNav(el, id) {
     if (sx == null) return;
     dx = e.touches[0].clientX - sx;
     if (Math.abs(dx) <= Math.abs(e.touches[0].clientY - sy) || Math.abs(dx) <= 10) return;
+    busy = true; // freeze poll re-renders mid-drag — they'd replace the card under the finger
     el.style.transition = "none"; // track the finger 1:1, no easing lag
     el.style.transform = `translateX(${dx}px)`;
     const dir = dx < 0 ? -1 : 1;
@@ -292,12 +295,13 @@ function swipeNav(el, id) {
     if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids().length < 2) {
       el.style.transform = ""; // snap back, neighbor retreats
       if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
+      busy = false;
       return;
     }
     const dir = dx < 0 ? -1 : 1;
     el.style.transform = `translateX(${dir * W()}px)`;
     if (ghost) ghost.style.transform = "translateX(0)";
-    setTimeout(() => setActive(neighbor(dir)), 150);
+    setTimeout(() => { busy = false; setActive(neighbor(dir)); }, 150);
   });
 }
 
