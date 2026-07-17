@@ -185,8 +185,14 @@ usageEl.onclick = () => {
   const lit = usageEl.classList.toggle("lit");
   usageEl.setAttribute("aria-pressed", String(lit));
 };
+// Native-button key semantics: Enter fires on keydown; Space on keyup (keydown only
+// suppresses page scroll) so key-repeat can't machine-gun the toggle.
 usageEl.onkeydown = (e) => {
-  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); usageEl.click(); }
+  if (e.key === "Enter") { e.preventDefault(); usageEl.click(); }
+  else if (e.key === " ") e.preventDefault();
+};
+usageEl.onkeyup = (e) => {
+  if (e.key === " ") { e.preventDefault(); usageEl.click(); }
 };
 function showUsage(u, err) {
   if (!u) {

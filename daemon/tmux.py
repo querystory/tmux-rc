@@ -275,8 +275,11 @@ def set_clipboard_image(png: bytes) -> list[str]:
         if shutil.which(cmd[0]) is None:
             continue
         try:
-            # These tools do NOT exit — they persist to serve the clipboard selection.
-            # Feed stdin and detach; waiting for completion would hang forever.
+            # These tools serve the clipboard selection: wl-copy stays in the
+            # foreground for as long as it owns the offer; xclip forks and its parent
+            # exits 0. Feed stdin, then wait BRIEFLY — an instant non-zero exit is the
+            # "no display/session" failure mode, and counting it as success would
+            # resurrect the silent no-op paste. Timeout = still serving = success.
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -286,6 +289,11 @@ def set_clipboard_image(png: bytes) -> list[str]:
             )
             proc.stdin.write(png)
             proc.stdin.close()
+            try:
+                if proc.wait(timeout=0.15) != 0:
+                    continue
+            except subprocess.TimeoutExpired:
+                pass  # still alive, owning the clipboard — that's the success case
             ok.append(name)
         except Exception:  # noqa: BLE001 - try the next tool
             continue
