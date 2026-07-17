@@ -146,9 +146,11 @@
     line-height: 1; cursor: pointer; padding: 0 3px; opacity: .8; }
   .inputwrap .attach[aria-pressed="true"] { color: #58a6ff; opacity: 1; }
   /* Pasted-image thumbnail: mirrors the image staged in the pane's own composer
-     ([Image #N] in Claude Code) until the next Enter sends it (see attachChip). */
-  .attach-chip { width: 24px; height: 24px; border-radius: 5px; object-fit: cover;
-    flex: none; margin: 0 2px; cursor: pointer; box-shadow: 0 0 0 1px #30363d; }
+     ([Image #N] in Claude Code) until the next Enter sends it (see attachChip).
+     Selector outranks `.inputwrap input`, whose flex:1/padding would stretch it. */
+  .inputwrap input.attach-chip { width: 24px; height: 24px; border-radius: 5px;
+    object-fit: cover; flex: none; padding: 0; border: 0; margin: 0 2px;
+    cursor: pointer; box-shadow: 0 0 0 1px #30363d; }
   .row { display: flex; align-items: center; gap: 10px; }
   .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
   .icon svg { display: block; }

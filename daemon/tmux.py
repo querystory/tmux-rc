@@ -12,6 +12,7 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 from dataclasses import dataclass
 from functools import cache
 
@@ -259,6 +260,7 @@ def send_keys(
 
 
 _clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping
+_clip_lock = threading.Lock()  # uploads run in worker threads; don't race the list
 
 
 def set_clipboard_image(png: bytes) -> list[str]:
@@ -271,7 +273,8 @@ def set_clipboard_image(png: bytes) -> list[str]:
     ok: list[str] = []
     # Reap earlier clipboard holders that have since exited (replaced offers) —
     # without this each paste could strand a zombie in our process table.
-    _clip_procs[:] = [p for p in _clip_procs if p.poll() is None]
+    with _clip_lock:
+        _clip_procs[:] = [p for p in _clip_procs if p.poll() is None]
     env_x = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
     attempts = [
         ("wl-copy", ["wl-copy", "-t", "image/png"]),
@@ -299,7 +302,8 @@ def set_clipboard_image(png: bytes) -> list[str]:
                 if proc.wait(timeout=0.15) != 0:
                     continue
             except subprocess.TimeoutExpired:
-                _clip_procs.append(proc)  # alive, owning the clipboard — reap next call
+                with _clip_lock:  # alive, owning the clipboard — reap next call
+                    _clip_procs.append(proc)
             ok.append(name)
         except Exception:  # noqa: BLE001 - try the next tool
             continue
