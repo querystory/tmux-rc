@@ -118,14 +118,11 @@
      to join (the border is curving away there) — square that corner instead. */
   .card.sq-l { border-top-left-radius: 0; }
   .card.sq-r { border-top-right-radius: 0; }
-  /* FIRST tab selected: no flare on the outer side — one straight contiguous vertical
-     down into the card's left border. The rail keeps its normal gray corner; the blue
-     segment is the .tab-edge overlay (drawn from the TAB's top down over the rail's
-     left border column, collinear with the card's border below). The tab's own left
-     border is dropped so the overlay is the only line there; widths compensate so
-     NOTHING shifts on selection. */
-  .dock.has-sel.edge-l .dock-icon.sel { border-left: 0; border-top-left-radius: 0; padding-left: 9px; }
-  .tab-edge { position: absolute; width: 1px; background: #388bfd; z-index: 6; pointer-events: none; }
+  /* FIRST tab selected: the rail's LEFT BORDER disappears (width 0, top-left corner
+     squared so no gray arc dangles), which puts the flush tab's own blue left border
+     exactly collinear with the card's border below — one straight contiguous line,
+     and the tab keeps its normal rounded top corners like every other tab. */
+  #top .dock.has-sel.edge-l { border-left: 0; border-top-left-radius: 0; }
   /* Chrome-style concave fillets at the tab's feet: the card line flares up into the
      tab's sides. Each is an 8×8 patch over the old sharp L-corner: a radial gradient
      paints the blue quarter-arc — tangent to the tab border's inner edge and the

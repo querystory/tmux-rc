@@ -289,7 +289,7 @@ function render(states) {
 // are swept each call — and by dock() in list mode, where there's no card to join.
 function joinTab(deck) {
   const top = document.getElementById("top");
-  top.querySelectorAll(".tab-fillet, .tab-edge").forEach((e) => e.remove());
+  top.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
   const sel = dockEl.querySelector(".dock-icon.sel");
   if (!sel) return;
   const n = document.createElement("i");
@@ -302,27 +302,16 @@ function joinTab(deck) {
     top.appendChild(f);
     return f;
   });
-  // The flush-left tab's vertical: a 1px blue overlay from the tab's top down the
-  // rail's left border column into the card's border (gray above it, blue below —
-  // one straight line). Created here, shown/positioned by pin() when applicable.
-  const edge = document.createElement("i");
-  edge.className = "tab-edge";
-  top.appendChild(edge);
   const pin = () => {
     const s = sel.getBoundingClientRect(),
       d = deck.getBoundingClientRect(), t = top.getBoundingClientRect();
-    // FIRST tab selected: flush-left, no flare — one straight line (see .edge-l CSS).
-    // Only the first icon gets this; a mid-list icon scrolled near the edge merely
-    // squares the corner under its flare (sq-l below).
+    // FIRST tab selected: flush-left, no flare — the rail's left border vanishes so
+    // the tab's own blue border IS the line, collinear with the card's below (see
+    // .edge-l CSS). Only the first icon gets this; a mid-list icon scrolled near the
+    // edge merely squares the corner under its flare (sq-l below).
     const edgeL = sel === dockEl.querySelector(".dock-icon") && s.left - d.left - 7 < 14;
     dockEl.classList.toggle("edge-l", edgeL);
     fl.style.display = edgeL ? "none" : "";
-    edge.style.display = edgeL ? "" : "none";
-    if (edgeL) {
-      edge.style.left = d.left - t.left + "px";
-      edge.style.top = s.top - t.top + "px";
-      edge.style.height = t.height - (s.top - t.top) + "px";
-    }
     n.style.left = s.left - d.left + 1 + "px"; // inset 1px each side: the fillets own
     n.style.width = s.width - 2 + "px";        // the corner pixels
     // A fillet needs a FLAT border line under it; inside the card's corner-radius
@@ -363,7 +352,7 @@ function dock(states, act) {
   // and no scroll re-pin handler (it closes over the dead card's nodes).
   const joined = el.classList.toggle("has-sel", !listFilter && states.some((s) => s.pane_id === act));
   if (!joined) {
-    document.querySelectorAll(".tab-fillet, .tab-edge").forEach((e) => e.remove());
+    document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     el.onscroll = null;
     el.classList.remove("edge-l");
   }
@@ -866,13 +855,16 @@ function updateBar(s) {
   bar.meta.innerHTML = s ? metaChips(s) : "";
 }
 if (bar.input) {
+  // Empty input + a staged image (chip visible): Send/Enter must still submit —
+  // the agent's composer is holding the image and only needs the Enter.
   bar.send.onclick = () => {
     if (bar.input.value) { answer(activeState(), bar.input.value); bar.input.value = ""; }
+    else if (chipEl) sendRaw(activeState(), "Enter");
   };
   bar.input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && bar.input.value) {
-      answer(activeState(), bar.input.value); bar.input.value = "";
-    }
+    if (e.key !== "Enter") return;
+    if (bar.input.value) { answer(activeState(), bar.input.value); bar.input.value = ""; }
+    else if (chipEl) sendRaw(activeState(), "Enter");
   });
   // ⌨ toggles the special-keys row (hidden by default to save a row of height).
   bar.keysToggle.onclick = () => {
