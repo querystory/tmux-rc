@@ -8,7 +8,7 @@
 // otherwise resolve up the prototype chain and render garbage) and escape it into alt.
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
-const ICONS = { shell: "$", unknown: "•" };
+const ICONS = { shell: "$_", unknown: "•" }; // $_ — the classic Bash mark
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
