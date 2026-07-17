@@ -36,7 +36,8 @@ from pydantic import BaseModel  # noqa: E402
 from . import tmux  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
-# One standard, human-readable log format for OUR loggers (uvicorn keeps its own):
+# One standard, human-readable log format for ALL loggers (uvicorn included — main()
+# passes log_config=None so its loggers propagate here instead of using its own):
 # timestamp, level, logger name. Previously nothing configured logging, so module
 # loggers fell through to Python's bare lastResort handler — unprefixed lines, and
 # anything below WARNING silently invisible (which pushed routine lines to WARNING just
@@ -323,9 +324,12 @@ def main() -> None:
     # Run's XFF, so legit tunnel requests LOOKED like they came from the relay's IP and
     # the audit trust gate (loopback-only) refused their identity. The direct TCP peer
     # is what the trust model needs.
+    # log_config=None: don't install uvicorn's own handlers/formatters — its loggers
+    # (uvicorn.access etc.) then propagate to root and share the timestamped format above.
     uvicorn.run(
         "daemon.server:app" if reload else app,
         proxy_headers=False,
+        log_config=None,
         host=os.environ.get("TMUXRC_HOST", "0.0.0.0"),
         port=int(os.environ.get("TMUXRC_PORT", "8080")),
         reload=reload,

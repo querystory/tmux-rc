@@ -38,7 +38,8 @@
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
   /* attach clip lives INSIDE the input field (like a chat composer) */
   .inputwrap { flex: 1; display: flex; align-items: center; background: #21262d; border: 1px solid #30363d; border-radius: 10px; padding-left: 6px; }
-  .inputwrap input { flex: 1; background: transparent; border: 0; color: #e6edf3; padding: 10px 12px 10px 4px; font-size: 15px; }
+  .inputwrap input { flex: 1; background: transparent; border: 0; color: #e6edf3; padding: 10px 12px 10px 4px; font-size: 15px; -webkit-appearance: none; }
+  .inputwrap input::-webkit-search-cancel-button { display: none; }
   .inputwrap .attach { background: transparent; border: 0; color: #8b949e; font-size: 17px; cursor: pointer; padding: 0 4px; }
   .row { display: flex; align-items: center; gap: 10px; }
   .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
@@ -55,7 +56,7 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .sub { color: #6e7681; font-size: 12px; margin-top: 3px; }
   .worksub { color: #6e7681; font-size: 11px; font-weight: 400; }
-  .metarow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .metarow { display: flex; flex-wrap: wrap; gap: 6px; }
   .metarow:empty { display: none; }
   .chip {
     font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: 600;
@@ -182,17 +183,23 @@
       <button data-k="C-o">Ctrl-O</button>
       <button id="bar-prefix" data-k="C-b" title="tmux prefix">Prefix</button>
       <button data-k="C-c">Ctrl-C</button>
+      <button data-k="C-d">Ctrl-D</button>
     </div>
     <div class="freetext">
       <div class="inputwrap">
         <button id="bar-attach" class="attach" title="Attach image">📎</button>
-        <input id="bar-input" placeholder="Type…" type="text" inputmode="text"
+        <!-- type=search: Chrome's autofill heuristics treat a lone named text input as a
+             potential username field and attach the password/payment keyboard accessory
+             bar (which also overlaps the bar's bottom row); search fields are excluded. -->
+        <input id="bar-input" placeholder="Type…" type="search" inputmode="text"
                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-               enterkeyhint="send" name="tmux-rc-cmd" />
+               enterkeyhint="send" />
       </div>
       <button id="bar-send" class="send">Send</button>
       <input id="bar-file" type="file" accept="image/*" hidden />
     </div>
+    <!-- Active pane's meta chips (model · ctx% · cost · mode · agents), below the input. -->
+    <div id="bar-meta" class="metarow"></div>
   </div>
   <script src="/app.js"></script>
 </body>

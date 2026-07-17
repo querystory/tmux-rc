@@ -183,7 +183,6 @@ function card(s) {
     <span class="badge b-${s.activity}">${badge}</span>`;
   el.appendChild(row);
 
-  el.appendChild(metaRow(s));
   if (s.rewind) el.appendChild(rewindView(s));
   // Tables render BEFORE the question so they act as context above the options.
   if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
@@ -354,12 +353,11 @@ function rewindView(s) {
   return box;
 }
 
-// Compact metadata row: model, context bar, cost, mode badge, agent count. Only
+// Compact metadata chips: model, context bar, cost, mode badge, agent count. Shown in
+// the bottom bar (below the input) for the ACTIVE pane only, not on every card. Only
 // renders the chips that have values, so a plain shell shows nothing here.
 const MODE_LABEL = { plan: "plan", "accept-edits": "accept edits", bypass: "bypass perms" };
-function metaRow(s) {
-  const row = document.createElement("div");
-  row.className = "metarow";
+function metaChips(s) {
   const chips = [];
   if (s.model) chips.push(`<span class="chip">${esc(s.model)}</span>`);
   if (s.context_pct != null)
@@ -370,8 +368,7 @@ function metaRow(s) {
   if (s.mode && s.mode !== "normal" && s.mode !== "unknown")
     chips.push(`<span class="chip mode mode-${s.mode}">${MODE_LABEL[s.mode] ?? s.mode}</span>`);
   if (s.agents > 0) chips.push(`<span class="chip agents">⛓ ${s.agents} agents</span>`);
-  row.innerHTML = chips.join("");
-  return row;
+  return chips.join("");
 }
 
 // Always-available raw input: type any text into the pane, plus special keys. This
@@ -385,6 +382,7 @@ const bar = {
   send: document.getElementById("bar-send"),
   attach: document.getElementById("bar-attach"),
   file: document.getElementById("bar-file"),
+  meta: document.getElementById("bar-meta"),
 };
 function activeState() {
   const id = activeId();
@@ -392,6 +390,7 @@ function activeState() {
 }
 function updateBar(s) {
   bar.input.placeholder = s ? `Type into ${s.label || "pane"}…` : "No pane";
+  bar.meta.innerHTML = s ? metaChips(s) : "";
 }
 if (bar.input) {
   bar.send.onclick = () => {
