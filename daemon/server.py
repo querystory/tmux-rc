@@ -46,7 +46,7 @@ from .watcher import Watcher  # noqa: E402
 logging.basicConfig(
     level=os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 # Chatty third-party libraries log a line per LLM call at INFO (httpx: every Vertex
 # POST; google_genai: an "AFC is enabled" banner). That's ~2 lines per parse of pure
