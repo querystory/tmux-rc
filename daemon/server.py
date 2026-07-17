@@ -308,6 +308,9 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     if len(data) > IMG_MAX_BYTES:
         _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: too large")
         raise HTTPException(413, f"image too large (max {IMG_MAX_BYTES // 2**20}MB)")
+    if not data:
+        _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: empty")
+        raise HTTPException(400, "empty upload")
     detail = f"{mime} {len(data)}B"
 
     # Stage to disk, prune stale stagings (the pane reads the file right after the
@@ -343,7 +346,9 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     if tools:
         tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
     else:
-        tmux.send_keys(pane_id, f"{path} ", enter=False, literal=True)
+        # Spaces both sides: the client may have just typed draft text into the pane,
+        # and the path must not concatenate onto it (agents trim a stray leading space).
+        tmux.send_keys(pane_id, f" {path} ", enter=False, literal=True)
     mode = f"clipboard:{'+'.join(tools)}" if tools else "path"
     _audit(request, "paste_image", pane_id, f"{detail} via {mode}")
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
@@ -356,7 +361,8 @@ def _to_png(data: bytes) -> bytes:
     from PIL import Image
 
     buf = io.BytesIO()
-    Image.open(io.BytesIO(data)).save(buf, "PNG")
+    with Image.open(io.BytesIO(data)) as im:
+        im.save(buf, "PNG")
     return buf.getvalue()
 
 
