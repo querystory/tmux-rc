@@ -9,13 +9,14 @@
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg",
   shell: "/bash.png" }; // official Bash logo (MIT — see bash-logo.LICENSE)
-const ICONS = { unknown: "•" };
+// Unidentified panes get the tmux logomark ("some tmux pane") instead of a bare dot.
+const UNKNOWN_LOGO = "/tmux-logomark.svg";
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
 const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
-const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICONS, tool) ? ICONS[tool] : "•"));
+const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
@@ -40,11 +41,12 @@ function setFavicon(waiting) {
     c.width = c.height = 32;
     const g = c.getContext("2d");
     g.drawImage(im, 0, 0, 32, 32);
-    // Punch a clear ring first so the dot reads over busy icon pixels.
+    // Punch a clear ring first so the dot reads over busy icon pixels. Sized like
+    // the in-app corner badges — a hint, not an eclipse.
     g.globalCompositeOperation = "destination-out";
-    g.beginPath(); g.arc(24, 8, 9, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(25, 7, 6.5, 0, Math.PI * 2); g.fill();
     g.globalCompositeOperation = "source-over";
-    g.beginPath(); g.arc(24, 8, 7, 0, Math.PI * 2);
+    g.beginPath(); g.arc(25, 7, 5, 0, Math.PI * 2);
     g.fillStyle = "#e3b341"; g.fill();
     favDotUrl = c.toDataURL("image/png");
     if (favWaiting) favLink.href = favDotUrl;
