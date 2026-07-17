@@ -259,9 +259,11 @@ function flipIn(root) {
     icon.style.opacity = "0";
     r.classList.add("arriving"); // titles hidden until the icon is on its way
     document.body.appendChild(fly);
+    void r.offsetWidth; // force the hidden state to COMMIT, else the fade never runs
     requestAnimationFrame(() => {
       fly.style.transform = `translate(${dst.left - src.left}px,${dst.top - src.top}px)`;
-      r.classList.remove("arriving"); // …then fade in while it flies
+      // one more frame so the fade starts strictly after the flight is underway
+      requestAnimationFrame(() => r.classList.remove("arriving"));
     });
     setTimeout(() => { fly.remove(); icon.style.opacity = ""; }, 300);
   });
