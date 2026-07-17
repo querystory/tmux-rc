@@ -934,7 +934,9 @@ async function uploadImage(s, file, input) {
     fd.append("file", file);
     const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
     if (!r.ok) alert("Image upload failed: " + r.status);
-    else attachChip(file); // visible confirmation — the paste is otherwise invisible client-side
+    // Visible confirmation — the paste is otherwise invisible client-side. Skipped if
+    // the user switched panes mid-upload: the image went to s, not the active pane.
+    else if (s.pane_id === activeId()) attachChip(file);
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
@@ -947,12 +949,15 @@ async function uploadImage(s, file, input) {
 let chipEl = null;
 function attachChip(file) {
   clearAttachChip();
-  chipEl = document.createElement("img");
+  // input[type=image] = a real button rendering the image: keyboard-focusable and
+  // Enter/Space-activatable for free (a bare <img onclick> is not).
+  chipEl = document.createElement("input");
+  chipEl.type = "image";
   chipEl.className = "attach-chip";
   chipEl.alt = "image staged in the pane's composer";
   chipEl.title = "Pasted into the pane — sends with your next Enter. Tap to hide.";
   chipEl.src = URL.createObjectURL(file);
-  chipEl.onclick = clearAttachChip;
+  chipEl.onclick = (e) => { e.preventDefault(); clearAttachChip(); };
   bar.attach.after(chipEl);
 }
 function clearAttachChip() {
