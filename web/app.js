@@ -31,18 +31,21 @@ let pending = null; // {id, ts}
 function activeId() {
   if (pending) {
     const s = panesById[pending.id];
-    if (s && !s.tmux_active && Date.now() - pending.ts < 8000) return pending.id;
-    pending = null; // confirmed by the server (or expired / pane gone)
+    // Only SERVER data may confirm (panesById is never mutated locally): earlier this
+    // also checked a locally-set tmux_active flag, which "confirmed" the pending pick
+    // instantly — so the next stale poll yanked the selection back to the old pane.
+    if (s && s.tmux_active) pending = null; // server caught up — its truth takes over
+    else if (!s || Date.now() - pending.ts > 8000) pending = null; // pane gone / select never landed
+    else return pending.id;
   }
   const focused = Object.values(panesById).find((s) => s.tmux_active);
   return focused ? focused.pane_id : Object.keys(panesById)[0] || null;
 }
 function setActive(id) {
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
-  // Immediately mark this pane as tmux_active so the highlight updates without
-  // waiting for the next poll (which is 2s away — feels broken without this).
+  // pending makes the switch instant in the UI (the next poll is 2s away, and the
+  // watcher's view of tmux focus lags a tick or two behind that).
   pending = { id, ts: Date.now() };
-  Object.values(panesById).forEach((s) => { s.tmux_active = s.pane_id === id; });
   render(Object.values(panesById));
 }
 
