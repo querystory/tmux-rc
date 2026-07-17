@@ -53,6 +53,12 @@ itself. Two latent bugs block this today and are prerequisites:
    one comparison.)
 2. **Binaries in `/tmp`.** The tunnel-client currently runs from `/tmp/tunnel-client`,
    erased on reboot. Anything a unit starts must live in a real path (`~/.local/bin`).
+3. **Bind localhost.** The API is unauthenticated and `/send` injects keystrokes into
+   terminals; today it binds `0.0.0.0:8080`. Tolerable for a process someone is actively
+   watching; unacceptable as a 24/7 LAN-reachable endpoint. The phone now reaches the
+   daemon exclusively through the IAP-authenticated tunnel — whose client connects to
+   `localhost:8080` — so always-on operation must flip the default bind to `127.0.0.1`
+   (LAN exposure becomes an explicit opt-in, not a side effect).
 
 ## Deployment shape
 
@@ -69,11 +75,22 @@ Why this shape:
   human notices" into a seconds-long blip. The tunnel-client already survives the relay's
   hourly Cloud Run WebSocket timeout by reconnecting; systemd extends that resilience to
   the process itself.
-- **User units, not system units.** The daemon must run *as the user*: it reads the
-  user's tmux socket, the user's SA key, and pastes into the user's clipboard
-  (wl-copy/xclip need the user's Wayland/X session). A system unit would have to
-  impersonate all of that; a user unit gets it for free. Linger covers the at-boot
-  requirement.
+- **User units, not system units — and never root.** The daemon must run *as the user*:
+  it reads the user's tmux socket, the user's SA key, and pastes into the user's
+  clipboard. Root would have to impersonate all of that and would hand terminal-injection
+  capability to a root process. A system unit with `User=` runs as the right uid but
+  outside the session machinery (sterile env, no guaranteed `XDG_RUNTIME_DIR`) — the
+  service-account pattern bolted onto a desktop user. User units get the user context
+  for free; **linger** (`loginctl enable-linger`) is the piece that moves their start
+  from "first login" to "boot": systemd starts the per-user manager (`user@<uid>`) at
+  boot with no login, and keeps it across logouts. No root at any layer.
+- **One session-coupled residue: the clipboard.** Image paste shells out to
+  wl-copy/xclip, which need the *graphical session's* socket — absent before login, and
+  its env (`WAYLAND_DISPLAY`) isn't inherited by user units even after login. So image
+  paste degrades until the desktop session exists (harmless: there's no tmux to paste
+  into pre-login either) and the unit needs the standard mitigation (import the
+  graphical env into the user manager at login, or pin `WAYLAND_DISPLAY`). Everything
+  else the daemon does is session-independent.
 - **Configuration stays where it is.** The daemon already loads the repo-root `.env`
   itself, so the unit is thin: `WorkingDirectory=` the checkout, run the venv's python,
   `TMUXRC_RELOAD=0`. No second copy of the config to drift. The checkout *is* the deploy
