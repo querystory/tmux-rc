@@ -51,10 +51,13 @@ but have distinct signatures. Decide by the evidence on screen:
 - "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
   with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
   "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
-- "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku" + a
-  version like "4.8"); status line shows dir/branch · model · context% · elapsed · cost ·
-  prompts/tools counts; whimsical gerund while working (e.g. "Shimmying…"); permission
-  modes "plan mode"/"accept edits"/"bypass permissions"; Esc-Esc REWIND picker.
+- "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
+  "Fable" + a version like "4.8" — the family grows; treat unfamiliar names in the model
+  slot as claude when the rest of the chrome matches); status line shows dir/branch ·
+  model · context% · elapsed · cost · prompts/tools counts; whimsical gerund while
+  working (e.g. "Shimmying…"); permission modes "plan mode"/"accept edits"/"bypass
+  permissions"; Esc-Esc REWIND picker. The CHROME identifies it — an unrecognized model
+  name inside unmistakable Claude Code chrome is still "claude".
 Identify an agent by ITS OWN UI CHROME (status bar, input box, permission prompts,
 banner) — never by agent/model names merely APPEARING IN CONTENT. A pane whose text
 mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:generateContent),
@@ -69,8 +72,8 @@ chrome is present — a plain interactive shell, including one running an ordina
 command or server whose output fills the pane. Use "unknown" only
 when you truly cannot tell which agent it is.
 
-CLAUDE CODE in detail (one of the agents above — identify it by its Claude model name,
-not merely by being an agent). Recognize it by its style: a rounded input box drawn with
+CLAUDE CODE in detail (one of the agents above — identify it by its chrome plus its
+model name, not merely by being an agent). Recognize it by its style: a rounded input box drawn with
 box characters, and a two-line STATUS LINE near the bottom that typically shows — in order — the working directory and git branch, the
 model name (e.g. "Opus 4.8"), a context-window percentage, an elapsed session time, a
 session cost in dollars, and counts of prompts/tools; plus a permission-mode indicator
