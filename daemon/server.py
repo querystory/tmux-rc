@@ -334,10 +334,6 @@ def main() -> None:
         port=int(os.environ.get("TMUXRC_PORT", "8080")),
         reload=reload,
         reload_dirs=["daemon"] if reload else None,
-        # The parser prompt is loaded at import time (classify.py); uvicorn only watches
-        # *.py by default, so prompt edits silently kept the OLD prompt until the next
-        # .py change. Watch .txt too so editing the prompt restarts the worker.
-        reload_includes=["*.py", "*.txt"] if reload else None,
     )
 
 
