@@ -497,8 +497,9 @@ function bgTerm(s) {
   const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
   const c = peekCache[s.pane_id];
   // Same linkification as the full-screen view (escaped text, wrapped URLs rejoined),
-  // so URLs in the peek are tappable in place.
-  if (c) box.innerHTML = linkifyCapture(c.text); // last capture (kept while newer loads)
+  // so URLs in the peek are tappable in place. Linkified ONCE per snapshot, cached —
+  // the deck rebuilds every poll and re-running the regex on a big capture is waste.
+  if (c) box.innerHTML = c.html; // last capture (kept while a newer one loads)
   const snap = s.snapshot_id;
   if (snap && (!c || c.snap !== snap))
     fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
@@ -509,8 +510,9 @@ function bgTerm(s) {
         // ms timestamps) overwrite a newer one already applied.
         const cur = peekCache[s.pane_id];
         if (!txt || (cur && Number(cur.snap) >= Number(snap))) return;
-        peekCache[s.pane_id] = { snap, text: txt };
-        box.innerHTML = linkifyCapture(txt);
+        const html = linkifyCapture(txt);
+        peekCache[s.pane_id] = { snap, html };
+        box.innerHTML = html;
         toEnd();
       })
       .catch(() => {});
