@@ -148,33 +148,48 @@ function render(states) {
   // big fleet doesn't shove the active card off screen.
   const act = activeId();
   const others = states.filter((s) => s.pane_id !== act);
-  // A dismissed waiting pane folds away like a swiped notification — until it asks
-  // something new. Dismissals die as soon as the pane stops waiting.
-  states.forEach((s) => { if (s.activity !== "waiting") delete dismissed[s.pane_id]; });
+  // A dismissed row folds into the dock like a swiped notification — until the pane's
+  // state CHANGES (activity flips or a new question appears), which resurfaces it.
   const earnsRow = (s) =>
-    s.activity === "waiting" ? dismissed[s.pane_id] !== waitKey(s) : has(LOGOS, s.tool);
-  const folded = others.filter((s) => !earnsRow(s));
+    (s.activity === "waiting" || has(LOGOS, s.tool)) && dismissed[s.pane_id] !== stateKey(s);
   const rows = others.filter(earnsRow).map(row);
-  if (folded.length) rows.push(othersRow(folded));
-  if (othersOpen) rows.push(...folded.map(row));
+  rows.push(dock(states, act));
   panesEl.replaceChildren(...rows, ...states.filter((s) => s.pane_id === act).map(card));
   updateBar(panesById[act]);
 }
 
-// Swipe-to-dismiss state: pane_id -> the question it was dismissed at (a NEW question
-// resurfaces the row; the "Other panes" fold shows its waiting count meanwhile).
+// The pane dock: one icon per pane in swipe (%id) order — active highlighted, a
+// colored dot showing each pane's activity. Tap an icon to jump; it doubles as the
+// page indicator while swiping the card. Folded shells and dismissed waiters live here.
+function dock(states, act) {
+  const el = document.createElement("div");
+  el.className = "prow dock";
+  const ordered = states.slice()
+    .sort((a, b) => parseInt(a.pane_id.slice(1)) - parseInt(b.pane_id.slice(1)));
+  for (const s of ordered) {
+    const b = document.createElement("button");
+    b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
+    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${s.activity}"></i>`;
+    b.title = s.title || s.label || s.pane_id;
+    b.onclick = (e) => { e.stopPropagation(); setActive(s.pane_id); };
+    el.appendChild(b);
+  }
+  return el;
+}
+
+// Swipe-to-dismiss state: pane_id -> the state it was dismissed at. Any state change
+// (activity flip, new question) resurfaces the row; meanwhile it lives in the dock.
 const dismissed = {};
-const waitKey = (s) => (s.question && s.question.prompt) || "waiting";
+const stateKey = (s) => s.activity + ":" + ((s.question && s.question.prompt) || "");
 
 function row(s) {
   const el = document.createElement("div");
   el.className = "prow" + (s.activity === "waiting" ? " waiting" : "");
   el.onclick = () => { if (!el._swiped) setActive(s.pane_id); };
-  if (s.activity === "waiting")
-    swipeDismiss(el, () => {
-      dismissed[s.pane_id] = waitKey(s);
-      render(Object.values(panesById));
-    });
+  swipeDismiss(el, () => {
+    dismissed[s.pane_id] = stateKey(s);
+    render(Object.values(panesById));
+  });
   const badge = s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
@@ -184,20 +199,6 @@ function row(s) {
   return el;
 }
 
-// The folded shells, one line: "▸ Other panes · <n> per activity". Tap to expand.
-let othersOpen = false;
-function othersRow(list) {
-  const counts = {};
-  list.forEach((s) => (counts[s.activity] = (counts[s.activity] || 0) + 1));
-  const el = document.createElement("div");
-  el.className = "prow others";
-  el.onclick = () => { othersOpen = !othersOpen; render(Object.values(panesById)); };
-  el.innerHTML =
-    `<span class="prow-name">${othersOpen ? "▾" : "▸"} Other panes</span>` +
-    Object.entries(counts)
-      .map(([a, n]) => `<span class="badge b-${a}">${n} ${a}</span>`).join("");
-  return el;
-}
 
 // A waiting row behaves like a notification: drag it sideways, past the threshold it
 // dismisses; short drags snap back. Real drags suppress the tap-to-select click.
