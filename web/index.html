@@ -200,6 +200,11 @@
   .freetext { display: flex; gap: 8px; }
   .freetext input { flex: 1; background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 10px; padding: 10px 12px; font-size: 15px; }
   .freetext button.send { background: #388bfd; border: 0; color: #fff; border-radius: 10px; padding: 0 16px; font-weight: 600; }
+  /* The bar's Send sits INSIDE the field, quiet and gray (designer ref: composer-style
+     "Ask"): the field is the affordance, the button shouldn't shout. */
+  .inputwrap button.send { background: #2d333b; color: #adbac7; border: 0; border-radius: 8px;
+    padding: 7px 14px; margin: 4px; font-size: 13px; font-weight: 600; flex: none; cursor: pointer; }
+  .inputwrap button.send:active { background: #388bfd; color: #fff; }
   .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
     max-height: 40vh; overflow-y: auto; }
   .events::-webkit-scrollbar { width: 6px; } .events::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
@@ -313,8 +318,9 @@
         <input id="bar-input" placeholder="Type…" type="search" inputmode="text"
                autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                enterkeyhint="send" />
+        <!-- Send lives INSIDE the field (chat-composer style): muted until it matters. -->
+        <button id="bar-send" class="send">Send</button>
       </div>
-      <button id="bar-send" class="send">Send</button>
       <input id="bar-file" type="file" accept="image/*" hidden />
     </div>
     <!-- Active pane's meta chips (model · ctx% · cost · mode · agents), below the input. -->
