@@ -255,7 +255,11 @@ function dock(states, act) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
-    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${actOf(s)}" aria-hidden="true"></i>`;
+    // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
+    // none — quiet is the default, only running/waiting earn a signal.
+    const a = actOf(s);
+    b.innerHTML = iconFor(s.tool) +
+      (a === "running" || a === "waiting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
     b.title = s.title || s.label || s.pane_id;
     b.setAttribute("aria-label", b.title);
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
