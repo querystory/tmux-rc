@@ -204,20 +204,27 @@ function card(s) {
 function linksView(links) {
   const box = document.createElement("div");
   box.className = "links";
-  const valid = links.filter((l) => l && l.href && /^https?:\/\//i.test(l.href));
+  const valid = links.filter((l) => {
+    if (!l || !l.href || !/^https?:\/\//i.test(l.href)) return false;
+    try { new URL(l.href); return true; } catch { return false; }  // pre-cap: malformed can't eat slots
+  });
   for (const l of valid.slice(0, 3)) {
     // The label is MODEL OUTPUT derived from untrusted pane content — a hostile pane
     // can suggest a reassuring label for a phishing URL. Always show the destination
     // host next to the label so the user sees where the tap goes; cap the label so a
     // hostile pane can't bury the card's actionable UI under a wall of text.
-    let host = "";
-    try { host = new URL(l.href).host; } catch { continue; }
+    const host = new URL(l.href).host;
     const a = document.createElement("a");
     a.className = "linkbtn";
     a.href = l.href;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    a.textContent = `\u{1F517} ${String(l.text || "").slice(0, 80) || host}`;
+    // Strip bidi controls (an unterminated RLO in a model label could visually
+    // reverse the host indicator) and cap by code points (no split surrogates).
+    const label = Array.from(
+      String(l.text || "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
+    ).slice(0, 80).join("");
+    a.textContent = `\u{1F517} ${label || host}`;
     const hostEl = document.createElement("span");
     hostEl.className = "linkhost";
     hostEl.textContent = ` ${host}`;
@@ -569,11 +576,14 @@ async function openScreen(paneId, label) {
 function linkifyCapture(raw) {
   raw = raw.replace(/\r/g, "");
   const lines = raw.split("\n");
-  // Joining is only plausible at real terminal widths: with a width floor, a short
-  // capture whose longest line happens to END in a URL (or a uniform tiny pane) no
-  // longer glues unrelated following lines into the href.
+  // Joining is plausible only when the capture shows evidence of real wrapping: a
+  // plausible terminal width (>=40) AND at least TWO full-width lines (a lone longest
+  // line that happens to end in a URL, or a uniform tiny pane, is not wrapping). This
+  // keeps narrow real panes (e.g. 58-col splits) joining, unlike an absolute floor.
   const maxLen = Math.max(0, ...lines.map((l) => l.length));
-  const joinWidth = Math.max(60, maxLen - 1);
+  const fullLines = lines.filter((l) => l.length >= maxLen - 1).length;
+  const canJoin = maxLen >= 40 && fullLines >= 2 && fullLines < lines.length;
+  const joinWidth = maxLen - 1;
   const lineEndLen = new Map(); // offset of each \n in raw -> length of the line it ends
   let off = 0;
   for (const l of lines) { lineEndLen.set(off + l.length, l.length); off += l.length + 1; }
@@ -582,7 +592,7 @@ function linkifyCapture(raw) {
   // URL chars: the original terminator exclusions (whitespace, quotes, brackets — also
   // the belt-and-braces for attribute safety) PLUS everything non-ASCII, so TUI
   // box-drawing borders (│ etc.) flush against a URL never glue onto the href.
-  const re = /https?:\/\/[^\s<>"')\]\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u007F-\uFFFF]+)*/gi;
+  const re = /https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)*/gi;
   while ((m = re.exec(raw))) {
     out += esc(raw.slice(pos, m.index));
     // Accept newline-continuations only while the line being left was full-width
@@ -592,12 +602,12 @@ function linkifyCapture(raw) {
       const nl = m[0].indexOf("\n", search);
       if (nl === -1) break;
       const endedLine = lineEndLen.get(m.index + nl);
-      if (endedLine !== undefined && endedLine >= joinWidth) { search = nl + 1; continue; }
+      if (canJoin && endedLine !== undefined && endedLine >= joinWidth) { search = nl + 1; continue; }
       cut = nl; break;
     }
     const shown = m[0].slice(0, cut);
     const href = shown.replace(/\n[ \t]*/g, "");
-    out += `<a href="${escAttr(href)}" target="_blank" rel="noopener">${esc(shown)}</a>`;
+    out += `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer">${esc(shown)}</a>`;
     pos = m.index + cut;
     re.lastIndex = pos;
   }
