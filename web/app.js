@@ -516,6 +516,15 @@ function bgTerm(s) {
         toEnd();
       })
       .catch(() => {});
+  // Desktop has no pan gesture — dragging a text selection auto-scrolls the window
+  // sideways with nothing to bring it home (touch pans go through pinchZoom's clamp).
+  // Ease scrollLeft back once the drag settles.
+  let scrollIdle;
+  wrap.addEventListener("scroll", () => {
+    if (!wrap.scrollLeft) return;
+    clearTimeout(scrollIdle);
+    scrollIdle = setTimeout(() => wrap.scrollTo({ left: 0, behavior: "smooth" }), 500);
+  });
   pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }), true);
   requestAnimationFrame(toEnd);
   // The window's height changes after we pin the scroll (the card above grows as
