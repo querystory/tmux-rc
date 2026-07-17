@@ -905,9 +905,22 @@ async function uploadImage(s, file, input) {
     fd.append("file", file);
     const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
     if (!r.ok) alert("Image upload failed: " + r.status);
+    else flashAttach(file); // visible confirmation — the paste is otherwise invisible client-side
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
+}
+
+// The paste happens INSTANTLY in the pane (not staged with the draft), so confirm it
+// with a transient thumbnail in the bar rather than a lingering chip that would read
+// as "attached to what I'm typing".
+function flashAttach(file) {
+  const im = document.createElement("img");
+  im.className = "attach-flash";
+  im.alt = "image pasted";
+  im.src = URL.createObjectURL(file);
+  bar.attach.after(im);
+  im.onanimationend = () => { URL.revokeObjectURL(im.src); im.remove(); };
 }
 
 function question(s) {
