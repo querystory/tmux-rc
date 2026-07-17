@@ -107,6 +107,13 @@ def _backoff_remaining() -> float:
     return max(0.0, _backoff["until"] - time.time())
 
 
+def backing_off() -> bool:
+    """True while the 429 backoff is armed — callers with their own attempt budgets
+    (e.g. bootstrap retries) should skip rather than burn attempts on calls that
+    classify_text will refuse anyway."""
+    return _backoff_remaining() > 0
+
+
 def _handle_llm_error(e: Exception) -> str:
     """Log an LLM failure at the right fidelity and return a short user-facing message.
 

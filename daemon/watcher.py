@@ -16,7 +16,7 @@ from functools import partial
 
 from . import tmux
 from .classify import bootstrap, classify
-from .llm import classify_text, summarize_events
+from .llm import backing_off, classify_text, summarize_events
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ class Watcher:
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
         self._boot: dict[
             str, dict
-        ] = {}  # pane_id -> bootstrap {summary, name, events, until} (see _maybe_bootstrap)
+        ] = {}  # pane_id -> bootstrap {summary, name, events} + seeded flag once served
         self._boot_tries: dict[
             str, tuple[int, float]
         ] = {}  # pane_id -> (attempts, last attempt ts)
@@ -273,6 +273,8 @@ class Watcher:
         """Deep-read ONE not-yet-bootstrapped pane's scrollback per tick (staggers the
         fat LLM calls behind live parses) and stash {summary, name, events}. Failures
         retry a few times with spacing — a 429 at boot shouldn't be permanent."""
+        if backing_off():
+            return  # rate-limited: a call now would be refused — don't burn attempts
         now = time.time()
         for p in panes:
             if p.id in self._boot:
@@ -281,13 +283,19 @@ class Watcher:
             if tries >= BOOTSTRAP_ATTEMPTS or (tries and now - last < BOOTSTRAP_RETRY_SECONDS):
                 continue
             self._boot_tries[p.id] = (tries + 1, now)
-            llm_fn = partial(
-                classify_text,
-                kind="bootstrap",
-                pane_uid=tmux.pane_uid(p),
-                pane_label=p.label,
-            )
-            result = bootstrap(p, tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES), llm_fn)
+            try:
+                llm_fn = partial(
+                    classify_text,
+                    kind="bootstrap",
+                    pane_uid=tmux.pane_uid(p),
+                    pane_label=p.label,
+                )
+                result = bootstrap(
+                    p, tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES), llm_fn
+                )
+            except Exception:  # noqa: BLE001 - one pane must never wedge the watcher
+                logger.warning("bootstrap failed for %s", p.id, exc_info=True)
+                result = None
             if result:
                 self._boot[p.id] = result
                 # Feed the seeded texts into the parser's already-reported list so the
