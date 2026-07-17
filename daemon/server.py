@@ -36,6 +36,18 @@ from pydantic import BaseModel  # noqa: E402
 from . import tmux  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
+# One standard, human-readable log format for OUR loggers (uvicorn keeps its own):
+# timestamp, level, logger name. Previously nothing configured logging, so module
+# loggers fell through to Python's bare lastResort handler — unprefixed lines, and
+# anything below WARNING silently invisible (which pushed routine lines to WARNING just
+# to be seen). Import-time, not main(): under --reload the worker process re-imports
+# this module but never calls main(). basicConfig is a no-op if root is already set up.
+logging.basicConfig(
+    level=os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 logger = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -55,16 +67,8 @@ class SendBody(BaseModel):
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
 
 
-# Dedicated audit logger with its own stderr handler at INFO. The daemon never
-# configures root logging, so a plain module logger surfaces only WARNING+ (via
-# logging.lastResort) — and an audit line is a routine record, not a warning.
+# Audit lines ride the standard root config above (INFO). Routine records, not warnings.
 _audit_log = logging.getLogger("daemon.server.audit")
-if not _audit_log.handlers:
-    _ah = logging.StreamHandler()
-    _ah.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    _audit_log.addHandler(_ah)
-    _audit_log.setLevel(logging.INFO)
-    _audit_log.propagate = False
 
 # Key CONTENT in the audit trail is on by default (the operator asked for exactly this
 # visibility) but can be switched off: keys typed via the phone can include no-echo

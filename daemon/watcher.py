@@ -400,12 +400,11 @@ class Watcher:
                 continue
             (dropped if e["text"] in seen else new_events).append(e)
             seen.add(e["text"])
-        # Visibility without spam: WARNING (INFO is invisible under uvicorn's default
-        # logging), but only when the dropped set changes — a heartbeat re-dropping the
-        # same text every 10s stays quiet.
+        # Visibility without spam: log only when the dropped set changes — a heartbeat
+        # re-dropping the same text every 10s stays quiet.
         dropped_texts = [e["text"] for e in dropped]
         if dropped_texts and dropped_texts != self._last_dropped.get(pane.id):
-            logger.warning(
+            logger.info(
                 "%s: dropped %d re-emitted event(s), e.g. %r",
                 pane.id,
                 len(dropped_texts),
