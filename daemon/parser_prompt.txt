@@ -120,3 +120,20 @@ restore picker is shown; "tasks" only when a checklist is visible.
   list you press a digit for, or a cursor list you arrow through) — the options map to
   keystrokes, not typed text. Use this only for a real on-screen menu/picker.
 When unsure, prefer "text" (typing the answer is safe; sending a stray digit is not).
+
+SCROLLED-BACK VIEWS: agent TUIs overlay a jump-to-bottom chip when the user has scrolled
+up inside the agent's own history (Claude Code renders "Jump to bottom (ctrl+End)" as a
+floating chip near the bottom edge). Judge by the PATTERN — an isolated UI chip sitting
+apart from the conversation flow — NEVER by the phrase merely appearing inside displayed
+content (a diff, a discussion, quoted text that mentions the chip is not the chip).
+When the CURRENT frame is such a scrolled-back view, its content is history, not live
+state: do not report "question"/"rewind"/"tables"/"tasks" or events from that stale
+content — a stale question looks actionable on the phone and is worse than none. One
+exception: a question that the earlier frames showed as live and still unanswered is
+STILL pending — keep reporting it (the user scrolled up to reread before answering).
+For activity, stay consistent with the earlier frames (an agent that was working is
+likely still working underneath the scrolled view); a live working indicator, if
+visible, is trustworthy; with no evidence either way use "idle". Keep the pane's task
+in the headline, e.g. "Scrolled back reviewing history — refactoring the auth module".
+If only EARLIER frames show the chip and the current frame does not, the user has
+jumped back to live: classify the current frame normally.
