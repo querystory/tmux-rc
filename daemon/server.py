@@ -55,32 +55,62 @@ class SendBody(BaseModel):
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
 
 
+# Dedicated audit logger with its own stderr handler at INFO. The daemon never
+# configures root logging, so a plain module logger surfaces only WARNING+ (via
+# logging.lastResort) — and an audit line is a routine record, not a warning.
+_audit_log = logging.getLogger("daemon.server.audit")
+if not _audit_log.handlers:
+    _ah = logging.StreamHandler()
+    _ah.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    _audit_log.addHandler(_ah)
+    _audit_log.setLevel(logging.INFO)
+    _audit_log.propagate = False
+
+# Key CONTENT in the audit trail is on by default (the operator asked for exactly this
+# visibility) but can be switched off: keys typed via the phone can include no-echo
+# secrets (sudo/ssh passwords) that nothing else in the system captures — pane capture
+# never sees unechoed input — and a forwarded journal would persist them. Set
+# TMUXRC_AUDIT_KEYS=0 to log actions without key content (local log AND telemetry).
+_AUDIT_KEYS = os.environ.get("TMUXRC_AUDIT_KEYS") != "0"
+
+
 def _audit(
     request: Request,
     action: str,
     pane_id: str,
     detail: str = "",
     keys: str | None = None,
+    outcome: str = "ok",
 ) -> None:
     """One line per state-CHANGING request, with WHO — answers "what is making changes
-    to my terminals?". The tunnel relay authenticates users via IAP and forwards the
-    validated identity as X-Tunnel-User (it strips any spoofed inbound copy); requests
-    that didn't come through the tunnel are labeled with the client address instead.
-    Also emitted as an OTel record so the audit trail is queryable next to the parse
-    telemetry. Keys are shown in the local log (it's the operator's own audit trail);
-    they reach telemetry only under TMUXRC_QSDEBUG (see telemetry.emit_action)."""
-    actor = (
-        request.headers.get("x-tunnel-user")
-        or f"local:{request.client.host if request.client else '?'}"
-    )
-    shown = f" keys={keys[:80]!r}" if keys is not None else ""
-    logger.warning(
-        "AUDIT %s pane=%s by %s%s%s",
+    to my terminals?". Also emitted as an OTel record so the trail is queryable next to
+    the parse telemetry.
+
+    Trust model for WHO: X-Tunnel-User is honored only from loopback peers — the
+    tunnel-client connects from localhost, and the relay validated the identity via IAP
+    and strips spoofed inbound copies (qsi-automation#525). From any OTHER peer the
+    header is an unauthenticated LAN client's claim, so it is logged as a claim rather
+    than as the actor — which makes spoof attempts themselves visible in the trail.
+
+    `outcome` records what actually happened ("ok", "rejected: ...", "error: ..."), so
+    a forensic reader can distinguish completed actions from refused/failed attempts."""
+    peer = request.client.host if request.client else "?"
+    claimed = request.headers.get("x-tunnel-user")
+    if claimed and peer in ("127.0.0.1", "::1"):
+        actor = claimed
+    elif claimed:
+        actor = f"local:{peer} claiming {claimed[:60]!r}"
+    else:
+        actor = f"local:{peer}"
+    shown = f" keys={keys[:80]!r}" if keys is not None and _AUDIT_KEYS else ""
+    _audit_log.info(
+        "AUDIT %s pane=%s by %s%s%s%s",
         action,
         pane_id,
         actor,
         f" {detail}" if detail else "",
         shown,
+        "" if outcome == "ok" else f" [{outcome}]",
     )
     try:
         from . import telemetry
@@ -88,9 +118,10 @@ def _audit(
         telemetry.emit_action(
             action=action,
             pane_uid=f"{tmux.server_uid()}:{pane_id}",
-            actor=actor,
+            actor=actor[:200],
             detail=detail or None,
-            keys=keys,
+            keys=keys if _AUDIT_KEYS else None,
+            outcome=outcome,
         )
     except Exception:  # noqa: BLE001 - audit telemetry must never break the request
         logger.debug("audit emit failed", exc_info=True)
@@ -168,16 +199,27 @@ def get_snapshot(pane_id: str, snap_id: str):
 
 @app.post("/api/panes/{pane_id}/send")
 def send(pane_id: str, body: SendBody, request: Request):
+    detail = f"enter={body.enter} literal={body.literal}"
     if tmux.find_pane(pane_id) is None:
+        # Refused attempts are audited too — probing for pane ids is exactly the
+        # traffic a forensic reader wants to see.
+        _audit(
+            request,
+            "send_keys",
+            pane_id,
+            detail,
+            body.keys,
+            outcome="rejected: pane not found",
+        )
         raise HTTPException(404, "pane not found")
-    _audit(
-        request,
-        "send_keys",
-        pane_id,
-        detail=f"enter={body.enter} literal={body.literal}",
-        keys=body.keys,
-    )
-    tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
+    try:
+        tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
+    except Exception as e:
+        _audit(
+            request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
+        )
+        raise
+    _audit(request, "send_keys", pane_id, detail, body.keys)
     return {"ok": True}
 
 
@@ -185,9 +227,14 @@ def send(pane_id: str, body: SendBody, request: Request):
 def select(pane_id: str, request: Request):
     """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
     if tmux.find_pane(pane_id) is None:
+        _audit(request, "select_pane", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
+    try:
+        tmux.select_pane(pane_id)
+    except Exception as e:
+        _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
+        raise
     _audit(request, "select_pane", pane_id)
-    tmux.select_pane(pane_id)
     return {"ok": True}
 
 
@@ -198,12 +245,20 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     path doesn't work — Claude reads the clipboard on paste.) Also keeps a temp file as
     a fallback path in the response."""
     if tmux.find_pane(pane_id) is None:
+        _audit(request, "paste_image", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
     mime = file.content_type or "image/png"
     if mime not in _EXT:
+        _audit(
+            request,
+            "paste_image",
+            pane_id,
+            detail=mime,
+            outcome="rejected: unsupported type",
+        )
         raise HTTPException(415, f"unsupported image type: {mime}")
     data = await file.read()
-    _audit(request, "paste_image", pane_id, detail=f"{mime} {len(data)}B")
+    detail = f"{mime} {len(data)}B"
 
     # Save a temp copy (fallback / debugging) and put the bytes on the clipboard.
     IMG_DIR.mkdir(parents=True, exist_ok=True)
@@ -213,12 +268,16 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
 
     tools = tmux.set_clipboard_image(data, mime)
     if not tools:
+        _audit(
+            request, "paste_image", pane_id, detail, outcome="error: no clipboard tool"
+        )
         raise HTTPException(
             500,
             "No clipboard tool succeeded (need wl-copy or xclip on the host). "
             f"Image saved at {path}.",
         )
     tmux.send_keys(pane_id, "C-v", enter=False, literal=False)  # paste into the agent
+    _audit(request, "paste_image", pane_id, detail)
     return {"ok": True, "clipboard": tools, "path": path, "bytes": len(data)}
 
 

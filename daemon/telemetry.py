@@ -105,15 +105,23 @@ def _emit_record(body: str, attrs: dict) -> None:
 
 
 def emit_action(
-    *, action: str, pane_uid: str, actor: str, detail: str | None, keys: str | None
+    *,
+    action: str,
+    pane_uid: str,
+    actor: str,
+    detail: str | None,
+    keys: str | None,
+    outcome: str = "ok",
 ) -> None:
     """Audit record for a state-CHANGING request (send-keys / select / image paste), so
     "what is making changes to my terminals, and who?" is answerable from telemetry.
-    `actor` is the IAP-authenticated email the tunnel relay forwards (X-Tunnel-User) or
-    'local:<ip>' for direct requests. Key content attaches only under TMUXRC_QSDEBUG —
-    same policy as pane_text (keys may contain sensitive text); the action/actor/pane
-    skeleton is always sent."""
-    attrs = {"event": action, "pane_uid": pane_uid, "actor": actor}
+    `actor` is the IAP-authenticated email the tunnel relay forwards (X-Tunnel-User,
+    honored only from loopback — see server._audit's trust model) or 'local:<ip>' for
+    direct requests. `outcome` distinguishes completed actions from refused/failed
+    attempts. Key content attaches only under TMUXRC_QSDEBUG — stricter than pane_text
+    in spirit: keys can carry no-echo secrets that pane capture never sees. The
+    action/actor/pane/outcome skeleton is always sent."""
+    attrs = {"event": action, "pane_uid": pane_uid, "actor": actor, "outcome": outcome}
     if detail:
         attrs["detail"] = detail[:200]
     if _QSDEBUG and keys is not None:
