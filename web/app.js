@@ -159,19 +159,21 @@ function render(states) {
   // each get a compact row above it; plain shells fold into one summary line so a
   // big fleet doesn't shove the active card off screen.
   const act = activeId();
-  const others = states.filter((s) => s.pane_id !== act);
   // A dismissed row folds into the dock like a swiped notification — until the pane's
   // state CHANGES (activity flips or a new question appears), which resurfaces it.
   const earnsRow = (s) =>
     (s.activity === "waiting" || has(LOGOS, s.tool)) && dismissed[s.pane_id] !== stateKey(s);
   dock(states, act); // sticky top bar — constant height, everything else moves below it
-  const rows = others.filter((s) => allRows || earnsRow(s)).map(row);
+  // Rows render BELOW the card and are INDEPENDENT of which pane is active (the
+  // active one is just highlighted) — so switching panes never changes what's above
+  // the card and it never jumps up or down mid-swipe.
+  const rows = states.filter((s) => allRows || earnsRow(s)).map(row);
   // The active card sits in a .deck (a positioning context) so the swipe gesture can
   // overlay the incoming neighbor card and slide both together.
   const deck = document.createElement("div");
   deck.className = "deck";
   deck.append(...states.filter((s) => s.pane_id === act).map(card));
-  panesEl.replaceChildren(...rows, deck);
+  panesEl.replaceChildren(deck, ...rows);
   updateBar(panesById[act]);
 }
 
@@ -212,7 +214,8 @@ const stateKey = (s) => s.activity + ":" + ((s.question && s.question.prompt) ||
 
 function row(s) {
   const el = document.createElement("div");
-  el.className = "prow" + (s.activity === "waiting" ? " waiting" : "");
+  el.className = "prow" + (s.activity === "waiting" ? " waiting" : "")
+    + (s.pane_id === activeId() ? " sel" : "");
   el.onclick = () => { if (!el._swiped) setActive(s.pane_id); };
   swipeDismiss(el, () => {
     dismissed[s.pane_id] = stateKey(s);
