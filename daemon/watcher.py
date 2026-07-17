@@ -20,7 +20,10 @@ from .llm import classify_text, summarize_events
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
-SNAPSHOT_HISTORY = 50  # per pane
+# Full-text snapshots per pane (the timeline). Snapshots append on real content change
+# only; each is <=~24KB (200 lines), so 200 of them is ~5MB/pane worst case — memory is
+# cheap and none of this reaches the model, so keep enough to scroll back meaningfully.
+SNAPSHOT_HISTORY = 200
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint changed, or when this long since the last parse
 # (a heartbeat so a slowly-evolving screen still refreshes). An agent that's merely
@@ -32,6 +35,10 @@ PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continui
 # activity burst once (a {from,to,text} span). The UI collapses events in that time
 # range under the summary. Generated once per idle period; reset when the pane works.
 IDLE_SUMMARY_AFTER = 60
+# Per-pane activity-history ring (memory only — never sent to the model, so growing it
+# costs RAM, not tokens; ~150B/event => ~75KB/pane at 500). The model feedback window
+# stays small and separate (_recent_events); the summarizer slices its own input.
+BURST_HISTORY = 500
 # How long a reported event's text suppresses an identical re-report. Long enough to
 # starve the repetition loop (a model re-emitting every heartbeat), short enough that a
 # genuinely repeated action later in the session shows up again.
@@ -112,6 +119,40 @@ class Watcher:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
+
+    def digest(self) -> list[dict]:
+        """Per-pane current state PLUS recent history, for agent/programmatic consumers.
+
+        /api/state is shaped for the phone: it carries only the events NEW in the last
+        parse (the phone accumulates its own log client-side), so a one-shot reader sees
+        an empty feed and no past. This view exposes what the watcher already tracks —
+        the burst ring (recent timestamped events) and the cached idle summary — so one
+        GET answers "what has been going on in each pane," no client-side accumulation
+        and no extra LLM calls."""
+        out = []
+        for s in self.states:
+            pid = s.get("pane_id")
+            burst = self._burst.get(pid) or {}
+            out.append(
+                {
+                    "pane_id": pid,
+                    "label": s.get("label"),
+                    "tool": s.get("tool"),
+                    "activity": s.get("activity"),
+                    "idle_seconds": s.get("idle_seconds"),
+                    "headline": s.get("headline"),
+                    "question": (s.get("question") or {}).get("prompt"),
+                    # LLM one-liner for the last activity burst (present once the pane
+                    # has idled past the summary threshold; None while actively working).
+                    "summary": (self._summary.get(pid) or {}).get("text"),
+                    # Recent activity, newest last, straight from the burst ring.
+                    "history": [
+                        {"ts": e["ts"], "text": e["text"]}
+                        for e in (burst.get("events") or [])[-100:]
+                    ],
+                }
+            )
+        return out
 
     def snapshot_text(self, pane_id: str, snap_id: str) -> str | None:
         for s in self.snapshots.get(pane_id, []):
@@ -372,7 +413,7 @@ class Watcher:
             burst = self._burst.setdefault(pane.id, {"start": now, "events": []})
             for e in new_events:
                 burst["events"].append({"text": e["text"], "ts": now})
-            burst["events"] = burst["events"][-60:]
+            burst["events"] = burst["events"][-BURST_HISTORY:]
             self._summary.pop(pane.id, None)  # activity invalidates the idle summary
         state["summary"] = self._summary.get(
             pane.id
