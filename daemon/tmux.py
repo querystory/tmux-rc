@@ -7,7 +7,9 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import socket
 import subprocess
 from dataclasses import dataclass
@@ -254,5 +256,39 @@ def send_keys(
     _run(["send-keys", "-t", pane_id, *(["-l"] if literal else []), keys])
     if enter and literal:
         _run(["send-keys", "-t", pane_id, "Enter"])
+
+
+def set_clipboard_image(png: bytes) -> list[str]:
+    """Put PNG bytes on the system clipboard so the pane's app embeds them on Ctrl-V.
+    ALWAYS image/png — paste handlers ask the clipboard for PNG, so an offer in the
+    upload's own mime (a phone JPEG, say) reads as empty and the paste silently
+    no-ops; that was the original phone-attach bug. Writes to both Wayland (wl-copy)
+    and X11 (xclip) since which one the terminal reads depends on the session.
+    Returns the tools that succeeded — empty means the caller must fall back."""
+    ok: list[str] = []
+    env_x = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
+    attempts = [
+        ("wl-copy", ["wl-copy", "-t", "image/png"]),
+        ("xclip", ["xclip", "-selection", "clipboard", "-t", "image/png"]),
+    ]
+    for name, cmd in attempts:
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            # These tools do NOT exit — they persist to serve the clipboard selection.
+            # Feed stdin and detach; waiting for completion would hang forever.
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env_x if name == "xclip" else None,
+            )
+            proc.stdin.write(png)
+            proc.stdin.close()
+            ok.append(name)
+        except Exception:  # noqa: BLE001 - try the next tool
+            continue
+    return ok
 
 

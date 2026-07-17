@@ -93,11 +93,12 @@ Why this shape:
   for free; **linger** (`loginctl enable-linger`) is the piece that moves their start
   from "first login" to "boot": systemd starts the per-user manager (`user@<uid>`) at
   boot with no login, and keeps it across logouts. No root at any layer.
-- **No session-coupled residue.** Image paste used to shell out to wl-copy/xclip —
-  the *graphical session's* socket, absent pre-login and not inherited by user units —
-  and was the one thing tying the daemon to a desktop session. It now stages the file
-  to disk and types the path into the pane, so everything the daemon does is
-  session-independent: user units need no graphical-env import at all.
+- **One session-coupled behavior, with a session-free fallback.** Inline image paste
+  shells out to wl-copy/xclip — the *graphical session's* socket, absent pre-login and
+  not inherited by user units. When no clipboard tool succeeds, the endpoint types the
+  staged file's path into the pane instead: a working (if less pretty) paste. So the
+  unit is *correct* without any graphical-env import; importing it at login merely
+  upgrades pastes from path to inline. Nothing else the daemon does touches the session.
 - **Configuration stays where it is.** The daemon already loads the repo-root `.env`
   itself, so the unit is thin: `WorkingDirectory=` the checkout, run the venv's python,
   `TMUXRC_RELOAD=0`. No second copy of the config to drift. The checkout *is* the deploy

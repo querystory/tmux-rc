@@ -281,12 +281,15 @@ def select(pane_id: str, request: Request):
 
 @app.post("/api/panes/{pane_id}/image")
 async def send_image(pane_id: str, file: UploadFile, request: Request):
-    """Attach an image by typing the staged file's PATH into the pane (no Enter, so it
-    joins whatever the user is composing). Agents read files from disk — Claude Code
-    treats an image path in the prompt as an attachment. The old clipboard+Ctrl-V route
-    died whenever the session's clipboard did (Xwayland restarts rotate the auth cookie;
-    wl-copy holders wedge) — and failed SILENTLY, returning 200 with nothing pasted.
-    A path on disk has no such failure mode."""
+    """Attach an image to the pane: clipboard + Ctrl-V so the agent embeds it INLINE,
+    falling back to typing the staged file's path when no clipboard tool works.
+
+    The clipboard offer is ALWAYS normalized to PNG — paste handlers ask the clipboard
+    for image/png, so an offer in the upload's own mime (a phone JPEG) reads as empty
+    and the paste silently no-ops. That mime mismatch was the original phone-attach
+    bug; PNG-always fixes the happy path, and the typed-path fallback means a broken
+    graphical session degrades to a working (if less pretty) paste, never a silent
+    200. The upload is staged to disk in both modes."""
     if tmux.find_pane(pane_id) is None:
         _audit(request, "paste_image", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
@@ -329,10 +332,32 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
-    # Trailing space keeps the path a clean token next to typed text / later pastes.
-    tmux.send_keys(pane_id, f"{path} ", enter=False, literal=True)
-    _audit(request, "paste_image", pane_id, detail)
-    return {"ok": True, "path": path, "bytes": len(data)}
+    # Clipboard-first: normalize to PNG and Ctrl-V for the inline embed. Fall back to
+    # typing the path (trailing space keeps it a clean token next to typed text).
+    tools: list[str] = []
+    try:
+        png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
+        tools = tmux.set_clipboard_image(png)
+    except Exception:  # noqa: BLE001 - undecodable image: the path route still works
+        pass
+    if tools:
+        tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
+    else:
+        tmux.send_keys(pane_id, f"{path} ", enter=False, literal=True)
+    mode = f"clipboard:{'+'.join(tools)}" if tools else "path"
+    _audit(request, "paste_image", pane_id, f"{detail} via {mode}")
+    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+
+
+def _to_png(data: bytes) -> bytes:
+    """Transcode image bytes to PNG (Pillow — already a dependency of the LLM stack)."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.open(io.BytesIO(data)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 # PWA static files last so /api/* wins. html=True serves index.html at /.
