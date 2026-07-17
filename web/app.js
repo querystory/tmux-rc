@@ -189,12 +189,33 @@ function card(s) {
   if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
   if (s.question) el.appendChild(question(s));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
+  if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
   const log = eventLog[s.pane_id] || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
   // handles text/keys/images for whichever card is active (see the #bar element).
   el.appendChild(timeline(s));
   return el;
+}
+
+// Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
+// reassembles URLs that wrap across terminal lines, so these work where regexing the
+// raw screen text can't. stopPropagation so tapping opens the link, not the card.
+function linksView(links) {
+  const box = document.createElement("div");
+  box.className = "links";
+  for (const l of links.slice(0, 3)) {
+    if (!l || !l.href || !/^https?:\/\//i.test(l.href)) continue;
+    const a = document.createElement("a");
+    a.className = "linkbtn";
+    a.href = l.href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = `\u{1F517} ${l.text || l.href}`;
+    a.onclick = (e) => e.stopPropagation();
+    box.appendChild(a);
+  }
+  return box;
 }
 
 // Render structured table data as a real HTML table in a box that scrolls both ways
@@ -522,7 +543,12 @@ async function openScreen(paneId, label) {
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><button class="screen-close">✕</button></div>` +
     `<div class="screen-body"><pre class="screen-pre"></pre></div>`;
-  ov.querySelector(".screen-pre").textContent = text;  // textContent = safe, no esc needed
+  // Escape first, then linkify: URLs in the capture become tappable. Wrapped URLs
+  // (split across lines) stay text — the card's parser-extracted links handle those.
+  ov.querySelector(".screen-pre").innerHTML = esc(text).replace(
+    /https?:\/\/[^\s<>"')\]]+/g,
+    (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`,
+  );
   const close = () => ov.remove();
   ov.querySelector(".screen-close").onclick = close;
   document.body.appendChild(ov);

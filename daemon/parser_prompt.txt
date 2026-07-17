@@ -101,12 +101,21 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
+  "links": [{"href": "https://...", "text": "short meaningful label"}],
   "events": [
     {"text": "WHAT happened, human phrase — e.g. 'Reworked the file list into an activity view'",
      "file": {"path": "...", "added": <int>, "removed": <int>},   // OPTIONAL: if this event was a file edit
      "meta": "OPTIONAL short side-note for non-file events, e.g. 'ran 3 commands', 'exit 1'"}
   ]
 }
+"links": URLs the screen is OFFERING the user to open — an auth/approval URL ("open
+this link", a device-login code page), a PR/issue the agent just created, a preview
+deployment. The phone renders these as tap-to-open buttons, so include them whenever
+opening the link is the point of what's on screen; skip decorative URLs in logs or
+docs. Terminal wrapping splits long URLs across lines — REASSEMBLE the full URL (join
+the wrapped fragments, no spaces). "text" is a short human label ("Google OAuth
+approval", "PR #18"), never the URL itself. At most 3.
+
 "events" is the activity feed — a list of NEW things that happened since the last
 report. If a list of already-reported events is provided, do NOT repeat them or restate
 the same action in different words — only emit events for genuinely new activity, and
