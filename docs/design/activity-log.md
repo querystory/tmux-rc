@@ -159,7 +159,8 @@ that first teaches tmux-rc to send unsolicited keystrokes.
   feed — good. But a client that scrolled up to read old events shouldn't get yanked
   when the log grows; the existing scroll-preservation logic must key off log identity,
   not just length.
-- **`events_len` as the refetch trigger** assumes append-only. Aging entries out of the
-  front (see cap question) changes length without appending — the client needs a signal
-  that distinguishes "grew" from "rotated," or it refetches on every rotation. A small
-  monotonic counter or a "first entry ts" alongside the length resolves it.
+- **The refetch trigger must be monotonic, not a length.** Resolved in the MVP: the
+  client refetches on a change to `events_seq` — a per-pane counter of events *ever
+  appended* — not `len(log)`. A length signal freezes once the log hits its cap (length
+  stops changing while content rotates), so the feed would silently stop updating after
+  ~300 events. The counter only ever grows.

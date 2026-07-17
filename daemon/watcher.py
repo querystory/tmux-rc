@@ -94,6 +94,9 @@ class Watcher:
         self.events_log: dict[
             str, list[dict]
         ] = {}  # pane_id -> activity-log cache [{text, file?, meta?, ts, historical?}]
+        self._events_seq: dict[
+            str, int
+        ] = {}  # pane_id -> monotonic count of events ever appended (refetch signal)
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
@@ -262,7 +265,7 @@ class Watcher:
         if self.use_llm:
             self._maybe_bootstrap(panes)
         for s in states:
-            s["events_len"] = len(self.events_log.get(s.get("pane_id"), []))
+            s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
             b = self._boot.get(s.get("pane_id"))
             if not b:
                 continue
@@ -311,6 +314,9 @@ class Watcher:
                 log = self.events_log.setdefault(p.id, [])
                 log[:0] = [{**e, "ts": now} for e in result["events"]]
                 del log[:-EVENTS_LOG_MAX]
+                self._events_seq[p.id] = (
+                    self._events_seq.get(p.id, 0) + len(result["events"])
+                )
                 recent = self._recent_events.setdefault(p.id, [])
                 recent.extend((e["text"], now) for e in result["events"])
                 logger.info("%s: bootstrapped (%d events)", p.id, len(result["events"]))
@@ -334,6 +340,7 @@ class Watcher:
             self._boot,
             self._boot_tries,
             self.events_log,
+            self._events_seq,
         )
 
     def _pane_event(
@@ -510,6 +517,11 @@ class Watcher:
         # See docs/design/activity-log.md.
         if new_events:
             _append_events(self.events_log.setdefault(pane.id, []), new_events, now)
+            # Monotonic append counter, NOT len(log): the log is capped, so once it's
+            # full its length stops changing while content still rotates — a length
+            # signal would freeze and the client would stop refetching. The counter
+            # only ever grows, so "seq changed ⇒ refetch" survives the cap.
+            self._events_seq[pane.id] = self._events_seq.get(pane.id, 0) + len(new_events)
         recent.extend((e["text"], now) for e in new_events)
         self._recent_events[pane.id] = recent[-30:]
         if new_events:

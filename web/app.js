@@ -97,22 +97,23 @@ function setActive(id) {
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded
 // history + live events), so a page reload doesn't start the feed from zero. Each
-// state advertises events_len; we refetch a pane's log when it grows. Fetches are
-// per-pane, deduped while in flight.
-const eventLog = {}; // pane_id -> {len, events: [{text, file?, meta?, ts, historical?}]}
+// state advertises events_seq, a MONOTONIC append counter; we refetch a pane's log
+// when it changes. (Not the log length — the log is capped, so its length freezes
+// once full while content still rotates.) Fetches are per-pane, deduped while in flight.
+const eventLog = {}; // pane_id -> {seq, events: [{text, file?, meta?, ts, historical?}]}
 const evFetching = new Set();
 
 function syncEvents(s) {
   const id = s.pane_id;
   const cached = eventLog[id];
-  if (s.events_len == null || evFetching.has(id)) return;
-  if (cached && cached.len === s.events_len) return;
+  if (s.events_seq == null || evFetching.has(id)) return;
+  if (cached && cached.seq === s.events_seq) return;
   evFetching.add(id);
   fetch(`/api/panes/${encodeURIComponent(id)}/events`)
     .then((r) => (r.ok ? r.json() : null))
     .then((events) => {
       if (Array.isArray(events)) {
-        eventLog[id] = { len: s.events_len, events };
+        eventLog[id] = { seq: s.events_seq, events };
         // Re-render only if this pane's feed is on screen (it's the active card).
         if (id === activeId() && !listFilter) render(Object.values(panesById));
       }
@@ -199,7 +200,7 @@ function escAttr(s) {
 }
 
 function render(states) {
-  // Accumulate this poll's events into each pane's running client-side log first.
+  // Refetch each pane's server-side activity log if its events_seq advanced.
   states.forEach(syncEvents);
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   // Prune per-pane caches when panes vanish — otherwise pane churn grows them
