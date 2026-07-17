@@ -54,10 +54,8 @@
     padding: 12px 14px; overflow: hidden;
   }
   .card { transition: transform .15s, opacity .15s; }
-  @keyframes slide-r { from { transform: translateX(60px); opacity: .3; } }
-  @keyframes slide-l { from { transform: translateX(-60px); opacity: .3; } }
-  .card.in-r { animation: slide-r .18s ease-out; }
-  .card.in-l { animation: slide-l .18s ease-out; }
+  .deck { position: relative; }
+  .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
   .card.active { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
   #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;

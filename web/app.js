@@ -23,7 +23,17 @@ let busy = false; // suppress polling flicker while an answer is in flight
 // tells tmux to focus that pane; the next poll renders the new truth. No client-side
 // selection state.
 let panesById = {}; // latest state per pane, for the bottom bar to act on
+// A selection we've told tmux about but the watcher hasn't observed yet. Without this,
+// the poll right after a switch still carries the OLD tmux_active and flips the UI
+// back for a beat (then forward again) — the "ticky" double-switch. Held until the
+// server confirms, with a timeout so a focus change made in tmux itself still wins.
+let pending = null; // {id, ts}
 function activeId() {
+  if (pending) {
+    const s = panesById[pending.id];
+    if (s && !s.tmux_active && Date.now() - pending.ts < 8000) return pending.id;
+    pending = null; // confirmed by the server (or expired / pane gone)
+  }
   const focused = Object.values(panesById).find((s) => s.tmux_active);
   return focused ? focused.pane_id : Object.keys(panesById)[0] || null;
 }
@@ -31,6 +41,7 @@ function setActive(id) {
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // Immediately mark this pane as tmux_active so the highlight updates without
   // waiting for the next poll (which is 2s away — feels broken without this).
+  pending = { id, ts: Date.now() };
   Object.values(panesById).forEach((s) => { s.tmux_active = s.pane_id === id; });
   render(Object.values(panesById));
 }
@@ -154,7 +165,12 @@ function render(states) {
     (s.activity === "waiting" || has(LOGOS, s.tool)) && dismissed[s.pane_id] !== stateKey(s);
   const rows = others.filter((s) => allRows || earnsRow(s)).map(row);
   rows.push(dock(states, act));
-  panesEl.replaceChildren(...rows, ...states.filter((s) => s.pane_id === act).map(card));
+  // The active card sits in a .deck (a positioning context) so the swipe gesture can
+  // overlay the incoming neighbor card and slide both together.
+  const deck = document.createElement("div");
+  deck.className = "deck";
+  deck.append(...states.filter((s) => s.pane_id === act).map(card));
+  panesEl.replaceChildren(...rows, deck);
   updateBar(panesById[act]);
 }
 
@@ -234,37 +250,54 @@ function swipeDismiss(el, onDismiss) {
   });
 }
 
-// Horizontal swipe on the active card switches panes (stable %id order, wraps). The
-// card tracks the finger, flies out on commit, and the next card slides in from the
-// same side; short/vertical drags snap back. Touches starting in a horizontal
-// scroller (tables) keep their native gesture.
-let slideFrom = 0; // set right before setActive: -1 next-card-enters-from-right, +1 from left
+// Horizontal swipe on the active card switches panes (stable %id order, wraps), as a
+// carousel: the NEIGHBOR card slides in alongside your finger (so it reads as paging,
+// not dismissal), both animate home on commit, short/vertical drags snap back.
+// Touches starting in a horizontal scroller (tables) keep their native gesture.
 function swipeNav(el, id) {
-  let sx = null, sy = null, dx = 0;
+  let sx = null, sy = null, dx = 0, ghost = null, gdir = 0;
+  const ids = () => Object.keys(panesById).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+  const neighbor = (dir) => { // dir -1: swiping left reveals the NEXT pane; +1: previous
+    const a = ids(), i = a.indexOf(id);
+    return a[(i + (dir < 0 ? 1 : a.length - 1)) % a.length];
+  };
+  const W = () => el.offsetWidth + 12; // card width + gap
+  const clear = () => { if (ghost) ghost.remove(); ghost = null; gdir = 0; };
   el.addEventListener("touchstart", (e) => {
     sx = e.target.closest(".tbl-scroll") ? null : e.touches[0].clientX;
-    sy = e.touches[0].clientY; dx = 0;
+    sy = e.touches[0].clientY; dx = 0; clear();
   }, { passive: true });
   el.addEventListener("touchmove", (e) => {
     if (sx == null) return;
     dx = e.touches[0].clientX - sx;
-    if (Math.abs(dx) > Math.abs(e.touches[0].clientY - sy) && Math.abs(dx) > 10)
-      el.style.transform = `translateX(${dx}px)`;
+    if (Math.abs(dx) <= Math.abs(e.touches[0].clientY - sy) || Math.abs(dx) <= 10) return;
+    el.style.transition = "none"; // track the finger 1:1, no easing lag
+    el.style.transform = `translateX(${dx}px)`;
+    const dir = dx < 0 ? -1 : 1;
+    if (dir !== gdir && ids().length > 1) {
+      clear(); gdir = dir;
+      ghost = card(panesById[neighbor(dir)]);
+      ghost.classList.add("ghost");
+      ghost.style.transition = "none";
+      el.parentElement.appendChild(ghost);
+    }
+    if (ghost) ghost.style.transform = `translateX(${dx - gdir * W()}px)`;
   }, { passive: true });
   el.addEventListener("touchend", (e) => {
     if (sx == null) return;
     const dy = e.changedTouches[0].clientY - sy;
     sx = null;
-    const ids = Object.keys(panesById).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
-    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids.length < 2) {
-      el.style.transform = ""; // snap back (animated by the .card transition)
+    el.style.transition = "";
+    if (ghost) ghost.style.transition = "";
+    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids().length < 2) {
+      el.style.transform = ""; // snap back, neighbor retreats
+      if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
       return;
     }
-    el.style.transform = `translateX(${dx < 0 ? -110 : 110}%)`;
-    el.style.opacity = "0";
-    slideFrom = dx < 0 ? -1 : 1;
-    const i = ids.indexOf(id);
-    setTimeout(() => setActive(ids[(i + (dx < 0 ? 1 : ids.length - 1)) % ids.length]), 120);
+    const dir = dx < 0 ? -1 : 1;
+    el.style.transform = `translateX(${dir * W()}px)`;
+    if (ghost) ghost.style.transform = "translateX(0)";
+    setTimeout(() => setActive(neighbor(dir)), 150);
   });
 }
 
@@ -272,7 +305,6 @@ function card(s) {
   const el = document.createElement("div");
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " active" : "");
-  if (slideFrom) { el.classList.add(slideFrom < 0 ? "in-r" : "in-l"); slideFrom = 0; }
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
