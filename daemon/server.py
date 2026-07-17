@@ -216,7 +216,9 @@ def list_events(pane_id: str):
     start the feed from zero. In-memory, not persisted (tmux is the state).
     states[].events_seq (a monotonic append counter) signals when to refetch. See
     docs/design/activity-log.md."""
-    return app.state.watcher.events_log.get(pane_id, [])
+    # Snapshot copy: the watcher mutates this list from its worker thread (to_thread),
+    # so serializing the live object could race a concurrent extend/trim.
+    return list(app.state.watcher.events_log.get(pane_id, []))
 
 
 @app.get("/api/panes/{pane_id}/snapshots")
