@@ -310,10 +310,13 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     # Stage to disk, prune stale stagings (the pane reads the file right after the
     # paste; a day of slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
-    # /tmp is shared and sticky: someone could pre-create this path as a symlink and
-    # collect our chmod + stagings at a target of their choosing. Refuse to run there.
-    if IMG_DIR.is_symlink() or not IMG_DIR.is_dir():
-        raise HTTPException(500, f"{IMG_DIR} is not a real directory; refusing to stage")
+    # /tmp is shared and sticky: someone could pre-create this path — as a symlink
+    # (collecting our chmod + stagings at a target of their choosing) or as their own
+    # plain directory (making our chmod EPERM). Stage only in a real dir we own; with
+    # ownership verified, the chmod below cannot fail.
+    if IMG_DIR.is_symlink() or not IMG_DIR.is_dir() or IMG_DIR.stat().st_uid != os.getuid():
+        _audit(request, "paste_image", pane_id, outcome="error: staging dir not ours")
+        raise HTTPException(500, f"{IMG_DIR} is not a directory we own; refusing to stage")
     os.chmod(IMG_DIR, 0o700)  # don't let umask leave stagings listable
     cutoff = time.time() - 86400
     for old in IMG_DIR.iterdir():
