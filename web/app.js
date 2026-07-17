@@ -162,13 +162,20 @@ function render(states) {
   // each get a compact row above it; plain shells fold into one summary line so a
   // big fleet doesn't shove the active card off screen.
   const act = activeId();
+  // List mode (a dock tally badge or "all" was tapped): just those panes as
+  // one-liners, dock hidden; tapping a row returns to card view.
+  const subset = listFilter && states.filter((s) => listFilter === "all" || s.activity === listFilter);
+  if (subset && subset.length) {
+    dockEl.hidden = true;
+    panesEl.replaceChildren(...subset.map(row));
+    updateBar(panesById[act]);
+    flipIn(panesEl);
+    return;
+  }
+  listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
+  dockEl.hidden = false;
   dock(states, act); // sticky top bar — constant height, content swaps below it
-  // Two modes, no mixing: card view (the active pane, full height) or — via the dock
-  // caret — the list view (every pane as a one-liner). Swapping wholesale avoids the
-  // card bouncing as rows come and go.
-  if (allRows) {
-    panesEl.replaceChildren(...states.map(row));
-  } else {
+  {
     // The deck is a positioning context: the pane's capture as background, the card
     // floating over its top (swipe ghosts overlay here too), ⤢ for the full view.
     const deck = document.createElement("div");
@@ -190,39 +197,80 @@ function render(states) {
 // The pane dock: one icon per pane in swipe (%id) order — active highlighted, a
 // colored dot showing each pane's activity. Tap an icon to jump; it doubles as the
 // page indicator while swiping the card. Folded shells and dismissed waiters live here.
-let allRows = false; // dock tap: expand every pane to its one-line row / re-fold
+// List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
+// of just those panes (tapped via the dock's tally badges / "all").
+let listFilter = null;
 const dockEl = document.getElementById("dock");
 function dock(states, act) {
   const el = dockEl;
-  el.onclick = () => { allRows = !allRows; render(Object.values(panesById)); };
   el.replaceChildren();
   const ordered = states.slice()
     .sort((a, b) => parseInt(a.pane_id.slice(1)) - parseInt(b.pane_id.slice(1)));
   for (const s of ordered) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
+    b.dataset.pane = s.pane_id;
     b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${s.activity}"></i>`;
     b.title = s.title || s.label || s.pane_id;
     b.onclick = (e) => { e.stopPropagation(); setActive(s.pane_id); };
     el.appendChild(b);
   }
-  // Density: the per-activity tallies, right-aligned after the icons.
+  // Density + navigation: per-activity tallies, right-aligned — each one FILTERS the
+  // list view to those panes; "all" lists everything.
   const counts = document.createElement("span");
   counts.className = "dock-counts";
   const n = {};
   states.forEach((s) => (n[s.activity] = (n[s.activity] || 0) + 1));
-  counts.innerHTML = ["waiting", "running", "idle", "unknown"]
-    .filter((a) => n[a]).map((a) => `<span class="badge b-${a}">${n[a]} ${a}</span>`)
-    .join("") + `<span class="dim">${allRows ? "▾" : "▸"}</span>`;
+  const filt = (label, key) => {
+    const b = document.createElement("button");
+    b.className = "badge b-" + key;
+    b.textContent = label;
+    b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
+    counts.appendChild(b);
+  };
+  ["waiting", "running", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
+  filt("all", "all");
   el.appendChild(counts);
+}
+
+// "Animate the icons down": capture the dock icons' positions when a filter is
+// tapped, then fly clones to each row's icon once the list renders (FLIP).
+let flipFrom = null; // pane_id -> DOMRect
+function captureIconRects() {
+  flipFrom = {};
+  dockEl.querySelectorAll(".dock-icon").forEach((b) => {
+    if (b.dataset.pane) flipFrom[b.dataset.pane] = b.getBoundingClientRect();
+  });
+}
+function flipIn(root) {
+  if (!flipFrom) return;
+  const from = flipFrom;
+  flipFrom = null;
+  root.querySelectorAll(".prow").forEach((r) => {
+    const src = from[r.dataset.pane];
+    const icon = r.querySelector(".icon");
+    if (!src || !icon) return;
+    const dst = icon.getBoundingClientRect();
+    const fly = icon.cloneNode(true);
+    Object.assign(fly.style, {
+      position: "fixed", left: src.left + "px", top: src.top + "px", margin: "0",
+      zIndex: 30, pointerEvents: "none", transition: "transform .25s ease-out",
+    });
+    icon.style.opacity = "0";
+    document.body.appendChild(fly);
+    requestAnimationFrame(() =>
+      (fly.style.transform = `translate(${dst.left - src.left}px,${dst.top - src.top}px)`));
+    setTimeout(() => { fly.remove(); icon.style.opacity = ""; }, 300);
+  });
 }
 
 function row(s) {
   const el = document.createElement("div");
   el.className = "prow" + (s.activity === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " sel" : "");
+  el.dataset.pane = s.pane_id;
   // Tapping a row opens that pane's card (drops back out of list view).
-  el.onclick = () => { allRows = false; setActive(s.pane_id); };
+  el.onclick = () => { listFilter = null; setActive(s.pane_id); };
   const badge = s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
