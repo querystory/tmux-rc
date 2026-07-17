@@ -17,6 +17,14 @@ changes across versions and tools):
 - Is there an INPUT PROMPT — a yes/no confirmation, a numbered choice, or a free-text
   field the user must fill?
 
+TERMINAL ORDER — a pane is append-only, so the LAST thing on screen is the live state;
+everything above it already happened. A shell prompt as the last non-empty line means
+whatever ran above has EXITED — banners, menus, "Press Enter to continue", questions,
+even agent chrome above that prompt are finished history, never a live waiting state
+(welcome screen + "Resume this session with: …" + fresh prompt = the agent exited; the
+pane is an idle shell). Distinct from an agent shelling out, where output appears under
+the agent's still-live chrome with no bare prompt returned to the user.
+
 IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
 command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
 command or an error. Only treat a command as run if you can see its OUTPUT or result
