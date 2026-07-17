@@ -19,10 +19,12 @@
     background: #0b0f14; color: #e6edf3;
     padding: env(safe-area-inset-top) 0 0;
   }
+  #top { position: sticky; top: 0; z-index: 5; background: #0b0f14e6; backdrop-filter: blur(8px); }
+  #top .dock { margin: 0 12px 8px; }
+  #top .dock:empty { display: none; }
   header {
     padding: 12px 16px 4px; font-weight: 600; font-size: 17px;
     display: flex; justify-content: space-between; align-items: center;
-    position: sticky; top: 0; z-index: 5; background: #0b0f14e6; backdrop-filter: blur(8px);
   }
   /* Non-active panes: one compact row each (icon · title · badge), stacked above the
      active pane's full card — whole-fleet status at a glance, tap to switch. */
@@ -198,13 +200,18 @@
 </style>
 </head>
 <body>
-  <header>
-    <span>tmux-rc</span>
-    <span class="hdr-right">
-      <span id="usage" class="usage"></span>
-      <span id="live" class="dot off" title="connection"></span>
-    </span>
-  </header>
+  <!-- Sticky top block: header + dock. The dock's height never changes (icons for
+       every pane, always) — expanding rows or swiping cards moves content BELOW it. -->
+  <div id="top">
+    <header>
+      <span>tmux-rc</span>
+      <span class="hdr-right">
+        <span id="usage" class="usage"></span>
+        <span id="live" class="dot off" title="connection"></span>
+      </span>
+    </header>
+    <div id="dock" class="prow dock"></div>
+  </div>
   <div id="panes"><div class="empty">Connecting…</div></div>
   <!-- Single persistent input bar, fixed at the bottom. Targets the active card. -->
   <div id="bar">

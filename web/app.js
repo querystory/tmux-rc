@@ -150,6 +150,7 @@ function render(states) {
   states.forEach((s) => accumulateEvents(s.pane_id, s.events));
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   if (!states.length) {
+    dockEl.replaceChildren();
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     updateBar(null);
     return;
@@ -163,8 +164,8 @@ function render(states) {
   // state CHANGES (activity flips or a new question appears), which resurfaces it.
   const earnsRow = (s) =>
     (s.activity === "waiting" || has(LOGOS, s.tool)) && dismissed[s.pane_id] !== stateKey(s);
+  dock(states, act); // sticky top bar — constant height, everything else moves below it
   const rows = others.filter((s) => allRows || earnsRow(s)).map(row);
-  rows.push(dock(states, act));
   // The active card sits in a .deck (a positioning context) so the swipe gesture can
   // overlay the incoming neighbor card and slide both together.
   const deck = document.createElement("div");
@@ -178,10 +179,11 @@ function render(states) {
 // colored dot showing each pane's activity. Tap an icon to jump; it doubles as the
 // page indicator while swiping the card. Folded shells and dismissed waiters live here.
 let allRows = false; // dock tap: expand every pane to its one-line row / re-fold
+const dockEl = document.getElementById("dock");
 function dock(states, act) {
-  const el = document.createElement("div");
-  el.className = "prow dock";
+  const el = dockEl;
   el.onclick = () => { allRows = !allRows; render(Object.values(panesById)); };
+  el.replaceChildren();
   const ordered = states.slice()
     .sort((a, b) => parseInt(a.pane_id.slice(1)) - parseInt(b.pane_id.slice(1)));
   for (const s of ordered) {
@@ -201,7 +203,6 @@ function dock(states, act) {
     .filter((a) => n[a]).map((a) => `<span class="badge b-${a}">${n[a]} ${a}</span>`)
     .join("") + `<span class="dim">${allRows ? "▾" : "▸"}</span>`;
   el.appendChild(counts);
-  return el;
 }
 
 // Swipe-to-dismiss state: pane_id -> the state it was dismissed at. Any state change
