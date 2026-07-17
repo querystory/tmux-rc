@@ -30,7 +30,6 @@
      active pane's full card — whole-fleet status at a glance, tap to switch. */
   .prow { display: flex; align-items: center; gap: 10px; background: #161b22;
     border: 1px solid #30363d; border-radius: 10px; padding: 8px 12px; cursor: pointer; }
-  .prow { transition: transform .15s, opacity .15s; }
   .prow.waiting { border-color: #d29922; background: #1c1a12; }
   .prow.sel { border-color: #388bfd; }
   .prow.dock { gap: 4px; padding: 4px 8px; overflow-x: auto; scrollbar-width: none; }
@@ -47,9 +46,6 @@
   .dim { color: #6e7681; }
   .d-running { background: #3fb950; } .d-waiting { background: #e3b341; }
   .prow-meta { flex: 1; min-width: 0; }
-  /* List-entry animation: row text fades in while its icon flies down from the dock. */
-  .prow .prow-meta, .prow .badge { transition: opacity .25s ease-out; }
-  .prow.arriving .prow-meta, .prow.arriving .badge { opacity: 0; }
   .prow-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; font-size: 14px; }
   .prow-sub { color: #8b949e; font-size: 12px; white-space: nowrap; overflow: hidden;
