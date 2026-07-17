@@ -152,7 +152,7 @@ function render(states) {
   // state CHANGES (activity flips or a new question appears), which resurfaces it.
   const earnsRow = (s) =>
     (s.activity === "waiting" || has(LOGOS, s.tool)) && dismissed[s.pane_id] !== stateKey(s);
-  const rows = others.filter(earnsRow).map(row);
+  const rows = others.filter((s) => allRows || earnsRow(s)).map(row);
   rows.push(dock(states, act));
   panesEl.replaceChildren(...rows, ...states.filter((s) => s.pane_id === act).map(card));
   updateBar(panesById[act]);
@@ -161,9 +161,11 @@ function render(states) {
 // The pane dock: one icon per pane in swipe (%id) order — active highlighted, a
 // colored dot showing each pane's activity. Tap an icon to jump; it doubles as the
 // page indicator while swiping the card. Folded shells and dismissed waiters live here.
+let allRows = false; // dock tap: expand every pane to its one-line row / re-fold
 function dock(states, act) {
   const el = document.createElement("div");
   el.className = "prow dock";
+  el.onclick = () => { allRows = !allRows; render(Object.values(panesById)); };
   const ordered = states.slice()
     .sort((a, b) => parseInt(a.pane_id.slice(1)) - parseInt(b.pane_id.slice(1)));
   for (const s of ordered) {
@@ -180,7 +182,8 @@ function dock(states, act) {
   const n = {};
   states.forEach((s) => (n[s.activity] = (n[s.activity] || 0) + 1));
   counts.innerHTML = ["waiting", "running", "idle", "unknown"]
-    .filter((a) => n[a]).map((a) => `<span class="badge b-${a}">${n[a]} ${a}</span>`).join("");
+    .filter((a) => n[a]).map((a) => `<span class="badge b-${a}">${n[a]} ${a}</span>`)
+    .join("") + `<span class="dim">${allRows ? "▾" : "▸"}</span>`;
   el.appendChild(counts);
   return el;
 }
