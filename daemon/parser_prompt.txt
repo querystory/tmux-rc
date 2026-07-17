@@ -130,7 +130,7 @@ OPTIONAL metadata: "file" when the event was editing a file (path + lines +/-), 
 edit is just an event whose metadata is a file diff — do NOT emit a bare "added 4 lines
 to X"; make text say what changed and put the numbers in "file". Do NOT put things that
 have their own dedicated field (mode, model, cost, context %, tool, tasks, question,
-rewind) into events.
+rewind, links) into events.
 "tables": extract any tabular data visible on screen (ASCII/box-drawn tables, aligned
 columns) as structured {headers, rows} so the UI can render a real scrollable table —
 do NOT flatten a table into prose or events. Include the caption in "title" if there is
@@ -160,8 +160,8 @@ floating chip near the bottom edge). Judge by the PATTERN — an isolated UI chi
 apart from the conversation flow — NEVER by the phrase merely appearing inside displayed
 content (a diff, a discussion, quoted text that mentions the chip is not the chip).
 When the CURRENT frame is such a scrolled-back view, its content is history, not live
-state: do not report "question"/"rewind"/"tables"/"tasks" or events from that stale
-content — a stale question looks actionable on the phone and is worse than none. One
+state: do not report "question"/"rewind"/"tables"/"tasks"/"links" or events from that
+stale content — a stale question looks actionable on the phone and is worse than none. One
 exception: a question that the earlier frames showed as live and still unanswered is
 STILL pending — keep reporting it (the user scrolled up to reread before answering).
 For activity, stay consistent with the earlier frames (an agent that was working is
