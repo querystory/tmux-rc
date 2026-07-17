@@ -178,22 +178,25 @@ async function poll() {
 }
 
 const usageEl = document.getElementById("usage");
+// Touch has no hover: tap the debug readout to reveal it (brightens via .lit).
+usageEl.onclick = () => usageEl.classList.toggle("lit");
 function showUsage(u, err) {
   if (!u) { usageEl.textContent = ""; return; }
+  // Debug telemetry for the parser LLM, not session-critical — so it sits dimmed in the
+  // background (CSS) and brightens on hover/tap. The success ratio (was "648/657 ok")
+  // is noise here; errors already surface via the ⚠ hint and the red tint on cost.
   // Rate is a plain session average (calls/uptime) computed server-side — stable.
   const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
-  const total = u.calls + u.errors;
-  // Show SUCCEEDED/total (e.g. 648/657) — reads as "almost all fine", not the
-  // alarming failed/total. Only tint red when there actually are failures.
-  const okColor = u.errors ? ' class="warn"' : "";
   const parts = [
     `${tok}k tok`,
-    `$${u.cost.toFixed(3)}`,
-    `<span${okColor}>${u.calls}/${total} ok</span>`,
+    `<span${u.errors ? ' class="warn"' : ""}>$${u.cost.toFixed(3)}</span>`,
     `${u.rate_per_min}/min`,
   ];
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
   usageEl.innerHTML = parts.join(" · ");
+  // Tooltip explaining what the numbers are (they're not obvious as debug telemetry).
+  usageEl.title = `parser LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} spent`
+    + ` · ${u.rate_per_min} calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
 }
 // Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
 // quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
@@ -252,8 +255,47 @@ function render(states) {
       deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
     }
     panesEl.replaceChildren(deck);
+    joinTab(deck);
   }
   updateBar(panesById[act]);
+}
+
+// The tab-to-card join hardware: a 1px card-colored notch laid over the card's blue
+// top border under the selected dock icon (the break that lets the tab's open bottom
+// flow into the card), plus a concave fillet at each of the tab's feet curving the
+// line up into the tab's sides, Chrome-style (see .tab-notch / .tab-fillet CSS).
+// All positioned from measured rects (never guessed), re-pinned on dock scroll.
+// Fillets live in #top (the deck would clip their above-the-line half); stale ones
+// are swept each call — and by dock() in list mode, where there's no card to join.
+function joinTab(deck) {
+  const top = document.getElementById("top");
+  top.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+  const sel = dockEl.querySelector(".dock-icon.sel");
+  if (!sel) return;
+  const n = document.createElement("i");
+  n.className = "tab-notch";
+  deck.appendChild(n);
+  // Two fillets, one per tab foot (mirror-image gradients — see the .tab-fillet CSS).
+  const [fl, fr] = ["l", "r"].map((side) => {
+    const f = document.createElement("i");
+    f.className = "tab-fillet " + side;
+    top.appendChild(f);
+    return f;
+  });
+  const pin = () => {
+    const s = sel.getBoundingClientRect(), d = deck.getBoundingClientRect(),
+      t = top.getBoundingClientRect();
+    n.style.left = s.left - d.left + 1 + "px"; // inset 1px each side: the fillets own
+    n.style.width = s.width - 2 + "px";        // the corner pixels
+    // Each patch is placed so the arc's center (its top corner) sits radius-8 from the
+    // tab border it curves into — tangency by construction, not tuning. The patch spans
+    // the tab's 1px side border plus the flare beyond it (the flare replaces the border).
+    fl.style.top = fr.style.top = t.height - 7 + "px";
+    fl.style.left = s.left - t.left - 7 + "px";
+    fr.style.left = s.right - t.left - 1 + "px";
+  };
+  pin();
+  dockEl.onscroll = pin;
 }
 
 // The pane dock: one icon per pane in tmux window order — active highlighted, a
@@ -270,6 +312,10 @@ const dockEl = document.getElementById("dock");
 function dock(states, act) {
   const el = dockEl;
   el.replaceChildren();
+  // Card view only: the selected icon joins to the card below it (see .has-sel CSS).
+  // In list mode there's no card under the dock, so no seam to open — and no fillets.
+  const joined = el.classList.toggle("has-sel", !listFilter && states.some((s) => s.pane_id === act));
+  if (!joined) document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
   for (const s of states) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
@@ -463,8 +509,9 @@ function card(s) {
       ? `<span class="worksub">${[w.verb, w.elapsed, w.tokens && "↓" + w.tokens]
           .filter(Boolean).map(esc).join(" ")}</span>`
       : "";
+  // No icon here — the pane's icon lives in the dock rail above, which this card's
+  // border joins to (like a tab body under its tab). Repeating it wasted a column.
   row.innerHTML = `
-    <span class="icon">${iconFor(s.tool)}</span>
     <div class="meta">
       <div class="name">${esc(s.title || s.label || "")} ${working}</div>
       <div class="status">${esc(s.headline || "—")}</div>
@@ -756,6 +803,8 @@ const bar = {
   attach: document.getElementById("bar-attach"),
   file: document.getElementById("bar-file"),
   meta: document.getElementById("bar-meta"),
+  keys: document.getElementById("bar-keys"),
+  keysToggle: document.getElementById("bar-keys-toggle"),
 };
 function activeState() {
   const id = activeId();
@@ -774,6 +823,12 @@ if (bar.input) {
       answer(activeState(), bar.input.value); bar.input.value = "";
     }
   });
+  // ⌨ toggles the special-keys row (hidden by default to save a row of height).
+  bar.keysToggle.onclick = () => {
+    const open = bar.keys.hidden;
+    bar.keys.hidden = !open;
+    bar.keysToggle.setAttribute("aria-pressed", String(open));
+  };
   bar.attach.onclick = () => bar.file.click();
   bar.file.onchange = () => bar.file.files[0] && uploadImage(activeState(), bar.file.files[0], bar.input);
   // Desktop image-paste into the field still works; the dedicated 📋 button is gone

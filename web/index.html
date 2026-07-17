@@ -21,7 +21,9 @@
     padding: env(safe-area-inset-top) 0 0;
   }
   #top { position: sticky; top: 0; z-index: 5; background: #0b0f14e6; backdrop-filter: blur(8px); }
-  #top .dock { margin: 0 12px 8px; }
+  /* No bottom gap: the active card below butts against the dock so the two read as one
+     tab-header unit (selected icon = the tab, card = its body). */
+  #top .dock { margin: 0 12px 0; }
   #top .dock:empty { display: none; }
   header {
     padding: 12px 16px 4px; font-weight: 600; font-size: 17px;
@@ -68,7 +70,7 @@
      chrome lines hide behind the bar); the card floats over the top, content-sized,
      with the live terminal tail poking out BELOW it — pan/zoomable in place. The
      negative margin cancels #panes' bar padding so the page itself never scrolls. */
-  .deck { position: relative; height: calc(100dvh - var(--top-h, 122px) - 8px);
+  .deck { position: relative; height: calc(100dvh - var(--top-h, 122px)); /* top pad cancelled by the join margin below */
     margin-bottom: calc(-1 * (var(--bar-h, 150px) + 8px));
     overflow: hidden; display: flex; flex-direction: column; }
   .card {
@@ -92,6 +94,36 @@
   .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; z-index: 1; }
   .card.waiting { border-color: #d29922; background: #1c1a12; }
   .card.active { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
+  /* Tab-into-card join (card mode). Structure, not pixel-chasing:
+     - The dock's bottom OPENS: border 0, square bottom corners. Its bottom edge is
+       simply where the card begins.
+     - .deck margin cancels #panes' top pad EXACTLY, so card top edge == dock bottom
+       edge, and the card's blue top border becomes the rail's bottom line.
+     - The selected icon reaches down to that line: its negative margin swallows the
+       dock's own bottom padding, so it stays INSIDE the overflow-clip region (the
+       scroller clips at the padding box — anything past it gets cut, which is why
+       overhang-into-the-card approaches kept failing). Open bottom, card-colored
+       background: the icon's interior fuses with the card's.
+     - JS lays a 1px card-colored .tab-notch over the card's border directly under the
+       icon (position measured, re-pinned on dock scroll), breaking the blue line so
+       the icon's outline flows into the card's — a true tab. */
+  .deck { margin-top: -8px; }
+  #top .dock.has-sel { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .dock.has-sel .dock-icon.sel { border-bottom: 0; border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0; margin-bottom: -4px; padding-bottom: 11px; background: #161b22; }
+  .tab-notch { position: absolute; top: 0; height: 1px; background: #161b22; z-index: 2; }
+  /* Chrome-style concave fillets at the tab's feet: the card line flares up into the
+     tab's sides. Each is an 8×8 patch over the old sharp L-corner: a radial gradient
+     paints the blue quarter-arc — tangent to the tab border's inner edge and the
+     line's bottom edge — and fills both sides with the shared interior color (dock
+     pill, tab, and card are all #161b22, so "erase and redraw curved" is this one
+     gradient). The card's own top corners keep their normal convex radius — rounding,
+     not flaring, is the right shape there (the tab is the only thing attached).
+     Fillets live in #top — NOT the deck — because they extend above the card line and
+     the deck clips its overflow. */
+  .tab-fillet { position: absolute; width: 8px; height: 8px; z-index: 6; pointer-events: none; }
+  .tab-fillet.l { background: radial-gradient(circle at top left, #161b22 6.5px, #388bfd 7px 8px, #161b22 8.5px); }
+  .tab-fillet.r { background: radial-gradient(circle at top right, #161b22 6.5px, #388bfd 7px 8px, #161b22 8.5px); }
   #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
     background: #0d1117; border-top: 1px solid #30363d;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
@@ -99,7 +131,9 @@
   .inputwrap { flex: 1; display: flex; align-items: center; background: #21262d; border: 1px solid #30363d; border-radius: 10px; padding-left: 6px; }
   .inputwrap input { flex: 1; background: transparent; border: 0; color: #e6edf3; padding: 10px 12px 10px 4px; font-size: 15px; -webkit-appearance: none; }
   .inputwrap input::-webkit-search-cancel-button { display: none; }
-  .inputwrap .attach { background: transparent; border: 0; color: #8b949e; font-size: 17px; cursor: pointer; padding: 0 4px; }
+  .inputwrap .attach { background: transparent; border: 0; color: #8b949e; font-size: 14px;
+    line-height: 1; cursor: pointer; padding: 0 3px; opacity: .8; }
+  .inputwrap .attach[aria-pressed="true"] { color: #58a6ff; opacity: 1; }
   .row { display: flex; align-items: center; gap: 10px; }
   .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
   .icon svg { display: block; }
@@ -201,6 +235,7 @@
   .raw { margin-top: 12px; }
   .raw .freetext { margin-bottom: 8px; }
   .keys { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .keys[hidden] { display: none; } /* author display:flex beats the UA [hidden] rule */
   .keys::-webkit-scrollbar { display: none; }
   .keys button {
     background: #21262d; color: #adbac7; border: 1px solid #30363d;
@@ -222,7 +257,12 @@
     font: 12px/1.3 ui-monospace, monospace; color: #c9d1d9; }
   .empty { text-align: center; color: #6e7681; padding: 60px 20px; }
   .hdr-right { display: flex; align-items: center; gap: 10px; }
-  .usage { font-size: 11px; color: #8b949e; font-family: ui-monospace, monospace; font-weight: 400; }
+  /* Debug telemetry: recedes into the background (it's for us, not the operator) and
+     brightens only on hover/focus/tap. The live dot beside it stays fully lit — that's
+     the one always-relevant signal. */
+  .usage { font-size: 11px; color: #484f58; font-family: ui-monospace, monospace; font-weight: 400;
+    opacity: .55; transition: opacity .15s, color .15s; cursor: default; }
+  .usage:hover, .usage:focus, .usage.lit { opacity: 1; color: #8b949e; }
   .usage .err { color: #f85149; }
   .usage .warn { color: #e3b341; }  /* transient LLM error hint, subtle not shouty */
 .links { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
@@ -251,7 +291,9 @@
   <div id="panes"><div class="empty">Connecting…</div></div>
   <!-- Single persistent input bar, fixed at the bottom. Targets the active card. -->
   <div id="bar">
-    <div class="keys">
+    <!-- Special keys, hidden by default (toggled by the ⌨ button in the input) so they
+         don't cost a permanent row of vertical space. -->
+    <div class="keys" id="bar-keys" hidden>
       <button data-k="Enter">⏎ Enter</button>
       <button data-k="Escape">Esc</button>
       <button data-k="Up">↑</button>
@@ -263,6 +305,7 @@
     </div>
     <div class="freetext">
       <div class="inputwrap">
+        <button id="bar-keys-toggle" class="attach" title="Special keys" aria-pressed="false">⌨</button>
         <button id="bar-attach" class="attach" title="Attach image">📎</button>
         <!-- type=search: Chrome's autofill heuristics treat a lone named text input as a
              potential username field and attach the password/payment keyboard accessory
