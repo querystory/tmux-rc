@@ -230,7 +230,9 @@ def _materialize_links(text: str) -> str:
 
     def repl(m: re.Match) -> str:
         url, label = m.group(1), m.group(2)
-        return label if not url or url in label else f"[{label}]({url})"
+        # Bare-URL labels pass through as-is (the linkifier catches them); anything
+        # else keeps its href via markdown — including labels that merely CONTAIN a URL.
+        return label if not url or label.strip() == url else f"[{label}]({url})"
 
     return _OSC8.sub(repl, text)
 
