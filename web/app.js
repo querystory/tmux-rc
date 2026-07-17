@@ -257,9 +257,12 @@ function flipIn(root) {
       zIndex: 30, pointerEvents: "none", transition: "transform .25s ease-out",
     });
     icon.style.opacity = "0";
+    r.classList.add("arriving"); // titles hidden until the icon is on its way
     document.body.appendChild(fly);
-    requestAnimationFrame(() =>
-      (fly.style.transform = `translate(${dst.left - src.left}px,${dst.top - src.top}px)`));
+    requestAnimationFrame(() => {
+      fly.style.transform = `translate(${dst.left - src.left}px,${dst.top - src.top}px)`;
+      r.classList.remove("arriving"); // …then fade in while it flies
+    });
     setTimeout(() => { fly.remove(); icon.style.opacity = ""; }, 300);
   });
 }
@@ -295,7 +298,7 @@ function swipeNav(el, id) {
   const W = () => el.offsetWidth + 12; // card width + gap
   const clear = () => { if (ghost) ghost.remove(); ghost = null; gdir = 0; };
   el.addEventListener("touchstart", (e) => {
-    sx = e.target.closest(".tbl-scroll, .bg-term") ? null : e.touches[0].clientX;
+    sx = e.target.closest(".tbl-scroll, .bg-wrap") ? null : e.touches[0].clientX;
     sy = e.touches[0].clientY; dx = 0; clear();
   }, { passive: true });
   el.addEventListener("touchmove", (e) => {
@@ -392,21 +395,32 @@ function card(s) {
 const peekCache = {}; // pane_id -> {snap, text}
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
 function bgTerm(s) {
+  // Wrapper = the visible window (starts right below the card, ends near the bar);
+  // the trimmed capture is top-anchored inside it, scrolled to its tail when longer.
+  // So a 1-line shell prompt sits right under the card instead of drowning in the
+  // blank lines tmux pads the capture with.
+  const wrap = document.createElement("div");
+  wrap.className = "bg-wrap" + (has(LOGOS, s.tool) ? "" : " shell");
   const box = document.createElement("pre");
   box.className = "bg-term";
+  wrap.appendChild(box);
+  const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
   const c = peekCache[s.pane_id];
   if (c) box.textContent = c.text; // last capture (kept while a newer one loads)
   if (s.snapshot_id && (!c || c.snap !== s.snapshot_id))
     fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${s.snapshot_id}`)
       .then((r) => (r.ok ? r.text() : ""))
       .then((t) => {
-        if (!t) return;
-        peekCache[s.pane_id] = { snap: s.snapshot_id, text: t };
-        box.textContent = t;
+        const txt = t.replace(/\s+$/, "");
+        if (!txt) return;
+        peekCache[s.pane_id] = { snap: s.snapshot_id, text: txt };
+        box.textContent = txt;
+        toEnd();
       })
       .catch(() => {});
-  pinchZoom(box, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }));
-  return box;
+  pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }));
+  requestAnimationFrame(toEnd);
+  return wrap;
 }
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser

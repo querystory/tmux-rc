@@ -47,6 +47,9 @@
   .dim { color: #6e7681; }
   .d-running { background: #3fb950; } .d-waiting { background: #e3b341; }
   .prow-meta { flex: 1; min-width: 0; }
+  /* List-entry animation: row text fades in while its icon flies down from the dock. */
+  .prow .prow-meta, .prow .badge { transition: opacity .25s ease-out; }
+  .prow.arriving .prow-meta, .prow.arriving .badge { opacity: 0; }
   .prow-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; font-size: 14px; }
   .prow-sub { color: #8b949e; font-size: 12px; white-space: nowrap; overflow: hidden;
@@ -62,15 +65,20 @@
      chrome lines hide behind the bar); the card floats over the top, content-sized,
      with the live terminal tail poking out BELOW it — pan/zoomable in place. The
      negative margin cancels #panes' bar padding so the page itself never scrolls. */
-  .deck { position: relative; height: calc(100dvh - 130px); margin-bottom: -150px; overflow: hidden; }
+  .deck { position: relative; height: calc(100dvh - 130px); margin-bottom: -150px;
+    overflow: hidden; display: flex; flex-direction: column; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 14px;
-    padding: 12px 14px; overflow-y: auto; position: relative; z-index: 1;
+    padding: 12px 14px; overflow-y: auto; position: relative; z-index: 1; flex: none;
     max-height: calc(100% - 230px); /* keeps ≥~5 terminal lines visible above the bar */
   }
-  .bg-term { position: absolute; left: 0; right: 0; bottom: 0; z-index: 0; margin: 0;
-    padding: 0 12px; font: 10px/1.35 ui-monospace, monospace; color: #8b949e;
-    white-space: pre; touch-action: none; }
+  /* The capture's window: right below the card down to the bar. Agent panes overlap
+     the bar a little (their tail is status/input chrome); shells stop above it so a
+     trailing prompt stays visible. Long captures are scrolled to their tail. */
+  .bg-wrap { flex: 1; min-height: 0; overflow: hidden; touch-action: none; margin-bottom: 90px; }
+  .bg-wrap.shell { margin-bottom: 160px; }
+  .bg-term { margin: 0; padding: 4px 12px; font: 10px/1.35 ui-monospace, monospace;
+    color: #8b949e; white-space: pre; }
   .fsbtn { position: absolute; right: 10px; bottom: 170px; z-index: 2; width: 34px; height: 34px;
     background: #21262dcc; border: 1px solid #30363d; color: #adbac7; border-radius: 8px;
     font-size: 15px; cursor: pointer; }
