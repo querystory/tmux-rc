@@ -21,7 +21,7 @@ const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
 // Tab title carries the host, so tabs to different tmux-rc daemons are tellable apart.
-document.title = `tmux ʳᵉᵐᵒᵗᵉ ᶜᵒⁿᵗʳᵒˡ - ${location.host}`;
+document.title = `tmuxʳᶜ - ${location.host}`;
 
 // GitHub-style tab badge: while any pane is WAITING, the favicon gets an amber dot
 // (drawn once onto a canvas over the base icon, cached as a data URL) — so a
