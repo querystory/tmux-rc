@@ -311,8 +311,14 @@ def main() -> None:
     # the watcher's in-memory cache — safe, tmux is the source of truth and state
     # rebuilds within a couple ticks). ON by default; set TMUXRC_RELOAD=0 to disable.
     reload = os.environ.get("TMUXRC_RELOAD", "1") != "0"
+    # proxy_headers=False: uvicorn's default rewrites request.client from
+    # X-Forwarded-For on loopback connections — and the tunnel relay forwards Cloud
+    # Run's XFF, so legit tunnel requests LOOKED like they came from the relay's IP and
+    # the audit trust gate (loopback-only) refused their identity. The direct TCP peer
+    # is what the trust model needs.
     uvicorn.run(
         "daemon.server:app" if reload else app,
+        proxy_headers=False,
         host=os.environ.get("TMUXRC_HOST", "0.0.0.0"),
         port=int(os.environ.get("TMUXRC_PORT", "8080")),
         reload=reload,

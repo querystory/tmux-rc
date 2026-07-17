@@ -40,11 +40,18 @@ but have distinct signatures. Decide by the evidence on screen:
   names its session/thread only when it explicitly says so (e.g. a line like "Thread
   renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,
   OMIT "session" — never fall back to a status-line token.
-- "gemini" (Gemini CLI): names a Gemini model.
+- "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
+  with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
+  "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku" + a
   version like "4.8"); status line shows dir/branch · model · context% · elapsed · cost ·
   prompts/tools counts; whimsical gerund while working (e.g. "Shimmying…"); permission
   modes "plan mode"/"accept edits"/"bypass permissions"; Esc-Esc REWIND picker.
+Identify an agent by ITS OWN UI CHROME (status bar, input box, permission prompts,
+banner) — never by agent/model names merely APPEARING IN CONTENT. A pane whose text
+mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:generateContent),
+code, or discussion is NOT that agent — a server log spamming Gemini endpoints is the
+program that's actually running (usually "shell"), not "gemini".
 An agent pane STAYS that agent even when a shell command it launched fills the screen —
 the agent is driving it. Use earlier frames and the model name for continuity; if recent
 frames identified a specific agent, prefer that SAME agent (do not switch to a different
