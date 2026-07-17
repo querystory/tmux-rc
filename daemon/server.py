@@ -10,6 +10,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -336,20 +337,24 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         fh.write(data)
 
     # Clipboard-first: normalize to PNG and Ctrl-V for the inline embed. Fall back to
-    # typing the path (trailing space keeps it a clean token next to typed text).
-    tools: list[str] = []
-    try:
-        png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
-        tools = tmux.set_clipboard_image(png)
-    except Exception:  # noqa: BLE001 - undecodable image: the path route still works
-        pass
-    if tools:
-        tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
-    else:
-        # Spaces both sides: the client may have just typed draft text into the pane,
-        # and the path must not concatenate onto it (agents trim a stray leading space).
-        tmux.send_keys(pane_id, f" {path} ", enter=False, literal=True)
-    mode = f"clipboard:{'+'.join(tools)}" if tools else "path"
+    # typing the path. All of this blocks (Pillow decode, subprocess waits), so it
+    # runs in a worker thread — an upload must not stall the event loop's polling.
+    def _deliver() -> str:
+        tools: list[str] = []
+        try:
+            png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
+            tools = tmux.set_clipboard_image(png)
+        except Exception:  # noqa: BLE001 - undecodable image: the path route still works
+            pass
+        if tools:
+            tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
+        else:
+            # Spaces both sides: the client may have just typed draft text into the
+            # pane, and the path must not concatenate onto it (agents trim the space).
+            tmux.send_keys(pane_id, f" {path} ", enter=False, literal=True)
+        return f"clipboard:{'+'.join(tools)}" if tools else "path"
+
+    mode = await asyncio.to_thread(_deliver)
     _audit(request, "paste_image", pane_id, f"{detail} via {mode}")
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
