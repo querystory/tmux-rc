@@ -341,8 +341,12 @@ function row(s, act) {
   el.className = "prow" + (a === "waiting" ? " waiting" : "")
     + (s.pane_id === act ? " sel" : "");
   el.dataset.pane = s.pane_id;
-  // Tapping a row opens that pane's card (drops back out of list view).
+  // Tapping a row opens that pane's card (drops back out of list view). Keyboard
+  // reachable too: it's a div, so it needs button semantics spelled out.
+  el.setAttribute("role", "button");
+  el.tabIndex = 0;
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
+  el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); } };
   const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds) : a;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +

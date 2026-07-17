@@ -13,6 +13,18 @@ def _llm(payload):
     return lambda system, text: payload
 
 
+def test_payload_leads_with_foreground_process():
+    seen = {}
+
+    def llm(system, text):
+        seen["text"] = text
+        return {"tool": "shell", "activity": "idle"}
+
+    classify(_pane(cmd="python3"), "some screen", llm)
+    first_line = seen["text"].splitlines()[0]
+    assert "foreground process" in first_line and "python3" in first_line
+
+
 def test_pipes_llm_json_through():
     r = classify(_pane(), "…", _llm({
         "tool": "claude", "activity": "running", "headline": "Editing models.py",
