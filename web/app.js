@@ -18,6 +18,9 @@ const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICON
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
+// Tab title carries the host, so tabs to different tmux-rc daemons are tellable apart.
+document.title = `tmux-rc - ${location.hostname}`;
+
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
 let busy = false; // suppress polling flicker while an answer is in flight
