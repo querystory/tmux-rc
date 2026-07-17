@@ -93,7 +93,9 @@ async function poll() {
     const pfx = document.getElementById("bar-prefix");
     if (pfx && data.prefix) {
       pfx.dataset.k = data.prefix;
-      pfx.textContent = data.prefix.replace("C-", "Ctrl-");
+      // Uppercase the key in the LABEL only (Ctrl-A, matching the other key buttons);
+      // dataset.k keeps tmux's exact name (C-a).
+      pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
     render(data.panes || []);
   } catch (e) {
@@ -365,6 +367,10 @@ function metaChips(s) {
       `<span class="chip ctxchip"><i style="width:${s.context_pct}%"></i>${s.context_pct}% ctx</span>`
     );
   if (s.cost) chips.push(`<span class="chip">${esc(s.cost)}</span>`);
+  // Generic status-line entries the parser surfaced (usage-limit %, queue depth, …):
+  // one chip each, no schema change per metric.
+  for (const t of (s.status_entries || []).slice(0, 4))
+    if (t) chips.push(`<span class="chip">${esc(t)}</span>`);
   if (s.mode && s.mode !== "normal" && s.mode !== "unknown")
     chips.push(`<span class="chip mode mode-${s.mode}">${MODE_LABEL[s.mode] ?? s.mode}</span>`);
   if (s.agents > 0) chips.push(`<span class="chip agents">⛓ ${s.agents} agents</span>`);
@@ -620,6 +626,10 @@ function pinchZoom(container, el) {
   let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
   const apply = () => { el.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
   el.style.transformOrigin = "0 0";
+  // Start at the BOTTOM-left, not the top: the end of a capture is the live state
+  // (everything above a trailing prompt has already exited).
+  ty = Math.min(0, container.clientHeight - el.offsetHeight);
+  apply();
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
   container.addEventListener("touchstart", (e) => {
