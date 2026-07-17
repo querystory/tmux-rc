@@ -67,6 +67,11 @@ telemetry.
   state handles the most requests" means "most parses happened while a pane was in the
   running state," i.e. agents are most often actively working — NOT that running is a
   request type or batch mode.
+- **`kind`** — `parse` (a live screen classification, the overwhelming majority) or
+  `bootstrap` (a one-time deep read of a pane's scrollback that seeds the card's
+  session summary and reconstructed history — one per pane per daemon run, much larger
+  `in_tokens`). **Exclude `kind = 'bootstrap'` from parse-latency/cost benchmarks** or
+  they'll skew; analyze bootstraps separately.
 - **`changed`** — `true` if this parse was triggered by a real content change on screen;
   `false` if it was a periodic "heartbeat" re-parse of an unchanged screen. Volatile churn
   (spinners, ticking timers/token counts) is stripped before deciding "changed," so a
@@ -204,6 +209,9 @@ missing as "not shown on screen / not applicable," not zero):
 - **`working`** — present while `activity=running`: `{verb, elapsed, tokens}` — the
   whimsical gerund (`"Brewed"`), elapsed time string (`"7m 31s"`), and tokens-streamed
   string. All display strings off the status line.
+- **`session_summary`** — (state field, not from the per-tick parser) 2-3 sentence
+  "story so far" produced by the bootstrap pass from scrollback; refreshed only when a
+  pane re-bootstraps (daemon restart / new pane).
 - **`events`** — array of NEW activity items since the last parse: each
   `{text, file?: {path, added, removed}, meta?}`. `text` is what happened in plain
   language; `file` present when it was a file edit (path + lines +/-); `meta` a short

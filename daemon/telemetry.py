@@ -157,6 +157,7 @@ def emit_parse(
     activity: str | None,
     changed: bool,
     error: str | None = None,
+    kind: str = "parse",
 ) -> None:
     """Emit one benchmark record for a classify call. No-op if telemetry is disabled.
 
@@ -183,6 +184,9 @@ def emit_parse(
             "changed": changed,
             # Hash lets us group repeated parses of the same screen without sending text.
             "input_sha256": hashlib.sha256(pane_text.encode()).hexdigest(),
+            # "parse" = live screen classification; "bootstrap" = the one-time deep
+            # scrollback digest (big in_tokens — exclude from parse-latency benchmarks).
+            "kind": kind,
         }
         # On a failed parse, OMIT token/cost so they read as NULL/absent (per hint.md:
         # "exclude error IS NOT NULL" for success-path metrics) rather than skewing

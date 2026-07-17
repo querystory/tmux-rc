@@ -169,7 +169,14 @@
   .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
     max-height: 40vh; overflow-y: auto; }
   .events::-webkit-scrollbar { width: 6px; } .events::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+  /* Bootstrap products: the "story so far" summary, and history reconstructed from
+     scrollback (dimmed — it was read back, not observed live). */
+  .sess-sum { margin-top: 10px; color: #8b949e; font-size: 13px; font-style: italic;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden; cursor: pointer; }
+  .sess-sum.open { -webkit-line-clamp: unset; }
   .ev { display: flex; align-items: baseline; gap: 10px; }
+  .ev-hist .ev-text { color: #6e7681; }
   .ev-text { flex: 1; color: #c9d1d9; font-size: 13px; min-width: 0; }
   .ev-note { flex: 0 0 auto; color: #6e7681; font-size: 11px; font-family: ui-monospace, monospace;
     white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; text-align: right; }
