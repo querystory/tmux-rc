@@ -7,8 +7,9 @@
 // JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor" would
 // otherwise resolve up the prototype chain and render garbage) and escape it into alt.
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
-const ICONS = { shell: "$_", unknown: "•" }; // $_ — the classic Bash mark
+const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg",
+  shell: "/bash.png" }; // official Bash logo (MIT — see bash-logo.LICENSE)
+const ICONS = { unknown: "•" };
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
@@ -470,7 +471,10 @@ function bgTerm(s) {
   // So a 1-line shell prompt sits right under the card instead of drowning in the
   // blank lines tmux pads the capture with.
   const wrap = document.createElement("div");
-  wrap.className = "bg-wrap" + (has(LOGOS, s.tool) ? "" : " shell");
+  // "shell" here means "no status chrome at the bottom of the capture" — agents get
+  // their chrome tucked behind the bar, shells keep their prompt visible above it.
+  // (Don't key this on LOGOS: shell has a logo too now.)
+  wrap.className = "bg-wrap" + (["claude", "codex", "gemini"].includes(s.tool) ? "" : " shell");
   const box = document.createElement("pre");
   box.className = "bg-term";
   wrap.appendChild(box);
