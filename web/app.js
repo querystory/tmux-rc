@@ -2,21 +2,63 @@
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step.
 
-// Real brand marks per agent (served from web/). One img template so every logo-backed
-// tool renders identically; emoji/text fallback for the rest. `tool` comes from parser
-// JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor" would
-// otherwise resolve up the prototype chain and render garbage) and escape it into alt.
+// Real brand marks per tool (served from web/). One img template so every icon renders
+// identically; unidentified panes fall back to the tmux logomark. `tool` comes from
+// parser JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor"
+// would otherwise resolve up the prototype chain and render garbage) and escape its alt.
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg" };
-const ICONS = { shell: "$", unknown: "•" };
+const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg",
+  shell: "/bash.png" }; // official Bash logo (MIT — see bash-logo.LICENSE)
+// Unidentified panes get the tmux logomark ("some tmux pane") instead of a bare dot.
+const UNKNOWN_LOGO = "/tmux-logomark.svg";
+// Tools with status/input chrome at the bottom of their screen (see bgTerm).
+const AGENT_TOOLS = new Set(["claude", "codex", "gemini"]);
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
 const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
-const iconFor = (tool) => (has(LOGOS, tool) ? img(LOGOS[tool], tool) : (has(ICONS, tool) ? ICONS[tool] : "•"));
+const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
+
+// Tab title carries the host, so tabs to different tmux-rc daemons are tellable apart.
+document.title = `tmuxʳᶜ - ${location.host}`;
+
+// GitHub-style tab badge: while any pane is WAITING, the favicon gets an amber dot
+// (drawn once onto a canvas over the base icon, cached as a data URL) — so a
+// background tab still shows "something needs you".
+const favLink = document.querySelector('link[rel="icon"]');
+const favBase = favLink && favLink.href;
+let favDotUrl = null;
+let favWaiting = false;
+function setFavicon(waiting) {
+  if (!favLink || !favBase || waiting === favWaiting) return;
+  favWaiting = waiting;
+  if (!waiting) { favLink.href = favBase; return; }
+  if (favDotUrl) { favLink.href = favDotUrl; return; }
+  const im = new Image();
+  // Any failure resets favWaiting so a later render RETRIES the badge — otherwise the
+  // waiting===favWaiting short-circuit wedges the tab dotless for the whole wait.
+  im.onerror = () => { favWaiting = false; };
+  im.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 32;
+    const g = c.getContext("2d");
+    if (!g) { favWaiting = false; return; } // context can be null (memory pressure)
+    g.drawImage(im, 0, 0, 32, 32);
+    // Punch a clear ring first so the dot reads over busy icon pixels. Sized like
+    // the in-app corner badges — a hint, not an eclipse.
+    g.globalCompositeOperation = "destination-out";
+    g.beginPath(); g.arc(26, 6, 5.5, 0, Math.PI * 2); g.fill();
+    g.globalCompositeOperation = "source-over";
+    g.beginPath(); g.arc(26, 6, 4, 0, Math.PI * 2);
+    g.fillStyle = "#e3b341"; g.fill();
+    favDotUrl = c.toDataURL("image/png");
+    if (favWaiting) favLink.href = favDotUrl;
+  };
+  im.src = favBase;
+}
 
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
@@ -160,6 +202,7 @@ function render(states) {
   // without bound over a long-running session.
   for (const m of [eventLog, eventScroll, peekCache, bgZoom])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
+  setFavicon(states.some((s) => actOf(s) === "waiting"));
   if (!states.length) {
     dockEl.replaceChildren();
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
@@ -220,7 +263,11 @@ function dock(states, act) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
-    b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${actOf(s)}" aria-hidden="true"></i>`;
+    // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
+    // none — quiet is the default, only running/waiting earn a signal.
+    const a = actOf(s);
+    b.innerHTML = iconFor(s.tool) +
+      (a === "running" || a === "waiting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
     b.title = s.title || s.label || s.pane_id;
     b.setAttribute("aria-label", b.title);
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
@@ -299,8 +346,12 @@ function row(s, act) {
   el.className = "prow" + (a === "waiting" ? " waiting" : "")
     + (s.pane_id === act ? " sel" : "");
   el.dataset.pane = s.pane_id;
-  // Tapping a row opens that pane's card (drops back out of list view).
+  // Tapping a row opens that pane's card (drops back out of list view). Keyboard
+  // reachable too: it's a div, so it needs button semantics spelled out.
+  el.setAttribute("role", "button");
+  el.tabIndex = 0;
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
+  el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); } };
   const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds) : a;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
@@ -436,7 +487,10 @@ function bgTerm(s) {
   // So a 1-line shell prompt sits right under the card instead of drowning in the
   // blank lines tmux pads the capture with.
   const wrap = document.createElement("div");
-  wrap.className = "bg-wrap" + (has(LOGOS, s.tool) ? "" : " shell");
+  // "shell" here means "no status chrome at the bottom of the capture" — agents get
+  // their chrome tucked behind the bar, shells keep their prompt visible above it.
+  // (Don't key this on LOGOS: shell has a logo too now.)
+  wrap.className = "bg-wrap" + (AGENT_TOOLS.has(s.tool) ? "" : " shell");
   const box = document.createElement("pre");
   box.className = "bg-term";
   wrap.appendChild(box);

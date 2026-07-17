@@ -61,6 +61,8 @@ telemetry.
   - `waiting` — the agent is blocked awaiting user input (a question, menu, or rewind
     picker is on screen). These are the "actionable" panes.
   - `idle` — nothing happening; a bare shell prompt or a finished agent.
+  - `unknown` — the watcher couldn't classify the pane (e.g. a parse-failure stub);
+    rare, but consumers should tolerate it.
   This is a property of the **screen being classified**, not of the API call. "Running
   state handles the most requests" means "most parses happened while a pane was in the
   running state," i.e. agents are most often actively working — NOT that running is a
@@ -180,8 +182,8 @@ missing as "not shown on screen / not applicable," not zero):
 
 - **`tool`** — which program occupies the pane: `claude` | `codex` | `gemini` | `shell` |
   `unknown`. The kind of thing being watched. (Observed mostly `claude`, some `shell`.)
-- **`activity`** — `running` | `waiting` | `idle`. Same meaning as the top-level `activity`
-  column (that column is derived from this).
+- **`activity`** — `running` | `waiting` | `idle` (| `unknown` in daemon-generated stub
+  states). Same meaning as the top-level `activity` column (that column is derived from this).
 - **`headline`** — one human sentence summarizing what's happening / being worked on. The
   main line of the card, written like a mobile push notification: it carries the SUBSTANCE
   (the actual question/decision/result), not a meta-description. Good for "what was the
