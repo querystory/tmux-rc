@@ -305,6 +305,7 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     # Stage to disk, prune stale stagings (the pane reads the file right after the
     # paste; a day of slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(IMG_DIR, 0o700)  # /tmp is shared: don't let umask leave stagings listable
     cutoff = time.time() - 86400
     for old in IMG_DIR.iterdir():
         try:  # regular files only; tolerate races with concurrent prunes

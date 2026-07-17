@@ -180,15 +180,24 @@ async function poll() {
 const usageEl = document.getElementById("usage");
 // Touch has no hover: tap the debug readout to reveal it (brightens via .lit).
 // Focusable (tabindex in the HTML) so keyboard users get the same toggle.
-usageEl.onclick = () => usageEl.classList.toggle("lit");
+usageEl.onclick = () => {
+  const lit = usageEl.classList.toggle("lit");
+  usageEl.setAttribute("aria-pressed", String(lit));
+};
 usageEl.onkeydown = (e) => {
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); usageEl.click(); }
 };
 function showUsage(u, err) {
-  if (!u) { usageEl.textContent = ""; return; }
+  if (!u) {
+    // Gone (reconnect, fresh daemon): clear the leftovers too — a stale tooltip on an
+    // empty span, or a "revealed" state announcing itself to assistive tech.
+    usageEl.textContent = ""; usageEl.title = "";
+    usageEl.classList.remove("lit"); usageEl.setAttribute("aria-pressed", "false");
+    return;
+  }
   // Debug telemetry for the parser LLM, not session-critical — so it sits dimmed in the
   // background (CSS) and brightens on hover/tap. The success ratio (was "648/657 ok")
-  // is noise here; errors already surface via the ⚠ hint and the red tint on cost.
+  // is noise here; errors already surface via the ⚠ hint and the amber tint on cost.
   // Rate is a plain session average (calls/uptime) computed server-side — stable.
   const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
   const parts = [
