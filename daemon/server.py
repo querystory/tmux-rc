@@ -203,8 +203,9 @@ def get_state():
 @app.get("/api/digest")
 def get_digest():
     """Per-pane state + recent history in one GET — the endpoint for agents/scripts.
-    /api/state is shaped for the phone (only NEW events per parse; the phone accumulates
-    its own log); this returns the accumulated picture: headline, activity, idle time,
+    /api/state is shaped for the phone (only NEW events per parse; the phone refetches
+    the server-side event log on demand); this returns the whole picture in one shot:
+    headline, activity, idle time,
     pending question, the LLM idle-summary, and the recent timestamped event history."""
     return {"panes": app.state.watcher.digest()}
 

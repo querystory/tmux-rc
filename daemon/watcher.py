@@ -152,8 +152,9 @@ class Watcher:
         """Per-pane current state PLUS recent history, for agent/programmatic consumers.
 
         /api/state is shaped for the phone: it carries only the events NEW in the last
-        parse (the phone accumulates its own log client-side), so a one-shot reader sees
-        an empty feed and no past. This view exposes what the watcher already tracks —
+        parse (the phone refetches the server-side event log via events_seq), so a
+        one-shot reader sees an empty feed and no past. This view exposes what the
+        watcher already tracks —
         the burst ring (recent timestamped events) and the cached idle summary — so one
         GET answers "what has been going on in each pane," no client-side accumulation
         and no extra LLM calls."""
