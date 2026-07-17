@@ -60,8 +60,9 @@ serve it. Concretely:
   observed live), and also feeds them into the existing "already reported" dedup list
   so live parses don't restate them.
 - A new read-only endpoint, `GET /api/panes/{id}/events`, returns the list. Each
-  `/api/state` entry advertises `events_len` so the client refetches a pane's log only
-  when it has grown — cheap, and no streaming needed.
+  `/api/state` entry advertises `events_seq` (a monotonic append counter, not the log
+  length — see the open-questions note) so the client refetches a pane's log only when
+  it changes — cheap, and no streaming needed.
 - The client stops accumulating; it renders whatever the endpoint returns.
 
 **What this costs:** one bounded dict in the daemon (same shape and lifecycle as

@@ -214,7 +214,8 @@ def list_events(pane_id: str):
     """The pane's activity-log cache (bootstrap-seeded history + live events). The
     phone fetches this instead of accumulating client-side, so a page reload doesn't
     start the feed from zero. In-memory, not persisted (tmux is the state).
-    states[].events_len signals when to refetch. See docs/design/activity-log.md."""
+    states[].events_seq (a monotonic append counter) signals when to refetch. See
+    docs/design/activity-log.md."""
     return app.state.watcher.events_log.get(pane_id, [])
 
 

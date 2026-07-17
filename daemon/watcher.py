@@ -260,8 +260,9 @@ class Watcher:
         for s in states:
             s["tmux_active"] = s.get("pane_id") == focused
         # One-time scrollback bootstrap (staggered), then merge its products into the
-        # outgoing states. Every state also advertises its event-log length so the
-        # client knows when to (re)fetch /api/panes/{id}/events.
+        # outgoing states. Every state also advertises events_seq (monotonic append
+        # counter, not length — see _events_seq) so the client knows when to
+        # (re)fetch /api/panes/{id}/events.
         if self.use_llm:
             self._maybe_bootstrap(panes)
         for s in states:
