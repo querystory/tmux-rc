@@ -148,7 +148,11 @@ function render(states) {
   // big fleet doesn't shove the active card off screen.
   const act = activeId();
   const others = states.filter((s) => s.pane_id !== act);
-  const earnsRow = (s) => s.activity === "waiting" || has(LOGOS, s.tool);
+  // A dismissed waiting pane folds away like a swiped notification — until it asks
+  // something new. Dismissals die as soon as the pane stops waiting.
+  states.forEach((s) => { if (s.activity !== "waiting") delete dismissed[s.pane_id]; });
+  const earnsRow = (s) =>
+    s.activity === "waiting" ? dismissed[s.pane_id] !== waitKey(s) : has(LOGOS, s.tool);
   const folded = others.filter((s) => !earnsRow(s));
   const rows = others.filter(earnsRow).map(row);
   if (folded.length) rows.push(othersRow(folded));
@@ -157,10 +161,20 @@ function render(states) {
   updateBar(panesById[act]);
 }
 
+// Swipe-to-dismiss state: pane_id -> the question it was dismissed at (a NEW question
+// resurfaces the row; the "Other panes" fold shows its waiting count meanwhile).
+const dismissed = {};
+const waitKey = (s) => (s.question && s.question.prompt) || "waiting";
+
 function row(s) {
   const el = document.createElement("div");
   el.className = "prow" + (s.activity === "waiting" ? " waiting" : "");
-  el.onclick = () => setActive(s.pane_id);
+  el.onclick = () => { if (!el._swiped) setActive(s.pane_id); };
+  if (s.activity === "waiting")
+    swipeDismiss(el, () => {
+      dismissed[s.pane_id] = waitKey(s);
+      render(Object.values(panesById));
+    });
   const badge = s.activity === "idle" ? "idle " + fmtIdle(s.idle_seconds) : s.activity;
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
@@ -185,10 +199,55 @@ function othersRow(list) {
   return el;
 }
 
+// A waiting row behaves like a notification: drag it sideways, past the threshold it
+// dismisses; short drags snap back. Real drags suppress the tap-to-select click.
+function swipeDismiss(el, onDismiss) {
+  let sx = null, sy = null, dx = 0;
+  el.addEventListener("touchstart", (e) => {
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; el._swiped = false;
+  }, { passive: true });
+  el.addEventListener("touchmove", (e) => {
+    if (sx == null) return;
+    dx = e.touches[0].clientX - sx;
+    if (Math.abs(dx) > Math.abs(e.touches[0].clientY - sy) && Math.abs(dx) > 10) {
+      el._swiped = true;
+      el.style.transform = `translateX(${dx}px)`;
+      el.style.opacity = String(Math.max(0.15, 1 - Math.abs(dx) / 250));
+    }
+  }, { passive: true });
+  el.addEventListener("touchend", () => {
+    if (Math.abs(dx) > 90) onDismiss();
+    else { el.style.transform = ""; el.style.opacity = ""; }
+    sx = null;
+  });
+}
+
+// Horizontal swipe on the active card switches panes (stable %id order, wraps).
+// Touches that start in a horizontal scroller (tables) keep their native gesture.
+function swipeNav(el, id) {
+  let sx = null, sy = null;
+  el.addEventListener("touchstart", (e) => {
+    sx = e.target.closest(".tbl-scroll") ? null : e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener("touchend", (e) => {
+    if (sx == null) return;
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    sx = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy)) return;
+    const ids = Object.keys(panesById).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+    if (ids.length < 2) return;
+    const i = ids.indexOf(id);
+    setActive(ids[(i + (dx < 0 ? 1 : ids.length - 1)) % ids.length]);
+  });
+}
+
 function card(s) {
   const el = document.createElement("div");
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " active" : "");
+  swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
     if (e.target.closest("button, input, a, summary, details")) return; // don't steal option/timeline taps

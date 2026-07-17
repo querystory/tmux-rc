@@ -28,7 +28,7 @@
      active pane's full card — whole-fleet status at a glance, tap to switch. */
   .prow { display: flex; align-items: center; gap: 10px; background: #161b22;
     border: 1px solid #30363d; border-radius: 10px; padding: 8px 12px; cursor: pointer; }
-  .prow.waiting { border-color: #d29922; background: #1c1a12; }
+  .prow.waiting { border-color: #d29922; background: #1c1a12; transition: transform .15s, opacity .15s; }
   .prow.others { color: #8b949e; gap: 6px; }
   .prow-meta { flex: 1; min-width: 0; }
   .prow-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
