@@ -11,6 +11,8 @@ const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.sv
   shell: "/bash.png" }; // official Bash logo (MIT — see bash-logo.LICENSE)
 // Unidentified panes get the tmux logomark ("some tmux pane") instead of a bare dot.
 const UNKNOWN_LOGO = "/tmux-logomark.svg";
+// Tools with status/input chrome at the bottom of their screen (see bgTerm).
+const AGENT_TOOLS = new Set(["claude", "codex", "gemini"]);
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
@@ -488,7 +490,7 @@ function bgTerm(s) {
   // "shell" here means "no status chrome at the bottom of the capture" — agents get
   // their chrome tucked behind the bar, shells keep their prompt visible above it.
   // (Don't key this on LOGOS: shell has a logo too now.)
-  wrap.className = "bg-wrap" + (["claude", "codex", "gemini"].includes(s.tool) ? "" : " shell");
+  wrap.className = "bg-wrap" + (AGENT_TOOLS.has(s.tool) ? "" : " shell");
   const box = document.createElement("pre");
   box.className = "bg-term";
   wrap.appendChild(box);
