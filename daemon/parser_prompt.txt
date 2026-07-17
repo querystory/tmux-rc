@@ -17,15 +17,13 @@ changes across versions and tools):
 - Is there an INPUT PROMPT — a yes/no confirmation, a numbered choice, or a free-text
   field the user must fill?
 
-TERMINAL ORDER — a pane is append-only; ONLY the bottom shows the live state. A shell
-prompt as the last non-empty line means whatever ran above it has EXITED: banners,
-menus, "Press Enter to continue", and questions visible above that prompt are finished
-history — never report them as a live question or waiting state. Even agent chrome
-above a trailing shell prompt belongs to the exited program (e.g. an agent welcome
-screen followed by "Resume this session with: …" and a fresh prompt = the agent ran
-and exited; the pane is now an idle shell). This differs from an agent SHELLING OUT:
-a driven command shows output under the agent's own still-live chrome, not a bare
-interactive prompt returned to the user.
+TERMINAL ORDER — a pane is append-only, so the LAST thing on screen is the live state;
+everything above it already happened. A shell prompt as the last non-empty line means
+whatever ran above has EXITED — banners, menus, "Press Enter to continue", questions,
+even agent chrome above that prompt are finished history, never a live waiting state
+(welcome screen + "Resume this session with: …" + fresh prompt = the agent exited; the
+pane is an idle shell). Distinct from an agent shelling out, where output appears under
+the agent's still-live chrome with no bare prompt returned to the user.
 
 IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
 command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
