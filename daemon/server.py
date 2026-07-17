@@ -203,10 +203,23 @@ def get_state():
 @app.get("/api/digest")
 def get_digest():
     """Per-pane state + recent history in one GET — the endpoint for agents/scripts.
-    /api/state is shaped for the phone (only NEW events per parse; the phone accumulates
-    its own log); this returns the accumulated picture: headline, activity, idle time,
+    /api/state is shaped for the phone (only NEW events per parse; the phone refetches
+    the server-side event log on demand); this returns the whole picture in one shot:
+    headline, activity, idle time,
     pending question, the LLM idle-summary, and the recent timestamped event history."""
     return {"panes": app.state.watcher.digest()}
+
+
+@app.get("/api/panes/{pane_id}/events")
+def list_events(pane_id: str):
+    """The pane's activity-log cache (bootstrap-seeded history + live events). The
+    phone fetches this instead of accumulating client-side, so a page reload doesn't
+    start the feed from zero. In-memory, not persisted (tmux is the state).
+    states[].events_seq (a monotonic append counter) signals when to refetch. See
+    docs/design/activity-log.md."""
+    # Snapshot copy: the watcher mutates this list from its worker thread (to_thread),
+    # so serializing the live object could race a concurrent extend/trim.
+    return list(app.state.watcher.events_log.get(pane_id, []))
 
 
 @app.get("/api/panes/{pane_id}/snapshots")
