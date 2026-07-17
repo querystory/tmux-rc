@@ -166,14 +166,13 @@ function render(states) {
   // one-liners, dock hidden; tapping a row returns to card view.
   const subset = listFilter && states.filter((s) => listFilter === "all" || s.activity === listFilter);
   if (subset && subset.length) {
-    dockEl.hidden = true;
-    panesEl.replaceChildren(...subset.map(row));
+    dock(states, act); // dock stays up in list mode — icon tap jumps to that card
+    panesEl.replaceChildren(...subset.map(row)); // server order — same as the dock
     updateBar(panesById[act]);
     flipIn(panesEl);
     return;
   }
   listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
-  dockEl.hidden = false;
   dock(states, act); // sticky top bar — constant height, content swaps below it
   {
     // The deck is a positioning context: the pane's capture as background, the card
@@ -194,9 +193,13 @@ function render(states) {
   updateBar(panesById[act]);
 }
 
-// The pane dock: one icon per pane in swipe (%id) order — active highlighted, a
+// The pane dock: one icon per pane in tmux window order — active highlighted, a
 // colored dot showing each pane's activity. Tap an icon to jump; it doubles as the
 // page indicator while swiping the card. Folded shells and dismissed waiters live here.
+// Pane order everywhere (dock, list, swipe) is the SERVER's array order — tmux's own
+// session/window/pane order, matching the window numbers in tmux's status bar.
+// (%id creation order scrambles as windows come and go; don't sort by it.)
+
 // List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
 // of just those panes (tapped via the dock's tally badges / "all").
 let listFilter = null;
@@ -204,15 +207,15 @@ const dockEl = document.getElementById("dock");
 function dock(states, act) {
   const el = dockEl;
   el.replaceChildren();
-  const ordered = states.slice()
-    .sort((a, b) => parseInt(a.pane_id.slice(1)) - parseInt(b.pane_id.slice(1)));
-  for (const s of ordered) {
+  for (const s of states) {
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
     b.innerHTML = `${iconFor(s.tool)}<i class="ddot d-${s.activity}"></i>`;
     b.title = s.title || s.label || s.pane_id;
-    b.onclick = (e) => { e.stopPropagation(); setActive(s.pane_id); };
+    // Jump to that pane's CARD — including from list mode (a dock tap means "show
+    // me this pane", not "re-highlight it inside the list").
+    b.onclick = () => { listFilter = null; setActive(s.pane_id); };
     el.appendChild(b);
   }
   // Density + navigation: per-activity tallies, right-aligned — each one FILTERS the
@@ -256,7 +259,17 @@ function flipIn(root) {
       position: "fixed", left: src.left + "px", top: src.top + "px", margin: "0",
       zIndex: 30, pointerEvents: "none",
     });
-    icon.style.opacity = "0";
+    // The row stays INVISIBLE until its icon arrives — only then is the rest of the
+    // summary (outline, title, badge) drawn. The safety timer reveals it even if the
+    // flight animation gets interrupted, so the list can never end up blank.
+    r.style.opacity = "0";
+    const reveal = () => {
+      fly.remove();
+      if (r.style.opacity === "0") {
+        r.style.opacity = "";
+        r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
+      }
+    };
     document.body.appendChild(fly);
     // Web Animations API, not CSS-class transitions: keyframes take effect the moment
     // they're created, so the start states actually paint (the class-toggle version
@@ -265,11 +278,8 @@ function flipIn(root) {
       [{ transform: "translate(0,0)" },
        { transform: `translate(${dst.left - src.left}px,${dst.top - src.top}px)` }],
       { duration: 250, easing: "ease-out", fill: "forwards" }
-    ).onfinish = () => { fly.remove(); icon.style.opacity = ""; };
-    // Titles/badges hold invisible while the icon launches, then fade in mid-flight.
-    r.querySelectorAll(".prow-meta, .badge").forEach((n) =>
-      n.animate([{ opacity: 0 }, { opacity: 0, offset: 0.45 }, { opacity: 1 }],
-        { duration: 450, easing: "ease-out" }));
+    ).onfinish = reveal;
+    setTimeout(reveal, 400);
   });
 }
 
@@ -290,13 +300,13 @@ function row(s) {
 }
 
 
-// Horizontal swipe on the active card switches panes (stable %id order, wraps), as a
+// Horizontal swipe on the active card switches panes (tmux window order, wraps), as a
 // carousel: the NEIGHBOR card slides in alongside your finger (so it reads as paging,
 // not dismissal), both animate home on commit, short/vertical drags snap back.
 // Touches starting in a horizontal scroller (tables) keep their native gesture.
 function swipeNav(el, id) {
   let sx = null, sy = null, dx = 0, ghost = null, gdir = 0;
-  const ids = () => Object.keys(panesById).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+  const ids = () => Object.keys(panesById); // insertion order = server (tmux) order
   const neighbor = (dir) => { // dir -1: swiping left reveals the NEXT pane; +1: previous
     const a = ids(), i = a.indexOf(id);
     return a[(i + (dir < 0 ? 1 : a.length - 1)) % a.length];

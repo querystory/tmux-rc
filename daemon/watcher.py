@@ -234,9 +234,10 @@ class Watcher:
         focused = tmux.active_pane_id()
         for s in states:
             s["tmux_active"] = s.get("pane_id") == focused
-        # Waiting first, then running, then idle — most-actionable panes on top.
-        order = {"waiting": 0, "running": 1, "idle": 2, "unknown": 3}
-        states.sort(key=lambda s: order.get(s.get("activity"), 9))
+        # Keep tmux's natural order (session/window/pane, as list-panes emits it) —
+        # the UI's dock, list, and swipe direction all key off this array order, and
+        # it must match the window numbers the user sees in tmux's own status bar.
+        # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self.states = states
         self._gc(alive)
 
