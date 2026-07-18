@@ -251,18 +251,6 @@ def get_snapshot(pane_id: str, snap_id: str):
     return text
 
 
-@app.get("/api/panes/{pane_id}/peek", response_class=PlainTextResponse)
-def get_peek(pane_id: str):
-    """A FRESH capture of the pane, bypassing the watcher's snapshot cadence (and the
-    LLM entirely). The client bursts on this right after sending input — keys, text,
-    an image — so the terminal peek shows the input landing immediately instead of
-    after the next watcher tick + poll. Read-only; same shape as a snapshot."""
-    try:  # no find_pane pre-flight: that doubles tmux calls at burst rate (2/s)
-        return tmux.capture_pane(pane_id)
-    except subprocess.CalledProcessError as e:
-        raise _pane_err(e) from None
-
-
 def _pane_err(e: subprocess.CalledProcessError) -> HTTPException:
     """capture failures, honestly: _run turns tmux timeouts into rc 124 — that's a
     wedged tmux, not a missing pane."""
@@ -296,7 +284,8 @@ async def live_frame(pane_id: str, frame: str = ""):
             text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
-        h = hashlib.md5(text.encode()).hexdigest()[:16]
+        h = hashlib.md5(text.encode()).hexdigest()  # full digest: a truncated hash
+        # could collide a changed frame onto the client's hash and stall the stream
         if h != frame:
             return {"frame": h, "text": text}
         if time.monotonic() >= deadline:
