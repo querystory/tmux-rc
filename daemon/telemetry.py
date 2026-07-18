@@ -42,16 +42,21 @@ logger = logging.getLogger(__name__)
 # Scope name tags our records so QueryStory can filter them apart from Claude Code's
 # telemetry sharing the same receiver/table.
 _SCOPE = "tmux-rc.classify"
+# Live-view rounds get their OWN scope so QueryStory can filter them apart from parse
+# benchmarks: a live round has no model/latency/tokens, and folding it into emit_parse
+# would poison every parse aggregate with null-model rows. See docs/design/live-telemetry.md.
+_LIVE_SCOPE = "tmux-rc.live"
 _QSDEBUG = os.environ.get("TMUXRC_QSDEBUG") == "1"
 
 
 @cache
-def _logger():
+def _provider():
     """Build the OTLP logs pipeline once, or return None if telemetry is disabled.
 
     Disabled (⇒ None) when no OTLP endpoint is configured, or if the OTel SDK isn't
-    importable — either way emit_parse becomes a no-op. Cached so we build one provider
-    per process."""
+    importable — either way the emit_* functions become no-ops. Cached so we build one
+    provider (one exporter, one batch processor) per process; per-scope loggers hang
+    off it (see _logger)."""
     if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         return None
     try:
@@ -71,20 +76,28 @@ def _logger():
         )
         provider = LoggerProvider(resource=resource)
         provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
-        # Get the logger from OUR provider instance rather than set_logger_provider()
-        # (the process-global). This can't clobber another component's OTel logging, and
-        # avoids the "provider already set" warning if anything else configures OTel.
-        return provider.get_logger(_SCOPE)
+        return provider
     except Exception:  # noqa: BLE001 - telemetry setup must never break the daemon
         logger.warning("OTLP telemetry setup failed; disabling", exc_info=True)
         return None
 
 
-def _emit_record(body: str, attrs: dict) -> None:
-    """Emit one OTLP log record with these attributes. No-op if telemetry is disabled;
-    any failure is swallowed. The single place that touches the SDK — emit_parse and
-    emit_pane_event both go through here so the record shape stays consistent."""
-    lg = _logger()
+@cache
+def _logger(scope: str = _SCOPE):
+    """The OTel logger for `scope`, or None if telemetry is disabled. Cached per scope
+    so live rounds (tmux-rc.live) tag apart from parse benchmarks (tmux-rc.classify)
+    for QueryStory filtering; all scopes share the one provider. Get the logger from OUR
+    provider instance rather than the process-global (set_logger_provider) so we can't
+    clobber another component's OTel logging, and avoid the 'provider already set' warning."""
+    p = _provider()
+    return p.get_logger(scope) if p is not None else None
+
+
+def _emit_record(body: str, attrs: dict, scope: str = _SCOPE) -> None:
+    """Emit one OTLP log record with these attributes under `scope`. No-op if telemetry
+    is disabled; any failure is swallowed. The single place that touches the SDK — every
+    emit_* goes through here so the record shape stays consistent."""
+    lg = _logger(scope)
     if lg is None:
         return
     try:
@@ -211,3 +224,64 @@ def emit_parse(
         logger.debug("emit_parse attr build failed", exc_info=True)
         return
     _emit_record("tmux-rc parse", attrs)
+
+
+def emit_live(
+    *,
+    session: str | None,
+    pane_uid: str,
+    pane_label: str,
+    tool: str | None,
+    hold_s: float,
+    changed: bool,
+    raw_bytes: int | None = None,
+    actor: str | None = None,
+) -> None:
+    """One record per completed live-view long-poll round (docs/design/live-telemetry.md).
+
+    A round is one iteration of the /live handler: it holds ~25s, capturing every 250ms,
+    and ends either on a screen CHANGE (changed=True, a frame was sent — raw_bytes set)
+    or on the idle HOLD timeout (changed=False, nothing sent — raw_bytes omitted so byte
+    sums stay honest). Because the client re-holds instantly, a continuous viewer is a
+    chain of back-to-back rounds, so summing hold_s per (session, pane) is an
+    undercount-only floor for watch-time — the billing signal.
+
+    `session` is the client's per-page-load UUID (the summable spine, anonymous — not
+    identity). When it's absent (a caller that didn't send one) the round is left
+    UN-ATTRIBUTABLE — no session key at all — so rollups EXCLUDE it rather than mis-sum
+    it: collapsing every session-less viewer under one shared id would fold unrelated
+    viewers' watch-time together and corrupt the per-session billing signal. The
+    invariant is that two different viewers never share a session id, and the null case
+    honors it by attributing to none. `actor` is the loopback-trusted tunnel email when
+    present (the account key for per-user rollups), recorded only when the caller already
+    vetted the trust model. NEVER carries frame text — this is about cost and time, not
+    content (privacy is fail-closed, same as emit_parse). Own scope (tmux-rc.live) so
+    parse aggregates stay clean. Best-effort: attr-build failure is swallowed, never
+    breaking the live path."""
+    try:
+        attrs = {
+            "pane_uid": pane_uid,
+            "pane_label": pane_label,
+            "hold_s": round(hold_s, 3),
+            "changed": changed,
+        }
+        # session is a client-supplied query param — cap it like actor/detail so a
+        # crafted value can't inflate OTLP payloads / downstream storage (a real
+        # per-page-load UUID is ~36 chars; 64 leaves headroom). Absent ⇒ omit the key so
+        # the round is un-attributable, never merged under a shared placeholder.
+        if session:
+            attrs["session"] = session[:64]
+        if tool:
+            attrs["tool"] = tool
+        # Bytes only on a change round (an idle round sent nothing). sent_bytes is the
+        # gzipped size the middleware logs — we record raw here and let that log line
+        # carry ground-truth sent bytes (see design open-questions), so no double gzip
+        # in the hot loop.
+        if changed and raw_bytes is not None:
+            attrs["raw_bytes"] = raw_bytes
+        if actor:
+            attrs["actor"] = actor[:200]
+    except Exception:  # noqa: BLE001 - never let telemetry break the live path
+        logger.debug("emit_live attr build failed", exc_info=True)
+        return
+    _emit_record("tmux-rc live", attrs, _LIVE_SCOPE)

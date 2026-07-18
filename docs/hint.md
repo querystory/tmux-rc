@@ -126,6 +126,53 @@ parser activity — don't mix them into parse metrics.
 - optional **`detail`**, and **`keys`** (the injected text — only in debug mode AND when
   key logging isn't disabled via TMUXRC_AUDIT_KEYS=0).
 
+### Live-view records (`scope_name = 'tmux-rc.live'`, `body = 'tmux-rc live'`)
+
+A SEPARATE scope from the parser benchmarks — **filter `WHERE scope_name = 'tmux-rc.live'`**
+to get only these (they have NO model/latency/token/cost fields, so they'd be all-null
+noise inside a `tmux-rc.classify` query, and parse aggregates must exclude them). These
+measure the **live view**: a phone surface that streams a pane's raw colored screen in
+real time over a long-poll endpoint (separate from the LLM parser entirely). Use them to
+answer bandwidth cost, how much wall-clock time users spend watching live, and (future)
+per-user live-hour billing.
+
+**One record = one completed long-poll "round."** A round holds ~25s, checking the screen
+every 250ms, and ends either the instant the screen changes (a *change round* — a frame
+was sent) or on the idle hold timeout (an *idle round* — nothing sent). The client
+re-holds immediately, so **a continuous viewer is a chain of back-to-back rounds**;
+that's what makes watch-time summable (below). Attributes:
+
+- **`hold_s`** — wall-clock seconds this round was open. **Watch-time / "live-time" =
+  `SUM(hold_s)`**, grouped by `session` for per-viewing-session time or by `actor` for
+  per-user time (the future billing signal, "live-hours"). Because rounds are contiguous,
+  the sum is an undercount-only floor (only the sub-hold tail of the final round before a
+  viewer leaves is missed) — safe to treat as a lower bound, never an over-count.
+- **`session`** — anonymous per-page-load id the client generates, the spine that groups
+  one viewing session's round chain. **NULLABLE: absent when the round arrived with no
+  session (un-attributable).** Two different viewers never share a session id, so summing
+  `hold_s` per non-null `session` is valid; **EXCLUDE rows where `session IS NULL`** from
+  per-session watch-time rather than bucketing them together (they'd mis-merge unrelated
+  viewers). It is NOT identity and NOT the pane — use `pane_uid` to group by pane.
+- **`actor`** — the loopback-trusted tunnel owner's email (same trust model as the action
+  audit's `actor`: honored only from the tunnel/loopback). The account key for
+  live-time-per-USER / billing. **NULLABLE: absent for direct/LAN use** (no verified
+  identity) — those rounds still carry `session`, just no account attribution.
+- **`pane_uid`**, **`pane_label`** — same pane identity as parse/lifecycle records; join
+  on `pane_uid` to see which pane / tool was being watched live. Always present.
+- **`tool`** — `claude` | `codex` | `gemini` | `shell` for the watched pane. NULLABLE
+  (absent if the pane's tool wasn't known yet). Tells you what kinds of panes get watched
+  live.
+- **`changed`** — `true` = the round ended because the screen changed (a frame was sent);
+  `false` = idle hold timeout (no frame). The share of change rounds is the pane's live
+  activity rate; only change rounds carry bytes.
+- **`raw_bytes`** — uncompressed byte size of just the colored FRAME payload (the screen
+  text) on a CHANGE round — not the full HTTP response envelope (headers/JSON wrapper are
+  excluded). **NULLABLE / absent on idle rounds** (nothing was sent), so byte sums stay
+  honest: `SUM(raw_bytes)` is real frame bytes generated. NOTE the wire is gzipped by
+  middleware (~4-5x smaller), so gzipped-sent bytes are LOWER than `raw_bytes`; the
+  compressed ground-truth is in the daemon's own log line, not this record (see
+  docs/design/live-telemetry.md open questions).
+
 ### Content (only present when TMUXRC_QSDEBUG is enabled)
 
 - **`pane_text`** — the raw terminal screen capture sent to the model (includes the labeled
@@ -142,15 +189,22 @@ parser activity — don't mix them into parse metrics.
 
 ### Structural / infra fields (rarely the subject of analysis)
 
-- **`scope_name`** (`tmux-rc.classify`), **`service.name`** (`tmux-rc`) — source
-  identifiers; use for filtering (above).
-- **`timestamp`, `observed_timestamp`** — Unix nanoseconds when the parse happened. Divide
-  to seconds for time-series; both are usually equal.
+These apply to **every** record type — parse, pane-lifecycle, action, AND live-view —
+not just parses; don't assume a field described here implies a record is a parse.
+
+- **`scope_name`** — `tmux-rc.classify` for parser/lifecycle/action records, or
+  `tmux-rc.live` for the live-view rounds (own section above); **`service.name`**
+  (`tmux-rc`) is common to all. Use `scope_name` to keep the two apart — a benchmark
+  query must stay on `tmux-rc.classify`, a live-view query on `tmux-rc.live`.
+- **`timestamp`, `observed_timestamp`** — Unix nanoseconds when the record was emitted
+  (the parse, action, lifecycle event, or live round). Divide to seconds for time-series;
+  both are usually equal.
 - **`otel_opt_in`** — always `true` for tmux-rc (required so the receiver doesn't redact
   content). Not analytically interesting.
 - **`host.name`, `user.username`, `service.instance.id`** — which machine/user/daemon-
   instance emitted it. Single-developer tool, so usually one value each.
-- **`body`** — constant `"tmux-rc parse"`. A label, not data.
+- **`body`** — a per-record-type label, not data: `"tmux-rc parse"`, `"tmux-rc pane"`,
+  `"tmux-rc action"`, or `"tmux-rc live"`. Use `scope_name`/`body` to tell types apart.
 - **`severity_number`/`severity_text`, `trace_id`/`span_id`, `telemetry.sdk.*`** — OTLP
   boilerplate. Ignore for analysis.
 
