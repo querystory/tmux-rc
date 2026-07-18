@@ -32,6 +32,30 @@ is exactly what a phone control plane needs. tmux is the universal substrate: wh
 a terminal (an AI agent, a test run, a database shell, a plain bash prompt) becomes something a
 separate program can watch and drive. tmux-rc is that separate program.
 
+And this is the quiet strength of the whole approach: **tmux is the perfect solution, and it
+already exists.** It has been battle-hardened over two decades, it's on every dev box, and it
+solves the durable-persistent-observable problem completely. tmux-rc doesn't reinvent any of that
+— it's a *thin layer above* something mature and boring, not a new terminal stack we have to keep
+alive. The hard substrate is a dependency, not our code.
+
+## The other half of the substrate: Gemini Flash Lite
+
+If tmux is the perfect *foundation*, the perfect *reader* turned out to be **Gemini Flash Lite** —
+a model a lot of people sleep on. Turning a raw pane of terminal text into structured state
+("this pane is blocked, here's the question, here are the options") is a small, high-volume
+classification job, run over and over as panes change. Flash Lite is startlingly good at exactly
+that: strong enough to read messy terminal output and images reliably, and cheap and fast enough
+to run on every tick without thinking about the bill. Heuristics do the cheap work and Flash Lite
+is the lazy fallback — but when the fallback fires, its speed/cost is what makes continuous
+watching (and, later, continuous *orchestration*) economically free.
+
+That's the leverage: a **cheap, fast little model babysitting and coordinating the crazy-expensive
+frontier agents** (the Fable/Opus-tier models doing the actual work). You don't burn premium tokens
+to notice that a premium agent is stuck — you spend fractions of a cent on Flash Lite to watch,
+route, and unblock, and reserve the real money for the real reasoning. Making better use of those
+expensive agents — keeping them fed, unblocked, and coordinated — is precisely where a cheap
+orchestration layer pays for itself many times over.
+
 ## The top-level reason: run the agents somewhere else, reach them from anywhere
 
 Before any of the finer motivations below, there's the one that started it: **I don't want to run
