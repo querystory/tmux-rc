@@ -11,7 +11,9 @@
 */ -}}
 {{- $dest := .Destination -}}
 {{- $u := urls.Parse $dest -}}
-{{- $isExternal := hasPrefix $dest "http" -}}
+{{- /* Scheme, not a "http" string prefix — else a relative target like
+       http-status.md is mistaken for an external URL and left unrewritten. */ -}}
+{{- $isExternal := in (slice "http" "https") $u.Scheme -}}
 {{- if and (not $isExternal) (not (hasPrefix $dest "/")) (strings.HasSuffix $u.Path ".md") -}}
   {{- with .Page.GetPage $u.Path -}}
     {{- $frag := cond (ne $u.Fragment "") (printf "#%s" $u.Fragment) "" -}}
