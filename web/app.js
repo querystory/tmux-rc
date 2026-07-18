@@ -659,19 +659,29 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   (async () => {
     let frame = "";
     while (!ac.signal.aborted) {
+      // Per-request timeout: a silently-dropped tunnel (no FIN, no error) would leave
+      // `await fetch` hanging forever and the stream dead. Abort a request that outlives
+      // the server's ~25s hold by a margin, so the loop re-issues and recovers.
+      const t = setTimeout(() => ac2 && ac2.abort(), 40000);
+      const ac2 = new AbortController();
+      const onStop = () => ac2.abort();
+      ac.signal.addEventListener("abort", onStop, { once: true });
       try {
         const r = await fetch(
           `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}`,
-          { signal: ac.signal });
+          { signal: ac2.signal });
         if (!r.ok) { onQuiet && onQuiet(); await sleep(2000); continue; } // pane gone / wedged
         const j = await r.json();
         alive(); // responded (new frame or "no change") ⇒ live
         if (j.text !== undefined) onFrame(j.text);
         frame = j.frame;
       } catch (e) {
-        if (ac.signal.aborted) return;
-        onQuiet && onQuiet(); // network error ⇒ stale until the next good response
-        await sleep(2000); // transient network: back off, keep the stream alive
+        if (ac.signal.aborted) return; // stream stopped for good (close / pane switch)
+        onQuiet && onQuiet(); // timeout or network error ⇒ stale; loop retries
+        await sleep(2000);
+      } finally {
+        clearTimeout(t);
+        ac.signal.removeEventListener("abort", onStop);
       }
     }
   })();
@@ -1181,6 +1191,10 @@ function openScreen(paneId, label) {
   if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
   document.body.appendChild(ov);
   pinchZoom(body, pre);
+  // Only ONE stream per pane at a time: stop the peek's while the fullscreen overlay
+  // owns it. The next render() poll re-mounts the peek stream once the overlay closes
+  // (the deck rebuilds every 2s and bgTerm restarts it), so no explicit restart here.
+  if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; }
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
       const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
