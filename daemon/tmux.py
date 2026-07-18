@@ -263,6 +263,34 @@ _clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reap
 _clip_lock = threading.Lock()  # uploads run in worker threads; don't race the list
 
 
+def session_locked() -> bool:
+    """True when the desktop session is locked. Clipboard paste needs the pane's app
+    to READ the clipboard, and GNOME's focus-security model blocks reads from
+    unfocused clients while locked — so a locked session means the Ctrl-V will
+    silently paste nothing, and the caller should deliver by typed path instead.
+    Unknown/ambiguous states report unlocked (clipboard-first stays the default)."""
+    try:
+        out = _run_host(["loginctl", "list-sessions", "--no-legend"])
+        for line in out.splitlines():
+            sid = line.split()[0] if line.split() else ""
+            if not sid:
+                continue
+            props = _run_host(
+                ["loginctl", "show-session", sid, "-p", "Type", "-p", "LockedHint"]
+            )
+            if "Type=wayland" in props or "Type=x11" in props:
+                return "LockedHint=yes" in props
+    except Exception:  # noqa: BLE001 - no loginctl / no seat: assume unlocked
+        pass
+    return False
+
+
+def _run_host(cmd: list[str]) -> str:
+    return subprocess.run(
+        cmd, capture_output=True, text=True, timeout=2, check=True
+    ).stdout
+
+
 def set_clipboard_image(png: bytes) -> list[str]:
     """Put PNG bytes on the system clipboard so the pane's app embeds them on Ctrl-V.
     ALWAYS image/png — paste handlers ask the clipboard for PNG, so an offer in the

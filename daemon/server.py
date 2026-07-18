@@ -341,11 +341,15 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     # runs in a worker thread — an upload must not stall the event loop's polling.
     def _deliver() -> str:
         tools: list[str] = []
-        try:
-            png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
-            tools = tmux.set_clipboard_image(png)
-        except Exception:  # noqa: BLE001 - undecodable image: the path route still works
-            pass
+        # Locked session ⇒ the pane's app CANNOT read the clipboard (GNOME blocks
+        # unfocused reads), so a Ctrl-V would silently paste nothing — exactly the
+        # remote/phone case. Deliver by path then; inline embeds are a desk luxury.
+        if not tmux.session_locked():
+            try:
+                png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
+                tools = tmux.set_clipboard_image(png)
+            except Exception:  # noqa: BLE001 - undecodable: the path route still works
+                pass
         if tools:
             tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
         else:

@@ -16,7 +16,9 @@
      page screenshot. Regenerate:
      rsvg-convert -w 180 -h 180 web/icon.svg > web/apple-touch-icon.png -->
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-<link rel="manifest" href="/manifest.json" />
+<!-- use-credentials: browsers fetch the manifest WITHOUT cookies by default, and
+     behind IAP that gets a 401 — no valid manifest, no standalone/install. -->
+<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
 <link rel="icon" href="/favicon.ico?v=1" sizes="any" />
 <title>tmuxʳᶜ</title>
 <style>
