@@ -154,7 +154,15 @@
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
   /* attach clip lives INSIDE the input field (like a chat composer) */
   .inputwrap { flex: 1; display: flex; align-items: center; background: #21262d; border: 1px solid #30363d; border-radius: 10px; padding-left: 6px; }
-  .inputwrap input { flex: 1; background: transparent; border: 0; color: #e6edf3; padding: 10px 12px 10px 4px; font-size: 15px; -webkit-appearance: none; }
+  /* Focus lights up the WHOLE composer (keys toggle, clip, thumbnail, Send) — the
+     input's native ring would circle just the text field and orphan the rest. */
+  .inputwrap:focus-within { border-color: #388bfd; box-shadow: 0 0 0 1px #388bfd44; }
+  /* Forced-colors/high-contrast suppresses shadows and custom colors — give the
+     wrapper a real outline there so keyboard focus stays visible. */
+  @media (forced-colors: active) {
+    .inputwrap:focus-within { outline: 2px solid Highlight; box-shadow: none; }
+  }
+  .inputwrap input { flex: 1; background: transparent; border: 0; color: #e6edf3; padding: 10px 12px 10px 4px; font-size: 15px; -webkit-appearance: none; outline: none; }
   .inputwrap input::-webkit-search-cancel-button { display: none; }
   .inputwrap .attach { background: transparent; border: 0; color: #8b949e; font-size: 14px;
     line-height: 1; cursor: pointer; padding: 0 3px; opacity: .8; }
