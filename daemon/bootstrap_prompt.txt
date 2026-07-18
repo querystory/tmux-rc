@@ -30,3 +30,6 @@ Rules:
 - Never invent facts not on screen. Thin scrollback ⇒ fewer events and a shorter
   summary — that is the correct output, not a reason to pad.
 - Ignore agent status-line chrome (model/cost/context readouts, key hints) entirely.
+- Spans wrapped in ⟪dim⟫…⟪/dim⟫ were faint/gray on screen — de-emphasized UI (unsent
+  input-box drafts, ghost suggestions, hints, chrome), never something that happened;
+  text in the input box after ❯ was typed but NOT sent. Don't echo the markers.

@@ -238,17 +238,97 @@ def _materialize_links(text: str) -> str:
     return _OSC8.sub(repl, text)
 
 
-def capture_pane(pane_id: str, lines: int = 200, keep_colors: bool = False) -> str:
+# SGR (style) sequences, inspected before _ANSI erases them. Agent TUIs render UNSENT
+# text — the input-box draft after ❯, queued messages, ghost autocomplete/history
+# suggestions — plus hints/borders/chrome distinguishably only by COLOR: faint (SGR 2)
+# or a grayscale foreground (observed live in Claude Code: 38;5;239/244/246 chrome and
+# borders, SGR 2 ghost suggestions, vs default/near-white 38;5;231 for real content).
+# Stripping colors blinds the parser LLM to that difference, and it reports drafts as
+# executed work. So for the LLM payload, dim runs are wrapped in ⟪dim⟫…⟪/dim⟫ markers
+# (glyphs chosen for near-zero collision with pane text) that survive the ANSI strip.
+_SGR = re.compile(r"\x1b\[([0-9;:]*)m")
+DIM_OPEN, DIM_CLOSE = "⟪dim⟫", "⟪/dim⟫"
+
+
+def strip_dim(text: str) -> str:
+    """Collapse a dim-marked capture back to the plain text the phone renders."""
+    return text.replace(DIM_OPEN, "").replace(DIM_CLOSE, "")
+
+
+def _mark_dim(text: str) -> str:
+    """Wrap faint/gray runs in DIM markers: a state machine over SGR codes, leaving
+    every escape byte in place for _ANSI to strip afterwards."""
+    out: list[str] = []
+    faint = gray = marked = False
+    pos = 0
+
+    def emit(chunk: str) -> None:
+        nonlocal marked
+        # Flip the marker only at inked text — whitespace-only chunks inherit the
+        # open state, so adjacent dim runs merge instead of spraying empty pairs.
+        if (faint or gray) != marked and chunk.strip():
+            out.append(DIM_CLOSE if marked else DIM_OPEN)
+            marked = not marked
+        out.append(chunk)
+
+    for m in _SGR.finditer(text):
+        emit(text[pos : m.start()])
+        pos = m.end()
+        codes = [int(c or 0) for c in m.group(1).replace(":", ";").split(";")]
+        i = 0
+        while i < len(codes):
+            c = codes[i]
+            if c == 0:
+                faint = gray = False
+            elif c == 2:
+                faint = True
+            elif c == 22:
+                faint = False
+            elif c in (38, 48, 58):  # extended fg/bg/underline: ;5;N or ;2;R;G;B —
+                # consume the args so they can't be misread as style codes
+                is256 = codes[i + 1 : i + 2] == [5]
+                if c == 38:
+                    n = codes[i + 2] if is256 and len(codes) > i + 2 else -1
+                    gray = 232 <= n <= 250  # xterm grayscale ramp, up to mid-gray
+                i += 2 if is256 else 4
+            elif c == 39 or 30 <= c <= 37 or 91 <= c <= 97:
+                gray = False  # default/basic colors replace a gray fg
+            elif c == 90:
+                gray = True  # bright black IS gray
+            i += 1
+    emit(text[pos:])
+    s = "".join(out)
+    if marked:
+        # Close after the last ink, not after trailing whitespace/newlines — a marker
+        # at the very end would shield them from capture_pane's trailing-\n rstrip.
+        body = s.rstrip()
+        s = body + DIM_CLOSE + s[len(body) :]
+    return s
+
+
+def capture_pane(
+    pane_id: str, lines: int = 200, mark_dim: bool = False, keep_colors: bool = False
+) -> str:
     """Current visible text of a pane, most recent `lines` rows. `-p` prints to
     stdout, `-J` joins wrapped lines so long lines aren't split mid-word, `-e` keeps
-    escape sequences so OSC 8 hyperlinks can be materialized before the rest of the
-    escapes are stripped back out. `keep_colors` skips that strip — the live view
-    renders the SGR runs client-side (docs/design/live-view.md); the client's
-    renderer drops whatever non-SGR escapes remain."""
+    escape sequences so OSC 8 hyperlinks can be materialized before the rest are
+    stripped. Two independent, orthogonal flags on that stripped-by-default output:
+
+      - `mark_dim` (LLM-bound captures): re-encode faint/gray runs as ⟪dim⟫ markers
+        before the strip, so the parser can tell drafts/suggestions from real output.
+      - `keep_colors` (live view): skip the strip entirely and return the raw SGR
+        runs, which the client renders as colored spans (docs/design/live-view.md).
+
+    The live path keeps colors and does NOT mark dim (the client renders color itself);
+    the parser path marks dim and strips. Phone-facing snapshots use neither."""
     out = _materialize_links(
         _run(["capture-pane", "-p", "-J", "-e", "-t", pane_id, "-S", f"-{lines}"])
     )
-    return out.rstrip("\n") if keep_colors else _ANSI.sub("", out).rstrip("\n")
+    if keep_colors:
+        return out.rstrip("\n")  # live view: raw SGR, client colorizes
+    if mark_dim:
+        out = _mark_dim(out)
+    return _ANSI.sub("", out).rstrip("\n")
 
 
 def send_keys(
