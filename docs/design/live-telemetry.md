@@ -82,8 +82,11 @@ rounds**. The candidate units:
 
 Each record carries: pane identity (`pane_uid`, `pane_label`), `tool`, a client
 `session` id, the round's `hold_s` (wall-clock the round was open), a `changed` flag
-(change round vs. idle timeout), and — on a change round — `raw_bytes` and `sent_bytes`
-(pre/post gzip). Idle rounds carry no bytes (nothing was sent) so byte sums stay honest.
+(change round vs. idle timeout), and — on a change round — `raw_bytes` (the uncompressed
+frame size). Idle rounds carry no bytes (nothing was sent) so byte sums stay honest. v1
+records `raw_bytes` only; the gzipped *sent* size is left to the middleware's existing
+`/live -> N bytes` log line rather than a record attribute (see open questions), so
+there is no `sent_bytes` attribute in v1.
 
 ## Deriving live-time: sum round durations
 
@@ -120,8 +123,10 @@ watch sessions, and billing/usage wants to tell those apart.
 
 So we use **two attribution keys, layered:**
 
-- **`session`** — a UUID the **client generates once per page load** and sends as
-  `?session=<uuid>` on every live poll. It's the stable spine of one viewing session:
+- **`session`** — a random id the **client generates once per page load** (a UUID via
+  `crypto.randomUUID` when available, else a 128-bit hex token from
+  `crypto.getRandomValues`; the value only needs to be unique, not UUID-shaped) and sends
+  as `?session=<id>` on every live poll. It's the stable spine of one viewing session:
   it groups a round chain, survives the individual rounds, and costs nothing (no
   server state, no auth). It is *not* identity — it's a correlation key, deliberately
   anonymous, which also keeps it privacy-clean. The **invariant is that two different

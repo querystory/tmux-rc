@@ -189,17 +189,22 @@ that's what makes watch-time summable (below). Attributes:
 
 ### Structural / infra fields (rarely the subject of analysis)
 
+These apply to **every** record type — parse, pane-lifecycle, action, AND live-view —
+not just parses; don't assume a field described here implies a record is a parse.
+
 - **`scope_name`** — `tmux-rc.classify` for parser/lifecycle/action records, or
   `tmux-rc.live` for the live-view rounds (own section above); **`service.name`**
   (`tmux-rc`) is common to all. Use `scope_name` to keep the two apart — a benchmark
   query must stay on `tmux-rc.classify`, a live-view query on `tmux-rc.live`.
-- **`timestamp`, `observed_timestamp`** — Unix nanoseconds when the parse happened. Divide
-  to seconds for time-series; both are usually equal.
+- **`timestamp`, `observed_timestamp`** — Unix nanoseconds when the record was emitted
+  (the parse, action, lifecycle event, or live round). Divide to seconds for time-series;
+  both are usually equal.
 - **`otel_opt_in`** — always `true` for tmux-rc (required so the receiver doesn't redact
   content). Not analytically interesting.
 - **`host.name`, `user.username`, `service.instance.id`** — which machine/user/daemon-
   instance emitted it. Single-developer tool, so usually one value each.
-- **`body`** — constant `"tmux-rc parse"`. A label, not data.
+- **`body`** — a per-record-type label, not data: `"tmux-rc parse"`, `"tmux-rc pane"`,
+  `"tmux-rc action"`, or `"tmux-rc live"`. Use `scope_name`/`body` to tell types apart.
 - **`severity_number`/`severity_text`, `trace_id`/`span_id`, `telemetry.sdk.*`** — OTLP
   boilerplate. Ignore for analysis.
 
