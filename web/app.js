@@ -73,17 +73,29 @@ let busy = false; // suppress polling flicker while an answer is in flight
 // until the served parsed_at advances past this — so a submitted answer / picked menu
 // visibly WORKS instead of sitting stale until the LLM re-reads the screen. Cleared on
 // a newer parse or after a timeout (so a failed/silent parse can't spin forever).
-const reparsing = {}; // pane_id -> { since: parsed_at-at-send, ts: Date.now() }
-const REPARSE_TIMEOUT = 12000; // stop spinning even if no fresh parse arrives
+const reparsing = {}; // pane_id -> { q, since, ts }
+const REPARSE_TIMEOUT = 12000; // stop spinning even if the screen never settles
 function markReparsing(id) {
   const s = panesById[id];
-  reparsing[id] = { since: (s && s.parsed_at) || 0, ts: Date.now() };
+  // Remember BOTH the question we just answered (its prompt) and the parsed_at at send.
+  // If we answered a question, spin until that question is actually GONE — not merely
+  // until a parse lands. The forced reparse often fires before the agent has redrawn,
+  // so it re-reports the SAME question and parsed_at ticks; clearing on that tick
+  // stopped the spinner with the menu still on screen (the bug). For a plain send with
+  // no question, there's nothing to "clear", so fall back to parsed_at advancing.
+  reparsing[id] = {
+    q: (s && s.question && s.question.prompt) || null,
+    since: (s && s.parsed_at) || 0,
+    ts: Date.now(),
+  };
 }
 function isReparsing(s) {
   const r = reparsing[s.pane_id];
   if (!r) return false;
-  // Cleared once a genuinely newer parse lands, or the safety timeout elapses.
-  if ((s.parsed_at || 0) > r.since || Date.now() - r.ts > REPARSE_TIMEOUT) {
+  const settled = r.q !== null
+    ? ((s.question && s.question.prompt) || null) !== r.q // answered question gone/changed
+    : (s.parsed_at || 0) > r.since;                        // no question: a fresh parse landed
+  if (settled || Date.now() - r.ts > REPARSE_TIMEOUT) {
     delete reparsing[s.pane_id];
     return false;
   }
