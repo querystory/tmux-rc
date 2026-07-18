@@ -414,8 +414,15 @@ class Watcher:
 
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows
-        doesn't leak memory over a long session."""
-        for pid in {k for store in self._stores() for k in store} - alive:
+        doesn't leak memory over a long session.
+
+        `list(store)` snapshots each store's keys before iterating: this runs on the
+        watcher WORKER thread, but _live_seen is now also written from the EVENT-LOOP
+        thread (note_live_poll, off the async /live handler). The GIL makes each dict op
+        atomic but does NOT protect this comprehension — a live poll stamping a new
+        pane_id mid-iteration would raise 'dictionary changed size during iteration'. The
+        snapshot, not the GIL, is what makes the cross-thread read safe."""
+        for pid in {k for store in self._stores() for k in list(store)} - alive:
             self._forget(pid)
 
     def _maybe_summarize(self, pane_id: str, idle: int) -> dict | None:

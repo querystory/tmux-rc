@@ -85,3 +85,20 @@ def test_has_live_viewer_respects_window():
     # Age the stamp past the window: no longer counted as watched (leak-proof, no cleanup).
     w._live_seen["%0"] = time.monotonic() - (w.LIVE_PRESENCE_WINDOW + 1)
     assert w.has_live_viewer("%0") is False
+
+
+def test_gc_collects_dead_live_seen_keys():
+    """_gc must collect a pane that only ever appears in _live_seen (a pane watched live
+    but with no other per-pane state). This also exercises the store that carries the
+    cross-thread hazard: _live_seen is written from the event loop while _gc iterates on
+    the watcher thread, which is why _gc reads list(store) — a plain `for k in store`
+    would intermittently hit 'dict changed size during iteration' on a concurrent poll.
+    That race isn't deterministically reproducible single-threaded (it needs real GIL
+    preemption between iterator steps), so the snapshot's correctness is pinned by the
+    comment in _gc; here we just lock in that _live_seen participates in GC."""
+    w = Watcher(target=None, use_llm=False)
+    collected = []
+    w._forget = collected.append
+    w._live_seen = {"%gone": 1.0}
+    w._gc(alive=set())  # %gone is not alive ⇒ collected
+    assert collected == ["%gone"]

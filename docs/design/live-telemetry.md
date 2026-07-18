@@ -154,8 +154,14 @@ recent live poll has a viewer.** So:
   handler stamps it on each round *after the first successful capture* — a viewer
   mid-hold is present, but a poll against a 404/wedged pane must NOT mark that pane
   watched (that would suppress future parse-throttling for a phantom viewer). This is
-  one dict write per capture, no locking concern beyond the GIL (same pattern as the
-  watcher's other per-pane dicts).
+  the first per-pane store written from the **event-loop** thread (the async live
+  handler) rather than the watcher worker thread. A single dict write is atomic under
+  the GIL, so the *write* needs no lock — but `_gc` iterates every store's keys on the
+  worker thread, and a multi-element iteration is NOT GIL-atomic: a live poll inserting a
+  new pane_id mid-iteration would raise `dict changed size during iteration`. The fix is
+  a one-line snapshot in `_gc` (`for k in list(store)`), which is the actual safety
+  property here — the GIL alone is not. No lock is warranted for a single self-healing
+  timestamp; a snapshot on the reader is cheaper and sufficient.
 - A `has_live_viewer(pane_id)` predicate returns true if the last stamp is within a
   small window (a couple of hold-lengths, e.g. ~60s — long enough to bridge the instant
   between a round returning and the client re-holding, so it doesn't flicker false).

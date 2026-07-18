@@ -165,11 +165,12 @@ that's what makes watch-time summable (below). Attributes:
 - **`changed`** — `true` = the round ended because the screen changed (a frame was sent);
   `false` = idle hold timeout (no frame). The share of change rounds is the pane's live
   activity rate; only change rounds carry bytes.
-- **`raw_bytes`** — uncompressed size of the colored frame sent on a CHANGE round.
-  **NULLABLE / absent on idle rounds** (nothing was sent), so byte sums stay honest:
-  `SUM(raw_bytes)` is real frame bytes generated. NOTE the wire is gzipped by middleware
-  (~4-5x smaller), so gzipped-sent bytes are LOWER than `raw_bytes`; the compressed
-  ground-truth is in the daemon's own log line, not this record (see
+- **`raw_bytes`** — uncompressed byte size of just the colored FRAME payload (the screen
+  text) on a CHANGE round — not the full HTTP response envelope (headers/JSON wrapper are
+  excluded). **NULLABLE / absent on idle rounds** (nothing was sent), so byte sums stay
+  honest: `SUM(raw_bytes)` is real frame bytes generated. NOTE the wire is gzipped by
+  middleware (~4-5x smaller), so gzipped-sent bytes are LOWER than `raw_bytes`; the
+  compressed ground-truth is in the daemon's own log line, not this record (see
   docs/design/live-telemetry.md open questions).
 
 ### Content (only present when TMUXRC_QSDEBUG is enabled)
