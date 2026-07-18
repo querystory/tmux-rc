@@ -189,7 +189,9 @@ class Watcher:
     def snapshot_text(self, pane_id: str, snap_id: str) -> str | None:
         for s in self.snapshots.get(pane_id, []):
             if s["id"] == snap_id:
-                return s["text"]
+                # Snapshots hold LLM-facing dim-marked text; the phone renders raw
+                # terminal text, so the markers come off here.
+                return tmux.strip_dim(s["text"])
         return None
 
     async def _loop(self) -> None:
@@ -306,7 +308,9 @@ class Watcher:
                     pane_label=p.label,
                 )
                 result = bootstrap(
-                    p, tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES), llm_fn
+                    p,
+                    tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES, mark_dim=True),
+                    llm_fn,
                 )
             except Exception:  # noqa: BLE001 - one pane must never wedge the watcher
                 logger.warning("bootstrap failed for %s", p.id, exc_info=True)
@@ -442,7 +446,10 @@ class Watcher:
         return span
 
     def _tick_pane(self, pane) -> dict:
-        text = tmux.capture_pane(pane.id)
+        # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
+        # Snapshots store the marked text too (prior frames must match the current
+        # one); snapshot_text() strips the markers at the phone-facing boundary.
+        text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
         fp = _fingerprint(text)
         changed = fp != self._prev_fp.get(

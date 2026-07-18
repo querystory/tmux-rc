@@ -20,10 +20,11 @@ full-screen view was a frozen one-shot, and all color was stripped server-side.
    is a future tunnel-protocol change (bundled with the tunnel reliability work).
 2. **The watcher's cadence is for the LLM, not eyes.** Live freshness must not couple to
    parse ticks and must never add an LLM call. The live path is raw `capture-pane` only.
-3. **No vendored terminal emulator.** A raw pty stream (tmux `pipe-pane`) would need an
-   xterm.js-class client to interpret cursor-movement — against the no-framework rule,
-   and unnecessary: tmux already composes the screen; `capture-pane -e` hands us finished
-   frames with colors intact. tmux stays the only emulator in the system.
+3. **tmux is the only terminal emulator in the system.** We consume *composed frames*
+   (`capture-pane -e` — finished screens with colors), never a raw pty byte stream, so
+   nothing here has to interpret cursor movement. That's a frames-*source* decision; how
+   we *render* those frames (hand-rolled SGR vs. a library like xterm.js) is a separate
+   call weighed under [Rendering](#rendering-hand-rolled-sgr-vs-xtermjs).
 4. **Phone economics.** Cellular data / battery care about bytes and radio wake-ups; an
    idle pane must cost ~nothing.
 
@@ -71,6 +72,50 @@ full-screen view was a frozen one-shot, and all color was stripped server-side.
   real liveness rather than blanket-graying, which is what removed both the idle-gray and
   the per-poll repaint flicker (they were the same bug).
 
+## Rendering: hand-rolled SGR vs. xterm.js
+
+Given composed frames from `capture-pane`, we still choose how to turn them into pixels.
+Two options, and this is a real tradeoff, not a foregone conclusion — `web/terminal.js`
+is ~170 lines re-implementing a slice of what xterm.js does, so the choice deserves to
+be earned.
+
+**What we do (hand-rolled).** `terminal.js` parses the SGR runs `capture-pane -e` emits
+— 16-color, 256-color, 24-bit, bold/faint/italic/underline — into styled `<span>`s, and
+anchors links (OSC-8 markdown, bare, wrapped). It is the *one* capture→HTML path, shared
+by the peek and the fullscreen view.
+
+Why this, for now:
+- **No build step, no framework, no vendored bundle.** The whole PWA is hand-served
+  vanilla JS with a strict "no framework" rule; xterm.js is ~100–200KB min+gz and expects
+  a bundler/module setup we don't have. Adding it is the first real dependency.
+- **We don't need an emulator — tmux already is one.** xterm.js's core value is
+  interpreting a *raw pty stream* (cursor moves, scroll regions, alt-screen, wrapping).
+  We never see that stream; tmux composed it away. Rendering an already-composed frame is
+  just SGR→span, which is the small, boring part of what xterm.js contains — so we'd be
+  vendoring a large emulator to use ~5% of it.
+- **Full control of the theme + our bolt-ons.** The palette is tuned for the dark card
+  background, the link anchoring reuses the same OSC-8 materialization as the static peek,
+  and the "decolor when stale" is a CSS filter over our own spans. Bending xterm.js to all
+  three (custom theme, our link handling, a stale filter) is possible but not obviously
+  less code than the ~170 lines we wrote.
+
+What we give up by not using it — and the **triggers that would flip the decision**:
+- **Fidelity edge cases.** Our renderer covers the SGR subset that agent TUIs actually
+  emit; it does *not* implement the full vocabulary (blink, conceal, exotic underline
+  styles, some 256/truecolor combining). If a pane shows visibly wrong colors/styles that
+  we can't cheaply patch, that's a switch signal — xterm.js is battle-tested here.
+- **A genuinely interactive terminal.** The day live view stops being read-mostly and
+  wants a real cursor, text selection, reflow-on-resize, or local echo, we'd be building
+  an emulator by hand — exactly xterm.js's job. That's the strongest trigger.
+- **Raw-stream mode.** If we ever move off composed frames to a `pipe-pane`/PTY stream
+  (e.g. for sub-frame latency), we need an emulator client-side and should adopt xterm.js
+  rather than hand-roll one.
+
+So the rule of thumb: **keep hand-rolled while live view is a read-only, composed-frame
+viewer of a known SGR subset; adopt xterm.js the moment we need true interactivity, a
+raw stream, or find ourselves chasing emulator-grade fidelity bugs.** Until one of those,
+the 170 lines are cheaper than the dependency.
+
 ## Rejected alternatives
 
 - **Flat client polling at 500ms.** Simplest, but 2 req/s per viewer through the tunnel
@@ -79,8 +124,9 @@ full-screen view was a frozen one-shot, and all color was stripped server-side.
 - **SSE / WebSocket now.** Same tunnel-streaming blocker; deferred to the tunnel-protocol
   work, where the long-poll stays as the fallback transport.
 - **tmux `pipe-pane` raw stream.** True terminal deltas, but cursor-movement soup needing
-  a client-side emulator (constraint 3); also one-per-pane and it mutates pane config,
-  crossing the observer line.
+  a client-side emulator (which would then justify xterm.js — see
+  [Rendering](#rendering-hand-rolled-sgr-vs-xtermjs)); also one-per-pane and it mutates
+  pane config, crossing the observer line.
 - **On-the-wire line deltas.** The client already sends its frame hash, so the anchor for
   a delta is there — but the edge cases (resize/reflow/alt-screen) all live on the delta
   side, and at 2.8KB gzipped the payoff is marginal. Specced as a post-MVP option, not

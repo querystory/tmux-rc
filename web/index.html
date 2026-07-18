@@ -182,6 +182,15 @@
     object-fit: cover; flex: none; padding: 0; border: 0; margin: 0 2px;
     cursor: pointer; box-shadow: 0 0 0 1px #30363d; }
   .row { display: flex; align-items: center; gap: 10px; }
+  /* Collapse caret: shrinks the card to just this header row, giving the live terminal
+     the screen. Muted, rotates with state; the whole header stays tappable to select. */
+  .card-caret { flex: none; background: transparent; border: 0; color: #6e7681;
+    font-size: 12px; line-height: 1; padding: 2px 4px; cursor: pointer; align-self: flex-start; margin-top: 3px; }
+  .card-caret:hover { color: #adbac7; }
+  /* Collapsed: one-line header only (the return in card() drops the body), and the
+     status headline clamps to a single line so it reads like the list-row form. */
+  .card.collapsed { max-height: none; overflow: visible; }
+  .card.collapsed .status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
   .icon svg { display: block; }
   .pulse {

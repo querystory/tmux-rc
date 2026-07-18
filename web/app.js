@@ -63,6 +63,10 @@ function setFavicon(waiting) {
 
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
+// Collapse is a VIEW-WIDE preference, not per-pane: collapse one card (caret ▸) and
+// every pane — including ones you swipe to — shows its one-line header, handing the
+// screen to the live terminal. Expanding anywhere expands them all.
+let cardsCollapsed = false;
 let busy = false; // suppress polling flicker while an answer is in flight
 
 // The web surface is a dumb remote control for tmux — ALL state is in tmux. The active
@@ -538,8 +542,9 @@ function swipeNav(el, id) {
 
 function card(s) {
   const el = document.createElement("div");
+  const collapsed = cardsCollapsed;
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
-    + (s.pane_id === activeId() ? " active" : "");
+    + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "");
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
@@ -567,13 +572,24 @@ function card(s) {
       : "";
   // No icon here — the pane's icon lives in the dock rail above, which this card's
   // border joins to (like a tab body under its tab). Repeating it wasted a column.
+  // The ▾/▸ caret collapses the card to just this header row (still tab-joined), so
+  // the live terminal behind it gets the whole screen — collapse state persists per
+  // view (cardsCollapsed) so swiping between panes keeps the chosen height.
   row.innerHTML = `
+    <button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"
+      aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>
     <div class="meta">
       <div class="name">${esc(s.title || s.label || "")} ${working}</div>
       <div class="status">${esc(s.headline || "—")}</div>
     </div>
     <span class="badge b-${a}">${badge}</span>`;
+  row.querySelector(".card-caret").onclick = (e) => {
+    e.stopPropagation(); // don't also re-select the pane
+    cardsCollapsed = !collapsed;
+    render(Object.values(panesById));
+  };
   el.appendChild(row);
+  if (collapsed) return el; // one-line form: header only, everything below is hidden
 
   // The bootstrap "story so far" — orientation when picking a session up cold.
   // Clamped to a few lines; tap toggles the full text.
@@ -608,6 +624,7 @@ let peekStop = null;        // stop() for the active peek's live stream (one at 
 let peekStreamPane = null;  // which pane that stream is for (don't restart per render)
 let peekBox = null, peekWrap = null; // current peek elements the stream paints into
 let peekLive = false; // stream health — so a same-pane remount reflects real liveness
+let screenOpen = false; // fullscreen overlay owns the pane's one stream; peek stands down
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
 // "Home" = the user hasn't deliberately panned/zoomed the peek. Content updates
 // (bursts, snapshots, resizes) may re-pin the scroll to the tail ONLY then —
@@ -669,19 +686,31 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   (async () => {
     let frame = "";
     while (!ac.signal.aborted) {
+      // Per-request timeout: a silently-dropped tunnel (no FIN, no error) would leave
+      // `await fetch` hanging forever and the stream dead. Abort a request that outlives
+      // the server's ~25s hold by a margin, so the loop re-issues and recovers.
+      const t = setTimeout(() => ac2 && ac2.abort(), 40000);
+      const ac2 = new AbortController();
+      const onStop = () => ac2.abort();
+      ac.signal.addEventListener("abort", onStop, { once: true });
+      if (ac.signal.aborted) ac2.abort(); // aborted between the while-check and the
+      // listener wiring above ⇒ propagate now so this fetch doesn't slip through
       try {
         const r = await fetch(
           `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}&session=${encodeURIComponent(SESSION_ID)}`,
-          { signal: ac.signal });
+          { signal: ac2.signal });
         if (!r.ok) { onQuiet && onQuiet(); await sleep(2000); continue; } // pane gone / wedged
         const j = await r.json();
         alive(); // responded (new frame or "no change") ⇒ live
         if (j.text !== undefined) onFrame(j.text);
         frame = j.frame;
       } catch (e) {
-        if (ac.signal.aborted) return;
-        onQuiet && onQuiet(); // network error ⇒ stale until the next good response
-        await sleep(2000); // transient network: back off, keep the stream alive
+        if (ac.signal.aborted) return; // stream stopped for good (close / pane switch)
+        onQuiet && onQuiet(); // timeout or network error ⇒ stale; loop retries
+        await sleep(2000);
+      } finally {
+        clearTimeout(t);
+        ac.signal.removeEventListener("abort", onStop);
       }
     }
   })();
@@ -723,7 +752,11 @@ function bgTerm(s) {
   // via the module-level peekBox refs, which each bgTerm updates. Restart only when
   // the streamed pane actually changes.
   peekBox = box; peekWrap = wrap;
-  if (peekStreamPane !== s.pane_id) {
+  // While the fullscreen overlay owns this pane's one stream, the peek stands down —
+  // otherwise the 2s render() poll would start a SECOND concurrent stream here. The
+  // peek re-mounts on the next poll after the overlay closes (screenOpen back to false).
+  if (screenOpen) { if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; } }
+  else if (peekStreamPane !== s.pane_id) {
     peekStop && peekStop();
     peekStreamPane = s.pane_id;
     const streamPane = s.pane_id; // captured: ignore late frames after a pane switch
@@ -1191,6 +1224,15 @@ function openScreen(paneId, label) {
   if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
   document.body.appendChild(ov);
   pinchZoom(body, pre);
+  // Only ONE stream per pane at a time. screenOpen makes bgTerm stand the peek down
+  // for as long as the overlay lives — without it the 2s render() poll would keep
+  // restarting a second peek stream. Stop the current peek now; the overlay owns the
+  // stream, and the peek re-mounts on the poll after close (screenOpen back to false).
+  screenOpen = true;
+  // Also reset peekLive: the stopped peek is no longer live, so when it re-mounts
+  // after close it starts stale (gray) until its own stream confirms, rather than
+  // briefly showing colored-but-actually-stale on the first post-close poll.
+  if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; peekLive = false; }
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
       const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
@@ -1200,7 +1242,9 @@ function openScreen(paneId, label) {
     onLive: () => pre.classList.remove("stale"),
     onQuiet: () => pre.classList.add("stale"),
   });
-  ov.querySelector(".screen-close").onclick = () => { stop(); ov.remove(); };
+  ov.querySelector(".screen-close").onclick = () => {
+    stop(); ov.remove(); screenOpen = false; // next poll re-mounts the peek stream
+  };
 }
 
 // Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the
