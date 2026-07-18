@@ -176,7 +176,11 @@ async def lifespan(app: FastAPI):
     await app.state.watcher.stop()
 
 
-app = FastAPI(title="tmux-rc", lifespan=lifespan)
+# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
+# (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+app = FastAPI(
+    title="tmux-rc", lifespan=lifespan, docs_url="/apidocs", redoc_url="/apiredoc"
+)
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
 # busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
@@ -517,7 +521,26 @@ def _to_png(data: bytes) -> bytes:
     return buf.getvalue()
 
 
-# PWA static files last so /api/* wins. html=True serves index.html at /.
+# Docs site (Hugo build) at /docs, before the "/" mount so it wins. The site is built
+# with --baseURL /docs/ (see Makefile), so its assets already reference /docs/... —
+# mounting the tree here serves them verbatim; StaticFiles strips the /docs prefix on
+# lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
+# server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
+_docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
+    Path(__file__).resolve().parent.parent / "docs-site" / "public"
+)
+if Path(_docs_dir).is_dir():
+    # Bare /docs would 404 (the mount only answers /docs/…); send it to /docs/ so the
+    # index resolves and the site's root-relative assets have the right base.
+    @app.get("/docs", include_in_schema=False)
+    def _docs_slash():
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse("/docs/")
+
+    app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
+
+# PWA static files last so /api/* and /docs win. html=True serves index.html at /.
 if WEB_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 

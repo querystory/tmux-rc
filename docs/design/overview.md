@@ -1,3 +1,7 @@
+---
+title: Design Overview
+---
+
 # tmux-rc — Design
 
 This documents the *why* behind the architecture and the decisions that were weighed
@@ -78,7 +82,7 @@ also where a model's fuzziness-tolerance actually earns its keep.
 - **Vertex** because a Google project (`qs-backend-dev`) is available and reaching it is
   one client construction with `vertexai=True`. (Auth has since moved from developer ADC
   to a long-lived service-account key so the unattended daemon doesn't wedge on reauth —
-  see [design/durable-vertex-auth.md](design/durable-vertex-auth/).)
+  see [design/durable-vertex-auth.md](../durable-vertex-auth/).)
 - Rejected Anthropic: the entire premise is not being locked to one provider, and the
   user's inference already runs through Google. Rejected a local model (Ollama): slower
   and more variable at structured extraction for no PoC benefit when Vertex is a free

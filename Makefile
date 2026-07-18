@@ -18,10 +18,13 @@ fmt:
 	uv run --with ruff ruff format daemon tests
 
 # Build the docs site (docs/ -> docs-site/public/). Needs the extended Hugo build.
+# --baseURL /docs/ so assets emit under the /docs prefix the daemon serves them at
+# (the daemon mounts the built tree at /docs; see TMUXRC_DOCS_DIR in .env.example).
 docs:
-	cd docs-site && hugo --gc --minify
+	cd docs-site && hugo --gc --minify --baseURL /docs/
 
-# Docs authoring server with hot reload on http://localhost:17194
+# Docs authoring server with hot reload on http://localhost:17194. Served at root
+# (no /docs prefix) so the standalone dev server's asset paths resolve.
 docs-dev:
 	cd docs-site && hugo server --port 17194
 

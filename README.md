@@ -8,7 +8,7 @@ an agent is blocked on a question, tappable answers, and a snapshot timeline.
 **Why not `/remote-control`?** Claude Code's remote control is locked to the Anthropic
 API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *terminal*,
 so it's vendor-agnostic on both axes — any agent, any model provider for the
-summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
+summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
 > **Status: proof of concept.** Milestone 1 (single pane) works end to end:
 > watch → classify → phone card → detect a waiting prompt → tap → answer round-trips

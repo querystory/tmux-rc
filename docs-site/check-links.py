@@ -19,31 +19,56 @@ ASSET_SUFFIXES = (".js", ".css", ".svg", ".png", ".ico", ".xml", ".json",
                   ".txt", ".woff", ".woff2", ".webmanifest")
 
 
-class HrefCollector(html.parser.HTMLParser):
+class PageParser(html.parser.HTMLParser):
+    """Collect <a href> targets, the page's canonical path (which carries the baseURL
+    prefix, e.g. /docs/design/foo/ — so the checker works whether the site was built at
+    / or /docs/), and the rendered text inside <main> (to catch blank pages: a section
+    whose _index.md got shadowed builds to just an <h1> with no body)."""
+
     def __init__(self):
         super().__init__()
         self.hrefs = []
+        self.canonical = None
+        self.body_text = []
+        self._depth = 0  # >0 while inside <main>
 
     def handle_starttag(self, tag, attrs):
-        if tag == "a":
-            for k, v in attrs:
-                if k == "href" and v:
-                    self.hrefs.append(v)
+        d = dict(attrs)
+        if tag == "a" and d.get("href"):
+            self.hrefs.append(d["href"])
+        elif tag == "link" and d.get("rel") == "canonical" and d.get("href"):
+            self.canonical = d["href"]
+        if tag == "main" or self._depth:
+            self._depth += 1
+
+    def handle_endtag(self, tag):
+        if self._depth:
+            self._depth -= 1
+
+    def handle_data(self, data):
+        if self._depth:
+            self.body_text.append(data)
+
+    def main_text(self) -> str:
+        """Rendered text inside <main>, minus the page's own <h1> heading — so a page
+        that is *only* an auto-generated title counts as empty."""
+        return "".join(self.body_text).strip()
 
 
-def page_url(index_html: pathlib.Path) -> str:
-    """Map public/<path>/index.html -> the /<path>/ URL it serves at."""
-    rel = index_html.relative_to(PUBLIC).parent.as_posix()
-    return "/" if rel == "." else f"/{rel}/"
-
-
-def exists(url_path: str) -> bool:
-    """A pretty URL /a/b/ exists if public/a/b/index.html exists; also allow a
-    direct file (public/a/b) for non-pretty outputs."""
-    p = url_path.strip("/")
+def file_path_for(url_path: str, prefix: str) -> pathlib.Path | None:
+    """Map a served URL path back to the public/ file that answers it, stripping the
+    baseURL prefix (e.g. /docs). Returns the index.html / direct file, or None if the
+    URL isn't under the prefix at all."""
+    p = url_path
+    if prefix and p.startswith(prefix):
+        p = p[len(prefix):]
+    p = p.strip("/")
     if not p:
-        return (PUBLIC / "index.html").exists()
-    return (PUBLIC / p / "index.html").exists() or (PUBLIC / p).is_file()
+        return PUBLIC / "index.html"
+    for cand in (PUBLIC / p / "index.html", PUBLIC / p):
+        if cand.is_file():
+            return cand
+    return None
 
 
 def main() -> int:
@@ -51,12 +76,31 @@ def main() -> int:
         print("public/ not found — run `make docs` first", file=sys.stderr)
         return 2
 
+    # Hextra auto-generates these list pages with little/no body text — legitimately
+    # sparse, so they're exempt from the blank-page check.
+    TAXONOMY = ("tags", "categories")
+    MIN_BODY = 100  # chars of <main> text below which a content page is "blank"
+
     broken = []
+    blank = []
     for index_html in PUBLIC.rglob("index.html"):
-        base = page_url(index_html)
-        collector = HrefCollector()
-        collector.feed(index_html.read_text(encoding="utf-8"))
-        for href in collector.hrefs:
+        parser = PageParser()
+        parser.feed(index_html.read_text(encoding="utf-8"))
+        # The canonical link is the page's own served URL, incl. any baseURL prefix.
+        # Resolve relative hrefs against it, and derive the prefix to strip on lookup.
+        base = parser.canonical or "/"
+        rel = index_html.relative_to(PUBLIC).parent.as_posix()
+        file_url = "/" if rel == "." else f"/{rel}/"
+        # The prefix is what canonical carries beyond the file's own path — canonical
+        # /docs/design/x/ minus file_url /design/x/ = /docs. For the root page file_url
+        # is "/", so the prefix is the whole canonical minus its trailing slash.
+        if file_url == "/":
+            prefix = base.rstrip("/")
+        elif base.endswith(file_url):
+            prefix = base[: -len(file_url)]
+        else:
+            prefix = ""
+        for href in parser.hrefs:
             scheme = urllib.parse.urlparse(href).scheme
             if scheme in ("http", "https", "mailto", "tel"):
                 continue
@@ -65,15 +109,27 @@ def main() -> int:
             path = urllib.parse.urlparse(urllib.parse.urljoin(base, href)).path
             if path.endswith(ASSET_SUFFIXES):
                 continue
-            if not exists(path):
+            if file_path_for(path, prefix) is None:
                 broken.append((base, href, path))
+
+        served = urllib.parse.urlparse(base).path
+        last_seg = served.rstrip("/").rsplit("/", 1)[-1]
+        if last_seg not in TAXONOMY and len(parser.main_text()) < MIN_BODY:
+            blank.append(served)
+
+    if blank:
+        print(f"✗ {len(blank)} blank page(s) (empty <main> — shadowed _index.md?):")
+        for path in sorted(blank):
+            print(f"  {path}")
 
     if broken:
         print(f"✗ {len(broken)} broken internal link(s):")
         for src, href, path in sorted(broken):
             print(f"  {src}  →  {href}  (resolves to {path}, missing)")
+
+    if broken or blank:
         return 1
-    print("✓ no broken internal links")
+    print("✓ no broken links, no blank pages")
     return 0
 
 

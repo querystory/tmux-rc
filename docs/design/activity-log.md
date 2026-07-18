@@ -28,7 +28,7 @@ whose own comment called a server-side log "the future feature."
 
 ## The load-bearing constraint: tmux is the state
 
-tmux-rc's spine is *the terminal is the interface* (see DESIGN.md). Nothing we build
+tmux-rc's spine is *the terminal is the interface* (see [the design overview](../overview/)). Nothing we build
 here may pretend to be a system of record. So two rules bound every option:
 
 1. **No persistence to disk.** State lives in tmux. Anything we hold is a bounded
