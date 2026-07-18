@@ -303,19 +303,24 @@ async def live_frame(
     so full fidelity here does not flicker.
 
     `session` is the client's per-page-load UUID: the summable spine for live-time /
-    usage telemetry (see docs/design/live-telemetry.md). We stamp presence after each
-    successful capture and emit ONE telemetry record per completed round."""
+    usage telemetry (see docs/design/live-telemetry.md). We stamp presence once per
+    round after the first successful capture and emit ONE telemetry record per round."""
     started = time.monotonic()
     deadline = started + LIVE_HOLD_SECONDS
+    stamped = False
     while True:
         try:
             text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
-        # Presence AFTER a successful capture, so a viewer of a live pane counts (even
-        # mid-hold) but a 404/wedged pane never flips has_live_viewer true — otherwise a
-        # poll on a dead pane would suppress parse-throttling for a phantom viewer.
-        _note_live_poll(pane_id)
+        # Presence ONCE per round, on the FIRST successful capture: a viewer of a live
+        # pane counts (even mid-hold), but a 404/wedged pane never flips has_live_viewer
+        # true (that would suppress parse-throttling for a phantom viewer). Stamping every
+        # 250ms iteration is needless cross-thread dict churn — one stamp per ~25s round
+        # keeps the 60s presence window fresh just as well.
+        if not stamped:
+            _note_live_poll(pane_id)
+            stamped = True
         data = text.encode()  # encode once — reused for the hash and the byte count
         h = hashlib.md5(data).hexdigest()  # full digest: a truncated hash could collide
         # a changed frame onto the client's hash and stall the stream

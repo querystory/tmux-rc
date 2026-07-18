@@ -667,12 +667,18 @@ function tuckChrome(wrap, box) {
 // longer than one full hold (watchdog).
 // One anonymous session id per page load — the summable spine for live-time /
 // bandwidth telemetry (docs/design/live-telemetry.md). Not identity: a correlation
-// key that groups this tab's live rounds. randomUUID exists AND is callable only in a
-// secure context (https/localhost); over plain-http LAN it can throw even when defined,
-// so try/catch (not just existence) falls back to a cheap random id.
+// key that groups this tab's live rounds. The invariant billing relies on is that two
+// viewers NEVER share a session id, so the fallback must be cryptographically random,
+// not time+Math.random (which collides across tabs opened the same instant). randomUUID
+// exists AND is callable only in a secure context (https/localhost) and can throw over
+// plain-http LAN even when defined; getRandomValues is available in every context it
+// isn't, so the fallback stays collision-safe there.
 const SESSION_ID = (() => {
   try { return crypto.randomUUID(); }
-  catch { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+  catch {
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  }
 })();
 
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
