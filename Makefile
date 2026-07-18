@@ -1,4 +1,4 @@
-.PHONY: dev run test fmt
+.PHONY: dev run test fmt docs docs-dev docs-clean
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -16,3 +16,14 @@ test:
 fmt:
 	uv run --with ruff ruff check --fix daemon tests
 	uv run --with ruff ruff format daemon tests
+
+# Build the docs site (docs/ -> docs-site/public/). Needs the extended Hugo build.
+docs:
+	cd docs-site && hugo --gc --minify
+
+# Docs authoring server with hot reload on http://localhost:17194
+docs-dev:
+	cd docs-site && hugo server --port 17194
+
+docs-clean:
+	rm -rf docs-site/public docs-site/resources

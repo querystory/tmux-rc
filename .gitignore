@@ -5,3 +5,8 @@ __pycache__/
 snapshots/
 *.egg-info/
 dist/
+
+# Hugo docs site build artifacts (source in docs/, config in docs-site/)
+docs-site/public/
+docs-site/resources/
+docs-site/.hugo_build.lock
