@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-Activity = Literal["running", "idle", "waiting", "unknown"]
+Activity = Literal["running", "idle", "waiting", "compacting", "unknown"]
 Tool = Literal["claude", "codex", "gemini", "shell", "unknown"]
 # Permission/interaction mode, mirroring Claude Code's shift-tab cycle.
 Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
