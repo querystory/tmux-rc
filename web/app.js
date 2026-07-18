@@ -418,7 +418,7 @@ function dock(states, act) {
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
     // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
-    // none — quiet is the default, only running/waiting earn a signal.
+    // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
     const a = actOf(s);
     b.innerHTML = iconFor(s.tool) +
       (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
