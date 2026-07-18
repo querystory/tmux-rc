@@ -243,6 +243,7 @@ function render(states) {
   const stopPeek = () => {
     if (peekStop) { peekStop(); peekStop = null; }
     peekStreamPane = peekBox = peekWrap = null;
+    peekLive = false;
   };
   if (!states.length) {
     stopPeek();
@@ -606,6 +607,7 @@ const peekCache = {}; // pane_id -> {html} — last live frame, shown gray on re
 let peekStop = null;        // stop() for the active peek's live stream (one at a time)
 let peekStreamPane = null;  // which pane that stream is for (don't restart per render)
 let peekBox = null, peekWrap = null; // current peek elements the stream paints into
+let peekLive = false; // stream health — so a same-pane remount reflects real liveness
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
 // "Home" = the user hasn't deliberately panned/zoomed the peek. Content updates
 // (bursts, snapshots, resizes) may re-pin the scroll to the tail ONLY then —
@@ -697,11 +699,13 @@ function bgTerm(s) {
     tuckChrome(wrap, box);
     if (zHome(s.pane_id)) toEnd();
   };
-  // Instant stale frame on (re)mount: the last frame we rendered for this pane, shown
-  // GRAY until the stream's first color frame lands. A pane never viewed this session
-  // has none — it shows "(connecting…)" for the ~250ms until the first frame.
+  // Instant frame on (re)mount from cache. Its GRAY/live state must reflect the
+  // ACTUAL stream health (peekLive), not a blanket "stale": on a same-pane re-render
+  // (every 2s) the stream is already connected, so a fresh wrap must NOT flash gray
+  // and then wait up to a full 25s hold for the next onLive to clear it. A pane never
+  // viewed this session has no cache — "(connecting…)" until the first frame.
   const c = peekCache[s.pane_id];
-  if (c) { paint(c.html); wrap.classList.add("stale"); }
+  if (c) { paint(c.html); if (!peekLive) wrap.classList.add("stale"); }
   else box.textContent = "(connecting…)";
   // The peek streams for the ACTIVE pane. render() rebuilds the deck every poll, so
   // the stream is NOT re-created per render (that would restart the long-poll hold
@@ -726,9 +730,11 @@ function bgTerm(s) {
           if (zHome(peekStreamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
         }
       },
-      onLive: () => peekWrap && peekWrap.classList.remove("stale"),
-      onQuiet: () => peekWrap && peekWrap.classList.add("stale"),
+      onLive: () => { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); },
+      onQuiet: () => { peekLive = false; peekWrap && peekWrap.classList.add("stale"); },
     });
+  } else if (peekLive) {
+    wrap.classList.remove("stale"); // same-pane remount, stream already live
   }
   // Desktop has no pan gesture — dragging a text selection auto-scrolls the window
   // sideways with nothing to bring it home (touch pans go through pinchZoom's clamp).
