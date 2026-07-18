@@ -14,6 +14,9 @@ title = "tmux-rc docs"
 languageCode = "en-us"
 
 # Point Hugo at the existing docs/ instead of a content/ dir inside docs-site.
+# NOTE: a top-level docs/DESIGN.md would emit at /design/ and collide with the
+# docs/design/ section index — so it was renamed to docs/design/overview.md
+# (/design/overview/). No case-collision remains under this contentDir.
 contentDir = "../docs"
 
 # Hextra theme via Hugo Modules (pinned in go.mod).
