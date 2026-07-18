@@ -937,6 +937,7 @@ async function uploadImage(s, file, input) {
     // Visible confirmation — the paste is otherwise invisible client-side. Skipped if
     // the user switched panes mid-upload: the image went to s, not the active pane.
     else if (s.pane_id === activeId()) attachChip(file);
+    liveBurst(); // the paste/path landing in the pane should be visible immediately
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
@@ -1023,6 +1024,36 @@ async function sendRaw(s, keyName) {
   await send(s, { keys: keyName, enter: false, literal: false });
 }
 
+// Live peek burst: after ANY input (keys, text, image), the terminal peek should show
+// it landing NOW — not after the watcher's next snapshot + poll round-trip. For a few
+// seconds, fetch a FRESH capture (/peek — no LLM) every 500ms and paint it in place,
+// stamping peekCache with a now() snap id so ordinary renders don't regress it
+// (snapshot ids are ms timestamps; a later watcher snapshot still wins). Each new
+// input extends the window; one timer, one in-flight fetch, active pane only.
+let burstUntil = 0, burstBusy = false, burstTimer = null;
+function liveBurst() {
+  burstUntil = Date.now() + 6000;
+  if (burstTimer) return;
+  burstTimer = setInterval(async () => {
+    if (Date.now() > burstUntil) { clearInterval(burstTimer); burstTimer = null; return; }
+    const id = activeId();
+    const box = document.querySelector(".deck .bg-term");
+    if (burstBusy || !id || !box) return;
+    burstBusy = true;
+    try {
+      const r = await fetch(`/api/panes/${encodeURIComponent(id)}/peek`);
+      const txt = r.ok ? (await r.text()).replace(/\s+$/, "") : "";
+      if (txt && id === activeId()) {
+        const html = linkifyCapture(txt);
+        peekCache[id] = { snap: String(Date.now()), html };
+        box.innerHTML = html;
+        box.parentElement && (box.parentElement.scrollTop = box.parentElement.scrollHeight);
+      }
+    } catch {}
+    burstBusy = false;
+  }, 500);
+}
+
 async function send(s, body) {
   busy = true;
   try {
@@ -1031,6 +1062,7 @@ async function send(s, body) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+    liveBurst(); // show the input landing in the peek NOW, not next watcher tick
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }

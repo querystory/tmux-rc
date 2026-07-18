@@ -239,6 +239,17 @@ def get_snapshot(pane_id: str, snap_id: str):
     return text
 
 
+@app.get("/api/panes/{pane_id}/peek", response_class=PlainTextResponse)
+def get_peek(pane_id: str):
+    """A FRESH capture of the pane, bypassing the watcher's snapshot cadence (and the
+    LLM entirely). The client bursts on this right after sending input — keys, text,
+    an image — so the terminal peek shows the input landing immediately instead of
+    after the next watcher tick + poll. Read-only; same shape as a snapshot."""
+    if tmux.find_pane(pane_id) is None:
+        raise HTTPException(404, "pane not found")
+    return tmux.capture_pane(pane_id)
+
+
 @app.post("/api/panes/{pane_id}/send")
 def send(pane_id: str, body: SendBody, request: Request):
     detail = f"enter={body.enter} literal={body.literal}"
