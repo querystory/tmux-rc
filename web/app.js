@@ -251,6 +251,10 @@ function render(states) {
   };
   if (!states.length) {
     stopPeek();
+    // Sweep the tab-join fillets too: they're parented to #top (to escape the dock's
+    // overflow clip), so replacing #panes/#dock leaves them dangling over the empty
+    // screen — the two stray blue curves seen during a daemon reload's brief no-panes.
+    document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     dockEl.replaceChildren();
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     updateBar(null);
