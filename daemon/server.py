@@ -92,13 +92,18 @@ _audit_log = logging.getLogger("daemon.server.audit")
 _AUDIT_KEYS = os.environ.get("TMUXRC_AUDIT_KEYS") != "0"
 
 
-def _trusted_user(request: Request) -> str | None:
+def _trusted_user(request: Request | None) -> str | None:
     """The tunnel owner's email, honored ONLY from a loopback peer (the same trust
     model as _audit): the tunnel-client connects from localhost having validated the
     identity via IAP and stripped spoofed inbound copies. A LAN client's claim is
     unverified, so we return None rather than record it — live telemetry's `actor` is a
     billing-grade attribution key, not a forensic breadcrumb, so an unverifiable claim
-    must simply be absent (the anonymous `session` still carries the usage)."""
+    must simply be absent (the anonymous `session` still carries the usage).
+
+    `request` is Optional: live_frame defaults it to None for unit tests, and no actor
+    can be attributed without one — return None rather than raise."""
+    if request is None:
+        return None
     peer = request.client.host if request.client else "?"
     claimed = request.headers.get("x-tunnel-user")
     return claimed if (claimed and peer in ("127.0.0.1", "::1")) else None
@@ -336,7 +341,7 @@ def _note_live_poll(pane_id: str) -> None:
 
 
 def _emit_live_round(
-    request: Request, pane_id: str, session: str, hold_s: float,
+    request: Request | None, pane_id: str, session: str, hold_s: float,
     changed: bool, raw_bytes: int | None,
 ) -> None:
     """Best-effort telemetry for one completed live round. Off the request's critical
