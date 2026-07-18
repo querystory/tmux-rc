@@ -138,6 +138,7 @@ class Watcher:
         # Input-driven reparse: request_reparse() adds pane ids here and wakes the loop
         # so a submitted answer/keypress re-parses within a capture, not a poll interval.
         self._force_parse: set[str] = set()
+        self._forced_this_tick: set[str] = set()  # drained from _force_parse per _tick
         self._wake = asyncio.Event()
         self._evloop: asyncio.AbstractEventLoop | None = None  # set in start()
 
@@ -214,9 +215,13 @@ class Watcher:
             # timeout normally; TimeoutError is the ordinary "nothing happened" path.
             try:
                 await asyncio.wait_for(self._wake.wait(), timeout=POLL_SECONDS)
+                self._wake.clear()  # observed a wake — consume it
             except asyncio.TimeoutError:
+                # Ordinary "nothing happened" tick. Do NOT clear() here: a set that
+                # arrived between the timeout and now would be discarded unobserved,
+                # delaying its forced reparse by a full poll. Leaving it set means the
+                # next wait_for returns immediately and we consume it above.
                 pass
-            self._wake.clear()
 
     def request_reparse(self, pane_id: str) -> None:
         """Force an LLM re-parse of `pane_id` on the next tick AND wake the loop now, so
@@ -227,7 +232,13 @@ class Watcher:
         self._force_parse.add(pane_id)
         loop = getattr(self, "_evloop", None)
         if loop is not None:
-            loop.call_soon_threadsafe(self._wake.set)
+            try:
+                loop.call_soon_threadsafe(self._wake.set)
+            except RuntimeError:
+                # Loop already closed (shutdown). The tmux send has already succeeded, so
+                # don't fail the request over a wake we no longer need — the pane id stays
+                # in _force_parse and a running loop would pick it up on its next tick.
+                pass
 
     def _tick(self) -> None:
         if not tmux.server_running():
@@ -256,6 +267,12 @@ class Watcher:
             elif p.id not in self._birth:
                 self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
             self._birth[p.id] = p.pid
+        # Drain the forced-reparse requests for THIS pass in one atomic swap, so a
+        # request that arrives mid-tick (handler thread) is never lost to a check-then-
+        # discard race in _tick_pane — it either makes this snapshot or stays queued in
+        # the fresh set for the next tick. Cleared to a new set so late adds accumulate.
+        self._forced_this_tick = self._force_parse
+        self._force_parse = set()
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
         states = []
@@ -506,8 +523,7 @@ class Watcher:
         # change ⇒ no call.
         cached = self._state.get(pane.id)
         due = now - self._last_parse.get(pane.id, 0) >= HEARTBEAT_SECONDS
-        forced = pane.id in self._force_parse
-        self._force_parse.discard(pane.id)  # consume: one forced parse per request
+        forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         if cached is not None and not changed and not due and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
