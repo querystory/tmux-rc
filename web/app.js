@@ -1098,12 +1098,18 @@ async function submitComposer(s) {
       await postSend(s, { keys: text, enter: true, literal: true });
     } else {
       if (text) await postSend(s, { keys: text, enter: false, literal: true });
+      // If any image fails to deliver, DON'T press Enter and DON'T clear the buffer —
+      // submitting now would send the caption without its image and drop the file. The
+      // failed images stay queued (and any text already typed into the pane stays put,
+      // unsubmitted) so the user can retry. uploadStagedImage throws on a bad response.
       for (const file of staged) await uploadStagedImage(s, file);
       await postSend(s, { keys: "Enter", enter: false, literal: false });
       clearStaged();
     }
     bar.input.value = "";
     liveBurst(); // text + images landing in the pane should be visible immediately
+  } catch (e) {
+    alert("Image upload failed — not sent. Your text and images are still staged.\n\n" + e.message);
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
@@ -1111,12 +1117,13 @@ async function submitComposer(s) {
 
 // POST one staged image to the pane (server stages it to disk and pastes/types it in,
 // no Enter — submitComposer sends the single Enter). Kept separate from send() because
-// it's a multipart body, not the JSON /send shape.
+// it's a multipart body, not the JSON /send shape. Throws on a bad response so
+// submitComposer aborts before the final Enter (see its catch).
 async function uploadStagedImage(s, file) {
   const fd = new FormData();
   fd.append("file", file);
   const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
-  if (!r.ok) alert("Image upload failed: " + r.status);
+  if (!r.ok) throw new Error("upload failed: " + r.status);
 }
 
 // Read an image off the clipboard and upload it. navigator.clipboard.read() is the
