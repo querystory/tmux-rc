@@ -270,7 +270,7 @@ def session_locked() -> bool:
     silently paste nothing, and the caller should deliver by typed path instead.
     Unknown/ambiguous states report unlocked (clipboard-first stays the default)."""
     try:
-        out = _run_host(["loginctl", "list-sessions", "--no-legend"])
+        out = _run_host(["loginctl", "--no-pager", "list-sessions", "--no-legend"])
         for line in out.splitlines():
             cols = line.split()
             # Only OUR graphical session: the GDM greeter is also wayland (uid gdm),
@@ -278,7 +278,8 @@ def session_locked() -> bool:
             if len(cols) < 2 or cols[1] != str(os.getuid()):
                 continue
             props = _run_host(
-                ["loginctl", "show-session", cols[0], "-p", "Type", "-p", "LockedHint"]
+                ["loginctl", "--no-pager", "show-session", cols[0],
+                 "-p", "Type", "-p", "LockedHint"]
             )
             if "Type=wayland" in props or "Type=x11" in props:
                 return "LockedHint=yes" in props
