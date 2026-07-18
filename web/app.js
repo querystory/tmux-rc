@@ -671,7 +671,7 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
     while (!ac.signal.aborted) {
       try {
         const r = await fetch(
-          `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}&session=${SESSION_ID}`,
+          `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}&session=${encodeURIComponent(SESSION_ID)}`,
           { signal: ac.signal });
         if (!r.ok) { onQuiet && onQuiet(); await sleep(2000); continue; } // pane gone / wedged
         const j = await r.json();
@@ -726,22 +726,27 @@ function bgTerm(s) {
   if (peekStreamPane !== s.pane_id) {
     peekStop && peekStop();
     peekStreamPane = s.pane_id;
-    peekStop = liveStream(s.pane_id, {
+    const streamPane = s.pane_id; // captured: ignore late frames after a pane switch
+    peekStop = liveStream(streamPane, {
       onFrame: (txt) => {
-        if (busy) return; // gesture mid-flight: don't repaint under the finger
+        // A response that resolved just as the user switched panes must not paint or
+        // cache into the new pane (the module-level peek* refs now point elsewhere).
+        if (streamPane !== peekStreamPane) return;
         const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
-        peekCache[peekStreamPane] = { html }; // cache for the next stale-on-mount
-        // Skip the DOM write when nothing changed (stale-mount paints the cached frame,
-        // then the stream's first frame is often identical) — an innerHTML swap to the
-        // same content still tears down + rebuilds the subtree, which is the flicker.
+        peekCache[streamPane] = { html }; // cache for the next stale-on-mount
+        // ALWAYS paint the newest frame — dropping it while busy would strand it: the
+        // stream advances its hash regardless, so the next poll returns "no change" and
+        // this frame would never render. Only the scroll-to-tail is suppressed during a
+        // gesture (that's what fights the user's finger). Diff-skip avoids the reflow
+        // when the content is actually identical (the flicker source).
         if (peekBox && peekBox.innerHTML !== html) {
           peekBox.innerHTML = html;
           tuckChrome(peekWrap, peekBox);
-          if (zHome(peekStreamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
+          if (!busy && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
         }
       },
-      onLive: () => { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); },
-      onQuiet: () => { peekLive = false; peekWrap && peekWrap.classList.add("stale"); },
+      onLive: () => { if (streamPane === peekStreamPane) { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); } },
+      onQuiet: () => { if (streamPane === peekStreamPane) { peekLive = false; peekWrap && peekWrap.classList.add("stale"); } },
     });
   } else if (peekLive) {
     wrap.classList.remove("stale"); // same-pane remount, stream already live

@@ -330,7 +330,8 @@ class Watcher:
     # Every per-pane store, keyed by pane id. One tuple so gc (vanished panes) and
     # reuse-eviction (recycled ids) can't drift apart.
     # Live-viewer presence (docs/design/live-telemetry.md). The /live handler stamps
-    # note_live_poll at the START of every round (a viewer mid-hold is present), giving
+    # note_live_poll after each SUCCESSFUL capture (a viewer mid-hold is present, but a
+    # 404/wedged pane must not mark presence), giving
     # the daemon a first-class "is anyone watching?" fact — server state, not a log
     # replay — so a later change can throttle LLM parsing for unwatched panes. The
     # recency window bridges the instant between a round returning and the client

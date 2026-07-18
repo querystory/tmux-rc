@@ -190,12 +190,13 @@ async def no_cache(request, call_next):
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
-    # Byte size for the streaming endpoints, so the log shows live/peek payload cost
-    # at a glance (a frame ~2-10KB; a "no change" reply is tiny). uvicorn's access log
-    # doesn't include response size, and these are the requests worth watching.
+    # Byte size for the live stream, so the payload cost is visible when debugging.
+    # DEBUG, not INFO: a busy pane (or several viewers) emits back-to-back responses
+    # and this would drown the normal INFO log. endswith, not substring, so it can't
+    # accidentally match some future path containing "/live".
     cl = resp.headers.get("content-length")
-    if cl and "/live" in request.url.path:
-        logger.info("%s -> %s bytes", request.url.path, cl)
+    if cl and request.url.path.endswith("/live"):
+        logger.debug("%s -> %s bytes", request.url.path, cl)
     return resp
 
 
@@ -263,18 +264,6 @@ def get_snapshot(pane_id: str, snap_id: str):
     return text
 
 
-@app.get("/api/panes/{pane_id}/peek", response_class=PlainTextResponse)
-def get_peek(pane_id: str):
-    """A FRESH capture of the pane, bypassing the watcher's snapshot cadence (and the
-    LLM entirely). The client bursts on this right after sending input — keys, text,
-    an image — so the terminal peek shows the input landing immediately instead of
-    after the next watcher tick + poll. Read-only; same shape as a snapshot."""
-    try:  # no find_pane pre-flight: that doubles tmux calls at burst rate (2/s)
-        return tmux.capture_pane(pane_id)
-    except subprocess.CalledProcessError as e:
-        raise _pane_err(e) from None
-
-
 def _pane_err(e: subprocess.CalledProcessError) -> HTTPException:
     """capture failures, honestly: _run turns tmux timeouts into rc 124 — that's a
     wedged tmux, not a missing pane."""
@@ -291,7 +280,9 @@ LIVE_CHECK_SECONDS = 0.25  # freshness floor — server constant, not a client k
 
 
 @app.get("/api/panes/{pane_id}/live")
-async def live_frame(pane_id: str, request: Request, frame: str = "", session: str = ""):
+async def live_frame(
+    pane_id: str, request: Request = None, frame: str = "", session: str = ""
+):
     """One long-poll round: the client sends the hash of the frame it's showing and
     we answer with a newer colored frame, or {frame: same} after ~25s of no change
     (the client immediately re-holds). Captures run in a worker thread on a 250ms
@@ -304,9 +295,8 @@ async def live_frame(pane_id: str, request: Request, frame: str = "", session: s
     does not cause flicker.
 
     `session` is the client's per-page-load UUID: the summable spine for live-time /
-    usage telemetry (see docs/design/live-telemetry.md). We stamp presence up front so
-    a viewer mid-hold counts, and emit ONE telemetry record per completed round."""
-    w = app.state.watcher
+    usage telemetry (see docs/design/live-telemetry.md). We stamp presence after each
+    successful capture and emit ONE telemetry record per completed round."""
     started = time.monotonic()
     deadline = started + LIVE_HOLD_SECONDS
     while True:
@@ -317,9 +307,10 @@ async def live_frame(pane_id: str, request: Request, frame: str = "", session: s
         # Presence AFTER a successful capture, so a viewer of a live pane counts (even
         # mid-hold) but a 404/wedged pane never flips has_live_viewer true — otherwise a
         # poll on a dead pane would suppress parse-throttling for a phantom viewer.
-        w.note_live_poll(pane_id)
+        _note_live_poll(pane_id)
         data = text.encode()  # encode once — reused for the hash and the byte count
-        h = hashlib.md5(data).hexdigest()[:16]
+        h = hashlib.md5(data).hexdigest()  # full digest: a truncated hash could collide
+        # a changed frame onto the client's hash and stall the stream
         changed = h != frame
         if changed or time.monotonic() >= deadline:
             _emit_live_round(
@@ -329,6 +320,16 @@ async def live_frame(pane_id: str, request: Request, frame: str = "", session: s
             # changed ⇒ send the new colored frame; else unchanged, client re-holds.
             return {"frame": h, "text": text} if changed else {"frame": h}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
+
+
+def _note_live_poll(pane_id: str) -> None:
+    """Stamp live-viewer presence on the watcher, best-effort — the watcher may not be
+    wired (e.g. the handler driven directly in a unit test), and presence must never
+    break the live stream."""
+    try:
+        app.state.watcher.note_live_poll(pane_id)
+    except Exception:  # noqa: BLE001 - presence must never break the stream
+        logger.debug("live presence stamp failed", exc_info=True)
 
 
 def _emit_live_round(
