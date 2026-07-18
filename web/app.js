@@ -1189,17 +1189,30 @@ if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)
 poll();
 setInterval(poll, 2000);
 
-// Auto-reload the page when the web assets change (dev convenience). All state lives
-// server-side in the watcher, so a full reload loses nothing. Checks every 5s and
-// reloads if the version hash differs from the one seen at load.
+// Auto-update: when the web assets change, reload to the new version (checked every
+// 5s against /api/version; all durable state lives server-side). UNLESS the user has
+// un-sent state — a typed draft or a staged image — which a silent reload would eat:
+// then show a tap-to-reload banner instead and let them choose the moment.
 let _ver = null;
 setInterval(async () => {
   try {
     const { version } = await (await fetch("/api/version")).json();
     if (_ver === null) _ver = version;
-    else if (version !== _ver) location.reload();
+    else if (version !== _ver) {
+      if (!bar.input.value && !chipEl) location.reload();
+      else showUpdateBanner();
+    }
   } catch {}
 }, 5000);
+
+function showUpdateBanner() {
+  if (document.getElementById("upbanner")) return;
+  const b = document.createElement("button");
+  b.id = "upbanner";
+  b.textContent = "New version — tap to reload";
+  b.onclick = () => location.reload();
+  document.body.appendChild(b);
+}
 
 // Keyboard fit: CSS 100dvh / flex compression doesn't reliably clear the on-screen
 // keyboard on mobile Chrome (the bar ends up half-covered). Explicitly PIN the bar to
