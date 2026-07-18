@@ -1159,7 +1159,16 @@ function question(s) {
   const prompt = document.createElement("div");
   prompt.className = "prompt";
   prompt.textContent = s.question.prompt;
-  if (spinning) prompt.innerHTML += ' <span class="q-spin" aria-label="submitting"></span>';
+  if (spinning) {
+    // Negative animation-delay = (Date.now() mod period): a freshly-created element's
+    // CSS animation always starts at 0°, and render() rebuilds the card every fast
+    // reparse-poll (~500ms < the 0.7s spin), so a plain spinner kept snapping back to
+    // the first quarter-turn. Seeding the delay to the current phase makes each rebuilt
+    // spinner RESUME where the last frame left off — one smooth continuous rotation.
+    const phase = -((Date.now() % 700) / 1000);
+    prompt.innerHTML +=
+      ` <span class="q-spin" aria-label="submitting" style="animation-delay:${phase}s"></span>`;
+  }
   q.appendChild(prompt);
 
   // Option buttons (drop any "type something"/"Other" pseudo-option — the bottom bar
