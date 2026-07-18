@@ -160,6 +160,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="tmux-rc", lifespan=lifespan)
+# Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
+# The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
+# busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+
+app.add_middleware(GZipMiddleware, minimum_size=512)
 
 
 @app.middleware("http")
