@@ -276,9 +276,9 @@ async def live_frame(pane_id: str, frame: str = ""):
     costs one request per hold; a busy one streams responses back-to-back.
 
     The change hash is over the RAW colored frame — every visible change (including a
-    spinner tick or ticking timer) is a new frame, because live mode means live: the
-    client renders these smoothly via line-level DOM diffing, so full fidelity here
-    does not cause flicker."""
+    spinner tick or ticking timer) is a new frame, because live mode means live. The
+    client repaints only when the rendered HTML actually differs (no-op skip otherwise),
+    so full fidelity here does not flicker."""
     deadline = time.monotonic() + LIVE_HOLD_SECONDS
     while True:
         try:
