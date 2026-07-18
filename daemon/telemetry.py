@@ -228,7 +228,7 @@ def emit_parse(
 
 def emit_live(
     *,
-    session: str,
+    session: str | None,
     pane_uid: str,
     pane_label: str,
     tool: str | None,
@@ -247,22 +247,30 @@ def emit_live(
     undercount-only floor for watch-time — the billing signal.
 
     `session` is the client's per-page-load UUID (the summable spine, anonymous — not
-    identity). `actor` is the loopback-trusted tunnel email when present (the account key
-    for per-user rollups), recorded only when the caller already vetted the trust model.
-    NEVER carries frame text — this is about cost and time, not content (privacy is
-    fail-closed, same as emit_parse). Own scope (tmux-rc.live) so parse aggregates stay
-    clean. Best-effort: attr-build failure is swallowed, never breaking the live path."""
+    identity). When it's absent (a caller that didn't send one) the round is left
+    UN-ATTRIBUTABLE — no session key at all — so rollups EXCLUDE it rather than mis-sum
+    it: collapsing every session-less viewer under one shared id would fold unrelated
+    viewers' watch-time together and corrupt the per-session billing signal. The
+    invariant is that two different viewers never share a session id, and the null case
+    honors it by attributing to none. `actor` is the loopback-trusted tunnel email when
+    present (the account key for per-user rollups), recorded only when the caller already
+    vetted the trust model. NEVER carries frame text — this is about cost and time, not
+    content (privacy is fail-closed, same as emit_parse). Own scope (tmux-rc.live) so
+    parse aggregates stay clean. Best-effort: attr-build failure is swallowed, never
+    breaking the live path."""
     try:
         attrs = {
-            # session is a client-supplied query param — cap it like actor/detail so a
-            # crafted value can't inflate OTLP payloads / downstream storage. A real
-            # per-page-load UUID is ~36 chars; 64 leaves headroom without opening abuse.
-            "session": session[:64],
             "pane_uid": pane_uid,
             "pane_label": pane_label,
             "hold_s": round(hold_s, 3),
             "changed": changed,
         }
+        # session is a client-supplied query param — cap it like actor/detail so a
+        # crafted value can't inflate OTLP payloads / downstream storage (a real
+        # per-page-load UUID is ~36 chars; 64 leaves headroom). Absent ⇒ omit the key so
+        # the round is un-attributable, never merged under a shared placeholder.
+        if session:
+            attrs["session"] = session[:64]
         if tool:
             attrs["tool"] = tool
         # Bytes only on a change round (an idle round sent nothing). sent_bytes is the

@@ -124,7 +124,14 @@ So we use **two attribution keys, layered:**
   `?session=<uuid>` on every live poll. It's the stable spine of one viewing session:
   it groups a round chain, survives the individual rounds, and costs nothing (no
   server state, no auth). It is *not* identity — it's a correlation key, deliberately
-  anonymous, which also keeps it privacy-clean.
+  anonymous, which also keeps it privacy-clean. The **invariant is that two different
+  viewers never share a session id.** A round that arrives with no session (a caller
+  that didn't send one — rare, since the client always mints one) is left
+  **un-attributable**: we emit the round with the session key simply *absent*, so
+  watch-time rollups EXCLUDE it. The tempting shortcut — bucket session-less rounds
+  under a shared `"anon"` — is wrong precisely because it violates the invariant: it
+  would sum unrelated viewers' hold-seconds into one phantom session and corrupt the
+  per-session billing signal. Better to attribute to none than to the wrong one.
 - **`actor`** — the loopback-trusted `X-Tunnel-User` email when present, recorded the
   same guarded way `_audit` records it (trusted only from loopback; a LAN claim is
   logged as a claim, never as the actor). This is the account key for "live-time per

@@ -42,6 +42,18 @@ def test_session_is_capped(monkeypatch):
     assert len(seen["attrs"]["session"]) == 64
 
 
+def test_absent_session_is_unattributable(monkeypatch):
+    # A missing session must NOT collapse into a shared placeholder (that would mis-sum
+    # unrelated viewers' watch-time). The key is simply absent ⇒ rollups exclude it.
+    for missing in (None, ""):
+        seen = _capture(monkeypatch)
+        telemetry.emit_live(
+            session=missing, pane_uid="u", pane_label="l", tool=None,
+            hold_s=1.0, changed=False, raw_bytes=None,
+        )
+        assert "session" not in seen["attrs"]
+
+
 def test_idle_round_omits_bytes(monkeypatch):
     seen = _capture(monkeypatch)
     telemetry.emit_live(

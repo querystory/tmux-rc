@@ -347,7 +347,10 @@ def _emit_live_round(
 
         w = app.state.watcher
         telemetry.emit_live(
-            session=session or "anon",
+            # Pass through as-is: an absent session (empty string) is left
+            # un-attributable by emit_live, NOT collapsed under a shared id that would
+            # mis-sum unrelated viewers' watch-time.
+            session=session or None,
             pane_uid=f"{tmux.server_uid()}:{pane_id}",
             pane_label=w.label_for(pane_id),
             tool=w.tool_for(pane_id),
