@@ -256,6 +256,10 @@ function render(states) {
     // screen — the two stray blue curves seen during a daemon reload's brief no-panes.
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     dockEl.replaceChildren();
+    // Drop the card-view dock state too: its onscroll pin closes over the now-dead
+    // card nodes, and the seam classes would style a dock that no longer has a card.
+    dockEl.onscroll = null;
+    dockEl.classList.remove("edge-l", "has-sel");
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     updateBar(null);
     return;
