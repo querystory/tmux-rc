@@ -268,13 +268,7 @@ function render(states) {
     if (a) {
       const fs = document.createElement("button");
       fs.className = "fsbtn";
-      // Inline SVG, not the ⤢ glyph: Android's font fallback rendered the char with
-      // odd metrics (tiny ink, wide advance), distorting the button. SVG is identical
-      // everywhere.
-      fs.innerHTML =
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
-        ' stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
-        '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>';
+      fs.textContent = "⤢";
       fs.title = "Full screen";
       fs.setAttribute("aria-label", "Full screen");
       fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
