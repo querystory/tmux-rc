@@ -8,5 +8,6 @@ dist/
 
 # Hugo docs site build artifacts (source in docs/, config in docs-site/)
 docs-site/public/
+docs-site/serve/
 docs-site/resources/
 docs-site/.hugo_build.lock

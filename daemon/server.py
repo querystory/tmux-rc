@@ -527,7 +527,7 @@ def _to_png(data: bytes) -> bytes:
 # lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
 # server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
 _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
-    Path(__file__).resolve().parent.parent / "docs-site" / "public"
+    Path(__file__).resolve().parent.parent / "docs-site" / "serve"
 )
 if Path(_docs_dir).is_dir():
     # Bare /docs would 404 (the mount only answers /docs/…); send it to /docs/ so the

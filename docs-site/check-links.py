@@ -14,7 +14,8 @@ import pathlib
 import sys
 import urllib.parse
 
-PUBLIC = pathlib.Path(__file__).parent / "public"
+# The daemon-served build (make docs -> serve/), not Hugo's dev-server public/.
+PUBLIC = pathlib.Path(__file__).parent / "serve"
 ASSET_SUFFIXES = (".js", ".css", ".svg", ".png", ".ico", ".xml", ".json",
                   ".txt", ".woff", ".woff2", ".webmanifest")
 
