@@ -178,12 +178,13 @@ async def no_cache(request, call_next):
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
-    # Byte size for the streaming endpoints, so the log shows live/peek payload cost
-    # at a glance (a frame ~2-10KB; a "no change" reply is tiny). uvicorn's access log
-    # doesn't include response size, and these are the requests worth watching.
+    # Byte size for the live stream, so the payload cost is visible when debugging.
+    # DEBUG, not INFO: a busy pane (or several viewers) emits back-to-back responses
+    # and this would drown the normal INFO log. endswith, not substring, so it can't
+    # accidentally match some future path containing "/live".
     cl = resp.headers.get("content-length")
-    if cl and "/live" in request.url.path:
-        logger.info("%s -> %s bytes", request.url.path, cl)
+    if cl and request.url.path.endswith("/live"):
+        logger.debug("%s -> %s bytes", request.url.path, cl)
     return resp
 
 
