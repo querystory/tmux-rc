@@ -63,6 +63,9 @@ function setFavicon(waiting) {
 
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
+// Panes whose card is collapsed to its one-line header (caret ▸), handing the screen
+// to the live terminal behind it. Per-pane, survives re-renders.
+const cardCollapsed = new Set();
 let busy = false; // suppress polling flicker while an answer is in flight
 
 // The web surface is a dumb remote control for tmux — ALL state is in tmux. The active
@@ -538,8 +541,9 @@ function swipeNav(el, id) {
 
 function card(s) {
   const el = document.createElement("div");
+  const collapsed = cardCollapsed.has(s.pane_id);
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
-    + (s.pane_id === activeId() ? " active" : "");
+    + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "");
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
@@ -567,13 +571,24 @@ function card(s) {
       : "";
   // No icon here — the pane's icon lives in the dock rail above, which this card's
   // border joins to (like a tab body under its tab). Repeating it wasted a column.
+  // The ▾/▸ caret collapses the card to just this header row (still tab-joined), so
+  // the live terminal behind it gets the whole screen — collapse state persists per
+  // pane across re-renders (cardCollapsed).
   row.innerHTML = `
+    <button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"
+      aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>
     <div class="meta">
       <div class="name">${esc(s.title || s.label || "")} ${working}</div>
       <div class="status">${esc(s.headline || "—")}</div>
     </div>
     <span class="badge b-${a}">${badge}</span>`;
+  row.querySelector(".card-caret").onclick = (e) => {
+    e.stopPropagation(); // don't also re-select the pane
+    collapsed ? cardCollapsed.delete(s.pane_id) : cardCollapsed.add(s.pane_id);
+    render(Object.values(panesById));
+  };
   el.appendChild(row);
+  if (collapsed) return el; // one-line form: header only, everything below is hidden
 
   // The bootstrap "story so far" — orientation when picking a session up cold.
   // Clamped to a few lines; tap toggles the full text.
