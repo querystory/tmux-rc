@@ -1,4 +1,4 @@
-module github.com/shapor/termiphone/docs-site
+module github.com/shapor/tmux-rc/docs-site
 
 go 1.21.5
 

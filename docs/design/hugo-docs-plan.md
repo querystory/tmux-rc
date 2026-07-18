@@ -1,4 +1,4 @@
-# Hugo docs site for termiphone
+# Hugo docs site for tmux-rc
 
 Status: **proposed**. Plan for serving `docs/` as a browsable site at `/docs`, modeled on qs-app's
 docs setup but stripped to what a small repo actually needs.
@@ -28,10 +28,10 @@ with *less* hand-maintenance because the sidebar comes from the file layout inst
 
 **Reject (the entire icon-sync pipeline).** ~70% of qs-app's Hugo plan is `Icon.tsx` → `icons.json` →
 downloaded Lucide SVGs → a Hugo `icon` shortcode, so docs icons match the React app pixel-for-pixel.
-termiphone has no `Icon.tsx` and no app to match. **None of that pipeline is in this plan.** Dropping it
+tmux-rc has no `Icon.tsx` and no app to match. **None of that pipeline is in this plan.** Dropping it
 is the single biggest simplification and the main reason this is a short doc, not a 2200-line one.
 
-**Reject (two sites).** qs-app splits `/docs` (customer) and `/internal` (engineer). termiphone's docs
+**Reject (two sites).** qs-app splits `/docs` (customer) and `/internal` (engineer). tmux-rc's docs
 are all internal; one site at `/docs` is the whole thing. If a customer-facing split is ever needed,
 it's an additive second Hugo site, not a prerequisite.
 
@@ -60,7 +60,7 @@ it's an additive second Hugo site, not a prerequisite.
 
 The docs should be *beautiful*, not stock-Hextra. Hextra's defaults are clean but generic (it reads as
 "a Nextra clone"); shipping them unchanged would look like every other Hugo doc site. Treat visual design
-as a Phase of its own, informed by termiphone's existing identity rather than invented fresh.
+as a Phase of its own, informed by tmux-rc's existing identity rather than invented fresh.
 
 - **Borrow the brand that already exists.** `web/` has real assets — `icon.svg`, `tmux-logo.svg` /
   `tmux-logomark.svg`, `apple-touch-icon.png`, the model glyphs (`claude`, `gemini`, `openai`), and the
@@ -99,7 +99,7 @@ styling real pages, not lorem ipsum. It's explicitly in scope, unlike the icon p
 2. **`docs/design/` as a section vs. top-level.** With everything in one site, `docs/design/*` naturally
    becomes a "Design" section and the root `docs/*.md` (PRD, REQUIREMENTS, benchmarks…) become top-level
    pages. That's fine; just confirm the sidebar grouping reads well.
-3. **Auth.** qs-app gates docs on user status. termiphone's daemon is loopback/tunnel with an audit trust
+3. **Auth.** qs-app gates docs on user status. tmux-rc's daemon is loopback/tunnel with an audit trust
    gate — decide whether `/docs` is open to anyone who can reach the daemon (probably yes; it's your own
    phone) or gated like the API mutations.
 4. **Where build output lives + `.gitignore`.** Pick the output dir and gitignore it (qs-app gitignores

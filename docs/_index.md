@@ -1,5 +1,5 @@
 ---
-title: termiphone docs
+title: tmux-rc docs
 toc: false
 ---
 

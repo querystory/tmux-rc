@@ -1,16 +1,16 @@
 # How the whole system works
 
-Status: **implemented** — an end-to-end tour of termiphone as it actually runs today,
+Status: **implemented** — an end-to-end tour of tmux-rc as it actually runs today,
 from a tmux pane on a dev box to a live, colored terminal on a phone. Start here; the
 other design notes go deep on individual pieces.
 
 ## The one idea
 
-**Observe the terminal, not the agent.** termiphone never integrates with Claude Code,
+**Observe the terminal, not the agent.** tmux-rc never integrates with Claude Code,
 Codex, Gemini, or any specific tool. It watches what a tmux pane *renders* — the same
 pixels a human sees — and sends keystrokes back, exactly as a human would. Everything
 below follows from that: the daemon is an observer with a keyboard, tmux is the system
-of record, and the phone is a dumb remote. No tool ever knows termiphone exists.
+of record, and the phone is a dumb remote. No tool ever knows tmux-rc exists.
 
 ```mermaid
 flowchart LR
@@ -50,7 +50,7 @@ stay attached to the same session at the same time.
 ## The pieces
 
 - **tmux** — the system of record. Every pane is a running program (an AI agent, a
-  shell). termiphone reads panes with `capture-pane` (non-disruptive, works from an
+  shell). tmux-rc reads panes with `capture-pane` (non-disruptive, works from an
   unrelated process) and injects input with `send-keys`. Nothing here holds a pty.
 - **The watcher** — a background poll loop in the daemon. Each tick it captures the
   target panes, decides whether anything meaningful changed, and (when it did) asks the

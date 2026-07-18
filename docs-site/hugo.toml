@@ -1,4 +1,4 @@
-# Hugo config for the termiphone docs site.
+# Hugo config for the tmux-rc docs site.
 #
 # Content lives in the repo's ../docs tree (single source of truth — no copy).
 # Requires the EXTENDED Hugo build (Hextra ships SCSS).
@@ -10,7 +10,7 @@
 # no per-environment rebuild.
 
 baseURL = "/"
-title = "termiphone docs"
+title = "tmux-rc docs"
 languageCode = "en-us"
 
 # Point Hugo at the existing docs/ instead of a content/ dir inside docs-site.
