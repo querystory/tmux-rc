@@ -632,6 +632,7 @@ function bgTerm(s) {
   // their chrome tucked behind the bar, shells keep their prompt visible above it.
   // (Don't key this on LOGOS: shell has a logo too now.)
   wrap.className = "bg-wrap" + (AGENT_TOOLS.has(s.tool) ? "" : " shell");
+  wrap.dataset.pane = s.pane_id; // the ResizeObserver keys zHome off the OWNING pane
   const box = document.createElement("pre");
   box.className = "bg-term";
   wrap.appendChild(box);
@@ -688,7 +689,9 @@ function bgTerm(s) {
 // pane's previous (now detached) wrap, so tracked targets stay bounded at one per pane.
 const peekRO = new ResizeObserver((entries) =>
   entries.forEach((e) => {
-    if (zHome(activeId())) e.target.scrollTop = e.target.scrollHeight;
+    // The wrap's OWN pane, not activeId() — a pending selection can diverge from
+    // the rendered wrap and re-pin a pane the user has deliberately panned.
+    if (zHome(e.target.dataset.pane)) e.target.scrollTop = e.target.scrollHeight;
   }));
 let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
