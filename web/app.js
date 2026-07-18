@@ -666,19 +666,25 @@ function tuckChrome(wrap, box) {
 // the connection actually broke/hung — a fetch error, or no response at all for
 // longer than one full hold (watchdog).
 // One anonymous session id per page load — the summable spine for live-time /
-// bandwidth telemetry (docs/design/live-telemetry.md). Not identity: a correlation
-// key that groups this tab's live rounds. The invariant billing relies on is that two
-// viewers NEVER share a session id, so the fallback must be cryptographically random,
-// not time+Math.random (which collides across tabs opened the same instant). randomUUID
-// exists AND is callable only in a secure context (https/localhost) and can throw over
-// plain-http LAN even when defined; getRandomValues is available in every context it
-// isn't, so the fallback stays collision-safe there.
+// bandwidth telemetry (docs/design/live-telemetry.md). Not identity: a correlation key
+// that groups this tab's live rounds. The invariant billing relies on is that two
+// viewers NEVER share a session id, so the id must be cryptographically random —
+// time+Math.random would collide across tabs opened the same instant. randomUUID is
+// secure-context-only (https/localhost); getRandomValues covers the contexts it doesn't.
+// Generation is TOTAL: it optional-chains crypto, swallows any throw, and yields ""
+// when no CSPRNG exists — a telemetry nicety must never throw at module top level and
+// kill the whole UI. Empty ⇒ un-attributable (the server treats a missing session as
+// un-attributable, never bucketed), and we simply omit the param rather than send a
+// shared "" / "null" that would violate the invariant.
 const SESSION_ID = (() => {
-  try { return crypto.randomUUID(); }
-  catch {
-    const b = crypto.getRandomValues(new Uint8Array(16));
-    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-  }
+  try {
+    if (crypto?.randomUUID) return crypto.randomUUID();
+    if (crypto?.getRandomValues) {
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    }
+  } catch { /* no CSPRNG / blocked crypto ⇒ fall through to un-attributable */ }
+  return "";
 })();
 
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
@@ -702,8 +708,13 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
       if (ac.signal.aborted) ac2.abort(); // aborted between the while-check and the
       // listener wiring above ⇒ propagate now so this fetch doesn't slip through
       try {
+        // Append session ONLY when we have one — a crypto-less client stays
+        // un-attributable rather than sending a shared ""/"null" that would collapse
+        // distinct viewers onto one id (the server treats a missing session that way).
+        const q = `frame=${encodeURIComponent(frame)}` +
+          (SESSION_ID ? `&session=${encodeURIComponent(SESSION_ID)}` : "");
         const r = await fetch(
-          `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}&session=${encodeURIComponent(SESSION_ID)}`,
+          `/api/panes/${encodeURIComponent(paneId)}/live?${q}`,
           { signal: ac2.signal });
         if (!r.ok) { onQuiet && onQuiet(); await sleep(2000); continue; } // pane gone / wedged
         const j = await r.json();
