@@ -32,6 +32,15 @@ below it (or a fresh prompt after it). A lone token like "d" or "git ad" at the 
 a prompt line is in-progress input — say the pane is idle at the prompt, not that a
 command "d" ran and failed.
 
+DIM TEXT — spans wrapped in ⟪dim⟫…⟪/dim⟫ were rendered faint/gray on screen:
+visually DE-EMPHASIZED UI, not output. That styling is how agent TUIs mark unsent
+material — the input-box draft, queued messages, ghost autocomplete/history
+suggestions — plus hints, borders, and status chrome. NEVER report dim text as an
+executed action, a decision, or content the agent produced. The agent's INPUT BOX
+(the ❯ line near the bottom, between dim horizontal border lines) holds text the
+user has typed but NOT SENT — treat it like mid-typing above, even where the draft
+itself isn't dim. Never mention the markers themselves in any output field.
+
 TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just the last
 lines. The choices are "claude", "codex", "gemini", "shell", "unknown" — do NOT default
 to "claude"; different coding agents look similar (box-drawn input, permission prompts)
