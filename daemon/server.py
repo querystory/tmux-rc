@@ -281,6 +281,9 @@ LIVE_CHECK_SECONDS = 0.25  # freshness floor — server constant, not a client k
 
 @app.get("/api/panes/{pane_id}/live")
 async def live_frame(
+    # request defaults to None only so unit tests can drive the handler directly; FastAPI
+    # still injects the real Request. (A `Request | None` annotation breaks FastAPI — it
+    # tries to treat it as a Pydantic field — so the bare-Request default is deliberate.)
     pane_id: str, request: Request = None, frame: str = "", session: str = ""
 ):
     """One long-poll round: the client sends the hash of the frame it's showing and
