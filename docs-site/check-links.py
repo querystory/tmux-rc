@@ -60,13 +60,14 @@ class PageParser(html.parser.HTMLParser):
             self.body_text.append(data)
 
     def main_text(self) -> str:
-        """Rendered text inside <main>, minus the page's own <h1> heading — so a page
-        that is *only* an auto-generated title counts as empty."""
+        """All rendered text inside <main>. A shadowed section page is *only* its
+        auto-generated <h1> (a handful of chars), which falls under MIN_BODY — so we
+        don't need to strip the heading to tell blank from real content."""
         return "".join(self.body_text).strip()
 
 
 def file_path_for(url_path: str, prefix: str) -> pathlib.Path | None:
-    """Map a served URL path back to the public/ file that answers it, stripping the
+    """Map a served URL path back to the serve/ file that answers it, stripping the
     baseURL prefix (e.g. /docs). Returns the index.html / direct file, or None if the
     URL isn't under the prefix at all."""
     p = url_path
@@ -83,7 +84,7 @@ def file_path_for(url_path: str, prefix: str) -> pathlib.Path | None:
 
 def main() -> int:
     if not PUBLIC.is_dir():
-        print("public/ not found — run `make docs` first", file=sys.stderr)
+        print("serve/ not found — run `make docs` first", file=sys.stderr)
         return 2
 
     # Hextra auto-generates these list pages with little/no body text — legitimately
