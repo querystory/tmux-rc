@@ -205,6 +205,12 @@ The design choices, each covered in the live-view design note (ships with the fe
   produces no frames for long stretches yet is perfectly live.
 - **The frame hash is an ETag**, not a diff anchor: it's how the server knows the phone
   is current without keeping per-client state, and it's the "no change" reply.
+- **Rendering is hand-rolled, not xterm.js** — the client's `terminal.js` turns the
+  frame's SGR runs into colored spans itself (~170 lines). We render an *already-composed*
+  frame, so we need SGR→span, not a pty emulator; a vendored emulator (xterm.js) would be
+  ~100KB+ and a build-step dependency to use ~5% of. The switch triggers — true
+  interactivity, a raw stream, or fidelity bugs beyond the common SGR subset — are weighed
+  in the live-view design note.
 
 ## Request paths at a glance
 
