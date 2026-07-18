@@ -27,7 +27,7 @@ docs-dev:
 
 # Build, then fail if any internal doc link points at a missing page.
 docs-check: docs
-	python3 docs-site/check-links.py
+	uv run python docs-site/check-links.py
 
 docs-clean:
 	rm -rf docs-site/public docs-site/resources

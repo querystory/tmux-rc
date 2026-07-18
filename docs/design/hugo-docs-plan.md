@@ -109,9 +109,9 @@ styling real pages, not lorem ipsum. It's explicitly in scope, unlike the icon p
 
 **Phase 1 — Hugo scaffold.** Install `hugo_extended` (pinned). `hugo mod init` at repo root (or a
 `docs-site/` holding only `hugo.toml` + `go.mod`, with `contentDir` pointing back at `docs/`).
-`hugo mod get github.com/imfing/hextra`. Minimal `hugo.toml`: `baseURL = "/docs/"`, theme=hextra,
-mermaid on, Pagefind search on, goldmark `unsafe=true` for raw HTML (some design docs embed HTML).
-Verify `hugo server` renders the existing `docs/` tree.
+`hugo mod get github.com/imfing/hextra`. Minimal `hugo.toml`: `baseURL = "/"` (prefix-agnostic —
+see the as-built note below), theme=hextra, mermaid on, search on, goldmark `unsafe=true` for raw HTML
+(some design docs embed HTML). Verify `hugo server` renders the existing `docs/` tree.
 
 **Phase 2 — Content fit.** Decide the front-matter question (#1). Spot-fix anything that renders wrong:
 MkDocs-style admonitions if any snuck in, mermaid fences (Hextra renders ```` ```mermaid ```` natively),
@@ -123,8 +123,9 @@ theme Hextra via `hugo.toml [params]` + one override file, commit to dark-mode-f
 type pair, and style mermaid/code blocks as the hero content. Done against real rendered pages.
 
 **Phase 3 — Build + search + Makefile.** Add targets mirroring the existing Makefile's terse style:
-- `docs` — `hugo --minify` then `pagefind` over the output.
+- `docs` — `hugo --gc --minify`.
 - `docs-dev` — `hugo server` with hot reload on a fixed port for local authoring.
+- `docs-check` — build, then fail on any broken internal link (the pretty-URL sibling-path trap).
 - `docs-clean` — remove build output.
 
 Keep them as thin as the current `dev`/`run`/`test`/`fmt` targets; no emoji-heavy multi-line recipes.
@@ -144,6 +145,19 @@ for the module fetch (or vendor via `hugo mod vendor`) — decide which for the 
   build env is offline.
 - **Rollback is free:** the source `.md` files are untouched and still read fine on GitHub/in-editor.
   Deleting the Hugo scaffold reverts to today with no content loss.
+
+## As-built deltas (Phases 1–3, PR #37)
+
+The plan above is the pre-build intent; two choices changed during implementation and are recorded
+here so this doc doesn't drift from the scaffold:
+
+- **`baseURL = "/"`, not `/docs/`.** Emitting assets under a `/docs/` prefix pinned the build to that
+  mount path and fought the dev server (assets split between `/docs/js` and root `/css`, so the dev
+  server 404'd the JS and Hextra never styled). A root, prefix-agnostic build works identically at `/`
+  (dev) and `/docs` (prod); Phase 4's daemon route strips the prefix before the file lookup.
+- **Search is Hextra's built-in FlexSearch, not Pagefind.** FlexSearch ships with the theme and needs no
+  post-build step, so the `docs` target is just `hugo` — no Pagefind stage. Pagefind stays a viable swap
+  if its index quality ever matters more than the zero-config win.
 
 ## What this explicitly does NOT include
 
