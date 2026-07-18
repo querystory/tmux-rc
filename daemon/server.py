@@ -336,27 +336,33 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
-    # Clipboard-first: normalize to PNG and Ctrl-V for the inline embed. Fall back to
-    # typing the path. All of this blocks (Pillow decode, subprocess waits), so it
-    # runs in a worker thread — an upload must not stall the event loop's polling.
-    def _deliver() -> str:
-        tools: list[str] = []
+    # Delivery blocks (Pillow decode, subprocess waits): worker thread, so an upload
+    # can't stall the event loop's polling.
+    mode = await asyncio.to_thread(_deliver_image, pane_id, data, path)
+    _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
+    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+
+
+def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
+    """Get the staged image into the pane; returns the mode for audit/response.
+    Clipboard-first: normalize to PNG and Ctrl-V for the inline embed. But a LOCKED
+    session means the pane's app cannot read the clipboard (GNOME blocks unfocused
+    reads) and the Ctrl-V would silently paste nothing — exactly the remote/phone
+    case — so deliver by typed path instead; inline embeds are a desk luxury."""
+    tools: list[str] = []
+    if not tmux.session_locked():
         try:
             png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
             tools = tmux.set_clipboard_image(png)
-        except Exception:  # noqa: BLE001 - undecodable image: the path route still works
+        except Exception:  # noqa: BLE001 - undecodable: the path route still works
             pass
-        if tools:
-            tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
-        else:
-            # Spaces both sides: the client may have just typed draft text into the
-            # pane, and the path must not concatenate onto it (agents trim the space).
-            tmux.send_keys(pane_id, f" {path} ", enter=False, literal=True)
-        return f"clipboard:{'+'.join(tools)}" if tools else "path"
-
-    mode = await asyncio.to_thread(_deliver)
-    _audit(request, "paste_image", pane_id, f"{detail} via {mode}")
-    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+    if tools:
+        tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
+    else:
+        # Spaces both sides: the client may have just typed draft text into the
+        # pane, and the path must not concatenate onto it (agents trim the space).
+        tmux.send_keys(pane_id, f" {path} ", enter=False, literal=True)
+    return f"clipboard:{'+'.join(tools)}" if tools else "path"
 
 
 def _to_png(data: bytes) -> bytes:
