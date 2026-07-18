@@ -61,6 +61,15 @@ def test_truecolor_fg_consumed_not_gray():
     assert _capture(raw) == "rgb text plain"
 
 
+def test_truecolor_fg_clears_gray_state():
+    # Any code-38 sequence REPLACES the foreground, so gray set by 38;5;24x must
+    # clear on a following 38;2;R;G;B — while 48/58 (bg/underline color) leave it.
+    raw = "\x1b[38;5;246mgray\x1b[38;2;200;50;50mred\x1b[0m end"
+    assert _capture(raw) == "⟪dim⟫gray⟪/dim⟫red end"
+    raw = "\x1b[38;5;246mgray\x1b[58;5;100mstill gray\x1b[0m end"
+    assert _capture(raw) == "⟪dim⟫graystill gray⟪/dim⟫ end"
+
+
 def test_input_box_between_dim_borders():
     # The composed shape the parser prompt keys on: dim border rules around the box.
     raw = (
