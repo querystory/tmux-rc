@@ -159,6 +159,35 @@ function fmtIdle(s) {
   return Math.floor(s / 3600) + "h";
 }
 
+// The working sub-line — verb · elapsed · ↓tokens (e.g. "Waiting for review 43s ↓40.4k")
+// — from the parser's `working` fields. Not gated on activity: a waiting pane still
+// reports what it's waiting on. Empty string when the parser gave no working fields.
+function workSub(s) {
+  const w = s.working || {};
+  const parts = [w.verb, w.elapsed, w.tokens && "↓" + w.tokens].filter(Boolean);
+  return parts.length ? `<span class="worksub">${parts.map(esc).join(" ")}</span>` : "";
+}
+
+// The ONE pane-header layout, shared by the expanded card and the list rows so they
+// can't drift: [caret?] [icon?] · title + headline (left, ellipsized) · working +
+// activity badge (right column, right-justified, stacked). Differences are just flags:
+//   caret — the card's collapse ▾/▸ (rows don't collapse);
+//   icon  — the row shows the pane icon; the card doesn't (its dock tab IS the icon).
+// Returns the innerHTML string; callers wire their own click handlers on the result.
+function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
+  const a = actOf(s);
+  const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds)
+    : a === "running" ? '<span class="pulse"></span>running' : a;
+  return (
+    (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
+      + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
+    + (icon ? `<span class="icon">${iconFor(s.tool)}</span>` : "")
+    + `<div class="ph-meta"><div class="ph-name">${esc(s.title || s.label || s.pane_id)}</div>`
+    + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
+    + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}">${badge}</span></div>`
+  );
+}
+
 async function poll() {
   if (busy) return;
   try {
@@ -275,7 +304,15 @@ function render(states) {
   };
   if (!states.length) {
     stopPeek();
+    // Sweep the tab-join fillets too: they're parented to #top (to escape the dock's
+    // overflow clip), so replacing #panes/#dock leaves them dangling over the empty
+    // screen — the two stray blue curves seen during a daemon reload's brief no-panes.
+    document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     dockEl.replaceChildren();
+    // Drop the card-view dock state too: its onscroll pin closes over the now-dead
+    // card nodes, and the seam classes would style a dock that no longer has a card.
+    dockEl.onscroll = null;
+    dockEl.classList.remove("edge-l", "has-sel");
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     updateBar(null);
     return;
@@ -493,12 +530,8 @@ function row(s, act) {
   el.tabIndex = 0;
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
   el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); } };
-  const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds) : a;
-  el.innerHTML =
-    `<span class="icon">${iconFor(s.tool)}</span>` +
-    `<div class="prow-meta"><div class="prow-name">${esc(s.title || s.label || s.pane_id)}</div>` +
-    (s.headline ? `<div class="prow-sub">${esc(s.headline)}</div>` : "") +
-    `</div><span class="badge b-${a}">${badge}</span>`;
+  // Same shared header as the card (see paneHeader) — a row shows the icon and no caret.
+  el.innerHTML = paneHeader(s, { icon: true });
   return el;
 }
 
@@ -579,35 +612,11 @@ function card(s) {
 
   const row = document.createElement("div");
   row.className = "row";
-  const a = actOf(s);
-  const badge =
-    a === "idle"
-      ? "idle " + fmtIdle(s.idle_seconds)
-      : a === "running"
-        ? '<span class="pulse"></span>running'
-        : a;
-  // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
-  // save vertical space), headline below, activity badge. Fields come straight from
-  // the parser JSON, so the UI renders whatever the model provides.
-  const w = s.working || {};
-  const working =
-    s.activity === "running" && (w.verb || w.elapsed || w.tokens)
-      ? `<span class="worksub">${[w.verb, w.elapsed, w.tokens && "↓" + w.tokens]
-          .filter(Boolean).map(esc).join(" ")}</span>`
-      : "";
-  // No icon here — the pane's icon lives in the dock rail above, which this card's
-  // border joins to (like a tab body under its tab). Repeating it wasted a column.
-  // The ▾/▸ caret collapses the card to just this header row (still tab-joined), so
-  // the live terminal behind it gets the whole screen — collapse state persists per
-  // view (cardsCollapsed) so swiping between panes keeps the chosen height.
-  row.innerHTML = `
-    <button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"
-      aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>
-    <div class="meta">
-      <div class="name">${esc(s.title || s.label || "")} ${working}</div>
-      <div class="status">${esc(s.headline || "—")}</div>
-    </div>
-    <span class="badge b-${a}">${badge}</span>`;
+  // Shared header layout (see paneHeader). The card adds the collapse caret and omits
+  // the icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just
+  // this header row (still tab-joined), handing the live terminal the screen; collapse
+  // state is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
+  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false });
   row.querySelector(".card-caret").onclick = (e) => {
     e.stopPropagation(); // don't also re-select the pane
     cardsCollapsed = !collapsed;
@@ -690,6 +699,28 @@ function tuckChrome(wrap, box) {
 // as the server keeps ANSWERING (a "no change" reply is proof-of-life). Gray means
 // the connection actually broke/hung — a fetch error, or no response at all for
 // longer than one full hold (watchdog).
+// One anonymous session id per page load — the summable spine for live-time /
+// bandwidth telemetry (docs/design/live-telemetry.md). Not identity: a correlation key
+// that groups this tab's live rounds. The invariant billing relies on is that two
+// viewers NEVER share a session id, so the id must be cryptographically random —
+// time+Math.random would collide across tabs opened the same instant. randomUUID is
+// secure-context-only (https/localhost); getRandomValues covers the contexts it doesn't.
+// Generation is TOTAL: it optional-chains crypto, swallows any throw, and yields ""
+// when no CSPRNG exists — a telemetry nicety must never throw at module top level and
+// kill the whole UI. Empty ⇒ un-attributable (the server treats a missing session as
+// un-attributable, never bucketed), and we simply omit the param rather than send a
+// shared "" / "null" that would violate the invariant.
+const SESSION_ID = (() => {
+  try {
+    if (crypto?.randomUUID) return crypto.randomUUID();
+    if (crypto?.getRandomValues) {
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    }
+  } catch { /* no CSPRNG / blocked crypto ⇒ fall through to un-attributable */ }
+  return "";
+})();
+
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   const ac = new AbortController();
   let watchdog = null;
@@ -711,8 +742,13 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
       if (ac.signal.aborted) ac2.abort(); // aborted between the while-check and the
       // listener wiring above ⇒ propagate now so this fetch doesn't slip through
       try {
+        // Append session ONLY when we have one — a crypto-less client stays
+        // un-attributable rather than sending a shared ""/"null" that would collapse
+        // distinct viewers onto one id (the server treats a missing session that way).
+        const q = `frame=${encodeURIComponent(frame)}` +
+          (SESSION_ID ? `&session=${encodeURIComponent(SESSION_ID)}` : "");
         const r = await fetch(
-          `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}`,
+          `/api/panes/${encodeURIComponent(paneId)}/live?${q}`,
           { signal: ac2.signal });
         if (!r.ok) { onQuiet && onQuiet(); await sleep(2000); continue; } // pane gone / wedged
         const j = await r.json();

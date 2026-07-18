@@ -1,0 +1,26 @@
+{{- /*
+  Link render hook: resolve relative .md links to their pretty URL.
+
+  Cross-doc links are written GitHub-style — [x](sibling.md), [y](../PRD.md) — so
+  they resolve when the docs are read as raw files on GitHub. Hextra's own hook only
+  rewrites links that start with "/", leaving these relative .md targets literal
+  (they'd 404 in the served site). This hook fills that gap: for a relative link ending
+  in .md (optionally with #fragment), GetPage resolves it against the current page and
+  we emit the target's pretty permalink. Everything else falls through to the default
+  behavior (absolute paths, external http(s), non-.md links).
+*/ -}}
+{{- $dest := .Destination -}}
+{{- $u := urls.Parse $dest -}}
+{{- /* Scheme, not a "http" string prefix — else a relative target like
+       http-status.md is mistaken for an external URL and left unrewritten. */ -}}
+{{- $isExternal := in (slice "http" "https") $u.Scheme -}}
+{{- if and (not $isExternal) (not (hasPrefix $dest "/")) (strings.HasSuffix $u.Path ".md") -}}
+  {{- with .Page.GetPage $u.Path -}}
+    {{- $frag := cond (ne $u.Fragment "") (printf "#%s" $u.Fragment) "" -}}
+    {{- $dest = printf "%s%s" .RelPermalink $frag -}}
+  {{- end -}}
+{{- end -}}
+<a href="{{ $dest | safeURL }}"
+  {{- with .Title }} title="{{ . }}"{{ end -}}
+  {{- if $isExternal }} target="_blank" rel="noopener"{{ end -}}
+>{{ .Text | safeHTML }}</a>

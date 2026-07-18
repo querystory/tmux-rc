@@ -30,16 +30,20 @@ This is the paid/gated offering. Same protocol, richer features.
 
 ## Architecture
 
-```
-DEV MACHINE                    CLOUD RUN (behind IAP)              PHONE
-+-----------------+            +----------------------+            +-------+
-| tmux            |            | Go relay service     |            | PWA   |
-| watcher.py      |--WS OUT-->| *.tun.qs.dev (pipe)  |<--HTTPS---| polls |
-| classify.py     |            | *.tmux.qs.dev (DB)   |            |       |
-| uplink.py (new) |            +----------------------+            +-------+
-+-----------------+                     |
-                                        v (hosted mode only)
-                                   [Postgres]
+```mermaid
+flowchart LR
+  subgraph dev["DEV MACHINE"]
+    D["tmux · watcher.py<br/>classify.py · uplink.py"]
+  end
+  subgraph cloud["CLOUD RUN — behind IAP"]
+    R["Go relay service<br/>*.tun.qs.dev (pipe)<br/>*.tmux.qs.dev (DB)"]
+  end
+  subgraph phone["PHONE"]
+    P["PWA polls"]
+  end
+  D -- "WS OUT" --> R
+  P -- "HTTPS" --> R
+  R -. "hosted mode only" .-> PG[("Postgres")]
 ```
 
 **Single Go Cloud Run service** handles both modes. Mode is selected by the

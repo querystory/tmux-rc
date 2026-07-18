@@ -92,6 +92,23 @@ _audit_log = logging.getLogger("daemon.server.audit")
 _AUDIT_KEYS = os.environ.get("TMUXRC_AUDIT_KEYS") != "0"
 
 
+def _trusted_user(request: Request | None) -> str | None:
+    """The tunnel owner's email, honored ONLY from a loopback peer (the same trust
+    model as _audit): the tunnel-client connects from localhost having validated the
+    identity via IAP and stripped spoofed inbound copies. A LAN client's claim is
+    unverified, so we return None rather than record it — live telemetry's `actor` is a
+    billing-grade attribution key, not a forensic breadcrumb, so an unverifiable claim
+    must simply be absent (the anonymous `session` still carries the usage).
+
+    `request` is Optional: live_frame defaults it to None for unit tests, and no actor
+    can be attributed without one — return None rather than raise."""
+    if request is None:
+        return None
+    peer = request.client.host if request.client else "?"
+    claimed = request.headers.get("x-tunnel-user")
+    return claimed if (claimed and peer in ("127.0.0.1", "::1")) else None
+
+
 def _audit(
     request: Request,
     action: str,
@@ -159,7 +176,11 @@ async def lifespan(app: FastAPI):
     await app.state.watcher.stop()
 
 
-app = FastAPI(title="tmux-rc", lifespan=lifespan)
+# Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
+# (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+app = FastAPI(
+    title="tmux-rc", lifespan=lifespan, docs_url="/apidocs", redoc_url="/apiredoc"
+)
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
 # busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
@@ -268,7 +289,12 @@ LIVE_CHECK_SECONDS = 0.25  # freshness floor — server constant, not a client k
 
 
 @app.get("/api/panes/{pane_id}/live")
-async def live_frame(pane_id: str, frame: str = ""):
+async def live_frame(
+    # request defaults to None only so unit tests can drive the handler directly; FastAPI
+    # still injects the real Request. (A `Request | None` annotation breaks FastAPI — it
+    # tries to treat it as a Pydantic field — so the bare-Request default is deliberate.)
+    pane_id: str, request: Request = None, frame: str = "", session: str = ""
+):
     """One long-poll round: the client sends the hash of the frame it's showing and
     we answer with a newer colored frame, or {frame: same} after ~25s of no change
     (the client immediately re-holds). Captures run in a worker thread on a 250ms
@@ -278,20 +304,77 @@ async def live_frame(pane_id: str, frame: str = ""):
     The change hash is over the RAW colored frame — every visible change (including a
     spinner tick or ticking timer) is a new frame, because live mode means live. The
     client repaints only when the rendered HTML actually differs (no-op skip otherwise),
-    so full fidelity here does not flicker."""
-    deadline = time.monotonic() + LIVE_HOLD_SECONDS
+    so full fidelity here does not flicker.
+
+    `session` is the client's per-page-load UUID: the summable spine for live-time /
+    usage telemetry (see docs/design/live-telemetry.md). We stamp presence once per
+    round after the first successful capture and emit ONE telemetry record per round."""
+    started = time.monotonic()
+    deadline = started + LIVE_HOLD_SECONDS
+    stamped = False
     while True:
         try:
             text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
-        h = hashlib.md5(text.encode()).hexdigest()  # full digest: a truncated hash
-        # could collide a changed frame onto the client's hash and stall the stream
-        if h != frame:
-            return {"frame": h, "text": text}
-        if time.monotonic() >= deadline:
-            return {"frame": h}  # unchanged — client re-holds with the same hash
+        # Presence ONCE per round, on the FIRST successful capture: a viewer of a live
+        # pane counts (even mid-hold), but a 404/wedged pane never flips has_live_viewer
+        # true (that would suppress parse-throttling for a phantom viewer). Stamping every
+        # 250ms iteration is needless cross-thread dict churn — one stamp per ~25s round
+        # keeps the 60s presence window fresh just as well.
+        if not stamped:
+            _note_live_poll(pane_id)
+            stamped = True
+        data = text.encode()  # encode once — reused for the hash and the byte count
+        h = hashlib.md5(data).hexdigest()  # full digest: a truncated hash could collide
+        # a changed frame onto the client's hash and stall the stream
+        changed = h != frame
+        if changed or time.monotonic() >= deadline:
+            _emit_live_round(
+                request, pane_id, session, time.monotonic() - started, changed,
+                len(data) if changed else None,
+            )
+            # changed ⇒ send the new colored frame; else unchanged, client re-holds.
+            return {"frame": h, "text": text} if changed else {"frame": h}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
+
+
+def _note_live_poll(pane_id: str) -> None:
+    """Stamp live-viewer presence on the watcher, best-effort — the watcher may not be
+    wired (e.g. the handler driven directly in a unit test), and presence must never
+    break the live stream."""
+    try:
+        app.state.watcher.note_live_poll(pane_id)
+    except Exception:  # noqa: BLE001 - presence must never break the stream
+        logger.debug("live presence stamp failed", exc_info=True)
+
+
+def _emit_live_round(
+    request: Request | None, pane_id: str, session: str, hold_s: float,
+    changed: bool, raw_bytes: int | None,
+) -> None:
+    """Best-effort telemetry for one completed live round. Off the request's critical
+    path (the response is already decided) and fully swallowed, so it can never break
+    or slow the live stream."""
+    try:
+        from . import telemetry
+
+        w = app.state.watcher
+        telemetry.emit_live(
+            # Pass through as-is: an absent session (empty string) is left
+            # un-attributable by emit_live, NOT collapsed under a shared id that would
+            # mis-sum unrelated viewers' watch-time.
+            session=session or None,
+            pane_uid=f"{tmux.server_uid()}:{pane_id}",
+            pane_label=w.label_for(pane_id),
+            tool=w.tool_for(pane_id),
+            hold_s=hold_s,
+            changed=changed,
+            raw_bytes=raw_bytes,
+            actor=_trusted_user(request),
+        )
+    except Exception:  # noqa: BLE001 - live telemetry must never break the stream
+        logger.debug("live emit failed", exc_info=True)
 
 
 @app.post("/api/panes/{pane_id}/send")
@@ -442,7 +525,28 @@ def _to_png(data: bytes) -> bytes:
     return buf.getvalue()
 
 
-# PWA static files last so /api/* wins. html=True serves index.html at /.
+# Docs site (Hugo build) at /docs, before the "/" mount so it wins. The site is built
+# with --baseURL /docs/ (see Makefile), so its assets already reference /docs/... —
+# mounting the tree here serves them verbatim; StaticFiles strips the /docs prefix on
+# lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
+# server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
+_docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
+    Path(__file__).resolve().parent.parent / "docs-site" / "serve"
+)
+if Path(_docs_dir).is_dir():
+    # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
+    # only answers /docs/… and the later "/" catch-all doesn't serve it either. (Note:
+    # Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
+    # unit test but is load-bearing in production — don't delete it.) Redirect to /docs/.
+    @app.get("/docs", include_in_schema=False)
+    def _docs_slash():
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse("/docs/")
+
+    app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
+
+# PWA static files last so /api/* and /docs win. html=True serves index.html at /.
 if WEB_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
