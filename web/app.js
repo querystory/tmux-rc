@@ -589,6 +589,25 @@ function card(s) {
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
 const peekCache = {}; // pane_id -> {snap, html} — linkified once per snapshot
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
+// "Home" = the user hasn't deliberately panned/zoomed the peek. Content updates
+// (bursts, snapshots, resizes) may re-pin the scroll to the tail ONLY then —
+// re-pinning a panned view yanks it back down while the user is reading.
+const zHome = (id) => { const z = bgZoom[id]; return !z || (z.scale === 1 && !z.tx && !z.ty); };
+
+// Tuck the agent's OWN bottom chrome (input box + status rows) behind the bar, sized
+// per frame: the input box's top border (╭─/┌─) is the seam — everything from it down
+// is chrome, and its height varies with activity (spinner/interrupt/queue rows), so a
+// fixed overlap either leaks footer or hides content. Falls back to the old fixed
+// 60px when no border is found. 13.5px = the .bg-term line height (10px/1.35).
+function tuckChrome(wrap, box) {
+  if (wrap.classList.contains("shell")) return; // shells: the prompt IS the content
+  const lines = (box.textContent || "").split("\n");
+  let rows = 0;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--)
+    if (/^[╭┌]─/.test(lines[i])) { rows = lines.length - i; break; }
+  wrap.style.marginBottom =
+    `calc(var(--bar-h, 150px) - ${rows ? Math.round(rows * 13.5) + 6 : 60}px)`;
+}
 function bgTerm(s) {
   // Wrapper = the visible window (starts right below the card, ends near the bar);
   // the trimmed capture is top-anchored inside it, scrolled to its tail when longer.
@@ -607,7 +626,7 @@ function bgTerm(s) {
   // Same linkification as the full-screen view (escaped text, wrapped URLs rejoined),
   // so URLs in the peek are tappable in place. Linkified ONCE per snapshot, cached —
   // the deck rebuilds every poll and re-running the regex on a big capture is waste.
-  if (c) box.innerHTML = c.html; // last capture (kept while a newer one loads)
+  if (c) { box.innerHTML = c.html; tuckChrome(wrap, box); } // last capture (kept while a newer one loads)
   // Strictly-newer comparison (ids are ms timestamps): after a live-burst frame
   // stamps the cache with now(), older watcher snapshots shouldn't even be fetched.
   const snap = s.snapshot_id;
@@ -623,7 +642,8 @@ function bgTerm(s) {
         const html = linkifyCapture(txt);
         peekCache[s.pane_id] = { snap, html };
         box.innerHTML = html;
-        toEnd();
+        tuckChrome(wrap, box);
+        if (zHome(s.pane_id)) toEnd();
       })
       .catch(() => {});
   // Desktop has no pan gesture — dragging a text selection auto-scrolls the window
@@ -648,7 +668,9 @@ function bgTerm(s) {
 // ONE shared observer for every peek window; each render explicitly unobserves the
 // pane's previous (now detached) wrap, so tracked targets stay bounded at one per pane.
 const peekRO = new ResizeObserver((entries) =>
-  entries.forEach((e) => { e.target.scrollTop = e.target.scrollHeight; }));
+  entries.forEach((e) => {
+    if (zHome(activeId())) e.target.scrollTop = e.target.scrollHeight;
+  }));
 let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
@@ -1040,7 +1062,9 @@ function liveBurst() {
     if (Date.now() > burstUntil) { clearInterval(burstTimer); burstTimer = null; return; }
     const id = activeId();
     const box = document.querySelector(".deck .bg-term");
-    if (burstBusy || !id || !box) return;
+    // busy ⇒ a touch gesture is mid-flight (pinchZoom freezes polls for the same
+    // reason): swapping content or moving scroll under a finger fights the user.
+    if (burstBusy || busy || !id || !box) return;
     burstBusy = true;
     try {
       // Timeout so a hung request can't wedge burstBusy=true and kill the burst.
@@ -1052,7 +1076,10 @@ function liveBurst() {
         const html = linkifyCapture(txt);
         peekCache[id] = { snap: String(Date.now()), html };
         box.innerHTML = html;
-        box.parentElement && (box.parentElement.scrollTop = box.parentElement.scrollHeight);
+        if (box.parentElement) {
+          tuckChrome(box.parentElement, box);
+          if (zHome(id)) box.parentElement.scrollTop = box.parentElement.scrollHeight;
+        }
       }
     } catch {}
     burstBusy = false;
