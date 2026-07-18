@@ -144,9 +144,11 @@ cheapest honest signal we already produce is the live poll itself: **a pane with
 recent live poll has a viewer.** So:
 
 - The watcher gains a `live_seen: dict[pane_id → last-poll monotonic ts]`. The live
-  handler stamps it at the *start* of every round (before it blocks on the hold — a
-  viewer mid-hold is present, not absent). This is one dict write per round, no locking
-  concern beyond the GIL (same pattern as the watcher's other per-pane dicts).
+  handler stamps it on each round *after the first successful capture* — a viewer
+  mid-hold is present, but a poll against a 404/wedged pane must NOT mark that pane
+  watched (that would suppress future parse-throttling for a phantom viewer). This is
+  one dict write per capture, no locking concern beyond the GIL (same pattern as the
+  watcher's other per-pane dicts).
 - A `has_live_viewer(pane_id)` predicate returns true if the last stamp is within a
   small window (a couple of hold-lengths, e.g. ~60s — long enough to bridge the instant
   between a round returning and the client re-holding, so it doesn't flicker false).
@@ -181,13 +183,14 @@ makes that follow-up a small, isolated change instead of a cross-cutting one.
 
 - `emit_live(...)` in daemon/telemetry.py under a new `tmux-rc.live` scope, reusing
   `_emit_record` and the opt-in gate. Attrs: `session`, `pane_uid`, `pane_label`,
-  `tool`, `hold_s`, `changed`; plus `raw_bytes` / `sent_bytes` / `ratio` on change
-  rounds; `actor` when the trusted header is present. Never the frame text.
+  `tool`, `hold_s`, `changed`; plus `raw_bytes` on change rounds (sent/ratio stay in the
+  middleware log — see open questions); `actor` when the trusted header is present.
+  Never the frame text.
 - The `live_frame` handler emits exactly one `emit_live` per completed round, computing
-  `hold_s` from a round-start monotonic clock and byte counts from the frame it's about
-  to return (raw = `len(text.encode())`; sent = the gzipped length — see open questions).
+  `hold_s` from a round-start monotonic clock and `raw_bytes` from the frame it's about
+  to return (`len(data)`, encoding once and reusing it for the change hash).
 - The watcher's `live_seen` stamp + `has_live_viewer(pane_id)` predicate, stamped from
-  the handler at round start.
+  the handler after each successful capture.
 - Client sends a per-page-load `session` UUID on every live poll (one line in
   `liveStream`).
 - Tests mirroring tests/ style: `emit_live` builds the right attrs, is a no-op when
