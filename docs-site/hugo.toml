@@ -1,10 +1,15 @@
 # Hugo config for the termiphone docs site.
 #
-# Content lives in the repo's ../docs tree (single source of truth — no copy). The
-# site is served at /docs behind the daemon, so baseURL carries that path prefix.
+# Content lives in the repo's ../docs tree (single source of truth — no copy).
 # Requires the EXTENDED Hugo build (Hextra ships SCSS).
+#
+# baseURL is "/" (root-relative, prefix-agnostic) on purpose: the site is served
+# at /docs behind the daemon, but the daemon STRIPS the /docs prefix before the
+# file lookup (like qs-app's frontend route). So the built assets reference /css,
+# /js at root and work identically whether mounted at / (dev) or /docs (prod) —
+# no per-environment rebuild.
 
-baseURL = "/docs/"
+baseURL = "/"
 title = "termiphone docs"
 languageCode = "en-us"
 
