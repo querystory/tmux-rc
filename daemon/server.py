@@ -530,8 +530,10 @@ _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
     Path(__file__).resolve().parent.parent / "docs-site" / "serve"
 )
 if Path(_docs_dir).is_dir():
-    # Bare /docs would 404 (the mount only answers /docs/…); send it to /docs/ so the
-    # index resolves and the site's root-relative assets have the right base.
+    # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
+    # only answers /docs/… and the later "/" catch-all doesn't serve it either. (Note:
+    # Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
+    # unit test but is load-bearing in production — don't delete it.) Redirect to /docs/.
     @app.get("/docs", include_in_schema=False)
     def _docs_slash():
         from fastapi.responses import RedirectResponse
