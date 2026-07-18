@@ -243,8 +243,10 @@
   .inputwrap button.send { background: #2d333b; color: #adbac7; border: 0; border-radius: 8px;
     padding: 7px 14px; margin: 4px; font-size: 13px; font-weight: 600; flex: none; cursor: pointer; }
   .inputwrap button.send:active { background: #388bfd; color: #fff; }
+  /* ~5 rows visible, scroll for the rest — the feed was eating 40vh and burying the
+     terminal peek below the card, which is the thing worth the vertical space. */
   .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
-    max-height: 40vh; overflow-y: auto; }
+    max-height: 8.5em; overflow-y: auto; }
   .events::-webkit-scrollbar { width: 6px; } .events::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
   /* Hierarchy: the session OVERVIEW is the headline content — bright, roomy (6 lines,
      tap for all of it). The recent-events log is supporting detail below it — smaller,

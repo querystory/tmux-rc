@@ -608,8 +608,10 @@ function bgTerm(s) {
   // so URLs in the peek are tappable in place. Linkified ONCE per snapshot, cached —
   // the deck rebuilds every poll and re-running the regex on a big capture is waste.
   if (c) box.innerHTML = c.html; // last capture (kept while a newer one loads)
+  // Strictly-newer comparison (ids are ms timestamps): after a live-burst frame
+  // stamps the cache with now(), older watcher snapshots shouldn't even be fetched.
   const snap = s.snapshot_id;
-  if (snap && (!c || c.snap !== snap))
+  if (snap && (!c || Number(snap) > Number(c.snap)))
     fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
       .then((r) => (r.ok ? r.text() : ""))
       .then((t) => {
@@ -1041,7 +1043,10 @@ function liveBurst() {
     if (burstBusy || !id || !box) return;
     burstBusy = true;
     try {
-      const r = await fetch(`/api/panes/${encodeURIComponent(id)}/peek`);
+      // Timeout so a hung request can't wedge burstBusy=true and kill the burst.
+      // (Freshness is the server's global no-store middleware, not per-fetch flags.)
+      const r = await fetch(`/api/panes/${encodeURIComponent(id)}/peek`,
+        { signal: AbortSignal.timeout(1500) });
       const txt = r.ok ? (await r.text()).replace(/\s+$/, "") : "";
       if (txt && id === activeId()) {
         const html = linkifyCapture(txt);
