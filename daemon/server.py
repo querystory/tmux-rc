@@ -248,7 +248,11 @@ def get_peek(pane_id: str):
     after the next watcher tick + poll. Read-only; same shape as a snapshot."""
     try:  # no find_pane pre-flight: that doubles tmux calls at burst rate (2/s)
         return tmux.capture_pane(pane_id)
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        # _run turns tmux timeouts into rc 124 — that's a wedged tmux, not a
+        # missing pane; report it honestly.
+        if e.returncode == 124:
+            raise HTTPException(504, "tmux timed out") from None
         raise HTTPException(404, "pane not found") from None
 
 

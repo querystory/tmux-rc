@@ -268,7 +268,13 @@ function render(states) {
     if (a) {
       const fs = document.createElement("button");
       fs.className = "fsbtn";
-      fs.textContent = "⤢";
+      // Inline SVG, not the ⤢ glyph: Android's font fallback rendered the char with
+      // odd metrics (tiny ink, wide advance), distorting the button. SVG is identical
+      // everywhere.
+      fs.innerHTML =
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+        ' stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+        '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>';
       fs.title = "Full screen";
       fs.setAttribute("aria-label", "Full screen");
       fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
@@ -592,7 +598,13 @@ const bgZoom = {}; // pane_id -> {scale, tx, ty}
 // "Home" = the user hasn't deliberately panned/zoomed the peek. Content updates
 // (bursts, snapshots, resizes) may re-pin the scroll to the tail ONLY then —
 // re-pinning a panned view yanks it back down while the user is reading.
-const zHome = (id) => { const z = bgZoom[id]; return !z || (z.scale === 1 && !z.tx && !z.ty); };
+// Epsilon compare: pinch/clamp math leaves float crumbs (scale 0.9999, tx 0.3) that
+// are visually home — exact checks would permanently disable tail-follow after the
+// first gesture.
+const zHome = (id) => {
+  const z = bgZoom[id];
+  return !z || (Math.abs(z.scale - 1) < 0.01 && Math.abs(z.tx) < 2 && Math.abs(z.ty) < 2);
+};
 
 // Tuck the agent's OWN bottom chrome (input box + status rows) behind the bar, sized
 // per frame: the input box's top border (╭─/┌─) is the seam — everything from it down
@@ -1076,8 +1088,10 @@ function liveBurst() {
     try {
       // Timeout so a hung request can't wedge burstBusy=true and kill the burst.
       // (Freshness is the server's global no-store middleware, not per-fetch flags.)
+      // Older browsers lack AbortSignal.timeout — run without the guard there
+      // rather than throwing on every tick.
       const r = await fetch(`/api/panes/${encodeURIComponent(id)}/peek`,
-        { signal: AbortSignal.timeout(1500) });
+        { signal: AbortSignal.timeout ? AbortSignal.timeout(1500) : undefined });
       const txt = r.ok ? (await r.text()).replace(/\s+$/, "") : "";
       if (txt && id === activeId()) {
         const html = linkifyCapture(txt);
