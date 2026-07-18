@@ -623,6 +623,7 @@ let peekStop = null;        // stop() for the active peek's live stream (one at 
 let peekStreamPane = null;  // which pane that stream is for (don't restart per render)
 let peekBox = null, peekWrap = null; // current peek elements the stream paints into
 let peekLive = false; // stream health — so a same-pane remount reflects real liveness
+let screenOpen = false; // fullscreen overlay owns the pane's one stream; peek stands down
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
 // "Home" = the user hasn't deliberately panned/zoomed the peek. Content updates
 // (bursts, snapshots, resizes) may re-pin the scroll to the tail ONLY then —
@@ -681,6 +682,8 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
       const ac2 = new AbortController();
       const onStop = () => ac2.abort();
       ac.signal.addEventListener("abort", onStop, { once: true });
+      if (ac.signal.aborted) ac2.abort(); // aborted between the while-check and the
+      // listener wiring above ⇒ propagate now so this fetch doesn't slip through
       try {
         const r = await fetch(
           `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}`,
@@ -738,7 +741,11 @@ function bgTerm(s) {
   // via the module-level peekBox refs, which each bgTerm updates. Restart only when
   // the streamed pane actually changes.
   peekBox = box; peekWrap = wrap;
-  if (peekStreamPane !== s.pane_id) {
+  // While the fullscreen overlay owns this pane's one stream, the peek stands down —
+  // otherwise the 2s render() poll would start a SECOND concurrent stream here. The
+  // peek re-mounts on the next poll after the overlay closes (screenOpen back to false).
+  if (screenOpen) { if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; } }
+  else if (peekStreamPane !== s.pane_id) {
     peekStop && peekStop();
     peekStreamPane = s.pane_id;
     const streamPane = s.pane_id; // captured: ignore late frames after a pane switch
@@ -1206,9 +1213,11 @@ function openScreen(paneId, label) {
   if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
   document.body.appendChild(ov);
   pinchZoom(body, pre);
-  // Only ONE stream per pane at a time: stop the peek's while the fullscreen overlay
-  // owns it. The next render() poll re-mounts the peek stream once the overlay closes
-  // (the deck rebuilds every 2s and bgTerm restarts it), so no explicit restart here.
+  // Only ONE stream per pane at a time. screenOpen makes bgTerm stand the peek down
+  // for as long as the overlay lives — without it the 2s render() poll would keep
+  // restarting a second peek stream. Stop the current peek now; the overlay owns the
+  // stream, and the peek re-mounts on the poll after close (screenOpen back to false).
+  screenOpen = true;
   if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; }
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
@@ -1219,7 +1228,9 @@ function openScreen(paneId, label) {
     onLive: () => pre.classList.remove("stale"),
     onQuiet: () => pre.classList.add("stale"),
   });
-  ov.querySelector(".screen-close").onclick = () => { stop(); ov.remove(); };
+  ov.querySelector(".screen-close").onclick = () => {
+    stop(); ov.remove(); screenOpen = false; // next poll re-mounts the peek stream
+  };
 }
 
 // Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the
