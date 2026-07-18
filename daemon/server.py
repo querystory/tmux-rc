@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 import tempfile
 import time
 from contextlib import asynccontextmanager
@@ -245,9 +246,10 @@ def get_peek(pane_id: str):
     LLM entirely). The client bursts on this right after sending input — keys, text,
     an image — so the terminal peek shows the input landing immediately instead of
     after the next watcher tick + poll. Read-only; same shape as a snapshot."""
-    if tmux.find_pane(pane_id) is None:
-        raise HTTPException(404, "pane not found")
-    return tmux.capture_pane(pane_id)
+    try:  # no find_pane pre-flight: that doubles tmux calls at burst rate (2/s)
+        return tmux.capture_pane(pane_id)
+    except subprocess.CalledProcessError:
+        raise HTTPException(404, "pane not found") from None
 
 
 @app.post("/api/panes/{pane_id}/send")

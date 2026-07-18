@@ -598,15 +598,17 @@ const zHome = (id) => { const z = bgZoom[id]; return !z || (z.scale === 1 && !z.
 // per frame: the input box's top border (╭─/┌─) is the seam — everything from it down
 // is chrome, and its height varies with activity (spinner/interrupt/queue rows), so a
 // fixed overlap either leaks footer or hides content. Falls back to the old fixed
-// 60px when no border is found. 13.5px = the .bg-term line height (10px/1.35).
+// 60px when no border is found. Line height is read from the live style so the
+// tuck math can't drift if .bg-term's font ever changes.
 function tuckChrome(wrap, box) {
   if (wrap.classList.contains("shell")) return; // shells: the prompt IS the content
   const lines = (box.textContent || "").split("\n");
   let rows = 0;
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--)
     if (/^[╭┌]─/.test(lines[i])) { rows = lines.length - i; break; }
+  const lineH = parseFloat(getComputedStyle(box).lineHeight) || 13.5;
   wrap.style.marginBottom =
-    `calc(var(--bar-h, 150px) - ${rows ? Math.round(rows * 13.5) + 6 : 60}px)`;
+    `calc(var(--bar-h, 150px) - ${rows ? Math.round(rows * lineH) + 6 : 60}px)`;
 }
 function bgTerm(s) {
   // Wrapper = the visible window (starts right below the card, ends near the bar);
