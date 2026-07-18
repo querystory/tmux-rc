@@ -1228,10 +1228,15 @@ function pinchZoom(container, el, st, snapHome) {
     // until it covers the window (or pins bottom-left when it's smaller than it).
     const c = container.getBoundingClientRect();
     const r = el.getBoundingClientRect();
+    // rect width LIES for the peek: it's a <pre> whose long lines overflow the box
+    // sideways without growing it, so the rect reads window-width and the clamp
+    // yanked every horizontal pan home. scrollWidth sees the real text extent.
+    const cw = el.scrollWidth * st.scale;
+    const right = r.left + cw;
     let dx = 0, dy = 0;
-    if (r.width <= c.width) dx = c.left - r.left;
+    if (cw <= c.width) dx = c.left - r.left;
     else if (r.left > c.left) dx = c.left - r.left;
-    else if (r.right < c.right) dx = c.right - r.right;
+    else if (right < c.right) dx = c.right - right;
     if (r.height <= c.height) dy = c.bottom - r.bottom; // short content: pin the tail
     else if (r.top > c.top) dy = c.top - r.top;
     else if (r.bottom < c.bottom) dy = c.bottom - r.bottom;
