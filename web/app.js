@@ -93,7 +93,9 @@ function activeId() {
   return focused ? focused.pane_id : Object.keys(panesById)[0] || null;
 }
 function setActive(id) {
-  clearAttachChip(); // the chip mirrors the PREVIOUS pane's composer
+  // The composer buffer (typed text + staged images) is the user's un-sent message; it
+  // persists across pane switches just like the text input does, and sends to whichever
+  // pane is active when they hit Send.
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
@@ -1080,36 +1082,34 @@ if (bar.input) {
   });
 }
 
-// Submit the composer to the pane in ONE ordered burst: typed text (no Enter) →
-// staged image (delivered by /image, no Enter) → one Enter. That keeps the text and
-// image in the agent's prompt in order and lets them land together on a single send.
-// Empty text + no image is a no-op (a bare Enter would submit whatever's already in
-// the agent). The image POST is the SAME endpoint attach used before — we just call it
-// here, at send time, instead of the moment the file was picked.
+// Submit the composer to the pane in ONE ordered burst: typed text (no Enter) → each
+// staged image in order (delivered by /image, no Enter) → one Enter. Text and images
+// land together in the agent's prompt on a single send, like Claude Code's own
+// composer. Empty text + no images is a no-op (a bare Enter would submit whatever's
+// already in the agent). Each image POST is the SAME endpoint attach used before — we
+// just call it here, at send time, instead of the moment the file was picked.
 async function submitComposer(s) {
   const text = bar.input.value;
-  if (!text && !staged) return;
+  if (!text && !staged.length) return;
   busy = true;
   try {
-    if (!staged) {
+    if (!staged.length) {
       // Text only — one send, Enter appended (same as answering a question).
       await postSend(s, { keys: text, enter: true, literal: true });
     } else {
-      // Text (if any, no Enter) → image (no Enter) → one Enter, so they land in order
-      // and submit together. uploadStagedImage hits the SAME /image endpoint as before.
       if (text) await postSend(s, { keys: text, enter: false, literal: true });
-      await uploadStagedImage(s, staged);
+      for (const file of staged) await uploadStagedImage(s, file);
       await postSend(s, { keys: "Enter", enter: false, literal: false });
-      clearAttachChip();
+      clearStaged();
     }
     bar.input.value = "";
-    liveBurst(); // text + image landing in the pane should be visible immediately
+    liveBurst(); // text + images landing in the pane should be visible immediately
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
 }
 
-// POST the staged image to the pane (server stages it to disk and pastes/types it in,
+// POST one staged image to the pane (server stages it to disk and pastes/types it in,
 // no Enter — submitComposer sends the single Enter). Kept separate from send() because
 // it's a multipart body, not the JSON /send shape.
 async function uploadStagedImage(s, file) {
@@ -1145,39 +1145,38 @@ async function pasteImage(s, input) {
   }
 }
 
-// Stage an image in the composer (📎, paste, or a future share). Nothing goes to the
-// pane yet — the File is held here and the thumbnail chip shows it's queued; it's sent
-// on the next Send/Enter (see submitComposer). Staging replaces any prior staged image
-// (one attachment at a time). The chip counts as un-sent state, so the auto-update
-// banner won't silently reload it away.
-let staged = null; // the File awaiting send, or null
+// The composer is a BUFFER: typed text plus any pasted/attached images accumulate here
+// inline (a thumbnail chip per image) until Send/Enter flushes the whole buffer to the
+// pane. Images append — pasting a second doesn't replace the first. Each chip is
+// un-sent state, so the auto-update banner won't silently reload the buffer away.
+let staged = []; // Files awaiting send, in paste order
 function stageImage(file) {
   if (!file) return;
-  staged = file;
-  attachChip(file);
+  staged.push(file);
+  addChip(file);
 }
 
-// The composer's staged-image thumbnail. Tap to unstage (drops the file too).
-let chipEl = null;
-function attachChip(file) {
-  clearAttachChip();
-  // input[type=image] = a real button rendering the image: keyboard-focusable and
-  // Enter/Space-activatable for free (a bare <img onclick> is not).
-  chipEl = document.createElement("input");
-  chipEl.type = "image";
-  chipEl.className = "attach-chip";
-  chipEl.alt = "image staged in the composer";
-  chipEl.title = "Staged — sends with your next Send/Enter. Tap to remove.";
-  chipEl.src = URL.createObjectURL(file);
-  chipEl.onclick = (e) => { e.preventDefault(); clearAttachChip(); };
-  bar.attach.after(chipEl);
+// One inline thumbnail per staged image. Tapping a chip removes just that image.
+// input[type=image] = a real button rendering the image: keyboard-focusable and
+// Enter/Space-activatable for free (a bare <img onclick> is not).
+function addChip(file) {
+  const chip = document.createElement("input");
+  chip.type = "image";
+  chip.className = "attach-chip";
+  chip.alt = "image staged in the composer";
+  chip.title = "Staged — sends with your next Send/Enter. Tap to remove.";
+  chip.src = URL.createObjectURL(file);
+  chip.onclick = (e) => {
+    e.preventDefault();
+    staged = staged.filter((f) => f !== file);
+    URL.revokeObjectURL(chip.src);
+    chip.remove();
+  };
+  bar.attach.after(chip); // newest sits right after 📎; order in `staged` is send order
 }
-function clearAttachChip() {
-  staged = null;
-  if (!chipEl) return;
-  URL.revokeObjectURL(chipEl.src);
-  chipEl.remove();
-  chipEl = null;
+function clearStaged() {
+  staged = [];
+  document.querySelectorAll(".attach-chip").forEach((c) => { URL.revokeObjectURL(c.src); c.remove(); });
 }
 
 function question(s) {
@@ -1385,7 +1384,7 @@ setInterval(async () => {
     const { version } = await (await fetch("/api/version")).json();
     if (_ver === null) _ver = version;
     else if (version !== _ver) {
-      if (!bar.input.value && !chipEl) location.reload();
+      if (!bar.input.value && !staged.length) location.reload();
       else showUpdateBanner();
     }
   } catch {}
