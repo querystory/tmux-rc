@@ -1,0 +1,46 @@
+# Hugo config for the tmux-rc docs site.
+#
+# Content lives in the repo's ../docs tree (single source of truth — no copy).
+# Requires the EXTENDED Hugo build (Hextra ships SCSS).
+#
+# baseURL here is only the DEFAULT (used by `make docs-dev`, which serves at root).
+# The production build OVERRIDES it: `make docs` passes --baseURL /docs/ so the
+# emitted HTML references /docs/css, /docs/js verbatim, matching where the daemon
+# mounts the tree (StaticFiles strips /docs on file lookup but does NOT rewrite the
+# asset hrefs baked into the HTML — so that override is load-bearing, not optional).
+
+baseURL = "/"
+title = "tmux-rc docs"
+languageCode = "en-us"
+
+# Point Hugo at the existing docs/ instead of a content/ dir inside docs-site.
+# NOTE: a top-level docs/DESIGN.md would emit at /design/ and collide with the
+# docs/design/ section index — so it was renamed to docs/design/overview.md
+# (/design/overview/). No case-collision remains under this contentDir.
+contentDir = "../docs"
+
+# Hextra theme via Hugo Modules (pinned in go.mod).
+[module]
+  [[module.imports]]
+    path = "github.com/imfing/hextra"
+
+[markup]
+  [markup.goldmark.renderer]
+    unsafe = true            # some design docs embed raw HTML
+  [markup.highlight]
+    noClasses = false        # emit CSS classes so the theme controls code colors
+
+[params]
+  [params.navbar]
+    displayTitle = true
+    displayLogo = false      # logo wired in during the styling phase
+
+  [params.footer]
+    displayCopyright = false
+    displayPoweredBy = false
+
+  # Client-side search. Hextra's flexsearch is built-in and needs no post-build
+  # step; Pagefind (per the plan) can replace this in the build phase if preferred.
+  [params.search]
+    enable = true
+    type = "flexsearch"
