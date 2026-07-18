@@ -18,10 +18,11 @@ fmt:
 	uv run --with ruff ruff format daemon tests
 
 # Build the docs site the daemon serves, into docs-site/serve/ (NOT public/).
-# --baseURL /docs/ so assets emit under the /docs prefix the daemon mounts them at
-# (see TMUXRC_DOCS_DIR in .env.example). Dedicated output dir so `docs-dev`'s Hugo
-# server — which owns public/ and rewrites it on every edit — can never clobber the
-# build the daemon is serving.
+# Needs the EXTENDED Hugo build AND `go` on PATH (Hugo Modules fetches the Hextra
+# theme via the Go toolchain). --baseURL /docs/ so assets emit under the /docs prefix
+# the daemon mounts them at (see TMUXRC_DOCS_DIR in .env.example). Dedicated output dir
+# so `docs-dev`'s Hugo server — which owns public/ and rewrites it on every edit — can
+# never clobber the build the daemon is serving.
 docs:
 	cd docs-site && hugo --gc --minify --baseURL /docs/ --destination serve
 
@@ -35,4 +36,4 @@ docs-check: docs
 	uv run python docs-site/check-links.py
 
 docs-clean:
-	rm -rf docs-site/public docs-site/serve docs-site/resources
+	rm -rf docs-site/public docs-site/serve docs-site/resources docs-site/.hugo_build.lock
