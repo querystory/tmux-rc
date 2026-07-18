@@ -249,6 +249,18 @@
     border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer;
   }
   button.opt:active { background: #30363d; }
+  button.opt:disabled { opacity: .5; cursor: default; }
+  /* Reparsing: an answer/keypress was sent and we're waiting for the forced LLM
+     re-parse to land. Dim the card slightly and spin a ring next to the prompt so the
+     submitted answer visibly WORKS instead of sitting stale. Cleared when the fresh
+     parse arrives (parsed_at advances) or after the client-side timeout. */
+  .card.reparsing { opacity: .8; }
+  .q-spin { display: inline-block; width: 20px; height: 20px; vertical-align: -4px;
+    border: 3px solid #30363d; border-top-color: #58a6ff; border-radius: 50%;
+    animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Honour a reduced-motion preference: keep the spinner as a static "busy" ring. */
+  @media (prefers-reduced-motion: reduce) { .q-spin { animation: none; } }
   /* Structured tables: scroll horizontally AND vertically, capped so a big one doesn't
      dominate the card. */
   .tablewrap { margin-top: 12px; }
