@@ -11,6 +11,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import subprocess
@@ -159,6 +160,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="tmux-rc", lifespan=lifespan)
+# Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
+# The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
+# busy pane's ~100KB/s into ~22KB/s. minimum_size skips tiny replies (no-change frames).
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+
+app.add_middleware(GZipMiddleware, minimum_size=512)
 
 
 @app.middleware("http")
@@ -171,6 +178,13 @@ async def no_cache(request, call_next):
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
+    # Byte size for the live stream, so the payload cost is visible when debugging.
+    # DEBUG, not INFO: a busy pane (or several viewers) emits back-to-back responses
+    # and this would drown the normal INFO log. endswith, not substring, so it can't
+    # accidentally match some future path containing "/live".
+    cl = resp.headers.get("content-length")
+    if cl and request.url.path.endswith("/live"):
+        logger.debug("%s -> %s bytes", request.url.path, cl)
     return resp
 
 
@@ -178,8 +192,6 @@ async def no_cache(request, call_next):
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
     (see app.js). Cheap to recompute per call — the web dir is tiny."""
-    import hashlib
-
     h = hashlib.md5()
     for p in sorted(WEB_DIR.glob("*")):
         if p.is_file():
@@ -240,20 +252,46 @@ def get_snapshot(pane_id: str, snap_id: str):
     return text
 
 
-@app.get("/api/panes/{pane_id}/peek", response_class=PlainTextResponse)
-def get_peek(pane_id: str):
-    """A FRESH capture of the pane, bypassing the watcher's snapshot cadence (and the
-    LLM entirely). The client bursts on this right after sending input — keys, text,
-    an image — so the terminal peek shows the input landing immediately instead of
-    after the next watcher tick + poll. Read-only; same shape as a snapshot."""
-    try:  # no find_pane pre-flight: that doubles tmux calls at burst rate (2/s)
-        return tmux.capture_pane(pane_id)
-    except subprocess.CalledProcessError as e:
-        # _run turns tmux timeouts into rc 124 — that's a wedged tmux, not a
-        # missing pane; report it honestly.
-        if e.returncode == 124:
-            raise HTTPException(504, "tmux timed out") from None
-        raise HTTPException(404, "pane not found") from None
+def _pane_err(e: subprocess.CalledProcessError) -> HTTPException:
+    """capture failures, honestly: _run turns tmux timeouts into rc 124 — that's a
+    wedged tmux, not a missing pane."""
+    return HTTPException(*((504, "tmux timed out") if e.returncode == 124 else (404, "pane not found")))
+
+
+# Live view (docs/design/live-view.md): long-poll — hold until the screen differs
+# from what the client displays, then send the WHOLE colored frame (v1 is full
+# frames by design: resize/reflow/alt-screen all reduce to "new frame", no delta
+# edge cases). `frame` is a content hash, ETag-style: it's how we know the client
+# is current, and the no-change answer when the hold expires idle.
+LIVE_HOLD_SECONDS = 25  # under the tunnel-client's 60s request bound
+LIVE_CHECK_SECONDS = 0.25  # freshness floor — server constant, not a client knob
+
+
+@app.get("/api/panes/{pane_id}/live")
+async def live_frame(pane_id: str, frame: str = ""):
+    """One long-poll round: the client sends the hash of the frame it's showing and
+    we answer with a newer colored frame, or {frame: same} after ~25s of no change
+    (the client immediately re-holds). Captures run in a worker thread on a 250ms
+    cadence — decoupled from the watcher, never an LLM call. An idle watched pane
+    costs one request per hold; a busy one streams responses back-to-back.
+
+    The change hash is over the RAW colored frame — every visible change (including a
+    spinner tick or ticking timer) is a new frame, because live mode means live. The
+    client repaints only when the rendered HTML actually differs (no-op skip otherwise),
+    so full fidelity here does not flicker."""
+    deadline = time.monotonic() + LIVE_HOLD_SECONDS
+    while True:
+        try:
+            text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
+        except subprocess.CalledProcessError as e:
+            raise _pane_err(e) from None
+        h = hashlib.md5(text.encode()).hexdigest()  # full digest: a truncated hash
+        # could collide a changed frame onto the client's hash and stall the stream
+        if h != frame:
+            return {"frame": h, "text": text}
+        if time.monotonic() >= deadline:
+            return {"frame": h}  # unchanged — client re-holds with the same hash
+        await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 
 @app.post("/api/panes/{pane_id}/send")

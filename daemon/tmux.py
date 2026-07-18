@@ -306,15 +306,26 @@ def _mark_dim(text: str) -> str:
     return s
 
 
-def capture_pane(pane_id: str, lines: int = 200, mark_dim: bool = False) -> str:
+def capture_pane(
+    pane_id: str, lines: int = 200, mark_dim: bool = False, keep_colors: bool = False
+) -> str:
     """Current visible text of a pane, most recent `lines` rows. `-p` prints to
     stdout, `-J` joins wrapped lines so long lines aren't split mid-word, `-e` keeps
-    escape sequences so OSC 8 hyperlinks can be materialized before the rest of the
-    escapes are stripped back out. `mark_dim` additionally re-encodes faint/gray runs
-    as ⟪dim⟫ markers — for LLM-bound captures only; phone-facing text stays plain."""
+    escape sequences so OSC 8 hyperlinks can be materialized before the rest are
+    stripped. Two independent, orthogonal flags on that stripped-by-default output:
+
+      - `mark_dim` (LLM-bound captures): re-encode faint/gray runs as ⟪dim⟫ markers
+        before the strip, so the parser can tell drafts/suggestions from real output.
+      - `keep_colors` (live view): skip the strip entirely and return the raw SGR
+        runs, which the client renders as colored spans (docs/design/live-view.md).
+
+    The live path keeps colors and does NOT mark dim (the client renders color itself);
+    the parser path marks dim and strips. Phone-facing snapshots use neither."""
     out = _materialize_links(
         _run(["capture-pane", "-p", "-J", "-e", "-t", pane_id, "-S", f"-{lines}"])
     )
+    if keep_colors:
+        return out.rstrip("\n")  # live view: raw SGR, client colorizes
     if mark_dim:
         out = _mark_dim(out)
     return _ANSI.sub("", out).rstrip("\n")
