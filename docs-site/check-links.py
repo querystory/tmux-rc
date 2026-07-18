@@ -92,6 +92,11 @@ def main() -> int:
     TAXONOMY = ("tags", "categories")
     MIN_BODY = 100  # chars of <main> text below which a content page is "blank"
 
+    # Paths served by the daemon, not the Hugo build (e.g. the Swagger UI the docs
+    # home links to). Skipped whatever the baseURL prefix — the prefix-based skip below
+    # doesn't fire for a root build (prefix == "").
+    DAEMON_ROUTES = ("/apidocs", "/apiredoc")
+
     broken = []
     blank = []
     for index_html in PUBLIC.rglob("index.html"):
@@ -120,9 +125,12 @@ def main() -> int:
             path = urllib.parse.urlparse(urllib.parse.urljoin(base, href)).path
             if path.endswith(ASSET_SUFFIXES):
                 continue
-            # A root-relative link that lands outside the site prefix (e.g. /apidocs
-            # when the site is at /docs/) is served by the daemon, not the Hugo build —
-            # not ours to validate.
+            # Daemon-served, not part of the Hugo build — not ours to validate. Two
+            # cases: an explicit daemon route (matches at any baseURL, incl. a root
+            # build where prefix == ""), or, when the site has a prefix (e.g. /docs/),
+            # any absolute path that escapes it.
+            if path.rstrip("/") in DAEMON_ROUTES:
+                continue
             if prefix and not path.startswith(prefix + "/") and path != prefix:
                 continue
             if file_path_for(path, prefix) is None:
