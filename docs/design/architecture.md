@@ -135,7 +135,7 @@ Two subtleties that everything downstream depends on:
 - **tmux is the state; caches are bounded observations.** The events log and the snapshot
   ring buffer live in memory and are lost on daemon restart — that's correct. Their
   recovery path is re-observation, not a saved file. This is the load-bearing rule of the
-  whole project (see [the activity-log design](../activity-log/) for why it justifies caching
+  whole project (see [the activity-log design](activity-log.md) for why it justifies caching
   at all: TUIs redraw in place, so scrollback is *not* a faithful record of what was
   observed).
 
@@ -163,7 +163,7 @@ Input is a single persistent bar targeting the active pane: type text, tap speci
 (Enter, Esc, Ctrl-C…), or attach an image. Images are staged to disk and delivered by
 clipboard-paste when the desktop session is unlocked, or by typing the file path when
 it's locked or headless — a small **presence-aware** decision, since a locked GNOME
-session blocks clipboard reads (see [deployment](../deployment/)).
+session blocks clipboard reads (see [deployment](deployment.md)).
 
 ## Live mode
 
@@ -242,8 +242,8 @@ polling stay responsive.
 ## Where to go deeper
 
 - [Design notes index](../) — every subsystem's *why*.
-- [The activity log](../activity-log/) — how the event feed survives a reload, and the
+- [The activity log](activity-log.md) — how the event feed survives a reload, and the
   tmux-is-state rule.
 - The live view — full streaming design and rejected alternatives (note lands with the feature).
-- [Deployment](../deployment/) — running as a user systemd unit, the tunnel, presence.
-- [Cloud architecture](../cloud-architecture/) — the hosted/multi-tenant future.
+- [Deployment](deployment.md) — running as a user systemd unit, the tunnel, presence.
+- [Cloud architecture](cloud-architecture.md) — the hosted/multi-tenant future.

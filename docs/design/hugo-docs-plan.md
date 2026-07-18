@@ -151,10 +151,19 @@ for the module fetch (or vendor via `hugo mod vendor`) — decide which for the 
 The plan above is the pre-build intent; two choices changed during implementation and are recorded
 here so this doc doesn't drift from the scaffold:
 
-- **`baseURL = "/"`, not `/docs/`.** Emitting assets under a `/docs/` prefix pinned the build to that
-  mount path and fought the dev server (assets split between `/docs/js` and root `/css`, so the dev
-  server 404'd the JS and Hextra never styled). A root, prefix-agnostic build works identically at `/`
-  (dev) and `/docs` (prod); Phase 4's daemon route strips the prefix before the file lookup.
+- **Prod builds with `--baseURL /docs/`; dev serves at root.** The two consumers want different asset
+  bases: the daemon mounts the build at `/docs`, so its HTML must reference `/docs/css`, `/docs/js`
+  (StaticFiles strips the prefix on *lookup* but never rewrites baked-in hrefs); the standalone dev
+  server (`hugo server`) serves at root. So `make docs` overrides the config's default `baseURL="/"`
+  with `--baseURL /docs/`, and `make docs-dev` keeps root. That override is load-bearing, not cosmetic.
+- **Prod build outputs to `serve/`, not `public/`.** `hugo server` (dev) owns `public/` and rewrites it
+  on every edit with a *root* baseURL — which would clobber the daemon's `/docs/` build if they shared a
+  dir. `make docs` builds into `docs-site/serve/` (the daemon's default `TMUXRC_DOCS_DIR`); the two can
+  never collide.
+- **Cross-doc links are GitHub-style `.md`, resolved by a render hook.** Links are written
+  `[x](sibling.md)` so they work when the docs are read as raw files on GitHub. A custom
+  `layouts/_markup/render-link.html` rewrites relative `.md` targets to their pretty URL in the built
+  site (Hextra's own hook only handles `/`-prefixed paths). One syntax, both surfaces.
 - **Search is Hextra's built-in FlexSearch, not Pagefind.** FlexSearch ships with the theme and needs no
   post-build step, so the `docs` target is just `hugo` — no Pagefind stage. Pagefind stays a viable swap
   if its index quality ever matters more than the zero-config win.

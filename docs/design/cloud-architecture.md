@@ -69,7 +69,7 @@ blocks direct access).
 dev machine. Avoids shipping raw captures over the wire, keeps latency low, and
 authenticates to Vertex with a local long-lived service-account key (no
 server-side credential management; see
-[durable-vertex-auth.md](../durable-vertex-auth/)).
+[durable-vertex-auth.md](durable-vertex-auth.md)).
 
 **Full-state push, not deltas.** The state blob is small (~few KB for all
 panes). Full push means the relay always has a consistent picture. No

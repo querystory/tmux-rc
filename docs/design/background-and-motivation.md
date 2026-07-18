@@ -1,6 +1,6 @@
 # Background & motivation
 
-Status: **background / primer**. Start here if you're new to the project. The [PRD](../../prd/) has
+Status: **background / primer**. Start here if you're new to the project. The [PRD](../PRD.md) has
 the crisp requirements; this is the longer *why* — the problem that started it, and why watching a
 `tmux` session turned out to be the right shape for the answer. It also explains what tmux is along
 the way, so no prior knowledge is assumed.
@@ -140,5 +140,5 @@ orchestrator tomorrow. Not another single-vendor remote, and not another pile of
 
 ---
 
-Next: [How it all works](../architecture/) for the end-to-end mechanics, the [PRD](../../prd/) for
-requirements, and the other [design notes](../../design/) for the *why* behind individual pieces.
+Next: [How it all works](architecture.md) for the end-to-end mechanics, the [PRD](../PRD.md) for
+requirements, and the other [design notes](_index.md) for the *why* behind individual pieces.

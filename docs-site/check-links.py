@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Fail if any internal link in the built docs site points at a missing page.
+"""Fail on broken internal links or blank pages in the built docs site.
 
-Crawls the on-disk Hugo output (public/) — no server needed. Hugo's pretty URLs
-turn page.md into a directory /section/page/, so a sibling link must be
-../sibling/ not sibling/; this catches the ones that don't resolve. External
-links (http[s] to other hosts), anchors, and static assets are skipped.
+Crawls the on-disk Hugo output (serve/, what the daemon serves) — no server needed.
+Two checks: (1) every internal link resolves to a real built page; (2) no content
+page has an empty <main> (the shadowed-_index.md failure). External links, anchors,
+static assets, and daemon-served paths outside the site prefix are skipped.
 
-Run via `make docs-check`, which builds first. Exit 1 on any broken link.
+Run via `make docs-check`, which builds first. Exit 1 on any failure.
 """
 
 import html.parser
@@ -26,12 +26,21 @@ class PageParser(html.parser.HTMLParser):
     / or /docs/), and the rendered text inside <main> (to catch blank pages: a section
     whose _index.md got shadowed builds to just an <h1> with no body)."""
 
+    # HTML void elements never emit an end tag, so they must NOT push onto the
+    # open-tag stack — otherwise the stack never unwinds and <main> looks unclosed,
+    # leaking footer/nav text into body_text (a page with a blank <main> but any
+    # <input>/<img> would then score as non-blank — defeating the whole check).
+    VOID = frozenset((
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    ))
+
     def __init__(self):
         super().__init__()
         self.hrefs = []
         self.canonical = None
         self.body_text = []
-        self._depth = 0  # >0 while inside <main>
+        self._depth = 0  # open (non-void) tags nested inside <main>, incl. <main>
 
     def handle_starttag(self, tag, attrs):
         d = dict(attrs)
@@ -39,11 +48,11 @@ class PageParser(html.parser.HTMLParser):
             self.hrefs.append(d["href"])
         elif tag == "link" and d.get("rel") == "canonical" and d.get("href"):
             self.canonical = d["href"]
-        if tag == "main" or self._depth:
+        if (tag == "main" or self._depth) and tag not in self.VOID:
             self._depth += 1
 
     def handle_endtag(self, tag):
-        if self._depth:
+        if self._depth and tag not in self.VOID:
             self._depth -= 1
 
     def handle_data(self, data):

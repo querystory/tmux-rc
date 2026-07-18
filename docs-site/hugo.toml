@@ -3,11 +3,11 @@
 # Content lives in the repo's ../docs tree (single source of truth — no copy).
 # Requires the EXTENDED Hugo build (Hextra ships SCSS).
 #
-# baseURL is "/" (root-relative, prefix-agnostic) on purpose: the site is served
-# at /docs behind the daemon, but the daemon STRIPS the /docs prefix before the
-# file lookup (like qs-app's frontend route). So the built assets reference /css,
-# /js at root and work identically whether mounted at / (dev) or /docs (prod) —
-# no per-environment rebuild.
+# baseURL here is only the DEFAULT (used by `make docs-dev`, which serves at root).
+# The production build OVERRIDES it: `make docs` passes --baseURL /docs/ so the
+# emitted HTML references /docs/css, /docs/js verbatim, matching where the daemon
+# mounts the tree (StaticFiles strips /docs on file lookup but does NOT rewrite the
+# asset hrefs baked into the HTML — so that override is load-bearing, not optional).
 
 baseURL = "/"
 title = "tmux-rc docs"
