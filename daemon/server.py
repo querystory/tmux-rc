@@ -290,9 +290,9 @@ async def live_frame(
     costs one request per hold; a busy one streams responses back-to-back.
 
     The change hash is over the RAW colored frame — every visible change (including a
-    spinner tick or ticking timer) is a new frame, because live mode means live: the
-    client renders these smoothly via line-level DOM diffing, so full fidelity here
-    does not cause flicker.
+    spinner tick or ticking timer) is a new frame, because live mode means live. The
+    client repaints only when the rendered HTML actually differs (no-op skip otherwise),
+    so full fidelity here does not flicker.
 
     `session` is the client's per-page-load UUID: the summable spine for live-time /
     usage telemetry (see docs/design/live-telemetry.md). We stamp presence after each

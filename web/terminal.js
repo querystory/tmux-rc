@@ -34,10 +34,10 @@ function color256(n) {
 }
 
 // --- link anchoring (was app.js linkifyCapture; now the shared authority) ---
-// Anchor URLs in a run of plain text. `joinCtx` (built once per frame) lets a URL that
-// a TUI hard-wrapped across full-width lines rejoin into one href while the anchor
-// keeps the visible line breaks. Markdown links match first — that's how the capture
-// materializes OSC 8 — and show the label alone, URL hidden.
+// Anchor URLs in a run of text. A URL a TUI hard-wrapped across full-width lines is
+// rejoined into one href (wrapping heuristics computed inline per call) while the
+// anchor keeps the visible line breaks. Markdown links match first — that's how the
+// capture materializes OSC 8 — and show the label alone, URL hidden.
 // URL char class: exclude whitespace, quotes/brackets, and ALL control + non-ASCII
 // as explicit escapes — writing those ranges as literal bytes embedded raw control
 // chars (incl. NUL) that tools read as binary. Non-ASCII exclusion also stops TUI
