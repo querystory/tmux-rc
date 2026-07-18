@@ -1,6 +1,6 @@
 # Deployment: always-on tmux-rc
 
-Status: **proposed**. Companion to [durable-vertex-auth.md](durable-vertex-auth.md) (which
+Status: **proposed**. Companion to [durable-vertex-auth.md](../durable-vertex-auth/) (which
 closed the credential half of "runs unattended"); this closes the process half.
 
 ## Problem
