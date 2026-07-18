@@ -656,6 +656,11 @@ function bgTerm(s) {
     scrollIdle = setTimeout(() => wrap.scrollTo({ left: 0, behavior: "smooth" }), 500);
   });
   pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }), true);
+  // ALWAYS pin fresh elements to the tail — this is the coordinate BASELINE the
+  // persisted pan/zoom transform overlays (each rebuild starts at scrollTop 0; a
+  // panned user's offset is relative to the tail, so skipping this would show the
+  // buffer TOP through their transform). The zHome guards above apply only to
+  // CONTENT updates on an existing element, where moving the scroll is a yank.
   requestAnimationFrame(toEnd);
   // The window's height changes after we pin the scroll (the card above grows as
   // events/images render, flex re-settles) — each change slid the view off the tail,
