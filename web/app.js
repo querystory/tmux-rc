@@ -138,6 +138,16 @@ function fmtIdle(s) {
   return Math.floor(s / 3600) + "h";
 }
 
+// The working sub-line — verb · elapsed · ↓tokens (e.g. "Waiting for review 43s ↓40.4k")
+// — from the parser's `working` fields. Shared by the card header AND the list rows so
+// both carry the same detail. Not gated on activity: a waiting pane still reports what
+// it's waiting on. Empty string when the parser gave no working fields.
+function workSub(s) {
+  const w = s.working || {};
+  const parts = [w.verb, w.elapsed, w.tokens && "↓" + w.tokens].filter(Boolean);
+  return parts.length ? `<span class="worksub">${parts.map(esc).join(" ")}</span>` : "";
+}
+
 async function poll() {
   if (busy) return;
   try {
@@ -470,9 +480,11 @@ function row(s, act) {
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
   el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); } };
   const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds) : a;
+  // Same working sub-line (verb·elapsed·↓tokens) as the card header, inline next to the
+  // name — so a list row carries the full detail, not just title + headline.
   el.innerHTML =
     `<span class="icon">${iconFor(s.tool)}</span>` +
-    `<div class="prow-meta"><div class="prow-name">${esc(s.title || s.label || s.pane_id)}</div>` +
+    `<div class="prow-meta"><div class="prow-name">${esc(s.title || s.label || s.pane_id)} ${workSub(s)}</div>` +
     (s.headline ? `<div class="prow-sub">${esc(s.headline)}</div>` : "") +
     `</div><span class="badge b-${a}">${badge}</span>`;
   return el;
@@ -564,12 +576,7 @@ function card(s) {
   // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
   // save vertical space), headline below, activity badge. Fields come straight from
   // the parser JSON, so the UI renders whatever the model provides.
-  const w = s.working || {};
-  const working =
-    s.activity === "running" && (w.verb || w.elapsed || w.tokens)
-      ? `<span class="worksub">${[w.verb, w.elapsed, w.tokens && "↓" + w.tokens]
-          .filter(Boolean).map(esc).join(" ")}</span>`
-      : "";
+  const working = workSub(s);
   // No icon here — the pane's icon lives in the dock rail above, which this card's
   // border joins to (like a tab body under its tab). Repeating it wasted a column.
   // The ▾/▸ caret collapses the card to just this header row (still tab-joined), so
