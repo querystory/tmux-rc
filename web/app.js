@@ -640,14 +640,19 @@ function tuckChrome(wrap, box) {
 // COLORED frames — resize/reflow/alt-screen all reduce to "render the new frame".
 // onFrame(coloredText) paints; onQuiet()/onLive() toggle the stale (decolor) look.
 // Returns a stop() (AbortController) — call it when the surface goes away.
+//
+// LIVE vs STALE is about the CONNECTION, not screen activity: an idle pane produces
+// no new frames for long stretches yet is perfectly live, so we stay colored as long
+// as the server keeps ANSWERING (a "no change" reply is proof-of-life). Gray means
+// the connection actually broke/hung — a fetch error, or no response at all for
+// longer than one full hold (watchdog).
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   const ac = new AbortController();
-  let quietTimer = null;
-  const armQuiet = () => {
-    clearTimeout(quietTimer);
-    // No fresh frame for 3s ⇒ the stream is quiet or wedged: gray it out (onQuiet)
-    // to signal "possibly stale" without tearing down — the next frame re-colors.
-    quietTimer = setTimeout(() => onQuiet && onQuiet(), 3000);
+  let watchdog = null;
+  const alive = () => { // any server response resets the connection-health watchdog
+    clearTimeout(watchdog);
+    onLive && onLive();
+    watchdog = setTimeout(() => onQuiet && onQuiet(), 35000); // > the 25s hold
   };
   (async () => {
     let frame = "";
@@ -656,17 +661,19 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
         const r = await fetch(
           `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}`,
           { signal: ac.signal });
-        if (!r.ok) { await sleep(2000); continue; } // pane gone / tmux wedged: retry gently
+        if (!r.ok) { onQuiet && onQuiet(); await sleep(2000); continue; } // pane gone / wedged
         const j = await r.json();
-        if (j.text !== undefined) { onFrame(j.text); onLive && onLive(); armQuiet(); }
+        alive(); // responded (new frame or "no change") ⇒ live
+        if (j.text !== undefined) onFrame(j.text);
         frame = j.frame;
       } catch (e) {
         if (ac.signal.aborted) return;
+        onQuiet && onQuiet(); // network error ⇒ stale until the next good response
         await sleep(2000); // transient network: back off, keep the stream alive
       }
     }
   })();
-  return () => { ac.abort(); clearTimeout(quietTimer); };
+  return () => { ac.abort(); clearTimeout(watchdog); };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
