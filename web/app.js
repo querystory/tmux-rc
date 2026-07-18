@@ -1048,7 +1048,7 @@ function activeState() {
   return panesById[id] || { pane_id: id, label: "" };
 }
 function updateBar(s) {
-  bar.input.placeholder = s ? `Type into ${s.label || "pane"}…` : "No pane";
+  bar.input.dataset.placeholder = s ? `Type into ${s.label || "pane"}…` : "No pane";
   bar.meta.innerHTML = s ? metaChips(s) : "";
 }
 if (bar.input) {
@@ -1057,8 +1057,19 @@ if (bar.input) {
   // time — the image waits here as a draft until you send, mirroring the phone's own
   // "type a caption, then send the photo" feel.
   bar.send.onclick = () => submitComposer(activeState());
+  // Enter sends. We drive the send off `beforeinput`/insertParagraph rather than a
+  // keydown "Enter" check because Android's soft keyboard (and IME composition) fires
+  // keydown with keyCode 229 and NO usable `key` — so a keydown-only handler silently
+  // fails to send on Android. beforeinput reports a semantic inputType on every
+  // platform. preventDefault stops the browser inserting its own <div>/<br> paragraph.
+  bar.input.addEventListener("beforeinput", (e) => {
+    if (e.inputType === "insertParagraph") { e.preventDefault(); submitComposer(activeState()); }
+    // insertLineBreak = Shift+Enter (desktop) → let the browser insert the newline.
+  });
+  // Desktop belt-and-suspenders: some browsers don't emit beforeinput for Enter in an
+  // empty field. Shift+Enter falls through to the browser's newline insertion.
   bar.input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); submitComposer(activeState()); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComposer(activeState()); }
   });
   // ⌨ toggles the special-keys row (hidden by default to save a row of height).
   bar.keysToggle.onclick = () => {
@@ -1067,14 +1078,20 @@ if (bar.input) {
   };
   bar.attach.onclick = () => bar.file.click();
   bar.file.onchange = () => {
-    if (bar.file.files[0]) stageImage(bar.file.files[0]);
+    if (bar.file.files[0]) insertImage(bar.file.files[0]);
     bar.file.value = ""; // else picking the SAME photo again never fires change
   };
-  // Desktop image-paste into the field still works; the dedicated 📋 button is gone
-  // (redundant with 📎, and clipboard-read needs HTTPS anyway).
+  // Paste into the composer. Two jobs: (1) an image on the clipboard becomes an inline
+  // chip at the caret; (2) any OTHER paste is forced to PLAIN TEXT — the browser's
+  // default contenteditable paste injects rich HTML (fonts, spans, even <img> from a
+  // copied web page), which would pollute our DOM walk. We always preventDefault and
+  // insert text ourselves so only text nodes + our own chips ever live in here.
   bar.input.onpaste = (e) => {
-    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (item) { e.preventDefault(); stageImage(item.getAsFile()); }
+    e.preventDefault();
+    const cd = e.clipboardData;
+    const item = [...(cd?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (item) { insertImage(item.getAsFile()); return; }
+    insertTextAtCaret(cd ? cd.getData("text/plain") : "");
   };
   // Special keys → the active pane (tmux key-names, sent literally).
   document.querySelectorAll("#bar .keys button").forEach((b) => {
@@ -1082,37 +1099,58 @@ if (bar.input) {
   });
 }
 
-// Submit the composer to the pane in ONE ordered burst: typed text (no Enter) → each
-// staged image in order (delivered by /image, no Enter) → one Enter. Text and images
-// land together in the agent's prompt on a single send, like Claude Code's own
-// composer. Empty text + no images is a no-op (a bare Enter would submit whatever's
-// already in the agent). Each image POST is the SAME endpoint attach used before — we
-// just call it here, at send time, instead of the moment the file was picked.
+// Submit the composer to the pane in ONE ordered burst, preserving INLINE position:
+// walk the contenteditable's nodes in DOM order into segments (text runs and image
+// files), then deliver each in that exact order — text run → /send (no Enter), image →
+// /image (no Enter) — and finish with one Enter. So "err <img> fix <img>" lands in the
+// agent's prompt with the images exactly where they sat between the words, like Claude
+// Code's own composer. The DOM is the source of truth; there's no separate staged[].
+// Empty composer is a no-op (a bare Enter would submit whatever's already in the agent).
 async function submitComposer(s) {
-  const text = bar.input.value;
-  if (!text && !staged.length) return;
+  if (busy) return; // a send is already in flight — don't double-fire (keydown+beforeinput)
+  const segs = composerSegments();
+  if (!segs.length) return;
   busy = true;
   try {
-    if (!staged.length) {
-      // Text only — one send, Enter appended (same as answering a question).
-      await postSend(s, { keys: text, enter: true, literal: true });
-    } else {
-      if (text) await postSend(s, { keys: text, enter: false, literal: true });
-      // If any image fails to deliver, DON'T press Enter and DON'T clear the buffer —
-      // submitting now would send the caption without its image and drop the file. The
-      // failed images stay queued (and any text already typed into the pane stays put,
-      // unsubmitted) so the user can retry. uploadStagedImage throws on a bad response.
-      for (const file of staged) await uploadStagedImage(s, file);
-      await postSend(s, { keys: "Enter", enter: false, literal: false });
-      clearStaged();
+    // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
+    // submitting now would send the surrounding text without its image and drop the
+    // file. Everything stays in place so the user can retry. Ordering matters: any text
+    // typed into the pane before the failing image is already there, but without the
+    // final Enter it isn't submitted. uploadStagedImage throws on a bad response.
+    for (const seg of segs) {
+      if (seg.text != null) await postSend(s, { keys: seg.text, enter: false, literal: true });
+      else await uploadStagedImage(s, seg.file);
     }
-    bar.input.value = "";
+    await postSend(s, { keys: "Enter", enter: false, literal: false });
+    clearComposer();
     liveBurst(); // text + images landing in the pane should be visible immediately
   } catch (e) {
-    alert("Image upload failed — not sent. Your text and images are still staged.\n\n" + e.message);
+    alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
+}
+
+// Walk the composer's children in DOM order into ordered send segments. A text node (or
+// a <br>/<div> the browser inserts on Shift+Enter) contributes to a text run; an
+// .attach-chip <img> flushes the pending run and emits its File. Adjacent text is
+// coalesced so we don't fire a /send per keystroke-node. Returns [] when empty.
+function composerSegments() {
+  const segs = [];
+  let run = "";
+  const flush = () => { if (run) { segs.push({ text: run }); run = ""; } };
+  const walk = (node) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE) run += n.nodeValue;
+      else if (n.nodeName === "IMG" && n.classList.contains("attach-chip")) { flush(); segs.push({ file: chipFiles.get(n) }); }
+      else if (n.nodeName === "BR") run += "\n";
+      else if (n.nodeName === "DIV") { run += "\n"; walk(n); } // Shift+Enter block
+      else walk(n); // spans etc. (shouldn't occur — paste is plain-text) — recurse for text
+    }
+  };
+  walk(bar.input);
+  flush();
+  return segs;
 }
 
 // POST one staged image to the pane (server stages it to disk and pastes/types it in,
@@ -1144,7 +1182,7 @@ async function pasteImage(s, input) {
     const items = await navigator.clipboard.read();
     for (const item of items) {
       const type = item.types.find((t) => t.startsWith("image/"));
-      if (type) { stageImage(await item.getType(type)); return; }
+      if (type) { insertImage(await item.getType(type)); return; }
     }
     alert("No image on the clipboard. Copy a screenshot first, or use 📎.");
   } catch (e) {
@@ -1152,38 +1190,62 @@ async function pasteImage(s, input) {
   }
 }
 
-// The composer is a BUFFER: typed text plus any pasted/attached images accumulate here
-// inline (a thumbnail chip per image) until Send/Enter flushes the whole buffer to the
-// pane. Images append — pasting a second doesn't replace the first. Each chip is
-// un-sent state, so the auto-update banner won't silently reload the buffer away.
-let staged = []; // Files awaiting send, in paste order
-function stageImage(file) {
+// The composer's contenteditable DOM IS the buffer: typed text and pasted/attached image
+// chips accumulate here INLINE until Send/Enter walks it and flushes (see submitComposer).
+// There's no separate array — position in the DOM is send position. Each chip's File is
+// kept in a WeakMap keyed by the chip node (a File can't ride on an attribute), so a
+// removed node is garbage-collected out of the map for free.
+const chipFiles = new WeakMap(); // chip <img> node -> File
+
+// Whether the composer holds anything to send (text or an image chip). Used for the
+// empty-check (no-op send) and the auto-update draft guard.
+function composerEmpty() { return composerSegments().length === 0; }
+
+// Insert an image chip at the current caret, interleaved with text. contenteditable=false
+// makes the caret treat the chip as one atomic character (arrow keys / Backspace step
+// over it, not into it). Tapping a chip removes just that image. draggable=false so a
+// long-press can't drag it out of the field on touch.
+function insertImage(file) {
   if (!file) return;
-  staged.push(file);
-  addChip(file);
+  const chip = document.createElement("img");
+  chip.className = "attach-chip";
+  chip.contentEditable = "false";
+  chip.draggable = false;
+  chip.alt = "image in the composer";
+  chip.title = "Sends with your next Send/Enter, in this position. Tap to remove.";
+  chip.src = URL.createObjectURL(file);
+  chip.onclick = () => { URL.revokeObjectURL(chip.src); chipFiles.delete(chip); chip.remove(); };
+  chipFiles.set(chip, file);
+  insertNodeAtCaret(chip);
 }
 
-// One inline thumbnail per staged image. Tapping a chip removes just that image.
-// input[type=image] = a real button rendering the image: keyboard-focusable and
-// Enter/Space-activatable for free (a bare <img onclick> is not).
-function addChip(file) {
-  const chip = document.createElement("input");
-  chip.type = "image";
-  chip.className = "attach-chip";
-  chip.alt = "image staged in the composer";
-  chip.title = "Staged — sends with your next Send/Enter. Tap to remove.";
-  chip.src = URL.createObjectURL(file);
-  chip.onclick = (e) => {
-    e.preventDefault();
-    staged = staged.filter((f) => f !== file);
-    URL.revokeObjectURL(chip.src);
-    chip.remove();
-  };
-  bar.attach.after(chip); // newest sits right after 📎; order in `staged` is send order
+// Insert a node (chip or a text node) at the caret, keeping the caret AFTER it so the
+// next keystroke/paste continues past the insertion. Falls back to appending when the
+// selection isn't inside the composer (e.g. attach button was tapped with no caret).
+function insertNodeAtCaret(node) {
+  bar.input.focus();
+  const sel = window.getSelection();
+  let range;
+  if (sel && sel.rangeCount && bar.input.contains(sel.anchorNode)) {
+    range = sel.getRangeAt(0); // the live caret/selection inside the composer
+    range.deleteContents();
+  } else {
+    range = document.createRange(); // no caret in the composer → append at the end
+    range.selectNodeContents(bar.input);
+    range.collapse(false);
+  }
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  if (sel) { sel.removeAllRanges(); sel.addRange(range); } // some mobile states have no Selection
 }
-function clearStaged() {
-  staged = [];
-  document.querySelectorAll(".attach-chip").forEach((c) => { URL.revokeObjectURL(c.src); c.remove(); });
+function insertTextAtCaret(text) { if (text) insertNodeAtCaret(document.createTextNode(text)); }
+
+// Clear the composer: revoke every chip's object URL (else the blobs leak) and empty the
+// element so :empty restores the placeholder.
+function clearComposer() {
+  bar.input.querySelectorAll(".attach-chip").forEach((c) => { URL.revokeObjectURL(c.src); chipFiles.delete(c); });
+  bar.input.textContent = "";
 }
 
 function question(s) {
@@ -1391,7 +1453,7 @@ setInterval(async () => {
     const { version } = await (await fetch("/api/version")).json();
     if (_ver === null) _ver = version;
     else if (version !== _ver) {
-      if (!bar.input.value && !staged.length) location.reload();
+      if (composerEmpty()) location.reload();
       else showUpdateBanner();
     }
   } catch {}
