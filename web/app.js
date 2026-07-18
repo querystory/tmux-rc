@@ -268,7 +268,13 @@ function render(states) {
     if (a) {
       const fs = document.createElement("button");
       fs.className = "fsbtn";
-      fs.textContent = "⤢";
+      // Inline SVG, not the ⤢ glyph: the phone's font fallback renders the char with
+      // odd metrics (tiny ink, wide advance), distorting the button — confirmed by
+      // A/B on device. SVG renders identically everywhere.
+      fs.innerHTML =
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+        ' stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+        '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>';
       fs.title = "Full screen";
       fs.setAttribute("aria-label", "Full screen");
       fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
@@ -589,6 +595,33 @@ function card(s) {
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
 const peekCache = {}; // pane_id -> {snap, html} — linkified once per snapshot
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
+// "Home" = the user hasn't deliberately panned/zoomed the peek. Content updates
+// (bursts, snapshots, resizes) may re-pin the scroll to the tail ONLY then —
+// re-pinning a panned view yanks it back down while the user is reading.
+// Epsilon compare: pinch/clamp math leaves float crumbs (scale 0.9999, tx 0.3) that
+// are visually home — exact checks would permanently disable tail-follow after the
+// first gesture.
+const zHome = (id) => {
+  const z = bgZoom[id];
+  return !z || (Math.abs(z.scale - 1) < 0.01 && Math.abs(z.tx) < 2 && Math.abs(z.ty) < 2);
+};
+
+// Tuck the agent's OWN bottom chrome (input box + status rows) behind the bar, sized
+// per frame: the input box's top border (╭─/┌─) is the seam — everything from it down
+// is chrome, and its height varies with activity (spinner/interrupt/queue rows), so a
+// fixed overlap either leaks footer or hides content. Falls back to the old fixed
+// 60px when no border is found. Line height is read from the live style so the
+// tuck math can't drift if .bg-term's font ever changes.
+function tuckChrome(wrap, box) {
+  if (wrap.classList.contains("shell")) return; // shells: the prompt IS the content
+  const lines = (box.textContent || "").split("\n");
+  let rows = 0;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--)
+    if (/^[╭┌]─/.test(lines[i])) { rows = lines.length - i; break; }
+  const lineH = parseFloat(getComputedStyle(box).lineHeight) || 13.5;
+  wrap.style.marginBottom =
+    `calc(var(--bar-h, 150px) - ${rows ? Math.round(rows * lineH) + 6 : 60}px)`;
+}
 function bgTerm(s) {
   // Wrapper = the visible window (starts right below the card, ends near the bar);
   // the trimmed capture is top-anchored inside it, scrolled to its tail when longer.
@@ -599,6 +632,7 @@ function bgTerm(s) {
   // their chrome tucked behind the bar, shells keep their prompt visible above it.
   // (Don't key this on LOGOS: shell has a logo too now.)
   wrap.className = "bg-wrap" + (AGENT_TOOLS.has(s.tool) ? "" : " shell");
+  wrap.dataset.pane = s.pane_id; // the ResizeObserver keys zHome off the OWNING pane
   const box = document.createElement("pre");
   box.className = "bg-term";
   wrap.appendChild(box);
@@ -607,9 +641,11 @@ function bgTerm(s) {
   // Same linkification as the full-screen view (escaped text, wrapped URLs rejoined),
   // so URLs in the peek are tappable in place. Linkified ONCE per snapshot, cached —
   // the deck rebuilds every poll and re-running the regex on a big capture is waste.
-  if (c) box.innerHTML = c.html; // last capture (kept while a newer one loads)
+  if (c) { box.innerHTML = c.html; tuckChrome(wrap, box); } // last capture (kept while a newer one loads)
+  // Strictly-newer comparison (ids are ms timestamps): after a live-burst frame
+  // stamps the cache with now(), older watcher snapshots shouldn't even be fetched.
   const snap = s.snapshot_id;
-  if (snap && (!c || c.snap !== snap))
+  if (snap && (!c || Number(snap) > Number(c.snap)))
     fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
       .then((r) => (r.ok ? r.text() : ""))
       .then((t) => {
@@ -621,7 +657,8 @@ function bgTerm(s) {
         const html = linkifyCapture(txt);
         peekCache[s.pane_id] = { snap, html };
         box.innerHTML = html;
-        toEnd();
+        tuckChrome(wrap, box);
+        if (zHome(s.pane_id)) toEnd();
       })
       .catch(() => {});
   // Desktop has no pan gesture — dragging a text selection auto-scrolls the window
@@ -634,6 +671,11 @@ function bgTerm(s) {
     scrollIdle = setTimeout(() => wrap.scrollTo({ left: 0, behavior: "smooth" }), 500);
   });
   pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }), true);
+  // ALWAYS pin fresh elements to the tail — this is the coordinate BASELINE the
+  // persisted pan/zoom transform overlays (each rebuild starts at scrollTop 0; a
+  // panned user's offset is relative to the tail, so skipping this would show the
+  // buffer TOP through their transform). The zHome guards above apply only to
+  // CONTENT updates on an existing element, where moving the scroll is a yank.
   requestAnimationFrame(toEnd);
   // The window's height changes after we pin the scroll (the card above grows as
   // events/images render, flex re-settles) — each change slid the view off the tail,
@@ -646,7 +688,11 @@ function bgTerm(s) {
 // ONE shared observer for every peek window; each render explicitly unobserves the
 // pane's previous (now detached) wrap, so tracked targets stay bounded at one per pane.
 const peekRO = new ResizeObserver((entries) =>
-  entries.forEach((e) => { e.target.scrollTop = e.target.scrollHeight; }));
+  entries.forEach((e) => {
+    // The wrap's OWN pane, not activeId() — a pending selection can diverge from
+    // the rendered wrap and re-pin a pane the user has deliberately panned.
+    if (zHome(e.target.dataset.pane)) e.target.scrollTop = e.target.scrollHeight;
+  }));
 let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
@@ -937,6 +983,7 @@ async function uploadImage(s, file, input) {
     // Visible confirmation — the paste is otherwise invisible client-side. Skipped if
     // the user switched panes mid-upload: the image went to s, not the active pane.
     else if (s.pane_id === activeId()) attachChip(file);
+    liveBurst(); // the paste/path landing in the pane should be visible immediately
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
@@ -1023,6 +1070,46 @@ async function sendRaw(s, keyName) {
   await send(s, { keys: keyName, enter: false, literal: false });
 }
 
+// Live peek burst: after ANY input (keys, text, image), the terminal peek should show
+// it landing NOW — not after the watcher's next snapshot + poll round-trip. For a few
+// seconds, fetch a FRESH capture (/peek — no LLM) every 500ms and paint it in place,
+// stamping peekCache with a now() snap id so ordinary renders don't regress it
+// (snapshot ids are ms timestamps; a later watcher snapshot still wins). Each new
+// input extends the window; one timer, one in-flight fetch, active pane only.
+let burstUntil = 0, burstBusy = false, burstTimer = null;
+function liveBurst() {
+  burstUntil = Date.now() + 6000;
+  if (burstTimer) return;
+  burstTimer = setInterval(async () => {
+    if (Date.now() > burstUntil) { clearInterval(burstTimer); burstTimer = null; return; }
+    const id = activeId();
+    const box = document.querySelector(".deck .bg-term");
+    // busy ⇒ a touch gesture is mid-flight (pinchZoom freezes polls for the same
+    // reason): swapping content or moving scroll under a finger fights the user.
+    if (burstBusy || busy || !id || !box) return;
+    burstBusy = true;
+    try {
+      // Timeout so a hung request can't wedge burstBusy=true and kill the burst.
+      // (Freshness is the server's global no-store middleware, not per-fetch flags.)
+      // Older browsers lack AbortSignal.timeout — run without the guard there
+      // rather than throwing on every tick.
+      const r = await fetch(`/api/panes/${encodeURIComponent(id)}/peek`,
+        { signal: AbortSignal.timeout ? AbortSignal.timeout(1500) : undefined });
+      const txt = r.ok ? (await r.text()).replace(/\s+$/, "") : "";
+      if (txt && id === activeId()) {
+        const html = linkifyCapture(txt);
+        peekCache[id] = { snap: String(Date.now()), html };
+        box.innerHTML = html;
+        if (box.parentElement) {
+          tuckChrome(box.parentElement, box);
+          if (zHome(id)) box.parentElement.scrollTop = box.parentElement.scrollHeight;
+        }
+      }
+    } catch {}
+    burstBusy = false;
+  }, 500);
+}
+
 async function send(s, body) {
   busy = true;
   try {
@@ -1031,6 +1118,7 @@ async function send(s, body) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+    liveBurst(); // show the input landing in the peek NOW, not next watcher tick
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
@@ -1157,10 +1245,15 @@ function pinchZoom(container, el, st, snapHome) {
     // until it covers the window (or pins bottom-left when it's smaller than it).
     const c = container.getBoundingClientRect();
     const r = el.getBoundingClientRect();
+    // rect width LIES for the peek: it's a <pre> whose long lines overflow the box
+    // sideways without growing it, so the rect reads window-width and the clamp
+    // yanked every horizontal pan home. scrollWidth sees the real text extent.
+    const cw = el.scrollWidth * st.scale;
+    const right = r.left + cw;
     let dx = 0, dy = 0;
-    if (r.width <= c.width) dx = c.left - r.left;
+    if (cw <= c.width) dx = c.left - r.left;
     else if (r.left > c.left) dx = c.left - r.left;
-    else if (r.right < c.right) dx = c.right - r.right;
+    else if (right < c.right) dx = c.right - right;
     if (r.height <= c.height) dy = c.bottom - r.bottom; // short content: pin the tail
     else if (r.top > c.top) dy = c.top - r.top;
     else if (r.bottom < c.bottom) dy = c.bottom - r.bottom;
