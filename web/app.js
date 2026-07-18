@@ -16,7 +16,7 @@ const UNKNOWN_LOGO = "/tmux-logomark.svg";
 const AGENT_TOOLS = new Set(["claude", "codex", "gemini"]);
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
-const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
+const ACTIVITIES = new Set(["running", "waiting", "idle", "compacting", "unknown"]);
 const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
@@ -384,7 +384,7 @@ function dock(states, act) {
     // none — quiet is the default, only running/waiting earn a signal.
     const a = actOf(s);
     b.innerHTML = iconFor(s.tool) +
-      (a === "running" || a === "waiting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
+      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
     b.title = s.title || s.label || s.pane_id;
     b.setAttribute("aria-label", b.title);
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
@@ -405,7 +405,7 @@ function dock(states, act) {
     b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
     counts.appendChild(b);
   };
-  ["waiting", "running", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
+  ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
   filt("all", "all");
   el.appendChild(counts);
 }
@@ -560,7 +560,9 @@ function card(s) {
       ? "idle " + fmtIdle(s.idle_seconds)
       : a === "running"
         ? '<span class="pulse"></span>running'
-        : a;
+        : a === "compacting"
+          ? '<span class="pulse"></span>compacting'
+          : a;
   // Header: icon, name (with the working verb·elapsed·↓tokens INLINE to the right to
   // save vertical space), headline below, activity badge. Fields come straight from
   // the parser JSON, so the UI renders whatever the model provides.

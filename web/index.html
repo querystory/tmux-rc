@@ -68,6 +68,9 @@
   .badge.b-all { background: #21262d; color: #adbac7; }
   .dim { color: #6e7681; }
   .d-running { background: #3fb950; } .d-waiting { background: #e3b341; }
+  /* Compacting: agent is condensing its own context — busy, but housekeeping, not user
+     work. Purple sets it apart from running-green at a glance. */
+  .d-compacting { background: #a371f7; }
   .prow-meta { flex: 1; min-width: 0; }
   .prow-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; font-size: 14px; }
@@ -230,6 +233,8 @@
   .b-running { background: #12331f; color: #3fb950; }
   .b-idle { background: #21262d; color: #8b949e; }
   .b-waiting { background: #3d2e0a; color: #e3b341; }
+  .b-compacting { background: #2a1e40; color: #a371f7; }
+  .b-compacting .pulse { background: #a371f7; }
   .b-unknown { background: #21262d; color: #8b949e; }
   .ctx { height: 4px; border-radius: 4px; background: #21262d; margin-top: 8px; overflow: hidden; }
   .ctx > i { display: block; height: 100%; background: #388bfd; }
