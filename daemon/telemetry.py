@@ -254,7 +254,10 @@ def emit_live(
     clean. Best-effort: attr-build failure is swallowed, never breaking the live path."""
     try:
         attrs = {
-            "session": session,
+            # session is a client-supplied query param — cap it like actor/detail so a
+            # crafted value can't inflate OTLP payloads / downstream storage. A real
+            # per-page-load UUID is ~36 chars; 64 leaves headroom without opening abuse.
+            "session": session[:64],
             "pane_uid": pane_uid,
             "pane_label": pane_label,
             "hold_s": round(hold_s, 3),

@@ -307,7 +307,6 @@ async def live_frame(pane_id: str, request: Request, frame: str = "", session: s
     usage telemetry (see docs/design/live-telemetry.md). We stamp presence up front so
     a viewer mid-hold counts, and emit ONE telemetry record per completed round."""
     w = app.state.watcher
-    w.note_live_poll(pane_id)  # presence: a viewer is here (before we block on the hold)
     started = time.monotonic()
     deadline = started + LIVE_HOLD_SECONDS
     while True:
@@ -315,6 +314,10 @@ async def live_frame(pane_id: str, request: Request, frame: str = "", session: s
             text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
+        # Presence AFTER a successful capture, so a viewer of a live pane counts (even
+        # mid-hold) but a 404/wedged pane never flips has_live_viewer true — otherwise a
+        # poll on a dead pane would suppress parse-throttling for a phantom viewer.
+        w.note_live_poll(pane_id)
         data = text.encode()  # encode once — reused for the hash and the byte count
         h = hashlib.md5(data).hexdigest()[:16]
         changed = h != frame

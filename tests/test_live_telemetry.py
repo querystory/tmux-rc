@@ -32,6 +32,16 @@ def test_change_round_carries_bytes_and_own_scope(monkeypatch):
     assert "text" not in a and "pane_text" not in a  # never the frame content
 
 
+def test_session_is_capped(monkeypatch):
+    # session is a client query param — must be length-capped so it can't bloat payloads.
+    seen = _capture(monkeypatch)
+    telemetry.emit_live(
+        session="x" * 500, pane_uid="u", pane_label="l", tool=None,
+        hold_s=1.0, changed=False, raw_bytes=None,
+    )
+    assert len(seen["attrs"]["session"]) == 64
+
+
 def test_idle_round_omits_bytes(monkeypatch):
     seen = _capture(monkeypatch)
     telemetry.emit_live(

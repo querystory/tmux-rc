@@ -650,10 +650,13 @@ function tuckChrome(wrap, box) {
 // longer than one full hold (watchdog).
 // One anonymous session id per page load — the summable spine for live-time /
 // bandwidth telemetry (docs/design/live-telemetry.md). Not identity: a correlation
-// key that groups this tab's live rounds. randomUUID is https/localhost-only, which is
-// where the PWA runs; a plain-http LAN fallback keeps it from throwing.
-const SESSION_ID = (crypto.randomUUID && crypto.randomUUID()) ||
-  (Date.now().toString(36) + Math.random().toString(36).slice(2));
+// key that groups this tab's live rounds. randomUUID exists AND is callable only in a
+// secure context (https/localhost); over plain-http LAN it can throw even when defined,
+// so try/catch (not just existence) falls back to a cheap random id.
+const SESSION_ID = (() => {
+  try { return crypto.randomUUID(); }
+  catch { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+})();
 
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   const ac = new AbortController();
