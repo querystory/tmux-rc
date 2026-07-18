@@ -272,11 +272,13 @@ def session_locked() -> bool:
     try:
         out = _run_host(["loginctl", "list-sessions", "--no-legend"])
         for line in out.splitlines():
-            sid = line.split()[0] if line.split() else ""
-            if not sid:
+            cols = line.split()
+            # Only OUR graphical session: the GDM greeter is also wayland (uid gdm),
+            # and inspecting it would misreport the lock state.
+            if len(cols) < 2 or cols[1] != str(os.getuid()):
                 continue
             props = _run_host(
-                ["loginctl", "show-session", sid, "-p", "Type", "-p", "LockedHint"]
+                ["loginctl", "show-session", cols[0], "-p", "Type", "-p", "LockedHint"]
             )
             if "Type=wayland" in props or "Type=x11" in props:
                 return "LockedHint=yes" in props
