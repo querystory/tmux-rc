@@ -710,7 +710,10 @@ function bgTerm(s) {
         if (busy) return; // gesture mid-flight: don't repaint under the finger
         const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
         peekCache[peekStreamPane] = { html }; // cache for the next stale-on-mount
-        if (peekBox) {
+        // Skip the DOM write when nothing changed (stale-mount paints the cached frame,
+        // then the stream's first frame is often identical) — an innerHTML swap to the
+        // same content still tears down + rebuilds the subtree, which is the flicker.
+        if (peekBox && peekBox.innerHTML !== html) {
           peekBox.innerHTML = html;
           tuckChrome(peekWrap, peekBox);
           if (zHome(peekStreamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
@@ -1162,8 +1165,9 @@ function openScreen(paneId, label) {
   pinchZoom(body, pre);
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
-      pre.innerHTML = renderCapture(txt.replace(/\s+$/, ""), { color: true });
-      peekCache[paneId] = { html: pre.innerHTML }; // shared cache with the peek
+      const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
+      if (pre.innerHTML !== html) pre.innerHTML = html; // no-op swap = flicker; skip it
+      peekCache[paneId] = { html }; // shared cache with the peek
     },
     onLive: () => pre.classList.remove("stale"),
     onQuiet: () => pre.classList.add("stale"),

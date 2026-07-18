@@ -100,8 +100,13 @@
   .bg-wrap { flex: 1; min-height: 0; overflow: hidden; touch-action: none;
     margin-bottom: calc(var(--bar-h, 150px) - 60px); }
   .bg-wrap.shell { margin-bottom: calc(var(--bar-h, 150px) + 6px); }
-  .bg-term { margin: 0; padding: 4px 12px; font: 10px/1.35 ui-monospace, monospace;
-    color: #8b949e; white-space: pre; }
+  /* Terminal-dark background on the SURFACE (not just per-span): subpixel line-box
+     rounding leaves hairline gaps between colored rows, and on a fractional-DPR
+     display those gaps showed the page black (the "black lines on one screen only").
+     Filling the surface makes any gap blend. line-height 1.2 keeps leading tight. */
+  .bg-wrap { background: #0d1117; }
+  .bg-term { margin: 0; padding: 4px 12px; font: 10px/1.2 ui-monospace, monospace;
+    color: #8b949e; white-space: pre; background: #0d1117; }
   /* appearance/padding reset: mobile browsers pad native buttons and ignore the
      fixed box, squishing the glyph off-center. Flex centers it exactly. */
   .fsbtn { position: absolute; right: 10px; bottom: calc(var(--bar-h, 150px) + 14px);
@@ -302,9 +307,9 @@
     border-radius: 8px; width: 34px; height: 34px; font-size: 16px; cursor: pointer; }
   /* Pinch-to-zoom + pan the terminal content. The body is the gesture surface
      (touch-action:none so our JS owns pinch/drag); the <pre> is transformed. */
-  .screen-body { flex: 1; overflow: hidden; touch-action: none; position: relative; }
+  .screen-body { flex: 1; overflow: hidden; touch-action: none; position: relative; background: #0d1117; }
   .screen-pre { margin: 0; padding: 12px 16px; white-space: pre; will-change: transform;
-    font: 12px/1.3 ui-monospace, monospace; color: #c9d1d9; }
+    font: 12px/1.2 ui-monospace, monospace; color: #c9d1d9; }
   .empty { text-align: center; color: #6e7681; padding: 60px 20px; }
   /* "New version" pill: only shown when a silent auto-reload would eat un-sent state
      (typed draft / staged image) — otherwise updates apply themselves. */
