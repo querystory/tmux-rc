@@ -172,6 +172,12 @@ async def no_cache(request, call_next):
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
+    # Byte size for the streaming endpoints, so the log shows live/peek payload cost
+    # at a glance (a frame ~2-10KB; a "no change" reply is tiny). uvicorn's access log
+    # doesn't include response size, and these are the requests worth watching.
+    cl = resp.headers.get("content-length")
+    if cl and "/live" in request.url.path:
+        logger.info("%s -> %s bytes", request.url.path, cl)
     return resp
 
 
@@ -272,14 +278,22 @@ async def live_frame(pane_id: str, frame: str = ""):
     we answer with a newer colored frame, or {frame: same} after ~25s of no change
     (the client immediately re-holds). Captures run in a worker thread on a 250ms
     cadence — decoupled from the watcher, never an LLM call. An idle watched pane
-    costs one request per hold; a busy one streams responses back-to-back."""
+    costs one request per hold; a busy one streams responses back-to-back.
+
+    The change hash is taken over the VOLATILE-STRIPPED frame (watcher._fingerprint):
+    a Claude Code spinner/timer/token-counter repaints every capture without the screen
+    meaningfully changing, and hashing the raw frame would fire a response — and a
+    client repaint (flicker) — 4x/second on any working pane. Judge 'changed?' on real
+    content; the frame we SEND is still the full colored capture."""
+    from .watcher import _fingerprint
+
     deadline = time.monotonic() + LIVE_HOLD_SECONDS
     while True:
         try:
             text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
-        h = hashlib.md5(text.encode()).hexdigest()[:16]
+        h = hashlib.md5(_fingerprint(text).encode()).hexdigest()[:16]
         if h != frame:
             return {"frame": h, "text": text}
         if time.monotonic() >= deadline:
