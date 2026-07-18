@@ -317,6 +317,9 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
+    # Input changes the screen — force an immediate re-parse so an answered question /
+    # closed menu reflects on the card within a capture, not a poll interval later.
+    app.state.watcher.request_reparse(pane_id)
     return {"ok": True}
 
 
@@ -395,6 +398,7 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     # can't stall the event loop's polling.
     mode = await asyncio.to_thread(_deliver_image, pane_id, data, path)
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
+    app.state.watcher.request_reparse(pane_id)  # the paste changed the screen
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
