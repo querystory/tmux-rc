@@ -63,9 +63,10 @@ function setFavicon(waiting) {
 
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
-// Panes whose card is collapsed to its one-line header (caret ▸), handing the screen
-// to the live terminal behind it. Per-pane, survives re-renders.
-const cardCollapsed = new Set();
+// Collapse is a VIEW-WIDE preference, not per-pane: collapse one card (caret ▸) and
+// every pane — including ones you swipe to — shows its one-line header, handing the
+// screen to the live terminal. Expanding anywhere expands them all.
+let cardsCollapsed = false;
 let busy = false; // suppress polling flicker while an answer is in flight
 
 // The web surface is a dumb remote control for tmux — ALL state is in tmux. The active
@@ -541,7 +542,7 @@ function swipeNav(el, id) {
 
 function card(s) {
   const el = document.createElement("div");
-  const collapsed = cardCollapsed.has(s.pane_id);
+  const collapsed = cardsCollapsed;
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "");
   swipeNav(el, s.pane_id);
@@ -573,7 +574,7 @@ function card(s) {
   // border joins to (like a tab body under its tab). Repeating it wasted a column.
   // The ▾/▸ caret collapses the card to just this header row (still tab-joined), so
   // the live terminal behind it gets the whole screen — collapse state persists per
-  // pane across re-renders (cardCollapsed).
+  // view (cardsCollapsed) so swiping between panes keeps the chosen height.
   row.innerHTML = `
     <button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"
       aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>
@@ -584,7 +585,7 @@ function card(s) {
     <span class="badge b-${a}">${badge}</span>`;
   row.querySelector(".card-caret").onclick = (e) => {
     e.stopPropagation(); // don't also re-select the pane
-    collapsed ? cardCollapsed.delete(s.pane_id) : cardCollapsed.add(s.pane_id);
+    cardsCollapsed = !collapsed;
     render(Object.values(panesById));
   };
   el.appendChild(row);
@@ -1218,7 +1219,10 @@ function openScreen(paneId, label) {
   // restarting a second peek stream. Stop the current peek now; the overlay owns the
   // stream, and the peek re-mounts on the poll after close (screenOpen back to false).
   screenOpen = true;
-  if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; }
+  // Also reset peekLive: the stopped peek is no longer live, so when it re-mounts
+  // after close it starts stale (gray) until its own stream confirms, rather than
+  // briefly showing colored-but-actually-stale on the first post-close poll.
+  if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; peekLive = false; }
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
       const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
