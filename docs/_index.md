@@ -17,4 +17,5 @@ design notes, and the running progress log.
   {{< card link="benchmarks/" title="Benchmarks" subtitle="Hot-path classifier latency measurements." >}}
   {{< card link="hint/" title="Telemetry Hints" subtitle="Guidance for querying tmux-rc telemetry." >}}
   {{< card link="progress/" title="Progress Log" subtitle="What changed, newest first." >}}
+  {{< card link="/apidocs" title="API Reference" subtitle="Live Swagger UI for the daemon's HTTP API." >}}
 {{< /cards >}}

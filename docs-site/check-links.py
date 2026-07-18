@@ -110,6 +110,11 @@ def main() -> int:
             path = urllib.parse.urlparse(urllib.parse.urljoin(base, href)).path
             if path.endswith(ASSET_SUFFIXES):
                 continue
+            # A root-relative link that lands outside the site prefix (e.g. /apidocs
+            # when the site is at /docs/) is served by the daemon, not the Hugo build —
+            # not ours to validate.
+            if prefix and not path.startswith(prefix + "/") and path != prefix:
+                continue
             if file_path_for(path, prefix) is None:
                 broken.append((base, href, path))
 
