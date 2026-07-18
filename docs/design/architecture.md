@@ -160,10 +160,15 @@ flowchart TD
 ```
 
 Input is a single persistent bar targeting the active pane: type text, tap special keys
-(Enter, Esc, Ctrl-C…), or attach an image. Images are staged to disk and delivered by
-clipboard-paste when the desktop session is unlocked, or by typing the file path when
-it's locked or headless — a small **presence-aware** decision, since a locked GNOME
-session blocks clipboard reads (see [deployment](deployment.md)).
+(Enter, Esc, Ctrl-C…), or attach an image. Attaching an image **stages it in the
+composer** (a thumbnail chip) without touching the pane — nothing is sent until you
+press Send/Enter, which flushes text and image to the pane together (text, then image,
+then one Enter). This mirrors a phone's "caption then send the photo" feel and treats a
+staged image as un-sent draft state the auto-update reload won't eat. On send, the
+image is staged to disk on the daemon and delivered by clipboard-paste when the desktop
+session is unlocked, or by typing the file path when it's locked or headless — a small
+**presence-aware** decision, since a locked GNOME session blocks clipboard reads (see
+[deployment](deployment.md)).
 
 ## Live mode
 
