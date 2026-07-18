@@ -68,6 +68,7 @@ const openTimelines = new Set();
 // screen to the live terminal. Expanding anywhere expands them all.
 let cardsCollapsed = false;
 let busy = false; // suppress polling flicker while an answer is in flight
+let _fastPoll = null; // the single pending fast-reparse-poll timer (see poll())
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
 // sent. The card (and its answered question) render in a spinning "reparsing" state
 // until the served parsed_at advances past this — so a submitted answer / picked menu
@@ -237,8 +238,12 @@ async function poll() {
     }
     render(data.panes || []);
     // While a pane is spinning on a forced reparse, poll fast so the spinner clears
-    // within a beat of the parse landing (instead of waiting for the 2s interval).
-    if (Object.keys(reparsing).length) setTimeout(() => !busy && poll(), 500);
+    // within a beat of the parse landing (instead of waiting for the 2s interval). Only
+    // ONE fast poll may be pending at a time — otherwise each poll schedules another and
+    // they stack into overlapping bursts alongside the 2s interval.
+    if (Object.keys(reparsing).length && !_fastPoll) {
+      _fastPoll = setTimeout(() => { _fastPoll = null; if (!busy) poll(); }, 500);
+    }
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
     liveEl.className = "dot off";
@@ -1208,14 +1213,18 @@ function question(s) {
   prompt.className = "prompt";
   prompt.textContent = s.question.prompt;
   if (spinning) {
-    // Negative animation-delay = (Date.now() mod period): a freshly-created element's
-    // CSS animation always starts at 0°, and render() rebuilds the card every fast
-    // reparse-poll (~500ms < the 0.7s spin), so a plain spinner kept snapping back to
-    // the first quarter-turn. Seeding the delay to the current phase makes each rebuilt
-    // spinner RESUME where the last frame left off — one smooth continuous rotation.
-    const phase = -((Date.now() % 700) / 1000);
-    prompt.innerHTML +=
-      ` <span class="q-spin" aria-label="submitting" style="animation-delay:${phase}s"></span>`;
+    // Built as a DOM node (not innerHTML +=) so the escaped prompt text isn't reparsed
+    // as HTML each render. Negative animation-delay = (Date.now() mod period): a freshly
+    // -created element's CSS animation always starts at 0°, and render() rebuilds the
+    // card every fast reparse-poll (~500ms < the 0.7s spin), so a plain spinner kept
+    // snapping back to the first quarter-turn. Seeding the delay to the current phase
+    // makes each rebuilt spinner RESUME where the last frame left off — one smooth spin.
+    const spin = document.createElement("span");
+    spin.className = "q-spin";
+    spin.setAttribute("role", "status");
+    spin.setAttribute("aria-label", "submitting");
+    spin.style.animationDelay = `${-((Date.now() % 700) / 1000)}s`;
+    prompt.append(" ", spin);
   }
   q.appendChild(prompt);
 

@@ -259,6 +259,8 @@
     border: 3px solid #30363d; border-top-color: #58a6ff; border-radius: 50%;
     animation: spin .7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* Honour a reduced-motion preference: keep the spinner as a static "busy" ring. */
+  @media (prefers-reduced-motion: reduce) { .q-spin { animation: none; } }
   /* Structured tables: scroll horizontally AND vertically, capped so a big one doesn't
      dominate the card. */
   .tablewrap { margin-top: 12px; }
