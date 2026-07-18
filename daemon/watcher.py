@@ -106,6 +106,9 @@ class Watcher:
         self._tool: dict[
             str, tuple[str, float]
         ] = {}  # pane_id -> (agent tool, last-seen ts)
+        self._live_seen: dict[
+            str, float
+        ] = {}  # pane_id -> monotonic ts of last live poll; drives has_live_viewer
         self._state: dict[
             str, dict
         ] = {}  # pane_id -> last parsed dict (reused between parses)
@@ -326,12 +329,40 @@ class Watcher:
 
     # Every per-pane store, keyed by pane id. One tuple so gc (vanished panes) and
     # reuse-eviction (recycled ids) can't drift apart.
+    # Live-viewer presence (docs/design/live-telemetry.md). The /live handler stamps
+    # note_live_poll at the START of every round (a viewer mid-hold is present), giving
+    # the daemon a first-class "is anyone watching?" fact — server state, not a log
+    # replay — so a later change can throttle LLM parsing for unwatched panes. The
+    # recency window bridges the instant between a round returning and the client
+    # re-holding, so the flag doesn't flap false; a truly-closed viewer ages out with no
+    # cleanup (leak-proof, unlike a refcount or beacon-driven registry).
+    LIVE_PRESENCE_WINDOW = 60.0
+
+    def note_live_poll(self, pane_id: str) -> None:
+        self._live_seen[pane_id] = time.monotonic()
+
+    def has_live_viewer(self, pane_id: str) -> bool:
+        seen = self._live_seen.get(pane_id)
+        return seen is not None and (time.monotonic() - seen) < self.LIVE_PRESENCE_WINDOW
+
+    def tool_for(self, pane_id: str) -> str | None:
+        """Last-known agent tool for a pane (claude/codex/gemini/shell), for callers
+        outside the tick — e.g. live telemetry attribution. None if unseen."""
+        t = self._tool.get(pane_id)
+        return t[0] if t else None
+
+    def label_for(self, pane_id: str) -> str:
+        """Last-known human label for a pane (falls back to the id), for out-of-tick
+        callers like live telemetry."""
+        return (self._state.get(pane_id) or {}).get("label", pane_id)
+
     def _stores(self):
         return (
             self._prev_fp,
             self._unchanged_since,
             self._last_parse,
             self._tool,
+            self._live_seen,
             self._state,
             self._recent_events,
             self._last_dropped,

@@ -648,6 +648,13 @@ function tuckChrome(wrap, box) {
 // as the server keeps ANSWERING (a "no change" reply is proof-of-life). Gray means
 // the connection actually broke/hung — a fetch error, or no response at all for
 // longer than one full hold (watchdog).
+// One anonymous session id per page load — the summable spine for live-time /
+// bandwidth telemetry (docs/design/live-telemetry.md). Not identity: a correlation
+// key that groups this tab's live rounds. randomUUID is https/localhost-only, which is
+// where the PWA runs; a plain-http LAN fallback keeps it from throwing.
+const SESSION_ID = (crypto.randomUUID && crypto.randomUUID()) ||
+  (Date.now().toString(36) + Math.random().toString(36).slice(2));
+
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   const ac = new AbortController();
   let watchdog = null;
@@ -661,7 +668,7 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
     while (!ac.signal.aborted) {
       try {
         const r = await fetch(
-          `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}`,
+          `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}&session=${SESSION_ID}`,
           { signal: ac.signal });
         if (!r.ok) { onQuiet && onQuiet(); await sleep(2000); continue; } // pane gone / wedged
         const j = await r.json();

@@ -92,6 +92,18 @@ _audit_log = logging.getLogger("daemon.server.audit")
 _AUDIT_KEYS = os.environ.get("TMUXRC_AUDIT_KEYS") != "0"
 
 
+def _trusted_user(request: Request) -> str | None:
+    """The tunnel owner's email, honored ONLY from a loopback peer (the same trust
+    model as _audit): the tunnel-client connects from localhost having validated the
+    identity via IAP and stripped spoofed inbound copies. A LAN client's claim is
+    unverified, so we return None rather than record it — live telemetry's `actor` is a
+    billing-grade attribution key, not a forensic breadcrumb, so an unverifiable claim
+    must simply be absent (the anonymous `session` still carries the usage)."""
+    peer = request.client.host if request.client else "?"
+    claimed = request.headers.get("x-tunnel-user")
+    return claimed if (claimed and peer in ("127.0.0.1", "::1")) else None
+
+
 def _audit(
     request: Request,
     action: str,
@@ -279,7 +291,7 @@ LIVE_CHECK_SECONDS = 0.25  # freshness floor — server constant, not a client k
 
 
 @app.get("/api/panes/{pane_id}/live")
-async def live_frame(pane_id: str, frame: str = ""):
+async def live_frame(pane_id: str, request: Request, frame: str = "", session: str = ""):
     """One long-poll round: the client sends the hash of the frame it's showing and
     we answer with a newer colored frame, or {frame: same} after ~25s of no change
     (the client immediately re-holds). Captures run in a worker thread on a 250ms
@@ -289,19 +301,56 @@ async def live_frame(pane_id: str, frame: str = ""):
     The change hash is over the RAW colored frame — every visible change (including a
     spinner tick or ticking timer) is a new frame, because live mode means live: the
     client renders these smoothly via line-level DOM diffing, so full fidelity here
-    does not cause flicker."""
-    deadline = time.monotonic() + LIVE_HOLD_SECONDS
+    does not cause flicker.
+
+    `session` is the client's per-page-load UUID: the summable spine for live-time /
+    usage telemetry (see docs/design/live-telemetry.md). We stamp presence up front so
+    a viewer mid-hold counts, and emit ONE telemetry record per completed round."""
+    w = app.state.watcher
+    w.note_live_poll(pane_id)  # presence: a viewer is here (before we block on the hold)
+    started = time.monotonic()
+    deadline = started + LIVE_HOLD_SECONDS
     while True:
         try:
             text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
-        h = hashlib.md5(text.encode()).hexdigest()[:16]
-        if h != frame:
-            return {"frame": h, "text": text}
-        if time.monotonic() >= deadline:
-            return {"frame": h}  # unchanged — client re-holds with the same hash
+        data = text.encode()  # encode once — reused for the hash and the byte count
+        h = hashlib.md5(data).hexdigest()[:16]
+        changed = h != frame
+        if changed or time.monotonic() >= deadline:
+            _emit_live_round(
+                request, pane_id, session, time.monotonic() - started, changed,
+                len(data) if changed else None,
+            )
+            # changed ⇒ send the new colored frame; else unchanged, client re-holds.
+            return {"frame": h, "text": text} if changed else {"frame": h}
         await asyncio.sleep(LIVE_CHECK_SECONDS)
+
+
+def _emit_live_round(
+    request: Request, pane_id: str, session: str, hold_s: float,
+    changed: bool, raw_bytes: int | None,
+) -> None:
+    """Best-effort telemetry for one completed live round. Off the request's critical
+    path (the response is already decided) and fully swallowed, so it can never break
+    or slow the live stream."""
+    try:
+        from . import telemetry
+
+        w = app.state.watcher
+        telemetry.emit_live(
+            session=session or "anon",
+            pane_uid=f"{tmux.server_uid()}:{pane_id}",
+            pane_label=w.label_for(pane_id),
+            tool=w.tool_for(pane_id),
+            hold_s=hold_s,
+            changed=changed,
+            raw_bytes=raw_bytes,
+            actor=_trusted_user(request),
+        )
+    except Exception:  # noqa: BLE001 - live telemetry must never break the stream
+        logger.debug("live emit failed", exc_info=True)
 
 
 @app.post("/api/panes/{pane_id}/send")
