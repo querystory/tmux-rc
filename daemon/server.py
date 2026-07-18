@@ -339,7 +339,7 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     # Delivery blocks (Pillow decode, subprocess waits): worker thread, so an upload
     # can't stall the event loop's polling.
     mode = await asyncio.to_thread(_deliver_image, pane_id, data, path)
-    _audit(request, "paste_image", pane_id, f"{detail} via {mode}")
+    _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
