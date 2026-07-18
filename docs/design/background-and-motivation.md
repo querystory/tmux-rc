@@ -1,153 +1,144 @@
-# Background: what tmux is, and why tmux-rc exists
+# Background & motivation
 
-Status: **background / primer**. Start here if you're new to the project. The [PRD](../../prd/)
-has the crisp requirements; this doc is the longer *why* — what tmux is, and the full set of
-frustrations that made building tmux-rc worth it.
+Status: **background / primer**. Start here if you're new to the project. The [PRD](../../prd/) has
+the crisp requirements; this is the longer *why* — the problem that started it, and why watching a
+`tmux` session turned out to be the right shape for the answer. It also explains what tmux is along
+the way, so no prior knowledge is assumed.
 
-## What is tmux?
+## The problem: the agents live elsewhere, and reaching them is the pain
 
-`tmux` (terminal multiplexer) is a program that sits between your terminal and the shells
-running inside it. Two things about it matter for this project:
+The whole thing starts from one decision: **I don't want to run Claude Code on my local machine.**
+Coding agents want a beefy, always-on box — one that keeps grinding while my laptop sleeps, moves
+between networks, or runs out of battery. So the agents run on a remote dev box, working away
+whether or not I'm at my desk.
 
-**It persists.** Normally when your terminal window closes — or your SSH connection drops, or
-your laptop sleeps — every process running in that terminal dies with it. tmux breaks that
-link. It runs a long-lived **server** process that owns your shells; your terminal merely
-*attaches* to it as a client. Close the window and the shells keep running on the server. Open
-a new terminal, run `tmux attach`, and you're back exactly where you were — same processes,
-same scrollback, still running. This is why people run long jobs and remote work inside tmux:
-the session outlives any one connection to it.
+That solves *where the work happens* and immediately creates the real problem: **how do I reach it?**
+An agent that's been sitting for twenty minutes waiting on a yes/no permission prompt is worse than
+useless — it's blocked *and* I don't know it. The value is in noticing and unblocking quickly, and
+that requires a live line to a machine I'm not sitting in front of.
 
-**It's structured, and scriptable.** A tmux server holds **sessions**, each with **windows**
-(like tabs), each split into **panes** (independent shells side by side). Every one of these is
-addressable. And critically, tmux exposes all of it through a command interface you can drive
-from *outside* the session:
+The obvious line is SSH: connect in, attach to the terminal, look, type an answer. In practice it's
+miserable exactly when you need it most:
+
+- **From a phone it barely happens.** An SSH client on a touchscreen, attaching to a raw terminal,
+  pinch-zooming through a wall of scrollback, thumbing a `send-keys` answer character by character —
+  nobody actually does this while they're out. So you don't check in at all, and the agent stalls.
+- **Even from a PC it's friction.** Find the right host, SSH in, attach, hunt for the pane that's
+  waiting, squint at what it's asking. Every glance is a small production.
+
+Moving the agents to a remote box was supposed to free me from my local machine — but SSH drags me
+right back to being tethered to *some* terminal on *some* machine just to see what's going on.
+**That tether is the thing tmux-rc removes.** Everything below is a reason this is the right way to
+remove it; this is why it exists at all.
+
+## The near-miss: Claude Code's own remote control
+
+Anthropic already ships `/remote-control` for Claude Code — a phone UI to watch a session and answer
+its prompts from your pocket. It's genuinely good, and it's the direct inspiration here: the idea is
+exactly right. But in daily use it's opinionated in three ways that disqualify it for how I actually
+work:
+
+- **One vendor.** It drives Claude Code and nothing else. But Codex and Gemini CLI are in the same
+  workflow — different models win at different things, and the interesting work increasingly *mixes*
+  them. A single-vendor remote is blind to most of the fleet.
+- **One billing path.** It's locked to the first-party Anthropic API — no Bedrock, Vertex, or
+  Foundry. That has a real economic bite: running Claude through **Bedrock spends AWS credits**, but
+  remote control forces first-party billing, so you can run out of quota mid-session and be stuck
+  paying *real dollars* while sitting on a pile of cloud credits you can't apply.
+- **Someone else's environment.** It runs the agent in a managed sandbox with its constraints. Half
+  the point of a remote dev box is that it's *mine* — my tools, my filesystem, my network, no limits
+  I didn't choose.
+
+The pattern is the tell: remote control abstracts over the *agent* but stays opinionated about the
+*vendor, the billing, and the environment*. The fix is to abstract one level lower — over the thing
+all of these share.
+
+## The insight: the terminal is the universal surface
+
+Every one of those agents — Claude Code, Codex, Gemini CLI — and every non-agent task too (`make
+test`, a `psql` shell, a plain prompt) has exactly one thing in common: **it runs in a terminal.**
+The terminal is the universal substrate. If you watch and drive *that*, you're automatically neutral
+on vendor, on billing, and on environment, because the terminal doesn't care which of those produced
+the text on it.
+
+So the shape of the answer falls out: don't integrate with any agent's API or parse any vendor's log
+format. Observe the terminal, turn what's on it into a glanceable phone view, and send answers back
+into it. The only requirement is a terminal that's *durable* (survives disconnects) and *observable
+from the outside* (readable without disturbing it). That is precisely — and only — what tmux is.
+
+## Why tmux is the perfect substrate
+
+`tmux` (terminal multiplexer) sits between your terminal and the shells inside it, and two of its
+properties are exactly the two we need.
+
+**It persists.** Normally, closing a terminal — or dropping an SSH connection, or sleeping the laptop
+— kills everything running in it. tmux breaks that link: a long-lived **server** process owns the
+shells, and your terminal is just a *client* that attaches to it. Close the window and the work keeps
+running; `tmux attach` from anywhere later drops you back in, same processes, same scrollback. That's
+the durability the remote-box story depends on.
+
+**It's structured and observable from outside.** A tmux server holds **sessions**, each with
+**windows** (tabs) split into **panes** (side-by-side shells), and every one is addressable through a
+command interface you can drive from a *separate* program:
 
 - `tmux list-panes` — enumerate what exists.
-- `tmux capture-pane` — read the current text content of any pane, **without disturbing it**.
-  This is the key primitive: you can look at what an agent is doing without touching its input.
-- `tmux send-keys` — inject keystrokes into any pane, as if the user typed them.
+- `tmux capture-pane` — read a pane's current contents **without disturbing it**. This is the load-
+  bearing primitive: you observe an agent while a human stays attached to the same session, neither
+  stepping on the other.
+- `tmux send-keys` — inject keystrokes into a pane, as if typed by the user.
 
-That combination — *durable*, *structured*, *observable-and-controllable from the outside* —
-is exactly what a phone control plane needs. tmux is the universal substrate: whatever runs in
-a terminal (an AI agent, a test run, a database shell, a plain bash prompt) becomes something a
-separate program can watch and drive. tmux-rc is that separate program.
+Durable, structured, observable-without-interference — that's the entire wishlist, and it already
+exists. This is the quiet strength of the approach: tmux has been battle-hardened for two decades and
+is on every dev box. tmux-rc isn't a new terminal stack we have to keep alive; it's a **thin layer
+above a mature, boring dependency.** The hard part isn't our code — it's someone else's, already
+solved.
 
-And this is the quiet strength of the whole approach: **tmux is the perfect solution, and it
-already exists.** It has been battle-hardened over two decades, it's on every dev box, and it
-solves the durable-persistent-observable problem completely. tmux-rc doesn't reinvent any of that
-— it's a *thin layer above* something mature and boring, not a new terminal stack we have to keep
-alive. The hard substrate is a dependency, not our code.
+## The reader that makes it cheap: Gemini Flash Lite
 
-## The other half of the substrate: Gemini Flash Lite
+Watching gives you raw pane text; the value is in *understanding* it — "this pane is blocked, here's
+the question, here are the options." Heuristics handle the easy cases, but the fallback is a small,
+high-volume classification job run every time a pane changes, and its economics decide whether
+continuous watching is even viable.
 
-If tmux is the perfect *foundation*, the perfect *reader* turned out to be **Gemini Flash Lite** —
-a model a lot of people sleep on. Turning a raw pane of terminal text into structured state
-("this pane is blocked, here's the question, here are the options") is a small, high-volume
-classification job, run over and over as panes change. Flash Lite is startlingly good at exactly
-that: strong enough to read messy terminal output and images reliably, and cheap and fast enough
-to run on every tick without thinking about the bill. Heuristics do the cheap work and Flash Lite
-is the lazy fallback — but when the fallback fires, its speed/cost is what makes continuous
-watching (and, later, continuous *orchestration*) economically free.
+**Gemini Flash Lite** — a model a lot of people sleep on — turns out to be the perfect reader for it:
+strong enough to read messy terminal text and rendered images reliably, cheap and fast enough to run
+on every tick without a second thought about the bill. That combination is the real unlock. It means
+a **cheap, fast little model can babysit the crazy-expensive frontier agents** — you don't burn
+Opus/Fable-tier tokens to notice an Opus-tier agent is stuck; you spend fractions of a cent to watch,
+route, and unblock, and reserve the real money for the real reasoning. Keeping expensive agents fed
+and unblocked is exactly where a cheap watching layer pays for itself many times over.
 
-That's the leverage: a **cheap, fast little model babysitting and coordinating the crazy-expensive
-frontier agents** (the Fable/Opus-tier models doing the actual work). You don't burn premium tokens
-to notice that a premium agent is stuck — you spend fractions of a cent on Flash Lite to watch,
-route, and unblock, and reserve the real money for the real reasoning. Making better use of those
-expensive agents — keeping them fed, unblocked, and coordinated — is precisely where a cheap
-orchestration layer pays for itself many times over.
+## The bigger prize: an outer loop, not just thumbs
 
-## The top-level reason: run the agents somewhere else, reach them from anywhere
+Answering prompts from a phone is the visible feature. The deeper reason is **orchestration** —
+driving a whole fleet of sessions from an *outer-loop agent*, not only a human. Picture an
+orchestrator that spins up several Claude Code / Codex / Gemini sessions, hands each a slice of work,
+and coordinates: notices when one blocks, pipes one's output into another, decides what to launch
+next. To reason about the fleet it needs a clean, live, structured read of **what each session is
+doing right now** — the same thing the phone UI needs, just consumed by code instead of eyes.
 
-Before any of the finer motivations below, there's the one that started it: **I don't want to run
-Claude Code on my local machine.** Agents want a beefy, always-on, well-provisioned box — one that
-keeps working while my laptop sleeps, moves, or runs out of battery. So the agents live on a
-remote dev box. Which immediately creates the real problem: **reaching them.**
+Today the only window into a Claude Code session is its `~/.claude/projects/**/**.jsonl` transcript,
+and as an orchestration substrate it's the wrong tool: the files **rotate** (so "the current session"
+is a moving target), they're **slow to parse** (large append-only JSONL, no index), they're **not
+semantically indexed** (raw event soup you re-derive meaning from every time), and **grepping logs is
+the wrong interface** for an agent that needs to act on state, not spelunk for it. I built a
+`/session-summary` skill that writes `.md` sidecars next to those files to make them searchable — it
+helps, but it's **clunky**: a batch pass over static files, bolted onto the log substrate,
+reconstructing state after the fact instead of observing it live.
 
-The obvious answer — SSH in and attach to tmux — is a genuine pain, and it's worst exactly when
-you most need it:
+Watching the terminal attacks the same need from the right side. The one surface every agent shares,
+turned into live structured state, is exactly what both a thumb and an orchestrator want — so the
+phone UI is simply the *first* consumer of the watcher, and an orchestration API over the same state
+is the natural next one.
 
-- **From a phone it's miserable.** An SSH client on a touchscreen, attaching to a raw terminal,
-  pinch-zooming to read a wall of scrollback, trying to type a `tmux send-keys` answer with thumbs
-  — this is the thing nobody actually does when they're out. So you don't check on the agent at
-  all, and it sits blocked for an hour.
-- **Even from a PC it's friction.** Find the right machine, SSH in, `tmux attach`, hunt for the
-  pane that's waiting, squint at what it's asking. Every check-in is a small production.
+## In one line
 
-The whole point of moving the agents to a remote box is to be free of your local machine — but SSH
-drags you right back into being tethered to *a* terminal on *some* machine to do anything. tmux-rc
-removes that tether: the agents run remote, and you reach them through a **phone-native UI over
-HTTPS**, no SSH, no terminal emulator, no thumbs-on-a-shell. Glance, see what's blocked, tap the
-answer, done — from a phone on the go, or a browser tab on any PC. Everything below is a reason
-this is better than the alternatives; *this* is the reason it exists at all.
+Put the agents on a durable remote box, watch the one surface they all share — the terminal, made
+persistent and observable by mature old tmux — read it cheaply with Flash Lite, and you get a
+vendor-neutral, billing-neutral, environment-neutral control plane that a thumb can use today and an
+orchestrator tomorrow. Not another single-vendor remote, and not another pile of logs to grep.
 
-## The seed: Claude Code's remote control, and its limits
+---
 
-Anthropic ships `/remote-control` for Claude Code — a phone UI that lets you watch a Claude Code
-session and answer its prompts from your phone. It's genuinely great, and it's the direct
-inspiration for tmux-rc. The idea is right: step away from your desk, keep a leash on the agent,
-unblock it from your pocket.
-
-But in daily use it hits a wall of limitations, and the limitations aren't small:
-
-- **It only drives Claude Code.** Codex and Gemini CLI are part of the same workflow — different
-  models are better at different things, and increasingly the interesting work *mixes* them. Remote
-  control can't see any of that. The moment your workflow is heterogeneous, a single-vendor remote
-  is blind to most of it.
-- **It's locked to the Anthropic first-party API.** It does not work through Amazon Bedrock,
-  Google Vertex, or Microsoft Foundry. That's not a checkbox — it has a real economic bite:
-  running Claude through **Bedrock lets you spend AWS credits**, but remote control forces you
-  onto first-party billing. Run out of first-party quota mid-session and you're stuck paying
-  *real dollars* to continue, even while sitting on a pile of AWS credits you can't apply.
-- **A restricted compute environment.** Remote control runs the agent in Anthropic's managed
-  environment, with the constraints that come with someone else's sandbox. Part of the appeal of
-  running agents on *your own* dev box is that it's *your* box — your tools, your filesystem, your
-  network, no restrictions you didn't choose.
-
-The throughline: remote control abstracts over the *agent* but is opinionated about the *vendor,
-the billing, and the environment*. tmux-rc abstracts over the *terminal* instead — so it inherits
-none of those opinions. Any agent, any model provider for the summarization pass, on your own
-machine.
-
-## The bigger reason: driving the whole thing from an outer loop
-
-Answering prompts from a phone is the visible feature. The deeper motivation is **orchestration** —
-being able to drive a fleet of agent sessions from an *outer-loop agent*, not just human thumbs.
-
-Picture an orchestrator that spins up several Claude Code / Codex / Gemini sessions, hands each a
-slice of work, and coordinates between them: notices when one is blocked, feeds another's output
-into a third, decides what to kick off next. For that orchestrator to reason about the fleet, it
-needs a clean, live, structured read of **what each session is actually doing right now** — and a
-way to act on it.
-
-Today the only window into a Claude Code session's history is its `~/.claude/projects/**/**.jsonl`
-transcript, and as an orchestration substrate it's painful:
-
-- **The files rotate**, so "the current session" is a moving target you have to keep rediscovering.
-- **They're slow to parse** — large append-only JSONL you grep from the outside, with no index.
-- **They're not AI-indexed** — no semantic "what happened, what's blocked, what changed" view;
-  just raw event soup you have to reconstruct meaning from every single time.
-- **Grepping JSONL is the wrong interface** for an agent that needs to make decisions from the
-  state, not spelunk logs for it.
-
-I already built a `/session-summary` skill that generates `.md` sidecar summaries next to those
-`.jsonl` files to make them searchable. It helps, but it's **clunky**: it's a batch pass over
-static files, not a live read; it's bolted onto the log-file substrate rather than replacing it;
-and it's still reconstructing state after the fact instead of observing it as it happens.
-
-tmux-rc points at the same need from a better angle. Instead of parsing each vendor's private log
-format after the fact, it **observes the terminal itself** — the one surface every agent shares —
-and turns it into live, structured state: which pane, which tool, running vs idle vs blocked, the
-current question and its options. That state is exactly what both a human on a phone *and* an
-outer-loop orchestrator want. The phone UI is the first consumer of it; an orchestration API over
-the same watcher is the natural next one.
-
-## Why this shape, in one line
-
-Every terminal agent, whatever the vendor and whatever the model backend, shares one surface: the
-terminal, made durable and observable by tmux. Watch *that*, and you get a vendor-neutral,
-billing-neutral, environment-neutral control plane — usable by a thumb today and by an orchestrator
-tomorrow — instead of one more single-vendor remote or one more pile of log files to grep.
-
-For how that observation actually works end to end, read [How it all works](../architecture/). For
-the requirements, the [PRD](../../prd/); for the design rationale, [DESIGN](../../design/) and the
-other notes in this section.
+Next: [How it all works](../architecture/) for the end-to-end mechanics, the [PRD](../../prd/) for
+requirements, and the other [design notes](../../design/) for the *why* behind individual pieces.
