@@ -1,6 +1,7 @@
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
-// No framework, no build step.
+// No framework, no build step (native ES module — index.html loads type=module).
+import { renderCapture } from "./terminal.js";
 
 // Real brand marks per tool (served from web/). One img template so every icon renders
 // identically; unidentified panes fall back to the tmux logomark. `tool` comes from
@@ -237,7 +238,14 @@ function render(states) {
   for (const m of [eventLog, eventScroll, peekCache, bgZoom])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   setFavicon(states.some((s) => actOf(s) === "waiting"));
+  // No card visible (empty / list mode) ⇒ no peek stream should be running. bgTerm
+  // restarts it when a card renders; here we make sure it's stopped otherwise.
+  const stopPeek = () => {
+    if (peekStop) { peekStop(); peekStop = null; }
+    peekStreamPane = peekBox = peekWrap = null;
+  };
   if (!states.length) {
+    stopPeek();
     dockEl.replaceChildren();
     panesEl.innerHTML = '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>';
     updateBar(null);
@@ -251,6 +259,7 @@ function render(states) {
   // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
   const subset = listFilter && states.filter((s) => listFilter === "all" || actOf(s) === listFilter);
   if (subset && subset.length) {
+    stopPeek(); // list mode: no card, no peek stream
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
     panesEl.replaceChildren(...subset.map((s) => row(s, act))); // server order — same as the dock
     updateBar(panesById[act]);
@@ -593,7 +602,10 @@ function card(s) {
 // content — a parser field could size that per tool later). The card floats over the
 // top; the live tail pokes out below it, pan/zoomable in place.
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
-const peekCache = {}; // pane_id -> {snap, html} — linkified once per snapshot
+const peekCache = {}; // pane_id -> {html} — last live frame, shown gray on remount
+let peekStop = null;        // stop() for the active peek's live stream (one at a time)
+let peekStreamPane = null;  // which pane that stream is for (don't restart per render)
+let peekBox = null, peekWrap = null; // current peek elements the stream paints into
 const bgZoom = {}; // pane_id -> {scale, tx, ty}
 // "Home" = the user hasn't deliberately panned/zoomed the peek. Content updates
 // (bursts, snapshots, resizes) may re-pin the scroll to the tail ONLY then —
@@ -622,6 +634,42 @@ function tuckChrome(wrap, box) {
   wrap.style.marginBottom =
     `calc(var(--bar-h, 150px) - ${rows ? Math.round(rows * lineH) + 6 : 60}px)`;
 }
+// One long-poll live stream (docs/design/live-view.md). Holds /live?frame=<hash> open;
+// the daemon answers the moment the pane's screen differs (checked server-side every
+// 250ms), or with just the hash after ~25s idle, and we immediately re-hold. Full
+// COLORED frames — resize/reflow/alt-screen all reduce to "render the new frame".
+// onFrame(coloredText) paints; onQuiet()/onLive() toggle the stale (decolor) look.
+// Returns a stop() (AbortController) — call it when the surface goes away.
+function liveStream(paneId, { onFrame, onLive, onQuiet }) {
+  const ac = new AbortController();
+  let quietTimer = null;
+  const armQuiet = () => {
+    clearTimeout(quietTimer);
+    // No fresh frame for 3s ⇒ the stream is quiet or wedged: gray it out (onQuiet)
+    // to signal "possibly stale" without tearing down — the next frame re-colors.
+    quietTimer = setTimeout(() => onQuiet && onQuiet(), 3000);
+  };
+  (async () => {
+    let frame = "";
+    while (!ac.signal.aborted) {
+      try {
+        const r = await fetch(
+          `/api/panes/${encodeURIComponent(paneId)}/live?frame=${encodeURIComponent(frame)}`,
+          { signal: ac.signal });
+        if (!r.ok) { await sleep(2000); continue; } // pane gone / tmux wedged: retry gently
+        const j = await r.json();
+        if (j.text !== undefined) { onFrame(j.text); onLive && onLive(); armQuiet(); }
+        frame = j.frame;
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        await sleep(2000); // transient network: back off, keep the stream alive
+      }
+    }
+  })();
+  return () => { ac.abort(); clearTimeout(quietTimer); };
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 function bgTerm(s) {
   // Wrapper = the visible window (starts right below the card, ends near the bar);
   // the trimmed capture is top-anchored inside it, scrolled to its tail when longer.
@@ -637,30 +685,41 @@ function bgTerm(s) {
   box.className = "bg-term";
   wrap.appendChild(box);
   const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
+  const paint = (html) => {
+    box.innerHTML = html;
+    tuckChrome(wrap, box);
+    if (zHome(s.pane_id)) toEnd();
+  };
+  // Instant stale frame on (re)mount: the last frame we rendered for this pane, shown
+  // GRAY until the stream's first color frame lands. A pane never viewed this session
+  // has none — it shows "(connecting…)" for the ~250ms until the first frame.
   const c = peekCache[s.pane_id];
-  // Same linkification as the full-screen view (escaped text, wrapped URLs rejoined),
-  // so URLs in the peek are tappable in place. Linkified ONCE per snapshot, cached —
-  // the deck rebuilds every poll and re-running the regex on a big capture is waste.
-  if (c) { box.innerHTML = c.html; tuckChrome(wrap, box); } // last capture (kept while a newer one loads)
-  // Strictly-newer comparison (ids are ms timestamps): after a live-burst frame
-  // stamps the cache with now(), older watcher snapshots shouldn't even be fetched.
-  const snap = s.snapshot_id;
-  if (snap && (!c || Number(snap) > Number(c.snap)))
-    fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/snapshots/${snap}`)
-      .then((r) => (r.ok ? r.text() : ""))
-      .then((t) => {
-        const txt = t.replace(/\s+$/, "");
-        // Responses can resolve out of order — never let an older snapshot (ids are
-        // ms timestamps) overwrite a newer one already applied.
-        const cur = peekCache[s.pane_id];
-        if (!txt || (cur && Number(cur.snap) >= Number(snap))) return;
-        const html = linkifyCapture(txt);
-        peekCache[s.pane_id] = { snap, html };
-        box.innerHTML = html;
-        tuckChrome(wrap, box);
-        if (zHome(s.pane_id)) toEnd();
-      })
-      .catch(() => {});
+  if (c) { paint(c.html); wrap.classList.add("stale"); }
+  else box.textContent = "(connecting…)";
+  // The peek streams for the ACTIVE pane. render() rebuilds the deck every poll, so
+  // the stream is NOT re-created per render (that would restart the long-poll hold
+  // each time) — it's keyed to the pane and its callbacks target the CURRENT elements
+  // via the module-level peekBox refs, which each bgTerm updates. Restart only when
+  // the streamed pane actually changes.
+  peekBox = box; peekWrap = wrap;
+  if (peekStreamPane !== s.pane_id) {
+    peekStop && peekStop();
+    peekStreamPane = s.pane_id;
+    peekStop = liveStream(s.pane_id, {
+      onFrame: (txt) => {
+        if (busy) return; // gesture mid-flight: don't repaint under the finger
+        const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
+        peekCache[peekStreamPane] = { html }; // cache for the next stale-on-mount
+        if (peekBox) {
+          peekBox.innerHTML = html;
+          tuckChrome(peekWrap, peekBox);
+          if (zHome(peekStreamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
+        }
+      },
+      onLive: () => peekWrap && peekWrap.classList.remove("stale"),
+      onQuiet: () => peekWrap && peekWrap.classList.add("stale"),
+    });
+  }
   // Desktop has no pan gesture — dragging a text selection auto-scrolls the window
   // sideways with nothing to bring it home (touch pans go through pinchZoom's clamp).
   // Ease scrollLeft back once the drag settles.
@@ -1070,46 +1129,6 @@ async function sendRaw(s, keyName) {
   await send(s, { keys: keyName, enter: false, literal: false });
 }
 
-// Live peek burst: after ANY input (keys, text, image), the terminal peek should show
-// it landing NOW — not after the watcher's next snapshot + poll round-trip. For a few
-// seconds, fetch a FRESH capture (/peek — no LLM) every 500ms and paint it in place,
-// stamping peekCache with a now() snap id so ordinary renders don't regress it
-// (snapshot ids are ms timestamps; a later watcher snapshot still wins). Each new
-// input extends the window; one timer, one in-flight fetch, active pane only.
-let burstUntil = 0, burstBusy = false, burstTimer = null;
-function liveBurst() {
-  burstUntil = Date.now() + 6000;
-  if (burstTimer) return;
-  burstTimer = setInterval(async () => {
-    if (Date.now() > burstUntil) { clearInterval(burstTimer); burstTimer = null; return; }
-    const id = activeId();
-    const box = document.querySelector(".deck .bg-term");
-    // busy ⇒ a touch gesture is mid-flight (pinchZoom freezes polls for the same
-    // reason): swapping content or moving scroll under a finger fights the user.
-    if (burstBusy || busy || !id || !box) return;
-    burstBusy = true;
-    try {
-      // Timeout so a hung request can't wedge burstBusy=true and kill the burst.
-      // (Freshness is the server's global no-store middleware, not per-fetch flags.)
-      // Older browsers lack AbortSignal.timeout — run without the guard there
-      // rather than throwing on every tick.
-      const r = await fetch(`/api/panes/${encodeURIComponent(id)}/peek`,
-        { signal: AbortSignal.timeout ? AbortSignal.timeout(1500) : undefined });
-      const txt = r.ok ? (await r.text()).replace(/\s+$/, "") : "";
-      if (txt && id === activeId()) {
-        const html = linkifyCapture(txt);
-        peekCache[id] = { snap: String(Date.now()), html };
-        box.innerHTML = html;
-        if (box.parentElement) {
-          tuckChrome(box.parentElement, box);
-          if (zHome(id)) box.parentElement.scrollTop = box.parentElement.scrollHeight;
-        }
-      }
-    } catch {}
-    burstBusy = false;
-  }, 500);
-}
-
 async function send(s, body) {
   busy = true;
   try {
@@ -1118,89 +1137,38 @@ async function send(s, body) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    liveBurst(); // show the input landing in the peek NOW, not next watcher tick
+    // No burst needed: the visible raw surface streams via liveStream, so the
+    // keystroke shows up in the next live frame on its own (docs/design/live-view.md).
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
 }
 
-// Full-screen, scrollable (both axes) view of the pane's latest raw capture, fetched
-// ON DEMAND (opened via the ⤢ full-screen button over the deck).
-async function openScreen(paneId, label) {
-  let text = "(loading…)";
-  try {
-    const list = await (await fetch(`/api/panes/${encodeURIComponent(paneId)}/snapshots`)).json();
-    const last = list[list.length - 1];
-    if (last)
-      text = await (await fetch(`/api/panes/${encodeURIComponent(paneId)}/snapshots/${last.id}`)).text();
-    else text = "(no capture yet)";
-  } catch { text = "(failed to load)"; }
+// Full-screen live view of the pane (⤢ over the deck): the same long-poll stream as
+// the peek, rendered big and pan/zoomable. Color = live; gray = the stream went quiet.
+function openScreen(paneId, label) {
   const ov = document.createElement("div");
   ov.className = "screen-overlay";
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><button class="screen-close">✕</button></div>` +
-    `<div class="screen-body"><pre class="screen-pre"></pre></div>`;
-  ov.querySelector(".screen-pre").innerHTML = linkifyCapture(text);
-  const close = () => ov.remove();
-  ov.querySelector(".screen-close").onclick = close;
+    `<div class="screen-body"><pre class="screen-pre">(connecting…)</pre></div>`;
+  const body = ov.querySelector(".screen-body");
+  const pre = ov.querySelector(".screen-pre");
+  // Seed with the pane's last-known frame (gray) so the view isn't blank while the
+  // stream connects — same instant-stale trick as the peek.
+  const cached = peekCache[paneId];
+  if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
   document.body.appendChild(ov);
-  pinchZoom(ov.querySelector(".screen-body"), ov.querySelector(".screen-pre"));
-}
-
-// Linkify URLs in a raw capture, INCLUDING ones the TUI hard-wrapped across lines: a
-// URL run that reaches the end of a full-width line continues on the next line (that's
-// what wrapping means), so those runs are joined into one href while the anchor keeps
-// the original line breaks — every visual fragment is clickable and opens the full URL.
-// (tmux's own soft-wraps are already unwrapped by capture-pane -J; this handles the
-// agent TUIs that print their own hard breaks at pane width.)
-function linkifyCapture(raw) {
-  raw = raw.replace(/\r/g, "");
-  const lines = raw.split("\n");
-  // Joining is plausible only when the capture shows evidence of real wrapping: a
-  // plausible terminal width (>=40) AND at least TWO full-width lines (a lone longest
-  // line that happens to end in a URL, or a uniform tiny pane, is not wrapping). This
-  // keeps narrow real panes (e.g. 58-col splits) joining, unlike an absolute floor.
-  const maxLen = Math.max(0, ...lines.map((l) => l.length));
-  const fullLines = lines.filter((l) => l.length >= maxLen - 1).length;
-  const canJoin = maxLen >= 40 && fullLines >= 2 && fullLines < lines.length;
-  const joinWidth = maxLen - 1;
-  const lineEndLen = new Map(); // offset of each \n in raw -> length of the line it ends
-  let off = 0;
-  for (const l of lines) { lineEndLen.set(off + l.length, l.length); off += l.length + 1; }
-
-  let out = "", pos = 0, m;
-  // URL chars: the original terminator exclusions (whitespace, quotes, brackets — also
-  // the belt-and-braces for attribute safety) PLUS everything non-ASCII, so TUI
-  // box-drawing borders (│ etc.) flush against a URL never glue onto the href.
-  // Markdown-style links match FIRST — that's how the capture materializes OSC 8
-  // terminal hyperlinks — and render terminal-style: the LABEL alone, URL hidden
-  // in the href.
-  const re = /\[([^\]\n]{1,120})\]\((https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)\)|https?:\/\/[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+(?:\n[ \t]*[^\s<>"')\]\u0000-\u001F\u007F-\uFFFF]+)*/gi;
-  while ((m = re.exec(raw))) {
-    out += esc(raw.slice(pos, m.index));
-    if (m[1] !== undefined) {
-      out += `<a href="${escAttr(m[2])}" target="_blank" rel="noopener noreferrer">${esc(m[1])}</a>`;
-      pos = m.index + m[0].length;
-      re.lastIndex = pos;
-      continue;
-    }
-    // Accept newline-continuations only while the line being left was full-width
-    // (a wrapped line); cut the match at the first newline that isn't.
-    let cut = m[0].length, search = 0;
-    for (;;) {
-      const nl = m[0].indexOf("\n", search);
-      if (nl === -1) break;
-      const endedLine = lineEndLen.get(m.index + nl);
-      if (canJoin && endedLine !== undefined && endedLine >= joinWidth) { search = nl + 1; continue; }
-      cut = nl; break;
-    }
-    const shown = m[0].slice(0, cut);
-    const href = shown.replace(/\n[ \t]*/g, "");
-    out += `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer">${esc(shown)}</a>`;
-    pos = m.index + cut;
-    re.lastIndex = pos;
-  }
-  return out + esc(raw.slice(pos));
+  pinchZoom(body, pre);
+  const stop = liveStream(paneId, {
+    onFrame: (txt) => {
+      pre.innerHTML = renderCapture(txt.replace(/\s+$/, ""), { color: true });
+      peekCache[paneId] = { html: pre.innerHTML }; // shared cache with the peek
+    },
+    onLive: () => pre.classList.remove("stale"),
+    onQuiet: () => pre.classList.add("stale"),
+  });
+  ov.querySelector(".screen-close").onclick = () => { stop(); ov.remove(); };
 }
 
 // Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the

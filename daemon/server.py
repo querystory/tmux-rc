@@ -11,6 +11,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import subprocess
@@ -178,8 +179,6 @@ async def no_cache(request, call_next):
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
     (see app.js). Cheap to recompute per call — the web dir is tiny."""
-    import hashlib
-
     h = hashlib.md5()
     for p in sorted(WEB_DIR.glob("*")):
         if p.is_file():
@@ -249,11 +248,43 @@ def get_peek(pane_id: str):
     try:  # no find_pane pre-flight: that doubles tmux calls at burst rate (2/s)
         return tmux.capture_pane(pane_id)
     except subprocess.CalledProcessError as e:
-        # _run turns tmux timeouts into rc 124 — that's a wedged tmux, not a
-        # missing pane; report it honestly.
-        if e.returncode == 124:
-            raise HTTPException(504, "tmux timed out") from None
-        raise HTTPException(404, "pane not found") from None
+        raise _pane_err(e) from None
+
+
+def _pane_err(e: subprocess.CalledProcessError) -> HTTPException:
+    """capture failures, honestly: _run turns tmux timeouts into rc 124 — that's a
+    wedged tmux, not a missing pane."""
+    return HTTPException(*((504, "tmux timed out") if e.returncode == 124 else (404, "pane not found")))
+
+
+# Live view (docs/design/live-view.md): long-poll — hold until the screen differs
+# from what the client displays, then send the WHOLE colored frame (v1 is full
+# frames by design: resize/reflow/alt-screen all reduce to "new frame", no delta
+# edge cases). `frame` is a content hash, ETag-style: it's how we know the client
+# is current, and the no-change answer when the hold expires idle.
+LIVE_HOLD_SECONDS = 25  # under the tunnel-client's 60s request bound
+LIVE_CHECK_SECONDS = 0.25  # freshness floor — server constant, not a client knob
+
+
+@app.get("/api/panes/{pane_id}/live")
+async def live_frame(pane_id: str, frame: str = ""):
+    """One long-poll round: the client sends the hash of the frame it's showing and
+    we answer with a newer colored frame, or {frame: same} after ~25s of no change
+    (the client immediately re-holds). Captures run in a worker thread on a 250ms
+    cadence — decoupled from the watcher, never an LLM call. An idle watched pane
+    costs one request per hold; a busy one streams responses back-to-back."""
+    deadline = time.monotonic() + LIVE_HOLD_SECONDS
+    while True:
+        try:
+            text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
+        except subprocess.CalledProcessError as e:
+            raise _pane_err(e) from None
+        h = hashlib.md5(text.encode()).hexdigest()[:16]
+        if h != frame:
+            return {"frame": h, "text": text}
+        if time.monotonic() >= deadline:
+            return {"frame": h}  # unchanged — client re-holds with the same hash
+        await asyncio.sleep(LIVE_CHECK_SECONDS)
 
 
 @app.post("/api/panes/{pane_id}/send")

@@ -327,6 +327,12 @@
 .linkbtn:active { background: #27506f; }
 .linkhost { opacity: .6; font-size: 11px; unicode-bidi: isolate; }
 .screen-pre a, .bg-term a { color: #8ecbff; }
+/* Live = color; quiet/stale stream = desaturate to gray (docs/design/live-view.md).
+   A CSS filter, not a re-render — it dims the colors while leaving link <a>s and text
+   intact, and the next live frame just removes the class. .stale is set on the <pre>
+   (fullscreen) or the .bg-wrap (peek); target the rendered <pre> either way. */
+.bg-term.stale, .bg-wrap.stale .bg-term, .screen-pre.stale {
+  filter: grayscale(1) opacity(.6); transition: filter .3s; }
 </style>
 </head>
 <body>
@@ -377,6 +383,6 @@
     <!-- Active pane's meta chips (model · ctx% · cost · mode · agents), below the input. -->
     <div id="bar-meta" class="metarow"></div>
   </div>
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -238,13 +238,17 @@ def _materialize_links(text: str) -> str:
     return _OSC8.sub(repl, text)
 
 
-def capture_pane(pane_id: str, lines: int = 200) -> str:
+def capture_pane(pane_id: str, lines: int = 200, keep_colors: bool = False) -> str:
     """Current visible text of a pane, most recent `lines` rows. `-p` prints to
     stdout, `-J` joins wrapped lines so long lines aren't split mid-word, `-e` keeps
     escape sequences so OSC 8 hyperlinks can be materialized before the rest of the
-    escapes are stripped back out."""
-    out = _run(["capture-pane", "-p", "-J", "-e", "-t", pane_id, "-S", f"-{lines}"])
-    return _ANSI.sub("", _materialize_links(out)).rstrip("\n")
+    escapes are stripped back out. `keep_colors` skips that strip — the live view
+    renders the SGR runs client-side (docs/design/live-view.md); the client's
+    renderer drops whatever non-SGR escapes remain."""
+    out = _materialize_links(
+        _run(["capture-pane", "-p", "-J", "-e", "-t", pane_id, "-S", f"-{lines}"])
+    )
+    return out.rstrip("\n") if keep_colors else _ANSI.sub("", out).rstrip("\n")
 
 
 def send_keys(
