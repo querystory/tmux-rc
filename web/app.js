@@ -1050,16 +1050,13 @@ function updateBar(s) {
   bar.meta.innerHTML = s ? metaChips(s) : "";
 }
 if (bar.input) {
-  // Empty input + a staged image (chip visible): Send/Enter must still submit —
-  // the agent's composer is holding the image and only needs the Enter.
-  bar.send.onclick = () => {
-    if (bar.input.value) { answer(activeState(), bar.input.value); bar.input.value = ""; }
-    else if (chipEl) sendRaw(activeState(), "Enter");
-  };
+  // Send/Enter submits the composer: typed text and/or a staged image go to the pane
+  // together, then one Enter (see submitComposer). Nothing reaches the pane at attach
+  // time — the image waits here as a draft until you send, mirroring the phone's own
+  // "type a caption, then send the photo" feel.
+  bar.send.onclick = () => submitComposer(activeState());
   bar.input.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    if (bar.input.value) { answer(activeState(), bar.input.value); bar.input.value = ""; }
-    else if (chipEl) sendRaw(activeState(), "Enter");
+    if (e.key === "Enter") { e.preventDefault(); submitComposer(activeState()); }
   });
   // ⌨ toggles the special-keys row (hidden by default to save a row of height).
   bar.keysToggle.onclick = () => {
@@ -1068,19 +1065,58 @@ if (bar.input) {
   };
   bar.attach.onclick = () => bar.file.click();
   bar.file.onchange = () => {
-    if (bar.file.files[0]) uploadImage(activeState(), bar.file.files[0], bar.input);
+    if (bar.file.files[0]) stageImage(bar.file.files[0]);
     bar.file.value = ""; // else picking the SAME photo again never fires change
   };
   // Desktop image-paste into the field still works; the dedicated 📋 button is gone
   // (redundant with 📎, and clipboard-read needs HTTPS anyway).
   bar.input.onpaste = (e) => {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (item) { e.preventDefault(); uploadImage(activeState(), item.getAsFile(), bar.input); }
+    if (item) { e.preventDefault(); stageImage(item.getAsFile()); }
   };
   // Special keys → the active pane (tmux key-names, sent literally).
   document.querySelectorAll("#bar .keys button").forEach((b) => {
     b.onclick = () => sendRaw(activeState(), b.dataset.k);
   });
+}
+
+// Submit the composer to the pane in ONE ordered burst: typed text (no Enter) →
+// staged image (delivered by /image, no Enter) → one Enter. That keeps the text and
+// image in the agent's prompt in order and lets them land together on a single send.
+// Empty text + no image is a no-op (a bare Enter would submit whatever's already in
+// the agent). The image POST is the SAME endpoint attach used before — we just call it
+// here, at send time, instead of the moment the file was picked.
+async function submitComposer(s) {
+  const text = bar.input.value;
+  if (!text && !staged) return;
+  busy = true;
+  try {
+    if (!staged) {
+      // Text only — one send, Enter appended (same as answering a question).
+      await postSend(s, { keys: text, enter: true, literal: true });
+    } else {
+      // Text (if any, no Enter) → image (no Enter) → one Enter, so they land in order
+      // and submit together. uploadStagedImage hits the SAME /image endpoint as before.
+      if (text) await postSend(s, { keys: text, enter: false, literal: true });
+      await uploadStagedImage(s, staged);
+      await postSend(s, { keys: "Enter", enter: false, literal: false });
+      clearAttachChip();
+    }
+    bar.input.value = "";
+    liveBurst(); // text + image landing in the pane should be visible immediately
+  } finally {
+    setTimeout(() => { busy = false; poll(); }, 400);
+  }
+}
+
+// POST the staged image to the pane (server stages it to disk and pastes/types it in,
+// no Enter — submitComposer sends the single Enter). Kept separate from send() because
+// it's a multipart body, not the JSON /send shape.
+async function uploadStagedImage(s, file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
+  if (!r.ok) alert("Image upload failed: " + r.status);
 }
 
 // Read an image off the clipboard and upload it. navigator.clipboard.read() is the
@@ -1101,7 +1137,7 @@ async function pasteImage(s, input) {
     const items = await navigator.clipboard.read();
     for (const item of items) {
       const type = item.types.find((t) => t.startsWith("image/"));
-      if (type) { uploadImage(s, await item.getType(type), input); return; }
+      if (type) { stageImage(await item.getType(type)); return; }
     }
     alert("No image on the clipboard. Copy a screenshot first, or use 📎.");
   } catch (e) {
@@ -1109,39 +1145,19 @@ async function pasteImage(s, input) {
   }
 }
 
-// Upload an image and paste it into the pane (server puts it on the clipboard and
-// sends Ctrl-V). If the user already typed text in the web box, send that text to the
-// pane FIRST (no Enter), so the text and image land together in the agent's prompt in
-// order — otherwise the typed text would be stranded in the web box and lost on the
-// next re-render.
-async function uploadImage(s, file, input) {
+// Stage an image in the composer (📎, paste, or a future share). Nothing goes to the
+// pane yet — the File is held here and the thumbnail chip shows it's queued; it's sent
+// on the next Send/Enter (see submitComposer). Staging replaces any prior staged image
+// (one attachment at a time). The chip counts as un-sent state, so the auto-update
+// banner won't silently reload it away.
+let staged = null; // the File awaiting send, or null
+function stageImage(file) {
   if (!file) return;
-  busy = true;
-  try {
-    if (input && input.value) {
-      await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keys: input.value, enter: false, literal: true }),
-      });
-      input.value = "";
-    }
-    const fd = new FormData();
-    fd.append("file", file);
-    const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
-    if (!r.ok) alert("Image upload failed: " + r.status);
-    // Visible confirmation — the paste is otherwise invisible client-side. Skipped if
-    // the user switched panes mid-upload: the image went to s, not the active pane.
-    else if (s.pane_id === activeId()) attachChip(file);
-    liveBurst(); // the paste/path landing in the pane should be visible immediately
-  } finally {
-    setTimeout(() => { busy = false; poll(); }, 400);
-  }
+  staged = file;
+  attachChip(file);
 }
 
-// After the paste, the agent holds the image in its OWN composer ([Image #N] in
-// Claude Code) until Enter — so the thumbnail stays, mirroring that staged state,
-// and clears when something is sent to the pane or the active pane changes.
-// Tap the thumbnail to hide just the visual.
+// The composer's staged-image thumbnail. Tap to unstage (drops the file too).
 let chipEl = null;
 function attachChip(file) {
   clearAttachChip();
@@ -1150,13 +1166,14 @@ function attachChip(file) {
   chipEl = document.createElement("input");
   chipEl.type = "image";
   chipEl.className = "attach-chip";
-  chipEl.alt = "image staged in the pane's composer";
-  chipEl.title = "Pasted into the pane — sends with your next Enter. Tap to hide.";
+  chipEl.alt = "image staged in the composer";
+  chipEl.title = "Staged — sends with your next Send/Enter. Tap to remove.";
   chipEl.src = URL.createObjectURL(file);
   chipEl.onclick = (e) => { e.preventDefault(); clearAttachChip(); };
   bar.attach.after(chipEl);
 }
 function clearAttachChip() {
+  staged = null;
   if (!chipEl) return;
   URL.revokeObjectURL(chipEl.src);
   chipEl.remove();
@@ -1209,26 +1226,32 @@ function keyFor(question, opt, i) {
 }
 
 async function answer(s, keys) {
-  clearAttachChip(); // the Enter below also submits any image staged in the composer
+  // A staged image is composer state, sent only by submitComposer — answering a
+  // question (option tap / free-text) leaves it queued for the user's own send.
   await send(s, { keys, enter: true, literal: true });
 }
 
-// Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter.
+// Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter. Leaves
+// any staged image in place (it's flushed only by submitComposer's Send/Enter).
 async function sendRaw(s, keyName) {
-  if (keyName === "Enter") clearAttachChip(); // submits the composer, image included
   await send(s, { keys: keyName, enter: false, literal: false });
+}
+
+// POST keys to the pane. No burst needed: the visible raw surface streams via
+// liveStream, so the keystroke shows up in the next live frame on its own
+// (docs/design/live-view.md). Pure — callers own the `busy` freeze around it.
+function postSend(s, body) {
+  return fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 async function send(s, body) {
   busy = true;
   try {
-    await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    // No burst needed: the visible raw surface streams via liveStream, so the
-    // keystroke shows up in the next live frame on its own (docs/design/live-view.md).
+    await postSend(s, body);
   } finally {
     setTimeout(() => { busy = false; poll(); }, 400);
   }
