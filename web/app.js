@@ -721,16 +721,18 @@ function bgTerm(s) {
       onFrame: (txt) => {
         // A response that resolved just as the user switched panes must not paint or
         // cache into the new pane (the module-level peek* refs now point elsewhere).
-        if (streamPane !== peekStreamPane || busy) return;
+        if (streamPane !== peekStreamPane) return;
         const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
         peekCache[streamPane] = { html }; // cache for the next stale-on-mount
-        // Skip the DOM write when nothing changed (stale-mount paints the cached frame,
-        // then the stream's first frame is often identical) — an innerHTML swap to the
-        // same content still tears down + rebuilds the subtree, which is the flicker.
+        // ALWAYS paint the newest frame — dropping it while busy would strand it: the
+        // stream advances its hash regardless, so the next poll returns "no change" and
+        // this frame would never render. Only the scroll-to-tail is suppressed during a
+        // gesture (that's what fights the user's finger). Diff-skip avoids the reflow
+        // when the content is actually identical (the flicker source).
         if (peekBox && peekBox.innerHTML !== html) {
           peekBox.innerHTML = html;
           tuckChrome(peekWrap, peekBox);
-          if (zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
+          if (!busy && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
         }
       },
       onLive: () => { if (streamPane === peekStreamPane) { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); } },

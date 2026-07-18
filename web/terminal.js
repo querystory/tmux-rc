@@ -23,7 +23,9 @@ const PALETTE = [
   "#484f58", "#ff7b72", "#3fb950", "#d29922", "#58a6ff", "#bc8cff", "#39c5cf", "#b1bac4",
   "#6e7681", "#ffa198", "#56d364", "#e3b341", "#79c0ff", "#d2a8ff", "#56d4dd", "#f0f6fc",
 ];
+const clamp = (n) => (n < 0 ? 0 : n > 255 ? 255 : n | 0); // pane content is untrusted
 function color256(n) {
+  n = clamp(n); // a crafted \x1b[38;5;999m must not produce an out-of-range gray value
   if (n < 16) return PALETTE[n];
   if (n > 231) { const v = 8 + 10 * (n - 232); return `rgb(${v},${v},${v})`; } // gray ramp
   n -= 16;
@@ -98,9 +100,9 @@ const SGR_SPLIT = /(\x1b\[[0-9;]*m)/;
 const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 
 export function renderCapture(text, { color = false } = {}) {
+  text = text.replace(/\r/g, ""); // normalize CR for BOTH paths — progress bars etc.
   if (!color) return linkify(text);
   let clean = text
-    .replace(/\r/g, "")
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g, "") // OSC (links already markdown)
     .replace(/\x1b\[[0-9;?]*[^0-9;?m]/g, "")            // CSI with non-SGR final
     .replace(/\x1b[^[\]]/g, "");                        // bare two-char escape
@@ -158,7 +160,7 @@ export function renderCapture(text, { color = false } = {}) {
         // extended color — consume its args whole so 48;5;2 can't misread as faint
         const isFg = c === 38, mode = a[i + 1];
         if (mode === 5) { const col = color256(a[i + 2] || 0); isFg ? (st.fg = col) : (st.bg = col); i += 2; }
-        else if (mode === 2) { const col = `rgb(${a[i + 2] || 0},${a[i + 3] || 0},${a[i + 4] || 0})`; isFg ? (st.fg = col) : (st.bg = col); i += 4; }
+        else if (mode === 2) { const col = `rgb(${clamp(a[i + 2] || 0)},${clamp(a[i + 3] || 0)},${clamp(a[i + 4] || 0)})`; isFg ? (st.fg = col) : (st.bg = col); i += 4; }
         else i = a.length; // malformed: abandon this sequence
       }
     }
