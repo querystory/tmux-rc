@@ -50,10 +50,13 @@ def test_sgr_22_and_39_end_dim():
 
 
 def test_extended_bg_args_not_misread():
-    # Sent-message echo: gray-on-gray ❯ then near-white text on bg 237. The bg args
-    # (48;5;2 here) must not be parsed as style codes (2 = faint).
-    raw = "\x1b[38;5;239m\x1b[48;5;237m❯ \x1b[38;5;231msent message\x1b[0m"
-    assert _capture(raw) == "⟪dim⟫❯ ⟪/dim⟫sent message"
+    # Sent-message echo: gray-on-gray ❯ then near-white text on bg 237. Extended-color
+    # args must never parse as style codes — bg 48;5;2 carries a literal 2 (faint).
+    raw = (
+        "\x1b[38;5;239m\x1b[48;5;237m❯ \x1b[38;5;231msent message\x1b[0m"
+        " \x1b[48;5;2mok\x1b[0m"
+    )
+    assert _capture(raw) == "⟪dim⟫❯ ⟪/dim⟫sent message ok"
 
 
 def test_truecolor_fg_consumed_not_gray():
