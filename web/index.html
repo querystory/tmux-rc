@@ -4,6 +4,17 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f14" />
+<!-- Full screen on phones: launch from the home-screen icon (Add to Home Screen).
+     The manifest's display:standalone covers Android/modern iOS; these metas cover
+     the iOS legacy path and the status-bar treatment. black-translucent lets content
+     extend under the status bar — the body already pads env(safe-area-inset-top). -->
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="tmux-rc" />
+<!-- iOS ignores SVG manifest icons; without this PNG the home-screen icon is a
+     page screenshot. Regenerate: rsvg-convert -w 180 -h 180 web/icon.svg -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" href="/favicon.ico?v=1" sizes="any" />
 <title>tmuxʳᶜ</title>
