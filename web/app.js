@@ -1208,6 +1208,7 @@ setInterval(async () => {
 function showUpdateBanner() {
   if (document.getElementById("upbanner")) return;
   const b = document.createElement("button");
+  b.type = "button";
   b.id = "upbanner";
   b.textContent = "New version — tap to reload";
   b.onclick = () => location.reload();
