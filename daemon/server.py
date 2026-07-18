@@ -10,9 +10,11 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -62,6 +64,7 @@ logger = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
+IMG_MAX_BYTES = 20 * 2**20  # generous for phone photos; blocks memory-ballooning uploads
 _EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -279,10 +282,15 @@ def select(pane_id: str, request: Request):
 
 @app.post("/api/panes/{pane_id}/image")
 async def send_image(pane_id: str, file: UploadFile, request: Request):
-    """Attach an image to the pane the way the user does on the host: put it on the
-    system clipboard, then send Ctrl-V so Claude Code embeds it inline. (Typing a file
-    path doesn't work — Claude reads the clipboard on paste.) Also keeps a temp file as
-    a fallback path in the response."""
+    """Attach an image to the pane: clipboard + Ctrl-V so the agent embeds it INLINE,
+    falling back to typing the staged file's path when no clipboard tool works.
+
+    The clipboard offer is ALWAYS normalized to PNG — paste handlers ask the clipboard
+    for image/png, so an offer in the upload's own mime (a phone JPEG) reads as empty
+    and the paste silently no-ops. That mime mismatch was the original phone-attach
+    bug; PNG-always fixes the happy path, and the typed-path fallback means a broken
+    graphical session degrades to a working (if less pretty) paste, never a silent
+    200. The upload is staged to disk in both modes."""
     if tmux.find_pane(pane_id) is None:
         _audit(request, "paste_image", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
@@ -296,28 +304,77 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
             outcome="rejected: unsupported type",
         )
         raise HTTPException(415, f"unsupported image type: {mime}")
-    data = await file.read()
+    # Cap the read: an unbounded read() of a huge upload would balloon daemon memory.
+    data = await file.read(IMG_MAX_BYTES + 1)
+    if len(data) > IMG_MAX_BYTES:
+        _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: too large")
+        raise HTTPException(413, f"image too large (max {IMG_MAX_BYTES // 2**20}MB)")
+    if not data:
+        _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: empty")
+        raise HTTPException(400, "empty upload")
     detail = f"{mime} {len(data)}B"
 
-    # Save a temp copy (fallback / debugging) and put the bytes on the clipboard.
+    # Stage to disk, prune stale stagings (the pane reads the file right after the
+    # paste; a day of slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
-    fd, path = tempfile.mkstemp(suffix=_EXT[mime], dir=IMG_DIR)
+    # /tmp is shared and sticky: someone could pre-create this path — as a symlink
+    # (collecting our chmod + stagings at a target of their choosing) or as their own
+    # plain directory (making our chmod EPERM). Stage only in a real dir we own; with
+    # ownership verified, the chmod below cannot fail.
+    if IMG_DIR.is_symlink() or not IMG_DIR.is_dir() or IMG_DIR.stat().st_uid != os.getuid():
+        _audit(request, "paste_image", pane_id, outcome="error: staging dir not ours")
+        raise HTTPException(500, f"{IMG_DIR} is not a directory we own; refusing to stage")
+    os.chmod(IMG_DIR, 0o700)  # don't let umask leave stagings listable
+    cutoff = time.time() - 86400
+    for old in IMG_DIR.iterdir():
+        try:  # regular files only; tolerate races with concurrent prunes
+            if old.is_file() and old.stat().st_mtime < cutoff:
+                old.unlink(missing_ok=True)
+        except OSError:
+            continue
+    fd, path = tempfile.mkstemp(prefix="img-", suffix=_EXT[mime], dir=IMG_DIR)
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
-    tools = tmux.set_clipboard_image(data, mime)
-    if not tools:
-        _audit(
-            request, "paste_image", pane_id, detail, outcome="error: no clipboard tool"
-        )
-        raise HTTPException(
-            500,
-            "No clipboard tool succeeded (need wl-copy or xclip on the host). "
-            f"Image saved at {path}.",
-        )
-    tmux.send_keys(pane_id, "C-v", enter=False, literal=False)  # paste into the agent
-    _audit(request, "paste_image", pane_id, detail)
-    return {"ok": True, "clipboard": tools, "path": path, "bytes": len(data)}
+    # Clipboard-first: normalize to PNG and Ctrl-V for the inline embed. Fall back to
+    # typing the path. All of this blocks (Pillow decode, subprocess waits), so it
+    # runs in a worker thread — an upload must not stall the event loop's polling.
+    def _deliver() -> str:
+        tools: list[str] = []
+        try:
+            png = data if data[:8] == b"\x89PNG\r\n\x1a\n" else _to_png(data)
+            tools = tmux.set_clipboard_image(png)
+        except Exception:  # noqa: BLE001 - undecodable image: the path route still works
+            pass
+        if tools:
+            tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
+        else:
+            # Spaces both sides: the client may have just typed draft text into the
+            # pane, and the path must not concatenate onto it (agents trim the space).
+            tmux.send_keys(pane_id, f" {path} ", enter=False, literal=True)
+        return f"clipboard:{'+'.join(tools)}" if tools else "path"
+
+    mode = await asyncio.to_thread(_deliver)
+    _audit(request, "paste_image", pane_id, f"{detail} via {mode}")
+    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+
+
+def _to_png(data: bytes) -> bytes:
+    """Transcode image bytes to PNG (Pillow — already a dependency of the LLM stack)."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    with Image.open(io.BytesIO(data)) as im:
+        # Dimension guard BEFORE any pixel decode (open only parses the header):
+        # a tiny compressed bomb can inflate to gigapixels and pin the daemon.
+        # ~40MP comfortably covers any phone photo. Raising routes the caller to
+        # the path fallback — the daemon never decodes the bomb.
+        if im.width * im.height > 40_000_000:
+            raise ValueError(f"suspicious dimensions {im.width}x{im.height}")
+        im.save(buf, "PNG")
+    return buf.getvalue()
 
 
 # PWA static files last so /api/* wins. html=True serves index.html at /.

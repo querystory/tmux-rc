@@ -38,10 +38,13 @@ Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]
 - [x] Lead with a human task summary (status_line), working subline verb·elapsed·tokens.
 - [x] Preserve typed input across the 2s re-render (was clearing after ~1s).
 - [x] **Attach images (phone → agent).** 📎 button (file/camera) uploads to
-      /api/panes/{id}/image; server puts the bytes on the system clipboard (wl-copy on
-      Wayland, xclip on X11) and sends Ctrl-V so Claude Code embeds the image inline —
-      typing a path does NOT work. Verified E2E on the host (pasted the real image).
-      HOST DEP: needs `wl-clipboard` on Wayland (sudo apt install wl-clipboard).
+      /api/panes/{id}/image; server normalizes to PNG, puts it on the clipboard
+      (wl-copy/xclip) and sends Ctrl-V so the agent embeds it inline. ALWAYS png:
+      paste handlers ask the clipboard for image/png, so an offer in the upload's own
+      mime (a phone JPEG) reads as empty and silently no-ops — the original bug.
+      When no clipboard tool works, falls back to TYPING the staged file's path into
+      the pane (agents read files from disk) — degraded but working, never a silent
+      200. Stagings live under /tmp/tmux-rc-images (0700, owned-dir enforced, day-pruned).
 - [x] Special-key buttons: Enter/Esc/↑/↓/Ctrl-O/Ctrl-B/Ctrl-C.
 - [x] **Persistent bottom input bar** (76a22ee). Single bar with special keys + text
       input + attach. Tap a card to target it (input goes to that pane). Tapping also

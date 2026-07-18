@@ -12,6 +12,7 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 from dataclasses import dataclass
 from functools import cache
 
@@ -258,25 +259,36 @@ def send_keys(
         _run(["send-keys", "-t", pane_id, "Enter"])
 
 
-def set_clipboard_image(data: bytes, mime: str = "image/png") -> list[str]:
-    """Put image bytes on the host's system clipboard so a terminal app can paste them
-    (Claude Code embeds an image on Ctrl-V from the clipboard). Writes to both the
-    Wayland (wl-copy) and X11/XWayland (xclip) clipboards when available, since which
-    one the terminal reads depends on the session. Returns the tools that succeeded."""
+_clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping
+_clip_lock = threading.Lock()  # uploads run in worker threads; don't race the list
+
+
+def set_clipboard_image(png: bytes) -> list[str]:
+    """Put PNG bytes on the system clipboard so the pane's app embeds them on Ctrl-V.
+    ALWAYS image/png — paste handlers ask the clipboard for PNG, so an offer in the
+    upload's own mime (a phone JPEG, say) reads as empty and the paste silently
+    no-ops; that was the original phone-attach bug. Writes to both Wayland (wl-copy)
+    and X11 (xclip) since which one the terminal reads depends on the session.
+    Returns the tools that succeeded — empty means the caller must fall back."""
     ok: list[str] = []
+    # Reap earlier clipboard holders that have since exited (replaced offers) —
+    # without this each paste could strand a zombie in our process table.
+    with _clip_lock:
+        _clip_procs[:] = [p for p in _clip_procs if p.poll() is None]
     env_x = {**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")}
     attempts = [
-        ("wl-copy", ["wl-copy", "-t", mime]),
-        ("xclip", ["xclip", "-selection", "clipboard", "-t", mime]),
+        ("wl-copy", ["wl-copy", "-t", "image/png"]),
+        ("xclip", ["xclip", "-selection", "clipboard", "-t", "image/png"]),
     ]
     for name, cmd in attempts:
         if shutil.which(cmd[0]) is None:
             continue
         try:
-            # These tools do NOT exit — they persist to own/serve the clipboard
-            # selection (X11) or hold it (Wayland). So we must feed stdin and detach,
-            # NOT wait for completion (which would hang). Write bytes, close stdin,
-            # and leave the process running in the background.
+            # These tools serve the clipboard selection: wl-copy stays in the
+            # foreground for as long as it owns the offer; xclip forks and its parent
+            # exits 0. Feed stdin, then wait BRIEFLY — an instant non-zero exit is the
+            # "no display/session" failure mode, and counting it as success would
+            # resurrect the silent no-op paste. Timeout = still serving = success.
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -284,9 +296,17 @@ def set_clipboard_image(data: bytes, mime: str = "image/png") -> list[str]:
                 stderr=subprocess.DEVNULL,
                 env=env_x if name == "xclip" else None,
             )
-            proc.stdin.write(data)
+            proc.stdin.write(png)
             proc.stdin.close()
+            try:
+                if proc.wait(timeout=0.15) != 0:
+                    continue
+            except subprocess.TimeoutExpired:
+                with _clip_lock:  # alive, owning the clipboard — reap next call
+                    _clip_procs.append(proc)
             ok.append(name)
         except Exception:  # noqa: BLE001 - try the next tool
             continue
     return ok
+
+
