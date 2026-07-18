@@ -280,20 +280,17 @@ async def live_frame(pane_id: str, frame: str = ""):
     cadence — decoupled from the watcher, never an LLM call. An idle watched pane
     costs one request per hold; a busy one streams responses back-to-back.
 
-    The change hash is taken over the VOLATILE-STRIPPED frame (watcher._fingerprint):
-    a Claude Code spinner/timer/token-counter repaints every capture without the screen
-    meaningfully changing, and hashing the raw frame would fire a response — and a
-    client repaint (flicker) — 4x/second on any working pane. Judge 'changed?' on real
-    content; the frame we SEND is still the full colored capture."""
-    from .watcher import _fingerprint
-
+    The change hash is over the RAW colored frame — every visible change (including a
+    spinner tick or ticking timer) is a new frame, because live mode means live: the
+    client renders these smoothly via line-level DOM diffing, so full fidelity here
+    does not cause flicker."""
     deadline = time.monotonic() + LIVE_HOLD_SECONDS
     while True:
         try:
             text = await asyncio.to_thread(tmux.capture_pane, pane_id, keep_colors=True)
         except subprocess.CalledProcessError as e:
             raise _pane_err(e) from None
-        h = hashlib.md5(_fingerprint(text).encode()).hexdigest()[:16]
+        h = hashlib.md5(text.encode()).hexdigest()[:16]
         if h != frame:
             return {"frame": h, "text": text}
         if time.monotonic() >= deadline:
