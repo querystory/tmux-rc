@@ -16,7 +16,7 @@ const UNKNOWN_LOGO = "/tmux-logomark.svg";
 const AGENT_TOOLS = new Set(["claude", "codex", "gemini"]);
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
-const ACTIVITIES = new Set(["running", "waiting", "idle", "unknown"]);
+const ACTIVITIES = new Set(["running", "waiting", "idle", "compacting", "unknown"]);
 const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
@@ -68,6 +68,40 @@ const openTimelines = new Set();
 // screen to the live terminal. Expanding anywhere expands them all.
 let cardsCollapsed = false;
 let busy = false; // suppress polling flicker while an answer is in flight
+let _fastPoll = null; // the single pending fast-reparse-poll timer (see poll())
+// Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
+// sent. The card (and its answered question) render in a spinning "reparsing" state
+// until the served parsed_at advances past this — so a submitted answer / picked menu
+// visibly WORKS instead of sitting stale until the LLM re-reads the screen. Cleared on
+// a newer parse or after a timeout (so a failed/silent parse can't spin forever).
+const reparsing = {}; // pane_id -> { q, since, ts }
+const REPARSE_TIMEOUT = 12000; // stop spinning even if the screen never settles
+function markReparsing(id) {
+  const s = panesById[id];
+  // Remember BOTH the question we just answered (its prompt) and the parsed_at at send.
+  // If we answered a question, spin until that question is actually GONE — not merely
+  // until a parse lands. The forced reparse often fires before the agent has redrawn,
+  // so it re-reports the SAME question and parsed_at ticks; clearing on that tick
+  // stopped the spinner with the menu still on screen (the bug). For a plain send with
+  // no question, there's nothing to "clear", so fall back to parsed_at advancing.
+  reparsing[id] = {
+    q: (s && s.question && s.question.prompt) || null,
+    since: (s && s.parsed_at) || 0,
+    ts: Date.now(),
+  };
+}
+function isReparsing(s) {
+  const r = reparsing[s.pane_id];
+  if (!r) return false;
+  const settled = r.q !== null
+    ? ((s.question && s.question.prompt) || null) !== r.q // answered question gone/changed
+    : (s.parsed_at || 0) > r.since;                        // no question: a fresh parse landed
+  if (settled || Date.now() - r.ts > REPARSE_TIMEOUT) {
+    delete reparsing[s.pane_id];
+    return false;
+  }
+  return true;
+}
 
 // The web surface is a dumb remote control for tmux — ALL state is in tmux. The active
 // pane is whatever tmux reports as focused (state.tmux_active). Tapping a card just
@@ -158,7 +192,7 @@ function workSub(s) {
 function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
   const a = actOf(s);
   const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds)
-    : a === "running" ? '<span class="pulse"></span>running' : a;
+    : a === "running" || a === "compacting" ? `<span class="pulse"></span>${a}` : a;
   return (
     (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
       + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
@@ -205,6 +239,13 @@ async function poll() {
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
     render(data.panes || []);
+    // While a pane is spinning on a forced reparse, poll fast so the spinner clears
+    // within a beat of the parse landing (instead of waiting for the 2s interval). Only
+    // ONE fast poll may be pending at a time — otherwise each poll schedules another and
+    // they stack into overlapping bursts alongside the 2s interval.
+    if (Object.keys(reparsing).length && !_fastPoll) {
+      _fastPoll = setTimeout(() => { _fastPoll = null; if (!busy) poll(); }, 500);
+    }
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
     liveEl.className = "dot off";
@@ -420,10 +461,10 @@ function dock(states, act) {
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
     // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
-    // none — quiet is the default, only running/waiting earn a signal.
+    // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
     const a = actOf(s);
     b.innerHTML = iconFor(s.tool) +
-      (a === "running" || a === "waiting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
+      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
     b.title = s.title || s.label || s.pane_id;
     b.setAttribute("aria-label", b.title);
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
@@ -444,7 +485,7 @@ function dock(states, act) {
     b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
     counts.appendChild(b);
   };
-  ["waiting", "running", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
+  ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
   filt("all", "all");
   el.appendChild(counts);
 }
@@ -579,7 +620,8 @@ function card(s) {
   const el = document.createElement("div");
   const collapsed = cardsCollapsed;
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
-    + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "");
+    + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "")
+    + (isReparsing(s) ? " reparsing" : ""); // input sent, awaiting the forced re-parse
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
@@ -1189,13 +1231,30 @@ function clearStaged() {
 function question(s) {
   const q = document.createElement("div");
   q.className = "q";
+  const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
   const prompt = document.createElement("div");
   prompt.className = "prompt";
   prompt.textContent = s.question.prompt;
+  if (spinning) {
+    // Built as a DOM node (not innerHTML +=) so the escaped prompt text isn't reparsed
+    // as HTML each render. Negative animation-delay = (Date.now() mod period): a freshly
+    // -created element's CSS animation always starts at 0°, and render() rebuilds the
+    // card every fast reparse-poll (~500ms < the 0.7s spin), so a plain spinner kept
+    // snapping back to the first quarter-turn. Seeding the delay to the current phase
+    // makes each rebuilt spinner RESUME where the last frame left off — one smooth spin.
+    const spin = document.createElement("span");
+    spin.className = "q-spin";
+    spin.setAttribute("role", "status");
+    spin.setAttribute("aria-label", "submitting");
+    spin.style.animationDelay = `${-((Date.now() % 700) / 1000)}s`;
+    prompt.append(" ", spin);
+  }
   q.appendChild(prompt);
 
   // Option buttons (drop any "type something"/"Other" pseudo-option — the bottom bar
   // covers free-text). Tapping an option also makes this pane active, then answers it.
+  // Once an answer is in flight (spinning) the options disable — a second tap would
+  // send a stray keystroke into the agent while the first is still being processed.
   const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
   if (realOpts.length) {
     const opts = document.createElement("div");
@@ -1204,6 +1263,7 @@ function question(s) {
       const b = document.createElement("button");
       b.className = "opt";
       b.textContent = opt;
+      b.disabled = spinning;
       b.onclick = () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); };
       opts.appendChild(b);
     });
@@ -1256,6 +1316,8 @@ function postSend(s, body) {
 
 async function send(s, body) {
   busy = true;
+  markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
+  render(Object.values(panesById)); // reflect the spinning state immediately
   try {
     await postSend(s, body);
   } finally {
