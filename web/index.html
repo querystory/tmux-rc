@@ -181,8 +181,8 @@
   }
   /* #bar-input is a contenteditable div, styled to read like the old search field.
      min-height matches a single line so it doesn't collapse when empty; it grows as
-     lines wrap. white-space:pre-wrap keeps typed spaces/newlines; word-break stops a
-     long paste from widening the bar. max-height caps runaway growth with a scrollbar. */
+     lines wrap. white-space:pre-wrap keeps typed spaces/newlines; overflow-wrap:anywhere
+     stops a long paste from widening the bar. max-height caps growth with a scrollbar. */
   .inputwrap #bar-input { flex: 1; min-width: 0; background: transparent; border: 0; color: #e6edf3;
     padding: 10px 12px 10px 4px; font-size: 15px; -webkit-appearance: none; outline: none;
     white-space: pre-wrap; overflow-wrap: anywhere; min-height: 20px; max-height: 40vh; overflow-y: auto;

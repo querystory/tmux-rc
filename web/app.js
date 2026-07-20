@@ -1211,7 +1211,8 @@ function composerSegments() {
   // root is NOT filler: it's a real Shift+Enter newline (Firefox serializes an end-of-
   // text newline this way), so it must be kept. Breaks buffer in `pending`, realized
   // before the next content AND once at the end (a trailing newline the user typed).
-  // Verified against Chrome/Firefox DOM shapes (see the walk test cases).
+  // Verified by hand against the real Chrome/Firefox DOM shapes for each of these cases
+  // (plain text, Shift+Enter, bare <br>, blank lines, trailing filler, inline chips).
   let started = false; // any content emitted yet? (suppresses a leading newline)
   let pending = 0;     // line breaks requested but not yet written to `run`
   const content = () => { run += "\n".repeat(pending); pending = 0; started = true; };
