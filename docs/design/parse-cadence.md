@@ -12,7 +12,7 @@ classify it (activity, headline, events). That classification is the single recu
 cost in the system — everything else is local string work. So the question "when do we
 call the LLM?" is really "where does the money go?", and for a long time we answered it
 with two triggers: parse when the screen's **content fingerprint changed**, or every
-`HEARTBEAT_SECONDS` regardless, as a safety net.
+ten seconds regardless (a heartbeat), as a safety net.
 
 A telemetry audit of the full OTEL dataset (keyed by `input_sha256`, the hash of the
 exact text we sent the model) showed the safety net had become the main expense:
