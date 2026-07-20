@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 snapshots/
+*.log
 *.egg-info/
 dist/
 
