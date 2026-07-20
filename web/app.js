@@ -1123,7 +1123,8 @@ async function submitComposer(s) {
     }
     await postSend(s, { keys: "Enter", enter: false, literal: false });
     clearComposer();
-    liveBurst(); // text + images landing in the pane should be visible immediately
+    // No burst needed: the visible raw surface streams via liveStream, so the sent
+    // text/images show up in the next live frame on their own (docs/design/live-view.md).
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
