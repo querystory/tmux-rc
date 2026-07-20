@@ -1048,7 +1048,11 @@ function activeState() {
   return panesById[id] || { pane_id: id, label: "" };
 }
 function updateBar(s) {
-  bar.input.dataset.placeholder = s ? `Type into ${s.label || "pane"}…` : "No pane";
+  // The CSS :empty::before placeholder isn't an accessible name, so mirror it into
+  // aria-label — screen readers announce the per-pane target instead of a bare textbox.
+  const label = s ? `Type into ${s.label || "pane"}…` : "No pane";
+  bar.input.dataset.placeholder = label;
+  bar.input.setAttribute("aria-label", label);
   bar.meta.innerHTML = s ? metaChips(s) : "";
 }
 if (bar.input) {
@@ -1066,6 +1070,10 @@ if (bar.input) {
     if (e.inputType === "insertParagraph") { e.preventDefault(); submitComposer(activeState()); }
     // insertLineBreak = Shift+Enter (desktop) → let the browser insert the newline.
   });
+  // Any edit may have deleted a chip (Backspace/Delete/range-delete) — reconcile the
+  // blob URLs so removed images don't leak (tap-remove revokes directly; this covers
+  // keyboard deletion, which bypasses the chip's own onclick).
+  bar.input.addEventListener("input", sweepChipUrls);
   // Desktop belt-and-suspenders: some browsers don't emit beforeinput for Enter in an
   // empty field. Shift+Enter falls through to the browser's newline insertion.
   bar.input.addEventListener("keydown", (e) => {
@@ -1207,6 +1215,14 @@ async function pasteImage(s, input) {
 // kept in a WeakMap keyed by the chip node (a File can't ride on an attribute), so a
 // removed node is garbage-collected out of the map for free.
 const chipFiles = new WeakMap(); // chip <img> node -> File
+// Live object URLs, so a chip removed by ANY means (tap, Backspace, range-delete) gets
+// its blob revoked. A WeakMap can't be enumerated to find orphans, hence this Set;
+// sweepChipUrls() reconciles it against the chips still in the DOM (see the input hook).
+const chipUrls = new Set();
+function sweepChipUrls() {
+  const live = new Set([...bar.input.querySelectorAll(".attach-chip")].map((c) => c.src));
+  for (const url of chipUrls) if (!live.has(url)) { URL.revokeObjectURL(url); chipUrls.delete(url); }
+}
 
 // Whether the composer holds anything to send (text or an image chip). Used for the
 // empty-check (no-op send) and the auto-update draft guard.
@@ -1225,7 +1241,8 @@ function insertImage(file) {
   chip.alt = "image in the composer";
   chip.title = "Sends with your next Send/Enter, in this position. Tap to remove.";
   chip.src = URL.createObjectURL(file);
-  chip.onclick = () => { URL.revokeObjectURL(chip.src); chipFiles.delete(chip); chip.remove(); };
+  chipUrls.add(chip.src);
+  chip.onclick = () => { chip.remove(); chipFiles.delete(chip); sweepChipUrls(); };
   chipFiles.set(chip, file);
   insertNodeAtCaret(chip);
 }
@@ -1242,6 +1259,7 @@ function insertNodeAtCaret(node) {
     range.deleteContents();
   } else if (_savedRange && bar.input.contains(_savedRange.startContainer)) {
     range = _savedRange; // caret snapshotted before the picker blurred us (see saveCaret)
+    range.deleteContents(); // replace a saved SELECTION too, matching the live-caret path
   } else {
     range = document.createRange(); // no caret at all → append at the end
     range.selectNodeContents(bar.input);
@@ -1268,8 +1286,9 @@ function saveCaret() {
 // Clear the composer: revoke every chip's object URL (else the blobs leak) and empty the
 // element so :empty restores the placeholder.
 function clearComposer() {
-  bar.input.querySelectorAll(".attach-chip").forEach((c) => { URL.revokeObjectURL(c.src); chipFiles.delete(c); });
+  bar.input.querySelectorAll(".attach-chip").forEach((c) => chipFiles.delete(c));
   bar.input.textContent = "";
+  sweepChipUrls(); // emptied the field → every chip is now an orphan; revoke all blobs
 }
 
 function question(s) {
