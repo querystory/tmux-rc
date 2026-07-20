@@ -500,6 +500,12 @@ def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
             pass
     if tools:
         tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
+        # Claude Code reads + transcodes the pasted image ASYNCHRONOUSLY after C-v,
+        # showing its [Image #N] placeholder only once done. Whatever we send next
+        # (the following text segment, or submitComposer's final Enter) must not race
+        # that ingest, or it lands ahead of the image / submits a half-built line.
+        # Runs in a worker thread (to_thread), so this blocks nobody on the loop.
+        time.sleep(0.4)
     else:
         # Spaces both sides: the client may have just typed draft text into the
         # pane, and the path must not concatenate onto it (agents trim the space).

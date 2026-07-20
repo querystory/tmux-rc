@@ -1076,7 +1076,10 @@ if (bar.input) {
     bar.keys.hidden = !bar.keys.hidden;
     bar.keysToggle.setAttribute("aria-pressed", String(!bar.keys.hidden));
   };
-  bar.attach.onclick = () => bar.file.click();
+  // Opening the file picker blurs the composer and drops the caret, so by onchange
+  // insertNodeAtCaret would append at the end (the #70 misplacement). Snapshot the
+  // caret here — insertNodeAtCaret restores it when the live selection is gone.
+  bar.attach.onclick = () => { saveCaret(); bar.file.click(); };
   bar.file.onchange = () => {
     if (bar.file.files[0]) insertImage(bar.file.files[0]);
     bar.file.value = ""; // else picking the SAME photo again never fires change
@@ -1230,17 +1233,30 @@ function insertNodeAtCaret(node) {
   if (sel && sel.rangeCount && bar.input.contains(sel.anchorNode)) {
     range = sel.getRangeAt(0); // the live caret/selection inside the composer
     range.deleteContents();
+  } else if (_savedRange && bar.input.contains(_savedRange.startContainer)) {
+    range = _savedRange; // caret snapshotted before the picker blurred us (see saveCaret)
   } else {
-    range = document.createRange(); // no caret in the composer → append at the end
+    range = document.createRange(); // no caret at all → append at the end
     range.selectNodeContents(bar.input);
     range.collapse(false);
   }
+  _savedRange = null;
   range.insertNode(node);
   range.setStartAfter(node);
   range.collapse(true);
   if (sel) { sel.removeAllRanges(); sel.addRange(range); } // some mobile states have no Selection
 }
 function insertTextAtCaret(text) { if (text) insertNodeAtCaret(document.createTextNode(text)); }
+
+// Snapshot the composer caret before an action that blurs it (opening the file picker).
+// insertNodeAtCaret restores it so an attached image lands where the caret WAS, not at
+// the end. Cloned because the live range mutates once focus leaves.
+let _savedRange = null;
+function saveCaret() {
+  const sel = window.getSelection();
+  _savedRange = sel && sel.rangeCount && bar.input.contains(sel.anchorNode)
+    ? sel.getRangeAt(0).cloneRange() : null;
+}
 
 // Clear the composer: revoke every chip's object URL (else the blobs leak) and empty the
 // element so :empty restores the placeholder.
