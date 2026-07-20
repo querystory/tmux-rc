@@ -1248,8 +1248,9 @@ function composerEmpty() { return composerSegments().length === 0; }
 
 // Insert an image chip at the current caret, interleaved with text. contenteditable=false
 // makes the caret treat the chip as one atomic character (arrow keys / Backspace step
-// over it, not into it). Tapping a chip removes just that image. draggable=false so a
-// long-press can't drag it out of the field on touch.
+// over it, not into it). draggable=false so a long-press can't drag it out on touch. The
+// chip is a focusable role=button so keyboard/AT users can remove it (Enter/Space), not
+// just pointer tap or Backspace.
 function insertImage(file) {
   if (!file) return;
   const chip = document.createElement("img");
@@ -1257,10 +1258,15 @@ function insertImage(file) {
   chip.contentEditable = "false";
   chip.draggable = false;
   chip.alt = "image in the composer";
+  chip.setAttribute("role", "button");
+  chip.tabIndex = 0;
+  chip.setAttribute("aria-label", "Attached image — activate to remove");
   chip.title = "Sends with your next Send/Enter, in this position. Tap to remove.";
   chip.src = URL.createObjectURL(file);
   chipUrls.add(chip.src);
-  chip.onclick = () => { chip.remove(); chipFiles.delete(chip); sweepChipUrls(); };
+  const remove = () => { chip.remove(); chipFiles.delete(chip); sweepChipUrls(); };
+  chip.onclick = remove;
+  chip.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); remove(); } };
   chipFiles.set(chip, file);
   insertNodeAtCaret(chip);
 }
