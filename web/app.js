@@ -71,7 +71,6 @@ let cardsCollapsed = false;
 // send (so a fresh parse doesn't replace the card under the user) and swipe/pinch
 // gestures. While set, send() also no-ops to avoid double-firing.
 let busy = false;
-let _fastPoll = null; // the single pending fast-reparse-poll timer (see poll())
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
 // sent. The card (and its answered question) render in a spinning "reparsing" state
 // until the served parsed_at advances past this — so a submitted answer / picked menu
@@ -206,10 +205,17 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
   );
 }
 
+let _stateVersion = 0;   // last deck version the server gave us — sent back to long-poll
+let _polling = false;    // single-flight: only one /api/state request in flight at a time
+// Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
+// switch, add/remove, label/activity, new events) or ~25s, then returns instantly. We
+// re-hold right away, so switches show up in ~a fast-poll tick instead of a 2s interval.
+// A `busy` window (a send in flight) just defers the next hold — pollLoop resumes it.
 async function poll() {
-  if (busy) return;
+  if (busy || _polling) return;
+  _polling = true;
   try {
-    const r = await fetch("/api/state");
+    const r = await fetch(`/api/state?v=${_stateVersion}`);
     // Check status before parsing: when the tunnel/backend is down the relay
     // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
@@ -226,6 +232,7 @@ async function poll() {
       return;
     }
     const data = await r.json();
+    if (typeof data.version === "number") _stateVersion = data.version; // re-hold on this
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
     liveEl.title = data.stale ? "watcher stalled — cards may be frozen" : "live";
@@ -242,19 +249,27 @@ async function poll() {
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
     render(data.panes || []);
-    // While a pane is spinning on a forced reparse, poll fast so the spinner clears
-    // within a beat of the parse landing (instead of waiting for the 2s interval). Only
-    // ONE fast poll may be pending at a time — otherwise each poll schedules another and
-    // they stack into overlapping bursts alongside the 2s interval.
-    if (Object.keys(reparsing).length && !_fastPoll) {
-      _fastPoll = setTimeout(() => { _fastPoll = null; if (!busy) poll(); }, 500);
-    }
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
     liveEl.className = "dot off";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(often a stale cached app.js — hard-refresh)</small></div>`;
-    return;
+    _pollErr = true;
+  } finally {
+    _polling = false;
+  }
+}
+let _pollErr = false;
+// Drive the long-poll: as soon as one hold returns, start the next. The server does the
+// waiting (holds ~25s or until change), so this is not a busy-loop. On error OR a `busy`
+// window (a send in flight suppressed the poll) wait a beat before retrying so we don't
+// spin — a backend outage or a send both resolve within a short delay.
+async function pollLoop() {
+  for (;;) {
+    _pollErr = false;
+    await poll();
+    const gap = (_pollErr || busy || _polling) ? 1000 : 0;
+    await new Promise((res) => setTimeout(res, gap));
   }
 }
 
@@ -1562,8 +1577,7 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
 }
 if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
-poll();
-setInterval(poll, 2000);
+pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
 
 // Auto-update: when the web assets change, reload to the new version (checked every
 // 5s against /api/version; all durable state lives server-side). UNLESS the user has

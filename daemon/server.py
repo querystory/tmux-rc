@@ -221,12 +221,27 @@ def get_version():
     return {"version": h.hexdigest()}
 
 
+# How long a /api/state long-poll holds before returning unchanged (client re-holds).
+# Well under any proxy/tunnel idle timeout, matching the live stream's hold budget.
+STATE_HOLD_SECONDS = 25.0
+
+
 @app.get("/api/state")
-def get_state():
+async def get_state(v: int | None = None):
+    """Deck state for the phone. With `?v=<version>` this LONG-POLLS: it holds until the
+    watcher's state_version passes `v` (a pane switch, add/remove, label/activity change,
+    or new events on any pane) or ~25s elapses, then returns the fresh state plus the new
+    `version`. The client immediately re-holds with that version, so a pane switch shows
+    up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
+    immediately (unchanged legacy behavior)."""
     from .llm import last_error, usage_totals
 
     w = app.state.watcher
+    version = w.state_version()
+    if v is not None and v == version:
+        version = await w.wait_for_state_change(v, STATE_HOLD_SECONDS)
     return {
+        "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
         "llm_error": last_error[
             "msg"
