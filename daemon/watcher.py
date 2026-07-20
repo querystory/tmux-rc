@@ -26,11 +26,15 @@ POLL_SECONDS = 1.5
 # cheap and none of this reaches the model, so keep enough to scroll back meaningfully.
 SNAPSHOT_HISTORY = 200
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
-# PARSE when the content fingerprint changed, or when this long since the last parse
-# (a heartbeat so a slowly-evolving screen still refreshes). An agent that's merely
-# working — spinner + timer + token counter ticking, no content change — costs ZERO
-# LLM calls, because that churn is stripped from the fingerprint.
-HEARTBEAT_SECONDS = 10
+# PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
+# `changed` compares against _prev_fp, which is written only on the parse path — so a
+# screen drifting slowly, line by line, still eventually differs from what we last
+# parsed and re-parses on content alone. No time-based heartbeat: an unchanged screen
+# (idle prompt, a pane blocked on a question) is byte-identical, so re-parsing it on a
+# timer only burned money (~58% of all parse spend was duplicate input_sha256) and let
+# the non-deterministic model re-roll a stable card's summary for no reason. An agent
+# merely working — spinner/timer/token churn — is stripped from the fingerprint ⇒ no
+# change ⇒ no call.
 # One-time deep read of a pane's scrollback that seeds the card (summary + history)
 # before live watching has accumulated anything. Fat input ⇒ at most ONE per tick,
 # behind the live parses; a few retries with spacing so an LLM hiccup isn't permanent.
@@ -100,9 +104,6 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
-        self._last_parse: dict[
-            str, float
-        ] = {}  # pane_id -> when we last called the LLM
         self._tool: dict[
             str, tuple[str, float]
         ] = {}  # pane_id -> (agent tool, last-seen ts)
@@ -408,7 +409,6 @@ class Watcher:
         return (
             self._prev_fp,
             self._unchanged_since,
-            self._last_parse,
             self._tool,
             self._live_seen,
             self._state,
@@ -515,16 +515,16 @@ class Watcher:
             hist.append({"id": f"{int(now * 1000)}", "text": text, "ts": now})
             del hist[:-SNAPSHOT_HISTORY]
 
-        # Decide whether to PARSE (call the LLM). Parse on real content change, on a
-        # heartbeat so a slowly-drifting screen refreshes, or on a FORCED reparse (the
-        # phone just sent input — an answered question must clear from the card promptly,
-        # even if the screen hasn't changed enough to trip the fingerprint yet). Merely-
-        # working churn (spinner/timer/tokens) is stripped from the fingerprint ⇒ no
-        # change ⇒ no call.
+        # Decide whether to PARSE (call the LLM). Parse on real content change vs. the
+        # last parse, or on a FORCED reparse (the phone just sent input — an answered
+        # question must clear from the card promptly, even if the screen hasn't changed
+        # enough to trip the fingerprint yet). Merely-working churn (spinner/timer/tokens)
+        # is stripped from the fingerprint ⇒ no change ⇒ no call. An unchanged screen is
+        # never re-parsed on a timer — that was pure duplicate cost (see the parse-cadence
+        # note at the top of this module).
         cached = self._state.get(pane.id)
-        due = now - self._last_parse.get(pane.id, 0) >= HEARTBEAT_SECONDS
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
-        if cached is not None and not changed and not due and not forced:
+        if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
             # The pane TITLE lives outside the captured text — agents rename it while
@@ -553,8 +553,8 @@ class Watcher:
             if now - ts < RECENT_EVENT_TTL
         ]
         recent_texts = [t for t, _ in recent]
-        # Bind `changed` (content-change vs heartbeat re-parse) and the pane's stable
-        # identity into the parser so they ride through to the benchmark telemetry without
+        # Bind `changed` (whether this parse followed a real content change) and the
+        # pane's stable identity into the parser so they ride through to telemetry without
         # widening the generic llm_fn seam. Label falls back to the tmux label; the
         # classifier may refine it (agent session name) before emitting.
         llm_fn = (
@@ -593,8 +593,8 @@ class Watcher:
                 continue
             (dropped if e["text"] in seen else new_events).append(e)
             seen.add(e["text"])
-        # Visibility without spam: log only when the dropped set changes — a heartbeat
-        # re-dropping the same text every 10s stays quiet.
+        # Visibility without spam: log only when the dropped set changes — a pane that
+        # keeps re-emitting the same text across parses stays quiet after the first.
         dropped_texts = [e["text"] for e in dropped]
         if dropped_texts and dropped_texts != self._last_dropped.get(pane.id):
             logger.info(
@@ -629,7 +629,6 @@ class Watcher:
             pane.id
         )  # may be None (only set once idle)
         self._prev_fp[pane.id] = fp
-        self._last_parse[pane.id] = now
 
         # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
         # unmistakable status-line/box, so if it says "shell" it IS a shell — never let
