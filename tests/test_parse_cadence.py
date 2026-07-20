@@ -25,7 +25,9 @@ def _harness(monkeypatch, frame_holder):
         return {"activity": "idle", "events": [], "label": pane.label, "tool": "shell"}
 
     monkeypatch.setattr(W, "classify", fake_classify)
-    return Watcher(target=None), calls
+    # use_llm=False keeps the watcher fully off real LLM code (classify is stubbed above,
+    # and the idle summarizer never reaches the network) so the test is CI-isolated.
+    return Watcher(target=None, use_llm=False), calls
 
 
 def test_unchanged_screen_parses_once(monkeypatch):
