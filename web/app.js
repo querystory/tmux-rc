@@ -1149,7 +1149,8 @@ async function submitComposer(s) {
       clearStaged();
     }
     bar.input.value = "";
-    liveBurst(); // text + images landing in the pane should be visible immediately
+    // No burst needed: the visible raw surface streams via liveStream, so the sent
+    // text/images show up in the next live frame on their own (docs/design/live-view.md).
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still staged.\n\n" + e.message);
   } finally {
