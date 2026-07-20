@@ -67,7 +67,44 @@ const openTimelines = new Set();
 // every pane — including ones you swipe to — shows its one-line header, handing the
 // screen to the live terminal. Expanding anywhere expands them all.
 let cardsCollapsed = false;
-let busy = false; // suppress polling flicker while an answer is in flight
+// `busy` freezes polling re-renders while a mutation is mid-flight: an answer/composer
+// send (so a fresh parse doesn't replace the card under the user) and swipe/pinch
+// gestures. While set, send() also no-ops to avoid double-firing.
+let busy = false;
+let _fastPoll = null; // the single pending fast-reparse-poll timer (see poll())
+// Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
+// sent. The card (and its answered question) render in a spinning "reparsing" state
+// until the served parsed_at advances past this — so a submitted answer / picked menu
+// visibly WORKS instead of sitting stale until the LLM re-reads the screen. Cleared on
+// a newer parse or after a timeout (so a failed/silent parse can't spin forever).
+const reparsing = {}; // pane_id -> { q, since, ts }
+const REPARSE_TIMEOUT = 12000; // stop spinning even if the screen never settles
+function markReparsing(id) {
+  const s = panesById[id];
+  // Remember BOTH the question we just answered (its prompt) and the parsed_at at send.
+  // If we answered a question, spin until that question is actually GONE — not merely
+  // until a parse lands. The forced reparse often fires before the agent has redrawn,
+  // so it re-reports the SAME question and parsed_at ticks; clearing on that tick
+  // stopped the spinner with the menu still on screen (the bug). For a plain send with
+  // no question, there's nothing to "clear", so fall back to parsed_at advancing.
+  reparsing[id] = {
+    q: (s && s.question && s.question.prompt) || null,
+    since: (s && s.parsed_at) || 0,
+    ts: Date.now(),
+  };
+}
+function isReparsing(s) {
+  const r = reparsing[s.pane_id];
+  if (!r) return false;
+  const settled = r.q !== null
+    ? ((s.question && s.question.prompt) || null) !== r.q // answered question gone/changed
+    : (s.parsed_at || 0) > r.since;                        // no question: a fresh parse landed
+  if (settled || Date.now() - r.ts > REPARSE_TIMEOUT) {
+    delete reparsing[s.pane_id];
+    return false;
+  }
+  return true;
+}
 
 // The web surface is a dumb remote control for tmux — ALL state is in tmux. The active
 // pane is whatever tmux reports as focused (state.tmux_active). Tapping a card just
@@ -205,6 +242,13 @@ async function poll() {
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
     render(data.panes || []);
+    // While a pane is spinning on a forced reparse, poll fast so the spinner clears
+    // within a beat of the parse landing (instead of waiting for the 2s interval). Only
+    // ONE fast poll may be pending at a time — otherwise each poll schedules another and
+    // they stack into overlapping bursts alongside the 2s interval.
+    if (Object.keys(reparsing).length && !_fastPoll) {
+      _fastPoll = setTimeout(() => { _fastPoll = null; if (!busy) poll(); }, 500);
+    }
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
     liveEl.className = "dot off";
@@ -579,7 +623,8 @@ function card(s) {
   const el = document.createElement("div");
   const collapsed = cardsCollapsed;
   el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
-    + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "");
+    + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "")
+    + (isReparsing(s) ? " reparsing" : ""); // input sent, awaiting the forced re-parse
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
   el.onclick = (e) => {
@@ -1204,32 +1249,6 @@ async function uploadStagedImage(s, file) {
   if (!r.ok) throw new Error("upload failed: " + r.status);
 }
 
-// Read an image off the clipboard and upload it. navigator.clipboard.read() is the
-// only path that works on mobile (input.onpaste doesn't), but it needs a SECURE
-// CONTEXT — HTTPS or localhost. Over plain http:// on the LAN it's undefined, which
-// is almost certainly why paste "does nothing". We surface that instead of failing
-// silently, and point the user at the 📎 attach button (which always works).
-async function pasteImage(s, input) {
-  if (!navigator.clipboard || !navigator.clipboard.read) {
-    alert(
-      "Clipboard paste needs HTTPS (or localhost). You're on plain http over the LAN, " +
-      "so the browser blocks it.\n\nUse the 📎 button instead — pick the screenshot " +
-      "from your Photo Library."
-    );
-    return;
-  }
-  try {
-    const items = await navigator.clipboard.read();
-    for (const item of items) {
-      const type = item.types.find((t) => t.startsWith("image/"));
-      if (type) { insertImage(await item.getType(type)); return; }
-    }
-    alert("No image on the clipboard. Copy a screenshot first, or use 📎.");
-  } catch (e) {
-    alert("Couldn't read clipboard: " + e.message + "\n\nTry the 📎 button instead.");
-  }
-}
-
 // The composer's contenteditable DOM IS the buffer: typed text and pasted/attached image
 // chips accumulate here INLINE until Send/Enter walks it and flushes (see submitComposer).
 // There's no separate array — position in the DOM is send position. Each chip's File is
@@ -1325,13 +1344,30 @@ function clearComposer() {
 function question(s) {
   const q = document.createElement("div");
   q.className = "q";
+  const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
   const prompt = document.createElement("div");
   prompt.className = "prompt";
   prompt.textContent = s.question.prompt;
+  if (spinning) {
+    // Built as a DOM node (not innerHTML +=) so the escaped prompt text isn't reparsed
+    // as HTML each render. Negative animation-delay = (Date.now() mod period): a freshly
+    // -created element's CSS animation always starts at 0°, and render() rebuilds the
+    // card every fast reparse-poll (~500ms < the 0.7s spin), so a plain spinner kept
+    // snapping back to the first quarter-turn. Seeding the delay to the current phase
+    // makes each rebuilt spinner RESUME where the last frame left off — one smooth spin.
+    const spin = document.createElement("span");
+    spin.className = "q-spin";
+    spin.setAttribute("role", "status");
+    spin.setAttribute("aria-label", "submitting");
+    spin.style.animationDelay = `${-((Date.now() % 700) / 1000)}s`;
+    prompt.append(" ", spin);
+  }
   q.appendChild(prompt);
 
   // Option buttons (drop any "type something"/"Other" pseudo-option — the bottom bar
   // covers free-text). Tapping an option also makes this pane active, then answers it.
+  // Once an answer is in flight (spinning) the options disable — a second tap would
+  // send a stray keystroke into the agent while the first is still being processed.
   const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
   if (realOpts.length) {
     const opts = document.createElement("div");
@@ -1340,6 +1376,7 @@ function question(s) {
       const b = document.createElement("button");
       b.className = "opt";
       b.textContent = opt;
+      b.disabled = spinning;
       b.onclick = () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); };
       opts.appendChild(b);
     });
@@ -1396,6 +1433,8 @@ async function postSend(s, body) {
 async function send(s, body) {
   if (busy) return; // a send is already in flight — a double-tapped option must not double-fire
   busy = true;
+  markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
+  render(Object.values(panesById)); // reflect the spinning state immediately
   try {
     await postSend(s, body);
   } finally {
