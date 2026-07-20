@@ -420,7 +420,7 @@ function dock(states, act) {
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
     // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
-    // none — quiet is the default, only running/waiting earn a signal.
+    // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
     const a = actOf(s);
     b.innerHTML = iconFor(s.tool) +
       (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
@@ -1096,6 +1096,10 @@ if (bar.input) {
     if (item) { insertImage(item.getAsFile()); return; }
     insertTextAtCaret(cd ? cd.getData("text/plain") : "");
   };
+  // Drag/drop bypasses onpaste and would drop rich HTML / foreign <img src> straight
+  // into the contenteditable (polluting the DOM walk, maybe fetching a remote image).
+  // Block it — attaching is the 📎 button's job, not drop.
+  bar.input.ondragover = bar.input.ondrop = (e) => e.preventDefault();
   // Special keys → the active pane (tmux key-names, sent literally).
   document.querySelectorAll("#bar .keys button").forEach((b) => {
     b.onclick = () => sendRaw(activeState(), b.dataset.k);
@@ -1327,16 +1331,20 @@ async function sendRaw(s, keyName) {
 
 // POST keys to the pane. No burst needed: the visible raw surface streams via
 // liveStream, so the keystroke shows up in the next live frame on its own
-// (docs/design/live-view.md). Pure — callers own the `busy` freeze around it.
-function postSend(s, body) {
-  return fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
+// (docs/design/live-view.md). Throws on a bad response (fetch only rejects on network
+// error) so submitComposer's loop aborts before Enter/clear instead of dropping a
+// segment silently. Pure — callers own the `busy` freeze around it.
+async function postSend(s, body) {
+  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!r.ok) throw new Error("send failed: " + r.status);
 }
 
 async function send(s, body) {
+  if (busy) return; // a send is already in flight — a double-tapped option must not double-fire
   busy = true;
   try {
     await postSend(s, body);
