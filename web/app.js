@@ -1155,15 +1155,33 @@ function composerSegments() {
   const segs = [];
   let run = "";
   const flush = () => { if (run) { segs.push({ text: run }); run = ""; } };
+  // Serialize the contenteditable to text runs + inline image files. Newlines are the
+  // tricky part (browsers model line breaks two different ways):
+  //   • a <br> is a hard line break;
+  //   • a <div> is a block browsers use to wrap each line after the first (Shift+Enter,
+  //     pasted multiline) — entering a non-first block IS a line break.
+  // A <div><br></div> (an empty line) would otherwise double-count, so a <br> that is a
+  // div's LAST child is treated as the block's line-filler and ignored — the div
+  // boundary already accounts for that line. Breaks are buffered in `pending` and only
+  // realized before the next real content, so a leading or trailing break never emits an
+  // empty segment. Verified against Chrome/Firefox DOM shapes (see the walk test cases).
+  let started = false; // any content emitted yet? (suppresses a leading newline)
+  let pending = 0;     // line breaks requested but not yet written to `run`
+  const content = () => { run += "\n".repeat(pending); pending = 0; started = true; };
   const walk = (node) => {
-    for (const n of node.childNodes) {
-      if (n.nodeType === Node.TEXT_NODE) run += n.nodeValue;
+    const kids = node.childNodes;
+    for (let i = 0; i < kids.length; i++) {
+      const n = kids[i];
+      if (n.nodeType === Node.TEXT_NODE) { if (n.nodeValue) { content(); run += n.nodeValue; } }
       else if (n.nodeName === "IMG" && n.classList.contains("attach-chip")) {
         const file = chipFiles.get(n);
-        if (file) { flush(); segs.push({ file }); } // no File ⇒ stray/foreign img: skip, don't post an empty body
+        if (file) { content(); flush(); segs.push({ file }); } // no File ⇒ stray img: skip
       }
-      else if (n.nodeName === "BR") run += "\n";
-      else if (n.nodeName === "DIV") { run += "\n"; walk(n); } // Shift+Enter block
+      else if (n.nodeName === "BR") {
+        // A div's trailing <br> is line-filler the div boundary already counts — ignore it.
+        if (started && !(node.nodeName === "DIV" && i === kids.length - 1)) pending++;
+      }
+      else if (n.nodeName === "DIV") { if (started) pending++; walk(n); }
       else walk(n); // spans etc. (shouldn't occur — paste is plain-text) — recurse for text
     }
   };
