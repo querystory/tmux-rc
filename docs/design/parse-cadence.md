@@ -106,6 +106,6 @@ space for the followup:
   log tail, back off") that widens the interval until the shape changes. Uses the signal
   we already pay for, but couples cadence to model output.
 
-The rate-cap is the likely MVP; the other two are refinements. Tracked as a followup to
-issue #44. Until then, a log-tailing pane parses on every change — correct, if not
-cheap, and bounded by how fast the pane actually changes.
+The rate-cap is the likely MVP; the other two are refinements. Tracked as issue #46
+(followup to #44). Until then, a log-tailing pane parses on every change — correct, if
+not cheap, and bounded by how fast the pane actually changes.
