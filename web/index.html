@@ -179,16 +179,26 @@
   @media (forced-colors: active) {
     .inputwrap:focus-within { outline: 2px solid Highlight; box-shadow: none; }
   }
-  .inputwrap input { flex: 1; background: transparent; border: 0; color: #e6edf3; padding: 10px 12px 10px 4px; font-size: 15px; -webkit-appearance: none; outline: none; }
-  .inputwrap input::-webkit-search-cancel-button { display: none; }
+  /* #bar-input is a contenteditable div, styled to read like the old search field.
+     min-height matches a single line so it doesn't collapse when empty; it grows as
+     lines wrap. white-space:pre-wrap keeps typed spaces/newlines; overflow-wrap:anywhere
+     stops a long paste from widening the bar. max-height caps growth with a scrollbar. */
+  .inputwrap #bar-input { flex: 1; min-width: 0; background: transparent; border: 0; color: #e6edf3;
+    padding: 10px 12px 10px 4px; font-size: 15px; -webkit-appearance: none; outline: none;
+    white-space: pre-wrap; overflow-wrap: anywhere; min-height: 20px; max-height: 40vh; overflow-y: auto;
+    -webkit-user-modify: read-write-plaintext-only; }
+  /* Placeholder for the empty composer (contenteditable has no native one). :empty holds
+     only while there are zero child nodes — one typed char or one image chip clears it. */
+  .inputwrap #bar-input:empty::before { content: attr(data-placeholder); color: #6e7681; pointer-events: none; }
   .inputwrap .attach { background: transparent; border: 0; color: #8b949e; font-size: 14px;
     line-height: 1; cursor: pointer; padding: 0 3px; opacity: .8; }
   .inputwrap .attach[aria-pressed="true"] { color: #58a6ff; opacity: 1; }
-  /* Pasted-image thumbnail: mirrors the image staged in the pane's own composer
-     ([Image #N] in Claude Code) until the next Enter sends it (see attachChip).
-     Selector outranks `.inputwrap input`, whose flex:1/padding would stretch it. */
-  .inputwrap input.attach-chip { width: 24px; height: 24px; border-radius: 5px;
-    object-fit: cover; flex: none; padding: 0; border: 0; margin: 0 2px;
+  /* Inline image thumbnail: an <img> living INSIDE the contenteditable at the caret,
+     interleaved with text (mirrors [Image #N] in Claude Code's composer) until the next
+     Enter sends it. contenteditable=false (set in JS) makes the caret treat it as one
+     atomic character. vertical-align keeps it centred on the text baseline. */
+  .attach-chip { display: inline-block; width: 24px; height: 24px; border-radius: 5px;
+    object-fit: cover; margin: 0 2px; vertical-align: middle;
     cursor: pointer; box-shadow: 0 0 0 1px #30363d; }
   .row { display: flex; align-items: center; gap: 10px; }
   /* Collapse caret: shrinks the card to just this header row, giving the live terminal
@@ -405,12 +415,19 @@
       <div class="inputwrap">
         <button id="bar-keys-toggle" class="attach" title="Special keys" aria-label="Special keys" aria-pressed="false">⌨</button>
         <button id="bar-attach" class="attach" title="Attach image" aria-label="Attach image">📎</button>
-        <!-- type=search: Chrome's autofill heuristics treat a lone named text input as a
-             potential username field and attach the password/payment keyboard accessory
-             bar (which also overlaps the bar's bottom row); search fields are excluded. -->
-        <input id="bar-input" placeholder="Type…" type="search" inputmode="text"
-               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-               enterkeyhint="send" />
+        <!-- Rich composer: contenteditable (not <input>) so image thumbnails can sit
+             INLINE at the caret, interleaved with typed text — the ORDER of text vs.
+             images is what we send (see submitComposer's DOM walk). A plain <input>
+             can't hold child nodes, so images used to pile up to the left of the bar
+             and their paths landed at the END of the message. Placeholder is drawn via
+             CSS :empty::before from data-placeholder (contenteditable has no native
+             placeholder). enterkeyhint is honoured by mobile keyboards; Enter-to-send
+             is handled in JS. autocorrect/autocapitalize/spellcheck off, matching the
+             old search field. role=textbox for a11y. -->
+        <div id="bar-input" contenteditable="true" role="textbox" aria-multiline="true"
+             aria-label="Type…" data-placeholder="Type…" inputmode="text"
+             autocorrect="off" autocapitalize="off" spellcheck="false"
+             enterkeyhint="send"></div>
         <!-- Send lives INSIDE the field (chat-composer style): muted until it matters. -->
         <button id="bar-send" class="send">Send</button>
       </div>
