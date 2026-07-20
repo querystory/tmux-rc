@@ -1304,12 +1304,16 @@ function insertNodeAtCaret(node) {
   bar.input.focus();
   const sel = window.getSelection();
   let range;
-  if (sel && sel.rangeCount && bar.input.contains(sel.anchorNode)) {
-    range = sel.getRangeAt(0); // the live caret/selection inside the composer
-    range.deleteContents();
-  } else if (_savedRange && bar.input.contains(_savedRange.startContainer)) {
-    range = _savedRange; // caret snapshotted before the picker blurred us (see saveCaret)
+  // A saved range WINS over the live selection: focus() above often synthesizes a caret
+  // at the END of the field, which would look like a valid live selection and land the
+  // chip at the end — the exact #70 bug saveCaret exists to prevent. So if we snapshotted
+  // a caret before the picker blurred us, honor it first.
+  if (_savedRange && bar.input.contains(_savedRange.startContainer)) {
+    range = _savedRange;
     range.deleteContents(); // replace a saved SELECTION too, matching the live-caret path
+  } else if (sel && sel.rangeCount && bar.input.contains(sel.anchorNode)) {
+    range = sel.getRangeAt(0); // live caret/selection inside the composer (no snapshot)
+    range.deleteContents();
   } else {
     range = document.createRange(); // no caret at all → append at the end
     range.selectNodeContents(bar.input);
