@@ -553,8 +553,8 @@ class Watcher:
             if now - ts < RECENT_EVENT_TTL
         ]
         recent_texts = [t for t, _ in recent]
-        # Bind `changed` (content-change vs heartbeat re-parse) and the pane's stable
-        # identity into the parser so they ride through to the benchmark telemetry without
+        # Bind `changed` (whether this parse followed a real content change) and the
+        # pane's stable identity into the parser so they ride through to telemetry without
         # widening the generic llm_fn seam. Label falls back to the tmux label; the
         # classifier may refine it (agent session name) before emitting.
         llm_fn = (
@@ -593,8 +593,8 @@ class Watcher:
                 continue
             (dropped if e["text"] in seen else new_events).append(e)
             seen.add(e["text"])
-        # Visibility without spam: log only when the dropped set changes — a heartbeat
-        # re-dropping the same text every 10s stays quiet.
+        # Visibility without spam: log only when the dropped set changes — a pane that
+        # keeps re-emitting the same text across parses stays quiet after the first.
         dropped_texts = [e["text"] for e in dropped]
         if dropped_texts and dropped_texts != self._last_dropped.get(pane.id):
             logger.info(

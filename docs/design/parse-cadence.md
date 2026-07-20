@@ -8,8 +8,10 @@ case that still parses more than we'd like.
 ## The problem
 
 The daemon watches each pane and, when something meaningful changes, asks an LLM to
-classify it (activity, headline, events). That classification is the single recurring
-cost in the system — everything else is local string work. So the question "when do we
+classify it (activity, headline, events). That per-tick classification is the dominant
+recurring cost — the daemon makes other LLM calls (a one-time bootstrap read of a pane's
+scrollback, an occasional idle-burst summarizer), but those are rare next to classifying
+every changed frame. So the question "when do we
 call the LLM?" is really "where does the money go?", and for a long time we answered it
 with two triggers: parse when the screen's **content fingerprint changed**, or every
 ten seconds regardless (a heartbeat), as a safety net.
