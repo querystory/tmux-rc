@@ -1160,11 +1160,13 @@ function composerSegments() {
   //   • a <br> is a hard line break;
   //   • a <div> is a block browsers use to wrap each line after the first (Shift+Enter,
   //     pasted multiline) — entering a non-first block IS a line break.
-  // A <div><br></div> (an empty line) would otherwise double-count, so a <br> that is a
-  // div's LAST child is treated as the block's line-filler and ignored — the div
-  // boundary already accounts for that line. Breaks are buffered in `pending` and only
-  // realized before the next real content, so a leading or trailing break never emits an
-  // empty segment. Verified against Chrome/Firefox DOM shapes (see the walk test cases).
+  // A <div><br></div> (an empty line) would otherwise double-count, so a <br> that is the
+  // LAST child of a NESTED div is treated as that block's line-filler and ignored — the
+  // div boundary already counts the line. A trailing <br> directly under the composer
+  // root is NOT filler: it's a real Shift+Enter newline (Firefox serializes an end-of-
+  // text newline this way), so it must be kept. Breaks buffer in `pending`, realized
+  // before the next content AND once at the end (a trailing newline the user typed).
+  // Verified against Chrome/Firefox DOM shapes (see the walk test cases).
   let started = false; // any content emitted yet? (suppresses a leading newline)
   let pending = 0;     // line breaks requested but not yet written to `run`
   const content = () => { run += "\n".repeat(pending); pending = 0; started = true; };
@@ -1178,14 +1180,15 @@ function composerSegments() {
         if (file) { content(); flush(); segs.push({ file }); } // no File ⇒ stray img: skip
       }
       else if (n.nodeName === "BR") {
-        // A div's trailing <br> is line-filler the div boundary already counts — ignore it.
-        if (started && !(node.nodeName === "DIV" && i === kids.length - 1)) pending++;
+        const nestedFiller = node !== bar.input && node.nodeName === "DIV" && i === kids.length - 1;
+        if (started && !nestedFiller) pending++;
       }
       else if (n.nodeName === "DIV") { if (started) pending++; walk(n); }
       else walk(n); // spans etc. (shouldn't occur — paste is plain-text) — recurse for text
     }
   };
   walk(bar.input);
+  run += "\n".repeat(pending); // realize a trailing newline (Shift+Enter at the very end)
   flush();
   return segs;
 }
@@ -1264,7 +1267,11 @@ function insertImage(file) {
   chip.title = "Sends with your next Send/Enter, in this position. Tap to remove.";
   chip.src = URL.createObjectURL(file);
   chipUrls.add(chip.src);
-  const remove = () => { chip.remove(); chipFiles.delete(chip); sweepChipUrls(); };
+  const remove = () => {
+    const wasFocused = document.activeElement === chip;
+    chip.remove(); chipFiles.delete(chip); sweepChipUrls();
+    if (wasFocused) bar.input.focus(); // don't strand keyboard/AT focus on <body>
+  };
   chip.onclick = remove;
   chip.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); remove(); } };
   chipFiles.set(chip, file);
