@@ -135,6 +135,12 @@ class Watcher:
             0.0  # wall time of the last loop iteration (staleness check)
         )
         self._task: asyncio.Task | None = None
+        # Input-driven reparse: request_reparse() adds pane ids here and wakes the loop
+        # so a submitted answer/keypress re-parses within a capture, not a poll interval.
+        self._force_parse: set[str] = set()
+        self._forced_this_tick: set[str] = set()  # drained from _force_parse per _tick
+        self._wake = asyncio.Event()
+        self._evloop: asyncio.AbstractEventLoop | None = None  # set in start()
 
     def is_stale(self) -> bool:
         """True if the loop hasn't ticked recently — the watcher is dead/stalled and
@@ -145,6 +151,7 @@ class Watcher:
         )
 
     def start(self) -> None:
+        self._evloop = asyncio.get_running_loop()  # for thread-safe _wake from handlers
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
@@ -201,7 +208,37 @@ class Watcher:
             except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
-            await asyncio.sleep(POLL_SECONDS)
+            # Sleep POLL_SECONDS, BUT wake early if input arrived (request_reparse set
+            # the event): after a phone keypress/answer/menu-pick we want the LLM to
+            # re-read the screen NOW, not up to a full poll later — otherwise an
+            # answered question lingers on the card for seconds. wait_for consumes the
+            # timeout normally; TimeoutError is the ordinary "nothing happened" path.
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=POLL_SECONDS)
+                self._wake.clear()  # observed a wake — consume it
+            except asyncio.TimeoutError:
+                # Ordinary "nothing happened" tick. Do NOT clear() here: a set that
+                # arrived between the timeout and now would be discarded unobserved,
+                # delaying its forced reparse by a full poll. Leaving it set means the
+                # next wait_for returns immediately and we consume it above.
+                pass
+
+    def request_reparse(self, pane_id: str) -> None:
+        """Force an LLM re-parse of `pane_id` on the next tick AND wake the loop now, so
+        input-driven screen changes (a submitted answer, a sent key) reflect on the card
+        within ~one capture instead of a poll interval. Called from the request handler
+        thread; setting an asyncio.Event from another thread is safe via the loop's
+        thread-safe scheduling."""
+        self._force_parse.add(pane_id)
+        loop = getattr(self, "_evloop", None)
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(self._wake.set)
+            except RuntimeError:
+                # Loop already closed (shutdown). The tmux send has already succeeded, so
+                # don't fail the request over a wake we no longer need — the pane id stays
+                # in _force_parse and a running loop would pick it up on its next tick.
+                pass
 
     def _tick(self) -> None:
         if not tmux.server_running():
@@ -230,6 +267,12 @@ class Watcher:
             elif p.id not in self._birth:
                 self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
             self._birth[p.id] = p.pid
+        # Drain the forced-reparse requests for THIS pass in one atomic swap, so a
+        # request that arrives mid-tick (handler thread) is never lost to a check-then-
+        # discard race in _tick_pane — it either makes this snapshot or stays queued in
+        # the fresh set for the next tick. Cleared to a new set so late adds accumulate.
+        self._forced_this_tick = self._force_parse
+        self._force_parse = set()
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
         states = []
@@ -472,12 +515,16 @@ class Watcher:
             hist.append({"id": f"{int(now * 1000)}", "text": text, "ts": now})
             del hist[:-SNAPSHOT_HISTORY]
 
-        # Decide whether to PARSE (call the LLM). Parse on real content change, or on a
-        # heartbeat so a slowly-drifting screen refreshes. Merely-working churn (spinner/
-        # timer/tokens) is stripped from the fingerprint ⇒ no change ⇒ no call.
+        # Decide whether to PARSE (call the LLM). Parse on real content change, on a
+        # heartbeat so a slowly-drifting screen refreshes, or on a FORCED reparse (the
+        # phone just sent input — an answered question must clear from the card promptly,
+        # even if the screen hasn't changed enough to trip the fingerprint yet). Merely-
+        # working churn (spinner/timer/tokens) is stripped from the fingerprint ⇒ no
+        # change ⇒ no call.
         cached = self._state.get(pane.id)
         due = now - self._last_parse.get(pane.id, 0) >= HEARTBEAT_SECONDS
-        if cached is not None and not changed and not due:
+        forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
+        if cached is not None and not changed and not due and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
             # The pane TITLE lives outside the captured text — agents rename it while
@@ -612,5 +659,9 @@ class Watcher:
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
         state["updated_at"] = now
+        # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
+        # which also bumps on idle-timer ticks. The phone watches it to know a forced
+        # reparse has actually landed — so it can stop spinning the answered control.
+        state["parsed_at"] = now
         self._state[pane.id] = state
         return state

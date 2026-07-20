@@ -68,6 +68,9 @@
   .badge.b-all { background: #21262d; color: #adbac7; }
   .dim { color: #6e7681; }
   .d-running { background: #3fb950; } .d-waiting { background: #e3b341; }
+  /* Compacting: agent is condensing its own context — busy, but housekeeping, not user
+     work. Purple sets it apart from running-green at a glance. */
+  .d-compacting { background: #a371f7; }
   /* Shared pane-header layout (paneHeader) — used by BOTH the list rows (.prow) and the
      expanded card (.row) so they can't diverge. Left column stretches + ellipsizes; the
      right column stacks the working sub-line ABOVE the activity badge, fully right. */
@@ -245,6 +248,8 @@
   .b-running { background: #12331f; color: #3fb950; }
   .b-idle { background: #21262d; color: #8b949e; }
   .b-waiting { background: #3d2e0a; color: #e3b341; }
+  .b-compacting { background: #2a1e40; color: #a371f7; }
+  .b-compacting .pulse { background: #a371f7; }
   .b-unknown { background: #21262d; color: #8b949e; }
   .ctx { height: 4px; border-radius: 4px; background: #21262d; margin-top: 8px; overflow: hidden; }
   .ctx > i { display: block; height: 100%; background: #388bfd; }
@@ -259,6 +264,18 @@
     border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer;
   }
   button.opt:active { background: #30363d; }
+  button.opt:disabled { opacity: .5; cursor: default; }
+  /* Reparsing: an answer/keypress was sent and we're waiting for the forced LLM
+     re-parse to land. Dim the card slightly and spin a ring next to the prompt so the
+     submitted answer visibly WORKS instead of sitting stale. Cleared when the fresh
+     parse arrives (parsed_at advances) or after the client-side timeout. */
+  .card.reparsing { opacity: .8; }
+  .q-spin { display: inline-block; width: 20px; height: 20px; vertical-align: -4px;
+    border: 3px solid #30363d; border-top-color: #58a6ff; border-radius: 50%;
+    animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Honour a reduced-motion preference: keep the spinner as a static "busy" ring. */
+  @media (prefers-reduced-motion: reduce) { .q-spin { animation: none; } }
   /* Structured tables: scroll horizontally AND vertically, capped so a big one doesn't
      dominate the card. */
   .tablewrap { margin-top: 12px; }

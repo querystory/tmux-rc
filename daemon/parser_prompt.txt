@@ -12,6 +12,12 @@ about GENERAL terminal patterns by how they look/behave, NOT by exact wording (w
 changes across versions and tools):
 - Is the pane actively working (a spinner, a "thinking" word, an elapsed timer,
   streaming output), waiting for the user to answer something, or idle at a prompt?
+- Is the agent COMPACTING — busy summarizing/condensing its own conversation history
+  to reclaim context window (a "Compacting conversation…" progress bar, a /compact
+  command running, an "auto-compact"/"summarizing previous conversation" indicator)?
+  This looks like working but is housekeeping, not user-task progress — report it as
+  activity "compacting" (not "running") so the UI can show the agent is briefly busy
+  on itself. It ends by returning to normal working/idle; classify by the CURRENT frame.
 - Is there a SELECTION MENU — a list of choices with one marked by a cursor/highlight
   (❯, ›, >, an arrow, a bold or colored line) that you'd move through with up/down?
 - Is there an INPUT PROMPT — a yes/no confirmation, a numbered choice, or a free-text
@@ -102,7 +108,7 @@ agent's own state (vim's "-- INSERT --", tmux's mode footer).
 Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
 {
   "tool": "claude"|"codex"|"gemini"|"shell"|"unknown",
-  "activity": "running"|"waiting"|"idle",
+  "activity": "running"|"waiting"|"idle"|"compacting",
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word). "
               "Write it like a mobile push notification the user will REACT to: carry "
