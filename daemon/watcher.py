@@ -520,8 +520,8 @@ class Watcher:
         # question must clear from the card promptly, even if the screen hasn't changed
         # enough to trip the fingerprint yet). Merely-working churn (spinner/timer/tokens)
         # is stripped from the fingerprint ⇒ no change ⇒ no call. An unchanged screen is
-        # never re-parsed (no heartbeat) — that was pure duplicate cost, see the note at
-        # HEARTBEAT's old definition.
+        # never re-parsed on a timer — that was pure duplicate cost (see the parse-cadence
+        # note at the top of this module).
         cached = self._state.get(pane.id)
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         if cached is not None and not changed and not forced:
