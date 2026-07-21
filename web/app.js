@@ -1895,7 +1895,16 @@ async function lmStart() {
   ws.onopen = async () => {
     if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
     try { await lmCapture(ws); }
-    catch (e) { lmAdd("err", `⚠ mic unavailable: ${e.message}`); lmStop(); }
+    catch (e) {
+      // Surface the real reason PERSISTENTLY: lmStop() re-renders and wipes the card
+      // feed, so a mere lmAdd flashes and vanishes (invisible on mobile). alert() so the
+      // operator can actually read why the mic failed — name+message distinguish a
+      // permission denial (NotAllowedError) from no-device (NotFoundError) etc.
+      lmStop();
+      alert(`Live Mode mic error:\n${e.name || "Error"}: ${e.message}\n\n`
+        + "If this is a permission issue: grant microphone access to this site/app "
+        + "in your browser or Android app settings, then try again.");
+    }
   };
   lm.btn.title = lm.btn.ariaLabel = "End Live Mode";
   render(Object.values(panesById)); // swap the active card's summary for the convo box

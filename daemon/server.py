@@ -214,6 +214,11 @@ async def no_cache(request, call_next):
     Force no-store on every response — fine for a live dev tool on the LAN."""
     resp = await call_next(request)
     resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    # Live Mode's getUserMedia needs microphone permission granted to THIS origin. An
+    # installed PWA / any embedding context can have the mic feature gated off by the
+    # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
+    # browser prompts (and the PWA keeps the grant) instead of silently rejecting.
+    resp.headers["Permissions-Policy"] = "microphone=(self)"
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
