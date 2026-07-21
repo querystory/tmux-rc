@@ -464,22 +464,28 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
     from google.genai import types
 
     client = _live_client()
-    config = types.LiveConnectConfig(
-        response_modalities=[types.Modality.AUDIO],
-        tools=_type_tool(),
-        system_instruction=_system_prompt(watcher),
-        input_audio_transcription=types.AudioTranscriptionConfig(),
-        output_audio_transcription=types.AudioTranscriptionConfig(),
-        # Let the model choose NOT to answer — required for the noise/silence prompt
-        # rules to work instead of the model replying to every sound.
-        proactivity=types.ProactivityConfig(proactive_audio=True),
-    )
+
+    def _config():
+        # Rebuilt per connect attempt so a RECONNECT gets a fresh pane snapshot in its
+        # system prompt — the connect snapshot is the only place full screens are sent
+        # (ambient [tmux update]s omit them), so reusing a stale one would leave a
+        # reconnected session answering/acting on minutes-old screen state.
+        return types.LiveConnectConfig(
+            response_modalities=[types.Modality.AUDIO],
+            tools=_type_tool(),
+            system_instruction=_system_prompt(watcher),
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            # Let the model choose NOT to answer — required for the noise/silence prompt
+            # rules to work instead of the model replying to every sound.
+            proactivity=types.ProactivityConfig(proactive_audio=True),
+        )
 
     max_reconnects = 5
     for attempt in range(max_reconnects + 1):
         await websocket.send_json({"type": "status", "status": "connecting"})
         try:
-            async with client.aio.live.connect(model=LIVE_MODEL, config=config) as session:
+            async with client.aio.live.connect(model=LIVE_MODEL, config=_config()) as session:
                 logger.info("[live] session up (model=%s, actor=%s)", LIVE_MODEL, actor)
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [

@@ -378,7 +378,9 @@
     border: 1px solid #30363d; border-radius: 10px; font-size: 13px;
     display: flex; flex-direction: column; gap: 6px;
     min-height: 120px; max-height: 45vh; overflow-y: auto; }
-  .lm-convo:empty::before { content: "listening — say something"; color: #6e7681; }
+  /* Neutral until something is said — the mic pulse/label carries connect/listen state,
+     so this must not claim "listening" during connecting/reconnecting. */
+  .lm-convo:empty::before { content: "Live Mode — your conversation appears here"; color: #6e7681; }
   .lm-convo .lm-user { color: #8ecbff; }
   .lm-convo .lm-model { color: #e6edf3; }
   /* A typed action: unmissable — this is the model touching a real terminal. */

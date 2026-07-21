@@ -313,7 +313,9 @@ function showUsage(u, err) {
   // session average (calls/uptime) computed server-side — stable. `cost` is the COMBINED
   // parser + voice spend; the tooltip splits it (voice is billed at ~30× parser rates).
   const live = u.live || { cost: 0, sessions: 0, in_tokens: 0, out_tokens: 0 };
-  const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
+  // Total tokens = parser + voice, matching the combined `cost` (otherwise the readout
+  // would show a parser-only token count next to a parser+voice dollar figure).
+  const tok = ((u.in_tokens + u.out_tokens + live.in_tokens + live.out_tokens) / 1000).toFixed(0);
   const parts = [
     `${tok}k tok`,
     `<span${u.errors ? ' class="warn"' : ""}>$${u.cost.toFixed(3)}</span>`,
