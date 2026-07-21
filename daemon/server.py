@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import socket
 import subprocess
 import tempfile
 import time
@@ -31,6 +32,15 @@ from dotenv import find_dotenv, load_dotenv
 # usual upward search from cwd. Either way, real env vars still win (override=False).
 _repo_env = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
+
+# Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
+# client that walks AAAA records serially — the Vertex Live websocket handshake times out
+# before an A record is ever tried. Sorting IPv4 first is harmless where v6 works and
+# unbreaks all daemon egress (Vertex, OTLP) where it doesn't.
+_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = lambda *a, **kw: sorted(
+    _getaddrinfo(*a, **kw), key=lambda info: info[0] != socket.AF_INET
+)
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import PlainTextResponse  # noqa: E402
