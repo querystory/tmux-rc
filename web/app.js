@@ -208,6 +208,9 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
 let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
                            // null until the first reply so cold load asks for state outright
 let _polling = false;    // single-flight: only one /api/state request in flight at a time
+let _pollInflight = null; // promise for the in-flight poll(), so pollLoop can await it
+                          // instead of busy-waking on a 1s timer while a send-triggered
+                          // hold (from submitComposer/send) runs out-of-band
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
 // switch, add/remove, label/activity, new events) or ~25s, then returns instantly. We
 // re-hold right away, so switches show up in ~a fast-poll tick instead of a 2s interval.
@@ -275,6 +278,14 @@ async function poll() {
   }
 }
 let _pollErr = false;
+// Every poll() goes through here so its promise is recorded in _pollInflight. That lets
+// pollLoop await an out-of-band hold (one a send started) to completion instead of
+// busy-waking on a 1s timer for the full ~25s the hold might last.
+function startPoll() {
+  const p = poll();
+  _pollInflight = p;
+  return p;
+}
 // Drive the long-poll: as soon as one hold returns, start the next. The server does the
 // waiting (holds ~25s or until change), so this is not a busy-loop. On error OR a `busy`
 // window (a send in flight suppressed the poll) wait a beat before retrying so we don't
@@ -282,8 +293,11 @@ let _pollErr = false;
 async function pollLoop() {
   for (;;) {
     _pollErr = false;
-    await poll();
-    const gap = (_pollErr || busy || _polling) ? 1000 : 0;
+    // A send() may have started a hold out-of-band; if so, await THAT rather than
+    // starting our own (poll() would no-op on _polling) and then spinning a 1s timer.
+    if (_polling && _pollInflight) await _pollInflight;
+    else await startPoll();
+    const gap = (_pollErr || busy) ? 1000 : 0;
     await new Promise((res) => setTimeout(res, gap));
   }
 }
@@ -1218,7 +1232,7 @@ async function submitComposer(s) {
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
-    setTimeout(() => { busy = false; poll(); }, 400);
+    setTimeout(() => { busy = false; startPoll(); }, 400);
   }
 }
 
@@ -1473,7 +1487,7 @@ async function send(s, body) {
   try {
     await postSend(s, body);
   } finally {
-    setTimeout(() => { busy = false; poll(); }, 400);
+    setTimeout(() => { busy = false; startPoll(); }, 400);
   }
 }
 
