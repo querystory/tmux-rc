@@ -278,13 +278,15 @@ async function poll() {
   }
 }
 let _pollErr = false;
-// Every poll() goes through here so its promise is recorded in _pollInflight. That lets
-// pollLoop await an out-of-band hold (one a send started) to completion instead of
-// busy-waking on a 1s timer for the full ~25s the hold might last.
+// Single-flight entry point for every poll(): if a request is already in flight, hand
+// back the SAME promise instead of starting (and recording) a no-op — poll() itself
+// no-ops while _polling, so wrapping it blindly would clobber _pollInflight to undefined.
+// Recording the live promise lets pollLoop await an out-of-band hold (one a send started)
+// to completion instead of busy-waking on a timer for the ~25s the hold might last.
 function startPoll() {
-  const p = poll();
-  _pollInflight = p;
-  return p;
+  if (_polling && _pollInflight) return _pollInflight;
+  _pollInflight = poll();
+  return _pollInflight;
 }
 // Drive the long-poll: as soon as one hold returns, start the next. The server does the
 // waiting (holds ~25s or until change), so this is not a busy-loop. On error OR a `busy`
@@ -293,10 +295,9 @@ function startPoll() {
 async function pollLoop() {
   for (;;) {
     _pollErr = false;
-    // A send() may have started a hold out-of-band; if so, await THAT rather than
-    // starting our own (poll() would no-op on _polling) and then spinning a 1s timer.
-    if (_polling && _pollInflight) await _pollInflight;
-    else await startPoll();
+    // startPoll() awaits the in-flight hold if a send started one out-of-band, else
+    // begins a fresh hold — either way one request drives, never a timer spin.
+    await startPoll();
     const gap = (_pollErr || busy) ? 1000 : 0;
     await new Promise((res) => setTimeout(res, gap));
   }
