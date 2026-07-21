@@ -207,17 +207,12 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
 
 let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
                            // null until the first reply so cold load asks for state outright
-let _polling = false;    // single-flight: only one /api/state request in flight at a time
-let _pollInflight = null; // promise for the in-flight poll(), so pollLoop can await it
-                          // instead of busy-waking on a 1s timer while a send-triggered
-                          // hold (from submitComposer/send) runs out-of-band
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
-// switch, add/remove, label/activity, new events) or ~25s, then returns instantly. We
-// re-hold right away, so switches show up in ~a fast-poll tick instead of a 2s interval.
-// A `busy` window (a send in flight) just defers the next hold — pollLoop resumes it.
+// switch, add/remove, label/activity, new events) or ~25s, then returns. pollLoop is the
+// ONLY caller and runs one at a time, so there's no concurrent-fetch state to track —
+// sends never poll (they just set `busy`; pollLoop resumes when it clears). Returns true
+// on success, false to signal pollLoop to back off before the next hold.
 async function poll() {
-  if (busy || _polling) return;
-  _polling = true;
   try {
     // Omit `v` until we've received a first version, so the cold-load fetch is
     // unambiguously "give me current state now" — never conflated with a real echoed
@@ -237,20 +232,19 @@ async function poll() {
         : "";
       panesEl.innerHTML = `<div class="empty">backend unavailable (${r.status})` +
         (body ? `: ${esc(body)}` : "") + (hint ? `<br><small>${esc(hint)}</small>` : "") + `</div>`;
-      _pollErr = true;  // back off — without this pollLoop retries with gap=0 and hammers
-      return;
+      return false;  // back off — without a gap pollLoop would re-request instantly and hammer
     }
     const data = await r.json();
     // `busy` may have flipped true WHILE this request was in flight (a send/gesture
     // started mid-fetch). Applying the response now would replace the card under the
     // user — the very thing `busy` freezes. Drop it without touching _stateVersion, so
     // the next (post-busy) hold re-fetches from the same version and renders in order.
-    if (busy) return;
+    if (busy) return true;
     // A well-formed response always carries a numeric version. version 0 = no initial
     // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
     // Both must back off, else pollLoop re-requests with gap=0 and tight-loops the backend.
-    if (typeof data.version === "number" && data.version > 0) _stateVersion = data.version; // re-hold on this
-    else _pollErr = true;
+    const ok = typeof data.version === "number" && data.version > 0;
+    if (ok) _stateVersion = data.version; // re-hold on this version
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
     liveEl.title = data.stale ? "watcher stalled — cards may be frozen" : "live";
@@ -267,39 +261,25 @@ async function poll() {
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
     render(data.panes || []);
+    return ok; // ok=false (version 0 / legacy daemon) → pollLoop backs off
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
     liveEl.className = "dot off";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(often a stale cached app.js — hard-refresh)</small></div>`;
-    _pollErr = true;
-  } finally {
-    _polling = false;
+    return false;
   }
 }
-let _pollErr = false;
-// Single-flight entry point for every poll(): if a request is already in flight, hand
-// back the SAME promise instead of starting (and recording) a no-op — poll() itself
-// no-ops while _polling, so wrapping it blindly would clobber _pollInflight to undefined.
-// Recording the live promise lets pollLoop await an out-of-band hold (one a send started)
-// to completion instead of busy-waking on a timer for the ~25s the hold might last.
-function startPoll() {
-  if (_polling && _pollInflight) return _pollInflight;
-  _pollInflight = poll();
-  return _pollInflight;
-}
 // Drive the long-poll: as soon as one hold returns, start the next. The server does the
-// waiting (holds ~25s or until change), so this is not a busy-loop. On error OR a `busy`
-// window (a send in flight suppressed the poll) wait a beat before retrying so we don't
-// spin — a backend outage or a send both resolve within a short delay.
+// waiting (holds ~25s or until change), so this is not a busy-loop — and pollLoop is the
+// ONLY caller of poll(), so no concurrent-fetch coordination is needed. While `busy` (a
+// send/gesture froze re-renders) skip the fetch and wait a beat; poll() returning false
+// (backend down / legacy daemon) also backs off, so we never tight-loop.
 async function pollLoop() {
   for (;;) {
-    _pollErr = false;
-    // startPoll() awaits the in-flight hold if a send started one out-of-band, else
-    // begins a fresh hold — either way one request drives, never a timer spin.
-    await startPoll();
-    const gap = (_pollErr || busy) ? 1000 : 0;
-    await new Promise((res) => setTimeout(res, gap));
+    if (busy) { await sleep(250); continue; } // a send/gesture froze re-renders; re-check soon
+    const ok = await poll();
+    if (!ok) await sleep(1000); // outage / legacy daemon: back off before retrying
   }
 }
 
@@ -1233,7 +1213,7 @@ async function submitComposer(s) {
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
-    setTimeout(() => { busy = false; startPoll(); }, 400);
+    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
 
@@ -1488,7 +1468,7 @@ async function send(s, body) {
   try {
     await postSend(s, body);
   } finally {
-    setTimeout(() => { busy = false; startPoll(); }, 400);
+    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
 
