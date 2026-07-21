@@ -44,6 +44,15 @@ def test_live_frame_churn_does_not_bump():
     assert w.state_version() == v
 
 
+def test_fingerprint_distinguishes_none_from_literal_none():
+    # A field flipping between None and the literal string "None" IS a change and must
+    # bump — the fingerprint must not coerce them together (the f-string-join bug).
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "title": None}))    # version 1
+    w._bump_state_if_changed(_states({**A, "title": "None"}))  # real change → bump
+    assert w.state_version() == 2
+
+
 def test_fast_active_check_ignores_none_focus(monkeypatch):
     # A transient tmux error makes active_pane_id() return None. The fast check must NOT
     # treat that as "no pane focused" and clear tmux_active on every card (which would

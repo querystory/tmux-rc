@@ -409,10 +409,16 @@ class Watcher:
     # spin until its timeout instead of reflecting the fresh parse.
     @staticmethod
     def _deck_fp(states: list[dict]) -> str:
+        # repr() of a tuple, NOT an f-string join: f-strings coerce None -> "None", so a
+        # field flipping between None and the literal string "None" would look unchanged
+        # and the version wouldn't bump. repr keeps None ('None') distinct from "None"
+        # ("'None'").
         parts = [
-            f"{s.get('pane_id')}|{s.get('tmux_active')}|{s.get('label')}|{s.get('title')}"
-            f"|{s.get('activity')}|{s.get('tool')}|{s.get('events_seq')}"
-            f"|{(s.get('question') or {}).get('prompt')}|{s.get('parsed_at')}"
+            repr((
+                s.get("pane_id"), s.get("tmux_active"), s.get("label"), s.get("title"),
+                s.get("activity"), s.get("tool"), s.get("events_seq"),
+                (s.get("question") or {}).get("prompt"), s.get("parsed_at"),
+            ))
             for s in states
         ]
         return "\n".join(parts)
