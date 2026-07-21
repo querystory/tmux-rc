@@ -297,6 +297,7 @@ class Watcher:
     def _tick(self) -> None:
         if not tmux.server_running():
             self.states = []
+            self._bump_state_if_changed([])  # wake the hold: tmux-down is a deck change too
             return
         # Multi-pane: watch every pane (or just the configured target if set). Each
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
@@ -307,6 +308,7 @@ class Watcher:
             panes = tmux.list_panes()
         if not panes:
             self.states = []
+            self._bump_state_if_changed([])  # wake the hold: no-panes is a deck change too
             return
         alive = {p.id for p in panes}
         # tmux recycles pane ids on close ("%3" freed, reassigned to a new pane). If an

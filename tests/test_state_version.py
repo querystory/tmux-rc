@@ -44,6 +44,17 @@ def test_live_frame_churn_does_not_bump():
     assert w.state_version() == v
 
 
+def test_transition_to_empty_deck_bumps():
+    # tmux-down / no-panes sets states=[] via _tick's early returns; that transition must
+    # bump so the /api/state hold returns to show "no panes" instead of holding to timeout.
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states(A))  # version 1
+    w._bump_state_if_changed([])          # populated → empty is a deck change
+    assert w.state_version() == 2
+    w._bump_state_if_changed([])          # already empty → no further bump
+    assert w.state_version() == 2
+
+
 def test_wait_returns_immediately_when_already_ahead():
     w = Watcher(target=None)
     w._bump_state_if_changed(_states(A))  # version 1

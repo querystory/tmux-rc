@@ -205,7 +205,8 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
   );
 }
 
-let _stateVersion = 0;   // last deck version the server gave us — sent back to long-poll
+let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
+                           // null until the first reply, so we don't send v=0 and trip a hold
 let _polling = false;    // single-flight: only one /api/state request in flight at a time
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
 // switch, add/remove, label/activity, new events) or ~25s, then returns instantly. We
@@ -215,7 +216,9 @@ async function poll() {
   if (busy || _polling) return;
   _polling = true;
   try {
-    const r = await fetch(`/api/state?v=${_stateVersion}`);
+    // Omit `v` until we've received a first version — sending v=0 on cold load can make
+    // the server long-poll (esp. when tmux is down) and leave the UI on "(connecting…)".
+    const r = await fetch("/api/state" + (_stateVersion !== null ? `?v=${_stateVersion}` : ""));
     // Check status before parsing: when the tunnel/backend is down the relay
     // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
@@ -229,6 +232,7 @@ async function poll() {
         : "";
       panesEl.innerHTML = `<div class="empty">backend unavailable (${r.status})` +
         (body ? `: ${esc(body)}` : "") + (hint ? `<br><small>${esc(hint)}</small>` : "") + `</div>`;
+      _pollErr = true;  // back off — without this pollLoop retries with gap=0 and hammers
       return;
     }
     const data = await r.json();

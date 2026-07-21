@@ -238,7 +238,10 @@ async def get_state(v: int | None = None):
 
     w = app.state.watcher
     version = w.state_version()
-    if v is not None and v == version:
+    # Only long-poll once the watcher has produced an initial state (version > 0).
+    # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
+    # legacy first-load behavior) must get the current state now, not hold for ~25s.
+    if v is not None and v == version and version > 0:
         version = await w.wait_for_state_change(v, STATE_HOLD_SECONDS)
     return {
         "version": version,  # echo so the client re-holds on the next value
