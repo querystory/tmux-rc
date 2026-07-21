@@ -527,15 +527,20 @@ function dock(states, act) {
   // screen — its card then joins to a tab that isn't visible (looks severed). Center the
   // selected icon in the strip so it and its tab-join are always on screen. Deferred a
   // frame: the icons were just (re)appended, so their positions aren't laid out yet.
-  // Card view only (a .sel exists); list mode has no card to keep aligned. Only scroll
-  // when the icon is actually clipped by the strip's edges — otherwise every render (an
-  // activity tick, new events) would re-fire a smooth scroll and fight the resting
+  // Gate on `joined` (card view AND the selected tab is joined to a card) — NOT just a
+  // .sel, which also exists in list mode where there's no card to keep aligned. Only
+  // scroll when the icon is actually clipped by the strip's edges — otherwise every
+  // render (an activity tick, new events) would re-fire a scroll and fight the resting
   // position; when it's already fully visible we leave the dock where the user left it.
-  const sel = el.querySelector(".dock-icon.sel");
+  const sel = joined && el.querySelector(".dock-icon.sel");
   if (sel) requestAnimationFrame(() => {
     const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
     if (i.left < c.left || i.right > c.right)
-      sel.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+      sel.scrollIntoView({
+        inline: "center", block: "nearest",
+        // Respect reduced-motion: jump instead of glide.
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
   });
 }
 
