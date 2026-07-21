@@ -419,6 +419,9 @@ function render(states) {
 function joinTab(deck) {
   const top = document.getElementById("top");
   top.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+  // Stop watching the prior render's card up front, so EVERY exit — including the
+  // list-mode early return below (no selected icon, no card to join) — releases it.
+  _joinRO.disconnect();
   const sel = dockEl.querySelector(".dock-icon.sel");
   if (!sel) return;
   const n = document.createElement("i");
@@ -470,9 +473,8 @@ function joinTab(deck) {
   // card (its summary/events growing as the pane works) reflows the deck under the
   // already-placed fillets, leaving them detached from the card's moved top edge. render()
   // re-pins on a full re-render but not on a same-card height change, so without this the
-  // busy active pane shows disconnected tab-tops. One reused observer, re-targeted each
-  // joinTab; the isConnected guard skips a stale fillet a rapid re-render already swept.
-  _joinRO.disconnect();
+  // busy active pane shows disconnected tab-tops. The observer was disconnected at the top
+  // of joinTab; re-target it at this render's card (guarded above so list mode leaves it off).
   const card = deck.querySelector(".card.active");
   if (card) _joinRO.observe(card);
 }
@@ -480,11 +482,15 @@ function joinTab(deck) {
 // The current joinTab's pin() closure, so the shared card-resize observer below can
 // re-run the latest one (each joinTab reassigns it). null before the first join.
 let _joinPin = null;
+let _joinRAF = 0; // pending rAF handle, so bursts of resize callbacks coalesce to one pin
 // Reused across renders so we never leak observers; joinTab disconnects + re-observes
 // the current active card each time. rAF: ResizeObserver fires mid-layout, so defer the
-// measure a frame; guard on a still-present fillet in case a re-render swept it.
+// measure a frame; coalesce multiple callbacks in one frame into a single pin(); guard on
+// a still-present fillet in case a re-render swept it.
 const _joinRO = new ResizeObserver(() => {
-  requestAnimationFrame(() => {
+  if (_joinRAF) return; // a pin is already queued for the next frame
+  _joinRAF = requestAnimationFrame(() => {
+    _joinRAF = 0;
     const fl = document.querySelector("#top .tab-fillet");
     if (fl && fl.isConnected && _joinPin) _joinPin();
   });
