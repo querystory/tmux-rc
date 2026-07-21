@@ -44,6 +44,29 @@ def test_live_frame_churn_does_not_bump():
     assert w.state_version() == v
 
 
+def test_first_empty_tick_bumps_off_zero():
+    # _state_fp starts as None (not ""), so even a first tick to an EMPTY deck (tmux down /
+    # no panes) bumps to version 1 — otherwise version stays 0 through a prolonged empty
+    # state and the long-poll (which only engages at version > 0) never kicks in.
+    w = Watcher(target=None)
+    assert w.state_version() == 0
+    w._bump_state_if_changed([])
+    assert w.state_version() == 1
+
+
+def test_reparse_fields_bump_the_version():
+    # The phone's reparsing spinner settles on the question prompt changing or parsed_at
+    # advancing; both must be in the deck fingerprint so a forced reparse wakes the hold.
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "parsed_at": 100}))  # version 1
+    w._bump_state_if_changed(_states({**A, "parsed_at": 200}))  # fresh parse → bump
+    assert w.state_version() == 2
+    w._bump_state_if_changed(_states({**A, "parsed_at": 200, "question": {"prompt": "y/n?"}}))
+    assert w.state_version() == 3  # question appeared → bump
+    w._bump_state_if_changed(_states({**A, "parsed_at": 200}))  # question cleared → bump
+    assert w.state_version() == 4
+
+
 def test_transition_to_empty_deck_bumps():
     # tmux-down / no-panes sets states=[] via _tick's early returns; that transition must
     # bump so the /api/state hold returns to show "no panes" instead of holding to timeout.

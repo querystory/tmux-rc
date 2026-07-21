@@ -236,6 +236,12 @@ async function poll() {
       return;
     }
     const data = await r.json();
+    // `busy` may have flipped true WHILE this request was in flight (a send/gesture
+    // started mid-fetch). Applying the response now would replace the card under the
+    // user — the very thing `busy` freezes. Drop it without touching _stateVersion, so
+    // the next (post-busy) hold re-fetches from the same version and renders in order.
+    if (busy) return;
+    if (data.version === 0) _pollErr = true; // no initial state yet: back off, don't spin
     if (typeof data.version === "number") _stateVersion = data.version; // re-hold on this
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";

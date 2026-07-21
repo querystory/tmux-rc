@@ -151,7 +151,11 @@ class Watcher:
         # every 1.5s tick. _state_changed wakes waiters; it lives on the loop, so _tick
         # (a worker thread) flips it via call_soon_threadsafe.
         self._state_version = 0
-        self._state_fp = ""
+        # None (not "") so the FIRST tick always bumps to version 1 — even to an empty
+        # deck (tmux down / no panes), whose fingerprint is "". Otherwise version would
+        # stay 0 through a prolonged empty state and the long-poll (which only engages at
+        # version > 0) would never kick in.
+        self._state_fp: str | None = None
         self._state_changed = asyncio.Event()
 
     def state_version(self) -> int:
@@ -393,12 +397,17 @@ class Watcher:
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state
     # hold. events_seq IS here so new activity on any pane returns the hold (the phone
-    # then refetches that pane's /events).
+    # then refetches that pane's /events). question + parsed_at ARE here so a forced
+    # reparse after a send/answer wakes the hold — the phone's reparsing spinner settles
+    # on the question prompt changing or parsed_at advancing (see isReparsing in app.js),
+    # so if the fingerprint omitted them the hold could keep holding and the UI would
+    # spin until its timeout instead of reflecting the fresh parse.
     @staticmethod
     def _deck_fp(states: list[dict]) -> str:
         parts = [
             f"{s.get('pane_id')}|{s.get('tmux_active')}|{s.get('label')}|{s.get('title')}"
             f"|{s.get('activity')}|{s.get('tool')}|{s.get('events_seq')}"
+            f"|{(s.get('question') or {}).get('prompt')}|{s.get('parsed_at')}"
             for s in states
         ]
         return "\n".join(parts)
