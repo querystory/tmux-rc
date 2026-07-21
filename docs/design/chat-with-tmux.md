@@ -5,7 +5,7 @@ command layer over tmux-rc: "open codex in a new pane and do X", "in the pane ru
 build, retry it", with context awareness (route a command to the right pane even when
 it's not selected) and a user-approval step before anything touches a live agent. Also
 records how — and whether — this relates to the `/api/live` feed and the state long-poll
-(#47), and to the unmerged qs-app Gemini Live Mode work.
+(#47), and what a voice (streaming-LLM) input path would take.
 
 ## The idea, and why it fits tmux-rc
 
@@ -57,7 +57,7 @@ Four capabilities, roughly in increasing difficulty:
 The router is one more consumer of the daemon's existing read/write primitives, plus a
 new create primitive:
 
-- **Input**: text now; voice later (see Gemini Live section). Voice is an input *modality*,
+- **Input**: text now; voice later (see the voice-input section). Voice is a *modality*,
   not an architectural change — speech→text→same router.
 - **Context assembly**: gather the current per-pane state (labels, activities, headlines,
   recent events, maybe a scrollback slice for the candidate panes) — all already in the
@@ -94,58 +94,54 @@ Verdict: build chat-with-tmux on the daemon's send/select/create + per-pane stat
 benefits from #47's instant feedback but has no dependency on the live transport. Keep
 them decoupled.
 
-## Gemini Live Mode reuse (qs-app #2358 / #2356 / #2357)
+## Voice input: what a real-time streaming-LLM integration takes
 
-The user asked whether the unmerged March Gemini Live Mode work in qs-app (meeting
-intelligence) offers reusable primitives for the voice side of this feature — a Gemini
-Live session wrapper, an audio pipeline, a tool-dispatch loop — or whether the overlap is
-just "both use Gemini."
+Voice is the third milestone (below), and it's worth writing down what a bidirectional
+speech→intent pipeline actually costs to build, because the mechanics are non-obvious and
+easy to underestimate. These notes distil experience wiring a browser mic to a real-time
+streaming LLM with tool/function-calling — the reusable shape, and the traps.
 
-The finding (from a code-level deep-dive of all three PRs): the **transport and plumbing
-are genuinely reusable; the product logic is not** — and the overlap is more than "both
-use Gemini." Details:
+**The transport is the hard part, and it generalizes.** The workable architecture is two
+hops: `browser → our daemon (its own WebSocket) → the streaming-LLM provider`. The daemon
+owns the provider session; the browser only captures and plays. Concretely:
 
-**What they are.** #2356 is the design doc; #2357 the first implementation; **#2358 the
-authoritative superset** (it contains #2357 plus everything through v5). The architecture
-is `browser → QS backend (its own WebSocket) → Gemini Live (Vertex bidi stream)` — two
-hops, the Google SDK owns the actual Gemini socket. Model
-`gemini-live-2.5-flash-native-audio` on Vertex, `us-central1`. All three are stalled and
-unmerged (~4 months, `CONFLICTING`/`DIRTY`, only automated reviews + one unresolved human
-thread, #2357's CI failing) — a shelved rapid-prototype, not a killed one. Copilot flagged
-two real string-vs-UUID bugs in the DB code (`live.py:542`, `:361`) — note if copying.
+- **Mic → PCM → WebSocket.** Capture with `getUserMedia`, run through an `AudioContext`
+  fixed at 16 kHz, convert Float32→Int16 PCM in fixed-size frames, base64-frame each chunk
+  over the WebSocket. Prefer an `AudioWorkletNode` for the capture/processing stage —
+  `ScriptProcessorNode` also works and is simpler, but it is deprecated in the Web Audio
+  API, so treat it as a fallback rather than the default. A silent (gain 0) node keeps the
+  audio graph alive without echoing to the speakers. This "stream mic to a server"
+  pipeline is entirely product-neutral.
+- **Provider session wrapper + reconnect.** A connect → two concurrent coroutines
+  (forward-audio-up, receive-events-down) → exponential-backoff reconnect loop. Streaming
+  sessions drop; the reconnect is not optional.
+- **Tool-dispatch loop.** Receive a tool/function call → run a handler → return a function
+  response, with **deduplication** and **rejection of malformed or echoed calls**. This is
+  exactly the shape the command router needs: the tools are `list_panes()`,
+  `run_in_pane(pane, command)`, `create_pane(...)` — the same interpret→dispatch structure
+  as the typed router, just fed by speech instead of text.
 
-**Reusable, product-agnostic building blocks** (worth lifting, `ui/src/hooks/useLiveMode.ts`
-+ `backend/routes/live.py`):
-- **Mic → 16 kHz PCM → WebSocket recipe**: AudioContext + ScriptProcessorNode (4096-frame),
-  Float32→Int16, base64 framing, and the silent gain=0 node to keep the processor alive.
-  A clean "stream mic to a server" pipeline — copy it for voice.
-- **Gemini Live session wrapper + reconnect loop** (`_run_gemini_session`): connect →
-  concurrent forward-audio / receive coroutines → exponential-backoff reconnect (≤10).
-- **Voice tool-dispatch loop** (`_gemini_receiver` → `_handle_tool_call`): receive
-  `tool_call` → run handler → return `FunctionResponse`, WITH dedup and malformed/echoed-
-  call rejection. This is exactly the shape our router needs — swap their single
-  `query_data` tool for `run_in_pane(pane, command)` / `list_panes()` / `create_pane(...)`.
-- **Hard-won Gemini-Live operational lessons**, directly transferable: the right model id/
-  region/AUDIO modality, needing `fc.id` on the `FunctionResponse`, and crucially **do NOT
-  echo tool results back to Gemini** (caused feedback/echo loops) — weeks of trial-and-
-  error already burned down.
+**Traps worth pre-empting** (each cost real debugging time elsewhere):
+- Get the model/region/modality triple right up front — a mismatch fails silently or
+  degrades quality.
+- A function *response* usually must carry the originating call's id; omit it and the
+  session wedges.
+- **Do NOT feed tool *results* back into the model** as conversation — it induces feedback
+  and echo loops. Relay results to the UI, return only a terse "done/triggered" to the
+  model.
 
-**What does NOT transfer / actively diverges:**
-- **The system prompt is the wrong shape.** Live Mode's prompt is tuned to *passively
-  eavesdrop and stay silent* (err toward not interrupting a meeting) — the OPPOSITE of an
-  active command interpreter that should confirm and execute. Full rewrite.
-- **No approval/confirmation flow exists.** Live Mode fires queries autonomously because
-  they're read-only and low-stakes; our capability 4 (approve-before-injecting-keys) is
-  net-new — nothing here models it.
-- All the meeting product surface (Sessions UI, summaries, project/data-source context,
-  cost dashboards, tab-audio, `handle_ask_request` wiring) is irrelevant.
+**What does NOT carry over from a passive-listening design.** If any prior streaming-LLM
+work was tuned to *passively listen and stay silent* (e.g. transcribe/observe without
+interrupting), its system prompt is the **opposite** of what we need — an active command
+interpreter that confirms and executes. Rewrite the prompt from scratch. And an
+autonomous, read-only assistant has **no approval gate**; our capability 4 (confirm before
+injecting keys) is net-new and must be designed here, not inherited.
 
-**Verdict:** treat #2358 as a **reference implementation for the voice→tool-dispatch
-transport layer** — clone the audio pipeline, the session/reconnect wrapper, and the
-tool-dispatch loop; discard everything meeting-specific; write our own prompt + approval
-gate. It's a real head start on the hard streaming/audio/tool-loop mechanics, not an
-incidental Gemini overlap. But it only accelerates the **voice** milestone (step 3 below);
-it does nothing for create-pane or the typed router, so it must not gate or reshape those.
+**Bottom line for sequencing.** The streaming/audio/tool-loop transport is a real chunk of
+work but a well-understood one, and it only accelerates the **voice** milestone (step 3).
+It does nothing for create-pane or the typed router, so voice must not gate or reshape
+those — build the routing + approval UX on cheap typed input first, add the voice
+transport on top once that UX is proven.
 
 ## Recommended sequencing
 
@@ -154,8 +150,8 @@ it does nothing for create-pane or the typed router, so it must not gate or resh
    concrete "create a pane from the UI" ask; it lands independent of the rest.)
 2. **Typed command router** — utterance + pane context → structured plan → approval →
    execute. Text-only. Proves the routing + approval UX where it's cheapest to iterate.
-3. **Voice input** — speech→text feeding the same router; evaluate the qs-app Live
-   primitives here (per the research section).
+3. **Voice input** — speech→intent feeding the same router; build the streaming-LLM
+   transport here (see the voice-input section for what that takes).
 
 Each step is independently shippable and independently valuable, which is the point: we
 learn the routing/approval UX on cheap typed input before committing to a voice transport.
