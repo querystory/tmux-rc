@@ -114,3 +114,42 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
         _, _, session, typed = _dispatch(_FC(args=args), monkeypatch)
         assert typed == []
         assert session.responses[0].response["status"] == "rejected"
+
+
+def test_context_updater_skips_timeouts(monkeypatch):
+    # wait_for_state_change returns the current version even on timeout; only a real
+    # version advance may produce an ambient update — no 30s heartbeat (issue #45's
+    # lesson applies to Live Mode context too).
+    class _W(_Watcher):
+        def __init__(self):
+            super().__init__()
+            self.script = [1, 1, 2]  # timeout, timeout, real change
+            self.v = 1
+
+        def state_version(self):
+            return self.v
+
+        async def wait_for_state_change(self, since, timeout):
+            if not self.script:
+                await asyncio.Event().wait()  # park forever; test cancels us
+            self.v = self.script.pop(0)
+            return self.v
+
+    class _S:
+        def __init__(self):
+            self.sent = []
+
+        async def send_client_content(self, turns, turn_complete):
+            self.sent.append(turns.parts[0].text)
+
+    monkeypatch.setattr(L, "UPDATE_MIN_SECONDS", 0)
+
+    async def run():
+        w, s = _W(), _S()
+        task = asyncio.create_task(L._context_updater(s, w))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        return s.sent
+
+    sent = _run(run())
+    assert len(sent) == 1 and "[tmux update]" in sent[0]

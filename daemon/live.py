@@ -228,8 +228,13 @@ _tasks: set[asyncio.Task] = set()
 
 
 def _background(task: asyncio.Task) -> None:
+    def _done(t: asyncio.Task) -> None:
+        _tasks.discard(t)
+        if not t.cancelled() and t.exception():  # retrieve, or asyncio warns at GC
+            logger.warning("[live] background task failed: %r", t.exception())
+
     _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
+    task.add_done_callback(_done)
 
 
 async def _send_ambient(session, text: str) -> None:
@@ -252,7 +257,11 @@ async def _context_updater(session, watcher) -> None:
     drips small updates instead of streaming screens."""
     version = watcher.state_version()
     while True:
-        version = await watcher.wait_for_state_change(version, timeout=30.0)
+        # wait_for_state_change returns the current version even on timeout — only a
+        # real advance earns an update (no 30s heartbeat; see docs/design/parse-cadence.md).
+        new = await watcher.wait_for_state_change(version, timeout=30.0)
+        if new == version:
+            continue
         await asyncio.sleep(UPDATE_MIN_SECONDS)  # coalesce a burst into one update
         version = watcher.state_version()  # whatever landed during the throttle window
         await _send_ambient(

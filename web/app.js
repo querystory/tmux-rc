@@ -1696,7 +1696,9 @@ function lmTranscript(role, text) {
 function lmPlayChunk(b64) {
   if (!lmPlay) return;
   const bin = atob(b64);
-  const pcm = new Int16Array(new Uint8Array([...bin].map((c) => c.charCodeAt(0))).buffer);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const pcm = new Int16Array(bytes.buffer);
   const buf = lmPlay.createBuffer(1, pcm.length, 24000);
   const ch = buf.getChannelData(0);
   for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
@@ -1747,6 +1749,7 @@ async function lmCapture(ws) {
     ' process(inputs) { const c = inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } });',
   ], { type: "application/javascript" }));
   await lmCtx.audioWorklet.addModule(mod);
+  URL.revokeObjectURL(mod);
   const tap = new AudioWorkletNode(lmCtx, "lm-tap");
   tap.port.onmessage = (e) => push(e.data);
   const mute = lmCtx.createGain(); // keep the graph alive without echoing the mic
