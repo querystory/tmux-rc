@@ -534,6 +534,7 @@ function dock(states, act) {
   // position; when it's already fully visible we leave the dock where the user left it.
   const sel = joined && el.querySelector(".dock-icon.sel");
   if (sel) requestAnimationFrame(() => {
+    if (!sel.isConnected) return; // a re-render in the same frame swept this icon
     const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
     if (i.left < c.left || i.right > c.right)
       sel.scrollIntoView({
