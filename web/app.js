@@ -243,8 +243,11 @@ async function poll() {
     // user — the very thing `busy` freezes. Drop it without touching _stateVersion, so
     // the next (post-busy) hold re-fetches from the same version and renders in order.
     if (busy) return;
-    if (data.version === 0) _pollErr = true; // no initial state yet: back off, don't spin
-    if (typeof data.version === "number") _stateVersion = data.version; // re-hold on this
+    // A well-formed response always carries a numeric version. version 0 = no initial
+    // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
+    // Both must back off, else pollLoop re-requests with gap=0 and tight-loops the backend.
+    if (typeof data.version === "number" && data.version > 0) _stateVersion = data.version; // re-hold on this
+    else _pollErr = true;
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
     liveEl.title = data.stale ? "watcher stalled — cards may be frozen" : "live";
