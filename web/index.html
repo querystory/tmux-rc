@@ -357,6 +357,14 @@
   .screen-pre { margin: 0; padding: 12px 16px; white-space: pre; will-change: transform;
     font: 12px/1.2 ui-monospace, monospace; color: #c9d1d9; }
   .empty { text-align: center; color: #6e7681; padding: 60px 20px; }
+  /* Initial-load spinner: shown while the deck is empty but the server hasn't finished
+     its first tick (panes may exist, their initial parses are in flight). Reuses the
+     shared `spin` keyframes (defined above); reduced-motion drops to a static ring,
+     matching .q-spin. */
+  .spinner { display: inline-block; width: 26px; height: 26px; margin-bottom: 12px;
+    border: 3px solid #30363d; border-top-color: #6e7681; border-radius: 50%;
+    animation: spin 0.8s linear infinite; }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
   /* "New version" pill: only shown when a silent auto-reload would eat un-sent state
      (typed draft / staged image) — otherwise updates apply themselves. */
   #upbanner { position: fixed; top: calc(env(safe-area-inset-top) + 8px); left: 50%;
