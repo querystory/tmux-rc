@@ -137,13 +137,13 @@ doesn't grow unbounded.
   we have render.py) vs. capturing real screenshots continuously (heavy). On-demand
   render from stored text is almost certainly right.
 
-## Persist state/history to Postgres (introspect with QueryStory)
+## Persist state/history to Postgres (introspect with SQL)
 
 Instead of (or alongside) the in-memory ring buffer, log every parse — the full
 state dict plus the raw capture and token/cost/latency — to Postgres, one row per
 parse (pane_id, ts, activity, headline, model, cost, tokens, raw_text, json). Why:
 
-- **Real-time introspection with QueryStory** (dogfooding): query the session's whole
+- **Real-time introspection with SQL**: query the session's whole
   history live — cost over time, idle vs working minutes, headline timeline, token
   burn, how often it hit `waiting`, per-pane breakdowns. The timeline feature becomes
   "SELECT … ORDER BY ts" instead of bespoke in-memory logic.
@@ -158,7 +158,7 @@ Tradeoffs to think through: a Postgres dependency for a PoC (vs. SQLite/JSONL fo
 zero-infra); write volume (dedupّd parses only, not every 1.5s tick); retention/rollup
 of old rows; and whether the raw_text column bloats (compress, or keep only changed
 frames). Likely start with SQLite or append-only JSONL to stay zero-infra, with a
-schema shaped so moving to Postgres later (for the QueryStory angle) is trivial.
+schema shaped so moving to Postgres later (for the SQL-introspection angle) is trivial.
 
 ## Recommendation (for when we build)
 Build the **S3 substrate**: dedup'd raw-capture trail + a thin incremental timeline.

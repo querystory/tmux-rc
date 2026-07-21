@@ -30,7 +30,7 @@
                                                                                                                                                                                                      
 ● Running 1 shell command…                                                                                                                                                                            
   ⎿  $ cd /home/shapor/src/qs/termiphone                                                                                                                                                                
-     GOOGLE_CLOUD_PROJECT=qs-backend-dev .venv/bin/python -m research.probe --save working 2>&1 | grep -vE 'Traceback|File "|raise|resp =|self\.|return await|^\s+\^|warnings\.warn|UserWarning|for that 
+     GOOGLE_CLOUD_PROJECT=your-gcp-project .venv/bin/python -m research.probe --save working 2>&1 | grep -vE 'Traceback|File "|raise|resp =|self\.|return await|^\s+\^|warnings\.warn|UserWarning|for that
      reason' | tail -80                                                                                                                                                                                     
                                                                                                                                                                                                             
 ✢ Wrangling… (2m 19s · ↓ 5.9k tokens)                                                 
@@ -39,6 +39,6 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── termiphone-dev ──
 ❯                                                                                                                                                                                                          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ~/src/qs/qs-app on docs/query-result-metadata-design | Opus 4.8 (1M context)   |  telemetry: •stats •prompts •tools
+  ~/src/myproject on feature/example-branch | Opus 4.8 (1M context)   |  telemetry: •stats •prompts •tools
   session: +571/-423 lines · 47% ctx · 22m · $17.70   |  history: 542 prompts · 449 tools · 12.6MB · 22 imgs                                                                                                
   -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents                                                                                                                               

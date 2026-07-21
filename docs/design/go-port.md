@@ -13,7 +13,7 @@ here; this is a decision document.
 Go equivalent. A port is *feasible* and would take on the order of one to two focused
 weeks. The honest question is not "can we" but "what does it buy, and when." The answer:
 the payoff is real but almost entirely **downstream** — it lands when the hosted/tunnel
-future in [cloud-architecture.md](cloud-architecture.md) gets built, because that world
+future (see the internal deployment notes in the ops repo) gets built, because that world
 is already specified as a Go relay, and a Go daemon lets the two share a protocol, a
 binary-shipping story, and one language. Today, on a single-user single-host tool, Go's
 advantages (static binary, goroutine concurrency) are **marginal-to-nice**, not
@@ -34,12 +34,12 @@ that means, because it changes the recommendation. Two readings:
    launch surface) have caused real incidents. This is true, but note that *every one of
    those incidents was fixed in Python* — the 20s Vertex timeout, the SA-key auth, the
    planned systemd unit. None of them were caused by the language; they were caused by
-   running a service as a shell job with interactive credentials, and
-   [deployment.md](deployment.md) + [durable-vertex-auth.md](durable-vertex-auth.md)
-   already close them. Go would not have prevented them and does not, by itself, fix them.
+   running a service as a shell job with interactive credentials, and the internal
+   deployment/auth notes already close them. Go would not have prevented them and does
+   not, by itself, fix them.
 
-2. **Strategic liability** — the *future* is Go. The cloud relay
-   ([cloud-architecture.md](cloud-architecture.md)) is specified as "a single Go Cloud Run
+2. **Strategic liability** — the *future* is Go. The cloud relay (see the internal
+   deployment notes) is specified as "a single Go Cloud Run
    service," and that doc even sketches the daemon's uplink as a new module. If the relay
    is Go and the daemon is Python, the shared protocol lives in two languages, the JSON
    message types are hand-mirrored, and the "reference tunnel relay (standalone Go binary)"
@@ -148,7 +148,7 @@ few lines. No dependency, no subtlety.
 
 ### `telemetry.py` (213 LOC) — OTLP export
 
-Builds an OTLP-logs pipeline (gRPC) to the qsi-automation receiver, emitting one record
+Builds an OTLP-logs pipeline (gRPC) to a log receiver of your choice, emitting one record
 per parse / action / pane-lifecycle event, with a fail-closed privacy gate
 (`otel_opt_in`, `TMUXRC_QSDEBUG`).
 
@@ -243,7 +243,7 @@ It is still the wrong fit, for four concrete reasons:
 
 4. **Statefulness is a liability for an always-on daemon.** A persistent control-mode
    connection is one more thing to hold open, detect the death of, and re-establish —
-   precisely the failure class [deployment.md](deployment.md) is trying to *remove*. The
+   precisely the failure class the always-on deployment work is trying to *remove*. The
    stateless one-shot model degrades perfectly: tmux gone → empty pane list → keep
    polling → recover automatically. That resilience is a feature we'd be trading away.
 
@@ -282,7 +282,7 @@ parts, `GenerateContentConfig` with `SystemInstruction`, `Temperature`, and
 1:1 counterpart.**
 
 **Auth ports cleanly and the durable-auth work carries over untouched.** The whole point
-of [durable-vertex-auth.md](durable-vertex-auth.md)'s recommendation (option A, the
+of the durable-auth recommendation (option A, the
 long-lived SA key via `GOOGLE_APPLICATION_CREDENTIALS`) is that it's **credential
 resolution, not code** — google-auth honors that env var with zero daemon code. Go's
 `golang.org/x/oauth2/google` / the GenAI client's default credential chain honor
@@ -331,7 +331,7 @@ structurally prevented, and the durable-auth investment transfers unchanged.
   and it's compile-time verified (a missing file fails the build). Same for the PWA
   static dir via `embed.FS`. This is a place Go is strictly better: the single-binary
   embed removes the entire "did the data file make it into the package" failure mode
-  (which [deployment.md](deployment.md) notes bit the daemon — running from a worktree
+  (which bit the daemon in practice — running from a worktree
   that got deleted). **A single self-contained binary can't lose its prompt files or its
   PWA.**
 - **The reload-on-edit dev loop is lost.** Python's `uvicorn --reload` restarts the
@@ -365,8 +365,8 @@ The user's premise is that the docs' plan already assumes a Go server. Weighing 
 claimed benefit against the actual workload:
 
 - **Shared language with the relay — real and the main prize.** This is the one that
-  matters. [cloud-architecture.md](cloud-architecture.md) specifies the relay as Go and
-  even names the promised open-source artifact "reference tunnel relay (standalone Go
+  matters. The internal deployment notes specify the relay as Go and
+  even name the promised open-source artifact "reference tunnel relay (standalone Go
   binary)." With a Go daemon, the WebSocket uplink protocol (the `hello`/`state`/`command`
   JSON messages) is **defined once and shared** between daemon and relay; the message
   structs, the auth token handling, the reconnect logic can be one package. With a Python
@@ -375,7 +375,7 @@ claimed benefit against the actual workload:
   reason to port.
 
 - **Single static binary for deployment — nice, modestly load-bearing.**
-  [deployment.md](deployment.md) is moving to a systemd user unit, and its problem
+  The deployment work is moving to a systemd user unit, and its problem
   statement is full of "which checkout did the shell cd into," "binary lived in /tmp,"
   "data file didn't make it into the package." A single Go binary with the PWA and
   prompts embedded genuinely dissolves several of those: `go build` produces one artifact
@@ -387,7 +387,7 @@ claimed benefit against the actual workload:
 
 - **Concurrency for many panes/sessions — marginal.** This is the weakest argument, so be
   honest about it. The workload is a `capture-pane` + occasional LLM call per pane at 1.5s
-  cadence. A power user has, what, 14 sessions ([deployment.md](deployment.md)'s example)
+  cadence. A power user has, what, 14 sessions (the deployment notes' example)
   — dozens of panes. That is *nothing* for either language; Python's `asyncio` +
   `to_thread` already handles it without breaking a sweat, and the LLM latency (hundreds
   of ms) dwarfs any per-pane overhead. Goroutines are a *cleaner model* for it (the

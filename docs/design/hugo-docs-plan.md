@@ -1,6 +1,6 @@
 # Hugo docs site for tmux-rc
 
-Status: **proposed**. Plan for serving `docs/` as a browsable site at `/docs`, modeled on qs-app's
+Status: **proposed**. Plan for serving `docs/` as a browsable site at `/docs`, modeled on the main app's
 docs setup but stripped to what a small repo actually needs.
 
 ## Why
@@ -10,12 +10,12 @@ nav, search, mermaid, cross-links that resolve — served at `/docs` off the sam
 serves the PWA. The daemon proxies (really: serves the pre-built static files) for now; when the
 server moves to Go the doc pipeline is *already* Go (Hugo), so nothing about docs has to move with it.
 
-## What we're copying from qs-app, and what we're not
+## What we're copying from the main app, and what we're not
 
-qs-app runs **MkDocs Material**, not Hugo — its `docs/hugo-migration-plan.md` was written and never
+The main app runs **MkDocs Material**, not Hugo — its `docs/hugo-migration-plan.md` was written and never
 executed. What it *actually* does, and which parts we adopt:
 
-**Adopt (the serving model).** qs-app builds each doc site to `backend/static/<name>/` and serves it
+**Adopt (the serving model).** The main app builds each doc site to `backend/static/<name>/` and serves it
 through an **authenticated FastAPI route** (`backend/routes/frontend.py`) that reads the pre-built HTML
 off disk — `GET /docs/{path}` returns the file, or `index.html`, or the theme's `404.html`. There is no
 `StaticFiles` mount for docs and no live proxy to a running Hugo/MkDocs server; production serves flat
@@ -26,12 +26,12 @@ big explicit tree, with search, mermaid, admonitions, dark/light toggle. Hextra 
 (sidebar auto-built from the content tree + front-matter `weight`, Pagefind search, mermaid, callouts)
 with *less* hand-maintenance because the sidebar comes from the file layout instead of a 250-line `nav:`.
 
-**Reject (the entire icon-sync pipeline).** ~70% of qs-app's Hugo plan is `Icon.tsx` → `icons.json` →
+**Reject (the entire icon-sync pipeline).** ~70% of the main app's Hugo plan is `Icon.tsx` → `icons.json` →
 downloaded Lucide SVGs → a Hugo `icon` shortcode, so docs icons match the React app pixel-for-pixel.
 tmux-rc has no `Icon.tsx` and no app to match. **None of that pipeline is in this plan.** Dropping it
 is the single biggest simplification and the main reason this is a short doc, not a 2200-line one.
 
-**Reject (two sites).** qs-app splits `/docs` (customer) and `/internal` (engineer). tmux-rc's docs
+**Reject (two sites).** The main app splits `/docs` (customer) and `/internal` (engineer). tmux-rc's docs
 are all internal; one site at `/docs` is the whole thing. If a customer-facing split is ever needed,
 it's an additive second Hugo site, not a prerequisite.
 
@@ -46,14 +46,14 @@ it's an additive second Hugo site, not a prerequisite.
   1.21). This is the one real setup gate; everything else is downstream of it.
 - **Hextra via Hugo Modules**, not a git submodule. Modules keep the theme out of our tree and pinned in
   `go.mod`; a submodule is more moving parts for no benefit here.
-- **Content stays in `docs/`; no `content/` copy.** qs-app's plan copied Markdown into
+- **Content stays in `docs/`; no `content/` copy.** A common docs-site plan copies Markdown into
   `docs/user/content/`. We instead point Hugo's `contentDir` at the existing `docs/` files so there's
-  **one source of truth** and existing relative links (`[durable-vertex-auth.md](durable-vertex-auth.md)`)
+  **one source of truth** and existing relative links (`[overview.md](overview.md)`)
   keep working. This is the DRY win — no migration script, no drift between two copies.
 - **Search: Pagefind**, run as a post-build step over Hugo's output. Client-side, no server, matches the
   flat-file serving model.
 - **Served at `/docs` behind the daemon.** Build output lands somewhere like `web/docs/` (or a sibling
-  the server reads), and the daemon grows a `/docs/{path}` route mirroring qs-app's — file read, fall
+  the server reads), and the daemon grows a `/docs/{path}` route mirroring the main app's — file read, fall
   back to `index.html`/`404.html`. It slots in *before* the catch-all `/` PWA mount so `/docs` wins.
 
 ## Styling — this is a first-class goal, not polish-at-the-end
@@ -66,12 +66,12 @@ as a Phase of its own, informed by tmux-rc's existing identity rather than inven
   `tmux-logomark.svg`, `apple-touch-icon.png`, the model glyphs (`claude`, `gemini`, `openai`), and the
   PWA's own CSS in `web/index.html` / `web/app.js`. The docs should feel like the same product as the
   PWA: pull the PWA's color variables, font stack, and accent treatment into the Hextra theme override so
-  `/docs` and `/` look like siblings, not strangers. This is the concrete version of qs-app's "match the
+  `/docs` and `/` look like siblings, not strangers. This is the concrete version of the main app's "match the
   app" goal — except our "app" is the terminal PWA, and the assets are sitting right there in `web/`.
 - **Where the styling lives.** Hextra is themed via (a) `hugo.toml` `[params]` for primary/accent color,
   logo, favicon, font; and (b) a custom SCSS/CSS partial layered on top for anything the params don't
   reach (code-block chrome, callout borders, sidebar active state, link hover, spacing rhythm). Keep it
-  in one override file, not scattered `!important`s — qs-app's plan leaned on `!important` overrides,
+  in one override file, not scattered `!important`s — the main app's plan leaned on `!important` overrides,
   which is the anti-pattern we avoid.
 - **Typography carries most of the "beautiful."** Pick a deliberate pair — a characterful sans for body
   and a good mono for code (the PWA already commits to a terminal aesthetic; a monospace-forward or
@@ -99,10 +99,10 @@ styling real pages, not lorem ipsum. It's explicitly in scope, unlike the icon p
 2. **`docs/design/` as a section vs. top-level.** With everything in one site, `docs/design/*` naturally
    becomes a "Design" section and the root `docs/*.md` (PRD, REQUIREMENTS, benchmarks…) become top-level
    pages. That's fine; just confirm the sidebar grouping reads well.
-3. **Auth.** qs-app gates docs on user status. tmux-rc's daemon is loopback/tunnel with an audit trust
+3. **Auth.** The main app gates docs on user status. tmux-rc's daemon is loopback/tunnel with an audit trust
    gate — decide whether `/docs` is open to anyone who can reach the daemon (probably yes; it's your own
    phone) or gated like the API mutations.
-4. **Where build output lives + `.gitignore`.** Pick the output dir and gitignore it (qs-app gitignores
+4. **Where build output lives + `.gitignore`.** Pick the output dir and gitignore it (the main app gitignores
    the built site; source-only in git).
 
 ## Phased build
@@ -130,7 +130,7 @@ type pair, and style mermaid/code blocks as the hero content. Done against real 
 
 Keep them as thin as the current `dev`/`run`/`test`/`fmt` targets; no emoji-heavy multi-line recipes.
 
-**Phase 4 — Serve at `/docs`.** Add the daemon route (mirrors qs-app `frontend.py`): `GET /docs/{path}`
+**Phase 4 — Serve at `/docs`.** Add the daemon route (mirrors the main app's `frontend.py`): `GET /docs/{path}`
 reads the built file, falls back to `index.html` / theme `404.html`, registered before the `/` PWA
 mount. Confirm relative asset paths resolve under the `/docs/` base URL.
 
@@ -172,5 +172,5 @@ here so this doc doesn't drift from the scaffold:
 
 No `Icon.tsx` parsing, no `icons.json`, no Lucide SVG downloader, no icon shortcode, no `content/` copy
 of the docs, no second `/internal` site, no personalization/interactive-example/versioned-docs phases
-from the qs-app plan. If any of those are wanted later they're additive — none are load-bearing for
+from the main app's plan. If any of those are wanted later they're additive — none are load-bearing for
 "serve `docs/` at `/docs`."

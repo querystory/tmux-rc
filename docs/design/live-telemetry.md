@@ -176,7 +176,7 @@ recent live poll has a viewer.** So:
 
 **Why put it on the watcher rather than infer it from telemetry?** Because (a) telemetry
 may be *disabled* (no OTel endpoint) and adaptive behavior must still work; (b) a log
-round-trip to QueryStory and back is absurd for a decision the daemon makes every tick;
+round-trip to a telemetry backend and back is absurd for a decision the daemon makes every tick;
 and (c) the whole point of item 4 is that presence is *server state*. Reconstructing it
 from emitted logs would be the exact anti-pattern the goal names.
 
@@ -214,13 +214,13 @@ makes that follow-up a small, isolated change instead of a cross-cutting one.
 - Tests mirroring tests/ style: `emit_live` builds the right attrs, is a no-op when
   disabled, and never sends frame text; `has_live_viewer` respects the recency window.
 
-**What it deliberately does NOT do:** no billing rollups (that's a QueryStory-side query
+**What it deliberately does NOT do:** no billing rollups (that's a downstream query
 over the summable rounds), no LLM-throttle wire-up (follow-up reading `has_live_viewer`),
 no start/end beacons, no client-side render timing.
 
 ## Post-MVP
 
-- **Billing rollups.** Sum `hold_s` per `actor` per day in QueryStory; the rows are
+- **Billing rollups.** Sum `hold_s` per `actor` per day in your analysis store; the rows are
   already shaped for it. Decide the unit (live-hours) and the rounding there, not here.
 - **LLM parse throttling.** The watcher reads `has_live_viewer` and drops parse cadence
   (or skips the LLM entirely) for panes nobody is watching — the payoff of the presence

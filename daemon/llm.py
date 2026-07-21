@@ -1,9 +1,9 @@
 """Minimal Gemini-Flash-Lite-via-Vertex client for the lazy classification pass.
 
-This is a deliberate ~1-screen reimplementation of the small slice of qs-app's
-`backend.genai.llm` we need, so tmux-rc stays standalone (no FastAPI/SQLAlchemy/
-WorkOS pull-in). Credentials come from Google ADC; only GOOGLE_CLOUD_PROJECT and an
-optional region are read from the environment.
+This is a deliberate ~1-screen reimplementation of the small slice of a Gemini/Vertex
+client we need, so tmux-rc stays standalone (no heavy web-framework deps). Credentials
+come from Google ADC; only GOOGLE_CLOUD_PROJECT and an optional region are read from the
+environment.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ _IN_PER_M = float(os.environ.get("TMUXRC_IN_PER_M", "0.10"))
 _OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "0.40"))
 
 # Durable per-call metrics log (JSONL): one line per LLM call with tokens/cost/latency,
-# so "add it all up / averages" is a real query (and the seed for QueryStory
+# so "add it all up / averages" is a real query (and the seed for cost/usage
 # introspection). We had this data in every response's usage_metadata and were throwing
 # it away — now it's recorded. Live totals also kept in-memory (see usage_totals()).
 _metrics = logging.getLogger("daemon.llm.metrics")

@@ -10,7 +10,7 @@ build) — this is the "what I did / what broke" narrative. Committed as we go.
   now: write docs → commit → then fix bugs, committing each fix.
 - **Model: switched Gemini 2.5 Flash Lite → 3.1 Flash Lite** (`gemini-3.1-flash-lite`,
   env override `TMUXRC_GEMINI_MODEL`). 2.5 was stale; I'd blindly copied it from
-  qs-app config.
+  another project's config.
 - **LLM trace logging added.** Every classify call appends IN (tail sent) + OUT
   (parsed JSON) to `/tmp/tmux-rc-llm.log` (override `TMUXRC_LLM_LOG`). Grep it
   to see what the model actually saw/returned.

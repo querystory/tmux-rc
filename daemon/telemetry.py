@@ -1,10 +1,9 @@
 """OTLP telemetry: one log record per LLM parse, for real-world model benchmarking.
 
 Every classify call emits a record (model, latency, TTFT, tokens, cost, activity, …)
-to the qsi-automation otel-receiver (../qsi-automation/otel-receiver — Cloud Run, OTLP/
-gRPC, Bearer auth) which flattens it to JSONL in GCS → QueryStory. That lets us switch
-TMUXRC_GEMINI_MODEL during real work and compare latency/cost/accuracy in QS instead of
-running synthetic benchmarks.
+to an OTLP/gRPC log receiver of your choice (Bearer auth) which can flatten it to a
+warehouse for analysis. That lets us switch TMUXRC_GEMINI_MODEL during real work and
+compare latency/cost/accuracy against real data instead of running synthetic benchmarks.
 
 Privacy is client-side and fail-closed by policy:
   - DEFAULT: numeric metrics + structural fields + a HASH of the pane text. No pane
@@ -18,13 +17,12 @@ always set it — otherwise even the metrics land zeroed.
 Wholly optional: with no OTEL endpoint configured, every function here is a no-op, so the
 daemon runs identically off-network. Telemetry must never break a parse.
 
-Config (env):
+Config (env — see .env.example):
   OTEL_EXPORTER_OTLP_ENDPOINT   receiver URL (gRPC). Unset ⇒ telemetry disabled.
   OTEL_EXPORTER_OTLP_HEADERS    e.g. "authorization=Bearer <token>"
   TMUXRC_QSDEBUG=1              attach raw pane text + output JSON (default: off)
-Get endpoint/token:
-  gcloud run services describe otel-receiver --region us-central1 --project qsi-automation --format 'value(status.url)'
-  gcloud secrets versions access latest --secret=otel-receiver-token --project=qsi-automation
+Point the endpoint/token at whatever OTLP/gRPC log receiver you run; both are read from
+the environment, so there is nothing provider-specific baked in here.
 """
 
 from __future__ import annotations
@@ -39,10 +37,10 @@ from functools import cache
 
 logger = logging.getLogger(__name__)
 
-# Scope name tags our records so QueryStory can filter them apart from Claude Code's
-# telemetry sharing the same receiver/table.
+# Scope name tags our records so a query can filter them apart from other telemetry
+# sharing the same receiver/table.
 _SCOPE = "tmux-rc.classify"
-# Live-view rounds get their OWN scope so QueryStory can filter them apart from parse
+# Live-view rounds get their OWN scope so a query can filter them apart from parse
 # benchmarks: a live round has no model/latency/tokens, and folding it into emit_parse
 # would poison every parse aggregate with null-model rows. See docs/design/live-telemetry.md.
 _LIVE_SCOPE = "tmux-rc.live"
@@ -86,7 +84,7 @@ def _provider():
 def _logger(scope: str = _SCOPE):
     """The OTel logger for `scope`, or None if telemetry is disabled. Cached per scope
     so live rounds (tmux-rc.live) tag apart from parse benchmarks (tmux-rc.classify)
-    for QueryStory filtering; all scopes share the one provider. Get the logger from OUR
+    for downstream filtering; all scopes share the one provider. Get the logger from OUR
     provider instance rather than the process-global (set_logger_provider) so we can't
     clobber another component's OTel logging, and avoid the 'provider already set' warning."""
     p = _provider()

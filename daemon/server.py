@@ -123,7 +123,7 @@ def _audit(
 
     Trust model for WHO: X-Tunnel-User is honored only from loopback peers — the
     tunnel-client connects from localhost, and the relay validated the identity via IAP
-    and strips spoofed inbound copies (qsi-automation#525). From any OTHER peer the
+    and strips spoofed inbound copies (a companion tunnel-relay change). From any OTHER peer the
     header is an unauthenticated LAN client's claim, so it is logged as a claim rather
     than as the actor — which makes spoof attempts themselves visible in the trail.
 

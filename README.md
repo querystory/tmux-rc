@@ -19,8 +19,7 @@ summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.
 Prereqs: `tmux`, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), and Google Cloud
 credentials for Vertex (the Gemini Flash Lite classification pass). Because the daemon
 runs unattended for long stretches, it authenticates with a long-lived **service-account
-key** rather than developer ADC (which expires and needs a browser reauth — see
-[docs/design/durable-vertex-auth.md](docs/design/durable-vertex-auth.md)). Point
+key** rather than developer ADC (which expires and needs a browser reauth). Point
 `GOOGLE_APPLICATION_CREDENTIALS` at the key file — an **absolute** path, since google-auth
 does not expand `~` (`.env.example` has the mint command).
 
@@ -37,8 +36,10 @@ uv run python -m daemon.server
 ```
 
 Open `http://<machine-lan-ip>:8080` on your phone and add it to your home screen.
-For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
-`tailscale`) — the PoC has **no auth**, so never expose it on an untrusted network.
+The daemon injects keystrokes into your terminals and has **no built-in auth**, so never
+expose it unauthenticated. For access beyond localhost/LAN, put it behind an
+authenticated tunnel or proxy — see [SETUP.md](SETUP.md) for concrete options
+(SSH port-forward, Cloudflare Tunnel + Access, ngrok OAuth, Google IAP, Tailscale).
 
 ### Config (env)
 

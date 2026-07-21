@@ -19,9 +19,9 @@ the root and restart the daemon — never `cd` the daemon into a worktree.**
   changes just reload the page (assets are served no-store).
 - A branch checked out in a `.claude/worktrees/*` worktree can't also be checked out in
   root — `git worktree remove` it first (after pushing), then checkout in root.
-- The live instance is at `shapor-tmux.tun.qs.dev` (via the tunnel client in the
-  `2:tunnel` window). A momentary "no tunnel connected" is the relay's ~1h connection
-  cap; the client auto-reconnects within ~1min.
+- The live instance is reached through a tunnel/reverse proxy of your choice (see
+  SETUP.md) — the client runs in the `2:tunnel` window. A momentary "no tunnel connected"
+  is the relay's connection cap; the client auto-reconnects within ~1min.
 
 ## Develop in worktrees, off main
 

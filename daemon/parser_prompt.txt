@@ -58,7 +58,7 @@ but have distinct signatures. Decide by the evidence on screen:
   start with X  3. No, and tell Codex what to do differently (esc)"; it refers to itself
   as "Codex". If its OWN chrome (status line, permission prompts, its own responses)
   names Codex or a GPT/o-series model, it is "codex", NOT "claude". Its bottom line reads "<model> <effort> <mode> · <cwd>", e.g.
-  "gpt-5.5 xhigh fast · ~/src/qs/qs-app" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
+  "gpt-5.5 xhigh fast · ~/src/myproject" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
   a MODE word, NOT a session name. Do NOT put "fast" (or the cwd) in "session". Codex
   names its session/thread only when it explicitly says so (e.g. a line like "Thread
   renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,

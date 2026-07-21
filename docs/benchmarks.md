@@ -62,7 +62,8 @@ Cerebras's current menu is reasoning-heavy (gpt-oss, glm) or returned empty (gem
 
 These were one-off `python` probes, not a committed harness (we deliberately dropped the
 synthetic-harness idea — see `docs/design/`). Real-world comparison is done by switching
-the daemon's model live and reading per-call OTLP telemetry in QueryStory (metrics by
-default; pane text + output JSON under `TMUXRC_QSDEBUG=1`). Cerebras is OpenAI-compatible
-(`base_url=https://api.cerebras.ai/v1`); Flash Lite runs via Vertex (`project=qs-backend-dev`,
-`location=global`). Both used the live `PARSER_PROMPT` and a saved sample.
+the daemon's model live and reading per-call OTLP telemetry in your analysis store
+(metrics by default; pane text + output JSON under `TMUXRC_QSDEBUG=1`). Cerebras is
+OpenAI-compatible (`base_url=https://api.cerebras.ai/v1`); Flash Lite runs via Vertex
+(`project=your-gcp-project`, `location=global`). Both used the live `PARSER_PROMPT` and a
+saved sample.

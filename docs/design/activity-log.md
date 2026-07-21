@@ -88,11 +88,11 @@ the log is a cache, and its miss path is re-observation.
   scrollback hash). But it costs an LLM call and seconds of latency per *view*, and —
   the crux above — it's lossy for TUI panes regardless, because the in-place redraws
   are already gone from scrollback. You pay more to get less than the live log had.
-- **Persist to disk / Postgres.** Violates rule 1 for the open-source/tunnel mode. Note
-  the *hosted* mode (cloud-architecture.md) already persists state in Postgres for
-  historical timelines — so durable history is a **commercial-tier** feature by design,
-  not something the local daemon should grow. The MVP here is explicitly the in-memory,
-  open-source floor; the hosted tier is where "history across restarts" legitimately
+- **Persist to disk / Postgres.** Violates rule 1 for the local/tunnel mode. A separate
+  *hosted* mode could persist state in a database for historical timelines — so durable
+  history is a **hosted-tier** concern by design, not something the local daemon should
+  grow. The MVP here is explicitly the in-memory,
+  local floor; a hosted tier is where "history across restarts" legitimately
   lives.
 - **Do nothing.** Defensible now that bootstrap exists — the session summary carries
   orientation even with a thin feed. Rejected because the feed is the primary

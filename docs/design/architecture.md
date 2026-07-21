@@ -15,10 +15,10 @@ of record, and the phone is a dumb remote. No tool ever knows tmux-rc exists.
 ```mermaid
 flowchart LR
   phone["phone PWA"]
-  subgraph gcp["Google Cloud"]
-    iap["IAP<br/>(identity-aware proxy:<br/>Google SSO gate)"]
-    relay["tun.qs.dev relay<br/>(Cloud Run)"]
-    iap --> relay
+  subgraph edge["auth edge (your choice)"]
+    auth["auth gate<br/>(SSO / OAuth / Access:<br/>see SETUP.md)"]
+    relay["tunnel relay"]
+    auth --> relay
   end
   subgraph host["dev box (as the user)"]
     tc["tunnel-client<br/>(dials OUT, holds the WS)"]
@@ -31,19 +31,20 @@ flowchart LR
     daemon -->|pane text| llm
     llm -->|structured JSON| daemon
   end
-  phone -->|"HTTPS + Google login"| iap
+  phone -->|"HTTPS + login"| auth
   tc -.->|"dials out, then relay<br/>forwards reqs down the WS"| relay
 ```
 
 **Why the traffic flows this way.** The daemon has **no inbound port** — nothing to
 port-forward, nothing exposed. Instead the `tunnel-client` process (running on the dev
-box, as the user) dials *outbound* to the Cloud Run relay and holds a WebSocket open.
-The phone hits `https://<slug>.tun.qs.dev`; **IAP** (Google's identity-aware proxy) gates
-that with Google SSO *before* any request reaches the relay, and an owner-gate check
-confirms the logged-in identity owns the slug. Authorized requests are then serialized
-and forwarded *down* the held WebSocket to the tunnel-client, which replays them against
-the daemon on `localhost` and pipes responses back up. So: two auth layers (IAP SSO +
-owner-gate) in front, no open port behind, and the daemon still holds no privileged
+box, as the user) dials *outbound* to the relay and holds a WebSocket open.
+The phone hits `https://<your-host>`; an **auth gate** of your choice (SSO / OAuth /
+Access — see [SETUP.md](../../SETUP.md)) authenticates *before* any request reaches the
+relay, and an owner-gate check confirms the logged-in identity owns the endpoint.
+Authorized requests are then serialized and forwarded *down* the held WebSocket to the
+tunnel-client, which replays them against the daemon on `localhost` and pipes responses
+back up. So: two auth layers (SSO + owner-gate) in front, no open port behind, and the
+daemon still holds no privileged
 position — it runs *as the user*, drives the user's own tmux socket, and a human can
 stay attached to the same session at the same time.
 
@@ -66,11 +67,12 @@ stay attached to the same session at the same time.
 - **The PWA** — a no-framework, no-build vanilla-JS single page. Renders one pane's card
   at a time with a dock of the others; the raw terminal streams live behind the card.
 - **The tunnel** — the daemon has no inbound port. A tunnel-client process dials *out* to
-  a Cloud Run relay over a WebSocket; the relay forwards phone HTTP requests down that
-  socket and pipes responses back. The phone reaches `https://<slug>.tun.qs.dev`; IAP +
-  an owner-gate authorize it. Detailed below.
+  a relay over a WebSocket; the relay forwards phone HTTP requests down that
+  socket and pipes responses back. The phone reaches `https://<your-host>`; an auth gate +
+  an owner-gate authorize it. Detailed below. (This is one shape; see
+  [SETUP.md](../../SETUP.md) for the exposure options you can pick from.)
 
-## The tunnel & IAP: how a phone request reaches localhost
+## The tunnel & auth: how a phone request reaches localhost
 
 No inbound port on the dev box, and two auth layers in front. A single phone request
 makes this hop chain:
@@ -78,21 +80,21 @@ makes this hop chain:
 ```mermaid
 sequenceDiagram
   participant Ph as phone (browser)
-  participant IAP as IAP (Google SSO)
-  participant R as relay (Cloud Run)
+  participant AUTH as auth gate (SSO/OAuth)
+  participant R as relay
   participant TC as tunnel-client (dev box)
   participant D as daemon (localhost)
   Note over TC,R: at startup: tunnel-client dials OUT,<br/>holds a WebSocket open to the relay
-  Ph->>IAP: HTTPS GET /api/... (Google session cookie)
-  IAP->>IAP: SSO gate — reject if not signed in
-  IAP->>R: authorized request
-  R->>R: owner-gate: does this identity own <slug>?
+  Ph->>AUTH: HTTPS GET /api/... (session cookie)
+  AUTH->>AUTH: SSO gate — reject if not signed in
+  AUTH->>R: authorized request
+  R->>R: owner-gate: does this identity own the endpoint?
   R-->>TC: forward request DOWN the held WebSocket
   TC->>D: replay as localhost HTTP
   D-->>TC: response
   TC-->>R: response UP the WebSocket
-  R-->>IAP: response
-  IAP-->>Ph: HTTPS response
+  R-->>AUTH: response
+  AUTH-->>Ph: HTTPS response
 ```
 
 Consequences worth internalizing:
@@ -100,9 +102,9 @@ Consequences worth internalizing:
 - **The connection is outbound-only.** Nothing listens for the internet on the dev box;
   the tunnel-client initiates and keeps the socket. A reboot or network blip just means
   it re-dials (with backoff) — the relay is stateless about any one client.
-- **Two gates, both before the daemon.** IAP's Google SSO stops anonymous traffic at the
-  edge; the relay's owner-gate binds the authenticated identity to the specific tunnel
-  slug. The daemon itself trusts that whatever arrives over its localhost socket is
+- **Two gates, both before the daemon.** The auth gate's SSO/OAuth stops anonymous traffic
+  at the edge; the relay's owner-gate binds the authenticated identity to the specific
+  endpoint. The daemon itself trusts that whatever arrives over its localhost socket is
   already authorized (loopback-only claims, same trust model as its audit log).
 - **The relay is a dumb pipe.** It serializes whole HTTP request/response pairs over the
   WebSocket — it does not stream, which is exactly why [live mode](#live-mode) uses
@@ -167,8 +169,7 @@ then one Enter). This mirrors a phone's "caption then send the photo" feel and t
 staged image as un-sent draft state the auto-update reload won't eat. On send, the
 image is staged to disk on the daemon and delivered by clipboard-paste when the desktop
 session is unlocked, or by typing the file path when it's locked or headless — a small
-**presence-aware** decision, since a locked GNOME session blocks clipboard reads (see
-[deployment](deployment.md)).
+**presence-aware** decision, since a locked GNOME session blocks clipboard reads.
 
 ## Live mode
 
@@ -250,5 +251,6 @@ polling stay responsive.
 - [The activity log](activity-log.md) — how the event feed survives a reload, and the
   tmux-is-state rule.
 - The live view — full streaming design and rejected alternatives (note lands with the feature).
-- [Deployment](deployment.md) — running as a user systemd unit, the tunnel, presence.
-- [Cloud architecture](cloud-architecture.md) — the hosted/multi-tenant future.
+- [SETUP.md](../../SETUP.md) — self-hosting: how to expose the daemon safely (localhost,
+  authenticated tunnels, IAP). Production/internal deployment runbooks live in a separate
+  internal ops repo.

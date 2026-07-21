@@ -1,7 +1,7 @@
-# tmux-rc telemetry — QueryStory hints
+# tmux-rc telemetry — analysis hints
 
-Guidance for the AI when querying and analyzing tmux-rc telemetry. Load as project-level
-hints in the QueryStory "tmux-rc" project.
+Guidance for an AI (or a human) when querying and analyzing tmux-rc telemetry. Load these
+as context/hints in whatever analysis tool reads the OTLP records.
 
 ## What tmux-rc is
 

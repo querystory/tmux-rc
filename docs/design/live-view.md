@@ -138,8 +138,8 @@ the 170 lines are cheaper than the dependency.
 
 ## Post-MVP
 
-- **WebSocket transport** + optional **line deltas**, bundled with the qsi-automation
-  tunnel-protocol change (the tunnel can't stream today).
+- **WebSocket transport** + optional **line deltas**, bundled with a future
+  tunnel-protocol change (the relay can't stream today).
 - **Telemetry** (bandwidth, live-time per user, a per-pane "has-live-viewer" presence
   signal to let the daemon throttle LLM cadence when nobody's watching) — see
   `docs/design/live-telemetry.md`.

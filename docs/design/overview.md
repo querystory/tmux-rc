@@ -79,18 +79,18 @@ also where a model's fuzziness-tolerance actually earns its keep.
 - **Flash Lite** is cheap and fast, and Gemini models are strong at reading both
   terminal text and screenshots — which matters because the timeline gives us images
   essentially for free, and a multimodal model can read a rendered screen directly.
-- **Vertex** because a Google project (`qs-backend-dev`) is available and reaching it is
+- **Vertex** because a Google project is available and reaching it is
   one client construction with `vertexai=True`. (Auth has since moved from developer ADC
-  to a long-lived service-account key so the unattended daemon doesn't wedge on reauth —
-  see [design/durable-vertex-auth.md](durable-vertex-auth.md).)
+  to a long-lived service-account key so the unattended daemon doesn't wedge on reauth;
+  see `.env.example` for the setup.)
 - Rejected Anthropic: the entire premise is not being locked to one provider, and the
   user's inference already runs through Google. Rejected a local model (Ollama): slower
   and more variable at structured extraction for no PoC benefit when Vertex is a free
   API call away.
 
-Crucially we **reimplement** the ~30-line Vertex call rather than importing qs-app's
-`backend.genai.llm`. That library is excellent but pulls in FastAPI/SQLAlchemy/WorkOS
-and a config-loading lifecycle we don't want in a standalone tool. Copying the small,
+Crucially we **reimplement** the ~30-line Vertex call rather than importing a full
+in-house LLM client library. Such libraries are convenient but pull in a web framework,
+an ORM, and a config-loading lifecycle we don't want in a standalone tool. Copying the small,
 stable slice (client construction, inline image parts, `response_mime_type=json`) keeps
 tmux-rc independent and lets the watcher be rewritten in another language later.
 
