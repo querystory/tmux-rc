@@ -1785,9 +1785,11 @@ async function lmStart() {
   };
   ws.onclose = () => { if (lmWs === ws) lmStop(); };
   ws.onopen = async () => {
+    if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
     try { await lmCapture(ws); }
     catch (e) { lmLine("lm-model", `⚠ mic unavailable: ${e.message}`); lmStop(); }
   };
+  lm.btn.title = lm.btn.ariaLabel = "End Live Mode";
 }
 
 function lmStop() {
@@ -1795,6 +1797,8 @@ function lmStop() {
   if (ws && ws.readyState === WebSocket.OPEN) {
     try { ws.send(JSON.stringify({ action: "stop" })); } catch {}
     setTimeout(() => { try { ws.close(); } catch {} }, 250);
+  } else if (ws) {
+    try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
   }
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];
@@ -1803,6 +1807,7 @@ function lmStop() {
   if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
   lm.overlay.hidden = true;
   lm.btn.classList.remove("on");
+  lm.btn.title = lm.btn.ariaLabel = "Start Live Mode";
   lmStatus("off");
 }
 
