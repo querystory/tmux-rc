@@ -682,7 +682,6 @@ function card(s) {
   // header is the live interface — the rolling conversation with every typed action —
   // in place of the pane's summary, question, and event views.
   if (lmWs && s.pane_id === activeId()) {
-    el.classList.add("lm-live");
     el.appendChild(lmConvoView());
     return el;
   }
