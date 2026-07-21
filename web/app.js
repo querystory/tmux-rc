@@ -319,7 +319,7 @@ function showUsage(u, err) {
   const parts = [
     `${tok}k tok`,
     `<span${u.errors ? ' class="warn"' : ""}>$${u.cost.toFixed(3)}</span>`,
-    `${u.rate_per_min}/min`,
+    `${u.rate_per_min}/min`,  // parser calls/min (voice isn't a per-tick call) — see tooltip
   ];
   if (live.sessions) parts.push(`🎙${live.sessions}`); // voice sessions this run
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
@@ -329,7 +329,7 @@ function showUsage(u, err) {
   usageEl.title = `LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} total`
     + ` (parser $${parser.toFixed(3)}`
     + (live.sessions ? `, voice $${live.cost.toFixed(3)} over ${live.sessions} session${live.sessions > 1 ? "s" : ""}` : "")
-    + `) · ${u.rate_per_min} calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
+    + `) · ${u.rate_per_min} parser calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
 }
 // Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
 // quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
@@ -1683,6 +1683,9 @@ const lm = { btn: document.getElementById("lm-btn") };
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmLog = [];                  // rolling conversation: {role, text, done}
+let lmListening = false;         // true only while the daemon reports "listening" — mic
+                                 // frames are dropped otherwise so a reconnect (during
+                                 // which the server stops reading) can't grow bufferedAmount
 
 // Transcription arrives as fragments; grow the current entry for that role until the
 // turn completes. Typed actions and errors are single whole entries.
@@ -1714,7 +1717,9 @@ function lmPaint() {
 function lmConvoView() {
   const box = document.createElement("div");
   box.className = "lm-convo";
-  box.setAttribute("aria-live", "polite");
+  // No aria-live: we repaint the whole box (replaceChildren) on every transcript
+  // fragment, which a live region would re-announce in full — deafeningly noisy while
+  // streaming. The transcript is a visible running log, not an announce-on-change alert.
   lmPaintInto(box);
   return box;
 }
@@ -1770,7 +1775,10 @@ async function lmCapture(ws) {
     const bytes = new Uint8Array(pcm.buffer);
     for (let i = 0; i < bytes.length; i += 0x8000)
       bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "audio", data: btoa(bin) }));
+    // Only stream while the server is actively listening — during a reconnect it stops
+    // reading, so sending would just pile up in the socket's client-side buffer.
+    if (lmListening && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ action: "audio", data: btoa(bin) }));
   };
   const mod = URL.createObjectURL(new Blob([
     'registerProcessor("lm-tap", class extends AudioWorkletProcessor {',
@@ -1788,7 +1796,8 @@ async function lmCapture(ws) {
 
 // The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
-  lm.btn.classList.toggle("listening", s === "listening");
+  lmListening = s === "listening";  // gates mic streaming (see push())
+  lm.btn.classList.toggle("listening", lmListening);
 }
 
 async function lmStart() {
@@ -1829,6 +1838,7 @@ function lmStop() {
   } else if (ws) {
     try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
   }
+  lmListening = false;
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
