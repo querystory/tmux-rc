@@ -224,7 +224,7 @@ class Watcher:
                     "activity": s.get("activity"),
                     "idle_seconds": s.get("idle_seconds"),
                     "headline": s.get("headline"),
-                    "question": (s.get("question") or {}).get("prompt"),
+                    "question": self._question_prompt(s),
                     # LLM one-liner for the last activity burst (present once the pane
                     # has idled past the summary threshold; None while actively working).
                     "summary": (self._summary.get(pid) or {}).get("text"),
@@ -411,6 +411,16 @@ class Watcher:
     # so if the fingerprint omitted them the hold could keep holding and the UI would
     # spin until its timeout instead of reflecting the fresh parse.
     @staticmethod
+    def _question_prompt(state: dict):
+        # classify() pipes raw model JSON through unvalidated (see classify.py), so
+        # "question" is USUALLY the {"prompt": ...} object the parser prompt asks for —
+        # but a misbehaving LLM could emit a bare string or other non-dict. Guard the
+        # .get so a bad parse can't raise AttributeError here and stall the watcher loop
+        # (this runs in the worker thread, on the /api/state hot path).
+        q = state.get("question")
+        return q.get("prompt") if isinstance(q, dict) else None
+
+    @staticmethod
     def _deck_fp(states: list[dict]) -> str:
         # repr() of a tuple, NOT an f-string join: f-strings coerce None -> "None", so a
         # field flipping between None and the literal string "None" would look unchanged
@@ -420,7 +430,7 @@ class Watcher:
             repr((
                 s.get("pane_id"), s.get("tmux_active"), s.get("label"), s.get("title"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
-                (s.get("question") or {}).get("prompt"), s.get("parsed_at"),
+                Watcher._question_prompt(s), s.get("parsed_at"),
             ))
             for s in states
         ]

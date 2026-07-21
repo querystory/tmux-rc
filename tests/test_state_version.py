@@ -92,6 +92,19 @@ def test_reparse_fields_bump_the_version():
     assert w.state_version() == 4
 
 
+def test_non_dict_question_does_not_raise():
+    # classify() pipes raw model JSON through unvalidated, so "question" could arrive as a
+    # non-dict (e.g. a bare string) from a misbehaving LLM. The deck fingerprint must
+    # tolerate that without raising AttributeError (which would stall the watcher loop).
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "question": "just a string"}))  # must not raise
+    assert w.state_version() == 1
+    # A bare-string question fingerprints as None (no prompt), same as no question → the
+    # transition to an actual {prompt} object is still a real change and bumps.
+    w._bump_state_if_changed(_states({**A, "question": {"prompt": "y/n?"}}))
+    assert w.state_version() == 2
+
+
 def test_transition_to_empty_deck_bumps():
     # tmux-down / no-panes sets states=[] via _tick's early returns; that transition must
     # bump so the /api/state hold returns to show "no panes" instead of holding to timeout.
