@@ -47,6 +47,22 @@ inherited" below.
   `us-central1` (not the classifier's `global`) and must NOT inherit the classifier's
   20s per-request timeout — a live session is one long-lived stream.
 
+Two transport lessons from first deployment, both invisible until a real WebSocket is
+in the path (everything else in the app is request/response):
+
+- **The access proxy must pass WebSocket upgrades.** Any HTTP-aware layer in front of
+  the daemon (auth proxy, tunnel, buffering reverse proxy) that serializes requests
+  as request→response will silently break `wss://` — the daemon sees a plain GET on a
+  websocket-only route and 404s. If your fronting layer can't stream upgrades, fix it
+  there rather than contorting Live Mode into chunked-POST/long-poll transport: voice
+  needs the latency, and the workaround code would outlive the proxy limitation.
+- **Broken-IPv6 networks starve the Vertex handshake.** The Live endpoint resolves to
+  AAAA records first; a network with an advertised-but-dead v6 route (common behind
+  home routers) eats the entire open timeout walking them serially, so the session
+  loops `connecting → reconnecting` while plain HTTPS (with its fast fallback) looks
+  healthy. The daemon sorts IPv4 first in `getaddrinfo` at startup — harmless where
+  v6 works, unbreaks all egress where it doesn't.
+
 ## How the model sees pane state (the part that makes it "talking to tmux")
 
 The watcher already keeps every pane's state current — that is the daemon's core loop.
