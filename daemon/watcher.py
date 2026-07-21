@@ -22,8 +22,11 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
-# no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop).
-FAST_POLL = 0.25
+# no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop). 0.1s
+# is the perceived floor for "instant" switching; the cost is one local `display-message`
+# subprocess per interval (negligible). A true event-driven source (tmux control mode,
+# `tmux -C`) would remove the poll entirely — see docs/design/control-mode-watcher.md.
+FAST_POLL = 0.1
 # Full-text snapshots per pane (the timeline). Snapshots append on real content change
 # only; each is <=~24KB (200 lines), so 200 of them is ~5MB/pane worst case — memory is
 # cheap and none of this reaches the model, so keep enough to scroll back meaningfully.
