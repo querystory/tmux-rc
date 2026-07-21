@@ -92,9 +92,29 @@ def test_typing_dispatches_and_logs(monkeypatch):
     assert any(m["type"] == "typed" and m["label"] == "work" for m in ws.sent)
     r = session.responses[0]
     assert r.id == "call-1"  # fc.id must ride back or the session wedges
-    assert r.response == {"status": "typed", "pane": "work"}
+    assert r.response == {"status": "done", "pane": "work"}
     # the FunctionResponse never carries screen content (echo-loop guard)
     assert "screen" not in str(r.response)
+
+
+def test_press_key_dispatches_named_key(monkeypatch):
+    # press_key sends a named key non-literally with no auto-Enter — the way to reach
+    # Escape / C-c / arrows that type_in_pane can't.
+    fc = _FC(name="press_key", args={"pane_id": "%1", "key": "Escape"})
+    w, ws, session, typed = _dispatch(fc, monkeypatch)
+    assert typed == [("%1", "Escape", False, False)]  # not literal, no trailing Enter
+    assert w.reparsed == ["%1"]
+    assert any(m["type"] == "typed" and m["text"] == "[Escape]" for m in ws.sent)
+    assert session.responses[0].response == {"status": "done", "pane": "work"}
+
+
+def test_press_key_rejects_unknown_key(monkeypatch):
+    # Only whitelisted keys — an arbitrary chord must not reach the terminal.
+    for key in ("C-x", "F1", "rm -rf", ""):
+        fc = _FC(name="press_key", args={"pane_id": "%1", "key": key})
+        _, _, session, typed = _dispatch(fc, monkeypatch)
+        assert typed == []
+        assert session.responses[0].response["status"] == "rejected"
 
 
 def test_unknown_pane_is_rejected(monkeypatch):

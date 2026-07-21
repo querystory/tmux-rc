@@ -2,8 +2,9 @@
 
 One WebSocket (`/api/live-mode`) per session. The browser streams mic PCM up; the
 daemon owns the Gemini Live connection, feeds it the watcher's always-current pane
-state, streams the model's voice + transcripts back, and executes the session's single
-tool — type_in_pane — through the same send_keys primitive every other input path uses.
+state, streams the model's voice + transcripts back, and executes the session's tools —
+type_in_pane and press_key — through the same send_keys primitive every other input
+path uses.
 Design + prompting rationale: docs/design/live-mode.md.
 """
 
@@ -242,9 +243,25 @@ def _actor(websocket: WebSocket) -> str:
     return f"local:{peer}"
 
 
-def _type_tool():
-    """The session's single tool. Kept to exactly one action on purpose (v0.1) — see
-    the design doc's 'deliberately absent' list."""
+# Named keys press_key can send — a fixed whitelist, mapped to the tmux key names
+# send_keys(literal=False) understands. Bounded on purpose: the model can only press
+# keys that make sense for terminal UIs (cancel, interrupt, menu nav, submit), never an
+# arbitrary key string that could be a chord we didn't vet.
+_KEYS = {
+    "Escape": "Escape",   # cancel / reject the current prompt
+    "Enter": "Enter",     # accept / continue with no text
+    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",  # menu navigation
+    "Tab": "Tab",         # cycle / complete
+    "C-c": "C-c",         # interrupt what's running
+    "C-d": "C-d",         # EOF / exit a REPL
+}
+
+
+def _tools():
+    """The session's tools: type_in_pane (types a string) and press_key (sends one named
+    control key). Two narrow verbs beat one overloaded one — the model can't accidentally
+    fold text and a chord into a single ambiguous call, and press_key's whitelist keeps it
+    from inventing arbitrary key sequences."""
     from google.genai import types
 
     return [
@@ -275,16 +292,41 @@ def _type_tool():
                         },
                         required=["pane_id", "text"],
                     ),
-                )
+                ),
+                types.FunctionDeclaration(
+                    name="press_key",
+                    description=(
+                        "Press ONE control key in a pane (no text) — to cancel, "
+                        "interrupt, navigate a menu, or continue. Escape cancels/rejects "
+                        "the current prompt; C-c interrupts what's running; Up/Down then "
+                        "Enter picks a menu item; Enter alone accepts/continues; Tab "
+                        "cycles or completes; C-d sends EOF."
+                    ),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "pane_id": types.Schema(
+                                type=types.Type.STRING,
+                                description="Target pane id from the pane state, e.g. %5",
+                            ),
+                            "key": types.Schema(
+                                type=types.Type.STRING,
+                                enum=list(_KEYS),
+                                description="One of: " + ", ".join(_KEYS),
+                            ),
+                        },
+                        required=["pane_id", "key"],
+                    ),
+                ),
             ]
         )
     ]
 
 
 async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: str) -> None:
-    """Execute type_in_pane and answer Gemini tersely. The result NEVER rides back
-    through the FunctionResponse (echo loops — see design doc); the model sees the
-    outcome via the post-type ambient refresh instead."""
+    """Route a tool call (type_in_pane / press_key) to the pane and answer Gemini tersely.
+    The result NEVER rides back through the FunctionResponse (echo loops — see design doc);
+    the model sees the outcome via the post-action ambient refresh instead."""
     from google.genai import types
 
     async def respond(payload: dict) -> None:
@@ -297,53 +339,59 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
 
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = str(args.get("pane_id", "")).strip()
-    text = str(args.get("text", ""))
-    # press_enter defaults to True but, if present, must be a REAL bool — never coerce,
-    # since bool("false") is True and would submit a command the model meant to leave
-    # unsent. A non-bool value makes the call malformed (caught below).
-    raw_enter = args.get("press_enter", True)
-    press_enter = raw_enter if isinstance(raw_enter, bool) else None
-
-    # Reject malformed/echoed calls (the model occasionally parrots a FunctionResponse
-    # back as a new tool call) instead of typing garbage into a real terminal.
-    known = {"pane_id", "text", "press_enter"}
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
-    if (
-        fc.name != "type_in_pane" or not isinstance(fc.args, dict) or set(args) - known
-        or not text.strip() or press_enter is None or pane_id not in labels
-    ):
+
+    # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
+    # whether it counts as submitted). malformed stays None ⇒ reject below.
+    send_args = what = None
+    submitted = False
+    if fc.name == "type_in_pane" and isinstance(fc.args, dict) and not (set(args) - {"pane_id", "text", "press_enter"}):
+        text = str(args.get("text", ""))
+        raw_enter = args.get("press_enter", True)
+        # Never coerce press_enter: bool("false") is True and would submit an unsent
+        # command. A non-bool value is malformed.
+        if text.strip() and isinstance(raw_enter, bool):
+            send_args = (pane_id, text, raw_enter, True)  # literal text
+            what, submitted = text, raw_enter
+    elif fc.name == "press_key" and isinstance(fc.args, dict) and not (set(args) - {"pane_id", "key"}):
+        key = _KEYS.get(str(args.get("key", "")))
+        if key:
+            send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
+            what, submitted = f"[{key}]", key == "Enter"
+
+    if send_args is None or pane_id not in labels:
         reason = "unknown pane" if pane_id not in labels else "malformed call"
         logger.info("[live] rejecting tool call %s(%s): %s", fc.name, args, reason)
         telemetry.emit_action(
             action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id or '?'}", actor=actor,
-            detail=reason, keys=text, outcome=f"rejected: {reason}",
+            detail=reason, keys=str(args), outcome=f"rejected: {reason}",
         )
         await respond({"status": "rejected", "reason": reason})
         return
 
     label = labels[pane_id]
     try:
-        await asyncio.to_thread(tmux.send_keys, pane_id, text, press_enter, True)
+        await asyncio.to_thread(tmux.send_keys, *send_args)
     except Exception as e:  # noqa: BLE001 - report, don't kill the session
-        logger.warning("[live] type_in_pane failed for %s", pane_id, exc_info=True)
+        logger.warning("[live] %s failed for %s", fc.name, pane_id, exc_info=True)
         telemetry.emit_action(
             action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
-            detail=str(e)[:120], keys=text, outcome="error",
+            detail=str(e)[:120], keys=what, outcome="error",
         )
         await respond({"status": "error", "reason": "pane did not accept input"})
         return
 
     telemetry.emit_action(
         action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
-        detail=f"into {label}" + (" +enter" if press_enter else ""), keys=text,
+        detail=f"into {label}" + (" +enter" if submitted else ""), keys=what,
     )
     watcher.request_reparse(pane_id)  # the keystrokes changed the screen
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
-         "text": text, "submitted": press_enter}
+         "text": what, "submitted": submitted}
     )
-    await respond({"status": "typed", "pane": label})
+    await respond({"status": "done", "pane": label})
 
     # Let the pane react, then show the model what its keystrokes did — as ambient
     # state, not as a tool result.
@@ -351,7 +399,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         await asyncio.sleep(POST_TYPE_REFRESH_SECONDS)
         tail = await asyncio.to_thread(_screen_tail, watcher, pane_id)
         if tail:
-            await _send_ambient(session, f"[tmux update] {label} ({pane_id}) after your typing:\n{tail}")
+            await _send_ambient(session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}")
 
     task = asyncio.create_task(refresh())
     _background(task)
@@ -479,7 +527,7 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
         # reconnected session answering/acting on minutes-old screen state.
         return types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
-            tools=_type_tool(),
+            tools=_tools(),
             system_instruction=_system_prompt(watcher),
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),

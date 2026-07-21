@@ -91,30 +91,46 @@ the post-type refresh of the acted-on pane. That keeps a long-running session's 
 drip small while keeping answers accurate; if it proves too coarse, the escalation path
 is a screen-tail in updates for the active pane only.
 
-## The one tool: `type_in_pane`
+## Two tools: `type_in_pane` and `press_key`
 
 ```
-type_in_pane(pane_id, text, press_enter=true)
+type_in_pane(pane_id, text, press_enter=true)   # type a string
+press_key(pane_id, key)                          # key ∈ {Escape, Enter, Up, Down,
+                                                 #        Left, Right, Tab, C-c, C-d}
 ```
 
-That is the entire action surface of v0.1, on purpose. It types exactly `text` into the
-given pane via the daemon's existing `send_keys` (literal mode), optionally submitting
-with Enter — the same primitive every other tmux-rc input path uses. The handler:
+`type_in_pane` types exactly `text` into a pane via the daemon's existing `send_keys`
+(literal mode), optionally submitting with Enter. `press_key` sends **one named control
+key** non-literally with no auto-Enter — the actions that aren't text: cancel (Escape),
+interrupt (C-c), menu navigation (arrows), accept/continue (Enter), complete (Tab), EOF
+(C-d). Both go through the same `send_keys` primitive every other tmux-rc input path uses.
 
-- rejects calls with a missing/unknown `pane_id`, empty `text`, or unexpected extra
-  args (the model occasionally echoes a prior FunctionResponse back as a new call —
-  inherited guard);
-- executes, then returns a **terse** FunctionResponse (`typed into <label>`) carrying
-  the original call id — never the resulting screen;
+Started as a single `type_in_pane` and that was a mistake in practice: asked to "stop
+Claude" or "press escape," the model *narrated* pressing a key it had no way to send —
+the tool couldn't express anything but literal text. The fix is a second, deliberately
+narrow verb rather than overloading the first: two unambiguous actions (type a string /
+press a key) the model chooses between, and `press_key`'s **whitelist** means it can only
+send keys that make sense for a terminal UI, never an arbitrary chord we didn't vet. The
+prompt teaches the vocabulary generically (Escape cancels, C-c interrupts, arrows+Enter
+pick a menu item) so it works for claude/codex/gemini/shell alike — no per-vendor
+cheatsheet to go stale, matching the "observe the terminal, don't model the agent"
+principle.
+
+The shared handler:
+
+- rejects calls with a missing/unknown `pane_id`, unexpected extra args, non-bool
+  `press_enter`, empty text, or a non-whitelisted key (the model occasionally echoes a
+  prior FunctionResponse back as a new call — inherited guard);
+- executes, then returns a **terse** FunctionResponse (`done in <label>`) carrying the
+  original call id — never the resulting screen;
 - notifies the browser (`{type:"typed", ...}`) so every action the voice takes is
-  visibly logged in the overlay — you always see what it typed and where;
-- forces a reparse and schedules the post-type context refresh described above.
+  visibly logged in the overlay — you always see what it did and where;
+- forces a reparse and schedules the post-action context refresh described above.
 
-Deliberately **absent** from v0.1: pane switching (the model doesn't need focus to
-type — `send_keys` targets any pane), pane creation ("open claude in a new pane in
-~/src/x" is the obvious v0.2, pending the create-pane endpoint), kill/destroy
-(destructive, needs the approval design from chat-with-tmux), and any read tool (state
-is pushed, not pulled).
+Deliberately **absent**: pane switching (the model doesn't need focus to act —
+`send_keys` targets any pane), pane creation ("open claude in a new pane in ~/src/x" is
+the obvious v0.2, pending the create-pane endpoint), kill/destroy (destructive, needs the
+approval design from chat-with-tmux), and any read tool (state is pushed, not pulled).
 
 ## Prompting strategy (where the quality lives)
 
