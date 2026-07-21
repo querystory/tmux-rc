@@ -15,11 +15,11 @@ import contextlib
 import logging
 import os
 import time
-from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import telemetry, tmux
+from .classify import _load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,6 @@ SCREEN_TAIL_CHARS = 4000
 # pane's app needs a beat to react before a capture shows anything new.
 POST_TYPE_REFRESH_SECONDS = 1.5
 
-_PROMPT = (Path(__file__).parent / "live_prompt.txt").read_text()
 
 
 def _live_client():
@@ -99,7 +98,10 @@ def _pane_context(watcher, with_screens: bool) -> str:
 
 def _system_prompt(watcher) -> str:
     stamp = time.strftime("%Y-%m-%d %H:%M %Z")
-    return f"{_PROMPT}\nNow: {stamp}\n\n# Panes (live state)\n\n{_pane_context(watcher, with_screens=True)}"
+    return (
+        f"{_load_prompt('live_prompt.txt')}\nNow: {stamp}"
+        f"\n\n# Panes (live state)\n\n{_pane_context(watcher, with_screens=True)}"
+    )
 
 
 def _actor(websocket: WebSocket) -> str:
@@ -181,7 +183,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         reason = "unknown pane" if pane_id not in labels else "malformed call"
         logger.info("[live] rejecting tool call %s(%s): %s", fc.name, args, reason)
         telemetry.emit_action(
-            action="live_type", pane_uid=pane_id or "?", actor=actor,
+            action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id or '?'}", actor=actor,
             detail=reason, keys=text, outcome=f"rejected: {reason}",
         )
         await respond({"status": "rejected", "reason": reason})
@@ -193,14 +195,14 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     except Exception as e:  # noqa: BLE001 - report, don't kill the session
         logger.warning("[live] type_in_pane failed for %s", pane_id, exc_info=True)
         telemetry.emit_action(
-            action="live_type", pane_uid=pane_id, actor=actor,
+            action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
             detail=str(e)[:120], keys=text, outcome="error",
         )
         await respond({"status": "error", "reason": "pane did not accept input"})
         return
 
     telemetry.emit_action(
-        action="live_type", pane_uid=pane_id, actor=actor,
+        action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
         detail=f"into {label}" + (" +enter" if press_enter else ""), keys=text,
     )
     watcher.request_reparse(pane_id)  # the keystrokes changed the screen

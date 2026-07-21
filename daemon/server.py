@@ -36,11 +36,13 @@ load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
 # Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
 # client that walks AAAA records serially — the Vertex Live websocket handshake times out
 # before an A record is ever tried. Sorting IPv4 first is harmless where v6 works and
-# unbreaks all daemon egress (Vertex, OTLP) where it doesn't.
-_getaddrinfo = socket.getaddrinfo
-socket.getaddrinfo = lambda *a, **kw: sorted(
-    _getaddrinfo(*a, **kw), key=lambda info: info[0] != socket.AF_INET
-)
+# unbreaks all daemon egress (Vertex, OTLP) where it doesn't. TMUXRC_PREFER_IPV4=0 opts
+# out for the mirror-image network (working v6, broken v4).
+if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
+    _getaddrinfo = socket.getaddrinfo
+    socket.getaddrinfo = lambda *a, **kw: sorted(
+        _getaddrinfo(*a, **kw), key=lambda info: info[0] != socket.AF_INET
+    )
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import PlainTextResponse  # noqa: E402
