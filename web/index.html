@@ -359,6 +359,19 @@
     border: 0; border-radius: 999px; padding: 8px 16px; font-size: 13px;
     font-weight: 600; cursor: pointer; box-shadow: 0 4px 16px #000c; }
   .hdr-right { display: flex; align-items: center; gap: 10px; }
+  /* Live Mode: quiet header pill; red while a session is running. */
+  #lm-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+    border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600;
+    cursor: pointer; }
+  #lm-btn.on { background: #3d1d20; border-color: #f85149; color: #f85149; }
+  #lm-feed { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex;
+    flex-direction: column; gap: 8px; font-size: 14px; }
+  .lm-line { max-width: 88%; padding: 7px 11px; border-radius: 12px; white-space: pre-wrap; }
+  .lm-user { align-self: flex-end; background: #1c2a3a; border: 1px solid #2f4a6b; }
+  .lm-model { align-self: flex-start; background: #161b22; border: 1px solid #30363d; }
+  /* A typed action: unmissable — this is the model touching a real terminal. */
+  .lm-typed { align-self: stretch; background: #1a2318; border: 1px solid #2ea04366;
+    color: #7ee787; font-family: ui-monospace, monospace; font-size: 13px; }
   /* Debug telemetry: recedes into the background (it's for us, not the operator) and
      brightens only on hover/focus/tap. The live dot beside it stays fully lit — that's
      the one always-relevant signal. */
@@ -390,10 +403,22 @@
            lightened for the dark background) with our "rc" as a superscript. -->
       <span class="brand"><img src="/tmux-logo.svg" alt="tmux" class="brand-logo" /><sup class="brand-sup">rc</sup></span>
       <span class="hdr-right">
+        <button id="lm-btn" title="Live Mode — talk to your session" aria-label="Start Live Mode">🎙 live</button>
         <span id="usage" class="usage" role="button" tabindex="0" aria-pressed="false" aria-label="parser LLM telemetry"></span>
         <span id="live" class="dot off" title="connection"></span>
       </span>
     </header>
+
+    <!-- Live Mode overlay: voice session over every pane. Hidden until 🎙 is tapped.
+         The feed shows both transcripts AND an explicit entry for every keystroke the
+         model types (you always see what it did and where). See daemon/live.py. -->
+    <div id="lm-overlay" class="screen-overlay" hidden>
+      <div class="screen-head">
+        <span><span id="lm-dot" class="dot off"></span> <span id="lm-status">off</span></span>
+        <button id="lm-stop" class="screen-close" aria-label="End Live Mode">✕</button>
+      </div>
+      <div id="lm-feed" aria-live="polite"></div>
+    </div>
     <div id="dock" class="prow dock"></div>
   </div>
   <div id="panes"><div class="empty">Connecting…</div></div>

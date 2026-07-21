@@ -1,0 +1,116 @@
+"""Live Mode: prompt-context assembly and the type_in_pane dispatch guardrails.
+
+The session/transport itself is exercised live (it's a bidi stream to Vertex); what
+must be pinned in tests is everything that decides WHAT the model sees and WHETHER a
+tool call may touch a real terminal — the context builder and the reject paths."""
+
+import asyncio
+
+import daemon.live as L
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+class _Watcher:
+    def __init__(self):
+        self.snapshots = {"%1": [{"id": "s1", "text": "one\ntwo\nthree", "ts": 1.0}]}
+        self.reparsed = []
+
+    def digest(self):
+        return [
+            {"pane_id": "%1", "label": "work", "tool": "claude", "activity": "waiting",
+             "headline": "asking about tests", "summary": "ran the suite",
+             "question": "Run them? 1) yes 2) no", "history": []},
+            {"pane_id": "%2", "label": "shell", "tool": "shell", "activity": "idle",
+             "headline": None, "summary": None, "question": None, "history": []},
+        ]
+
+    def snapshot_text(self, pane_id, snap_id):
+        for s in self.snapshots.get(pane_id, []):
+            if s["id"] == snap_id:
+                return s["text"]
+        return None
+
+    def request_reparse(self, pane_id):
+        self.reparsed.append(pane_id)
+
+
+class _FC:
+    def __init__(self, name="type_in_pane", args=None, id="call-1"):
+        self.name, self.args, self.id = name, args, id
+
+
+class _Session:
+    def __init__(self):
+        self.responses = []
+
+    async def send_tool_response(self, function_responses):
+        self.responses.extend(function_responses)
+
+
+class _WS:
+    def __init__(self):
+        self.sent = []
+
+    async def send_json(self, obj):
+        self.sent.append(obj)
+
+
+def test_pane_context_carries_state_and_screens():
+    w = _Watcher()
+    ctx = L._pane_context(w, with_screens=True)
+    assert "pane %1 — claude (work) — waiting" in ctx
+    assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
+    assert "one\ntwo\nthree" in ctx  # screen tail rides in the full snapshot
+    # digest-only updates omit screens
+    assert "one\ntwo\nthree" not in L._pane_context(w, with_screens=False)
+
+
+def test_system_prompt_has_rules_and_panes():
+    p = L._system_prompt(_Watcher())
+    assert "type_in_pane" in p  # the tool contract is in the instructions
+    assert "# Panes (live state)" in p and "pane %1" in p
+
+
+def _dispatch(fc, monkeypatch, watcher=None):
+    w = watcher or _Watcher()
+    ws, session = _WS(), _Session()
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    _run(L._handle_tool_call(ws, session, fc, w, "tester"))
+    return w, ws, session, typed
+
+
+def test_typing_dispatches_and_logs(monkeypatch):
+    fc = _FC(args={"pane_id": "%1", "text": "1", "press_enter": True})
+    w, ws, session, typed = _dispatch(fc, monkeypatch)
+    assert typed == [("%1", "1", True, True)]  # literal send_keys, with Enter
+    assert w.reparsed == ["%1"]  # the keystrokes trigger a fresh parse
+    assert any(m["type"] == "typed" and m["label"] == "work" for m in ws.sent)
+    r = session.responses[0]
+    assert r.id == "call-1"  # fc.id must ride back or the session wedges
+    assert r.response == {"status": "typed", "pane": "work"}
+    # the FunctionResponse never carries screen content (echo-loop guard)
+    assert "screen" not in str(r.response)
+
+
+def test_unknown_pane_is_rejected(monkeypatch):
+    fc = _FC(args={"pane_id": "%99", "text": "hi"})
+    _, ws, session, typed = _dispatch(fc, monkeypatch)
+    assert typed == [] and ws.sent == []
+    assert session.responses[0].response["status"] == "rejected"
+
+
+def test_echoed_or_malformed_call_is_rejected(monkeypatch):
+    # The model sometimes parrots our FunctionResponse back as a new call with extra
+    # args — that must never reach a terminal.
+    for args in (
+        {"pane_id": "%1", "text": "x", "status": "typed"},  # extra arg
+        {"pane_id": "%1", "text": "   "},                   # blank text
+    ):
+        _, _, session, typed = _dispatch(_FC(args=args), monkeypatch)
+        assert typed == []
+        assert session.responses[0].response["status"] == "rejected"

@@ -1656,3 +1656,154 @@ if (window.visualViewport && barEl) {
   bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
   fit();
 }
+
+// ═══════════════════ Live Mode: talk to your whole tmux session ═══════════════════
+// One WebSocket to /api/live-mode. We stream mic PCM up; the daemon owns the Gemini
+// Live session and streams back voice audio, both transcripts, and a "typed" event for
+// every keystroke the model puts into a pane — rendered unmissably in the feed, so you
+// always see what it did and where. Design: docs/design/live-mode.md.
+const lm = {
+  btn: document.getElementById("lm-btn"),
+  overlay: document.getElementById("lm-overlay"),
+  dot: document.getElementById("lm-dot"),
+  status: document.getElementById("lm-status"),
+  feed: document.getElementById("lm-feed"),
+  stop: document.getElementById("lm-stop"),
+};
+let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
+let lmPlay = null, lmPlayAt = 0;         // playback context + scheduled-until clock
+let lmCur = { user: null, model: null }; // current transcript bubble per role
+
+function lmLine(cls, text) {
+  const d = document.createElement("div");
+  d.className = "lm-line " + cls;
+  d.textContent = text;
+  lm.feed.appendChild(d);
+  lm.feed.scrollTop = lm.feed.scrollHeight;
+  return d;
+}
+
+// Transcription arrives as fragments; grow the current bubble for that role until the
+// turn completes, then start fresh bubbles.
+function lmTranscript(role, text) {
+  if (!lmCur[role]) lmCur[role] = lmLine(role === "user" ? "lm-user" : "lm-model", "");
+  lmCur[role].textContent += text;
+  lm.feed.scrollTop = lm.feed.scrollHeight;
+}
+
+// The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
+// context (created in the button's click handler, satisfying autoplay policy).
+function lmPlayChunk(b64) {
+  if (!lmPlay) return;
+  const bin = atob(b64);
+  const pcm = new Int16Array(new Uint8Array([...bin].map((c) => c.charCodeAt(0))).buffer);
+  const buf = lmPlay.createBuffer(1, pcm.length, 24000);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
+  const src = lmPlay.createBufferSource();
+  src.buffer = buf;
+  src.connect(lmPlay.destination);
+  lmPlayAt = Math.max(lmPlayAt, lmPlay.currentTime) ;
+  src.start(lmPlayAt);
+  lmPlayAt += buf.duration;
+}
+
+// Mic → 16kHz Int16 PCM → base64 frames. AudioWorklet (inline module) is the capture
+// tap; if the context won't run at 16kHz (Safari ignores the request), we resample
+// before sending — the wire format is always 16kHz.
+async function lmCapture(ws) {
+  lmStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+  });
+  try { lmCtx = new AudioContext({ sampleRate: 16000 }); }
+  catch { lmCtx = new AudioContext(); }
+  const src = lmCtx.createMediaStreamSource(lmStream);
+  const rate = lmCtx.sampleRate;
+  let pend = new Float32Array(0);
+  const push = (chunk) => {
+    const joined = new Float32Array(pend.length + chunk.length);
+    joined.set(pend); joined.set(chunk, pend.length);
+    pend = joined;
+    if (pend.length < 4096) return;
+    let f = pend; pend = new Float32Array(0);
+    if (rate !== 16000) { // linear resample to the wire rate
+      const n = Math.round(f.length * 16000 / rate), r = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = i * (f.length - 1) / (n - 1), lo = Math.floor(x);
+        r[i] = f[lo] + (f[Math.min(lo + 1, f.length - 1)] - f[lo]) * (x - lo);
+      }
+      f = r;
+    }
+    const pcm = new Int16Array(f.length);
+    for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff;
+    let bin = "";
+    const bytes = new Uint8Array(pcm.buffer);
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "audio", data: btoa(bin) }));
+  };
+  const mod = URL.createObjectURL(new Blob([
+    'registerProcessor("lm-tap", class extends AudioWorkletProcessor {',
+    ' process(inputs) { const c = inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } });',
+  ], { type: "application/javascript" }));
+  await lmCtx.audioWorklet.addModule(mod);
+  const tap = new AudioWorkletNode(lmCtx, "lm-tap");
+  tap.port.onmessage = (e) => push(e.data);
+  const mute = lmCtx.createGain(); // keep the graph alive without echoing the mic
+  mute.gain.value = 0;
+  src.connect(tap); tap.connect(mute); mute.connect(lmCtx.destination);
+  lmNodes = [src, tap, mute];
+}
+
+function lmStatus(s) {
+  lm.status.textContent = s;
+  lm.dot.className = "dot" + (s === "listening" ? "" : " off");
+}
+
+async function lmStart() {
+  lm.overlay.hidden = false;
+  lm.btn.classList.add("on");
+  lm.feed.replaceChildren();
+  lmCur = { user: null, model: null };
+  lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe
+  lmPlayAt = 0;
+  lmStatus("connecting");
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode`);
+  lmWs = ws;
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.type === "status") lmStatus(m.status);
+    else if (m.type === "transcript") lmTranscript(m.role, m.text);
+    else if (m.type === "turn_complete") lmCur = { user: null, model: null };
+    else if (m.type === "audio") lmPlayChunk(m.data);
+    else if (m.type === "typed")
+      lmLine("lm-typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
+    else if (m.type === "error") { lmLine("lm-model", `⚠ ${m.message}`); lmStatus("error"); }
+  };
+  ws.onclose = () => { if (lmWs === ws) lmStop(); };
+  ws.onopen = async () => {
+    try { await lmCapture(ws); }
+    catch (e) { lmLine("lm-model", `⚠ mic unavailable: ${e.message}`); lmStop(); }
+  };
+}
+
+function lmStop() {
+  const ws = lmWs; lmWs = null;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify({ action: "stop" })); } catch {}
+    setTimeout(() => { try { ws.close(); } catch {} }, 250);
+  }
+  lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
+  lmNodes = [];
+  if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
+  if (lmCtx) { try { lmCtx.close(); } catch {} lmCtx = null; }
+  if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
+  lm.overlay.hidden = true;
+  lm.btn.classList.remove("on");
+  lmStatus("off");
+}
+
+if (lm.btn) {
+  lm.btn.onclick = () => (lmWs ? lmStop() : lmStart());
+  lm.stop.onclick = lmStop;
+}

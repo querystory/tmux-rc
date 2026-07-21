@@ -188,6 +188,12 @@ from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
 
 app.add_middleware(GZipMiddleware, minimum_size=512)
 
+# Live Mode (voice): one WebSocket per session — see daemon/live.py and
+# docs/design/live-mode.md.
+from .live import router as live_router  # noqa: E402
+
+app.include_router(live_router)
+
 
 @app.middleware("http")
 async def no_cache(request, call_next):
