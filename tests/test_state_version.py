@@ -163,9 +163,12 @@ def test_wait_times_out_when_nothing_changes():
 
 
 def test_booted_flips_after_first_tick():
-    # booted() is False until the first _tick sets _last_tick, so an empty deck reads as
-    # "loading" (spinner) not "no panes". After a tick it's True regardless of pane count.
+    # booted() is False until a _tick COMPLETES, so an empty deck reads as "loading"
+    # (spinner) not "no panes". It keys off the completion flag, NOT _last_tick — which
+    # _loop stamps even on a tick that raised before producing state.
     w = Watcher(target=None)
     assert w.booted() is False
-    w._last_tick = 123.0  # what _tick sets once a pass completes
+    w._last_tick = 123.0  # a tick that raised still stamps this — must NOT flip booted
+    assert w.booted() is False
+    w._booted = True  # what _loop sets after a tick returns normally
     assert w.booted() is True

@@ -141,6 +141,7 @@ class Watcher:
         self._last_tick: float = (
             0.0  # wall time of the last loop iteration (staleness check)
         )
+        self._booted: bool = False  # set once a _tick completes without raising
         self._task: asyncio.Task | None = None
         # Input-driven reparse: request_reparse() adds pane ids here and wakes the loop
         # so a submitted answer/keypress re-parses within a capture, not a poll interval.
@@ -195,10 +196,12 @@ class Watcher:
         )
 
     def booted(self) -> bool:
-        """False until the first tick completes. An empty `states` means "no panes" only
-        once this is True — before it, panes may exist but their initial parses haven't
-        finished, so the UI should show a loading spinner, not "no panes found"."""
-        return self._last_tick > 0
+        """False until the first tick RUNS TO COMPLETION. An empty `states` means "no
+        panes" only once this is True — before it, panes may exist but their initial
+        parses haven't finished, so the UI shows a loading spinner, not "no panes found".
+        Keyed off a completion flag (not _last_tick, which _loop also stamps on a tick
+        that raised before populating states)."""
+        return self._booted
 
     def start(self) -> None:
         self._evloop = asyncio.get_running_loop()  # for thread-safe _wake from handlers
@@ -255,6 +258,7 @@ class Watcher:
         while True:
             try:
                 await asyncio.to_thread(self._tick)
+                self._booted = True  # a tick COMPLETED — states now reflect reality
             except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
