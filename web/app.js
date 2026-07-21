@@ -419,9 +419,11 @@ function render(states) {
 function joinTab(deck) {
   const top = document.getElementById("top");
   top.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
-  // Stop watching the prior render's card up front, so EVERY exit — including the
-  // list-mode early return below (no selected icon, no card to join) — releases it.
+  // Stop watching the prior render's card up front, and drop the prior pin() closure so
+  // EVERY exit — including the list-mode early return below (no selected icon, no card to
+  // join) — releases the observer AND the closure's captured DOM nodes for GC.
   _joinRO.disconnect();
+  _joinPin = null;
   const sel = dockEl.querySelector(".dock-icon.sel");
   if (!sel) return;
   const n = document.createElement("i");
