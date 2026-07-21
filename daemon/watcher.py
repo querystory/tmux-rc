@@ -162,10 +162,14 @@ class Watcher:
     async def wait_for_state_change(self, since: int, timeout: float) -> int:
         """Hold until state_version() advances past `since`, or `timeout` elapses; return
         the current version either way. The version is the truth (the Event is only a
-        wake nudge), so we RE-CHECK it after every wake — a bump that lands between our
-        version read and our wait() is caught on the next loop, not lost to the edge."""
+        wake nudge). We CLEAR the Event *before* re-checking the version, so a bump that
+        lands after our check but before our wait() leaves the Event set and wait()
+        returns at once — no missed wakeup. (_bump only ever sets, never clears.)"""
         deadline = time.monotonic() + timeout
-        while self._state_version <= since:
+        while True:
+            self._state_changed.clear()
+            if self._state_version > since:
+                break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
@@ -405,16 +409,14 @@ class Watcher:
             return
         self._state_fp = fp
         self._state_version += 1
-        # Runs in the watcher worker thread; the Event lives on the loop. Wake waiters,
-        # then immediately clear so the next hold blocks again (level→edge). No loop yet
-        # (very first tick before start finished) ⇒ nothing is waiting, skip.
+        # Runs in the watcher worker thread; the Event lives on the loop. Only SET it —
+        # waiters clear it themselves before re-checking the version, so a set that lands
+        # between a waiter's check and its wait() is not lost (no clear races the waiter).
+        # No loop yet (very first tick before start finished) ⇒ nothing is waiting, skip.
         loop = getattr(self, "_evloop", None)
         if loop is not None:
-            def _notify():
-                self._state_changed.set()
-                self._state_changed.clear()
             try:
-                loop.call_soon_threadsafe(_notify)
+                loop.call_soon_threadsafe(self._state_changed.set)
             except RuntimeError:
                 pass  # loop closed (shutdown) — no waiters to notify
 

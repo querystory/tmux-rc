@@ -76,6 +76,24 @@ def test_wait_wakes_on_bump():
     assert _run(scenario()) == 2
 
 
+def test_wait_no_missed_wakeup_when_bump_lands_before_wait():
+    # A bump that lands after the version bump but before the waiter actually awaits the
+    # Event must NOT be lost: the Event stays set (it is never cleared by _bump), and the
+    # waiter clears-then-checks, so it returns at once instead of blocking to timeout.
+    async def scenario():
+        w = Watcher(target=None)
+        w._evloop = asyncio.get_running_loop()
+        w._bump_state_if_changed(_states(A))  # version 1; client caught up at 1
+        # Simulate the racy bump landing "early": version advances and the Event is set
+        # before we ever start waiting.
+        w._bump_state_if_changed(_states({**A, "tmux_active": False}))  # version 2
+        await asyncio.sleep(0)  # let the call_soon_threadsafe(set) run
+        # Even with a tiny timeout, we should return immediately with version 2.
+        return await asyncio.wait_for(w.wait_for_state_change(1, timeout=0.2), timeout=1)
+
+    assert _run(scenario()) == 2
+
+
 def test_wait_times_out_when_nothing_changes():
     w = Watcher(target=None)
     w._bump_state_if_changed(_states(A))  # version 1
