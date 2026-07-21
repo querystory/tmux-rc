@@ -84,6 +84,11 @@
   .ph-right .worksub { white-space: nowrap; }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
   header .off { background: #6e7681; }
+  .hdr-right { display: inline-flex; align-items: center; gap: 12px; }
+  /* Docs link: quiet by default like the rest of the header chrome, brightens on hover. */
+  #docs-link { font-size: 12px; font-weight: 600; color: #6e7681; text-decoration: none;
+    letter-spacing: .02em; }
+  #docs-link:hover { color: #388bfd; }
   /* overflow-x hidden: swipe gestures park the neighbor card off-screen with
      transforms — without this the page itself grows a horizontal scrollbar. */
   body { overflow-x: hidden; }
@@ -390,6 +395,7 @@
            lightened for the dark background) with our "rc" as a superscript. -->
       <span class="brand"><img src="/tmux-logo.svg" alt="tmux" class="brand-logo" /><sup class="brand-sup">rc</sup></span>
       <span class="hdr-right">
+        <a id="docs-link" href="/docs/" target="_blank" rel="noopener" title="Design docs (opens in a new tab)" aria-label="Design docs">docs</a>
         <span id="usage" class="usage" role="button" tabindex="0" aria-pressed="false" aria-label="parser LLM telemetry"></span>
         <span id="live" class="dot off" title="connection"></span>
       </span>
