@@ -432,7 +432,13 @@ function joinTab(deck) {
     fl.style.left = s.left - t.left - 7 + "px";
     fr.style.left = s.right - t.left - 1 + "px";
   };
-  pin();
+  // Measure AFTER layout: joinTab runs right after replaceChildren(deck), before the
+  // browser has laid the new deck out, so a synchronous pin() reads stale rects and the
+  // fillets land against the OLD geometry — visible as a square corner for a beat until
+  // the next render corrects it (worse now that switching is fast). rAF defers the first
+  // measure to post-layout. Guard: a rapid re-render sweeps these nodes, so skip if this
+  // fillet was already removed (isConnected) — its own render's pin owns the corner now.
+  requestAnimationFrame(() => { if (fl.isConnected) pin(); });
   dockEl.onscroll = pin;
 }
 
