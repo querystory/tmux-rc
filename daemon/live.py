@@ -236,8 +236,10 @@ def _actor(websocket: WebSocket) -> str:
     recorded as a claim."""
     peer = websocket.client.host if websocket.client else "?"
     claimed = websocket.headers.get("x-tunnel-user")
+    # Bound the header-derived identity so a peer can't bloat OTel attrs/logs with a huge
+    # x-tunnel-user — same 200-char convention as server._audit's actor[:200].
     if claimed and peer in ("127.0.0.1", "::1"):
-        return claimed
+        return claimed[:200]
     if claimed:
         return f"local:{peer} claiming {claimed[:60]!r}"
     return f"local:{peer}"
@@ -361,7 +363,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
 
     if send_args is None or pane_id not in labels:
         reason = "unknown pane" if pane_id not in labels else "malformed call"
-        logger.info("[live] rejecting tool call %s(%s): %s", fc.name, args, reason)
+        # Log the verb + target + reason only — the payload may hold secrets and logs
+        # aren't QSDEBUG-gated. (The keys= on emit_action IS gated, so it keeps them.)
+        logger.info("[live] rejecting tool call %s -> %s: %s", fc.name, pane_id or "?", reason)
         telemetry.emit_action(
             action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id or '?'}", actor=actor,
             detail=reason, keys=str(args), outcome=f"rejected: {reason}",
@@ -486,7 +490,11 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
                     meter.usage.add(response.usage_metadata)
                 if response.tool_call and response.tool_call.function_calls:
                     for fc in response.tool_call.function_calls:
-                        logger.info("[live] tool call: %s(%s)", fc.name, fc.args)
+                        # Log the verb + target only, never the payload — typed text can
+                        # carry secrets, and logs aren't gated by TMUXRC_QSDEBUG the way
+                        # telemetry/meter content is.
+                        pane = (fc.args or {}).get("pane_id") if isinstance(fc.args, dict) else None
+                        logger.info("[live] tool call: %s -> %s", fc.name, pane)
                         meter.note(f"[typed] {fc.args}")
                         await _handle_tool_call(websocket, session, fc, watcher, actor)
                 if response.data:
