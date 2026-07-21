@@ -678,11 +678,15 @@ function card(s) {
   el.appendChild(row);
   if (collapsed) return el; // one-line form: header only, everything below is hidden
 
-  // While a voice session runs, the active card's summary slot shows the rolling
-  // conversation instead — transcripts and every typed action, right where you look.
+  // While a voice session runs, Live Mode owns the active card: everything below the
+  // header is the live interface — the rolling conversation with every typed action —
+  // in place of the pane's summary, question, and event views.
   if (lmWs && s.pane_id === activeId()) {
+    el.classList.add("lm-live");
     el.appendChild(lmConvoView());
-  } else
+    return el;
+  }
+
   // The bootstrap "story so far" — orientation when picking a session up cold.
   // Clamped to a few lines; tap toggles the full text.
   if (s.session_summary) {
