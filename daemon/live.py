@@ -295,16 +295,23 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
             ]
         )
 
-    args = fc.args or {}
+    args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = str(args.get("pane_id", "")).strip()
     text = str(args.get("text", ""))
-    press_enter = bool(args.get("press_enter", True))
+    # press_enter defaults to True but, if present, must be a REAL bool — never coerce,
+    # since bool("false") is True and would submit a command the model meant to leave
+    # unsent. A non-bool value makes the call malformed (caught below).
+    raw_enter = args.get("press_enter", True)
+    press_enter = raw_enter if isinstance(raw_enter, bool) else None
 
     # Reject malformed/echoed calls (the model occasionally parrots a FunctionResponse
     # back as a new tool call) instead of typing garbage into a real terminal.
     known = {"pane_id", "text", "press_enter"}
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
-    if fc.name != "type_in_pane" or set(args) - known or not text.strip() or pane_id not in labels:
+    if (
+        fc.name != "type_in_pane" or not isinstance(fc.args, dict) or set(args) - known
+        or not text.strip() or press_enter is None or pane_id not in labels
+    ):
         reason = "unknown pane" if pane_id not in labels else "malformed call"
         logger.info("[live] rejecting tool call %s(%s): %s", fc.name, args, reason)
         telemetry.emit_action(

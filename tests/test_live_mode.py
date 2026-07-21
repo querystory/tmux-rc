@@ -110,10 +110,16 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     for args in (
         {"pane_id": "%1", "text": "x", "status": "typed"},  # extra arg
         {"pane_id": "%1", "text": "   "},                   # blank text
+        {"pane_id": "%1", "text": "x", "press_enter": "false"},  # non-bool: must not coerce
+        {"pane_id": "%1", "text": "x", "press_enter": 1},   # non-bool int
     ):
         _, _, session, typed = _dispatch(_FC(args=args), monkeypatch)
         assert typed == []
         assert session.responses[0].response["status"] == "rejected"
+    # Non-dict args (the model returned a bare string/list) must be rejected, not crash.
+    _, _, session, typed = _dispatch(_FC(args="oops"), monkeypatch)
+    assert typed == []
+    assert session.responses[0].response["status"] == "rejected"
 
 
 def test_context_updater_skips_timeouts(monkeypatch):
