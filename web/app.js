@@ -678,6 +678,11 @@ function card(s) {
   el.appendChild(row);
   if (collapsed) return el; // one-line form: header only, everything below is hidden
 
+  // While a voice session runs, the active card's summary slot shows the rolling
+  // conversation instead — transcripts and every typed action, right where you look.
+  if (lmWs && s.pane_id === activeId()) {
+    el.appendChild(lmConvoView());
+  } else
   // The bootstrap "story so far" — orientation when picking a session up cold.
   // Clamped to a few lines; tap toggles the full text.
   if (s.session_summary) {
@@ -1660,35 +1665,47 @@ if (window.visualViewport && barEl) {
 // ═══════════════════ Live Mode: talk to your whole tmux session ═══════════════════
 // One WebSocket to /api/live-mode. We stream mic PCM up; the daemon owns the Gemini
 // Live session and streams back voice audio, both transcripts, and a "typed" event for
-// every keystroke the model puts into a pane — rendered unmissably in the feed, so you
-// always see what it did and where. Design: docs/design/live-mode.md.
-const lm = {
-  btn: document.getElementById("lm-btn"),
-  overlay: document.getElementById("lm-overlay"),
-  dot: document.getElementById("lm-dot"),
-  status: document.getElementById("lm-status"),
-  feed: document.getElementById("lm-feed"),
-  stop: document.getElementById("lm-stop"),
-};
+// every keystroke the model puts into a pane. Nothing overlays the app: the pulsing 🎙
+// header pill is the status, and the rolling conversation renders in the active card's
+// summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
+const lm = { btn: document.getElementById("lm-btn") };
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
-let lmPlay = null, lmPlayAt = 0;         // playback context + scheduled-until clock
-let lmCur = { user: null, model: null }; // current transcript bubble per role
+let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
+let lmLog = [];                  // rolling conversation: {role, text, done}
 
-function lmLine(cls, text) {
-  const d = document.createElement("div");
-  d.className = "lm-line " + cls;
-  d.textContent = text;
-  lm.feed.appendChild(d);
-  lm.feed.scrollTop = lm.feed.scrollHeight;
-  return d;
+// Transcription arrives as fragments; grow the current entry for that role until the
+// turn completes. Typed actions and errors are single whole entries.
+function lmAdd(role, text) {
+  const grow = role === "user" || role === "model";
+  const last = lmLog[lmLog.length - 1];
+  if (grow && last && last.role === role && !last.done) last.text += text;
+  else lmLog.push({ role, text, done: !grow });
+  while (lmLog.length > 8) lmLog.shift();
+  lmPaint();
 }
 
-// Transcription arrives as fragments; grow the current bubble for that role until the
-// turn completes, then start fresh bubbles.
-function lmTranscript(role, text) {
-  if (!lmCur[role]) lmCur[role] = lmLine(role === "user" ? "lm-user" : "lm-model", "");
-  lmCur[role].textContent += text;
-  lm.feed.scrollTop = lm.feed.scrollHeight;
+function lmPaintInto(box) {
+  box.replaceChildren(...lmLog.map((e) => {
+    const d = document.createElement("div");
+    d.className = "lm-" + e.role;
+    d.textContent = (e.role === "user" ? "🗣 " : "") + e.text;
+    return d;
+  }));
+  box.scrollTop = box.scrollHeight;
+}
+
+// Repaint in place between renders; card() re-inserts the box on every full render.
+function lmPaint() {
+  const box = document.querySelector(".card.active .lm-convo");
+  if (box) lmPaintInto(box);
+}
+
+function lmConvoView() {
+  const box = document.createElement("div");
+  box.className = "lm-convo";
+  box.setAttribute("aria-live", "polite");
+  lmPaintInto(box);
+  return box;
 }
 
 // The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
@@ -1758,38 +1775,36 @@ async function lmCapture(ws) {
   lmNodes = [src, tap, mute];
 }
 
+// The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
-  lm.status.textContent = s;
-  lm.dot.className = "dot" + (s === "listening" ? "" : " off");
+  lm.btn.classList.toggle("listening", s === "listening");
 }
 
 async function lmStart() {
-  lm.overlay.hidden = false;
   lm.btn.classList.add("on");
-  lm.feed.replaceChildren();
-  lmCur = { user: null, model: null };
+  lmLog = [];
   lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe
   lmPlayAt = 0;
-  lmStatus("connecting");
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode`);
   lmWs = ws;
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.type === "status") lmStatus(m.status);
-    else if (m.type === "transcript") lmTranscript(m.role, m.text);
-    else if (m.type === "turn_complete") lmCur = { user: null, model: null };
+    else if (m.type === "transcript") lmAdd(m.role, m.text);
+    else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
     else if (m.type === "audio") lmPlayChunk(m.data);
     else if (m.type === "typed")
-      lmLine("lm-typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
-    else if (m.type === "error") { lmLine("lm-model", `⚠ ${m.message}`); lmStatus("error"); }
+      lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
+    else if (m.type === "error") lmAdd("err", `⚠ ${m.message}`);
   };
   ws.onclose = () => { if (lmWs === ws) lmStop(); };
   ws.onopen = async () => {
     if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
     try { await lmCapture(ws); }
-    catch (e) { lmLine("lm-model", `⚠ mic unavailable: ${e.message}`); lmStop(); }
+    catch (e) { lmAdd("err", `⚠ mic unavailable: ${e.message}`); lmStop(); }
   };
   lm.btn.title = lm.btn.ariaLabel = "End Live Mode";
+  render(Object.values(panesById)); // swap the active card's summary for the convo box
 }
 
 function lmStop() {
@@ -1805,13 +1820,9 @@ function lmStop() {
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
   if (lmCtx) { try { lmCtx.close(); } catch {} lmCtx = null; }
   if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
-  lm.overlay.hidden = true;
-  lm.btn.classList.remove("on");
+  lm.btn.classList.remove("on", "listening");
   lm.btn.title = lm.btn.ariaLabel = "Start Live Mode";
-  lmStatus("off");
+  render(Object.values(panesById)); // the active card gets its static summary back
 }
 
-if (lm.btn) {
-  lm.btn.onclick = () => (lmWs ? lmStop() : lmStart());
-  lm.stop.onclick = lmStop;
-}
+if (lm.btn) lm.btn.onclick = () => (lmWs ? lmStop() : lmStart());
