@@ -355,6 +355,7 @@ function render(states) {
     // overflow clip), so replacing #panes/#dock leaves them dangling over the empty
     // screen — the two stray blue curves seen during a daemon reload's brief no-panes.
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+    _joinRO.disconnect(); // stop watching the card we're about to drop
     dockEl.replaceChildren();
     // Drop the card-view dock state too: its onscroll pin closes over the now-dead
     // card nodes, and the seam classes would style a dock that no longer has a card.
@@ -430,7 +431,7 @@ function joinTab(deck) {
     top.appendChild(f);
     return f;
   });
-  const pin = () => {
+  const pin = _joinPin = () => {
     const s = sel.getBoundingClientRect(),
       d = deck.getBoundingClientRect(), t = top.getBoundingClientRect();
     // FIRST tab selected: flush-left, no flare — the rail's left border vanishes so
@@ -465,7 +466,29 @@ function joinTab(deck) {
   // fillet was already removed (isConnected) — its own render's pin owns the corner now.
   requestAnimationFrame(() => { if (fl.isConnected) pin(); });
   dockEl.onscroll = pin;
+  // Re-pin whenever the active card's height changes BETWEEN renders — a live-updating
+  // card (its summary/events growing as the pane works) reflows the deck under the
+  // already-placed fillets, leaving them detached from the card's moved top edge. render()
+  // re-pins on a full re-render but not on a same-card height change, so without this the
+  // busy active pane shows disconnected tab-tops. One reused observer, re-targeted each
+  // joinTab; the isConnected guard skips a stale fillet a rapid re-render already swept.
+  _joinRO.disconnect();
+  const card = deck.querySelector(".card.active");
+  if (card) _joinRO.observe(card);
 }
+
+// The current joinTab's pin() closure, so the shared card-resize observer below can
+// re-run the latest one (each joinTab reassigns it). null before the first join.
+let _joinPin = null;
+// Reused across renders so we never leak observers; joinTab disconnects + re-observes
+// the current active card each time. rAF: ResizeObserver fires mid-layout, so defer the
+// measure a frame; guard on a still-present fillet in case a re-render swept it.
+const _joinRO = new ResizeObserver(() => {
+  requestAnimationFrame(() => {
+    const fl = document.querySelector("#top .tab-fillet");
+    if (fl && fl.isConnected && _joinPin) _joinPin();
+  });
+});
 
 // The pane dock: one icon per pane in tmux window order — active highlighted, a
 // colored dot showing each pane's activity. Tap an icon to jump; it doubles as the
