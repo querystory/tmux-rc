@@ -194,6 +194,12 @@ class Watcher:
             self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS
         )
 
+    def booted(self) -> bool:
+        """False until the first tick completes. An empty `states` means "no panes" only
+        once this is True — before it, panes may exist but their initial parses haven't
+        finished, so the UI should show a loading spinner, not "no panes found"."""
+        return self._last_tick > 0
+
     def start(self) -> None:
         self._evloop = asyncio.get_running_loop()  # for thread-safe _wake from handlers
         self._task = asyncio.create_task(self._loop())

@@ -160,3 +160,12 @@ def test_wait_times_out_when_nothing_changes():
     w._bump_state_if_changed(_states(A))  # version 1
     got = _run(asyncio.wait_for(w.wait_for_state_change(1, timeout=0.2), timeout=1))
     assert got == 1  # timed out → current version unchanged
+
+
+def test_booted_flips_after_first_tick():
+    # booted() is False until the first _tick sets _last_tick, so an empty deck reads as
+    # "loading" (spinner) not "no panes". After a tick it's True regardless of pane count.
+    w = Watcher(target=None)
+    assert w.booted() is False
+    w._last_tick = 123.0  # what _tick sets once a pass completes
+    assert w.booted() is True
