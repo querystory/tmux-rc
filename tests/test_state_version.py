@@ -44,6 +44,22 @@ def test_live_frame_churn_does_not_bump():
     assert w.state_version() == v
 
 
+def test_fast_active_check_ignores_none_focus(monkeypatch):
+    # A transient tmux error makes active_pane_id() return None. The fast check must NOT
+    # treat that as "no pane focused" and clear tmux_active on every card (which would
+    # bump the version and drop the UI's active selection) — it should bail unchanged.
+    from daemon import watcher as watcher_mod
+
+    w = Watcher(target=None)
+    w.states = _states({**A, "tmux_active": True}, {**B, "tmux_active": False})
+    w._bump_state_if_changed(w.states)
+    v = w.state_version()
+    monkeypatch.setattr(watcher_mod.tmux, "active_pane_id", lambda: None)
+    w._check_active_fast()
+    assert w.state_version() == v  # no bump
+    assert w.states[0]["tmux_active"] is True  # selection preserved
+
+
 def test_first_empty_tick_bumps_off_zero():
     # _state_fp starts as None (not ""), so even a first tick to an EMPTY deck (tmux down /
     # no panes) bumps to version 1 — otherwise version stays 0 through a prolonged empty

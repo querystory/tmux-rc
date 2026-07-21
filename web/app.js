@@ -206,7 +206,7 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
 }
 
 let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
-                           // null until the first reply, so we don't send v=0 and trip a hold
+                           // null until the first reply so cold load asks for state outright
 let _polling = false;    // single-flight: only one /api/state request in flight at a time
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
 // switch, add/remove, label/activity, new events) or ~25s, then returns instantly. We
@@ -216,8 +216,10 @@ async function poll() {
   if (busy || _polling) return;
   _polling = true;
   try {
-    // Omit `v` until we've received a first version — sending v=0 on cold load can make
-    // the server long-poll (esp. when tmux is down) and leave the UI on "(connecting…)".
+    // Omit `v` until we've received a first version, so the cold-load fetch is
+    // unambiguously "give me current state now" — never conflated with a real echoed
+    // version. (The server only holds when v == its current version AND version > 0, so
+    // a null here keeps the first paint immediate regardless of startup timing.)
     const r = await fetch("/api/state" + (_stateVersion !== null ? `?v=${_stateVersion}` : ""));
     // Check status before parsing: when the tunnel/backend is down the relay
     // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly

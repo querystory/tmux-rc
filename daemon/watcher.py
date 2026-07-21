@@ -278,6 +278,11 @@ class Watcher:
         if not self.states:
             return
         focused = tmux.active_pane_id()
+        # None means a transient tmux error (not "no pane focused") — don't treat it as a
+        # real focus change, or we'd clear tmux_active on every card and bump the version,
+        # briefly dropping the UI's active selection. The next full tick reconciles.
+        if focused is None:
+            return
         cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
         if focused == cur:
             return
