@@ -195,9 +195,30 @@ executor). What carried over, adapted:
   aloud and logged in the overlay, and the prompt constrains typing to explicit
   requests. If real use shows misfires, the gate design is already written.
 
+## Cost metering
+
+Voice is billed unlike anything else in the app: mostly AUDIO tokens, at roughly 30×
+the flash-lite parser's text rate, so a few minutes of talking can outspend an hour of
+parsing. It gets its own accounting rather than being folded into the parser's:
+
+- **Per-modality pricing.** A session accumulates `usage_metadata` from each Gemini
+  message (`_LiveUsage`), keeping text and audio in/out separate — a single blended
+  price would be wildly off since audio-out alone is ~24× text-in. The four rates are
+  env-overridable (`TMUXRC_LIVE_*_PER_M`) so a rate-card change is config, not code.
+- **Usage is cumulative, so we overwrite.** Live reports running session totals on every
+  message (not deltas); the accumulator overwrites rather than sums, which also means it
+  survives a mid-session reconnect for free — the new connection continues the count.
+- **OTel.** A `tmux-rc.live` record per voice turn plus a `final` cumulative row at
+  session end (`emit_live_turn`), keyed by the same per-page `session` UUID as the
+  live-view watch-time rounds — so a query joins voice spend to screen time. Privacy
+  matches `emit_parse`: numbers + structure always; the actual transcript (what was said
+  and typed) only under `TMUXRC_QSDEBUG`, voice being at least as sensitive as pane text.
+- **Status bar.** Session cost folds into `llm.usage_totals()` at session end as a
+  distinct `live` bucket, so the top-bar `$cost` is total (parser + voice) with the
+  tooltip splitting the two; a `🎙<n>` chip shows how many voice sessions ran.
+
 ## v0.2 candidates (explicitly out of scope now)
 
 Pane creation ("open claude code in a new pane in ~/src/x") once the create-pane
-endpoint exists; the approval gate; barge-in/interruption tuning; a wake word; cost
-metering per session (the reference tracks per-modality token usage — worth porting
-when sessions get long).
+endpoint exists; the approval gate; barge-in/interruption tuning; a wake word;
+live (in-session) cost display rather than the current fold-in-at-end.

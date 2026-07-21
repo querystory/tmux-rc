@@ -153,3 +153,57 @@ def test_context_updater_skips_timeouts(monkeypatch):
 
     sent = _run(run())
     assert len(sent) == 1 and "[tmux update]" in sent[0]
+
+
+class _Detail:
+    def __init__(self, modality, n):
+        self.modality, self.token_count = modality, n
+
+
+class _Usage:
+    """Mimics Gemini Live usage_metadata: cumulative session totals, with per-modality
+    breakdowns splitting audio from text."""
+    def __init__(self, prompt, resp, audio_in=0, audio_out=0):
+        from google.genai import types
+        self.prompt_token_count = prompt
+        self.response_token_count = resp
+        self.prompt_tokens_details = [_Detail(types.Modality.AUDIO, audio_in)] if audio_in else []
+        self.response_tokens_details = [_Detail(types.Modality.AUDIO, audio_out)] if audio_out else []
+
+
+def test_live_usage_splits_modalities_and_costs():
+    u = L._LiveUsage()
+    u.add(_Usage(prompt=1000, resp=500, audio_in=800, audio_out=400))
+    # prompt 1000 = 800 audio + 200 text; response 500 = 400 audio + 100 text.
+    assert (u.audio_in, u.text_in) == (800, 200)
+    assert (u.audio_out, u.text_out) == (400, 100)
+    assert u.in_tokens == 1000 and u.out_tokens == 500
+    expected = (200 / 1e6 * L._LIVE_TEXT_IN_PER_M + 100 / 1e6 * L._LIVE_TEXT_OUT_PER_M
+                + 800 / 1e6 * L._LIVE_AUDIO_IN_PER_M + 400 / 1e6 * L._LIVE_AUDIO_OUT_PER_M)
+    assert abs(u.cost() - expected) < 1e-12
+
+
+def test_live_usage_is_cumulative_not_summed():
+    # Live sends running totals per message — later messages overwrite, never add.
+    u = L._LiveUsage()
+    u.add(_Usage(prompt=100, resp=50))
+    u.add(_Usage(prompt=300, resp=120))
+    assert u.in_tokens == 300 and u.out_tokens == 120
+
+
+def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
+    import daemon.llm as llm
+    emitted = []
+    monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
+    folded = {}
+    monkeypatch.setattr(llm, "record_live_usage", lambda **k: folded.update(k))
+    m = L._Meter("sess-abc", "shapor@querystory.ai")
+    m.usage.add(_Usage(prompt=200, resp=80, audio_in=150, audio_out=60))
+    m.note("user: what's running")
+    m.end_turn()
+    m.finish()
+    assert [e["final"] for e in emitted] == [False, True]  # one per-turn, one final
+    assert emitted[0]["turns"] == 1 and emitted[0]["session"] == "sess-abc"
+    assert emitted[-1]["cost"] == m.usage.cost()
+    # Session cost is folded into the status-bar totals exactly once, at finish().
+    assert folded == {"in_tokens": 200, "out_tokens": 80, "cost": m.usage.cost()}

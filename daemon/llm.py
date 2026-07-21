@@ -37,14 +37,41 @@ if not _metrics.handlers:
     _metrics.propagate = False
 
 _totals = {"calls": 0, "in_tokens": 0, "out_tokens": 0, "cost": 0.0, "errors": 0}
+# Live Mode (voice) usage is tracked apart from the parser's: its tokens are mostly
+# AUDIO, billed at a wholly different rate, and it's user-initiated rather than the
+# per-tick parse loop — folding it into _totals would corrupt the parser's calls/min and
+# token aggregates. Kept as its own bucket, summed into the status-bar readout so the
+# top-bar cost reflects TOTAL spend (parser + voice). live.py owns the numbers.
+_live_totals = {"sessions": 0, "cost": 0.0, "in_tokens": 0, "out_tokens": 0}
 _started = time.time()
+
+
+def record_live_usage(*, in_tokens: int, out_tokens: int, cost: float) -> None:
+    """Fold one Live Mode session's cumulative usage into the running totals (called once
+    at session end with the session's totals). Best-effort — metering never breaks a
+    session."""
+    try:
+        _live_totals["sessions"] += 1
+        _live_totals["in_tokens"] += in_tokens
+        _live_totals["out_tokens"] += out_tokens
+        _live_totals["cost"] += cost
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def usage_totals() -> dict:
     """Running totals since the server started, plus a plain average calls/min over the
-    whole session (total calls / uptime) — stable, no noisy per-poll deltas."""
+    whole session (total calls / uptime) — stable, no noisy per-poll deltas. `cost` is
+    the COMBINED parser+voice spend (what the top bar shows); the parser-only and
+    live-only breakdowns ride alongside so a tooltip can split them."""
     mins = max((time.time() - _started) / 60, 1 / 60)
-    return {**_totals, "rate_per_min": round(_totals["calls"] / mins, 1)}
+    return {
+        **_totals,
+        "cost": _totals["cost"] + _live_totals["cost"],
+        "parser_cost": _totals["cost"],
+        "live": dict(_live_totals),
+        "rate_per_min": round(_totals["calls"] / mins, 1),
+    }
 
 
 # Dedicated LLM trace log so we can grep exactly what the model saw and returned.

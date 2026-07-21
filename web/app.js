@@ -307,21 +307,27 @@ function showUsage(u, err) {
     usageEl.classList.remove("lit"); usageEl.setAttribute("aria-pressed", "false");
     return;
   }
-  // Debug telemetry for the parser LLM, not session-critical — so it sits dimmed in the
-  // background (CSS) and brightens on hover/tap. The success ratio (was "648/657 ok")
-  // is noise here; errors already surface via the ⚠ hint and the amber tint on cost.
-  // Rate is a plain session average (calls/uptime) computed server-side — stable.
+  // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
+  // and brightens on hover/tap. The success ratio (was "648/657 ok") is noise here;
+  // errors already surface via the ⚠ hint and the amber tint on cost. Rate is a plain
+  // session average (calls/uptime) computed server-side — stable. `cost` is the COMBINED
+  // parser + voice spend; the tooltip splits it (voice is billed at ~30× parser rates).
+  const live = u.live || { cost: 0, sessions: 0, in_tokens: 0, out_tokens: 0 };
   const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
   const parts = [
     `${tok}k tok`,
     `<span${u.errors ? ' class="warn"' : ""}>$${u.cost.toFixed(3)}</span>`,
     `${u.rate_per_min}/min`,
   ];
+  if (live.sessions) parts.push(`🎙${live.sessions}`); // voice sessions this run
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
   usageEl.innerHTML = parts.join(" · ");
-  // Tooltip explaining what the numbers are (they're not obvious as debug telemetry).
-  usageEl.title = `parser LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} spent`
-    + ` · ${u.rate_per_min} calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
+  // Tooltip: total, then the parser/voice split so the combined cost is explainable.
+  const parser = (u.parser_cost ?? u.cost);
+  usageEl.title = `LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} total`
+    + ` (parser $${parser.toFixed(3)}`
+    + (live.sessions ? `, voice $${live.cost.toFixed(3)} over ${live.sessions} session${live.sessions > 1 ? "s" : ""}` : "")
+    + `) · ${u.rate_per_min} calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
 }
 // Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
 // quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
@@ -1788,7 +1794,10 @@ async function lmStart() {
   lmLog = [];
   lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe
   lmPlayAt = 0;
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode`);
+  // Same page-load session id as the live-view stream, so voice cost and screen
+  // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
+  const q = SESSION_ID ? `?session=${encodeURIComponent(SESSION_ID)}` : "";
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${q}`);
   lmWs = ws;
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }

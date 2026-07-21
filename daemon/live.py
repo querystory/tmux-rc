@@ -15,6 +15,7 @@ import contextlib
 import logging
 import os
 import time
+import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -41,6 +42,130 @@ SCREEN_TAIL_CHARS = 4000
 # pane's app needs a beat to react before a capture shows anything new.
 POST_TYPE_REFRESH_SECONDS = 1.5
 
+# Native-audio Live pricing (USD per 1M tokens). Audio and text bill at very different
+# rates, so we price the two modalities separately rather than with one blended number.
+# Overridable in case the rate card moves. Defaults are the gemini-2.5-flash native-audio
+# published rates; TEXT covers the system prompt + [tmux update] context we send as text.
+_LIVE_TEXT_IN_PER_M = float(os.environ.get("TMUXRC_LIVE_TEXT_IN_PER_M", "0.50"))
+_LIVE_TEXT_OUT_PER_M = float(os.environ.get("TMUXRC_LIVE_TEXT_OUT_PER_M", "2.00"))
+_LIVE_AUDIO_IN_PER_M = float(os.environ.get("TMUXRC_LIVE_AUDIO_IN_PER_M", "3.00"))
+_LIVE_AUDIO_OUT_PER_M = float(os.environ.get("TMUXRC_LIVE_AUDIO_OUT_PER_M", "12.00"))
+
+
+class _LiveUsage:
+    """Accumulates a session's token usage from Gemini Live usage_metadata messages.
+
+    Live reports usage per server message; we keep the latest per-modality split (in vs
+    out, text vs audio) and derive cost with the four-way rate card above — a single
+    blended price would be badly wrong because audio out is ~24× text in. Cumulative:
+    the last message of a session carries the session totals, so cost() is always current.
+    Cheap and allocation-free in the hot receive loop (plain int adds)."""
+
+    def __init__(self) -> None:
+        self.text_in = self.text_out = self.audio_in = self.audio_out = 0
+
+    def add(self, usage) -> None:
+        """Fold one usage_metadata into the running split. Prompt = input, response =
+        output; per-modality details break each into text/audio (anything not audio is
+        billed as text)."""
+        if usage is None:
+            return
+        prompt = getattr(usage, "prompt_token_count", 0) or 0
+        resp = getattr(usage, "response_token_count", 0) or 0
+        a_in = _audio_tokens(getattr(usage, "prompt_tokens_details", None))
+        a_out = _audio_tokens(getattr(usage, "response_tokens_details", None))
+        # These messages carry CUMULATIVE session totals, so overwrite, don't sum.
+        self.audio_in, self.audio_out = a_in, a_out
+        self.text_in = max(prompt - a_in, 0)
+        self.text_out = max(resp - a_out, 0)
+
+    @property
+    def in_tokens(self) -> int:
+        return self.text_in + self.audio_in
+
+    @property
+    def out_tokens(self) -> int:
+        return self.text_out + self.audio_out
+
+    def cost(self) -> float:
+        return (
+            self.text_in / 1e6 * _LIVE_TEXT_IN_PER_M
+            + self.text_out / 1e6 * _LIVE_TEXT_OUT_PER_M
+            + self.audio_in / 1e6 * _LIVE_AUDIO_IN_PER_M
+            + self.audio_out / 1e6 * _LIVE_AUDIO_OUT_PER_M
+        )
+
+
+def _audio_tokens(details) -> int:
+    """Sum the AUDIO-modality token counts out of a *_tokens_details list; 0 if absent."""
+    from google.genai import types
+
+    total = 0
+    for d in details or []:
+        if getattr(d, "modality", None) == types.Modality.AUDIO:
+            total += getattr(d, "token_count", 0) or 0
+    return total
+
+
+class _Meter:
+    """Per-session metering: accumulates usage (via `usage`) and a rolling transcript of
+    what was said and typed, emits an OTel record at each voice turn, and a final
+    cumulative record + status-bar fold-in at session end. One per _run_session; survives
+    reconnects (usage_metadata is cumulative, so a fresh connection continues the count).
+
+    `session` is a per-session UUID — the summable key shared with emit_live's watch-time
+    rounds, so a query can join a voice session's cost to its screen-view time."""
+
+    def __init__(self, session: str, actor: str | None) -> None:
+        self.session = session
+        self.actor = actor
+        self.usage = _LiveUsage()
+        self.turns = 0
+        self.started = time.monotonic()
+        self._lines: list[str] = []
+
+    def note(self, line: str) -> None:
+        """Record a transcript fragment (voice in/out, or a typed action). Bounded so a
+        long session can't grow this without limit — OTel only ships the tail anyway."""
+        self._lines.append(line)
+        if len(self._lines) > 200:
+            self._lines = self._lines[-200:]
+
+    def _transcript(self) -> str:
+        return "\n".join(self._lines)
+
+    def end_turn(self) -> None:
+        """A voice turn completed — emit its cumulative usage snapshot."""
+        self.turns += 1
+        self._emit(final=False)
+
+    def finish(self) -> None:
+        """Session ending — emit the final cumulative record and fold cost into the
+        status-bar totals. Idempotent-safe to call once in the session's finally."""
+        self._emit(final=True)
+        from . import llm
+
+        llm.record_live_usage(
+            in_tokens=self.usage.in_tokens,
+            out_tokens=self.usage.out_tokens,
+            cost=self.usage.cost(),
+        )
+
+    def _emit(self, *, final: bool) -> None:
+        telemetry.emit_live_turn(
+            session=self.session,
+            actor=self.actor,
+            model=LIVE_MODEL,
+            in_tokens=self.usage.in_tokens,
+            out_tokens=self.usage.out_tokens,
+            audio_in_tokens=self.usage.audio_in,
+            audio_out_tokens=self.usage.audio_out,
+            cost=self.usage.cost(),
+            turns=self.turns,
+            duration_s=time.monotonic() - self.started,
+            final=final,
+            transcript=self._transcript(),
+        )
 
 
 def _live_client():
@@ -295,14 +420,19 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
             logger.debug("[live] unknown client action: %s", action)
 
 
-async def _receiver(websocket: WebSocket, session, watcher, actor: str) -> None:
-    """Gemini → client: voice audio, both transcripts, and tool calls."""
+async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _Meter) -> None:
+    """Gemini → client: voice audio, both transcripts, and tool calls. Also meters the
+    session — folds each message's usage_metadata into `meter` and emits a per-turn OTel
+    record at every turn boundary."""
     try:
         while True:
             async for response in session.receive():
+                if response.usage_metadata:
+                    meter.usage.add(response.usage_metadata)
                 if response.tool_call and response.tool_call.function_calls:
                     for fc in response.tool_call.function_calls:
                         logger.info("[live] tool call: %s(%s)", fc.name, fc.args)
+                        meter.note(f"[typed] {fc.args}")
                         await _handle_tool_call(websocket, session, fc, watcher, actor)
                 if response.data:
                     await websocket.send_json(
@@ -311,22 +441,25 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str) -> None:
                 sc = response.server_content
                 if sc:
                     if sc.input_transcription and sc.input_transcription.text:
+                        meter.note("user: " + sc.input_transcription.text)
                         await websocket.send_json(
                             {"type": "transcript", "role": "user",
                              "text": sc.input_transcription.text}
                         )
                     if sc.output_transcription and sc.output_transcription.text:
+                        meter.note("model: " + sc.output_transcription.text)
                         await websocket.send_json(
                             {"type": "transcript", "role": "model",
                              "text": sc.output_transcription.text}
                         )
                     if sc.turn_complete:
+                        meter.end_turn()
                         await websocket.send_json({"type": "turn_complete"})
     except asyncio.CancelledError:
         pass
 
 
-async def _run_session(websocket: WebSocket, watcher, actor: str) -> None:
+async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
     """Connect to Gemini Live and run the session; reconnect with backoff on drops."""
     from google.genai import types
 
@@ -350,7 +483,7 @@ async def _run_session(websocket: WebSocket, watcher, actor: str) -> None:
                 logger.info("[live] session up (model=%s, actor=%s)", LIVE_MODEL, actor)
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [
-                    asyncio.create_task(_receiver(websocket, session, watcher, actor)),
+                    asyncio.create_task(_receiver(websocket, session, watcher, actor, meter)),
                     asyncio.create_task(_context_updater(session, watcher)),
                 ]
                 try:
@@ -378,11 +511,15 @@ async def live_mode(websocket: WebSocket) -> None:
     await websocket.accept()
     watcher = websocket.app.state.watcher
     actor = _actor(websocket)
-    logger.info("[live] session start (actor=%s)", actor)
+    # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
+    # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
+    session_id = websocket.query_params.get("session") or uuid.uuid4().hex
+    meter = _Meter(session_id, actor)
+    logger.info("[live] session start (actor=%s, session=%s)", actor, session_id)
     telemetry.emit_action(action="live_session", pane_uid="-", actor=actor, detail="start", keys=None)
     outcome = "ok"
     try:
-        await _run_session(websocket, watcher, actor)
+        await _run_session(websocket, watcher, actor, meter)
     except WebSocketDisconnect:
         pass  # phone lock / tab close — the normal way sessions end
     except Exception:
@@ -391,8 +528,10 @@ async def live_mode(websocket: WebSocket) -> None:
         with contextlib.suppress(Exception):
             await websocket.send_json({"type": "error", "message": "live session failed"})
     finally:
+        meter.finish()  # final cumulative OTel record + fold cost into the status bar
         telemetry.emit_action(
-            action="live_session", pane_uid="-", actor=actor, detail="end", keys=None, outcome=outcome
+            action="live_session", pane_uid="-", actor=actor,
+            detail=f"end ({meter.turns} turns, ${meter.usage.cost():.4f})", keys=None, outcome=outcome,
         )
         with contextlib.suppress(Exception):
             await websocket.close()
