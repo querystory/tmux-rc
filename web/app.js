@@ -368,12 +368,21 @@ function render(states) {
     // Empty deck has two causes: still loading (server booting / initial pane parses in
     // flight) vs. genuinely no panes. Only claim "no panes" once the server has booted —
     // otherwise show a spinner, since panes may exist and just aren't parsed yet.
-    panesEl.innerHTML = _booted
-      ? '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>'
-      : '<div class="empty"><span class="spinner" aria-hidden="true"></span><br>Loading panes…</div>';
+    // Keyed by data-empty so we only rewrite innerHTML when the STATE changes: the
+    // loading window spans several polls, and re-setting innerHTML each time recreated
+    // the .spinner element, restarting its CSS animation → visible jitter. Same key =
+    // leave the existing (still-spinning) node alone.
+    const key = _booted ? "none" : "loading";
+    if (panesEl.dataset.empty !== key) {
+      panesEl.dataset.empty = key;
+      panesEl.innerHTML = _booted
+        ? '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>'
+        : '<div class="empty"><span class="spinner" aria-hidden="true"></span><br>Loading panes…</div>';
+    }
     updateBar(null);
     return;
   }
+  delete panesEl.dataset.empty; // re-arm the empty-state guard for the next empty deck
   // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting)
   // each get a compact row above it; plain shells fold into one summary line so a
   // big fleet doesn't shove the active card off screen.
