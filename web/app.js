@@ -522,6 +522,21 @@ function dock(states, act) {
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
   filt("all", "all");
   el.appendChild(counts);
+
+  // With many panes the dock scrolls horizontally, and the selected icon can sit off
+  // screen — its card then joins to a tab that isn't visible (looks severed). Center the
+  // selected icon in the strip so it and its tab-join are always on screen. Deferred a
+  // frame: the icons were just (re)appended, so their positions aren't laid out yet.
+  // Card view only (a .sel exists); list mode has no card to keep aligned. Only scroll
+  // when the icon is actually clipped by the strip's edges — otherwise every render (an
+  // activity tick, new events) would re-fire a smooth scroll and fight the resting
+  // position; when it's already fully visible we leave the dock where the user left it.
+  const sel = el.querySelector(".dock-icon.sel");
+  if (sel) requestAnimationFrame(() => {
+    const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
+    if (i.left < c.left || i.right > c.right)
+      sel.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  });
 }
 
 // "Animate the icons down": capture the dock icons' positions when a filter is
