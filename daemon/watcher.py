@@ -21,6 +21,12 @@ from .llm import backing_off, classify_text, summarize_events
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
+# Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
+# no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop). 0.1s
+# is the perceived floor for "instant" switching; the cost is one local `display-message`
+# subprocess per interval (negligible). A true event-driven source (tmux control mode,
+# `tmux -C`) would remove the poll entirely — see docs/design/control-mode-watcher.md.
+FAST_POLL = 0.1
 # Full-text snapshots per pane (the timeline). Snapshots append on real content change
 # only; each is <=~24KB (200 lines), so 200 of them is ~5MB/pane worst case — memory is
 # cheap and none of this reaches the model, so keep enough to scroll back meaningfully.
@@ -142,6 +148,43 @@ class Watcher:
         self._forced_this_tick: set[str] = set()  # drained from _force_parse per _tick
         self._wake = asyncio.Event()
         self._evloop: asyncio.AbstractEventLoop | None = None  # set in start()
+        # State long-poll: a monotonic version bumped only when the DECK-relevant view
+        # actually changes (pane switch, add/remove, label/activity, new events), so the
+        # /api/state hold returns the instant something the phone renders changes — not on
+        # every 1.5s tick. _state_changed wakes waiters; it lives on the loop, so _tick
+        # (a worker thread) flips it via call_soon_threadsafe.
+        self._state_version = 0
+        # None (not "") so the FIRST tick always bumps to version 1 — even to an empty
+        # deck (tmux down / no panes), whose fingerprint is "". Otherwise version would
+        # stay 0 through a prolonged empty state and the long-poll (which only engages at
+        # version > 0) would never kick in.
+        self._state_fp: str | None = None
+        self._state_changed = asyncio.Event()
+
+    def state_version(self) -> int:
+        """Monotonic version of the deck-relevant view; bumped only when it changes.
+        The /api/state long-poll returns as soon as this passes the client's version."""
+        return self._state_version
+
+    async def wait_for_state_change(self, since: int, timeout: float) -> int:
+        """Hold until state_version() advances past `since`, or `timeout` elapses; return
+        the current version either way. The version is the truth (the Event is only a
+        wake nudge). We CLEAR the Event *before* re-checking the version, so a bump that
+        lands after our check but before our wait() leaves the Event set and wait()
+        returns at once — no missed wakeup. (_bump only ever sets, never clears.)"""
+        deadline = time.monotonic() + timeout
+        while True:
+            self._state_changed.clear()
+            if self._state_version > since:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                await asyncio.wait_for(self._state_changed.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                break
+        return self._state_version
 
     def is_stale(self) -> bool:
         """True if the loop hasn't ticked recently — the watcher is dead/stalled and
@@ -181,7 +224,7 @@ class Watcher:
                     "activity": s.get("activity"),
                     "idle_seconds": s.get("idle_seconds"),
                     "headline": s.get("headline"),
-                    "question": (s.get("question") or {}).get("prompt"),
+                    "question": self._question_prompt(s),
                     # LLM one-liner for the last activity burst (present once the pane
                     # has idled past the summary threshold; None while actively working).
                     "summary": (self._summary.get(pid) or {}).get("text"),
@@ -209,20 +252,46 @@ class Watcher:
             except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
-            # Sleep POLL_SECONDS, BUT wake early if input arrived (request_reparse set
-            # the event): after a phone keypress/answer/menu-pick we want the LLM to
-            # re-read the screen NOW, not up to a full poll later — otherwise an
-            # answered question lingers on the card for seconds. wait_for consumes the
-            # timeout normally; TimeoutError is the ordinary "nothing happened" path.
-            try:
-                await asyncio.wait_for(self._wake.wait(), timeout=POLL_SECONDS)
-                self._wake.clear()  # observed a wake — consume it
-            except asyncio.TimeoutError:
-                # Ordinary "nothing happened" tick. Do NOT clear() here: a set that
-                # arrived between the timeout and now would be discarded unobserved,
-                # delaying its forced reparse by a full poll. Leaving it set means the
-                # next wait_for returns immediately and we consume it above.
-                pass
+            # Between full ticks, poll ONLY the active pane id on a fast cadence — a single
+            # cheap tmux call, no capture/LLM. A pane switch is the thing the user notices
+            # most (they just moved), so reflecting it in ≤FAST_POLL instead of up to
+            # POLL_SECONDS makes the phone feel instant. A full tick still runs every
+            # POLL_SECONDS (or on a request_reparse wake) for content/activity.
+            deadline = time.monotonic() + POLL_SECONDS
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    await asyncio.wait_for(self._wake.wait(), timeout=min(FAST_POLL, remaining))
+                    self._wake.clear()  # a request_reparse wake — do a full tick now
+                    break
+                except asyncio.TimeoutError:
+                    # Fast slice elapsed with no wake: cheap active-pane check, then keep
+                    # slicing until the full-tick deadline.
+                    try:
+                        await asyncio.to_thread(self._check_active_fast)
+                    except Exception:  # noqa: BLE001 - a bad fast check must not kill the loop
+                        logger.debug("fast active-pane check failed", exc_info=True)
+
+    def _check_active_fast(self) -> None:
+        """Cheap between-ticks check (worker thread): if tmux's focused pane changed,
+        flip tmux_active on the CACHED states and bump the version so the /api/state hold
+        returns immediately — no capture, no LLM. The next full tick reconciles anyway."""
+        if not self.states:
+            return
+        focused = tmux.active_pane_id()
+        # None means a transient tmux error (not "no pane focused") — don't treat it as a
+        # real focus change, or we'd clear tmux_active on every card and bump the version,
+        # briefly dropping the UI's active selection. The next full tick reconciles.
+        if focused is None:
+            return
+        cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
+        if focused == cur:
+            return
+        for s in self.states:
+            s["tmux_active"] = s.get("pane_id") == focused
+        self._bump_state_if_changed(self.states)
 
     def request_reparse(self, pane_id: str) -> None:
         """Force an LLM re-parse of `pane_id` on the next tick AND wake the loop now, so
@@ -244,6 +313,7 @@ class Watcher:
     def _tick(self) -> None:
         if not tmux.server_running():
             self.states = []
+            self._bump_state_if_changed([])  # wake the hold: tmux-down is a deck change too
             return
         # Multi-pane: watch every pane (or just the configured target if set). Each
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
@@ -254,6 +324,7 @@ class Watcher:
             panes = tmux.list_panes()
         if not panes:
             self.states = []
+            self._bump_state_if_changed([])  # wake the hold: no-panes is a deck change too
             return
         alive = {p.id for p in panes}
         # tmux recycles pane ids on close ("%3" freed, reassigned to a new pane). If an
@@ -328,7 +399,59 @@ class Watcher:
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
         self.states = states
+        self._bump_state_if_changed(states)
         self._gc(alive)
+
+    # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
+    # text is NOT here (that's /api/live's job); a spinner tick must not wake the state
+    # hold. events_seq IS here so new activity on any pane returns the hold (the phone
+    # then refetches that pane's /events). question + parsed_at ARE here so a forced
+    # reparse after a send/answer wakes the hold — the phone's reparsing spinner settles
+    # on the question prompt changing or parsed_at advancing (see isReparsing in app.js),
+    # so if the fingerprint omitted them the hold could keep holding and the UI would
+    # spin until its timeout instead of reflecting the fresh parse.
+    @staticmethod
+    def _question_prompt(state: dict):
+        # classify() pipes raw model JSON through unvalidated (see classify.py), so
+        # "question" is USUALLY the {"prompt": ...} object the parser prompt asks for —
+        # but a misbehaving LLM could emit a bare string or other non-dict. Guard the
+        # .get so a bad parse can't raise AttributeError here and stall the watcher loop
+        # (this runs in the worker thread, on the /api/state hot path).
+        q = state.get("question")
+        return q.get("prompt") if isinstance(q, dict) else None
+
+    @staticmethod
+    def _deck_fp(states: list[dict]) -> str:
+        # repr() of a tuple, NOT an f-string join: f-strings coerce None -> "None", so a
+        # field flipping between None and the literal string "None" would look unchanged
+        # and the version wouldn't bump. repr keeps None ('None') distinct from "None"
+        # ("'None'").
+        parts = [
+            repr((
+                s.get("pane_id"), s.get("tmux_active"), s.get("label"), s.get("title"),
+                s.get("activity"), s.get("tool"), s.get("events_seq"),
+                Watcher._question_prompt(s), s.get("parsed_at"),
+            ))
+            for s in states
+        ]
+        return "\n".join(parts)
+
+    def _bump_state_if_changed(self, states: list[dict]) -> None:
+        fp = self._deck_fp(states)
+        if fp == self._state_fp:
+            return
+        self._state_fp = fp
+        self._state_version += 1
+        # Runs in the watcher worker thread; the Event lives on the loop. Only SET it —
+        # waiters clear it themselves before re-checking the version, so a set that lands
+        # between a waiter's check and its wait() is not lost (no clear races the waiter).
+        # No loop yet (very first tick before start finished) ⇒ nothing is waiting, skip.
+        loop = getattr(self, "_evloop", None)
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(self._state_changed.set)
+            except RuntimeError:
+                pass  # loop closed (shutdown) — no waiters to notify
 
     def _maybe_bootstrap(self, panes) -> None:
         """Deep-read ONE not-yet-bootstrapped pane's scrollback per tick (staggers the

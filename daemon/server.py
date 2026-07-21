@@ -221,19 +221,42 @@ def get_version():
     return {"version": h.hexdigest()}
 
 
+# How long a /api/state long-poll holds before returning unchanged (client re-holds).
+# Well under any proxy/tunnel idle timeout, matching the live stream's hold budget.
+STATE_HOLD_SECONDS = 25.0
+
+
 @app.get("/api/state")
-def get_state():
+async def get_state(v: int | None = None):
+    """Deck state for the phone. With `?v=<version>` this LONG-POLLS: it holds until the
+    watcher's state_version passes `v` (a pane switch, add/remove, label/activity change,
+    or new events on any pane) or ~25s elapses, then returns the fresh state plus the new
+    `version`. The client immediately re-holds with that version, so a pane switch shows
+    up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
+    immediately (unchanged legacy behavior)."""
     from .llm import last_error, usage_totals
 
     w = app.state.watcher
+    version = w.state_version()
+    # Only long-poll once the watcher has produced an initial state (version > 0).
+    # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
+    # legacy first-load behavior) must get the current state now, not hold for ~25s.
+    if v is not None and v == version and version > 0:
+        version = await w.wait_for_state_change(v, STATE_HOLD_SECONDS)
+    # Snapshot version and panes together, AFTER any wait: re-read the version so the echo
+    # matches what we're about to serialize, and shallow-copy each pane dict so the worker
+    # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
+    version = w.state_version()
+    panes = [dict(s) for s in w.states]
     return {
+        "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
         "llm_error": last_error[
             "msg"
         ],  # transient; UI shows it subtly, not a big banner
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
-        "panes": w.states,
+        "panes": panes,
     }
 
 

@@ -71,7 +71,6 @@ let cardsCollapsed = false;
 // send (so a fresh parse doesn't replace the card under the user) and swipe/pinch
 // gestures. While set, send() also no-ops to avoid double-firing.
 let busy = false;
-let _fastPoll = null; // the single pending fast-reparse-poll timer (see poll())
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
 // sent. The card (and its answered question) render in a spinning "reparsing" state
 // until the served parsed_at advances past this — so a submitted answer / picked menu
@@ -206,10 +205,20 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
   );
 }
 
+let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
+                           // null until the first reply so cold load asks for state outright
+// Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
+// switch, add/remove, label/activity, new events) or ~25s, then returns. pollLoop is the
+// ONLY caller and runs one at a time, so there's no concurrent-fetch state to track —
+// sends never poll (they just set `busy`; pollLoop resumes when it clears). Returns true
+// on success, false to signal pollLoop to back off before the next hold.
 async function poll() {
-  if (busy) return;
   try {
-    const r = await fetch("/api/state");
+    // Omit `v` until we've received a first version, so the cold-load fetch is
+    // unambiguously "give me current state now" — never conflated with a real echoed
+    // version. (The server only holds when v == its current version AND version > 0, so
+    // a null here keeps the first paint immediate regardless of startup timing.)
+    const r = await fetch("/api/state" + (_stateVersion !== null ? `?v=${_stateVersion}` : ""));
     // Check status before parsing: when the tunnel/backend is down the relay
     // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
@@ -223,9 +232,19 @@ async function poll() {
         : "";
       panesEl.innerHTML = `<div class="empty">backend unavailable (${r.status})` +
         (body ? `: ${esc(body)}` : "") + (hint ? `<br><small>${esc(hint)}</small>` : "") + `</div>`;
-      return;
+      return false;  // back off — without a gap pollLoop would re-request instantly and hammer
     }
     const data = await r.json();
+    // `busy` may have flipped true WHILE this request was in flight (a send/gesture
+    // started mid-fetch). Applying the response now would replace the card under the
+    // user — the very thing `busy` freezes. Drop it without touching _stateVersion, so
+    // the next (post-busy) hold re-fetches from the same version and renders in order.
+    if (busy) return true;
+    // A well-formed response always carries a numeric version. version 0 = no initial
+    // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
+    // Both must back off, else pollLoop re-requests with gap=0 and tight-loops the backend.
+    const ok = typeof data.version === "number" && data.version > 0;
+    if (ok) _stateVersion = data.version; // re-hold on this version
     // stale = the watcher loop stopped ticking (dead/stalled); served cards are frozen.
     liveEl.className = data.stale ? "dot off" : "dot";
     liveEl.title = data.stale ? "watcher stalled — cards may be frozen" : "live";
@@ -242,19 +261,25 @@ async function poll() {
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
     render(data.panes || []);
-    // While a pane is spinning on a forced reparse, poll fast so the spinner clears
-    // within a beat of the parse landing (instead of waiting for the 2s interval). Only
-    // ONE fast poll may be pending at a time — otherwise each poll schedules another and
-    // they stack into overlapping bursts alongside the 2s interval.
-    if (Object.keys(reparsing).length && !_fastPoll) {
-      _fastPoll = setTimeout(() => { _fastPoll = null; if (!busy) poll(); }, 500);
-    }
+    return ok; // ok=false (version 0 / legacy daemon) → pollLoop backs off
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
     liveEl.className = "dot off";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(often a stale cached app.js — hard-refresh)</small></div>`;
-    return;
+    return false;
+  }
+}
+// Drive the long-poll: as soon as one hold returns, start the next. The server does the
+// waiting (holds ~25s or until change), so this is not a busy-loop — and pollLoop is the
+// ONLY caller of poll(), so no concurrent-fetch coordination is needed. While `busy` (a
+// send/gesture froze re-renders) skip the fetch and wait a beat; poll() returning false
+// (backend down / legacy daemon) also backs off, so we never tight-loop.
+async function pollLoop() {
+  for (;;) {
+    if (busy) { await sleep(250); continue; } // a send/gesture froze re-renders; re-check soon
+    const ok = await poll();
+    if (!ok) await sleep(1000); // outage / legacy daemon: back off before retrying
   }
 }
 
@@ -1194,7 +1219,7 @@ async function submitComposer(s) {
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
-    setTimeout(() => { busy = false; poll(); }, 400);
+    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
 
@@ -1449,7 +1474,7 @@ async function send(s, body) {
   try {
     await postSend(s, body);
   } finally {
-    setTimeout(() => { busy = false; poll(); }, 400);
+    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
 
@@ -1568,8 +1593,7 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
 }
 if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
-poll();
-setInterval(poll, 2000);
+pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
 
 // Auto-update: when the web assets change, reload to the new version (checked every
 // 5s against /api/version; all durable state lives server-side). UNLESS the user has
