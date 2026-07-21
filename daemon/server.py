@@ -269,6 +269,9 @@ async def get_state(v: int | None = None):
     return {
         "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
+        # False until the first tick finishes: an empty `panes` then means "still loading
+        # the initial parses," not "no panes" — the UI shows a spinner vs. the empty message.
+        "booted": w.booted(),
         "llm_error": last_error[
             "msg"
         ],  # transient; UI shows it subtly, not a big banner
