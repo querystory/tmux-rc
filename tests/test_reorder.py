@@ -72,7 +72,7 @@ def test_cross_session_rejected(monkeypatch):
 
 def test_missing_target_rejected(monkeypatch):
     calls = _patch(monkeypatch, [_pane("%1")])
-    with pytest.raises(RuntimeError, match="not found"):
+    with pytest.raises(RuntimeError, match="target pane not found"):
         tmux.reorder_pane("%1", "%99", after=False)
     assert calls == []
 
@@ -89,6 +89,15 @@ def test_endpoint_unknown_source_is_404(monkeypatch):
     c = TestClient(server.app)
     r = c.post(_path("%9"), json={"target": "%1", "after": False})
     assert r.status_code == 404
+
+
+def test_endpoint_unknown_target_is_400(monkeypatch):
+    # Source exists but the body's target does not — a rejectable request (400), distinct
+    # from a missing source (404). Matches the stated endpoint contract.
+    _patch(monkeypatch, [_pane("%1")])
+    c = TestClient(server.app)
+    r = c.post(_path("%1"), json={"target": "%99", "after": False})
+    assert r.status_code == 400 and "target" in r.json()["detail"]
 
 
 def test_endpoint_cross_session_is_400(monkeypatch):

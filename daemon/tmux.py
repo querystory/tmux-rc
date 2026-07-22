@@ -232,8 +232,13 @@ def reorder_pane(src_id: str, dst_id: str, after: bool) -> None:
     target so the caller returns a clear error rather than issuing a surprising move."""
     src = find_pane(src_id)
     dst = find_pane(dst_id)
-    if src is None or dst is None:
-        raise RuntimeError("pane not found")
+    # Distinct messages: the server already 404s a missing SOURCE before we get here, so
+    # this source guard is defensive; a missing TARGET is a client-supplied body value and
+    # its own 400 — keep the two apart for a clear API error and audit line.
+    if src is None:
+        raise RuntimeError("source pane not found")
+    if dst is None:
+        raise RuntimeError("target pane not found")
     if src.session != dst.session:
         raise RuntimeError("cannot reorder across sessions")
     src_win = f"{src.session}:{src.window_index}"

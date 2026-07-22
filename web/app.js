@@ -656,14 +656,14 @@ function dock(states, act) {
 // the drop target is whichever icon the pointer is over.
 const HOLD_MS = 350, SLOP = 8; // hold to arm; movement over SLOP before it cancels
 function dragReorder(icon) {
-  let held = false, timer = 0, sx = 0, dragging = false, ownedBusy = false;
+  let held = false, timer = 0, sx = 0, dragging = false, ownedBusy = false, pid = null;
   const el = dockEl;
   // Release the poll freeze only if THIS gesture took it — never clear a `busy` some
   // other in-flight action (a send, a card swipe) set, or we'd unfreeze polling mid-
   // mutation.
   const releaseBusy = () => { if (ownedBusy) { busy = false; ownedBusy = false; } };
   const clear = () => {
-    clearTimeout(timer); held = dragging = false;
+    clearTimeout(timer); held = dragging = false; pid = null;
     icon.classList.remove("dragging");
     icon.style.transition = ""; icon.style.transform = ""; icon.style.zIndex = "";
     el.querySelectorAll(".drop-into").forEach((n) => n.classList.remove("drop-into"));
@@ -679,18 +679,20 @@ function dragReorder(icon) {
   };
   icon.addEventListener("pointerdown", (e) => {
     if (e.button != null && e.button !== 0) return; // left/touch only
-    sx = e.clientX;
+    if (pid != null) return; // a drag/hold from another pointer already owns this icon
+    sx = e.clientX; pid = e.pointerId;
     // Arm the reorder after a hold IN PLACE. setPointerCapture routes the move/up here
     // even once the icon translates out from under the finger.
     timer = setTimeout(() => {
       held = true;
       busy = true; ownedBusy = true; // freeze poll re-renders — a re-render mid-drag rebuilds the strip
-      icon.setPointerCapture(e.pointerId);
+      icon.setPointerCapture(pid);
       icon.classList.add("dragging");
       icon.style.transition = "none"; icon.style.zIndex = "40";
     }, HOLD_MS);
   });
   icon.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== pid) return; // only the pointer that started this gesture drives it
     if (!held) {
       // Moved before the hold armed ⇒ this is a scroll/tap, not a reorder: let the dock
       // scroll natively and don't arm.
@@ -707,6 +709,7 @@ function dragReorder(icon) {
     if (over) over.classList.add("drop-into");
   });
   const drop = (e) => {
+    if (e.pointerId !== pid) return; // ignore an unrelated pointer's up/cancel
     clearTimeout(timer);
     if (held && dragging) {
       const over = overIcon(e.clientX);
@@ -728,7 +731,10 @@ function dragReorder(icon) {
     }
   };
   icon.addEventListener("pointerup", drop);
-  icon.addEventListener("pointercancel", () => { clearTimeout(timer); clear(); releaseBusy(); });
+  icon.addEventListener("pointercancel", (e) => {
+    if (e.pointerId !== pid) return;
+    clearTimeout(timer); clear(); releaseBusy();
+  });
 }
 
 // POST a reorder, then optimistically re-order the local strip so the drop feels
@@ -746,9 +752,9 @@ function reorderPane(src, target, after) {
   if (to < 0) return;
   if (after) to += 1;
   ids.splice(to, 0, src);
-  // Rebuild panesById in the new insertion order (= dock/list/swipe order) and re-render.
-  panesById = Object.fromEntries(ids.map((id) => [id, panesById[id]]));
-  render(Object.values(panesById));
+  // render() rebuilds panesById from the states array it's given, so just hand it the
+  // states in the new order (= dock/list/swipe order) — no separate panesById rebuild.
+  render(ids.map((id) => panesById[id]));
 }
 
 // The list transition is a FLIP keyed on what actually changed between the two filter
