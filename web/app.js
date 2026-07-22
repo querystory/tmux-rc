@@ -656,8 +656,12 @@ function dock(states, act) {
 // the drop target is whichever icon the pointer is over.
 const HOLD_MS = 350, SLOP = 8; // hold to arm; movement over SLOP before it cancels
 function dragReorder(icon) {
-  let held = false, timer = 0, sx = 0, dragging = false;
+  let held = false, timer = 0, sx = 0, dragging = false, ownedBusy = false;
   const el = dockEl;
+  // Release the poll freeze only if THIS gesture took it — never clear a `busy` some
+  // other in-flight action (a send, a card swipe) set, or we'd unfreeze polling mid-
+  // mutation.
+  const releaseBusy = () => { if (ownedBusy) { busy = false; ownedBusy = false; } };
   const clear = () => {
     clearTimeout(timer); held = dragging = false;
     icon.classList.remove("dragging");
@@ -680,7 +684,7 @@ function dragReorder(icon) {
     // even once the icon translates out from under the finger.
     timer = setTimeout(() => {
       held = true;
-      busy = true; // freeze poll re-renders — a re-render mid-drag rebuilds the strip
+      busy = true; ownedBusy = true; // freeze poll re-renders — a re-render mid-drag rebuilds the strip
       icon.setPointerCapture(e.pointerId);
       icon.classList.add("dragging");
       icon.style.transition = "none"; icon.style.zIndex = "40";
@@ -714,7 +718,7 @@ function dragReorder(icon) {
     }
     const wasDrag = held && dragging;
     clear();
-    busy = false;
+    releaseBusy();
     // A completed drag must not ALSO fire the icon's onclick (which would setActive the
     // dragged pane). preventDefault on pointerup isn't enough — swallow the one synthetic
     // click that follows, in the capture phase, then self-remove.
@@ -724,7 +728,7 @@ function dragReorder(icon) {
     }
   };
   icon.addEventListener("pointerup", drop);
-  icon.addEventListener("pointercancel", () => { clearTimeout(timer); clear(); busy = false; });
+  icon.addEventListener("pointercancel", () => { clearTimeout(timer); clear(); releaseBusy(); });
 }
 
 // POST a reorder, then optimistically re-order the local strip so the drop feels

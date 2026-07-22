@@ -6,11 +6,19 @@ dock's flattened order) keys off. tmux is MOCKED — we assert the exact move-wi
 issued for a drop, and that cross-session / unknown targets are rejected without a move."""
 
 import subprocess
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
 
 from daemon import server, tmux
+
+
+def _path(pane_id):
+    # The client posts to encodeURIComponent(pane_id) — a "%N" id percent-encodes to
+    # "%25N", so exercise the endpoint through the SAME encoded path a real request uses
+    # (a raw "%" in a URL path is the start of an escape, not a literal).
+    return f"/api/panes/{quote(pane_id, safe='')}/reorder"
 
 
 def _pane(pane_id, session="main", window_index="0"):
@@ -72,21 +80,21 @@ def test_missing_target_rejected(monkeypatch):
 def test_endpoint_ok(monkeypatch):
     _patch(monkeypatch, [_pane("%1", window_index="0"), _pane("%2", window_index="1")])
     c = TestClient(server.app)
-    r = c.post("/api/panes/%1/reorder", json={"target": "%2", "after": True})
+    r = c.post(_path("%1"), json={"target": "%2", "after": True})
     assert r.status_code == 200 and r.json() == {"ok": True}
 
 
 def test_endpoint_unknown_source_is_404(monkeypatch):
     _patch(monkeypatch, [_pane("%1")])
     c = TestClient(server.app)
-    r = c.post("/api/panes/%9/reorder", json={"target": "%1", "after": False})
+    r = c.post(_path("%9"), json={"target": "%1", "after": False})
     assert r.status_code == 404
 
 
 def test_endpoint_cross_session_is_400(monkeypatch):
     _patch(monkeypatch, [_pane("%1", session="a"), _pane("%2", session="b")])
     c = TestClient(server.app)
-    r = c.post("/api/panes/%1/reorder", json={"target": "%2", "after": False})
+    r = c.post(_path("%1"), json={"target": "%2", "after": False})
     assert r.status_code == 400 and "session" in r.json()["detail"]
 
 
@@ -101,5 +109,5 @@ def test_endpoint_tmux_error_propagates(monkeypatch):
 
     monkeypatch.setattr(tmux, "_run", boom)
     c = TestClient(server.app, raise_server_exceptions=False)
-    r = c.post("/api/panes/%1/reorder", json={"target": "%2", "after": False})
+    r = c.post(_path("%1"), json={"target": "%2", "after": False})
     assert r.status_code == 500
