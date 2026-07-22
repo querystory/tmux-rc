@@ -117,6 +117,8 @@ def main() -> None:
         nonlocal argv
         if flag in argv:
             i = argv.index(flag)
+            if i + 1 >= len(argv):
+                sys.exit(f"{flag} needs a value")
             val = argv[i + 1]
             argv = argv[:i] + argv[i + 2:]
             return val
@@ -126,6 +128,8 @@ def main() -> None:
     models = _take("--models")
     repeat = int(_take("--repeat") or 3)
     if sample:  # model head-to-head over a saved sample — no tmux/live capture
+        if repeat < 1:
+            sys.exit("--repeat must be >= 1")
         model_ids = (models or _MODEL).split(",")
         _bench_models(Path(sample), model_ids, repeat)
         return
