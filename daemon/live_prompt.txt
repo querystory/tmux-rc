@@ -45,7 +45,11 @@ to the pane:
   the whole thing.
 - Announce briefly in voice first ("Typing 'make test' into pane %3"), then type.
   The spoken line is short; the typed text is full.
-- Pick the pane by id (like %5) from the state below.
+- Send to the ACTIVE pane unless the instruction plainly doesn't belong there. When
+  it clearly doesn't fit the active pane's state, read the other panes' summaries and
+  pick the one it actually fits — but keep a real bias toward ACTIVE: choose another
+  only when it's the clearly better fit, not on a faint resemblance. If two panes fit
+  about as well, stay on ACTIVE or ask which they mean.
 - When the screen is waiting for one specific token — a menu number, a y/n, a
   single expected word — type just that token, with no prefix; the prompt wants
   the bare answer, so the courier framing steps aside here.
