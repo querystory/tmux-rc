@@ -536,7 +536,7 @@ def reorder(pane_id: str, body: ReorderBody, request: Request):
     the target's window. Same trust/audit treatment as send/select: it's a real terminal
     mutation. The next watcher tick re-lists panes in the new tmux order and the dock
     updates via the normal poll (tmux is the source of truth — no server-side array
-    hand-reorder). Cross-session / missing targets return 400 rather than crash."""
+    hand-reorder). Missing SOURCE is 404; cross-session / missing target is 400."""
     detail = f"target={body.target} after={body.after}"
     if tmux.find_pane(pane_id) is None:
         _audit(request, "reorder_pane", pane_id, detail, outcome="rejected: pane not found")
@@ -544,10 +544,14 @@ def reorder(pane_id: str, body: ReorderBody, request: Request):
     try:
         tmux.reorder_pane(pane_id, body.target, body.after)
     except RuntimeError as e:
-        # A rejectable request (cross-session, unknown target) — a 400, and audited as
-        # rejected so probing shows in the trail, not a 500 crash.
+        # A rejectable request — audited as rejected (probing shows in the trail), not a
+        # 500 crash. Keep the SOURCE-missing case a 404 even if it's raised inside
+        # reorder_pane: the source can vanish (pane closed) between the guard above and
+        # reorder_pane's own lookup — a race, not a bad request — so its status must match
+        # the guard's 404. Everything else (cross-session, missing target) is a 400.
+        status = 404 if str(e) == "source pane not found" else 400
         _audit(request, "reorder_pane", pane_id, detail, outcome=f"rejected: {e}")
-        raise HTTPException(400, str(e)) from None
+        raise HTTPException(status, str(e)) from None
     except Exception as e:
         _audit(request, "reorder_pane", pane_id, detail, outcome=f"error: {e}"[:80])
         raise

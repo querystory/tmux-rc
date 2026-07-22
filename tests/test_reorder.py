@@ -107,6 +107,26 @@ def test_endpoint_cross_session_is_400(monkeypatch):
     assert r.status_code == 400 and "session" in r.json()["detail"]
 
 
+def test_endpoint_source_vanishes_mid_call_is_404(monkeypatch):
+    # Race: the source pane exists at the endpoint's guard but is gone by the time
+    # reorder_pane does its own lookup (pane closed). That's a 404 (matching the guard),
+    # not a 400 — a vanished source is not a bad request.
+    calls = []
+    seen = {"n": 0}
+
+    def find(t):
+        if t == "%2":
+            return _pane("%2", window_index="1")
+        seen["n"] += 1
+        return _pane("%1") if seen["n"] == 1 else None  # present at guard, gone after
+
+    monkeypatch.setattr(tmux, "find_pane", find)
+    monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or "")
+    c = TestClient(server.app)
+    r = c.post(_path("%1"), json={"target": "%2", "after": False})
+    assert r.status_code == 404 and calls == []
+
+
 def test_endpoint_tmux_error_propagates(monkeypatch):
     # A genuine tmux failure (not a rejectable request) must surface as a 500, not be
     # swallowed — the middleware/audit path records it as an error.
