@@ -141,6 +141,24 @@ def test_strip_dim_clears_placeholder_markers():
     assert strip_dim(marked) == _capture(raw, mark_dim=False)
 
 
+def test_tail_marked_preserves_placeholder_markers():
+    # tail_marked must keep ⟪placeholder⟫ tokens whole too, not just ⟪dim⟫ — a long
+    # placeholder line char-sliced to the budget must not emit a token fragment or an
+    # orphaned close, and a tail opening inside the run re-opens the matching open.
+    from daemon.tmux import (
+        PLACEHOLDER_CLOSE,
+        PLACEHOLDER_OPEN,
+        tail_marked,
+    )
+
+    line = "a" * 30 + PLACEHOLDER_OPEN + "b" * 40 + PLACEHOLDER_CLOSE + "c" * 30
+    out = tail_marked(line, 20)
+    assert out  # never empty
+    assert out.count(PLACEHOLDER_OPEN) >= out.count(PLACEHOLDER_CLOSE)  # no orphan close
+    stripped = out.replace(PLACEHOLDER_OPEN, "").replace(PLACEHOLDER_CLOSE, "")
+    assert "⟪" not in stripped and "⟫" not in stripped  # no split-token fragment
+
+
 def test_tail_marked_never_splits_or_orphans_markers():
     from daemon.tmux import DIM_CLOSE, DIM_OPEN, tail_marked
 

@@ -273,15 +273,26 @@ def strip_dim(text: str) -> str:
     return text
 
 
+_OPENS = (DIM_OPEN, PLACEHOLDER_OPEN)
+_CLOSES = (DIM_CLOSE, PLACEHOLDER_CLOSE)
+_MARKERS = _OPENS + _CLOSES
+
+
+def _first_marker(s: str) -> tuple[int, str] | None:
+    """(index, token) of the earliest whole ⟪…⟫ marker in s, or None."""
+    hits = [(s.find(m), m) for m in _MARKERS if m in s]
+    return min(hits) if hits else None
+
+
 def tail_marked(text: str, max_chars: int) -> str:
-    """Last <=max_chars of dim-MARKED text, kept whole-marker clean for the LLM. A raw
-    slice can split a ⟪dim⟫/⟪/dim⟫ token or start inside a dim run; markers never span
-    lines, so cut to a LINE boundary at/after the budget, then re-open the run if the
-    kept tail begins inside one (a close precedes any open)."""
+    """Last <=max_chars of MARKED text, kept whole-marker clean for the LLM. A raw slice
+    can split a ⟪dim⟫/⟪placeholder⟫ token or start inside a marked run; the marker TOKENS
+    contain no newline, so cutting to a LINE boundary at/after the budget never splits one,
+    then re-open the run if the kept tail begins inside one (a close precedes any open)."""
     if len(text) <= max_chars:
         return text
-    # Drop whole leading lines while more than one remains over budget — markers are
-    # intraline, so line-boundary cuts never split a token.
+    # Drop whole leading lines while more than one remains over budget — a line-boundary
+    # cut can't split a token (tokens are intraline, even if a marked RUN spans lines).
     lines = text.splitlines()
     while len(lines) > 1 and len("\n".join(lines)) > max_chars:
         lines.pop(0)
@@ -291,13 +302,17 @@ def tail_marked(text: str, max_chars: int) -> str:
     # the slice created — resync to the first WHOLE marker (a clean, marker-free head stays).
     if len(cut) > max_chars:
         cut = cut[-max_chars:]
-        firsts = [i for i in (cut.find(DIM_OPEN), cut.find(DIM_CLOSE)) if i != -1]
-        if firsts and ("⟪" in cut[: firsts[0]] or "⟫" in cut[: firsts[0]]):
-            cut = cut[firsts[0] :]
-    # If the tail opens inside a dim run (a close comes before any open), re-open it.
-    nxt_open, nxt_close = cut.find(DIM_OPEN), cut.find(DIM_CLOSE)
-    if nxt_close != -1 and (nxt_open == -1 or nxt_close < nxt_open):
-        cut = DIM_OPEN + cut
+        first = _first_marker(cut)
+        # A ⟪ or ⟫ before the first whole marker means the slice began mid-token: drop that
+        # fragment. No whole marker at all + a stray glyph ⇒ drop through it to clean text.
+        head = cut[: first[0]] if first else cut
+        if "⟪" in head or "⟫" in head:
+            cut = cut[first[0] :] if first else cut[max(cut.rfind("⟪"), cut.rfind("⟫")) + 1 :]
+    # If the tail opens inside a marked run (a close comes before any open), re-open it
+    # with the matching open so the run stays balanced for the LLM.
+    first = _first_marker(cut)
+    if first and first[1] in _CLOSES:
+        cut = _OPENS[_CLOSES.index(first[1])] + cut
     return cut
 
 
