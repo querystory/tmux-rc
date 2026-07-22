@@ -316,27 +316,28 @@ document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
 
 const usageEl = document.getElementById("usage");
-// Touch has no hover: tap the debug readout to reveal it (brightens via .lit).
-// Focusable (tabindex in the HTML) so keyboard users get the same toggle.
-usageEl.onclick = () => {
-  const lit = usageEl.classList.toggle("lit");
-  usageEl.setAttribute("aria-pressed", String(lit));
+// The stats are dim debug telemetry, not primary chrome — so they hide behind the status
+// dot: tapping the dot toggles the #usage popover. The dot is focusable (tabindex in HTML)
+// so keyboard users get the same toggle; aria-expanded reflects popover state.
+liveEl.onclick = () => {
+  usageEl.hidden = !usageEl.hidden;
+  liveEl.setAttribute("aria-expanded", String(!usageEl.hidden));
 };
 // Native-button key semantics: Enter fires on keydown; Space on keyup (keydown only
 // suppresses page scroll) so key-repeat can't machine-gun the toggle.
-usageEl.onkeydown = (e) => {
-  if (e.key === "Enter") { e.preventDefault(); usageEl.click(); }
+liveEl.onkeydown = (e) => {
+  if (e.key === "Enter") { e.preventDefault(); liveEl.click(); }
   else if (e.key === " ") e.preventDefault();
 };
-usageEl.onkeyup = (e) => {
-  if (e.key === " ") { e.preventDefault(); usageEl.click(); }
+liveEl.onkeyup = (e) => {
+  if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
 function showUsage(u, err) {
   if (!u) {
     // Gone (reconnect, fresh daemon): clear the leftovers too — a stale tooltip on an
-    // empty span, or a "revealed" state announcing itself to assistive tech.
+    // empty span, or a popover left open with nothing to show.
     usageEl.textContent = ""; usageEl.title = "";
-    usageEl.classList.remove("lit"); usageEl.setAttribute("aria-pressed", "false");
+    usageEl.hidden = true; liveEl.setAttribute("aria-expanded", "false");
     return;
   }
   // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
@@ -397,6 +398,8 @@ function render(states) {
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     _joinRO.disconnect(); // stop watching the card we're about to drop
     dockEl.replaceChildren();
+    filtersEl.replaceChildren(); // no panes ⇒ no tallies to filter by
+
     // Drop the card-view dock state too: its onscroll pin closes over the now-dead
     // card nodes, and the seam classes would style a dock that no longer has a card.
     dockEl.onscroll = null;
@@ -563,6 +566,7 @@ const _joinRO = new ResizeObserver(() => {
 // of just those panes (tapped via the dock's tally badges / "all").
 let listFilter = null;
 const dockEl = document.getElementById("dock");
+const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 function dock(states, act) {
   const el = dockEl;
   el.replaceChildren();
@@ -591,10 +595,10 @@ function dock(states, act) {
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
     el.appendChild(b);
   }
-  // Density + navigation: per-activity tallies, right-aligned — each one FILTERS the
+  // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
+  // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
   // list view to those panes; "all" lists everything.
-  const counts = document.createElement("span");
-  counts.className = "dock-counts";
+  filtersEl.replaceChildren();
   const n = {};
   states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
   const filt = (label, key) => {
@@ -602,11 +606,10 @@ function dock(states, act) {
     b.className = "badge b-" + key;
     b.textContent = label;
     b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
-    counts.appendChild(b);
+    filtersEl.appendChild(b);
   };
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
   filt("all", "all");
-  el.appendChild(counts);
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center the
