@@ -8,6 +8,10 @@ from typing import Literal
 from pydantic import BaseModel
 
 Activity = Literal["running", "idle", "waiting", "compacting", "unknown"]
+# WHOM a `waiting` pane is blocked on: "user" (an input affordance the human must fill —
+# actionable) vs "external" (a background subagent / Copilot / CI / poll it spawned —
+# just busy). Absent ⇒ treat as "user" (the safe default; never hide a real user-wait).
+WaitingOn = Literal["user", "external"]
 Tool = Literal["claude", "codex", "gemini", "shell", "unknown"]
 # Permission/interaction mode, mirroring Claude Code's shift-tab cycle.
 Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
@@ -49,6 +53,7 @@ class PaneState(BaseModel):
     label: str  # "session:window"
     tool: Tool = "unknown"
     activity: Activity = "unknown"
+    waiting_on: WaitingOn | None = None  # only meaningful when activity == "waiting"
     idle_seconds: int = 0
     status_line: str = ""  # one short human phrase: "Editing models.py", "14/52 tests"
     question: Question | None = None
@@ -56,7 +61,9 @@ class PaneState(BaseModel):
 
     # Agent status-line detail (mostly Claude Code; nullable when not applicable).
     model: str | None = None  # e.g. "Sonnet 5", "Opus 4.8"
-    context_pct: int | None = None  # context-window % USED (parser converts 'left' displays)
+    context_pct: int | None = (
+        None  # context-window % USED (parser converts 'left' displays)
+    )
     cost: str | None = None  # e.g. "$10.64"
     mode: Mode = "unknown"  # plan / accept-edits / bypass / normal
 

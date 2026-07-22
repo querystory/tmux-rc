@@ -17,7 +17,16 @@ const AGENT_TOOLS = new Set(["claude", "codex", "gemini"]);
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "compacting", "unknown"]);
-const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
+// `waiting` means "blocked on input"; `waiting_on` says on WHOM. Only a user-wait is
+// actionable ("tap me, I need input") — an external-wait (a background subagent, a
+// Copilot/CI/poll it spawned) is just busy on a machine, so we FOLD it into `running`
+// here. That single chokepoint keeps the amber `waiting` badge/dot/tally/filter/favicon
+// honest — they all read `actOf` — without forking a parallel render path. Absent or
+// any non-"external" value ⇒ user-wait (the safe default: never hide a real user-wait).
+const actOf = (s) => {
+  const a = ACTIVITIES.has(s.activity) ? s.activity : "unknown";
+  return a === "waiting" && s.waiting_on === "external" ? "running" : a;
+};
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
 const panesEl = document.getElementById("panes");
@@ -813,7 +822,7 @@ function swipeNav(el, id) {
 function card(s) {
   const el = document.createElement("div");
   const collapsed = cardsCollapsed;
-  el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
+  el.className = "card" + (actOf(s) === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "")
     + (isReparsing(s) ? " reparsing" : ""); // input sent, awaiting the forced re-parse
   swipeNav(el, s.pane_id);
