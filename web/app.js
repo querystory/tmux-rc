@@ -636,50 +636,77 @@ function dock(states, act) {
   });
 }
 
-// "Animate the icons down": capture the dock icons' positions when a filter is
-// tapped, then fly clones to each row's icon once the list renders (FLIP).
-let flipFrom = null; // pane_id -> DOMRect
+// The list transition is a FLIP keyed on what actually changed between the two filter
+// states. Captured at filter-tap time (before the re-render): the dock icons' rects
+// (where ENTERING rows fly from) AND the currently-visible rows' rects (where SURVIVING
+// rows slide from). Survivors are keyed off having a prior-row rect, so entering the list
+// from card view (empty→list, no prior rows captured) stays a full icon-fly for every row.
+let flipFrom = null; // pane_id -> dock-icon DOMRect (for entering rows)
+let flipPrev = null; // pane_id -> { rect, node } of the outgoing row (survivors + leavers)
 function captureIconRects() {
   flipFrom = {};
   dockEl.querySelectorAll(".dock-icon").forEach((b) => {
     if (b.dataset.pane) flipFrom[b.dataset.pane] = b.getBoundingClientRect();
   });
+  flipPrev = {};
+  // Clone each live row NOW: after replaceChildren the originals are gone, but a leaving
+  // row must linger to animate out — the clone (positioned fixed at its old rect) does
+  // that without fighting the re-render, mirroring the icon-fly's clone approach.
+  panesEl.querySelectorAll(".prow").forEach((r) => {
+    flipPrev[r.dataset.pane] = { rect: r.getBoundingClientRect(), node: r.cloneNode(true) };
+  });
+}
+// Fly a clone fixed at `from`, animating transform to `to` (delta) and, if `fade`,
+// opacity to it — the one WAI engine shared by all three list cases. WAI not CSS-class
+// transitions: keyframes take effect the moment they're created, so the start state
+// actually paints (the class-toggle version lost the race and text popped in early).
+function flyClone(node, from, to, fade, done) {
+  Object.assign(node.style, {
+    position: "fixed", left: from.left + "px", top: from.top + "px",
+    width: from.width + "px", margin: "0", zIndex: 30, pointerEvents: "none",
+  });
+  document.body.appendChild(node);
+  const end = () => { node.remove(); if (done) done(); };
+  node.animate(
+    [{ transform: "translate(0,0)", opacity: fade ? 1 : undefined },
+     { transform: `translate(${to.left - from.left}px,${to.top - from.top}px)`, opacity: fade ? 0 : undefined }],
+    { duration: 250, easing: "ease-out", fill: "forwards" }
+  ).onfinish = end;
+  setTimeout(end, 400); // safety: never strand a clone (or a blank row) if interrupted
 }
 function flipIn(root) {
   if (!flipFrom) return;
-  const from = flipFrom;
-  flipFrom = null;
+  const from = flipFrom, prev = flipPrev;
+  flipFrom = flipPrev = null;
+  const now = new Set([...root.querySelectorAll(".prow")].map((r) => r.dataset.pane));
+  // Leaving rows: in the old list but not the new. Fade+drift their clone out in place.
+  for (const [id, p] of Object.entries(prev))
+    if (!now.has(id)) flyClone(p.node, p.rect, { left: p.rect.left, top: p.rect.top + 12 }, true);
   root.querySelectorAll(".prow").forEach((r) => {
+    const old = prev[r.dataset.pane];
+    // SURVIVOR: already on screen in the old filter — no icon-fly, no invisibility. FLIP:
+    // start it at its old position (First→Invert) and slide the delta to its new spot (Play).
+    if (old) {
+      const dst = r.getBoundingClientRect();
+      r.animate(
+        [{ transform: `translate(${old.rect.left - dst.left}px,${old.rect.top - dst.top}px)` },
+         { transform: "translate(0,0)" }],
+        { duration: 250, easing: "ease-out" }
+      );
+      return;
+    }
+    // ENTERING (or empty→list, where nothing was captured so every row lands here): fly
+    // the pane's dock icon down to the row's icon spot. The row stays INVISIBLE until its
+    // icon lands — reveal on finish, drawing the rest of the summary only then.
     const src = from[r.dataset.pane];
     const icon = r.querySelector(".icon");
     if (!src || !icon) return;
-    const dst = icon.getBoundingClientRect();
-    const fly = icon.cloneNode(true);
-    Object.assign(fly.style, {
-      position: "fixed", left: src.left + "px", top: src.top + "px", margin: "0",
-      zIndex: 30, pointerEvents: "none",
-    });
-    // The row stays INVISIBLE until its icon arrives — only then is the rest of the
-    // summary (outline, title, badge) drawn. The safety timer reveals it even if the
-    // flight animation gets interrupted, so the list can never end up blank.
     r.style.opacity = "0";
-    const reveal = () => {
-      fly.remove();
-      if (r.style.opacity === "0") {
-        r.style.opacity = "";
-        r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
-      }
-    };
-    document.body.appendChild(fly);
-    // Web Animations API, not CSS-class transitions: keyframes take effect the moment
-    // they're created, so the start states actually paint (the class-toggle version
-    // kept losing the race and text popped in before the flight).
-    fly.animate(
-      [{ transform: "translate(0,0)" },
-       { transform: `translate(${dst.left - src.left}px,${dst.top - src.top}px)` }],
-      { duration: 250, easing: "ease-out", fill: "forwards" }
-    ).onfinish = reveal;
-    setTimeout(reveal, 400);
+    flyClone(icon.cloneNode(true), src, icon.getBoundingClientRect(), false, () => {
+      if (r.style.opacity !== "0") return;
+      r.style.opacity = "";
+      r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
+    });
   });
 }
 
