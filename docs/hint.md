@@ -135,8 +135,9 @@ tell them apart by the `kind` attribute (or by `cost_usd IS NULL`):
 - **watch-time rounds** (`kind` absent) — the phone's live-view long-poll, one record per
   ~25s hold. These carry NO model/token/cost fields. Detailed just below.
 - **voice-turn records** (`kind = 'live_turn'`) — Live Mode's spoken-agent metering, one
-  record per voice turn plus a `final` session summary. These DO carry model/token/cost/
-  transcript. See "Live Mode voice turns" further down.
+  record per voice turn plus a `final` session summary. These DO carry model/token/cost
+  fields (and the transcript too, but only under TMUXRC_QSDEBUG). See "Live Mode voice
+  turns" further down.
 
 A `tmux-rc.live` query that wants only watch-time must add `WHERE kind IS NULL`; a cost
 query must add `WHERE kind = 'live_turn'` — otherwise the two shapes mix and half the
