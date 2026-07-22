@@ -417,7 +417,13 @@
   .usage::-webkit-scrollbar { display: none; }
   /* The dot lights green when the telemetry popover is open — a subtle "you tapped me". */
   header .dot[aria-expanded="true"] { box-shadow: 0 0 0 3px #3fb95033; }
-  header .dot { cursor: pointer; }
+  /* The dot is an 8×8 visual, but it's now a tap toggle — an invisible pseudo-element
+     grows the hit area to ~40px (touch-target minimum) without inflating the dot. It's
+     the rightmost header control, with 16px header padding to its right, so the hit area
+     extends into that padding rather than overlapping the docs link on its left. */
+  header .dot { cursor: pointer; position: relative; }
+  header .dot::after { content: ""; position: absolute; top: 50%; left: 0;
+    width: 40px; height: 40px; margin-left: -8px; transform: translateY(-50%); }
   .usage .err { color: #f85149; }
   .usage .warn { color: #e3b341; }  /* transient LLM error hint, subtle not shouty */
 .links { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
@@ -450,8 +456,8 @@
         <a id="docs-link" href="/docs/" target="_blank" rel="noopener" title="Design docs (opens in a new tab)" aria-label="Design docs">docs</a>
         <!-- Status dot doubles as the LLM-telemetry toggle: the stats are dim debug
              chrome, so they stay hidden until you tap the dot (see #usage popover). -->
-        <span id="live" class="dot off" title="connection" role="button" tabindex="0" aria-expanded="false" aria-label="Connection status — tap for LLM telemetry"></span>
-        <span id="usage" class="usage" role="status" aria-live="off" aria-label="LLM telemetry (parser + voice)" hidden></span>
+        <span id="live" class="dot off" title="connection" role="button" tabindex="0" aria-expanded="false" aria-controls="usage" aria-label="Connection status — tap for LLM telemetry"></span>
+        <span id="usage" class="usage" role="region" aria-label="LLM telemetry (parser + voice)" hidden></span>
       </span>
     </header>
 
