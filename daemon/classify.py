@@ -139,10 +139,15 @@ def classify(
     if result.get("question") or result.get("rewind"):
         result["activity"] = "waiting"
         result["waiting_on"] = "user"
-    # waiting_on says WHOM a waiting pane is blocked on. Default absent → "user" (the safe
-    # actionable default: never demote a real user-wait to the busy/running treatment).
-    if result.get("activity") == "waiting" and result.get("waiting_on") != "external":
-        result["waiting_on"] = "user"
+    # waiting_on says WHOM a WAITING pane is blocked on and is meaningful only then:
+    # default absent → "user" (the safe actionable default — never demote a real
+    # user-wait to the busy/running treatment), and drop any stray value the model
+    # emitted on a non-waiting pane so it can't leak inconsistent state to the UI.
+    if result.get("activity") == "waiting":
+        if result.get("waiting_on") != "external":
+            result["waiting_on"] = "user"
+    else:
+        result.pop("waiting_on", None)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.

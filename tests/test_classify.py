@@ -129,6 +129,13 @@ def test_non_waiting_gets_no_waiting_on():
     assert "waiting_on" not in r  # only meaningful for waiting panes
 
 
+def test_stray_waiting_on_dropped_when_not_waiting():
+    # The model may emit waiting_on on a non-waiting pane; classify must drop it so a
+    # stale value never leaks to the UI (contract: meaningful only when activity==waiting).
+    r = classify(_pane(), "…", _llm({"activity": "running", "waiting_on": "external"}))
+    assert "waiting_on" not in r
+
+
 def test_no_llm_fallback_idle_shell():
     r = classify(_pane("bash"), "shapor@host:~/proj$ ", llm_fn=None)
     assert r["tool"] == "shell" and r["activity"] == "idle"
