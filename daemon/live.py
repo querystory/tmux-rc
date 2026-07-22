@@ -183,12 +183,16 @@ def _live_client():
 
 
 def _screen_tail(watcher, pane_id: str) -> str:
-    """Last SCREEN_TAIL_LINES of a pane's current screen, via the newest snapshot (the
-    watcher strips the LLM dim-markers at that boundary). Empty if none captured yet."""
+    """Last SCREEN_TAIL_LINES of a pane's current screen, dim-MARKED — the same
+    ⟪dim⟫-wrapped text the classify parser sees, so the voice model can tell draft/ghost/
+    placeholder runs (composer autocomplete, unsent input) from real output instead of
+    treating them as typed content. Use the stored snapshot text directly, NOT
+    watcher.snapshot_text() — that one strips the markers for the phone's raw render.
+    Empty if none captured yet."""
     hist = watcher.snapshots.get(pane_id) or []
     if not hist:
         return ""
-    text = watcher.snapshot_text(pane_id, hist[-1]["id"]) or ""
+    text = hist[-1]["text"] or ""
     lines = text.rstrip().splitlines()[-SCREEN_TAIL_LINES:]
     return "\n".join(lines)[-SCREEN_TAIL_CHARS:]
 
