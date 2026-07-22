@@ -664,9 +664,11 @@ class Watcher:
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
-            # The pane TITLE lives outside the captured text — agents rename it while
-            # the screen sits still, so refresh it even when nothing else re-parses.
+            # The pane TITLE and its WINDOW NUMBER live outside the captured text — an
+            # agent renames the title, and moving/closing windows renumbers the index,
+            # while the screen sits still. Refresh both even when nothing else re-parses.
             cached["title"] = pane.display_title
+            cached["window_index"] = pane.window_index
             # Idle a while with unsummarized activity → summarize the burst once, so the
             # UI can collapse those events under a {from,to,text} span.
             cached["summary"] = self._maybe_summarize(pane.id, idle)
