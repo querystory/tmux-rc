@@ -664,10 +664,12 @@ class Watcher:
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
-            # The pane TITLE and its WINDOW NUMBER live outside the captured text — an
-            # agent renames the title, and moving/closing windows renumbers the index,
-            # while the screen sits still. Refresh both even when nothing else re-parses.
+            # A pane's NAMES and NUMBER live outside the captured text — an agent renames
+            # the title, tmux rename-window/-session changes the label, moving or closing
+            # windows renumbers the index — all while the screen sits still. Refresh them
+            # even when nothing re-parses, or a titleless pane keeps a stale spoken name.
             cached["title"] = pane.display_title
+            cached["label"] = pane.label
             cached["window_index"] = pane.window_index
             # Idle a while with unsummarized activity → summarize the burst once, so the
             # UI can collapse those events under a {from,to,text} span.
