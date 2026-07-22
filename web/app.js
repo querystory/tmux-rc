@@ -656,41 +656,55 @@ function captureIconRects() {
     flipPrev[r.dataset.pane] = { rect: r.getBoundingClientRect(), node: r.cloneNode(true) };
   });
 }
-// Fly a clone fixed at `from`, animating transform to `to` (delta) and, if `fade`,
-// opacity to it — the one WAI engine shared by all three list cases. WAI not CSS-class
-// transitions: keyframes take effect the moment they're created, so the start state
-// actually paints (the class-toggle version lost the race and text popped in early).
-function flyClone(node, from, to, fade, done) {
+// FLIP delta as CENTER-to-center — a dock icon and a row icon are different sizes, so a
+// top-left delta would land the clone offset by half their size difference. Survivors use
+// this too (same-size rects, so it reduces to the plain delta) to keep one convention.
+const cx = (r) => (r.left + r.right) / 2, cy = (r) => (r.top + r.bottom) / 2;
+const flipDelta = (from, to) => `translate(${cx(to) - cx(from)}px,${cy(to) - cy(from)}px)`;
+// Fly a clone from `from` to `to` and, if `fade`, opacity out — the one WAI engine shared
+// by all three list cases. WAI not CSS-class transitions: keyframes take effect the moment
+// they're created, so the start state actually paints (the class-toggle version lost the
+// race and text popped in early). The clone keeps its OWN natural size (`box`, default the
+// `from` rect — the leaver IS its from rect; the entrant icon passes its own smaller box so
+// it isn't stretched to the dock icon's), CENTERED on `from`, then flown center→center.
+function flyClone(node, from, to, fade, done, box = from) {
   Object.assign(node.style, {
-    position: "fixed", left: from.left + "px", top: from.top + "px",
-    width: from.width + "px", margin: "0", zIndex: 30, pointerEvents: "none",
+    position: "fixed", left: cx(from) - box.width / 2 + "px", top: cy(from) - box.height / 2 + "px",
+    width: box.width + "px", height: box.height + "px", margin: "0", zIndex: 30, pointerEvents: "none",
   });
   document.body.appendChild(node);
-  const end = () => { node.remove(); if (done) done(); };
+  // Idempotent teardown: onfinish and the safety timer race, but whichever fires first
+  // clears the other so the clone is removed and `done` runs exactly once (same one-shot
+  // guard style as the icon-fly's reveal). Interrupted flights still can't strand a clone.
+  let timer;
+  const end = () => { clearTimeout(timer); if (!node.isConnected) return; node.remove(); if (done) done(); };
   node.animate(
-    [{ transform: "translate(0,0)", opacity: fade ? 1 : undefined },
-     { transform: `translate(${to.left - from.left}px,${to.top - from.top}px)`, opacity: fade ? 0 : undefined }],
+    [{ transform: "translate(0,0)", ...(fade && { opacity: 1 }) },
+     { transform: flipDelta(from, to), ...(fade && { opacity: 0 }) }],
     { duration: 250, easing: "ease-out", fill: "forwards" }
   ).onfinish = end;
-  setTimeout(end, 400); // safety: never strand a clone (or a blank row) if interrupted
+  timer = setTimeout(end, 400);
 }
 function flipIn(root) {
   if (!flipFrom) return;
   const from = flipFrom, prev = flipPrev;
   flipFrom = flipPrev = null;
   const now = new Set([...root.querySelectorAll(".prow")].map((r) => r.dataset.pane));
-  // Leaving rows: in the old list but not the new. Fade+drift their clone out in place.
+  // Leaving rows: in the old list but not the new. Fade+drift their clone out in place —
+  // `to` is the same box nudged down 12px (all four edges, so the center delta is a clean
+  // 12px drop). flipDelta reads left/right/top/bottom, so give it a full rect-like.
   for (const [id, p] of Object.entries(prev))
-    if (!now.has(id)) flyClone(p.node, p.rect, { left: p.rect.left, top: p.rect.top + 12 }, true);
+    if (!now.has(id)) {
+      const r = p.rect;
+      flyClone(p.node, r, { left: r.left, right: r.right, top: r.top + 12, bottom: r.bottom + 12 }, true);
+    }
   root.querySelectorAll(".prow").forEach((r) => {
     const old = prev[r.dataset.pane];
     // SURVIVOR: already on screen in the old filter — no icon-fly, no invisibility. FLIP:
     // start it at its old position (First→Invert) and slide the delta to its new spot (Play).
     if (old) {
-      const dst = r.getBoundingClientRect();
       r.animate(
-        [{ transform: `translate(${old.rect.left - dst.left}px,${old.rect.top - dst.top}px)` },
-         { transform: "translate(0,0)" }],
+        [{ transform: flipDelta(r.getBoundingClientRect(), old.rect) }, { transform: "translate(0,0)" }],
         { duration: 250, easing: "ease-out" }
       );
       return;
@@ -702,11 +716,12 @@ function flipIn(root) {
     const icon = r.querySelector(".icon");
     if (!src || !icon) return;
     r.style.opacity = "0";
-    flyClone(icon.cloneNode(true), src, icon.getBoundingClientRect(), false, () => {
+    const dst = icon.getBoundingClientRect(); // the clone is icon-sized, so freeze its box to this
+    flyClone(icon.cloneNode(true), src, dst, false, () => {
       if (r.style.opacity !== "0") return;
       r.style.opacity = "";
       r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
-    });
+    }, dst);
   });
 }
 
