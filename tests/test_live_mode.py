@@ -66,7 +66,8 @@ class _WS:
 def test_pane_context_carries_state_and_screens():
     w = _Watcher()
     ctx = L._pane_context(w, screens="all")
-    # User-facing identity (window number + title) leads; the %id is the tool-call handle.
+    # User-facing identity (window number + name) leads; the %id is the tool-call handle.
+    # Name falls back to label here (stub has no self-published title).
     assert 'window 3 "work" (id=%1) — claude — waiting' in ctx
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
@@ -78,6 +79,20 @@ def test_pane_context_carries_state_and_screens():
     active = L._pane_context(w, screens="active")
     assert "one\ntwo\nthree" in active  # %1 is tmux_active
     assert "idle-shell-screen" not in active  # %2 is not, so its screen stays out
+
+
+def test_pane_block_names_window_prefers_title_hides_id_role():
+    # Heading leads with window number + best-first name (title over label), and the %id
+    # is present only as the tool-call handle — never as the spoken identity.
+    titled = L._pane_block(
+        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78",
+         "label": "work", "tool": "claude", "activity": "idle"}, None)
+    assert 'window 9 "Resolve PR 78" (id=%16)' in titled
+    # No self-published title ⇒ fall back to the window label.
+    untitled = L._pane_block(
+        {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
+         "tool": "shell", "activity": "running"}, None)
+    assert 'window 2 "shell" (id=%2)' in untitled
 
 
 def test_system_prompt_has_rules_and_panes():

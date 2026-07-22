@@ -205,8 +205,11 @@ def _pane_block(d: dict, screen: str | None) -> str:
     pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
     win = d.get("window_index")
     head = f"window {win}" if win not in (None, "") else "window"
-    if d.get("label"):
-        head += f' "{d["label"]}"'
+    # Best-first name, matching the phone card: the agent's self-published title, else
+    # the window label (which itself falls back to session / session:index).
+    name = d.get("title") or d.get("label")
+    if name:
+        head += f' "{name}"'
     head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
     if d.get("tmux_active"):

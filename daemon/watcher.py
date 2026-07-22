@@ -229,6 +229,7 @@ class Watcher:
                 {
                     "pane_id": pid,
                     "label": s.get("label"),
+                    "title": s.get("title"),  # agent's self-published name, best-first
                     "window_index": s.get("window_index"),
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
