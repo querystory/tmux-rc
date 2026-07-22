@@ -696,9 +696,12 @@ function dragReorder(icon) {
   icon.addEventListener("pointermove", (e) => {
     if (e.pointerId !== pid) return; // only the pointer that started this gesture drives it
     if (!held) {
-      // Moved before the hold armed ⇒ this is a scroll/tap, not a reorder: let the dock
-      // scroll natively and don't arm.
-      if (Math.abs(e.clientX - sx) > SLOP) clearTimeout(timer);
+      // Moved before the hold armed ⇒ this is a scroll/tap, not a reorder: cancel the
+      // arm and RELEASE ownership (pid) now. No pointer capture was taken yet, so the
+      // eventual up may land elsewhere (the user scrolled and lifted off this icon) and
+      // never reach our handlers — clearing pid here keeps the icon reusable immediately
+      // instead of wedged until the next re-render.
+      if (Math.abs(e.clientX - sx) > SLOP) { clearTimeout(timer); pid = null; }
       return;
     }
     // Armed: this gesture is a reorder, not a scroll. The .dragging class set on arm
@@ -726,7 +729,12 @@ function dragReorder(icon) {
       const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
       el.addEventListener("click", swallow, { capture: true, once: true });
       setTimeout(() => el.removeEventListener("click", swallow, { capture: true }), 400);
-      const over = overIcon(e.clientX);
+      // Only reorder if the release is actually over the strip vertically — under pointer
+      // capture the up can fire far above/below the dock (finger left the strip), and an X
+      // that happens to line up with an icon there shouldn't trigger a surprise reorder.
+      const dr = el.getBoundingClientRect();
+      const inStrip = e.clientY >= dr.top && e.clientY <= dr.bottom;
+      const over = inStrip ? overIcon(e.clientX) : null;
       if (over && over.dataset.pane !== icon.dataset.pane) {
         // after: dropped on the RIGHT half of the target ⇒ place src after it.
         const r = over.getBoundingClientRect();
