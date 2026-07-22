@@ -274,6 +274,9 @@ async function poll() {
     // re-polls immediately, so don't send the user hard-refreshing over a transient.
     liveEl.className = "dot off";
     const transient = /failed to fetch|networkerror|load failed/i.test(String(e && e.message || e));
+    // Report the NON-transient poll failures (a resume/network blip is expected noise);
+    // a persistent JSON/parse fault is the invisible-on-mobile bug #57 is about.
+    if (!transient) reportError("poll", e);
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(${hint})</small></div>`;
@@ -316,27 +319,28 @@ document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
 
 const usageEl = document.getElementById("usage");
-// Touch has no hover: tap the debug readout to reveal it (brightens via .lit).
-// Focusable (tabindex in the HTML) so keyboard users get the same toggle.
-usageEl.onclick = () => {
-  const lit = usageEl.classList.toggle("lit");
-  usageEl.setAttribute("aria-pressed", String(lit));
+// The stats are dim debug telemetry, not primary chrome — so they hide behind the status
+// dot: tapping the dot toggles the #usage popover. The dot is focusable (tabindex in HTML)
+// so keyboard users get the same toggle; aria-expanded reflects popover state.
+liveEl.onclick = () => {
+  usageEl.hidden = !usageEl.hidden;
+  liveEl.setAttribute("aria-expanded", String(!usageEl.hidden));
 };
 // Native-button key semantics: Enter fires on keydown; Space on keyup (keydown only
 // suppresses page scroll) so key-repeat can't machine-gun the toggle.
-usageEl.onkeydown = (e) => {
-  if (e.key === "Enter") { e.preventDefault(); usageEl.click(); }
+liveEl.onkeydown = (e) => {
+  if (e.key === "Enter") { e.preventDefault(); liveEl.click(); }
   else if (e.key === " ") e.preventDefault();
 };
-usageEl.onkeyup = (e) => {
-  if (e.key === " ") { e.preventDefault(); usageEl.click(); }
+liveEl.onkeyup = (e) => {
+  if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
 function showUsage(u, err) {
   if (!u) {
     // Gone (reconnect, fresh daemon): clear the leftovers too — a stale tooltip on an
-    // empty span, or a "revealed" state announcing itself to assistive tech.
+    // empty span, or a popover left open with nothing to show.
     usageEl.textContent = ""; usageEl.title = "";
-    usageEl.classList.remove("lit"); usageEl.setAttribute("aria-pressed", "false");
+    usageEl.hidden = true; liveEl.setAttribute("aria-expanded", "false");
     return;
   }
   // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
@@ -397,6 +401,8 @@ function render(states) {
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     _joinRO.disconnect(); // stop watching the card we're about to drop
     dockEl.replaceChildren();
+    filtersEl.replaceChildren(); // no panes ⇒ no tallies to filter by
+
     // Drop the card-view dock state too: its onscroll pin closes over the now-dead
     // card nodes, and the seam classes would style a dock that no longer has a card.
     dockEl.onscroll = null;
@@ -563,6 +569,7 @@ const _joinRO = new ResizeObserver(() => {
 // of just those panes (tapped via the dock's tally badges / "all").
 let listFilter = null;
 const dockEl = document.getElementById("dock");
+const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 function dock(states, act) {
   const el = dockEl;
   el.replaceChildren();
@@ -591,10 +598,10 @@ function dock(states, act) {
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
     el.appendChild(b);
   }
-  // Density + navigation: per-activity tallies, right-aligned — each one FILTERS the
+  // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
+  // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
   // list view to those panes; "all" lists everything.
-  const counts = document.createElement("span");
-  counts.className = "dock-counts";
+  filtersEl.replaceChildren();
   const n = {};
   states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
   const filt = (label, key) => {
@@ -602,11 +609,10 @@ function dock(states, act) {
     b.className = "badge b-" + key;
     b.textContent = label;
     b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
-    counts.appendChild(b);
+    filtersEl.appendChild(b);
   };
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
   filt("all", "all");
-  el.appendChild(counts);
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center the
@@ -887,6 +893,42 @@ const SESSION_ID = (() => {
   } catch { /* no CSPRNG / blocked crypto ⇒ fall through to un-attributable */ }
   return "";
 })();
+
+// Ship a browser-side failure to the daemon → OTel (issue #57): mobile has no devtools,
+// so a swallowed mic denial / ws close / poll catch / uncaught exception is otherwise
+// invisible. Structural (kind, error name) + the free-text detail; the daemon drops the
+// detail unless TMUXRC_QSDEBUG. Best-effort and NON-RECURSIVE: the fetch's own failure is
+// swallowed (a dead backend must not spawn a report about the failed report), and a tight
+// error loop is deduped + capped so it can't spam the daemon.
+const _errSeen = new Set();      // kind|detail already reported this page-load ⇒ skip
+let _errCount = 0;               // hard cap regardless of distinctness
+function reportError(kind, detail) {
+  try {
+    const msg = detail == null ? "" : String(detail.message || detail);
+    const key = kind + "|" + msg;
+    if (_errSeen.has(key) || _errCount >= 50) return;
+    _errSeen.add(key); _errCount++;
+    // name distinguishes NotAllowedError (denied) from NotFoundError (no mic) etc.;
+    // for a plain string detail it's absent. Session joins to live/parse telemetry.
+    fetch("/api/client-error", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind,
+        name: (detail && detail.name) || undefined,
+        message: msg || undefined,
+        endpoint: (detail && detail.endpoint) || undefined,
+        session: SESSION_ID || undefined,
+      }),
+    }).catch(() => {}); // NEVER report a failed report — that's the recursion guard
+  } catch { /* reporting must never throw into the caller's error path */ }
+}
+// Uncaught exceptions and rejected promises that reach the top — the catch-all for
+// failures no explicit handler wrapped. Added once at module load.
+window.addEventListener("error", (e) =>
+  reportError("onerror", e.error || e.message));
+window.addEventListener("unhandledrejection", (e) =>
+  reportError("unhandledrejection", e.reason));
 
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   const ac = new AbortController();
@@ -1918,7 +1960,16 @@ async function lmStart() {
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") lmAdd("err", `⚠ ${m.message}`);
   };
-  ws.onclose = () => { if (lmWs === ws) lmStop(); };
+  ws.onclose = (e) => {
+    if (lmWs !== ws) return;
+    // An abnormal close (never opened / dropped mid-session) is exactly the ws failure
+    // #57 wants visible; only a CLEAN close is skipped — 1000 (normal, we called stop)
+    // and 1005 (no status). Everything else, INCLUDING code 0/1006 (failed handshake /
+    // no close frame), is reported — those are the very failures this surfaces.
+    if (e.code !== 1000 && e.code !== 1005)
+      reportError("ws", { name: "close " + e.code, message: e.reason || "" });
+    lmStop();
+  };
   ws.onopen = async () => {
     if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
     try { await lmCapture(ws); }
@@ -1926,7 +1977,9 @@ async function lmStart() {
       // Surface the real reason PERSISTENTLY: lmStop() re-renders and wipes the card
       // feed, so a mere lmAdd flashes and vanishes (invisible on mobile). alert() so the
       // operator can actually read why the mic failed — name+message distinguish a
-      // permission denial (NotAllowedError) from no-device (NotFoundError) etc.
+      // permission denial (NotAllowedError) from no-device (NotFoundError) etc. Also
+      // report to telemetry so the failure rate is queryable by platform (#57).
+      reportError("mic", e);
       lmStop();
       alert(`Live Mode mic error:\n${e.name || "Error"}: ${e.message}\n\n`
         + "If this is a permission issue: grant microphone access to this site/app "
