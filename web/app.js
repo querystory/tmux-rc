@@ -652,8 +652,10 @@ function dock(states, act) {
 // events, not HTML5 dnd (poor on touch). The gesture must not fight the dock's own
 // horizontal SCROLL: a reorder starts only after a LONG-PRESS hold in place — a quick
 // horizontal drag before the hold fires stays a scroll (we bail the moment the finger
-// moves past a small slop before the timer). Once held, the icon follows the finger and
-// the drop target is whichever icon the pointer is over.
+// moves past a small slop before the timer). On arm we add .dragging, whose
+// touch-action:none is what actually stops the strip from panning during the drag (a
+// stationary finger at arm time means no scroll is underway yet). Once held, the icon
+// follows the finger and the drop target is whichever icon the pointer is over.
 const HOLD_MS = 350, SLOP = 8; // hold to arm; movement over SLOP before it cancels
 function dragReorder(icon) {
   let held = false, timer = 0, sx = 0, dragging = false, ownedBusy = false, pid = null;
@@ -699,8 +701,9 @@ function dragReorder(icon) {
       if (Math.abs(e.clientX - sx) > SLOP) clearTimeout(timer);
       return;
     }
-    // Armed: this gesture is a reorder, not a scroll. pointermove is non-passive, so
-    // preventDefault stops the strip from also panning under the drag.
+    // Armed: this gesture is a reorder, not a scroll. The .dragging class set on arm
+    // gives the icon touch-action:none (the reliable scroll-suppressor on touch); this
+    // preventDefault additionally covers mouse/pen and pointer-capture-only browsers.
     e.preventDefault();
     dragging = true;
     icon.style.transform = `translateX(${e.clientX - sx}px)`;

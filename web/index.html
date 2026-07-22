@@ -70,10 +70,14 @@
   .dock-icon.sel { background: #21262d; border-color: #388bfd; }
   /* Drag-reorder: a dashed ring marks the icon under the finger as the drop target so
      the reorder reads clearly on a small screen. (The dock keeps its native horizontal
-     scroll — the reorder arms only on a long-press hold, and JS then suppresses scroll
-     for that gesture; see dragReorder in app.js.) */
+     scroll — the reorder arms only on a long-press hold, see dragReorder in app.js.) */
   .dock-icon.drop-into { border-style: dashed; border-color: #388bfd; }
-  .dock-icon.dragging { opacity: 0.85; }
+  /* Armed drag: touch-action:none tells the browser to stop panning the strip for this
+     gesture — the RELIABLE touch scroll-suppression (pointermove.preventDefault alone is
+     not honored for scroll on all touch browsers). Applied only while dragging, so a
+     normal touch on an icon still scrolls the overflow-x dock; the class lands the instant
+     the long-press arms (finger still ⇒ no scroll has begun yet). */
+  .dock-icon.dragging { opacity: 0.85; touch-action: none; }
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: #6e7681; box-shadow: 0 0 0 2px #0b0f14; }
