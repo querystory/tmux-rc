@@ -42,6 +42,7 @@
   header {
     padding: 12px 16px 4px; font-weight: 600; font-size: 17px;
     display: flex; justify-content: space-between; align-items: center;
+    position: relative; /* containing block for the #usage telemetry popover */
   }
   .brand { display: inline-flex; align-items: flex-start; gap: 3px; }
   .brand-logo { height: 20px; display: block; }
@@ -64,6 +65,13 @@
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: #6e7681; box-shadow: 0 0 0 2px #0b0f14; }
   .dock-counts { margin-left: auto; display: flex; gap: 4px; flex: none; align-items: center; }
+  /* Same badges, now homed in the header: no auto-margin (space-between already sets the
+     three-column layout), and on a tight phone they scroll horizontally rather than shove
+     the brand or the mic pill off-screen. */
+  #filters { margin-left: 0; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none;
+    justify-content: center; padding: 0 8px; }
+  #filters::-webkit-scrollbar { display: none; }
+  #filters:empty { display: none; }
   .dock-counts .badge { border: 0; cursor: pointer; font-family: inherit; }
   .badge.b-all { background: #21262d; color: #adbac7; }
   .dim { color: #6e7681; }
@@ -397,9 +405,19 @@
   /* Debug telemetry: recedes into the background (it's for us, not the operator) and
      brightens only on hover/focus/tap. The live dot beside it stays fully lit — that's
      the one always-relevant signal. */
-  .usage { font-size: 11px; color: #484f58; font-family: ui-monospace, monospace; font-weight: 400;
-    opacity: .55; transition: opacity .15s, color .15s; cursor: default; }
-  .usage:hover, .usage:focus, .usage.lit { opacity: 1; color: #8b949e; }
+  /* Tucked behind the status dot: a popover pinned to the header's right edge, shown only
+     while the dot is toggled on (#usage[hidden] otherwise). Dim debug chrome, so it reads
+     recessed even when open — it's for us, not the operator. */
+  .usage { position: absolute; top: 100%; right: 12px; z-index: 6; margin-top: 2px;
+    max-width: calc(100vw - 24px); white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 4px 8px;
+    box-shadow: 0 4px 16px #0008;
+    font-size: 11px; color: #8b949e; font-family: ui-monospace, monospace; font-weight: 400; }
+  .usage[hidden] { display: none; }
+  .usage::-webkit-scrollbar { display: none; }
+  /* The dot lights green when the telemetry popover is open — a subtle "you tapped me". */
+  header .dot[aria-expanded="true"] { box-shadow: 0 0 0 3px #3fb95033; }
+  header .dot { cursor: pointer; }
   .usage .err { color: #f85149; }
   .usage .warn { color: #e3b341; }  /* transient LLM error hint, subtle not shouty */
 .links { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
@@ -424,11 +442,16 @@
       <!-- tmux logo (ISC, © 2015 Jason Long — see tmux-logo.LICENSE; screen fill
            lightened for the dark background) with our "rc" as a superscript. -->
       <span class="brand"><img src="/tmux-logo.svg" alt="tmux" class="brand-logo" /><sup class="brand-sup">rc</sup></span>
+      <!-- Pane filters live here (always visible), not in the dock strip where they'd
+           scroll off once enough panes fill the width. Built by dock(). -->
+      <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
         <button id="lm-btn" title="Live Mode — talk to your session" aria-label="Start Live Mode">🎙 live</button>
         <a id="docs-link" href="/docs/" target="_blank" rel="noopener" title="Design docs (opens in a new tab)" aria-label="Design docs">docs</a>
-        <span id="usage" class="usage" role="button" tabindex="0" aria-pressed="false" aria-label="LLM telemetry (parser + voice)"></span>
-        <span id="live" class="dot off" title="connection"></span>
+        <!-- Status dot doubles as the LLM-telemetry toggle: the stats are dim debug
+             chrome, so they stay hidden until you tap the dot (see #usage popover). -->
+        <span id="live" class="dot off" title="connection" role="button" tabindex="0" aria-expanded="false" aria-label="Connection status — tap for LLM telemetry"></span>
+        <span id="usage" class="usage" role="status" aria-live="off" aria-label="LLM telemetry (parser + voice)" hidden></span>
       </span>
     </header>
 
