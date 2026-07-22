@@ -582,13 +582,17 @@ function dock(states, act) {
     // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
     // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
     const a = actOf(s);
-    // Subscript count of RUNNING background sub-agents (parser derives s.agents), in the
-    // opposite corner from the activity dot — a glanceable "3 workers busy here".
+    // Subscript count of RUNNING background sub-agents (parser derives s.agents). Coerce
+    // to a non-negative int — s.agents is untyped LLM/server JSON going into innerHTML,
+    // so a non-numeric value must never reach the DOM. Sits in the opposite corner from
+    // the activity dot — a glanceable "3 workers busy here".
+    const nsub = Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
     b.innerHTML = iconFor(s.tool) +
       (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "") +
-      (s.agents > 0 ? `<sub class="sacount" aria-label="${s.agents} sub-agents">${s.agents}</sub>` : "");
+      (nsub > 0 ? `<sub class="sacount">${nsub}</sub>` : "");
     b.title = s.title || s.label || s.pane_id;
-    b.setAttribute("aria-label", b.title);
+    // Fold the sub-agent count into the button's own label so assistive tech announces it.
+    b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agents` : ""));
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
