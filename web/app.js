@@ -274,6 +274,9 @@ async function poll() {
     // re-polls immediately, so don't send the user hard-refreshing over a transient.
     liveEl.className = "dot off";
     const transient = /failed to fetch|networkerror|load failed/i.test(String(e && e.message || e));
+    // Report the NON-transient poll failures (a resume/network blip is expected noise);
+    // a persistent JSON/parse fault is the invisible-on-mobile bug #57 is about.
+    if (!transient) reportError("poll", e);
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(${hint})</small></div>`;
@@ -887,6 +890,42 @@ const SESSION_ID = (() => {
   } catch { /* no CSPRNG / blocked crypto ⇒ fall through to un-attributable */ }
   return "";
 })();
+
+// Ship a browser-side failure to the daemon → OTel (issue #57): mobile has no devtools,
+// so a swallowed mic denial / ws close / poll catch / uncaught exception is otherwise
+// invisible. Structural (kind, error name) + the free-text detail; the daemon drops the
+// detail unless TMUXRC_QSDEBUG. Best-effort and NON-RECURSIVE: the fetch's own failure is
+// swallowed (a dead backend must not spawn a report about the failed report), and a tight
+// error loop is deduped + capped so it can't spam the daemon.
+const _errSeen = new Set();      // kind|detail already reported this page-load ⇒ skip
+let _errCount = 0;               // hard cap regardless of distinctness
+function reportError(kind, detail) {
+  try {
+    const msg = detail == null ? "" : String(detail.message || detail);
+    const key = kind + "|" + msg;
+    if (_errSeen.has(key) || _errCount >= 50) return;
+    _errSeen.add(key); _errCount++;
+    // name distinguishes NotAllowedError (denied) from NotFoundError (no mic) etc.;
+    // for a plain string detail it's absent. Session joins to live/parse telemetry.
+    fetch("/api/client-error", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind,
+        name: (detail && detail.name) || undefined,
+        message: msg || undefined,
+        endpoint: (detail && detail.endpoint) || undefined,
+        session: SESSION_ID || undefined,
+      }),
+    }).catch(() => {}); // NEVER report a failed report — that's the recursion guard
+  } catch { /* reporting must never throw into the caller's error path */ }
+}
+// Uncaught exceptions and rejected promises that reach the top — the catch-all for
+// failures no explicit handler wrapped. Added once at module load.
+window.addEventListener("error", (e) =>
+  reportError("onerror", e.error || e.message));
+window.addEventListener("unhandledrejection", (e) =>
+  reportError("unhandledrejection", e.reason));
 
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   const ac = new AbortController();
@@ -1918,7 +1957,14 @@ async function lmStart() {
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") lmAdd("err", `⚠ ${m.message}`);
   };
-  ws.onclose = () => { if (lmWs === ws) lmStop(); };
+  ws.onclose = (e) => {
+    if (lmWs !== ws) return;
+    // An abnormal close (never opened / dropped mid-session) is exactly the ws failure
+    // #57 wants visible; a clean close (we called stop) is code 1000/1005 — skip that.
+    if (e.code && e.code !== 1000 && e.code !== 1005)
+      reportError("ws", { name: "close " + e.code, message: e.reason || "" });
+    lmStop();
+  };
   ws.onopen = async () => {
     if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
     try { await lmCapture(ws); }
@@ -1926,7 +1972,9 @@ async function lmStart() {
       // Surface the real reason PERSISTENTLY: lmStop() re-renders and wipes the card
       // feed, so a mere lmAdd flashes and vanishes (invisible on mobile). alert() so the
       // operator can actually read why the mic failed — name+message distinguish a
-      // permission denial (NotAllowedError) from no-device (NotFoundError) etc.
+      // permission denial (NotAllowedError) from no-device (NotFoundError) etc. Also
+      // report to telemetry so the failure rate is queryable by platform (#57).
+      reportError("mic", e);
       lmStop();
       alert(`Live Mode mic error:\n${e.name || "Error"}: ${e.message}\n\n`
         + "If this is a permission issue: grant microphone access to this site/app "

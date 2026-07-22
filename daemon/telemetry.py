@@ -46,6 +46,10 @@ _SCOPE = "tmux-rc.classify"
 # benchmarks: a live round has no model/latency/tokens, and folding it into emit_parse
 # would poison every parse aggregate with null-model rows. See docs/design/live-telemetry.md.
 _LIVE_SCOPE = "tmux-rc.live"
+# Browser-side failures (mic denial, ws onclose, poll catch, uncaught exceptions) reported
+# by the client — own scope so "how often does Live Mode fail to get the mic, on what
+# platforms" doesn't fold into parse/live aggregates. See server._api_client_error.
+_CLIENT_SCOPE = "tmux-rc.client"
 _QSDEBUG = os.environ.get("TMUXRC_QSDEBUG") == "1"
 
 
@@ -339,3 +343,41 @@ def emit_live_turn(
         logger.debug("emit_live_turn attr build failed", exc_info=True)
         return
     _emit_record("tmux-rc live", attrs, _LIVE_SCOPE)
+
+
+def emit_client_error(
+    *,
+    kind: str,
+    name: str | None,
+    endpoint: str | None,
+    ua_class: str | None,
+    session: str | None,
+    actor: str | None,
+    message: str | None,
+) -> None:
+    """One record per browser-side failure the client reports (docs/design or issue #57).
+
+    `kind` is the reporting site ('mic', 'ws', 'poll', 'onerror', 'unhandledrejection');
+    `name` the error's class (NotAllowedError, TypeError, …); `endpoint` the URL/path it
+    failed against; `ua_class` a coarse platform bucket. These STRUCTURAL fields plus the
+    anonymous `session` and loopback-trusted `actor` are always sent — enough to answer
+    "how often, on what platform, for whom" without any content.
+
+    Privacy mirrors emit_parse: the free-text `message` (which can echo URLs, pane text,
+    or user input) attaches ONLY under TMUXRC_QSDEBUG. Best-effort — a report must never
+    break the request that carries it."""
+    try:
+        attrs = {"kind": kind}
+        for k, v in (("name", name), ("endpoint", endpoint), ("ua_class", ua_class)):
+            if v:
+                attrs[k] = v[:200]
+        if session:
+            attrs["session"] = session[:64]
+        if actor:
+            attrs["actor"] = actor[:200]
+        if _QSDEBUG and message:
+            attrs["message"] = message[:2000]
+    except Exception:  # noqa: BLE001 - never let telemetry break the request
+        logger.debug("emit_client_error attr build failed", exc_info=True)
+        return
+    _emit_record("tmux-rc client error", attrs, _CLIENT_SCOPE)

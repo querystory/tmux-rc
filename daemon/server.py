@@ -78,7 +78,13 @@ logger = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
-IMG_MAX_BYTES = 20 * 2**20  # generous for phone photos; blocks memory-ballooning uploads
+IMG_MAX_BYTES = (
+    20 * 2**20
+)  # generous for phone photos; blocks memory-ballooning uploads
+# A client-error report is a handful of short structural fields plus one capped message;
+# anything larger is malformed/hostile, so reject before parsing (fields are re-capped in
+# telemetry too — this bounds the READ so a huge body can't balloon memory).
+CLIENT_ERROR_MAX_BYTES = 8 * 2**10
 _EXT = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -91,6 +97,18 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+
+
+class ClientErrorBody(BaseModel):
+    """A browser-side failure report (see /api/client-error, web/app.js reportError).
+    All optional so a partial report still lands; fields are length-capped in the
+    endpoint before they reach telemetry."""
+
+    kind: str = "unknown"  # site: mic | ws | poll | onerror | unhandledrejection
+    name: str | None = None  # error class (NotAllowedError, TypeError, …)
+    endpoint: str | None = None  # URL/path it failed against
+    session: str | None = None  # page-load id (joins to live/parse telemetry)
+    message: str | None = None  # free-text — to OTel only under TMUXRC_QSDEBUG
 
 
 # Audit lines ride the standard root config above (INFO). Routine records, not warnings.
@@ -119,6 +137,26 @@ def _trusted_user(request: Request | None) -> str | None:
     peer = request.client.host if request.client else "?"
     claimed = request.headers.get("x-tunnel-user")
     return claimed if (claimed and peer in ("127.0.0.1", "::1")) else None
+
+
+def _ua_class(ua: str | None) -> str | None:
+    """Coarse platform bucket for a client-error report — the ANSWER to "on what
+    platforms does the mic fail" without storing the full (fingerprintable, free-text)
+    User-Agent. Derived server-side from the request's own UA, never client-supplied."""
+    if not ua:
+        return None
+    u = ua.lower()
+    if "android" in u:
+        return "android"
+    if "iphone" in u or "ipad" in u or "ipod" in u:
+        return "ios"
+    if "macintosh" in u or "mac os" in u:
+        return "mac"
+    if "windows" in u:
+        return "windows"
+    if "linux" in u:
+        return "linux"
+    return "other"
 
 
 def _audit(
@@ -325,7 +363,9 @@ def get_snapshot(pane_id: str, snap_id: str):
 def _pane_err(e: subprocess.CalledProcessError) -> HTTPException:
     """capture failures, honestly: _run turns tmux timeouts into rc 124 — that's a
     wedged tmux, not a missing pane."""
-    return HTTPException(*((504, "tmux timed out") if e.returncode == 124 else (404, "pane not found")))
+    return HTTPException(
+        *((504, "tmux timed out") if e.returncode == 124 else (404, "pane not found"))
+    )
 
 
 # Live view (docs/design/live-view.md): long-poll — hold until the screen differs
@@ -342,7 +382,10 @@ async def live_frame(
     # request defaults to None only so unit tests can drive the handler directly; FastAPI
     # still injects the real Request. (A `Request | None` annotation breaks FastAPI — it
     # tries to treat it as a Pydantic field — so the bare-Request default is deliberate.)
-    pane_id: str, request: Request = None, frame: str = "", session: str = ""
+    pane_id: str,
+    request: Request = None,
+    frame: str = "",
+    session: str = "",
 ):
     """One long-poll round: the client sends the hash of the frame it's showing and
     we answer with a newer colored frame, or {frame: same} after ~25s of no change
@@ -380,7 +423,11 @@ async def live_frame(
         changed = h != frame
         if changed or time.monotonic() >= deadline:
             _emit_live_round(
-                request, pane_id, session, time.monotonic() - started, changed,
+                request,
+                pane_id,
+                session,
+                time.monotonic() - started,
+                changed,
                 len(data) if changed else None,
             )
             # changed ⇒ send the new colored frame; else unchanged, client re-holds.
@@ -399,8 +446,12 @@ def _note_live_poll(pane_id: str) -> None:
 
 
 def _emit_live_round(
-    request: Request | None, pane_id: str, session: str, hold_s: float,
-    changed: bool, raw_bytes: int | None,
+    request: Request | None,
+    pane_id: str,
+    session: str,
+    hold_s: float,
+    changed: bool,
+    raw_bytes: int | None,
 ) -> None:
     """Best-effort telemetry for one completed live round. Off the request's critical
     path (the response is already decided) and fully swallowed, so it can never break
@@ -470,6 +521,47 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/client-error")
+async def client_error(request: Request):
+    """Sink for browser-side failures invisible on mobile (no devtools) — mic denial, ws
+    onclose, poll-loop catch, uncaught exceptions. Forwards to OTel next to parse/live
+    telemetry so client failures are queryable by platform (issue #57).
+
+    Caps the body so a huge report can't balloon daemon memory (fields are re-capped in
+    telemetry). Best-effort: a malformed/oversized report is dropped with the right status,
+    never raised past here — reporting an error must not itself become an error."""
+    # Reject on the DECLARED size before buffering the stream (request.body() reads it
+    # all into memory), then re-check the bytes we actually got — Content-Length can be
+    # absent or lie, so it's a cheap early-out, not the authority.
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > CLIENT_ERROR_MAX_BYTES:
+        raise HTTPException(413, "client-error report too large")
+    raw = await request.body()
+    if len(raw) > CLIENT_ERROR_MAX_BYTES:
+        raise HTTPException(413, "client-error report too large")
+    try:
+        body = ClientErrorBody.model_validate_json(raw)
+    except Exception:  # noqa: BLE001 - a malformed report is a 400, not a 500
+        raise HTTPException(400, "invalid client-error report") from None
+    try:
+        from . import telemetry
+
+        telemetry.emit_client_error(
+            kind=body.kind,
+            name=body.name,
+            endpoint=body.endpoint,
+            # Coarse platform bucket from the request's own UA — never trust a
+            # client-supplied class. Same loopback trust model as the audit actor.
+            ua_class=_ua_class(request.headers.get("user-agent")),
+            session=body.session,
+            actor=_trusted_user(request),
+            message=body.message,
+        )
+    except Exception:  # noqa: BLE001 - the report telemetry must never break the request
+        logger.debug("client-error emit failed", exc_info=True)
+    return {"ok": True}
+
+
 @app.post("/api/panes/{pane_id}/image")
 async def send_image(pane_id: str, file: UploadFile, request: Request):
     """Attach an image to the pane: clipboard + Ctrl-V so the agent embeds it INLINE,
@@ -497,7 +589,9 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     # Cap the read: an unbounded read() of a huge upload would balloon daemon memory.
     data = await file.read(IMG_MAX_BYTES + 1)
     if len(data) > IMG_MAX_BYTES:
-        _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: too large")
+        _audit(
+            request, "paste_image", pane_id, detail=mime, outcome="rejected: too large"
+        )
         raise HTTPException(413, f"image too large (max {IMG_MAX_BYTES // 2**20}MB)")
     if not data:
         _audit(request, "paste_image", pane_id, detail=mime, outcome="rejected: empty")
@@ -511,9 +605,15 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     # (collecting our chmod + stagings at a target of their choosing) or as their own
     # plain directory (making our chmod EPERM). Stage only in a real dir we own; with
     # ownership verified, the chmod below cannot fail.
-    if IMG_DIR.is_symlink() or not IMG_DIR.is_dir() or IMG_DIR.stat().st_uid != os.getuid():
+    if (
+        IMG_DIR.is_symlink()
+        or not IMG_DIR.is_dir()
+        or IMG_DIR.stat().st_uid != os.getuid()
+    ):
         _audit(request, "paste_image", pane_id, outcome="error: staging dir not ours")
-        raise HTTPException(500, f"{IMG_DIR} is not a directory we own; refusing to stage")
+        raise HTTPException(
+            500, f"{IMG_DIR} is not a directory we own; refusing to stage"
+        )
     os.chmod(IMG_DIR, 0o700)  # don't let umask leave stagings listable
     cutoff = time.time() - 86400
     for old in IMG_DIR.iterdir():
