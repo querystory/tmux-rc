@@ -605,6 +605,7 @@ function dock(states, act) {
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
+    dragReorder(b);
     el.appendChild(b);
   }
   // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
@@ -643,6 +644,107 @@ function dock(states, act) {
         behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
   });
+}
+
+// Drag a dock icon left/right to REORDER panes, persisted into tmux (POST reorder →
+// move-window server-side; the next poll re-renders the new tmux order — tmux is the
+// source of truth, the optimistic shuffle below is just for responsiveness). Pointer
+// events, not HTML5 dnd (poor on touch). The gesture must not fight the dock's own
+// horizontal SCROLL: a reorder starts only after a LONG-PRESS hold in place — a quick
+// horizontal drag before the hold fires stays a scroll (we bail the moment the finger
+// moves past a small slop before the timer). Once held, the icon follows the finger and
+// the drop target is whichever icon the pointer is over.
+const HOLD_MS = 350, SLOP = 8; // hold to arm; movement over SLOP before it cancels
+function dragReorder(icon) {
+  let held = false, timer = 0, sx = 0, dragging = false;
+  const el = dockEl;
+  const clear = () => {
+    clearTimeout(timer); held = dragging = false;
+    icon.classList.remove("dragging");
+    icon.style.transition = ""; icon.style.transform = ""; icon.style.zIndex = "";
+    el.querySelectorAll(".drop-into").forEach((n) => n.classList.remove("drop-into"));
+  };
+  // The icon the pointer is currently over (ignoring the dragged one), for the drop.
+  const overIcon = (x) => {
+    for (const n of el.querySelectorAll(".dock-icon")) {
+      if (n === icon) continue;
+      const r = n.getBoundingClientRect();
+      if (x >= r.left && x <= r.right) return n;
+    }
+    return null;
+  };
+  icon.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return; // left/touch only
+    sx = e.clientX;
+    // Arm the reorder after a hold IN PLACE. setPointerCapture routes the move/up here
+    // even once the icon translates out from under the finger.
+    timer = setTimeout(() => {
+      held = true;
+      busy = true; // freeze poll re-renders — a re-render mid-drag rebuilds the strip
+      icon.setPointerCapture(e.pointerId);
+      icon.classList.add("dragging");
+      icon.style.transition = "none"; icon.style.zIndex = "40";
+    }, HOLD_MS);
+  });
+  icon.addEventListener("pointermove", (e) => {
+    if (!held) {
+      // Moved before the hold armed ⇒ this is a scroll/tap, not a reorder: let the dock
+      // scroll natively and don't arm.
+      if (Math.abs(e.clientX - sx) > SLOP) clearTimeout(timer);
+      return;
+    }
+    // Armed: this gesture is a reorder, not a scroll. pointermove is non-passive, so
+    // preventDefault stops the strip from also panning under the drag.
+    e.preventDefault();
+    dragging = true;
+    icon.style.transform = `translateX(${e.clientX - sx}px)`;
+    const over = overIcon(e.clientX);
+    el.querySelectorAll(".drop-into").forEach((n) => n.classList.remove("drop-into"));
+    if (over) over.classList.add("drop-into");
+  });
+  const drop = (e) => {
+    clearTimeout(timer);
+    if (held && dragging) {
+      const over = overIcon(e.clientX);
+      if (over && over.dataset.pane !== icon.dataset.pane) {
+        // after: dropped on the RIGHT half of the target ⇒ place src after it.
+        const r = over.getBoundingClientRect();
+        reorderPane(icon.dataset.pane, over.dataset.pane, e.clientX > (r.left + r.right) / 2);
+      }
+    }
+    const wasDrag = held && dragging;
+    clear();
+    busy = false;
+    // A completed drag must not ALSO fire the icon's onclick (which would setActive the
+    // dragged pane). preventDefault on pointerup isn't enough — swallow the one synthetic
+    // click that follows, in the capture phase, then self-remove.
+    if (wasDrag) {
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      icon.addEventListener("click", swallow, { capture: true, once: true });
+    }
+  };
+  icon.addEventListener("pointerup", drop);
+  icon.addEventListener("pointercancel", () => { clearTimeout(timer); clear(); busy = false; });
+}
+
+// POST a reorder, then optimistically re-order the local strip so the drop feels
+// instant; the next /api/state poll reconciles to tmux's authoritative order.
+function reorderPane(src, target, after) {
+  fetch(`/api/panes/${encodeURIComponent(src)}/reorder`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target, after }),
+  }).catch(() => {});
+  const ids = Object.keys(panesById);
+  const from = ids.indexOf(src);
+  if (from < 0) return;
+  ids.splice(from, 1);
+  let to = ids.indexOf(target);
+  if (to < 0) return;
+  if (after) to += 1;
+  ids.splice(to, 0, src);
+  // Rebuild panesById in the new insertion order (= dock/list/swipe order) and re-render.
+  panesById = Object.fromEntries(ids.map((id) => [id, panesById[id]]));
+  render(Object.values(panesById));
 }
 
 // The list transition is a FLIP keyed on what actually changed between the two filter

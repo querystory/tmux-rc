@@ -99,6 +99,15 @@ class SendBody(BaseModel):
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
 
 
+class ReorderBody(BaseModel):
+    """A dock drag-reorder (see POST /api/panes/{id}/reorder). `target` is the pane the
+    dragged icon was dropped onto/beside; `after` says which side (drop-after vs
+    drop-before). The move happens at the WINDOW level server-side — see tmux.reorder_pane."""
+
+    target: str  # pane id ("%N") the dragged pane is placed relative to
+    after: bool = False  # True ⇒ place src AFTER target; False ⇒ before
+
+
 class ClientErrorBody(BaseModel):
     """A browser-side failure report (see /api/client-error, web/app.js reportError).
     All optional so a partial report still lands; fields are length-capped in the
@@ -518,6 +527,31 @@ def select(pane_id: str, request: Request):
         _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "select_pane", pane_id)
+    return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/reorder")
+def reorder(pane_id: str, body: ReorderBody, request: Request):
+    """Persist a dock drag-reorder into tmux itself — move pane_id's window before/after
+    the target's window. Same trust/audit treatment as send/select: it's a real terminal
+    mutation. The next watcher tick re-lists panes in the new tmux order and the dock
+    updates via the normal poll (tmux is the source of truth — no server-side array
+    hand-reorder). Cross-session / missing targets return 400 rather than crash."""
+    detail = f"target={body.target} after={body.after}"
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, "reorder_pane", pane_id, detail, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        tmux.reorder_pane(pane_id, body.target, body.after)
+    except RuntimeError as e:
+        # A rejectable request (cross-session, unknown target) — a 400, and audited as
+        # rejected so probing shows in the trail, not a 500 crash.
+        _audit(request, "reorder_pane", pane_id, detail, outcome=f"rejected: {e}")
+        raise HTTPException(400, str(e)) from None
+    except Exception as e:
+        _audit(request, "reorder_pane", pane_id, detail, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "reorder_pane", pane_id, detail)
     return {"ok": True}
 
 

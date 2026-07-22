@@ -214,6 +214,35 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
+def reorder_pane(src_id: str, dst_id: str, after: bool) -> None:
+    """Persist a dock drag-reorder by moving src's WINDOW before/after dst's window.
+
+    The dock flattens session→window→pane in list-panes order, and the drag maps to
+    reordering that flat strip — so we reorder at the WINDOW level with `move-window`,
+    the unit tmux's own status bar and window-index numbering key off. `-b`/`-a` insert
+    src's window immediately before/after dst's window and renumber the session
+    sequentially, which is exactly drop-before / drop-after and survives reload +
+    reflects to every attached client (real server-side order, not a client shuffle).
+
+    Panes that SHARE a window move together (they're one window) — coherent, since they
+    also share one window index in the dock's ordering. Cross-SESSION drag is rejected:
+    move-window across sessions would renumber a session the user didn't touch and has
+    no meaning on a single flat strip. Same window (a no-op drop, or the two ends of an
+    intra-window neighbor) is a harmless no-op. Raises RuntimeError on a cross-session
+    target so the caller returns a clear error rather than issuing a surprising move."""
+    src = find_pane(src_id)
+    dst = find_pane(dst_id)
+    if src is None or dst is None:
+        raise RuntimeError("pane not found")
+    if src.session != dst.session:
+        raise RuntimeError("cannot reorder across sessions")
+    src_win = f"{src.session}:{src.window_index}"
+    dst_win = f"{dst.session}:{dst.window_index}"
+    if src.window_index == dst.window_index:
+        return  # same window — nothing to move (renumbering it in place is a no-op)
+    _run(["move-window", "-a" if after else "-b", "-s", src_win, "-t", dst_win])
+
+
 # OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show
 # only LABEL; a plain capture (no -e) drops the URL entirely.
 _OSC8 = re.compile(r"\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)(.*?)\x1b\]8;;(?:\x07|\x1b\\)", re.S)

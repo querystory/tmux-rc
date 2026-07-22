@@ -68,6 +68,12 @@
     border-radius: 8px; padding: 6px 8px; cursor: pointer; color: #adbac7;
     font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
   .dock-icon.sel { background: #21262d; border-color: #388bfd; }
+  /* Drag-reorder: a dashed ring marks the icon under the finger as the drop target so
+     the reorder reads clearly on a small screen. (The dock keeps its native horizontal
+     scroll — the reorder arms only on a long-press hold, and JS then suppresses scroll
+     for that gesture; see dragReorder in app.js.) */
+  .dock-icon.drop-into { border-style: dashed; border-color: #388bfd; }
+  .dock-icon.dragging { opacity: 0.85; }
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: #6e7681; box-shadow: 0 0 0 2px #0b0f14; }
