@@ -262,12 +262,20 @@ def tail_marked(text: str, max_chars: int) -> str:
     kept tail begins inside one (a close precedes any open)."""
     if len(text) <= max_chars:
         return text
-    # Drop whole leading lines until within budget — no marker is ever split (they're
-    # intraline), so the kept text has only intact tokens.
+    # Drop whole leading lines while more than one remains over budget — markers are
+    # intraline, so line-boundary cuts never split a token.
     lines = text.splitlines()
-    while lines and len("\n".join(lines)) > max_chars:
+    while len(lines) > 1 and len("\n".join(lines)) > max_chars:
         lines.pop(0)
     cut = "\n".join(lines)
+    # A single surviving line can still exceed the budget (a long wrapped capture line);
+    # char-slice it rather than drop it to empty, then discard any leading marker fragment
+    # the slice created — resync to the first WHOLE marker (a clean, marker-free head stays).
+    if len(cut) > max_chars:
+        cut = cut[-max_chars:]
+        firsts = [i for i in (cut.find(DIM_OPEN), cut.find(DIM_CLOSE)) if i != -1]
+        if firsts and ("⟪" in cut[: firsts[0]] or "⟫" in cut[: firsts[0]]):
+            cut = cut[firsts[0] :]
     # If the tail opens inside a dim run (a close comes before any open), re-open it.
     nxt_open, nxt_close = cut.find(DIM_OPEN), cut.find(DIM_CLOSE)
     if nxt_close != -1 and (nxt_open == -1 or nxt_close < nxt_open):

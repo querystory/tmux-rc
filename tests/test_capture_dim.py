@@ -117,3 +117,12 @@ def test_tail_marked_never_splits_or_orphans_markers():
     # Whatever survives contains only WHOLE marker tokens (no ⟪…/⟫… fragments).
     stripped = out.replace(DIM_OPEN, "").replace(DIM_CLOSE, "")
     assert "⟪" not in stripped and "⟫" not in stripped
+
+    # A single line LONGER than the budget must not truncate to empty — keep its tail,
+    # still marker-clean (no split-token fragment, no orphaned close).
+    long_line = "a" * 30 + DIM_OPEN + "b" * 40 + DIM_CLOSE + "c" * 30
+    out3 = tail_marked(long_line, 20)
+    assert out3  # not empty
+    assert out3.count(DIM_OPEN) >= out3.count(DIM_CLOSE)
+    s3 = out3.replace(DIM_OPEN, "").replace(DIM_CLOSE, "")
+    assert "⟪" not in s3 and "⟫" not in s3
