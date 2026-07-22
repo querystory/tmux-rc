@@ -199,6 +199,8 @@ def _pane_block(d: dict, screen: str | None) -> str:
     if d.get("label"):
         head += f" ({d['label']})"
     head += f" — {d.get('activity') or 'unknown'}"
+    if d.get("tmux_active"):
+        head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
     if d.get("headline"):
         parts.append(f"now: {d['headline']}")
@@ -211,14 +213,19 @@ def _pane_block(d: dict, screen: str | None) -> str:
     return "\n".join(parts)
 
 
-def _pane_context(watcher, with_screens: bool) -> str:
+def _pane_context(watcher, screens: str) -> str:
     """All panes' state as prompt text — the digest the phone's cards already use, plus
-    (optionally) each pane's current screen tail. No LLM calls; pure reads of state the
-    watcher keeps current anyway."""
-    blocks = [
-        _pane_block(d, _screen_tail(watcher, d["pane_id"]) if with_screens else None)
-        for d in watcher.digest()
-    ]
+    each pane's current screen tail per `screens`: "all" (the connect snapshot), "active"
+    (only the focused pane — enough for the agent to read what it's acting on, without
+    re-streaming every screen on each state change), or "none". No LLM calls; pure reads
+    of state the watcher keeps current anyway."""
+
+    def tail(d):
+        if screens == "all" or (screens == "active" and d.get("tmux_active")):
+            return _screen_tail(watcher, d["pane_id"])
+        return None
+
+    blocks = [_pane_block(d, tail(d)) for d in watcher.digest()]
     return "\n\n".join(blocks) if blocks else "(no panes)"
 
 
@@ -226,7 +233,7 @@ def _system_prompt(watcher) -> str:
     stamp = time.strftime("%Y-%m-%d %H:%M %Z")
     return (
         f"{_load_prompt('live_prompt.txt')}\nNow: {stamp}"
-        f"\n\n# Panes (live state)\n\n{_pane_context(watcher, with_screens=True)}"
+        f"\n\n# Panes (live state)\n\n{_pane_context(watcher, screens='all')}"
     )
 
 
@@ -451,7 +458,7 @@ async def _context_updater(session, watcher) -> None:
         await asyncio.sleep(UPDATE_MIN_SECONDS)  # coalesce a burst into one update
         version = watcher.state_version()  # whatever landed during the throttle window
         await _send_ambient(
-            session, f"[tmux update] current pane state:\n\n{_pane_context(watcher, with_screens=False)}"
+            session, f"[tmux update] current pane state:\n\n{_pane_context(watcher, screens='active')}"
         )
 
 
