@@ -109,6 +109,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
 {
   "tool": "claude"|"codex"|"gemini"|"shell"|"unknown",
   "activity": "running"|"waiting"|"idle"|"compacting",
+  "waiting_on": "user"|"external",   // ONLY when activity is "waiting" — see WAITING ON below
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word). "
               "Write it like a mobile push notification the user will REACT to: carry "
@@ -195,6 +196,22 @@ survey at most as a minor event.
   list you press a digit for, or a cursor list you arrow through) — the options map to
   keystrokes, not typed text. Use this only for a real on-screen menu/picker.
 When unsure, prefer "text" (typing the answer is safe; sending a stray digit is not).
+
+WAITING ON — when (and ONLY when) activity is "waiting", say WHOM the pane is blocked on,
+because the phone treats these two very differently: a user-wait is an amber "tap me, I
+need you" badge; an external-wait is shown as ordinary busy. Set "waiting_on":
+- "user" — there is an INPUT AFFORDANCE on screen the human is expected to fill RIGHT NOW:
+  a question box, a permission/approval prompt, a y/n confirmation, a numbered/cursor
+  selection menu, a free-text prompt awaiting a typed answer. Anything that pairs with a
+  "question" or "rewind" is a user-wait.
+- "external" — the agent is blocked on something NON-human and there is nothing for the
+  user to do: a live sub-task / subagent indicator it is waiting to finish, a "waiting for
+  review" / "waiting for CI" / "waiting for the PR checks" line, a poll or "waiting for X
+  to finish" / "waiting for the deploy", a sleep/monitor loop, a spinner explicitly labeled
+  as awaiting an external result. These have NO keystroke the user is meant to supply.
+Bias to "user" whenever it is ambiguous — an under-fired user-wait hides something that
+actually needs the human, which is worse than an over-shown busy pane. Omit "waiting_on"
+entirely for non-waiting panes.
 
 SCROLLED-BACK VIEWS: agent TUIs overlay a jump-to-bottom chip when the user has scrolled
 up inside the agent's own history (Claude Code renders "Jump to bottom (ctrl+End)" as a
