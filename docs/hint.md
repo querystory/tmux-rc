@@ -129,12 +129,24 @@ parser activity — don't mix them into parse metrics.
 ### Live-view records (`scope_name = 'tmux-rc.live'`, `body = 'tmux-rc live'`)
 
 A SEPARATE scope from the parser benchmarks — **filter `WHERE scope_name = 'tmux-rc.live'`**
-to get only these (they have NO model/latency/token/cost fields, so they'd be all-null
-noise inside a `tmux-rc.classify` query, and parse aggregates must exclude them). These
-measure the **live view**: a phone surface that streams a pane's raw colored screen in
-real time over a long-poll endpoint (separate from the LLM parser entirely). Use them to
-answer bandwidth cost, how much wall-clock time users spend watching live, and (future)
-per-user live-hour billing.
+to keep these out of parse aggregates. This scope holds **two different record shapes** —
+tell them apart by the `kind` attribute (or by `cost_usd IS NULL`):
+
+- **watch-time rounds** (`kind` absent) — the phone's live-view long-poll, one record per
+  ~25s hold. These carry NO model/token/cost fields. Detailed just below.
+- **voice-turn records** (`kind = 'live_turn'`) — Live Mode's spoken-agent metering, one
+  record per voice turn plus a `final` session summary. These DO carry model/token/cost
+  fields (and the transcript too, but only under TMUXRC_QSDEBUG). See "Live Mode voice
+  turns" further down.
+
+A `tmux-rc.live` query that wants only watch-time must add `WHERE kind IS NULL`; a cost
+query must add `WHERE kind = 'live_turn'` — otherwise the two shapes mix and half the
+columns are null.
+
+The **watch-time rounds** measure the **live view**: a phone surface that streams a pane's
+raw colored screen in real time over a long-poll endpoint (separate from the LLM parser
+entirely). Use them to answer bandwidth cost, how much wall-clock time users spend watching
+live, and (future) per-user live-hour billing.
 
 **One record = one completed long-poll "round."** A round holds ~25s, checking the screen
 every 250ms, and ends either the instant the screen changes (a *change round* — a frame
@@ -172,6 +184,36 @@ that's what makes watch-time summable (below). Attributes:
   middleware (~4-5x smaller), so gzipped-sent bytes are LOWER than `raw_bytes`; the
   compressed ground-truth is in the daemon's own log line, not this record (see
   docs/design/live-telemetry.md open questions).
+
+### Live Mode voice turns (`scope_name = 'tmux-rc.live'`, `kind = 'live_turn'`)
+
+Live Mode is the spoken-agent surface: a Gemini Live (native-audio) session that watches
+the whole tmux state, talks back by voice, and acts via two tools (type into a pane, press
+a key). Its cost is dominated by AUDIO tokens the flash-lite parser never sees, so it meters
+itself here. **One record = one voice turn**; a `final = true` record closes each session
+with cumulative totals. Filter `WHERE kind = 'live_turn'`. Attributes:
+
+- **`session`** — per-voice-session UUID, the summable spine. The SAME key the watch-time
+  rounds use, so a session's voice spend can be joined to its screen watch-time. Sum per
+  `session` for per-session cost; use the `final = true` row for the authoritative session
+  total (per-turn rows are cumulative snapshots, so **do not `SUM` the per-turn rows** — you'd
+  multi-count; take the `final` row, or `MAX` per session).
+- **`cost_usd`** — this turn's cumulative session cost in USD, priced with a four-way rate
+  card (text-in / text-out / audio-in / audio-out) because audio-out bills ~24× text.
+- **`in_tokens`** / **`out_tokens`** — total prompt / response tokens (text + audio). Big
+  input (thousands): the system prompt carries every pane's live state each turn.
+- **`audio_in_tokens`** / **`audio_out_tokens`** — the audio-modality slice of in/out. Text
+  tokens = `in_tokens - audio_in_tokens` (same for out). Audio out is the cost driver.
+- **`turns`** — voice turns so far this session (monotonic; equals the count on the `final` row).
+- **`duration_s`** — wall-clock seconds since the session opened (cumulative).
+- **`final`** — `true` on the one end-of-session summary row, `false` on per-turn rows. Use
+  `WHERE final = true` for one authoritative row per session.
+- **`model`** (`gemini-live-2.5-flash-native-audio`), **`provider`** (`vertex`) — the Live model.
+- **`actor`** — the tunnel owner's email when known, else a `local:<ip>` marker. Same
+  loopback-trust model as elsewhere.
+- **`transcript`** — the turn's rolling voice transcript (`user:` / `model:` lines and
+  `[typed]` actions). **Present ONLY under TMUXRC_QSDEBUG** (fail-closed, like `pane_text`);
+  absent otherwise. Voice content is at least as sensitive as pane text.
 
 ### Client-error records (`scope_name = 'tmux-rc.client'`, `body = 'tmux-rc client error'`)
 
@@ -230,12 +272,15 @@ client-error — not just parses; don't assume a field described here implies a 
 a parse.
 
 - **`scope_name`** — `tmux-rc.classify` for parser/lifecycle/action records,
-  `tmux-rc.live` for the live-view rounds, or `tmux-rc.client` for the client-error
-  records (each has its own section above); **`service.name`** (`tmux-rc`) is common to
-  all. Use `scope_name` to keep the THREE apart — a benchmark query must stay on
-  `tmux-rc.classify` (and EXCLUDE both `tmux-rc.live` and `tmux-rc.client`, which carry no
-  model/latency/token/cost), a live-view query on `tmux-rc.live`, a client-error query on
-  `tmux-rc.client`.
+  `tmux-rc.live` for BOTH live-view watch-time rounds AND Live Mode voice turns (split
+  those two by `kind`), or `tmux-rc.client` for the client-error records (each has its own
+  section above); **`service.name`** (`tmux-rc`) is common to all. Use `scope_name` to keep
+  the THREE apart — a benchmark query must stay on `tmux-rc.classify` (and EXCLUDE both
+  `tmux-rc.live` and `tmux-rc.client`, which carry no model/latency/token/cost), a live
+  query on `tmux-rc.live`, a client-error query on `tmux-rc.client`.
+- **`kind`** — on `tmux-rc.live` voice-turn records it is `'live_turn'` (absent on watch-time
+  rounds — the discriminator between the two `.live` shapes); on `tmux-rc.client` records it
+  is the failure site (`'mic'`/`'ws'`/…). Also `parse`/`bootstrap` on classify records.
 - **`timestamp`, `observed_timestamp`** — Unix nanoseconds when the record was emitted
   (the parse, action, lifecycle event, or live round). Divide to seconds for time-series;
   both are usually equal.
