@@ -219,6 +219,7 @@ def _pane_context(watcher, screens: str) -> str:
     (only the focused pane — enough for the agent to read what it's acting on, without
     re-streaming every screen on each state change), or "none". No LLM calls; pure reads
     of state the watcher keeps current anyway."""
+    assert screens in ("all", "active", "none"), f"bad screens mode: {screens!r}"
 
     def tail(d):
         if screens == "all" or (screens == "active" and d.get("tmux_active")):
