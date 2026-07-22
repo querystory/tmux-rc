@@ -711,7 +711,18 @@ function dragReorder(icon) {
   const drop = (e) => {
     if (e.pointerId !== pid) return; // ignore an unrelated pointer's up/cancel
     clearTimeout(timer);
-    if (held && dragging) {
+    const wasDrag = held && dragging;
+    // A completed drag must not ALSO fire an icon's onclick (which would setActive a
+    // pane). preventDefault on pointerup isn't enough — swallow the one synthetic click
+    // that follows, in the capture phase. Register it on dockEl (which survives the
+    // reorder's re-render) BEFORE reorderPane rebuilds the strip, so it still fires even
+    // though the dragged icon node is replaced.
+    if (wasDrag) {
+      // once:true self-removes on the synthetic click; the timeout removes it if no click
+      // follows (drop landed off any icon), so it can never eat a later legitimate tap.
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      el.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => el.removeEventListener("click", swallow, { capture: true }), 400);
       const over = overIcon(e.clientX);
       if (over && over.dataset.pane !== icon.dataset.pane) {
         // after: dropped on the RIGHT half of the target ⇒ place src after it.
@@ -719,16 +730,8 @@ function dragReorder(icon) {
         reorderPane(icon.dataset.pane, over.dataset.pane, e.clientX > (r.left + r.right) / 2);
       }
     }
-    const wasDrag = held && dragging;
     clear();
     releaseBusy();
-    // A completed drag must not ALSO fire the icon's onclick (which would setActive the
-    // dragged pane). preventDefault on pointerup isn't enough — swallow the one synthetic
-    // click that follows, in the capture phase, then self-remove.
-    if (wasDrag) {
-      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-      icon.addEventListener("click", swallow, { capture: true, once: true });
-    }
   };
   icon.addEventListener("pointerup", drop);
   icon.addEventListener("pointercancel", (e) => {
