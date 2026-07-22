@@ -672,6 +672,12 @@ function flyClone(node, from, to, fade, done, box = from) {
     position: "fixed", left: cx(from) - box.width / 2 + "px", top: cy(from) - box.height / 2 + "px",
     width: box.width + "px", height: box.height + "px", margin: "0", zIndex: 30, pointerEvents: "none",
   });
+  // A clone is throwaway chrome — never a control. Leaving-row clones are cloned .prow
+  // nodes (role=button, tabIndex=0 from row()), so strip interactivity and hide from AT
+  // before it enters the DOM, or a mid-flight clone becomes tab-focusable / announced.
+  node.setAttribute("aria-hidden", "true");
+  node.tabIndex = -1;
+  node.removeAttribute("role");
   document.body.appendChild(node);
   // Idempotent teardown: onfinish and the safety timer race, but whichever fires first
   // clears the other so the clone is removed and `done` runs exactly once (same one-shot
