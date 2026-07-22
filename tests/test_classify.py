@@ -14,11 +14,17 @@ def _llm(payload):
 
 
 def test_bootstrap_shapes_result_and_flags_history():
-    r = bootstrap(_pane(), "…", _llm({
-        "name": "  tmux-rc overhaul  ",
-        "summary": " shipping PRs #24 and #26 ",
-        "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
-    }))
+    r = bootstrap(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "name": "  tmux-rc overhaul  ",
+                "summary": " shipping PRs #24 and #26 ",
+                "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
+            }
+        ),
+    )
     assert r["name"] == "tmux-rc overhaul"
     assert r["summary"] == "shipping PRs #24 and #26"
     assert r["events"] == [{"text": "Merged PR #24", "historical": True}]
@@ -43,25 +49,91 @@ def test_payload_leads_with_foreground_process():
 
 
 def test_pipes_llm_json_through():
-    r = classify(_pane(), "…", _llm({
-        "tool": "claude", "activity": "running", "headline": "Editing models.py",
-        "model": "Opus 4.8", "notable": ["ran tests", "8 passed"],
-    }))
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "tool": "claude",
+                "activity": "running",
+                "headline": "Editing models.py",
+                "model": "Opus 4.8",
+                "notable": ["ran tests", "8 passed"],
+            }
+        ),
+    )
     assert r["tool"] == "claude" and r["headline"] == "Editing models.py"
     assert r["notable"] == ["ran tests", "8 passed"]  # passed straight through
     assert r["pane_id"] == "%0" and r["label"] == "work"  # merged in (session name)
 
 
 def test_question_forces_waiting():
-    r = classify(_pane(), "…", _llm({"activity": "running",
-                 "question": {"prompt": "Proceed?", "options": ["yes", "no"]}}))
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "running",
+                "question": {"prompt": "Proceed?", "options": ["yes", "no"]},
+            }
+        ),
+    )
     assert r["activity"] == "waiting"
+    assert r["waiting_on"] == "user"  # a question is a user-facing affordance
 
 
 def test_rewind_forces_waiting():
-    r = classify(_pane(), "…", _llm({"activity": "running",
-                 "rewind": {"entries": [{"text": "x", "selected": True}]}}))
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "running",
+                "rewind": {"entries": [{"text": "x", "selected": True}]},
+            }
+        ),
+    )
     assert r["activity"] == "waiting"
+    assert r["waiting_on"] == "user"
+
+
+def test_waiting_defaults_to_user():
+    # Model says "waiting" with no waiting_on → default to the safe actionable "user".
+    r = classify(_pane(), "…", _llm({"activity": "waiting"}))
+    assert r["waiting_on"] == "user"
+
+
+def test_waiting_on_external_passes_through():
+    r = classify(_pane(), "…", _llm({"activity": "waiting", "waiting_on": "external"}))
+    assert r["activity"] == "waiting" and r["waiting_on"] == "external"
+
+
+def test_question_overrides_stray_external():
+    # A question is unambiguously a user-wait even if the model mislabels waiting_on.
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "running",
+                "waiting_on": "external",
+                "question": {"prompt": "Proceed?", "options": []},
+            }
+        ),
+    )
+    assert r["activity"] == "waiting" and r["waiting_on"] == "user"
+
+
+def test_non_waiting_gets_no_waiting_on():
+    r = classify(_pane(), "…", _llm({"activity": "running"}))
+    assert "waiting_on" not in r  # only meaningful for waiting panes
+
+
+def test_stray_waiting_on_dropped_when_not_waiting():
+    # The model may emit waiting_on on a non-waiting pane; classify must drop it so a
+    # stale value never leaks to the UI (contract: meaningful only when activity==waiting).
+    r = classify(_pane(), "…", _llm({"activity": "running", "waiting_on": "external"}))
+    assert "waiting_on" not in r
 
 
 def test_no_llm_fallback_idle_shell():
