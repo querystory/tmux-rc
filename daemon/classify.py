@@ -131,6 +131,13 @@ def classify(
     # model put in "activity" — this is the one bit of logic we keep out of the model.
     if result.get("question") or result.get("rewind"):
         result["activity"] = "waiting"
+    # Derive the running-subagent count from subagents[] so the UI (dock badge) has one
+    # number to read and the model never has to keep a separate count in sync.
+    subs = result.get("subagents")
+    if isinstance(subs, list):
+        result["agents"] = sum(
+            1 for a in subs if isinstance(a, dict) and a.get("state", "running") == "running"
+        )
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.

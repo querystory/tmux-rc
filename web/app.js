@@ -582,8 +582,11 @@ function dock(states, act) {
     // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
     // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
     const a = actOf(s);
+    // Subscript count of RUNNING background sub-agents (parser derives s.agents), in the
+    // opposite corner from the activity dot — a glanceable "3 workers busy here".
     b.innerHTML = iconFor(s.tool) +
-      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
+      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "") +
+      (s.agents > 0 ? `<sub class="sacount" aria-label="${s.agents} sub-agents">${s.agents}</sub>` : "");
     b.title = s.title || s.label || s.pane_id;
     b.setAttribute("aria-label", b.title);
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
@@ -807,6 +810,7 @@ function card(s) {
   if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
   if (s.question) el.appendChild(question(s));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
+  if (Array.isArray(s.subagents) && s.subagents.length) el.appendChild(subagentsView(s.subagents));
   if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
   const log = (eventLog[s.pane_id] || {}).events || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
@@ -1158,6 +1162,30 @@ function tasksView(tasks) {
           `<div class="task${t.done ? " done" : ""}">` +
           `<span class="tick">${t.done ? "✓" : "○"}</span>${esc(t.text || "")}</div>`
       )
+      .join("");
+  return box;
+}
+
+// Background sub-agents this agent spawned (parser JSON subagents[]) — distinct from the
+// agent's own TODO tasks above. Shares the .tasks box chrome; a running worker gets a
+// pulse dot, a finished one a check, and any elapsed/tokens meter rides on the right.
+function subagentsView(subs) {
+  const box = document.createElement("div");
+  box.className = "tasks subagents";
+  box.innerHTML =
+    `<div class="tasks-head">Sub-agents</div>` +
+    subs
+      .map((a) => {
+        const done = a.state === "done";
+        const meter = [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).map(esc).join(" ");
+        return (
+          `<div class="task${done ? " done" : ""}">` +
+          `<span class="tick">${done ? "✓" : '<span class="pulse"></span>'}</span>` +
+          `<span class="sa-label">${esc(a.label || "")}</span>` +
+          (meter ? `<span class="worksub">${meter}</span>` : "") +
+          `</div>`
+        );
+      })
       .join("");
   return box;
 }
