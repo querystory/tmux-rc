@@ -339,21 +339,29 @@ function showUsage(u, err) {
     usageEl.classList.remove("lit"); usageEl.setAttribute("aria-pressed", "false");
     return;
   }
-  // Debug telemetry for the parser LLM, not session-critical — so it sits dimmed in the
-  // background (CSS) and brightens on hover/tap. The success ratio (was "648/657 ok")
-  // is noise here; errors already surface via the ⚠ hint and the amber tint on cost.
-  // Rate is a plain session average (calls/uptime) computed server-side — stable.
-  const tok = ((u.in_tokens + u.out_tokens) / 1000).toFixed(0);
+  // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
+  // and brightens on hover/tap. The success ratio (was "648/657 ok") is noise here;
+  // errors already surface via the ⚠ hint and the amber tint on cost. Rate is a plain
+  // session average (calls/uptime) computed server-side — stable. `cost` is the COMBINED
+  // parser + voice spend; the tooltip splits it (voice is billed at ~30× parser rates).
+  const live = u.live || { cost: 0, sessions: 0, in_tokens: 0, out_tokens: 0 };
+  // Total tokens = parser + voice, matching the combined `cost` (otherwise the readout
+  // would show a parser-only token count next to a parser+voice dollar figure).
+  const tok = ((u.in_tokens + u.out_tokens + live.in_tokens + live.out_tokens) / 1000).toFixed(0);
   const parts = [
     `${tok}k tok`,
     `<span${u.errors ? ' class="warn"' : ""}>$${u.cost.toFixed(3)}</span>`,
-    `${u.rate_per_min}/min`,
+    `${u.rate_per_min}/min`,  // parser calls/min (voice isn't a per-tick call) — see tooltip
   ];
+  if (live.sessions) parts.push(`🎙${live.sessions}`); // voice sessions this run
   if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
   usageEl.innerHTML = parts.join(" · ");
-  // Tooltip explaining what the numbers are (they're not obvious as debug telemetry).
-  usageEl.title = `parser LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} spent`
-    + ` · ${u.rate_per_min} calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
+  // Tooltip: total, then the parser/voice split so the combined cost is explainable.
+  const parser = (u.parser_cost ?? u.cost);
+  usageEl.title = `LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} total`
+    + ` (parser $${parser.toFixed(3)}`
+    + (live.sessions ? `, voice $${live.cost.toFixed(3)} over ${live.sessions} session${live.sessions > 1 ? "s" : ""}` : "")
+    + `) · ${u.rate_per_min} parser calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
 }
 // Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
 // quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
@@ -775,6 +783,14 @@ function card(s) {
   };
   el.appendChild(row);
   if (collapsed) return el; // one-line form: header only, everything below is hidden
+
+  // While a voice session runs, Live Mode owns the active card: everything below the
+  // header is the live interface — the rolling conversation with every typed action —
+  // in place of the pane's summary, question, and event views.
+  if (lmWs && s.pane_id === activeId()) {
+    el.appendChild(lmConvoView());
+    return el;
+  }
 
   // The bootstrap "story so far" — orientation when picking a session up cold.
   // Clamped to a few lines; tap toggles the full text.
@@ -1754,3 +1770,190 @@ if (window.visualViewport && barEl) {
   bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
   fit();
 }
+
+// ═══════════════════ Live Mode: talk to your whole tmux session ═══════════════════
+// One WebSocket to /api/live-mode. We stream mic PCM up; the daemon owns the Gemini
+// Live session and streams back voice audio, both transcripts, and a "typed" event for
+// every keystroke the model puts into a pane. Nothing overlays the app: the pulsing 🎙
+// header pill is the status, and the rolling conversation renders in the active card's
+// summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
+const lm = { btn: document.getElementById("lm-btn") };
+let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
+let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
+let lmLog = [];                  // rolling conversation: {role, text, done}
+let lmListening = false;         // true only while the daemon reports "listening" — mic
+                                 // frames are dropped otherwise so a reconnect (during
+                                 // which the server stops reading) can't grow bufferedAmount
+
+// Transcription arrives as fragments; grow the current entry for that role until the
+// turn completes. Typed actions and errors are single whole entries.
+function lmAdd(role, text) {
+  const grow = role === "user" || role === "model";
+  const last = lmLog[lmLog.length - 1];
+  if (grow && last && last.role === role && !last.done) last.text += text;
+  else lmLog.push({ role, text, done: !grow });
+  while (lmLog.length > 8) lmLog.shift();
+  lmPaint();
+}
+
+function lmPaintInto(box) {
+  box.replaceChildren(...lmLog.map((e) => {
+    const d = document.createElement("div");
+    d.className = "lm-" + e.role;
+    d.textContent = (e.role === "user" ? "🗣 " : "") + e.text;
+    return d;
+  }));
+  box.scrollTop = box.scrollHeight;
+}
+
+// Repaint in place between renders; card() re-inserts the box on every full render.
+function lmPaint() {
+  const box = document.querySelector(".card.active .lm-convo");
+  if (box) lmPaintInto(box);
+}
+
+function lmConvoView() {
+  const box = document.createElement("div");
+  box.className = "lm-convo";
+  // No aria-live: we repaint the whole box (replaceChildren) on every transcript
+  // fragment, which a live region would re-announce in full — deafeningly noisy while
+  // streaming. The transcript is a visible running log, not an announce-on-change alert.
+  lmPaintInto(box);
+  return box;
+}
+
+// The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
+// context (created in the button's click handler, satisfying autoplay policy).
+function lmPlayChunk(b64) {
+  if (!lmPlay) return;
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const pcm = new Int16Array(bytes.buffer);
+  const buf = lmPlay.createBuffer(1, pcm.length, 24000);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
+  const src = lmPlay.createBufferSource();
+  src.buffer = buf;
+  src.connect(lmPlay.destination);
+  lmPlayAt = Math.max(lmPlayAt, lmPlay.currentTime) ;
+  src.start(lmPlayAt);
+  lmPlayAt += buf.duration;
+}
+
+// Mic → 16kHz Int16 PCM → base64 frames. AudioWorklet (inline module) is the capture
+// tap; if the context won't run at 16kHz (Safari ignores the request), we resample
+// before sending — the wire format is always 16kHz.
+async function lmCapture(ws) {
+  lmStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+  });
+  try { lmCtx = new AudioContext({ sampleRate: 16000 }); }
+  catch { lmCtx = new AudioContext(); }
+  const src = lmCtx.createMediaStreamSource(lmStream);
+  const rate = lmCtx.sampleRate;
+  let pend = new Float32Array(0);
+  const push = (chunk) => {
+    const joined = new Float32Array(pend.length + chunk.length);
+    joined.set(pend); joined.set(chunk, pend.length);
+    pend = joined;
+    if (pend.length < 4096) return;
+    let f = pend; pend = new Float32Array(0);
+    if (rate !== 16000) { // linear resample to the wire rate
+      const n = Math.round(f.length * 16000 / rate), r = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = i * (f.length - 1) / (n - 1), lo = Math.floor(x);
+        r[i] = f[lo] + (f[Math.min(lo + 1, f.length - 1)] - f[lo]) * (x - lo);
+      }
+      f = r;
+    }
+    const pcm = new Int16Array(f.length);
+    for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-1, Math.min(1, f[i])) * 0x7fff;
+    let bin = "";
+    const bytes = new Uint8Array(pcm.buffer);
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    // Only stream while the server is actively listening — during a reconnect it stops
+    // reading, so sending would just pile up in the socket's client-side buffer.
+    if (lmListening && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ action: "audio", data: btoa(bin) }));
+  };
+  const mod = URL.createObjectURL(new Blob([
+    'registerProcessor("lm-tap", class extends AudioWorkletProcessor {',
+    ' process(inputs) { const c = inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } });',
+  ], { type: "application/javascript" }));
+  await lmCtx.audioWorklet.addModule(mod);
+  URL.revokeObjectURL(mod);
+  const tap = new AudioWorkletNode(lmCtx, "lm-tap");
+  tap.port.onmessage = (e) => push(e.data);
+  const mute = lmCtx.createGain(); // keep the graph alive without echoing the mic
+  mute.gain.value = 0;
+  src.connect(tap); tap.connect(mute); mute.connect(lmCtx.destination);
+  lmNodes = [src, tap, mute];
+}
+
+// The pulsing mic IS the status line: red pill = session up, pulse = listening.
+function lmStatus(s) {
+  lmListening = s === "listening";  // gates mic streaming (see push())
+  lm.btn.classList.toggle("listening", lmListening);
+}
+
+async function lmStart() {
+  lm.btn.classList.add("on");
+  lmLog = [];
+  lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe
+  lmPlayAt = 0;
+  // Same page-load session id as the live-view stream, so voice cost and screen
+  // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
+  const q = SESSION_ID ? `?session=${encodeURIComponent(SESSION_ID)}` : "";
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${q}`);
+  lmWs = ws;
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.type === "status") lmStatus(m.status);
+    else if (m.type === "transcript") lmAdd(m.role, m.text);
+    else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
+    else if (m.type === "audio") lmPlayChunk(m.data);
+    else if (m.type === "typed")
+      lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
+    else if (m.type === "error") lmAdd("err", `⚠ ${m.message}`);
+  };
+  ws.onclose = () => { if (lmWs === ws) lmStop(); };
+  ws.onopen = async () => {
+    if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
+    try { await lmCapture(ws); }
+    catch (e) {
+      // Surface the real reason PERSISTENTLY: lmStop() re-renders and wipes the card
+      // feed, so a mere lmAdd flashes and vanishes (invisible on mobile). alert() so the
+      // operator can actually read why the mic failed — name+message distinguish a
+      // permission denial (NotAllowedError) from no-device (NotFoundError) etc.
+      lmStop();
+      alert(`Live Mode mic error:\n${e.name || "Error"}: ${e.message}\n\n`
+        + "If this is a permission issue: grant microphone access to this site/app "
+        + "in your browser or Android app settings, then try again.");
+    }
+  };
+  lm.btn.title = lm.btn.ariaLabel = "End Live Mode";
+  render(Object.values(panesById)); // swap the active card's summary for the convo box
+}
+
+function lmStop() {
+  const ws = lmWs; lmWs = null;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify({ action: "stop" })); } catch {}
+    setTimeout(() => { try { ws.close(); } catch {} }, 250);
+  } else if (ws) {
+    try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
+  }
+  lmListening = false;
+  lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
+  lmNodes = [];
+  if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
+  if (lmCtx) { try { lmCtx.close(); } catch {} lmCtx = null; }
+  if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
+  lm.btn.classList.remove("on", "listening");
+  lm.btn.title = lm.btn.ariaLabel = "Start Live Mode";
+  render(Object.values(panesById)); // the active card gets its static summary back
+}
+
+if (lm.btn) lm.btn.onclick = () => (lmWs ? lmStop() : lmStart());

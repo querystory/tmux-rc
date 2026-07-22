@@ -372,6 +372,28 @@
     border: 0; border-radius: 999px; padding: 8px 16px; font-size: 13px;
     font-weight: 600; cursor: pointer; box-shadow: 0 4px 16px #000c; }
   .hdr-right { display: flex; align-items: center; gap: 10px; }
+  /* Live Mode: quiet header pill; red while a session is running, and the mic pulses
+     while it's actually listening — that pulse IS the status display. */
+  #lm-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+    border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600;
+    cursor: pointer; }
+  #lm-btn.on { background: #3d1d20; border-color: #f85149; color: #f85149; }
+  @keyframes lm-pulse { 50% { opacity: .35; } }
+  #lm-btn.on.listening { animation: lm-pulse 1.4s ease-in-out infinite; }
+  /* The rolling voice conversation — while live, it IS the active card's body (below
+     the header row); nothing overlays the app and the other cards stay untouched. */
+  .lm-convo { margin: 8px 12px 12px; padding: 8px 10px; background: #161b22;
+    border: 1px solid #30363d; border-radius: 10px; font-size: 13px;
+    display: flex; flex-direction: column; gap: 6px;
+    min-height: 120px; max-height: 45vh; overflow-y: auto; }
+  /* Neutral until something is said — the mic pulse/label carries connect/listen state,
+     so this must not claim "listening" during connecting/reconnecting. */
+  .lm-convo:empty::before { content: "Live Mode — your conversation appears here"; color: #6e7681; }
+  .lm-convo .lm-user { color: #8ecbff; }
+  .lm-convo .lm-model { color: #e6edf3; }
+  /* A typed action: unmissable — this is the model touching a real terminal. */
+  .lm-convo .lm-typed { color: #7ee787; font-family: ui-monospace, monospace; }
+  .lm-convo .lm-err { color: #f85149; }
   /* Debug telemetry: recedes into the background (it's for us, not the operator) and
      brightens only on hover/focus/tap. The live dot beside it stays fully lit — that's
      the one always-relevant signal. */
@@ -403,11 +425,13 @@
            lightened for the dark background) with our "rc" as a superscript. -->
       <span class="brand"><img src="/tmux-logo.svg" alt="tmux" class="brand-logo" /><sup class="brand-sup">rc</sup></span>
       <span class="hdr-right">
+        <button id="lm-btn" title="Live Mode — talk to your session" aria-label="Start Live Mode">🎙 live</button>
         <a id="docs-link" href="/docs/" target="_blank" rel="noopener" title="Design docs (opens in a new tab)" aria-label="Design docs">docs</a>
-        <span id="usage" class="usage" role="button" tabindex="0" aria-pressed="false" aria-label="parser LLM telemetry"></span>
+        <span id="usage" class="usage" role="button" tabindex="0" aria-pressed="false" aria-label="LLM telemetry (parser + voice)"></span>
         <span id="live" class="dot off" title="connection"></span>
       </span>
     </header>
+
     <div id="dock" class="prow dock"></div>
   </div>
   <div id="panes"><div class="empty">Connecting…</div></div>

@@ -285,3 +285,57 @@ def emit_live(
         logger.debug("emit_live attr build failed", exc_info=True)
         return
     _emit_record("tmux-rc live", attrs, _LIVE_SCOPE)
+
+
+def emit_live_turn(
+    *,
+    session: str,
+    actor: str | None,
+    model: str,
+    in_tokens: int,
+    out_tokens: int,
+    audio_in_tokens: int,
+    audio_out_tokens: int,
+    cost: float,
+    turns: int,
+    duration_s: float,
+    final: bool,
+    transcript: str | None = None,
+) -> None:
+    """One record per Live Mode voice turn (and a final summary on session end), the
+    voice-session analogue of emit_parse.
+
+    Live Mode's cost is dominated by audio tokens, which the flash-lite parser never
+    sees — so it gets numeric token/cost metrics of its OWN under the live scope, keyed
+    by the client's `session` UUID (the summable spine, same anonymous key emit_live
+    uses) so a query can sum a whole session's spend and join it to the live-round
+    watch-time. Tokens are split text/audio because native-audio bills them at very
+    different rates. `final` marks the end-of-session summary row (cumulative totals),
+    distinct from the per-turn rows.
+
+    Privacy mirrors emit_parse exactly: numbers + structure always; the actual
+    conversation `transcript` (what was said and typed) attaches ONLY under
+    TMUXRC_QSDEBUG — voice content is at least as sensitive as pane text. Best-effort."""
+    try:
+        attrs = {
+            "kind": "live_turn",
+            "model": model,
+            "provider": "vertex",
+            "session": session[:64],
+            "turns": turns,
+            "duration_s": round(duration_s, 3),
+            "final": final,
+            "in_tokens": in_tokens,
+            "out_tokens": out_tokens,
+            "audio_in_tokens": audio_in_tokens,
+            "audio_out_tokens": audio_out_tokens,
+            "cost_usd": round(cost, 6),
+        }
+        if actor:
+            attrs["actor"] = actor[:200]
+        if _QSDEBUG and transcript:
+            attrs["transcript"] = transcript[:8000]
+    except Exception:  # noqa: BLE001 - never let telemetry break the live path
+        logger.debug("emit_live_turn attr build failed", exc_info=True)
+        return
+    _emit_record("tmux-rc live", attrs, _LIVE_SCOPE)
