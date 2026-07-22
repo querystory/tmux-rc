@@ -100,3 +100,20 @@ def test_final_close_lands_before_trailing_whitespace():
 def test_strip_dim_roundtrips_to_plain_capture():
     raw = "\x1b[2mghost\x1b[0m ❯ \x1b[38;5;246mchrome\x1b[39m \x1b[32mreal\x1b[0m"
     assert strip_dim(_capture(raw)) == _capture(raw, mark_dim=False)
+
+
+def test_tail_marked_never_splits_or_orphans_markers():
+    from daemon.tmux import DIM_CLOSE, DIM_OPEN, tail_marked
+
+    # Under budget: unchanged.
+    assert tail_marked(f"a{DIM_OPEN}b{DIM_CLOSE}", 999) == f"a{DIM_OPEN}b{DIM_CLOSE}"
+
+    # Cut lands inside a dim run that spans a line boundary: the kept tail re-opens the
+    # run, so a close is never orphaned and markers stay balanced.
+    text = "x" * 50 + "\n" + DIM_OPEN + "draft\n text" + DIM_CLOSE + "\ny" * 3
+    out = tail_marked(text, 20)
+    assert out.count(DIM_OPEN) >= out.count(DIM_CLOSE)  # no orphaned close
+    assert "⟫" not in out.split(DIM_OPEN)[0] if DIM_OPEN in out else True  # no split token
+    # Whatever survives contains only WHOLE marker tokens (no ⟪…/⟫… fragments).
+    stripped = out.replace(DIM_OPEN, "").replace(DIM_CLOSE, "")
+    assert "⟪" not in stripped and "⟫" not in stripped

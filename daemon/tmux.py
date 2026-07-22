@@ -255,6 +255,26 @@ def strip_dim(text: str) -> str:
     return text.replace(DIM_OPEN, "").replace(DIM_CLOSE, "")
 
 
+def tail_marked(text: str, max_chars: int) -> str:
+    """Last <=max_chars of dim-MARKED text, kept whole-marker clean for the LLM. A raw
+    slice can split a ⟪dim⟫/⟪/dim⟫ token or start inside a dim run; markers never span
+    lines, so cut to a LINE boundary at/after the budget, then re-open the run if the
+    kept tail begins inside one (a close precedes any open)."""
+    if len(text) <= max_chars:
+        return text
+    # Drop whole leading lines until within budget — no marker is ever split (they're
+    # intraline), so the kept text has only intact tokens.
+    lines = text.splitlines()
+    while lines and len("\n".join(lines)) > max_chars:
+        lines.pop(0)
+    cut = "\n".join(lines)
+    # If the tail opens inside a dim run (a close comes before any open), re-open it.
+    nxt_open, nxt_close = cut.find(DIM_OPEN), cut.find(DIM_CLOSE)
+    if nxt_close != -1 and (nxt_open == -1 or nxt_close < nxt_open):
+        cut = DIM_OPEN + cut
+    return cut
+
+
 def _mark_dim(text: str) -> str:
     """Wrap faint/gray runs in DIM markers: a state machine over SGR codes, leaving
     every escape byte in place for _ANSI to strip afterwards."""

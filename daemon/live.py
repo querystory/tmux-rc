@@ -194,7 +194,9 @@ def _screen_tail(watcher, pane_id: str) -> str:
         return ""
     text = hist[-1]["text"] or ""
     lines = text.rstrip().splitlines()[-SCREEN_TAIL_LINES:]
-    return "\n".join(lines)[-SCREEN_TAIL_CHARS:]
+    # Char-bound on a MARKER boundary — a raw slice could cut a ⟪dim⟫ token or orphan
+    # a close from its open, garbling the dim signal the model relies on.
+    return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)
 
 
 def _pane_block(d: dict, screen: str | None) -> str:
