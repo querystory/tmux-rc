@@ -200,13 +200,17 @@ def _screen_tail(watcher, pane_id: str) -> str:
 
 
 def _pane_block(d: dict, screen: str | None) -> str:
-    """One pane's state as prompt text. `d` is a watcher.digest() entry."""
-    head = f"pane {d['pane_id']} — {d.get('tool') or 'unknown'}"
+    """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
+    leads with the user-facing identity (window number + title) and gives the internal
+    pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
+    win = d.get("window_index")
+    head = f"window {win}" if win not in (None, "") else "window"
     if d.get("label"):
-        head += f" ({d['label']})"
+        head += f' "{d["label"]}"'
+    head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
     if d.get("tmux_active"):
-        head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
+        head += " — ACTIVE (the window the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
     if d.get("headline"):
         parts.append(f"now: {d['headline']}")
@@ -296,7 +300,7 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id from the pane state, e.g. %5",
+                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
                             ),
                             "text": types.Schema(
                                 type=types.Type.STRING,
@@ -324,7 +328,7 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id from the pane state, e.g. %5",
+                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
                             ),
                             "key": types.Schema(
                                 type=types.Type.STRING,

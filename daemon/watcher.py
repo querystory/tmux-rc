@@ -229,6 +229,7 @@ class Watcher:
                 {
                     "pane_id": pid,
                     "label": s.get("label"),
+                    "window_index": s.get("window_index"),
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
@@ -381,6 +382,7 @@ class Watcher:
                     "pane_id": p.id,
                     "label": p.label,
                     "title": p.display_title,
+                    "window_index": p.window_index,
                     "tool": "unknown",
                     "activity": "unknown",
                     "updated_at": time.time(),
@@ -788,6 +790,10 @@ class Watcher:
         # The pane's self-published title (see Pane.display_title) — the agent's own
         # words for what it's doing, better than anything we could parse off the screen.
         state["title"] = pane.display_title
+        # The tmux WINDOW number shown in the status bar (0,1,2…) — the identity a user
+        # reads off their own screen, so voice/UI can name a pane by it instead of the
+        # internal %id.
+        state["window_index"] = pane.window_index
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
