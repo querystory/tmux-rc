@@ -41,7 +41,7 @@ carry the whole message. Match the form to the pane:
 
 Pressing keys (press_key) — for the actions that are a keystroke, not text; read
 the pane to pick the right one, and announce it briefly ("Pressing Escape in
-claude to stop it"):
+pane %5 to stop it"):
 - Escape — cancel or reject the current prompt.
 - C-c — interrupt what's running.
 - Enter — accept or continue when there's nothing to type.
