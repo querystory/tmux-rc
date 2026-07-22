@@ -5,21 +5,28 @@ colors, so the parser LLM can still see what was visually muted; strip_dim colla
 marked capture back to the plain text the phone renders. SGR patterns pinned here were
 observed in live Claude Code panes."""
 
-from daemon.tmux import _ANSI, _mark_dim, _materialize_links, strip_dim
+from daemon.tmux import (
+    _ANSI,
+    _mark_dim,
+    _mark_placeholder,
+    _materialize_links,
+    strip_dim,
+)
 
 
 def _capture(raw: str, mark_dim: bool = True) -> str:
     """The capture_pane pipeline minus tmux: links, optional markers, strip."""
     out = _materialize_links(raw)
     if mark_dim:
-        out = _mark_dim(out)
+        out = _mark_placeholder(_mark_dim(out))
     return _ANSI.sub("", out)
 
 
 def test_faint_ghost_suggestion_marked():
-    # Input-box history/autocomplete ghost text renders as SGR 2 (faint).
+    # Faint (SGR 2) input-box suggestion right after ❯ is the agent's placeholder — the
+    # dim run is promoted to ⟪placeholder⟫ (a suggestion offered, not typed).
     raw = "❯ \x1b[2mdrop the copy-link-3891 tag too\x1b[0m"
-    assert _capture(raw) == "❯ ⟪dim⟫drop the copy-link-3891 tag too⟪/dim⟫"
+    assert _capture(raw) == "❯ ⟪placeholder⟫drop the copy-link-3891 tag too⟪/placeholder⟫"
 
 
 def test_gray_256_foreground_marked():
@@ -100,6 +107,38 @@ def test_final_close_lands_before_trailing_whitespace():
 def test_strip_dim_roundtrips_to_plain_capture():
     raw = "\x1b[2mghost\x1b[0m ❯ \x1b[38;5;246mchrome\x1b[39m \x1b[32mreal\x1b[0m"
     assert strip_dim(_capture(raw)) == _capture(raw, mark_dim=False)
+
+
+def test_placeholder_after_prompt_glyph_marked_distinctly():
+    # Claude Code (❯) and Codex (›) both show greyed suggestion text in an EMPTY input
+    # box; it is SGR-2 faint, so _mark_dim wraps it — then _mark_placeholder promotes the
+    # run right after the prompt glyph to ⟪placeholder⟫ so no LLM path reads the tool's
+    # offered suggestion as a real, pending instruction. Claude uses a non-breaking space.
+    claude = "\x1b[39m❯\xa0\x1b[2mdraft the doc-review package\x1b[0m"
+    assert _capture(claude) == "❯\xa0⟪placeholder⟫draft the doc-review package⟪/placeholder⟫"
+    codex = "\x1b[1m›\x1b[0m\x1b[48;2;55;55;57m \x1b[2mWrite tests for @filename\x1b[0m"
+    assert _capture(codex) == "› ⟪placeholder⟫Write tests for @filename⟪/placeholder⟫"
+
+
+def test_real_typed_draft_after_prompt_is_not_placeholder():
+    # Text the user actually typed renders near-white (231), not faint — it is NOT a
+    # placeholder and stays unmarked, so the model can see the real pending draft.
+    raw = "❯ \x1b[38;5;231mmerge 75 and 63\x1b[0m"
+    assert _capture(raw) == "❯ merge 75 and 63"
+
+
+def test_dim_not_after_prompt_stays_dim():
+    # A faint run that isn't the input-box suggestion (chrome, status) stays ⟪dim⟫.
+    raw = "\x1b[38;5;246mCrunched for 2m 3s\x1b[39m"
+    assert _capture(raw) == "⟪dim⟫Crunched for 2m 3s⟪/dim⟫"
+
+
+def test_strip_dim_clears_placeholder_markers():
+    # Chrome line (stays ⟪dim⟫) above an input-box placeholder line (⟪placeholder⟫).
+    raw = "\x1b[38;5;246mCrunched 2m\x1b[39m\n❯\xa0\x1b[2mtry this\x1b[0m"
+    marked = _capture(raw)
+    assert "⟪placeholder⟫" in marked and "⟪dim⟫" in marked
+    assert strip_dim(marked) == _capture(raw, mark_dim=False)
 
 
 def test_tail_marked_never_splits_or_orphans_markers():

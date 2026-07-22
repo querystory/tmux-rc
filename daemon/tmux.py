@@ -248,11 +248,29 @@ def _materialize_links(text: str) -> str:
 # (glyphs chosen for near-zero collision with pane text) that survive the ANSI strip.
 _SGR = re.compile(r"\x1b\[([0-9;:]*)m")
 DIM_OPEN, DIM_CLOSE = "⟪dim⟫", "⟪/dim⟫"
+# A faint run sitting right after a prompt glyph in an EMPTY input box is the agent's
+# greyed suggestion text (a placeholder) — categorically NOT the user's typed input,
+# which renders near-white. Marking it distinctly stops every LLM path from reading the
+# suggestion as a real, pending instruction. Glyphs: ❯ (U+276F, Claude Code) and › (Codex),
+# each followed by a space (regular, or the non-breaking space Claude Code uses).
+PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE = "⟪placeholder⟫", "⟪/placeholder⟫"
+_PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
+_PROMPT_DIM = re.compile(
+    "(?m)^([" + _PROMPT_GLYPHS + r"][ \xa0]?)" + re.escape(DIM_OPEN) + r"(.*?)"
+    + re.escape(DIM_CLOSE)
+)
+
+
+def _mark_placeholder(text: str) -> str:
+    """Promote the dim run right after a prompt glyph to a ⟪placeholder⟫ run."""
+    return _PROMPT_DIM.sub(r"\1" + PLACEHOLDER_OPEN + r"\2" + PLACEHOLDER_CLOSE, text)
 
 
 def strip_dim(text: str) -> str:
-    """Collapse a dim-marked capture back to the plain text the phone renders."""
-    return text.replace(DIM_OPEN, "").replace(DIM_CLOSE, "")
+    """Collapse a marked capture back to the plain text the phone renders."""
+    for a, b in ((DIM_OPEN, DIM_CLOSE), (PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE)):
+        text = text.replace(a, "").replace(b, "")
+    return text
 
 
 def tail_marked(text: str, max_chars: int) -> str:
@@ -355,7 +373,7 @@ def capture_pane(
     if keep_colors:
         return out.rstrip("\n")  # live view: raw SGR, client colorizes
     if mark_dim:
-        out = _mark_dim(out)
+        out = _mark_placeholder(_mark_dim(out))
     return _ANSI.sub("", out).rstrip("\n")
 
 
