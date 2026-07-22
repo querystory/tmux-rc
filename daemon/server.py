@@ -530,15 +530,14 @@ async def client_error(request: Request):
     Caps the body so a huge report can't balloon daemon memory (fields are re-capped in
     telemetry). Best-effort: a malformed/oversized report is dropped with the right status,
     never raised past here — reporting an error must not itself become an error."""
-    # Reject on the DECLARED size before buffering the stream (request.body() reads it
-    # all into memory), then re-check the bytes we actually got — Content-Length can be
-    # absent or lie, so it's a cheap early-out, not the authority.
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > CLIENT_ERROR_MAX_BYTES:
-        raise HTTPException(413, "client-error report too large")
-    raw = await request.body()
-    if len(raw) > CLIENT_ERROR_MAX_BYTES:
-        raise HTTPException(413, "client-error report too large")
+    # Accumulate the stream up to the cap and abort the moment it's exceeded — never
+    # buffer the whole body first (request.body() would, and a chunked / Content-Length-
+    # less client could balloon memory past the cap before any check ran).
+    raw = b""
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > CLIENT_ERROR_MAX_BYTES:
+            raise HTTPException(413, "client-error report too large")
     try:
         body = ClientErrorBody.model_validate_json(raw)
     except Exception:  # noqa: BLE001 - a malformed report is a 400, not a 500

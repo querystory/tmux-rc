@@ -82,6 +82,22 @@ def test_oversized_body_rejected(monkeypatch):
     assert r.status_code == 413
 
 
+def test_kind_is_capped(monkeypatch):
+    # kind is client-controlled — capped like every other field so a crafted value can't
+    # bloat the attribute set even under the endpoint's overall body cap.
+    seen = _capture(monkeypatch)
+    telemetry.emit_client_error(
+        kind="k" * 500,
+        name=None,
+        endpoint=None,
+        ua_class=None,
+        session=None,
+        actor=None,
+        message=None,
+    )
+    assert len(seen["attrs"]["kind"]) == 64
+
+
 def test_untrusted_ua_class_ignores_client_claim(monkeypatch):
     # ua_class comes from the request's real UA, never a client-supplied field — a
     # crafted body value must not appear in telemetry.

@@ -1960,8 +1960,10 @@ async function lmStart() {
   ws.onclose = (e) => {
     if (lmWs !== ws) return;
     // An abnormal close (never opened / dropped mid-session) is exactly the ws failure
-    // #57 wants visible; a clean close (we called stop) is code 1000/1005 — skip that.
-    if (e.code && e.code !== 1000 && e.code !== 1005)
+    // #57 wants visible; only a CLEAN close is skipped — 1000 (normal, we called stop)
+    // and 1005 (no status). Everything else, INCLUDING code 0/1006 (failed handshake /
+    // no close frame), is reported — those are the very failures this surfaces.
+    if (e.code !== 1000 && e.code !== 1005)
       reportError("ws", { name: "close " + e.code, message: e.reason || "" });
     lmStop();
   };

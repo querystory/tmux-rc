@@ -367,7 +367,9 @@ def emit_client_error(
     or user input) attaches ONLY under TMUXRC_QSDEBUG. Best-effort — a report must never
     break the request that carries it."""
     try:
-        attrs = {"kind": kind}
+        # kind is client-controlled — cap it like every other field so a crafted value
+        # can't bloat the attribute set even within the endpoint's overall body cap.
+        attrs = {"kind": kind[:64]}
         for k, v in (("name", name), ("endpoint", endpoint), ("ua_class", ua_class)):
             if v:
                 attrs[k] = v[:200]
