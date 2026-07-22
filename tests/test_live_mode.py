@@ -95,6 +95,15 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
     assert 'window 2 "shell" (id=%2)' in untitled
 
 
+def test_pane_block_sanitizes_name_quotes_and_newlines():
+    # A title with quotes/newlines must not unbalance the heading's quoting or split it.
+    b = L._pane_block(
+        {"pane_id": "%1", "window_index": "0", "title": 'fix "the" bug\nnow',
+         "tool": "claude", "activity": "idle"}, None)
+    head = b.splitlines()[0]
+    assert head == '## window 0 "fix the bug now" (id=%1) — claude — idle'
+
+
 def test_system_prompt_has_rules_and_panes():
     p = L._system_prompt(_Watcher())
     assert "type_in_pane" in p  # the tool contract is in the instructions
