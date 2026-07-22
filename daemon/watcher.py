@@ -230,6 +230,7 @@ class Watcher:
                     "pane_id": pid,
                     "label": s.get("label"),
                     "tool": s.get("tool"),
+                    "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
                     "idle_seconds": s.get("idle_seconds"),
                     "headline": s.get("headline"),

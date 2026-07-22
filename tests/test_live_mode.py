@@ -15,15 +15,20 @@ def _run(coro):
 
 class _Watcher:
     def __init__(self):
-        self.snapshots = {"%1": [{"id": "s1", "text": "one\ntwo\nthree", "ts": 1.0}]}
+        self.snapshots = {
+            "%1": [{"id": "s1", "text": "one\ntwo\nthree", "ts": 1.0}],
+            "%2": [{"id": "s2", "text": "idle-shell-screen", "ts": 1.0}],
+        }
         self.reparsed = []
 
     def digest(self):
         return [
             {"pane_id": "%1", "label": "work", "tool": "claude", "activity": "waiting",
+             "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "question": "Run them? 1) yes 2) no", "history": []},
             {"pane_id": "%2", "label": "shell", "tool": "shell", "activity": "idle",
+             "tmux_active": False,
              "headline": None, "summary": None, "question": None, "history": []},
         ]
 
@@ -60,12 +65,18 @@ class _WS:
 
 def test_pane_context_carries_state_and_screens():
     w = _Watcher()
-    ctx = L._pane_context(w, with_screens=True)
+    ctx = L._pane_context(w, screens="all")
     assert "pane %1 — claude (work) — waiting" in ctx
+    assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
-    assert "one\ntwo\nthree" in ctx  # screen tail rides in the full snapshot
-    # digest-only updates omit screens
-    assert "one\ntwo\nthree" not in L._pane_context(w, with_screens=False)
+    assert "one\ntwo\nthree" in ctx and "idle-shell-screen" in ctx  # all screens ride along
+    # digest-only updates omit every screen
+    none = L._pane_context(w, screens="none")
+    assert "one\ntwo\nthree" not in none and "idle-shell-screen" not in none
+    # "active" carries ONLY the focused pane's screen — the fix for typing blind
+    active = L._pane_context(w, screens="active")
+    assert "one\ntwo\nthree" in active  # %1 is tmux_active
+    assert "idle-shell-screen" not in active  # %2 is not, so its screen stays out
 
 
 def test_system_prompt_has_rules_and_panes():
