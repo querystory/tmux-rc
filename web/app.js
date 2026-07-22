@@ -269,11 +269,27 @@ async function poll() {
     return ok; // ok=false (version 0 / legacy daemon) → pollLoop backs off
   } catch (e) {
     // Surface the real error instead of silently sitting on "Connecting…" forever.
+    // "Failed to fetch" is usually a resume/network blip (the OS aborted the in-flight
+    // long-poll while backgrounded), NOT a stale bundle — the resume handler below
+    // re-polls immediately, so don't send the user hard-refreshing over a transient.
     liveEl.className = "dot off";
+    const transient = /failed to fetch|networkerror|load failed/i.test(String(e && e.message || e));
+    const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
-      `<small>(often a stale cached app.js — hard-refresh)</small></div>`;
+      `<small>(${hint})</small></div>`;
     return false;
   }
+}
+// Woken when the PWA returns to the foreground: an interruptible backoff sleep resolves
+// early via this, so a resume cuts short the post-error wait AND the version reset makes
+// the next poll return immediately instead of the server holding it ~25s.
+let _wakePoll = null;
+// Interruptible sleep: resolves after `ms` OR as soon as _wakePoll() is called.
+function pollSleep(ms) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { _wakePoll = null; resolve(); }, ms);
+    _wakePoll = () => { clearTimeout(t); _wakePoll = null; resolve(); };
+  });
 }
 // Drive the long-poll: as soon as one hold returns, start the next. The server does the
 // waiting (holds ~25s or until change), so this is not a busy-loop — and pollLoop is the
@@ -282,11 +298,22 @@ async function poll() {
 // (backend down / legacy daemon) also backs off, so we never tight-loop.
 async function pollLoop() {
   for (;;) {
-    if (busy) { await sleep(250); continue; } // a send/gesture froze re-renders; re-check soon
+    if (busy) { await pollSleep(250); continue; } // a send/gesture froze re-renders; re-check soon
     const ok = await poll();
-    if (!ok) await sleep(1000); // outage / legacy daemon: back off before retrying
+    if (!ok) await pollSleep(1000); // outage / resume blip / legacy daemon: back off, wake early on resume
   }
 }
+
+// On resume from a backgrounded/suspended PWA, the OS-aborted long-poll leaves a stale
+// "poll error" until the next hold returns (up to ~25s). Force an immediate fresh poll:
+// null the version so the server answers at once (no hold), and wake any pending backoff.
+function onResume() {
+  if (document.visibilityState !== "visible") return;
+  _stateVersion = null;           // next poll = "give me current state now", never held
+  if (_wakePoll) _wakePoll();     // cut short an in-progress backoff sleep
+}
+document.addEventListener("visibilitychange", onResume);
+window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
 
 const usageEl = document.getElementById("usage");
 // Touch has no hover: tap the debug readout to reveal it (brightens via .lit).
