@@ -110,6 +110,12 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
+        # When the pane ENTERED its current state — reset only when the activity value or
+        # the pending-question identity changes, NOT on cosmetic content churn. The client
+        # ticks `now - state_since` live, so idle/waiting durations stay honest even while
+        # the pane doesn't re-parse (unlike idle_seconds, a frozen parse-time snapshot).
+        self._state_since: dict[str, float] = {}  # pane_id -> ts state was entered
+        self._state_key: dict[str, tuple] = {}  # pane_id -> (activity, question) at entry
         self._tool: dict[
             str, tuple[str, float]
         ] = {}  # pane_id -> (agent tool, last-seen ts)
@@ -235,6 +241,7 @@ class Watcher:
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
                     "idle_seconds": s.get("idle_seconds"),
+                    "state_since": s.get("state_since"),  # ts state entered; client ticks it
                     "headline": s.get("headline"),
                     "question": self._question_prompt(s),
                     # LLM one-liner for the last activity burst (present once the pane
@@ -546,6 +553,8 @@ class Watcher:
         return (
             self._prev_fp,
             self._unchanged_since,
+            self._state_since,
+            self._state_key,
             self._tool,
             self._live_seen,
             self._state,
@@ -632,6 +641,20 @@ class Watcher:
         self._summary[pane_id] = span
         return span
 
+    def _state_since_for(self, pane_id: str, state: dict, now: float) -> float:
+        """Timestamp the pane ENTERED its current state, for the client's live duration
+        clock. Resets only when the activity value changes (idle→running, running→waiting,
+        …) or the pending question's identity changes — a NEW question restarts the
+        waiting clock, the SAME question persisting keeps it counting. Cosmetic screen
+        churn (a spinner/clock that trips the fingerprint) does NOT reset it, so
+        time-in-state stays honest even across re-parses. Persisted per pane so an
+        unchanged re-parse leaves it put and the clock keeps climbing."""
+        key = (state.get("activity"), self._question_prompt(state))
+        if self._state_key.get(pane_id) != key:
+            self._state_key[pane_id] = key
+            self._state_since[pane_id] = now
+        return self._state_since[pane_id]
+
     def _tick_pane(self, pane) -> dict:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
@@ -663,6 +686,10 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            # Same activity/question as the last parse (nothing re-classified), so this
+            # returns the persisted entry time unchanged — the client's clock keeps
+            # climbing while the pane sits still.
+            cached["state_since"] = self._state_since_for(pane.id, cached, now)
             cached["updated_at"] = now
             # A pane's NAMES and NUMBER live outside the captured text — an agent renames
             # the title, tmux rename-window/-session changes the label, moving or closing
@@ -802,6 +829,9 @@ class Watcher:
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
+        # When this pane entered its current activity/question state — the client ticks
+        # `now - state_since` live so idle/waiting durations stay honest between parses.
+        state["state_since"] = self._state_since_for(pane.id, state, now)
         state["updated_at"] = now
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
