@@ -1278,6 +1278,7 @@ function subagentsView(subs) {
   box.innerHTML =
     `<div class="tasks-head">Sub-agents</div>` +
     subs
+      .filter((a) => a && typeof a === "object") // match classify.py: skip non-object entries
       .map((a) => {
         const done = a.state === "done";
         const meter = [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).map(esc).join(" ");
