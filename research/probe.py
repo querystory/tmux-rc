@@ -95,12 +95,16 @@ def _bench_models(sample: Path, models: list[str], repeat: int) -> None:
     summary = []
     for model in models:
         runs = [_parse([text], model=model) for _ in range(repeat)]
-        med_lat = statistics.median(r["latency"] for r in runs)
-        last = runs[-1]
-        summary.append((model, last["in"], last["out"], med_lat, last["cost"]))
-        print(f"===== {model}  ({last['in']} in / {last['out']} out tok · "
-              f"median {med_lat:.2f}s over {repeat} · ${last['cost'] * 1000:.3f}/1k) =====")
-        print(json.dumps(last["json"], indent=2, ensure_ascii=False))
+        # Median every metric over the repeats — the point of --repeat is to smooth
+        # run-to-run variance, so tokens/cost are aggregated like latency (not the last
+        # run, which would skew the summary if responses vary even at temp=0).
+        med = lambda k: statistics.median(r[k] for r in runs)
+        med_lat, cost = med("latency"), med("cost")
+        itok, otok = round(med("in")), round(med("out"))
+        summary.append((model, itok, otok, med_lat, cost))
+        print(f"===== {model}  ({itok} in / {otok} out tok · "
+              f"median {med_lat:.2f}s over {repeat} · ${cost * 1000:.3f}/1k) =====")
+        print(json.dumps(runs[-1]["json"], indent=2, ensure_ascii=False))
         print()
     print("===== SUMMARY =====")
     print(f"{'model':28} {'in':>6} {'out':>5} {'med lat':>8} {'$/1k':>8}")
@@ -126,7 +130,11 @@ def main() -> None:
 
     sample = _take("--sample")
     models = _take("--models")
-    repeat = int(_take("--repeat") or 3)
+    raw_repeat = _take("--repeat")
+    try:
+        repeat = int(raw_repeat) if raw_repeat else 3
+    except ValueError:
+        sys.exit(f"--repeat must be an integer, got {raw_repeat!r}")
     if sample:  # model head-to-head over a saved sample — no tmux/live capture
         if repeat < 1:
             sys.exit("--repeat must be >= 1")
