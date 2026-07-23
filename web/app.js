@@ -216,7 +216,9 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
     (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
       + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
     + (icon ? `<span class="icon">${iconFor(s.tool)}` +
-        (nsub > 0 ? `<sub class="sacount">${nsub}</sub>` : "") + `</span>` : "")
+        // aria-hidden: rows are role=button and compute their name from contents — a
+        // bare "2" would garble it. The count is spoken via the sub-toggle chip's text.
+        (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : "") + `</span>` : "")
     + `<div class="ph-meta"><div class="ph-name">${esc(s.title || s.label || s.pane_id)}</div>`
     + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}">${badge}</span></div>`
@@ -615,7 +617,7 @@ function dock(states, act) {
     const nsub = nsubOf(s);
     b.innerHTML = iconFor(s.tool) +
       (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "") +
-      (nsub > 0 ? `<sub class="sacount">${nsub}</sub>` : "");
+      (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : ""); // count is in aria-label below
     b.title = s.title || s.label || s.pane_id;
     // Fold the sub-agent count into the button's own label so assistive tech announces it.
     b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
