@@ -245,6 +245,8 @@
      line inside the row (the row is otherwise a single flex line). */
   .prow.subs-open { flex-wrap: wrap; }
   .prow .subagents { flex-basis: 100%; margin-top: 4px; }
+  /* Caret-less rows keep the (disabled) caret as an invisible spacer so icons align. */
+  .prow .card-caret:disabled { visibility: hidden; }
   .pulse {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: #3fb950; margin-right: 5px; vertical-align: middle;
