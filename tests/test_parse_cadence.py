@@ -12,6 +12,7 @@ class _Pane:
         self.id = pid
         self.label = label
         self.display_title = label
+        self.window_index = "0"
 
 
 def _harness(monkeypatch, frame_holder):

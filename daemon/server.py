@@ -249,6 +249,7 @@ app.add_middleware(GZipMiddleware, minimum_size=512)
 
 # Live Mode (voice): one WebSocket per session — see daemon/live.py and
 # docs/design/live-mode.md.
+from . import live  # noqa: E402
 from .live import router as live_router  # noqa: E402
 
 app.include_router(live_router)
@@ -282,13 +283,14 @@ async def no_cache(request, call_next):
 @app.get("/api/version")
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
-    (see app.js). Cheap to recompute per call — the web dir is tiny."""
+    (see app.js). Cheap to recompute per call — the web dir is tiny. Also reports
+    server feature flags the client gates UI on (live_enabled → shows the mic button)."""
     h = hashlib.md5()
     for p in sorted(WEB_DIR.glob("*")):
         if p.is_file():
             h.update(p.name.encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    return {"version": h.hexdigest()}
+    return {"version": h.hexdigest(), "live_enabled": live.enabled()}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).

@@ -282,11 +282,72 @@ def _materialize_links(text: str) -> str:
 # (glyphs chosen for near-zero collision with pane text) that survive the ANSI strip.
 _SGR = re.compile(r"\x1b\[([0-9;:]*)m")
 DIM_OPEN, DIM_CLOSE = "⟪dim⟫", "⟪/dim⟫"
+# A faint run sitting right after a prompt glyph in an EMPTY input box is the agent's
+# greyed suggestion text (a placeholder) — categorically NOT the user's typed input,
+# which renders near-white. Marking it distinctly stops every LLM path from reading the
+# suggestion as a real, pending instruction. Glyphs: ❯ (U+276F, Claude Code) and › (Codex),
+# each followed by a space (regular, or the non-breaking space Claude Code uses).
+PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE = "⟪placeholder⟫", "⟪/placeholder⟫"
+_PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
+_PROMPT_DIM = re.compile(
+    "(?m)^([" + _PROMPT_GLYPHS + r"][ \xa0]?)" + re.escape(DIM_OPEN) + r"(.*?)"
+    + re.escape(DIM_CLOSE)
+)
+
+
+def _mark_placeholder(text: str) -> str:
+    """Promote the dim run right after a prompt glyph to a ⟪placeholder⟫ run."""
+    return _PROMPT_DIM.sub(r"\1" + PLACEHOLDER_OPEN + r"\2" + PLACEHOLDER_CLOSE, text)
 
 
 def strip_dim(text: str) -> str:
-    """Collapse a dim-marked capture back to the plain text the phone renders."""
-    return text.replace(DIM_OPEN, "").replace(DIM_CLOSE, "")
+    """Collapse a marked capture back to the plain text the phone renders."""
+    for a, b in ((DIM_OPEN, DIM_CLOSE), (PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE)):
+        text = text.replace(a, "").replace(b, "")
+    return text
+
+
+_OPENS = (DIM_OPEN, PLACEHOLDER_OPEN)
+_CLOSES = (DIM_CLOSE, PLACEHOLDER_CLOSE)
+_MARKERS = _OPENS + _CLOSES
+
+
+def _first_marker(s: str) -> tuple[int, str] | None:
+    """(index, token) of the earliest whole ⟪…⟫ marker in s, or None."""
+    hits = [(s.find(m), m) for m in _MARKERS if m in s]
+    return min(hits) if hits else None
+
+
+def tail_marked(text: str, max_chars: int) -> str:
+    """Last <=max_chars of MARKED text, kept whole-marker clean for the LLM. A raw slice
+    can split a ⟪dim⟫/⟪placeholder⟫ token or start inside a marked run; the marker TOKENS
+    contain no newline, so cutting to a LINE boundary at/after the budget never splits one,
+    then re-open the run if the kept tail begins inside one (a close precedes any open)."""
+    if len(text) <= max_chars:
+        return text
+    # Drop whole leading lines while more than one remains over budget — a line-boundary
+    # cut can't split a token (tokens are intraline, even if a marked RUN spans lines).
+    lines = text.splitlines()
+    while len(lines) > 1 and len("\n".join(lines)) > max_chars:
+        lines.pop(0)
+    cut = "\n".join(lines)
+    # A single surviving line can still exceed the budget (a long wrapped capture line);
+    # char-slice it rather than drop it to empty, then discard any leading marker fragment
+    # the slice created — resync to the first WHOLE marker (a clean, marker-free head stays).
+    if len(cut) > max_chars:
+        cut = cut[-max_chars:]
+        first = _first_marker(cut)
+        # A ⟪ or ⟫ before the first whole marker means the slice began mid-token: drop that
+        # fragment. No whole marker at all + a stray glyph ⇒ drop through it to clean text.
+        head = cut[: first[0]] if first else cut
+        if "⟪" in head or "⟫" in head:
+            cut = cut[first[0] :] if first else cut[max(cut.rfind("⟪"), cut.rfind("⟫")) + 1 :]
+    # If the tail opens inside a marked run (a close comes before any open), re-open it
+    # with the matching open so the run stays balanced for the LLM.
+    first = _first_marker(cut)
+    if first and first[1] in _CLOSES:
+        cut = _OPENS[_CLOSES.index(first[1])] + cut
+    return cut
 
 
 def _mark_dim(text: str) -> str:
@@ -361,7 +422,7 @@ def capture_pane(
     if keep_colors:
         return out.rstrip("\n")  # live view: raw SGR, client colorizes
     if mark_dim:
-        out = _mark_dim(out)
+        out = _mark_placeholder(_mark_dim(out))
     return _ANSI.sub("", out).rstrip("\n")
 
 
