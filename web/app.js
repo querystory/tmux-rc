@@ -766,13 +766,20 @@ function row(s, act) {
   el.className = "prow" + (a === "waiting" ? " waiting" : "")
     + (s.pane_id === act ? " sel" : "");
   el.dataset.pane = s.pane_id;
-  // Tapping a row opens that pane's card (drops back out of list view). The row is a
-  // plain pointer target, NOT role=button: it can contain a real <button> (the
-  // sub-agents toggle), and an interactive descendant inside a button role is invalid
-  // ARIA with unpredictable AT behavior. Keyboard/AT users switch panes via the dock
-  // icons — real buttons whose labels carry the pane name + sub-agent count.
-  el.onclick = () => { listFilter = null; setActive(s.pane_id); };
+  // Tapping a row opens that pane's card (drops back out of list view). Structure:
+  // TWO SIBLING buttons, never nested — role=button on the row itself would be invalid
+  // ARIA once the sub-agents toggle (a real <button>) moved in. The icon+name+headline
+  // area becomes .row-open, a real button that opens the card (keyboard operable);
+  // the toggle sits beside it in .ph-right. The row div stays a pointer target so
+  // taps on its padding still open the card.
+  const goCard = () => { listFilter = null; setActive(s.pane_id); };
+  el.onclick = goCard;
   el.innerHTML = paneHeader(s, { icon: true });
+  const openBtn = document.createElement("button");
+  openBtn.className = "row-open";
+  openBtn.append(...[...el.children].filter((n) => !n.classList.contains("ph-right")));
+  el.prepend(openBtn);
+  openBtn.onclick = (e) => { e.stopPropagation(); goCard(); }; // don't double-fire via the row
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
   // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
   // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives

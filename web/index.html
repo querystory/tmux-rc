@@ -245,6 +245,12 @@
      line inside the row (the row is otherwise a single flex line). */
   .prow.subs-open { flex-wrap: wrap; }
   .prow .subagents { flex-basis: 100%; margin-top: 4px; }
+  /* .row-open: the icon+name+headline area as a real button (the keyboard/AT path to
+     the card, sibling of the sub-agents toggle — never nested). Inherits the row's
+     flex layout, sheds all button chrome. */
+  .row-open { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
+    background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
+    text-align: left; cursor: pointer; }
   .pulse {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: #3fb950; margin-right: 5px; vertical-align: middle;
