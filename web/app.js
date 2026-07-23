@@ -200,7 +200,8 @@ function workSub(s) {
 //   caret — the card's collapse ▾/▸ (rows don't collapse);
 //   icon  — the row shows the pane icon; the card doesn't (its dock tab IS the icon).
 // Returns the innerHTML string; callers wire their own click handlers on the result.
-// Non-negative int count of RUNNING sub-agents (parser derives s.agents). Coerce —
+// Non-negative int count of RUNNING sub-agents (classify.py derives s.agents from
+// the parser's subagents[] before it reaches the UI). Coerce —
 // it's untyped LLM/server JSON headed for innerHTML, so junk must never reach the DOM.
 // One definition shared by the dock badge and the list-row icon.
 function nsubOf(s) {
@@ -765,15 +766,12 @@ function row(s, act) {
   el.className = "prow" + (a === "waiting" ? " waiting" : "")
     + (s.pane_id === act ? " sel" : "");
   el.dataset.pane = s.pane_id;
-  // Tapping a row opens that pane's card (drops back out of list view). Keyboard
-  // reachable too: it's a div, so it needs button semantics spelled out.
-  el.setAttribute("role", "button");
-  el.tabIndex = 0;
+  // Tapping a row opens that pane's card (drops back out of list view). The row is a
+  // plain pointer target, NOT role=button: it can contain a real <button> (the
+  // sub-agents toggle), and an interactive descendant inside a button role is invalid
+  // ARIA with unpredictable AT behavior. Keyboard/AT users switch panes via the dock
+  // icons — real buttons whose labels carry the pane name + sub-agent count.
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
-  el.onkeydown = (e) => {
-    if (e.target.closest(".sub-toggle")) return; // the toggle button handles its own keys
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); }
-  };
   el.innerHTML = paneHeader(s, { icon: true });
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
   // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
