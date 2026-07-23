@@ -27,6 +27,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def enabled() -> bool:
+    """Whether Live Mode (voice) is turned on. OFF by default: the voice UX is still
+    being tuned, so it ships dark — the classify/marking improvements it rides in with
+    (dim/placeholder markers, window_index) help the phone cards regardless. Flip on with
+    TMUXRC_LIVE_MODE=1, then restart the daemon: .env is loaded once at process start
+    (python-dotenv), so a StatReload does NOT re-read it — a full restart does. Read from
+    os.environ per-call (not cached) so an env change is picked up without a code edit."""
+    return os.environ.get("TMUXRC_LIVE_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 # The Live-capable model — NOT the flash-lite classifier model (which has no live/bidi
 # variant). Region likewise: Live models are region-pinned, not "global".
 LIVE_MODEL = os.environ.get("TMUXRC_LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
@@ -183,22 +194,40 @@ def _live_client():
 
 
 def _screen_tail(watcher, pane_id: str) -> str:
-    """Last SCREEN_TAIL_LINES of a pane's current screen, via the newest snapshot (the
-    watcher strips the LLM dim-markers at that boundary). Empty if none captured yet."""
+    """Last SCREEN_TAIL_LINES of a pane's current screen, dim-MARKED — the same
+    ⟪dim⟫-wrapped text the classify parser sees, so the voice model can tell draft/ghost/
+    placeholder runs (composer autocomplete, unsent input) from real output instead of
+    treating them as typed content. Use the stored snapshot text directly, NOT
+    watcher.snapshot_text() — that one strips the markers for the phone's raw render.
+    Empty if none captured yet."""
     hist = watcher.snapshots.get(pane_id) or []
     if not hist:
         return ""
-    text = watcher.snapshot_text(pane_id, hist[-1]["id"]) or ""
+    text = hist[-1]["text"] or ""
     lines = text.rstrip().splitlines()[-SCREEN_TAIL_LINES:]
-    return "\n".join(lines)[-SCREEN_TAIL_CHARS:]
+    # Char-bound on a MARKER boundary — a raw slice could cut a ⟪dim⟫ token or orphan
+    # a close from its open, garbling the dim signal the model relies on.
+    return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)
 
 
 def _pane_block(d: dict, screen: str | None) -> str:
-    """One pane's state as prompt text. `d` is a watcher.digest() entry."""
-    head = f"pane {d['pane_id']} — {d.get('tool') or 'unknown'}"
-    if d.get("label"):
-        head += f" ({d['label']})"
+    """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
+    leads with the user-facing identity (window number + title) and gives the internal
+    pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
+    win = d.get("window_index")
+    head = f"window {win}" if win not in (None, "") else "window"
+    # Best-first name, matching the phone card: the agent's self-published title, else
+    # the window label (which itself falls back to session / session:index). Collapse any
+    # newlines and drop embedded quotes so a stray title can't unbalance the quoting or
+    # split the heading — the model must be able to parse one clean identity per pane.
+    name = d.get("title") or d.get("label")
+    if name:
+        name = " ".join(str(name).split()).replace('"', "")
+        head += f' "{name}"'
+    head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
+    if d.get("tmux_active"):
+        head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
     if d.get("headline"):
         parts.append(f"now: {d['headline']}")
@@ -211,14 +240,21 @@ def _pane_block(d: dict, screen: str | None) -> str:
     return "\n".join(parts)
 
 
-def _pane_context(watcher, with_screens: bool) -> str:
+def _pane_context(watcher, screens: str) -> str:
     """All panes' state as prompt text — the digest the phone's cards already use, plus
-    (optionally) each pane's current screen tail. No LLM calls; pure reads of state the
-    watcher keeps current anyway."""
-    blocks = [
-        _pane_block(d, _screen_tail(watcher, d["pane_id"]) if with_screens else None)
-        for d in watcher.digest()
-    ]
+    each pane's current screen tail per `screens`: "all" (the connect snapshot), "active"
+    (only the focused pane — enough for the agent to read what it's acting on, without
+    re-streaming every screen on each state change), or "none". No LLM calls; pure reads
+    of state the watcher keeps current anyway."""
+    if screens not in ("all", "active", "none"):
+        raise ValueError(f"bad screens mode: {screens!r}")
+
+    def tail(d):
+        if screens == "all" or (screens == "active" and d.get("tmux_active")):
+            return _screen_tail(watcher, d["pane_id"])
+        return None
+
+    blocks = [_pane_block(d, tail(d)) for d in watcher.digest()]
     return "\n\n".join(blocks) if blocks else "(no panes)"
 
 
@@ -226,7 +262,7 @@ def _system_prompt(watcher) -> str:
     stamp = time.strftime("%Y-%m-%d %H:%M %Z")
     return (
         f"{_load_prompt('live_prompt.txt')}\nNow: {stamp}"
-        f"\n\n# Panes (live state)\n\n{_pane_context(watcher, with_screens=True)}"
+        f"\n\n# Panes (live state)\n\n{_pane_context(watcher, screens='all')}"
     )
 
 
@@ -281,7 +317,7 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id from the pane state, e.g. %5",
+                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
                             ),
                             "text": types.Schema(
                                 type=types.Type.STRING,
@@ -309,7 +345,7 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id from the pane state, e.g. %5",
+                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
                             ),
                             "key": types.Schema(
                                 type=types.Type.STRING,
@@ -451,7 +487,7 @@ async def _context_updater(session, watcher) -> None:
         await asyncio.sleep(UPDATE_MIN_SECONDS)  # coalesce a burst into one update
         version = watcher.state_version()  # whatever landed during the throttle window
         await _send_ambient(
-            session, f"[tmux update] current pane state:\n\n{_pane_context(watcher, with_screens=False)}"
+            session, f"[tmux update] current pane state:\n\n{_pane_context(watcher, screens='active')}"
         )
 
 
@@ -577,6 +613,13 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
 
 @router.websocket("/api/live-mode")
 async def live_mode(websocket: WebSocket) -> None:
+    if not enabled():
+        # Feature-flagged off — refuse before any Gemini connection or mic streaming.
+        # 1008 = policy violation; the client hides the button too, so this only fires
+        # for a stale tab or a direct probe. Reason points at the fix (reload the page —
+        # a current client reads live_enabled from /api/version and hides the button).
+        await websocket.close(code=1008, reason="Live Mode is disabled — reload the page")
+        return
     await websocket.accept()
     watcher = websocket.app.state.watcher
     actor = _actor(websocket)

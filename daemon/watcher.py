@@ -229,7 +229,10 @@ class Watcher:
                 {
                     "pane_id": pid,
                     "label": s.get("label"),
+                    "title": s.get("title"),  # self-published title, or bootstrap name
+                    "window_index": s.get("window_index"),
                     "tool": s.get("tool"),
+                    "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
                     "idle_seconds": s.get("idle_seconds"),
                     "headline": s.get("headline"),
@@ -380,6 +383,7 @@ class Watcher:
                     "pane_id": p.id,
                     "label": p.label,
                     "title": p.display_title,
+                    "window_index": p.window_index,
                     "tool": "unknown",
                     "activity": "unknown",
                     "updated_at": time.time(),
@@ -660,9 +664,13 @@ class Watcher:
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
-            # The pane TITLE lives outside the captured text — agents rename it while
-            # the screen sits still, so refresh it even when nothing else re-parses.
+            # A pane's NAMES and NUMBER live outside the captured text — an agent renames
+            # the title, tmux rename-window/-session changes the label, moving or closing
+            # windows renumbers the index — all while the screen sits still. Refresh them
+            # even when nothing re-parses, or a titleless pane keeps a stale spoken name.
             cached["title"] = pane.display_title
+            cached["label"] = pane.label
+            cached["window_index"] = pane.window_index
             # Idle a while with unsummarized activity → summarize the burst once, so the
             # UI can collapse those events under a {from,to,text} span.
             cached["summary"] = self._maybe_summarize(pane.id, idle)
@@ -787,6 +795,10 @@ class Watcher:
         # The pane's self-published title (see Pane.display_title) — the agent's own
         # words for what it's doing, better than anything we could parse off the screen.
         state["title"] = pane.display_title
+        # The tmux WINDOW number shown in the status bar (0,1,2…) — the identity a user
+        # reads off their own screen, so voice/UI can name a pane by it instead of the
+        # internal %id.
+        state["window_index"] = pane.window_index
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
