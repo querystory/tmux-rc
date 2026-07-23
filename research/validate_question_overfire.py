@@ -89,56 +89,58 @@ def _has_q(d: dict) -> bool:
 
 
 # Flash-Lite has run-to-run variance even at temperature 0, so a single sample is noise.
-# Run N trials per prompt and report the RATE at which a `question` fires — the honest
-# way to A/B a nondeterministic model.
-TRIALS = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+# `trials` is the number of samples per prompt; the reported RATE at which a `question`
+# fires is the honest way to A/B a nondeterministic model. Default 5, overridable via argv
+# (parsed in main() so importing this module has no argv side effects).
+DEFAULT_TRIALS = 5
 
 
-def _q_rate(text: str, prompt: str) -> int:
-    return sum(_has_q(_classify(text, prompt)) for _ in range(TRIALS))
+def _q_rate(text: str, prompt: str, trials: int) -> int:
+    return sum(_has_q(_classify(text, prompt)) for _ in range(trials))
 
 
-def _run_one(label: str, text: str) -> tuple:
-    b = _q_rate(text, BASELINE)
-    p = _q_rate(text, PATCHED)
-    print(f"  {label:34} baseline q {b}/{TRIALS}   patched q {p}/{TRIALS}")
+def _run_one(label: str, text: str, trials: int) -> tuple:
+    b = _q_rate(text, BASELINE, trials)
+    p = _q_rate(text, PATCHED, trials)
+    print(f"  {label:34} baseline q {b}/{trials}   patched q {p}/{trials}")
     return label, b, p
 
 
 def main() -> None:
+    trials = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_TRIALS
     rows = []
-    print(f"question-fire rate over {TRIALS} trials each (temperature 0):\n")
+    print(f"question-fire rate over {trials} trials each (temperature 0):\n")
 
     print("AFFECTED (agent's own trailing '?', idle editable box — should DROP the question):")
     for pid in AFFECTED:
         if (_SAMPLES / f"pane_{pid.replace('%', 'pct')}.txt").exists():
-            rows.append(("AFFECTED", *_run_one(f"AFFECTED {pid}", _capture(pid))))
+            rows.append(("AFFECTED", *_run_one(f"AFFECTED {pid}", _capture(pid), trials)))
         else:
             print(f"  AFFECTED {pid:24} (no local capture — skipped)")
 
     print("\nCONTROLS (should be UNCHANGED):")
     for pid in CONTROLS:
         if (_SAMPLES / f"pane_{pid.replace('%', 'pct')}.txt").exists():
-            rows.append(("CONTROL", *_run_one(f"CONTROL {pid}", _capture(pid))))
+            rows.append(("CONTROL", *_run_one(f"CONTROL {pid}", _capture(pid), trials)))
         else:
             print(f"  CONTROL {pid:24} (no local capture — skipped)")
 
     if GENUINE_PROMPT_FIXTURE.exists():
         print("\nGENUINE (tool-held permission box — MUST still fire the question):")
         text = GENUINE_PROMPT_FIXTURE.read_text(encoding="utf-8")
-        rows.append(("GENUINE", *_run_one("GENUINE permission-prompt fixture", text)))
+        rows.append(("GENUINE", *_run_one("GENUINE permission-prompt fixture", text, trials)))
 
     print("\n\n===== SUMMARY TABLE =====")
     print(f"{'group':9} {'pane':34} {'baseline q':>12} {'patched q':>11}  verdict")
     for group, label, b, p in rows:
-        bs = f"{b}/{TRIALS}"
-        ps = f"{p}/{TRIALS}"
+        bs = f"{b}/{trials}"
+        ps = f"{p}/{trials}"
         if group == "AFFECTED":
             verdict = "FIXED (q rate down)" if (b > 0 and p < b) else "no over-fire this sample"
         elif group == "CONTROL":
             verdict = "unchanged"
         else:  # GENUINE
-            verdict = "still fires q" if p == TRIALS else "!! SUPPRESSED"
+            verdict = "still fires q" if p == trials else "!! SUPPRESSED"
         print(f"{group:9} {label:34} {bs:>12} {ps:>11}  {verdict}")
 
 
