@@ -194,7 +194,9 @@ BACKGROUND agents this agent spawned to run in parallel — a block of rows each
 delegated job with a live meter (Claude Code shows "general-purpose  <what it's doing>
 Nm  ↓Nk tokens"), or a "waiting for N background agents to finish" line. Each row is one
 subagent: put the job in "label", "running" while its meter ticks / "done" once it
-reports finished, and pass through "elapsed"/"tokens" if the row shows them. These are
+reports finished, and pass through "elapsed"/"tokens" if the row shows them. Give
+"tokens" as the bare value only ("18.1k", not "↓18.1k tokens") — the UI adds its own
+"↓" and label, so any arrow or trailing word here would double up. These are
 workers, NOT checklist items — a delegated-job row never goes in "tasks", and a plan
 line never goes in "subagents". Include "subagents" ONLY when such spawned-agent rows
 are visibly on screen.

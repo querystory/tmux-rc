@@ -608,7 +608,7 @@ function dock(states, act) {
       (nsub > 0 ? `<sub class="sacount">${nsub}</sub>` : "");
     b.title = s.title || s.label || s.pane_id;
     // Fold the sub-agent count into the button's own label so assistive tech announces it.
-    b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agents` : ""));
+    b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
