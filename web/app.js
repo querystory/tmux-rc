@@ -519,12 +519,30 @@ function joinTab(deck) {
   });
   const pin = _joinPin = () => {
     const s = sel.getBoundingClientRect(),
-      d = deck.getBoundingClientRect(), t = top.getBoundingClientRect();
-    // FIRST tab selected: flush-left, no flare — the rail's left border vanishes so
-    // the tab's own blue border IS the line, collinear with the card's below (see
-    // .edge-l CSS). Only the first icon gets this; a mid-list icon scrolled near the
-    // edge merely squares the corner under its flare (sq-l below).
-    const edgeL = sel === dockEl.querySelector(".dock-icon") && s.left - d.left - 7 < 14;
+      d = deck.getBoundingClientRect(), t = top.getBoundingClientRect(),
+      dock = dockEl.getBoundingClientRect();
+    // The fillets/notch live in #top (outside the dock's overflow clip), so when the
+    // selected icon scrolls out of the dock's visible strip nothing clips them — they'd
+    // orphan as a stray blue arc at the clip edge. Self-hide when the icon (with its 7px
+    // flare) leaves the dock's horizontal bounds; the next in-view pin() re-shows them.
+    if (s.right - 7 < dock.left || s.left + 7 > dock.right) {
+      // Hiding the fillets isn't enough: the seam classes (edge-l / sq-l / sq-r) styled
+      // the join too, so leaving them set mis-renders the dock border and card corners
+      // under a join that's no longer drawn. Tear the whole join down to its no-join
+      // state; the in-view pin() below re-sets all of them when the icon scrolls back.
+      fl.style.display = fr.style.display = n.style.display = "none";
+      dockEl.classList.remove("edge-l");
+      deck.querySelector(".card.active")?.classList.remove("sq-l", "sq-r");
+      return;
+    }
+    fr.style.display = n.style.display = "";
+    // Selected tab sits flush against the dock's LEFT edge — no room for the left flare,
+    // so hide fl and let the tab's own blue left border BE the line, collinear with the
+    // card below (see .edge-l CSS). This is GEOMETRIC (the icon's left flare at/past the
+    // dock edge), NOT "is it the DOM-first icon": scroll can put any icon flush-left, and
+    // an icon can be visually first without being first in DOM order. Same test drives
+    // sq-l below, so they stay consistent.
+    const edgeL = s.left - dock.left - 7 < 14;
     dockEl.classList.toggle("edge-l", edgeL);
     fl.style.display = edgeL ? "none" : "";
     n.style.left = s.left - d.left + 1 + "px"; // inset 1px each side: the fillets own
@@ -534,7 +552,7 @@ function joinTab(deck) {
     // would land there, square that corner (14 = the .card border-radius).
     const card = deck.querySelector(".card.active");
     if (card) {
-      card.classList.toggle("sq-l", s.left - d.left - 7 < 14);
+      card.classList.toggle("sq-l", edgeL);
       card.classList.toggle("sq-r", d.right - s.right - 7 < 14);
     }
     // Each patch is placed so the arc's center (its top corner) sits radius-8 from the
