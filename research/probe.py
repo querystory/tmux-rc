@@ -80,10 +80,21 @@ def _parse(parts, model: str = _MODEL) -> dict:
 
 def _load_sample_text(path: Path) -> str:
     """Pull the pane text from a saved sample: a plain `.txt` capture, or a JSON with a
-    top-level "pane_text" (an OTel-captured, already-assembled payload)."""
-    if path.suffix == ".json":
-        return json.loads(path.read_text())["pane_text"]
-    return path.read_text()
+    top-level "pane_text" (an OTel-captured, already-assembled payload). Exits with a
+    one-line message on the common CLI mistakes (missing file, bad JSON, no pane_text)
+    instead of dumping a traceback."""
+    try:
+        raw = path.read_text()
+    except OSError as e:
+        sys.exit(f"can't read sample {path}: {e.strerror}")
+    if path.suffix != ".json":
+        return raw
+    try:
+        return json.loads(raw)["pane_text"]
+    except json.JSONDecodeError as e:
+        sys.exit(f"sample {path} is not valid JSON: {e}")
+    except KeyError:
+        sys.exit(f"sample {path} has no top-level \"pane_text\"")
 
 
 def _bench_models(sample: Path, models: list[str], repeat: int) -> None:
@@ -138,7 +149,11 @@ def main() -> None:
     if sample:  # model head-to-head over a saved sample — no tmux/live capture
         if repeat < 1:
             sys.exit("--repeat must be >= 1")
-        model_ids = (models or _MODEL).split(",")
+        # Tolerate "a, b" / trailing commas; reject an all-empty list rather than send a
+        # blank model id downstream to a confusing Vertex error.
+        model_ids = [m.strip() for m in (models or _MODEL).split(",") if m.strip()]
+        if not model_ids:
+            sys.exit("--models is empty")
         _bench_models(Path(sample), model_ids, repeat)
         return
 

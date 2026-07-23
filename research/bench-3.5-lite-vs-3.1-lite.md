@@ -22,11 +22,14 @@ loss of an amber "tap me, I need you" badge.
   `daemon/parser_prompt.txt`** as `system_instruction`, `temperature=0.0`,
   `response_mime_type=application/json`, via the same Vertex client
   (`daemon.llm._client`). No hand-rolled prompt, no raw call that skips our prompting.
-- **Input:** each sample's `pane_text` is the **already-assembled payload** that was sent to
-  the model in production — it already includes the `[tmux: foreground process is '…']`
-  prefix and any prior-frame / already-reported-events context that `classify()` appends. So
-  the model sees byte-for-byte what the daemon fed 3.1-lite live. Text-only, matching the
-  shipped hot path (research showed text beats image; the image switch is off).
+- **Input:** each sample's `pane_text` is the **already-assembled payload** captured from a
+  single production call — it includes the `[tmux: foreground process is '…']` prefix and
+  whatever prior-frame / already-reported-events context `classify()` had embedded *at that
+  one capture*. So the model sees byte-for-byte what the daemon fed 3.1-lite on that call —
+  but these are **single-frame replays**: they carry only the continuity baked into that one
+  payload, not the live multi-frame trajectory the daemon accumulates across ticks (see the
+  caveat below). Text-only, matching the shipped hot path (research showed text beats image;
+  the image switch is off).
 - **Auth/env:** Vertex on `qs-backend-dev`, region `global`, the daemon's service-account
   key. Both model ids returned valid JSON on every call — **`gemini-3.5-flash-lite` IS a
   valid, reachable model id on our setup** (this was the first thing checked; it is not a
