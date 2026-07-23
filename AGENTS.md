@@ -39,3 +39,13 @@ every thread, re-request, repeat) before merging. Merge only on the user's expli
 
 `make test` runs `pytest -q tests/`. There is no JS test harness — browser-side logic is
 verified by hand against real DOM shapes and by live testing on the phone.
+
+## Classifier / prompt changes
+
+Any change to `daemon/parser_prompt.txt` or the classifier logic (`daemon/classify.py`)
+MUST be validated with the prompt-eval harness and MUST add or update a case in
+`research/eval/samples/` covering the behavior being fixed or changed — a prompt/classifier
+fix without a matching eval case is incomplete. Run `python -m research.eval` (all samples
+must pass); for a prompt edit, A/B it with `python -m research.eval --prompt <candidate>`
+to confirm the fix without regressing other cases. See `research/eval/README.md` for the
+scoring model, adding a sample, and `--model`/`--prompt`.
