@@ -1815,7 +1815,8 @@ pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
 let _ver = null;
 setInterval(async () => {
   try {
-    const { version } = await (await fetch("/api/version")).json();
+    const { version, live_enabled } = await (await fetch("/api/version")).json();
+    applyLiveEnabled(!!live_enabled);  // sync the mic button to the server flag
     if (_ver === null) _ver = version;
     else if (version !== _ver) {
       if (composerEmpty()) location.reload();
@@ -1877,6 +1878,15 @@ if (window.visualViewport && barEl) {
 // header pill is the status, and the rolling conversation renders in the active card's
 // summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
 const lm = { btn: document.getElementById("lm-btn") };
+// Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
+// the server reports it enabled — one source of truth, so a stale tab can't offer a
+// button the /api/live-mode route will just refuse. Hidden until confirmed.
+function applyLiveEnabled(on) {
+  if (lm.btn) lm.btn.hidden = !on;
+}
+applyLiveEnabled(false);
+// Resolve the flag immediately on load (the 5s version poll also keeps it in sync).
+fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled)).catch(() => {});
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmLog = [];                  // rolling conversation: {role, text, done}

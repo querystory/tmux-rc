@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def enabled() -> bool:
+    """Whether Live Mode (voice) is turned on. OFF by default: the voice UX is still
+    being tuned, so it ships dark — the classify/marking improvements it rides in with
+    (dim/placeholder markers, window_index) help the phone cards regardless. Flip on with
+    TMUXRC_LIVE_MODE=1. Read live (not cached) so a .env toggle takes effect on reload."""
+    return os.environ.get("TMUXRC_LIVE_MODE", "").lower() in ("1", "true", "yes", "on")
+
+
 # The Live-capable model — NOT the flash-lite classifier model (which has no live/bidi
 # variant). Region likewise: Live models are region-pinned, not "global".
 LIVE_MODEL = os.environ.get("TMUXRC_LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
@@ -602,6 +611,12 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
 
 @router.websocket("/api/live-mode")
 async def live_mode(websocket: WebSocket) -> None:
+    if not enabled():
+        # Feature-flagged off — refuse before any Gemini connection or mic streaming.
+        # 1008 = policy violation; the client hides the button too, so this only fires
+        # for a stale tab or a direct probe.
+        await websocket.close(code=1008, reason="Live Mode is disabled")
+        return
     await websocket.accept()
     watcher = websocket.app.state.watcher
     actor = _actor(websocket)
