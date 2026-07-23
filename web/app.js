@@ -769,27 +769,29 @@ function row(s, act) {
   el.tabIndex = 0;
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
   el.onkeydown = (e) => {
-    if (e.target.closest(".card-caret")) return; // the caret button handles its own keys
+    if (e.target.closest(".sub-toggle")) return; // the toggle button handles its own keys
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); }
   };
-  // Same shared header as the card (see paneHeader). A pane with sub-agents gets the
-  // card's caret too: it toggles the SAME subagentsView box the card shows (one
-  // component, two surfaces) without leaving list mode. Toggle state lives in subsOpen
-  // so it survives the per-poll row rebuild; re-render through render() so the open row
-  // is drawn by the one normal path, not a bespoke DOM patch that drifts from it.
+  el.innerHTML = paneHeader(s, { icon: true });
+  // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
+  // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
+  // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
+  // the per-poll row rebuild; toggling re-renders through render(), the one normal
+  // path, not a bespoke DOM patch that drifts from it.
   const subs = Array.isArray(s.subagents) && s.subagents.length ? s.subagents : null;
-  const open = !!subs && subsOpen.has(s.pane_id);
-  el.innerHTML = paneHeader(s, { icon: true, caret: !!subs, collapsed: !open });
   if (subs) {
-    // Relocate the header's caret to TRAIL the title: icons stay flush-left on every
-    // row (nothing to mis-align), and after the name it reads as "this one expands".
-    const c = el.querySelector(".card-caret");
-    el.querySelector(".ph-name").append(c);
-    c.onclick = (e) => {
-      e.stopPropagation(); // a caret tap toggles the box — it must not open the card
+    const open = subsOpen.has(s.pane_id);
+    const t = document.createElement("button");
+    t.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
+    // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
+    t.textContent = `${subs.length} sub-agent${subs.length === 1 ? "" : "s"} ${open ? "▾" : "◂"}`;
+    t.setAttribute("aria-expanded", String(open));
+    t.onclick = (e) => {
+      e.stopPropagation(); // a toggle tap expands the box — it must not open the card
       subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
       render(Object.values(panesById));
     };
+    el.querySelector(".ph-right").append(t);
     if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
   }
   return el;
