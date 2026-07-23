@@ -392,6 +392,9 @@
   #lm-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3;
     border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600;
     cursor: pointer; }
+  /* "beta" tag: Live Mode is experimental/opt-in — a quiet superscript, not a shout. */
+  .lm-exp { font-size: 8px; font-weight: 700; text-transform: uppercase; color: #a371f7;
+    margin-left: 3px; vertical-align: super; letter-spacing: .04em; }
   #lm-btn.on { background: #3d1d20; border-color: #f85149; color: #f85149; }
   @keyframes lm-pulse { 50% { opacity: .35; } }
   #lm-btn.on.listening { animation: lm-pulse 1.4s ease-in-out infinite; }
@@ -456,7 +459,7 @@
            scroll off once enough panes fill the width. Built by dock(). -->
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
-        <button id="lm-btn" title="Live Mode — talk to your session" aria-label="Start Live Mode">🎙 live</button>
+        <button id="lm-btn" title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)">🎙 live<sup class="lm-exp">beta</sup></button>
         <a id="docs-link" href="/docs/" target="_blank" rel="noopener" title="Design docs (opens in a new tab)" aria-label="Design docs">docs</a>
         <!-- Status dot doubles as the LLM-telemetry toggle: the stats are dim debug
              chrome, so they stay hidden until you tap the dot (see #usage popover). -->
