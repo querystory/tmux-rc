@@ -12,6 +12,7 @@ class _Pane:
         self.id = pid
         self.label = label
         self.display_title = label
+        self.window_index = "0"
 
 
 def _harness(monkeypatch, frame_holder):
@@ -44,11 +45,14 @@ def test_content_change_reparses(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)
     pane = _Pane()
-    w._forced_this_tick = set(); w._tick_pane(pane)      # parse 1
+    w._forced_this_tick = set()
+    w._tick_pane(pane)  # parse 1
     for _ in range(10):
-        w._forced_this_tick = set(); w._tick_pane(pane)  # no change
+        w._forced_this_tick = set()
+        w._tick_pane(pane)  # no change
     frame[0] = "$ ls\nfile.txt"                          # real content change
-    w._forced_this_tick = set(); w._tick_pane(pane)      # parse 2
+    w._forced_this_tick = set()
+    w._tick_pane(pane)  # parse 2
     assert calls["n"] == 2
 
 
@@ -61,7 +65,8 @@ def test_slow_drift_reparses_against_last_parse(monkeypatch):
     pane = _Pane()
     for i in range(5):
         frame[0] = f"line {i}"
-        w._forced_this_tick = set(); w._tick_pane(pane)
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
     assert calls["n"] == 5
 
 
@@ -71,6 +76,8 @@ def test_forced_reparse_ignores_unchanged(monkeypatch):
     frame = ["question? > "]
     w, calls = _harness(monkeypatch, frame)
     pane = _Pane()
-    w._forced_this_tick = set(); w._tick_pane(pane)              # parse 1
-    w._forced_this_tick = {pane.id}; w._tick_pane(pane)          # forced -> parse 2
+    w._forced_this_tick = set()
+    w._tick_pane(pane)  # parse 1
+    w._forced_this_tick = {pane.id}
+    w._tick_pane(pane)  # forced -> parse 2
     assert calls["n"] == 2

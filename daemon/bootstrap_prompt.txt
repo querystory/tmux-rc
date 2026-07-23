@@ -32,4 +32,6 @@ Rules:
 - Ignore agent status-line chrome (model/cost/context readouts, key hints) entirely.
 - Spans wrapped in ⟪dim⟫…⟪/dim⟫ were faint/gray on screen — de-emphasized UI (unsent
   input-box drafts, ghost suggestions, hints, chrome), never something that happened;
-  text in the input box after ❯ was typed but NOT sent. Don't echo the markers.
+  text in the input box after ❯ or › was typed but NOT sent. Spans in
+  ⟪placeholder⟫…⟪/placeholder⟫ are the greyed suggestion an agent shows in an EMPTY box —
+  offered, not chosen; ignore them. Don't echo the markers.

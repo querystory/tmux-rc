@@ -17,7 +17,16 @@ const AGENT_TOOLS = new Set(["claude", "codex", "gemini"]);
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "compacting", "unknown"]);
-const actOf = (s) => (ACTIVITIES.has(s.activity) ? s.activity : "unknown");
+// `waiting` means "blocked on input"; `waiting_on` says on WHOM. Only a user-wait is
+// actionable ("tap me, I need input") — an external-wait (a background subagent, a
+// Copilot/CI/poll it spawned) is just busy on a machine, so we FOLD it into `running`
+// here. That single chokepoint keeps the amber `waiting` badge/dot/tally/filter/favicon
+// honest — they all read `actOf` — without forking a parallel render path. Absent or
+// any non-"external" value ⇒ user-wait (the safe default: never hide a real user-wait).
+const actOf = (s) => {
+  const a = ACTIVITIES.has(s.activity) ? s.activity : "unknown";
+  return a === "waiting" && s.waiting_on === "external" ? "running" : a;
+};
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
 const panesEl = document.getElementById("panes");
@@ -274,6 +283,9 @@ async function poll() {
     // re-polls immediately, so don't send the user hard-refreshing over a transient.
     liveEl.className = "dot off";
     const transient = /failed to fetch|networkerror|load failed/i.test(String(e && e.message || e));
+    // Report the NON-transient poll failures (a resume/network blip is expected noise);
+    // a persistent JSON/parse fault is the invisible-on-mobile bug #57 is about.
+    if (!transient) reportError("poll", e);
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(${hint})</small></div>`;
@@ -316,27 +328,28 @@ document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
 
 const usageEl = document.getElementById("usage");
-// Touch has no hover: tap the debug readout to reveal it (brightens via .lit).
-// Focusable (tabindex in the HTML) so keyboard users get the same toggle.
-usageEl.onclick = () => {
-  const lit = usageEl.classList.toggle("lit");
-  usageEl.setAttribute("aria-pressed", String(lit));
+// The stats are dim debug telemetry, not primary chrome — so they hide behind the status
+// dot: tapping the dot toggles the #usage popover. The dot is focusable (tabindex in HTML)
+// so keyboard users get the same toggle; aria-expanded reflects popover state.
+liveEl.onclick = () => {
+  usageEl.hidden = !usageEl.hidden;
+  liveEl.setAttribute("aria-expanded", String(!usageEl.hidden));
 };
 // Native-button key semantics: Enter fires on keydown; Space on keyup (keydown only
 // suppresses page scroll) so key-repeat can't machine-gun the toggle.
-usageEl.onkeydown = (e) => {
-  if (e.key === "Enter") { e.preventDefault(); usageEl.click(); }
+liveEl.onkeydown = (e) => {
+  if (e.key === "Enter") { e.preventDefault(); liveEl.click(); }
   else if (e.key === " ") e.preventDefault();
 };
-usageEl.onkeyup = (e) => {
-  if (e.key === " ") { e.preventDefault(); usageEl.click(); }
+liveEl.onkeyup = (e) => {
+  if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
 function showUsage(u, err) {
   if (!u) {
     // Gone (reconnect, fresh daemon): clear the leftovers too — a stale tooltip on an
-    // empty span, or a "revealed" state announcing itself to assistive tech.
+    // empty span, or a popover left open with nothing to show.
     usageEl.textContent = ""; usageEl.title = "";
-    usageEl.classList.remove("lit"); usageEl.setAttribute("aria-pressed", "false");
+    usageEl.hidden = true; liveEl.setAttribute("aria-expanded", "false");
     return;
   }
   // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
@@ -397,6 +410,8 @@ function render(states) {
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     _joinRO.disconnect(); // stop watching the card we're about to drop
     dockEl.replaceChildren();
+    filtersEl.replaceChildren(); // no panes ⇒ no tallies to filter by
+
     // Drop the card-view dock state too: its onscroll pin closes over the now-dead
     // card nodes, and the seam classes would style a dock that no longer has a card.
     dockEl.onscroll = null;
@@ -563,6 +578,7 @@ const _joinRO = new ResizeObserver(() => {
 // of just those panes (tapped via the dock's tally badges / "all").
 let listFilter = null;
 const dockEl = document.getElementById("dock");
+const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 function dock(states, act) {
   const el = dockEl;
   el.replaceChildren();
@@ -598,10 +614,10 @@ function dock(states, act) {
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
     el.appendChild(b);
   }
-  // Density + navigation: per-activity tallies, right-aligned — each one FILTERS the
+  // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
+  // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
   // list view to those panes; "all" lists everything.
-  const counts = document.createElement("span");
-  counts.className = "dock-counts";
+  filtersEl.replaceChildren();
   const n = {};
   states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
   const filt = (label, key) => {
@@ -609,11 +625,10 @@ function dock(states, act) {
     b.className = "badge b-" + key;
     b.textContent = label;
     b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
-    counts.appendChild(b);
+    filtersEl.appendChild(b);
   };
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
   filt("all", "all");
-  el.appendChild(counts);
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center the
@@ -637,50 +652,98 @@ function dock(states, act) {
   });
 }
 
-// "Animate the icons down": capture the dock icons' positions when a filter is
-// tapped, then fly clones to each row's icon once the list renders (FLIP).
-let flipFrom = null; // pane_id -> DOMRect
+// The list transition is a FLIP keyed on what actually changed between the two filter
+// states. Captured at filter-tap time (before the re-render): the dock icons' rects
+// (where ENTERING rows fly from) AND the currently-visible rows' rects (where SURVIVING
+// rows slide from). Survivors are keyed off having a prior-row rect, so entering the list
+// from card view (empty→list, no prior rows captured) stays a full icon-fly for every row.
+let flipFrom = null; // pane_id -> dock-icon DOMRect (for entering rows)
+let flipPrev = null; // pane_id -> { rect, node } of the outgoing row (survivors + leavers)
 function captureIconRects() {
   flipFrom = {};
   dockEl.querySelectorAll(".dock-icon").forEach((b) => {
     if (b.dataset.pane) flipFrom[b.dataset.pane] = b.getBoundingClientRect();
   });
+  flipPrev = {};
+  // Clone each live row NOW: after replaceChildren the originals are gone, but a leaving
+  // row must linger to animate out — the clone (positioned fixed at its old rect) does
+  // that without fighting the re-render, mirroring the icon-fly's clone approach.
+  panesEl.querySelectorAll(".prow").forEach((r) => {
+    flipPrev[r.dataset.pane] = { rect: r.getBoundingClientRect(), node: r.cloneNode(true) };
+  });
+}
+// FLIP delta as CENTER-to-center — a dock icon and a row icon are different sizes, so a
+// top-left delta would land the clone offset by half their size difference. Survivors use
+// this too (same-size rects, so it reduces to the plain delta) to keep one convention.
+const cx = (r) => (r.left + r.right) / 2, cy = (r) => (r.top + r.bottom) / 2;
+const flipDelta = (from, to) => `translate(${cx(to) - cx(from)}px,${cy(to) - cy(from)}px)`;
+// Fly a clone from `from` to `to` and, if `fade`, opacity out — the one WAI engine shared
+// by all three list cases. WAI not CSS-class transitions: keyframes take effect the moment
+// they're created, so the start state actually paints (the class-toggle version lost the
+// race and text popped in early). The clone keeps its OWN natural size (`box`, default the
+// `from` rect — the leaver IS its from rect; the entrant icon passes its own smaller box so
+// it isn't stretched to the dock icon's), CENTERED on `from`, then flown center→center.
+function flyClone(node, from, to, fade, done, box = from) {
+  Object.assign(node.style, {
+    position: "fixed", left: cx(from) - box.width / 2 + "px", top: cy(from) - box.height / 2 + "px",
+    width: box.width + "px", height: box.height + "px", margin: "0", zIndex: 30, pointerEvents: "none",
+  });
+  // A clone is throwaway chrome — never a control. Leaving-row clones are cloned .prow
+  // nodes (role=button, tabIndex=0 from row()), so strip interactivity and hide from AT
+  // before it enters the DOM, or a mid-flight clone becomes tab-focusable / announced.
+  node.setAttribute("aria-hidden", "true");
+  node.tabIndex = -1;
+  node.removeAttribute("role");
+  document.body.appendChild(node);
+  // Idempotent teardown: onfinish and the safety timer race, but whichever fires first
+  // clears the other so the clone is removed and `done` runs exactly once (same one-shot
+  // guard style as the icon-fly's reveal). Interrupted flights still can't strand a clone.
+  let timer;
+  const end = () => { clearTimeout(timer); if (!node.isConnected) return; node.remove(); if (done) done(); };
+  node.animate(
+    [{ transform: "translate(0,0)", ...(fade && { opacity: 1 }) },
+     { transform: flipDelta(from, to), ...(fade && { opacity: 0 }) }],
+    { duration: 250, easing: "ease-out", fill: "forwards" }
+  ).onfinish = end;
+  timer = setTimeout(end, 400);
 }
 function flipIn(root) {
   if (!flipFrom) return;
-  const from = flipFrom;
-  flipFrom = null;
+  const from = flipFrom, prev = flipPrev;
+  flipFrom = flipPrev = null;
+  const now = new Set([...root.querySelectorAll(".prow")].map((r) => r.dataset.pane));
+  // Leaving rows: in the old list but not the new. Fade+drift their clone out in place —
+  // `to` is the same box nudged down 12px (all four edges, so the center delta is a clean
+  // 12px drop). flipDelta reads left/right/top/bottom, so give it a full rect-like.
+  for (const [id, p] of Object.entries(prev))
+    if (!now.has(id)) {
+      const r = p.rect;
+      flyClone(p.node, r, { left: r.left, right: r.right, top: r.top + 12, bottom: r.bottom + 12 }, true);
+    }
   root.querySelectorAll(".prow").forEach((r) => {
+    const old = prev[r.dataset.pane];
+    // SURVIVOR: already on screen in the old filter — no icon-fly, no invisibility. FLIP:
+    // start it at its old position (First→Invert) and slide the delta to its new spot (Play).
+    if (old) {
+      r.animate(
+        [{ transform: flipDelta(r.getBoundingClientRect(), old.rect) }, { transform: "translate(0,0)" }],
+        { duration: 250, easing: "ease-out" }
+      );
+      return;
+    }
+    // ENTERING (or empty→list, where nothing was captured so every row lands here): fly
+    // the pane's dock icon down to the row's icon spot. The row stays INVISIBLE until its
+    // icon lands — reveal on finish, drawing the rest of the summary only then.
     const src = from[r.dataset.pane];
     const icon = r.querySelector(".icon");
     if (!src || !icon) return;
-    const dst = icon.getBoundingClientRect();
-    const fly = icon.cloneNode(true);
-    Object.assign(fly.style, {
-      position: "fixed", left: src.left + "px", top: src.top + "px", margin: "0",
-      zIndex: 30, pointerEvents: "none",
-    });
-    // The row stays INVISIBLE until its icon arrives — only then is the rest of the
-    // summary (outline, title, badge) drawn. The safety timer reveals it even if the
-    // flight animation gets interrupted, so the list can never end up blank.
     r.style.opacity = "0";
-    const reveal = () => {
-      fly.remove();
-      if (r.style.opacity === "0") {
-        r.style.opacity = "";
-        r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
-      }
-    };
-    document.body.appendChild(fly);
-    // Web Animations API, not CSS-class transitions: keyframes take effect the moment
-    // they're created, so the start states actually paint (the class-toggle version
-    // kept losing the race and text popped in before the flight).
-    fly.animate(
-      [{ transform: "translate(0,0)" },
-       { transform: `translate(${dst.left - src.left}px,${dst.top - src.top}px)` }],
-      { duration: 250, easing: "ease-out", fill: "forwards" }
-    ).onfinish = reveal;
-    setTimeout(reveal, 400);
+    const dst = icon.getBoundingClientRect(); // the clone is icon-sized, so freeze its box to this
+    flyClone(icon.cloneNode(true), src, dst, false, () => {
+      if (r.style.opacity !== "0") return;
+      r.style.opacity = "";
+      r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
+    }, dst);
   });
 }
 
@@ -766,7 +829,7 @@ function swipeNav(el, id) {
 function card(s) {
   const el = document.createElement("div");
   const collapsed = cardsCollapsed;
-  el.className = "card" + (s.activity === "waiting" ? " waiting" : "")
+  el.className = "card" + (actOf(s) === "waiting" ? " waiting" : "")
     + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "")
     + (isReparsing(s) ? " reparsing" : ""); // input sent, awaiting the forced re-parse
   swipeNav(el, s.pane_id);
@@ -895,6 +958,42 @@ const SESSION_ID = (() => {
   } catch { /* no CSPRNG / blocked crypto ⇒ fall through to un-attributable */ }
   return "";
 })();
+
+// Ship a browser-side failure to the daemon → OTel (issue #57): mobile has no devtools,
+// so a swallowed mic denial / ws close / poll catch / uncaught exception is otherwise
+// invisible. Structural (kind, error name) + the free-text detail; the daemon drops the
+// detail unless TMUXRC_QSDEBUG. Best-effort and NON-RECURSIVE: the fetch's own failure is
+// swallowed (a dead backend must not spawn a report about the failed report), and a tight
+// error loop is deduped + capped so it can't spam the daemon.
+const _errSeen = new Set();      // kind|detail already reported this page-load ⇒ skip
+let _errCount = 0;               // hard cap regardless of distinctness
+function reportError(kind, detail) {
+  try {
+    const msg = detail == null ? "" : String(detail.message || detail);
+    const key = kind + "|" + msg;
+    if (_errSeen.has(key) || _errCount >= 50) return;
+    _errSeen.add(key); _errCount++;
+    // name distinguishes NotAllowedError (denied) from NotFoundError (no mic) etc.;
+    // for a plain string detail it's absent. Session joins to live/parse telemetry.
+    fetch("/api/client-error", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind,
+        name: (detail && detail.name) || undefined,
+        message: msg || undefined,
+        endpoint: (detail && detail.endpoint) || undefined,
+        session: SESSION_ID || undefined,
+      }),
+    }).catch(() => {}); // NEVER report a failed report — that's the recursion guard
+  } catch { /* reporting must never throw into the caller's error path */ }
+}
+// Uncaught exceptions and rejected promises that reach the top — the catch-all for
+// failures no explicit handler wrapped. Added once at module load.
+window.addEventListener("error", (e) =>
+  reportError("onerror", e.error || e.message));
+window.addEventListener("unhandledrejection", (e) =>
+  reportError("unhandledrejection", e.reason));
 
 function liveStream(paneId, { onFrame, onLive, onQuiet }) {
   const ac = new AbortController();
@@ -1748,7 +1847,8 @@ pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
 let _ver = null;
 setInterval(async () => {
   try {
-    const { version } = await (await fetch("/api/version")).json();
+    const { version, live_enabled } = await (await fetch("/api/version")).json();
+    applyLiveEnabled(!!live_enabled);  // sync the mic button to the server flag
     if (_ver === null) _ver = version;
     else if (version !== _ver) {
       if (composerEmpty()) location.reload();
@@ -1810,6 +1910,15 @@ if (window.visualViewport && barEl) {
 // header pill is the status, and the rolling conversation renders in the active card's
 // summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
 const lm = { btn: document.getElementById("lm-btn") };
+// Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
+// the server reports it enabled — one source of truth, so a stale tab can't offer a
+// button the /api/live-mode route will just refuse. Hidden until confirmed.
+function applyLiveEnabled(on) {
+  if (lm.btn) lm.btn.hidden = !on;
+}
+applyLiveEnabled(false);
+// Resolve the flag immediately on load (the 5s version poll also keeps it in sync).
+fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled)).catch(() => {});
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmLog = [];                  // rolling conversation: {role, text, done}
@@ -1950,7 +2059,16 @@ async function lmStart() {
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") lmAdd("err", `⚠ ${m.message}`);
   };
-  ws.onclose = () => { if (lmWs === ws) lmStop(); };
+  ws.onclose = (e) => {
+    if (lmWs !== ws) return;
+    // An abnormal close (never opened / dropped mid-session) is exactly the ws failure
+    // #57 wants visible; only a CLEAN close is skipped — 1000 (normal, we called stop)
+    // and 1005 (no status). Everything else, INCLUDING code 0/1006 (failed handshake /
+    // no close frame), is reported — those are the very failures this surfaces.
+    if (e.code !== 1000 && e.code !== 1005)
+      reportError("ws", { name: "close " + e.code, message: e.reason || "" });
+    lmStop();
+  };
   ws.onopen = async () => {
     if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
     try { await lmCapture(ws); }
@@ -1958,14 +2076,16 @@ async function lmStart() {
       // Surface the real reason PERSISTENTLY: lmStop() re-renders and wipes the card
       // feed, so a mere lmAdd flashes and vanishes (invisible on mobile). alert() so the
       // operator can actually read why the mic failed — name+message distinguish a
-      // permission denial (NotAllowedError) from no-device (NotFoundError) etc.
+      // permission denial (NotAllowedError) from no-device (NotFoundError) etc. Also
+      // report to telemetry so the failure rate is queryable by platform (#57).
+      reportError("mic", e);
       lmStop();
       alert(`Live Mode mic error:\n${e.name || "Error"}: ${e.message}\n\n`
         + "If this is a permission issue: grant microphone access to this site/app "
         + "in your browser or Android app settings, then try again.");
     }
   };
-  lm.btn.title = lm.btn.ariaLabel = "End Live Mode";
+  lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
   render(Object.values(panesById)); // swap the active card's summary for the convo box
 }
 
@@ -1984,7 +2104,7 @@ function lmStop() {
   if (lmCtx) { try { lmCtx.close(); } catch {} lmCtx = null; }
   if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
   lm.btn.classList.remove("on", "listening");
-  lm.btn.title = lm.btn.ariaLabel = "Start Live Mode";
+  lm.btn.title = lm.btn.ariaLabel = "Start Live Mode (experimental)";
   render(Object.values(panesById)); // the active card gets its static summary back
 }
 

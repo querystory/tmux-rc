@@ -109,7 +109,10 @@ def bootstrap(pane: Pane, text: str, llm_fn) -> dict | None:
 
 
 def classify(
-    pane: Pane, text: str, llm_fn=None, prior: list[str] | None = None,
+    pane: Pane,
+    text: str,
+    llm_fn=None,
+    prior: list[str] | None = None,
     recent_events: list[str] | None = None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
@@ -124,13 +127,27 @@ def classify(
     result = llm_fn(parser_prompt(), payload) if llm_fn else None
     if not isinstance(result, dict):
         result = {
-            "tool": "shell" if pane.current_command in ("bash", "zsh", "sh", "fish") else "unknown",
+            "tool": "shell"
+            if pane.current_command in ("bash", "zsh", "sh", "fish")
+            else "unknown",
             "activity": "idle" if _obvious_idle(text) else "running",
         }
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
+    # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any
+    # stray "external" the model emitted).
     if result.get("question") or result.get("rewind"):
         result["activity"] = "waiting"
+        result["waiting_on"] = "user"
+    # waiting_on says WHOM a WAITING pane is blocked on and is meaningful only then:
+    # default absent → "user" (the safe actionable default — never demote a real
+    # user-wait to the busy/running treatment), and drop any stray value the model
+    # emitted on a non-waiting pane so it can't leak inconsistent state to the UI.
+    if result.get("activity") == "waiting":
+        if result.get("waiting_on") != "external":
+            result["waiting_on"] = "user"
+    else:
+        result.pop("waiting_on", None)
     # Derive the running-subagent count from subagents[] so the UI (dock badge) has one
     # number to read and the model never has to keep a separate count in sync. ALWAYS
     # set it (default 0) — never let a legacy/non-numeric `agents` the model might emit
@@ -148,5 +165,7 @@ def classify(
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.
     sess = result.get("session")
-    result["label"] = str(sess)[:40] if isinstance(sess, str) and sess.strip() else pane.label
+    result["label"] = (
+        str(sess)[:40] if isinstance(sess, str) and sess.strip() else pane.label
+    )
     return result

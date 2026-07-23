@@ -129,12 +129,24 @@ parser activity — don't mix them into parse metrics.
 ### Live-view records (`scope_name = 'tmux-rc.live'`, `body = 'tmux-rc live'`)
 
 A SEPARATE scope from the parser benchmarks — **filter `WHERE scope_name = 'tmux-rc.live'`**
-to get only these (they have NO model/latency/token/cost fields, so they'd be all-null
-noise inside a `tmux-rc.classify` query, and parse aggregates must exclude them). These
-measure the **live view**: a phone surface that streams a pane's raw colored screen in
-real time over a long-poll endpoint (separate from the LLM parser entirely). Use them to
-answer bandwidth cost, how much wall-clock time users spend watching live, and (future)
-per-user live-hour billing.
+to keep these out of parse aggregates. This scope holds **two different record shapes** —
+tell them apart by the `kind` attribute (or by `cost_usd IS NULL`):
+
+- **watch-time rounds** (`kind` absent) — the phone's live-view long-poll, one record per
+  ~25s hold. These carry NO model/token/cost fields. Detailed just below.
+- **voice-turn records** (`kind = 'live_turn'`) — Live Mode's spoken-agent metering, one
+  record per voice turn plus a `final` session summary. These DO carry model/token/cost
+  fields (and the transcript too, but only under TMUXRC_QSDEBUG). See "Live Mode voice
+  turns" further down.
+
+A `tmux-rc.live` query that wants only watch-time must add `WHERE kind IS NULL`; a cost
+query must add `WHERE kind = 'live_turn'` — otherwise the two shapes mix and half the
+columns are null.
+
+The **watch-time rounds** measure the **live view**: a phone surface that streams a pane's
+raw colored screen in real time over a long-poll endpoint (separate from the LLM parser
+entirely). Use them to answer bandwidth cost, how much wall-clock time users spend watching
+live, and (future) per-user live-hour billing.
 
 **One record = one completed long-poll "round."** A round holds ~25s, checking the screen
 every 250ms, and ends either the instant the screen changes (a *change round* — a frame
@@ -173,6 +185,72 @@ that's what makes watch-time summable (below). Attributes:
   compressed ground-truth is in the daemon's own log line, not this record (see
   docs/design/live-telemetry.md open questions).
 
+### Live Mode voice turns (`scope_name = 'tmux-rc.live'`, `kind = 'live_turn'`)
+
+Live Mode is the spoken-agent surface: a Gemini Live (native-audio) session that watches
+the whole tmux state, talks back by voice, and acts via two tools (type into a pane, press
+a key). Its cost is dominated by AUDIO tokens the flash-lite parser never sees, so it meters
+itself here. **One record = one voice turn**; a `final = true` record closes each session
+with cumulative totals. Filter `WHERE kind = 'live_turn'`. Attributes:
+
+- **`session`** — per-voice-session UUID, the summable spine. The SAME key the watch-time
+  rounds use, so a session's voice spend can be joined to its screen watch-time. Sum per
+  `session` for per-session cost; use the `final = true` row for the authoritative session
+  total (per-turn rows are cumulative snapshots, so **do not `SUM` the per-turn rows** — you'd
+  multi-count; take the `final` row, or `MAX` per session).
+- **`cost_usd`** — this turn's cumulative session cost in USD, priced with a four-way rate
+  card (text-in / text-out / audio-in / audio-out) because audio-out bills ~24× text.
+- **`in_tokens`** / **`out_tokens`** — total prompt / response tokens (text + audio). Big
+  input (thousands): the system prompt carries every pane's live state each turn.
+- **`audio_in_tokens`** / **`audio_out_tokens`** — the audio-modality slice of in/out. Text
+  tokens = `in_tokens - audio_in_tokens` (same for out). Audio out is the cost driver.
+- **`turns`** — voice turns so far this session (monotonic; equals the count on the `final` row).
+- **`duration_s`** — wall-clock seconds since the session opened (cumulative).
+- **`final`** — `true` on the one end-of-session summary row, `false` on per-turn rows. Use
+  `WHERE final = true` for one authoritative row per session.
+- **`model`** (`gemini-live-2.5-flash-native-audio`), **`provider`** (`vertex`) — the Live model.
+- **`actor`** — the tunnel owner's email when known, else a `local:<ip>` marker. Same
+  loopback-trust model as elsewhere.
+- **`transcript`** — the turn's rolling voice transcript (`user:` / `model:` lines and
+  `[typed]` actions). **Present ONLY under TMUXRC_QSDEBUG** (fail-closed, like `pane_text`);
+  absent otherwise. Voice content is at least as sensitive as pane text.
+
+### Client-error records (`scope_name = 'tmux-rc.client'`, `body = 'tmux-rc client error'`)
+
+A SEPARATE scope from BOTH the parser benchmarks and the live-view rounds — **filter
+`WHERE scope_name = 'tmux-rc.client'`** to get only these (they have NO model/latency/
+token/cost fields, so they'd be all-null noise inside a `tmux-rc.classify` query, and
+NO `hold_s`/`raw_bytes`, so they'd corrupt a `tmux-rc.live` query too — both parse AND
+live aggregates must exclude them). **One record = one browser-side failure the PWA/client
+reports** (mic-permission denial, WebSocket close, poll-loop error, uncaught JS
+exception). The phone/PWA has no devtools, so these are otherwise invisible; this scope
+makes them queryable. Use them to answer **"how often does the client fail, on what
+platform, for whom"** — e.g. Live Mode mic failures broken down by `ua_class`. Attributes:
+
+- **`kind`** — the reporting site: `'mic'` | `'ws'` | `'poll'` | `'onerror'` |
+  `'unhandledrejection'`. **Always present** (capped 64 chars). The primary GROUP BY —
+  `COUNT(*)` by `kind` is the failure-type breakdown; `kind = 'mic'` isolates Live Mode
+  microphone failures.
+- **`name`** — the error's class (`NotAllowedError`, `TypeError`, close code, …). NULLABLE
+  (absent for a plain-string failure with no error object). For `kind = 'mic'`, this
+  distinguishes a permission denial (`NotAllowedError`) from no-device (`NotFoundError`).
+- **`endpoint`** — the URL/path the failure was against. NULLABLE. Tells you WHICH request
+  broke (e.g. which poll/live path).
+- **`ua_class`** — coarse platform bucket: `android` | `ios` | `mac` | `windows` | `linux`
+  | `other`. **DERIVED SERVER-SIDE from the request User-Agent, NOT client-supplied** (so
+  it can't be spoofed by the body). NULLABLE (absent when no UA). The platform axis —
+  GROUP BY `ua_class` to see which platforms fail, e.g. "mic failures on `android`."
+- **`session`** — anonymous per-page-load id (same shape/semantics as the live scope's
+  `session`: the client's per-page-load UUID, NOT identity). NULLABLE. Join on it to tie a
+  client failure to that page-load's live/parse activity.
+- **`actor`** — the loopback-trusted tunnel owner's email (same trust model as the live/
+  action `actor`: honored only from the tunnel/loopback). The account key for "whose
+  client is failing." **NULLABLE: absent for direct/LAN use** (no verified identity).
+- **`message`** — free-text error message. **CONTENT field: present ONLY under
+  TMUXRC_QSDEBUG** (same fail-closed policy as `pane_text`/`output_json` below); absent by
+  default. It can echo URLs, pane text, or user input, so it's gated — don't rely on it
+  for default-mode aggregates, only for debug-mode root-causing.
+
 ### Content (only present when TMUXRC_QSDEBUG is enabled)
 
 - **`pane_text`** — the raw terminal screen capture sent to the model (includes the labeled
@@ -189,13 +267,20 @@ that's what makes watch-time summable (below). Attributes:
 
 ### Structural / infra fields (rarely the subject of analysis)
 
-These apply to **every** record type — parse, pane-lifecycle, action, AND live-view —
-not just parses; don't assume a field described here implies a record is a parse.
+These apply to **every** record type — parse, pane-lifecycle, action, live-view, AND
+client-error — not just parses; don't assume a field described here implies a record is
+a parse.
 
-- **`scope_name`** — `tmux-rc.classify` for parser/lifecycle/action records, or
-  `tmux-rc.live` for the live-view rounds (own section above); **`service.name`**
-  (`tmux-rc`) is common to all. Use `scope_name` to keep the two apart — a benchmark
-  query must stay on `tmux-rc.classify`, a live-view query on `tmux-rc.live`.
+- **`scope_name`** — `tmux-rc.classify` for parser/lifecycle/action records,
+  `tmux-rc.live` for BOTH live-view watch-time rounds AND Live Mode voice turns (split
+  those two by `kind`), or `tmux-rc.client` for the client-error records (each has its own
+  section above); **`service.name`** (`tmux-rc`) is common to all. Use `scope_name` to keep
+  the THREE apart — a benchmark query must stay on `tmux-rc.classify` (and EXCLUDE both
+  `tmux-rc.live` and `tmux-rc.client`, which carry no model/latency/token/cost), a live
+  query on `tmux-rc.live`, a client-error query on `tmux-rc.client`.
+- **`kind`** — on `tmux-rc.live` voice-turn records it is `'live_turn'` (absent on watch-time
+  rounds — the discriminator between the two `.live` shapes); on `tmux-rc.client` records it
+  is the failure site (`'mic'`/`'ws'`/…). Also `parse`/`bootstrap` on classify records.
 - **`timestamp`, `observed_timestamp`** — Unix nanoseconds when the record was emitted
   (the parse, action, lifecycle event, or live round). Divide to seconds for time-series;
   both are usually equal.
@@ -204,7 +289,8 @@ not just parses; don't assume a field described here implies a record is a parse
 - **`host.name`, `user.username`, `service.instance.id`** — which machine/user/daemon-
   instance emitted it. Single-developer tool, so usually one value each.
 - **`body`** — a per-record-type label, not data: `"tmux-rc parse"`, `"tmux-rc pane"`,
-  `"tmux-rc action"`, or `"tmux-rc live"`. Use `scope_name`/`body` to tell types apart.
+  `"tmux-rc action"`, `"tmux-rc live"`, or `"tmux-rc client error"`. Use `scope_name`/
+  `body` to tell types apart.
 - **`severity_number`/`severity_text`, `trace_id`/`span_id`, `telemetry.sdk.*`** — OTLP
   boilerplate. Ignore for analysis.
 
