@@ -42,8 +42,12 @@ def _vertex_caller(model: str):
             ),
         )
         try:
-            return json.loads(resp.text)
-        except json.JSONDecodeError:
+            # Reuse production's tolerant parser (salvages the first object when the
+            # model emits trailing garbage after valid JSON — happens even with
+            # response_mime_type=application/json), so the harness sees exactly what
+            # daemon.llm.classify_text would parse, not a stricter subset.
+            return llm._parse_json(resp.text)
+        except (json.JSONDecodeError, ValueError):
             return None
 
     return call

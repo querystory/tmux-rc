@@ -102,12 +102,17 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
 def _shape(field: dict | list | None) -> object:
     """The structural signature we score `question` on: present-or-absent, and if a
     question, its answer_style (menu vs text — the phone sends a keystroke vs typed
-    text, so this is behavior, not prose). Body text is left to the judge."""
-    if not field:
+    text, so this is behavior, not prose). Body text is left to the judge.
+
+    ABSENT (missing or explicit null) → None. A PRESENT question — even an empty `{}`,
+    which the web UI's `if (s.question)` treats as truthy and would try (and fail) to
+    render — is ("present", answer_style): so a spurious bare `{}` still scores as a
+    question mismatch against an expected-absent, rather than slipping through."""
+    if field is None:
         return None
     if isinstance(field, dict):
-        return field.get("answer_style")
-    return bool(field)
+        return ("present", field.get("answer_style"))
+    return ("present", None) if field else None
 
 
 def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:

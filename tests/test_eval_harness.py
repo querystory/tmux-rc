@@ -59,6 +59,13 @@ def test_question_presence_mismatch_fails():
     assert not ok and any("question" in d for d in diffs)
 
 
+def test_empty_question_dict_counts_as_present():
+    # A bare {} question is truthy to the web UI (renders a broken question view), so it
+    # must NOT score as absent: candidate {} vs expected-absent is a mismatch.
+    ok, diffs = score_structured({"question": {}}, {"activity": "idle"})
+    assert not ok and any("question" in d for d in diffs)
+
+
 def test_rewind_and_tasks_scored_by_presence():
     ok, _ = score_structured({"rewind": {"entries": []}}, {"rewind": {"present": True}})
     assert ok
