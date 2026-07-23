@@ -39,6 +39,9 @@ class SubAgent(BaseModel):
     a live `state` and whatever cheap on-screen signal (elapsed/tokens) is shown."""
 
     label: str  # what the sub-agent is doing, e.g. "In-depth review PR 4012"
+    # The CONTRACT is running|done (default running). Consumers stay lenient on
+    # violations: classify's count and the UI both treat anything that isn't exactly
+    # "done" as running — a stray value degrades to "still working", never to dropped.
     state: Literal["running", "done"] = "running"
     elapsed: str | None = None  # e.g. "2m", if the row shows it
     tokens: str | None = None  # e.g. "88.7k", if the row shows it
