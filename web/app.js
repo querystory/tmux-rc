@@ -660,6 +660,10 @@ const HOLD_MS = 350, SLOP = 8; // hold to arm; movement over SLOP before it canc
 function dragReorder(icon) {
   let held = false, timer = 0, sx = 0, dragging = false, ownedBusy = false, pid = null;
   const el = dockEl;
+  // The long-press belongs to the reorder: without this, mobile browsers pop their
+  // native image context menu (Copy/Share image — the icon is an <img>) at ~500ms and
+  // swallow the gesture before the hold ever arms. Scoped to dock icons only.
+  icon.addEventListener("contextmenu", (e) => e.preventDefault());
   // Release the poll freeze only if THIS gesture took it — never clear a `busy` some
   // other in-flight action (a send, a card swipe) set, or we'd unfreeze polling mid-
   // mutation.

@@ -66,7 +66,10 @@
   .prow.dock::-webkit-scrollbar { display: none; }
   .dock-icon { position: relative; background: transparent; border: 1px solid transparent;
     border-radius: 8px; padding: 6px 8px; cursor: pointer; color: #adbac7;
-    font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
+    font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center;
+    /* Long-press = reorder (dragReorder), not the browser's image callout/selection. */
+    -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  .dock-icon img { -webkit-user-drag: none; pointer-events: none; }
   .dock-icon.sel { background: #21262d; border-color: #388bfd; }
   /* Drag-reorder: a dashed ring marks the icon under the finger as the drop target so
      the reorder reads clearly on a small screen. (The dock keeps its native horizontal
