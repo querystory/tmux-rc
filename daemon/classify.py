@@ -151,13 +151,11 @@ def classify(
     # Derive the running-subagent count from subagents[] so the UI (dock badge) has one
     # number to read and the model never has to keep a separate count in sync. ALWAYS
     # set it (default 0) — never let a legacy/non-numeric `agents` the model might emit
-    # leak through to the UI.
+    # leak through to the UI. "Running" == the UI's rule: anything not "done" is running
+    # (subagentsView pulses on state !== "done"), so both read one definition.
     subs = result.get("subagents")
     result["agents"] = (
-        sum(
-            1 for a in subs
-            if isinstance(a, dict) and a.get("state", "running") == "running"
-        )
+        sum(1 for a in subs if isinstance(a, dict) and a.get("state") != "done")
         if isinstance(subs, list)
         else 0
     )
