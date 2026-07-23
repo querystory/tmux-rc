@@ -779,19 +779,18 @@ function row(s, act) {
   // is drawn by the one normal path, not a bespoke DOM patch that drifts from it.
   const subs = Array.isArray(s.subagents) && s.subagents.length ? s.subagents : null;
   const open = !!subs && subsOpen.has(s.pane_id);
-  // EVERY row renders the caret slot so icons align column-wise; rows without
-  // sub-agents get it disabled+invisible (same width, no affordance).
-  el.innerHTML = paneHeader(s, { icon: true, caret: true, collapsed: !open });
-  const c = el.querySelector(".card-caret");
+  el.innerHTML = paneHeader(s, { icon: true, caret: !!subs, collapsed: !open });
   if (subs) {
+    // Relocate the header's caret to TRAIL the title: icons stay flush-left on every
+    // row (nothing to mis-align), and after the name it reads as "this one expands".
+    const c = el.querySelector(".card-caret");
+    el.querySelector(".ph-name").append(c);
     c.onclick = (e) => {
       e.stopPropagation(); // a caret tap toggles the box — it must not open the card
       subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
       render(Object.values(panesById));
     };
     if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
-  } else {
-    c.disabled = true; // spacer only — hidden via CSS, skipped by tab order
   }
   return el;
 }
