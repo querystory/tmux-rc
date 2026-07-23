@@ -32,7 +32,9 @@ def enabled() -> bool:
     """Whether Live Mode (voice) is turned on. OFF by default: the voice UX is still
     being tuned, so it ships dark — the classify/marking improvements it rides in with
     (dim/placeholder markers, window_index) help the phone cards regardless. Flip on with
-    TMUXRC_LIVE_MODE=1. Read live (not cached) so a .env toggle takes effect on reload."""
+    TMUXRC_LIVE_MODE=1, then restart the daemon: .env is loaded once at process start
+    (python-dotenv), so a StatReload does NOT re-read it — a full restart does. Read from
+    os.environ per-call (not cached) so an env change is picked up without a code edit."""
     return os.environ.get("TMUXRC_LIVE_MODE", "").lower() in ("1", "true", "yes", "on")
 
 
@@ -614,8 +616,9 @@ async def live_mode(websocket: WebSocket) -> None:
     if not enabled():
         # Feature-flagged off — refuse before any Gemini connection or mic streaming.
         # 1008 = policy violation; the client hides the button too, so this only fires
-        # for a stale tab or a direct probe.
-        await websocket.close(code=1008, reason="Live Mode is disabled")
+        # for a stale tab or a direct probe. Reason points at the fix (reload the page —
+        # a current client reads live_enabled from /api/version and hides the button).
+        await websocket.close(code=1008, reason="Live Mode is disabled — reload the page")
         return
     await websocket.accept()
     watcher = websocket.app.state.watcher
