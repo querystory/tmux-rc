@@ -200,10 +200,20 @@ def _screen_tail(watcher, pane_id: str) -> str:
 
 
 def _pane_block(d: dict, screen: str | None) -> str:
-    """One pane's state as prompt text. `d` is a watcher.digest() entry."""
-    head = f"pane {d['pane_id']} — {d.get('tool') or 'unknown'}"
-    if d.get("label"):
-        head += f" ({d['label']})"
+    """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
+    leads with the user-facing identity (window number + title) and gives the internal
+    pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
+    win = d.get("window_index")
+    head = f"window {win}" if win not in (None, "") else "window"
+    # Best-first name, matching the phone card: the agent's self-published title, else
+    # the window label (which itself falls back to session / session:index). Collapse any
+    # newlines and drop embedded quotes so a stray title can't unbalance the quoting or
+    # split the heading — the model must be able to parse one clean identity per pane.
+    name = d.get("title") or d.get("label")
+    if name:
+        name = " ".join(str(name).split()).replace('"', "")
+        head += f' "{name}"'
+    head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
@@ -296,7 +306,7 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id from the pane state, e.g. %5",
+                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
                             ),
                             "text": types.Schema(
                                 type=types.Type.STRING,
@@ -324,7 +334,7 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id from the pane state, e.g. %5",
+                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
                             ),
                             "key": types.Schema(
                                 type=types.Type.STRING,

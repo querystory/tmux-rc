@@ -23,12 +23,12 @@ class _Watcher:
 
     def digest(self):
         return [
-            {"pane_id": "%1", "label": "work", "tool": "claude", "activity": "waiting",
-             "tmux_active": True,
+            {"pane_id": "%1", "label": "work", "window_index": "3", "tool": "claude",
+             "activity": "waiting", "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "question": "Run them? 1) yes 2) no", "history": []},
-            {"pane_id": "%2", "label": "shell", "tool": "shell", "activity": "idle",
-             "tmux_active": False,
+            {"pane_id": "%2", "label": "shell", "window_index": "4", "tool": "shell",
+             "activity": "idle", "tmux_active": False,
              "headline": None, "summary": None, "question": None, "history": []},
         ]
 
@@ -66,7 +66,9 @@ class _WS:
 def test_pane_context_carries_state_and_screens():
     w = _Watcher()
     ctx = L._pane_context(w, screens="all")
-    assert "pane %1 — claude (work) — waiting" in ctx
+    # User-facing identity (window number + name) leads; the %id is the tool-call handle.
+    # Name falls back to label here (stub has no self-published title).
+    assert 'window 3 "work" (id=%1) — claude — waiting' in ctx
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
     assert "one\ntwo\nthree" in ctx and "idle-shell-screen" in ctx  # all screens ride along
@@ -79,10 +81,33 @@ def test_pane_context_carries_state_and_screens():
     assert "idle-shell-screen" not in active  # %2 is not, so its screen stays out
 
 
+def test_pane_block_names_window_prefers_title_hides_id_role():
+    # Heading leads with window number + best-first name (title over label), and the %id
+    # is present only as the tool-call handle — never as the spoken identity.
+    titled = L._pane_block(
+        {"pane_id": "%16", "window_index": "9", "title": "Resolve PR 78",
+         "label": "work", "tool": "claude", "activity": "idle"}, None)
+    assert 'window 9 "Resolve PR 78" (id=%16)' in titled
+    # No self-published title ⇒ fall back to the window label.
+    untitled = L._pane_block(
+        {"pane_id": "%2", "window_index": "2", "title": None, "label": "shell",
+         "tool": "shell", "activity": "running"}, None)
+    assert 'window 2 "shell" (id=%2)' in untitled
+
+
+def test_pane_block_sanitizes_name_quotes_and_newlines():
+    # A title with quotes/newlines must not unbalance the heading's quoting or split it.
+    b = L._pane_block(
+        {"pane_id": "%1", "window_index": "0", "title": 'fix "the" bug\nnow',
+         "tool": "claude", "activity": "idle"}, None)
+    head = b.splitlines()[0]
+    assert head == '## window 0 "fix the bug now" (id=%1) — claude — idle'
+
+
 def test_system_prompt_has_rules_and_panes():
     p = L._system_prompt(_Watcher())
     assert "type_in_pane" in p  # the tool contract is in the instructions
-    assert "# Panes (live state)" in p and "pane %1" in p
+    assert "# Panes (live state)" in p and 'window 3 "work" (id=%1)' in p
 
 
 def _dispatch(fc, monkeypatch, watcher=None):
