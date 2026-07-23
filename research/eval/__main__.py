@@ -76,7 +76,12 @@ def main() -> int:
     # pipeline (payload assembly, overrides) runs against the candidate prompt with no
     # duplicated call logic — this is HOW a prompt edit gets regression-tested.
     if args.prompt:
-        prompt_text = args.prompt.read_text(encoding="utf-8").strip()
+        # Read the candidate VERBATIM — no .strip(). A prompt-regression harness must
+        # test the file's exact bytes; silently normalizing whitespace would A/B a
+        # different prompt than the one on disk. (Production's own _load_prompt strips,
+        # so the meaningful content is identical either way — but the harness must not
+        # add normalization of its own on top of what ships.)
+        prompt_text = args.prompt.read_text(encoding="utf-8")
         import daemon.classify as C
 
         C.parser_prompt = lambda: prompt_text  # type: ignore[assignment]
