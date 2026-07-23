@@ -683,12 +683,15 @@ function dragReorder(icon) {
     if (e.button != null && e.button !== 0) return; // left/touch only
     if (pid != null) return; // a drag/hold from another pointer already owns this icon
     sx = e.clientX; pid = e.pointerId;
-    // Arm the reorder after a hold IN PLACE. setPointerCapture routes the move/up here
-    // even once the icon translates out from under the finger.
+    // Capture on DOWN (not at arm time) so pointerup/cancel always route back here even
+    // when the finger lifts off the icon — otherwise a press-hold-release-off-icon before
+    // HOLD_MS never clears the timer, and it arms (busy=true) on an already-dead pointer,
+    // wedging polling. It also keeps move/up here once the icon translates out from under.
+    icon.setPointerCapture(pid);
+    // Arm the reorder after a hold IN PLACE.
     timer = setTimeout(() => {
       held = true;
       busy = true; ownedBusy = true; // freeze poll re-renders — a re-render mid-drag rebuilds the strip
-      icon.setPointerCapture(pid);
       icon.classList.add("dragging");
       icon.style.transition = "none"; icon.style.zIndex = "40";
     }, HOLD_MS);
@@ -697,11 +700,13 @@ function dragReorder(icon) {
     if (e.pointerId !== pid) return; // only the pointer that started this gesture drives it
     if (!held) {
       // Moved before the hold armed ⇒ this is a scroll/tap, not a reorder: cancel the
-      // arm and RELEASE ownership (pid) now. No pointer capture was taken yet, so the
-      // eventual up may land elsewhere (the user scrolled and lifted off this icon) and
-      // never reach our handlers — clearing pid here keeps the icon reusable immediately
-      // instead of wedged until the next re-render.
-      if (Math.abs(e.clientX - sx) > SLOP) { clearTimeout(timer); pid = null; }
+      // arm, release the down-time capture (so the dock scrolls normally), and drop
+      // ownership (pid) now — keeps the icon reusable immediately instead of wedged.
+      if (Math.abs(e.clientX - sx) > SLOP) {
+        clearTimeout(timer);
+        icon.releasePointerCapture(pid);
+        pid = null;
+      }
       return;
     }
     // Armed: this gesture is a reorder, not a scroll. The .dragging class set on arm
