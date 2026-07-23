@@ -200,6 +200,16 @@ reports finished, and pass through "elapsed"/"tokens" if the row shows them. Giv
 workers, NOT checklist items — a delegated-job row never goes in "tasks", and a plan
 line never goes in "subagents". Include "subagents" ONLY when such spawned-agent rows
 are visibly on screen.
+A question mark in the
+agent's OWN prose is NOT an input affordance: an assistant turn ending by proposing a next
+step, asking "want me to…?", or offering "…, or are you good here?" — likewise a summary
+posing a rhetorical question — is CONVERSATIONAL. The tell: it sits ABOVE the agent's own
+EMPTY input box (a bare ❯/› line, often with "-- INSERT --"), so the agent finished its
+turn and handed control back; nothing blocks. Do NOT emit a "question" and do NOT mark it
+"waiting" — report the pane as idle. Only a prompt the TOOL is holding open — a
+permission/approval box, a y/n confirmation, a selection menu, a prompt visibly awaiting a
+typed answer, where the choice IS the live bottom of the screen (no empty input box below
+it) — is a real question / user-wait.
 Tool housekeeping prompts — satisfaction surveys ("How is Claude doing?", NPS ratings),
 update notices, telemetry opt-ins — are NOT the pane's story: never let them become the
 headline, summary, or question, and a pane showing only such a prompt is NOT "waiting"

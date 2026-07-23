@@ -217,8 +217,8 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
     (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
       + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
     + (icon ? `<span class="icon">${iconFor(s.tool)}` +
-        // aria-hidden: rows are role=button and compute their name from contents — a
-        // bare "2" would garble it. The count is spoken via the sub-toggle chip's text.
+        // aria-hidden: a bare "2" is meaningless to AT (and garbles any computed name).
+        // The count is spoken via the sub-toggle chip's text / dock icons' aria-label.
         (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : "") + `</span>` : "")
     + `<div class="ph-meta"><div class="ph-name">${esc(s.title || s.label || s.pane_id)}</div>`
     + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
