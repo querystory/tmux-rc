@@ -1,0 +1,10 @@
+{
+  "description": "#85 regression: agent's OWN turn ends with a trailing '?' (\"…or are you good here?\") ABOVE an empty editable ❯ box. Conversational, not a tool-held prompt — must NOT emit a question and must NOT be waiting. Expected idle, no question. This is the false-amber-badge bug the prompt fix targets.",
+  "current_command": "node",
+  "capture": "● I've added the .gitignore guard and the README section explaining the scoring model. That covers everything in the task list.\n\n  Want me to also wire this into the Makefile as a `make eval` target, or are you good here?\n\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ ❯                                                                              │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/qs/termiphone on feat/prompt-eval-harness | Opus 4.8 (1M context)\n  session: +180/-12 lines · 28% ctx · 9m · $3.40\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "headline": "Added the gitignore guard and README; offering to add a make eval target"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "description": "GENUINE tool-held prompt: a Claude Code permission box (numbered choices, the choice IS the live bottom of the screen). MUST fire a question with answer_style=menu and be waiting on the user. This is the case the #85 fix must NOT suppress. Synthetic (faithful reproduction of the Claude permission-box pattern).",
+  "current_command": "node",
+  "capture": "● I'll run the test suite to confirm the harness passes before committing.\n\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ Bash command                                                                   │\n│                                                                                │\n│   uv run pytest -q tests/                                                      │\n│   Run the daemon test suite                                                    │\n│                                                                                │\n│ Do you want to proceed?                                                        │\n│ ❯ 1. Yes                                                                       │\n│   2. Yes, and don't ask again for pytest commands in this project              │\n│   3. No, and tell Claude what to do differently (esc)                          │\n│                                                                                │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/qs/termiphone  feat/prompt-eval-harness    Opus 4.8   19% ctx   41m   $8.90",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": { "answer_style": "menu" },
+    "headline": "Asking to run the pytest test suite"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "description": "Claude Code Esc-Esc REWIND picker: a scrollable list of past user messages, one selected, with more-above/below markers. classify() force-promotes rewind to waiting/user. Expected rewind present, waiting_on=user, no question. Synthetic (faithful to the picker pattern).",
+  "current_command": "node",
+  "capture": "  Rewind to a previous point in the conversation\n\n     3 more above\n   ❯ Add the .gitignore guard for raw captures            No code changes\n     Write the README explaining the scoring model         README.md +64 -0\n     Wire the CLI --prompt override                        __main__.py +9 -2\n     15 more below\n\n  ↑/↓ to select · enter to restore · esc to cancel\n  ~/src/qs/termiphone on feat/prompt-eval-harness | Opus 4.8 (1M context)",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "rewind": { "present": true },
+    "headline": "Showing the rewind picker to restore an earlier point"
+  }
+}

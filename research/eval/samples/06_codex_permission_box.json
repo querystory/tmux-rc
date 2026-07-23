@@ -1,0 +1,12 @@
+{
+  "description": "Codex (OpenAI CLI) permission prompt — MUST classify tool=codex (NOT claude): the GPT model line and the 'Would you like to run…' numbered prompt are Codex signatures. Genuine tool-held menu → question answer_style=menu, waiting_on user. Tests both tool disambiguation and a real menu wait. Synthetic.",
+  "current_command": "codex",
+  "capture": "› I'll apply the patch to the watcher module now.\n\n  Would you like to run the following command?\n\n    git apply /tmp/watcher.patch\n\n  1. Yes\n  2. Yes, and don't ask again for commands that start with git\n  3. No, and tell Codex what to do differently (esc)\n\n  gpt-5.5 xhigh fast · ~/src/qs/termiphone",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": { "answer_style": "menu" },
+    "headline": "Asking to apply the watcher patch with git apply"
+  }
+}

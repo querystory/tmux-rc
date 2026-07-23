@@ -1,0 +1,11 @@
+# Guard: never accidentally commit RAW pane captures dropped here while curating a new
+# sample. The committed corpus is *.json (capture text + blessed expected, bundled) —
+# curated by hand and repo-safe. Raw scratch captures (.txt) and rendered PNGs from
+# `python -m research.probe --save` are working files, not corpus; keep them local.
+#
+# Real tmux-rc captures ARE fine to turn into committed *.json samples verbatim (the
+# repo dogfoods itself — cwd like ~/src/qs/termiphone, tmux-rc code/output, PR numbers
+# are expected here). Only scrub a capture that would drag in ANOTHER codebase's
+# proprietary content or an actual secret/token/credential before committing it.
+*.txt
+*.png
