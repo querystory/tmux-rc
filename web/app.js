@@ -785,8 +785,8 @@ function row(s, act) {
   // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
   // the per-poll row rebuild; toggling re-renders through render(), the one normal
   // path, not a bespoke DOM patch that drifts from it.
-  const subs = Array.isArray(s.subagents) && s.subagents.length ? s.subagents : null;
-  if (subs) {
+  const subs = realSubs(s.subagents); // renderable entries only — same filter the box uses,
+  if (subs.length) {                  // so the chip's count can never disagree with it
     const open = subsOpen.has(s.pane_id);
     const t = document.createElement("button");
     t.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
@@ -917,7 +917,7 @@ function card(s) {
   if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
   if (s.question) el.appendChild(question(s));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
-  if (Array.isArray(s.subagents) && s.subagents.length) el.appendChild(subagentsView(s.subagents));
+  { const subs = realSubs(s.subagents); if (subs.length) el.appendChild(subagentsView(subs)); }
   if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
   const log = (eventLog[s.pane_id] || {}).events || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
@@ -1312,13 +1312,17 @@ function tasksView(tasks) {
 // Background sub-agents this agent spawned (parser JSON subagents[]) — distinct from the
 // agent's own TODO tasks above. Shares the .tasks box chrome; a running worker gets a
 // pulse dot, a finished one a check, and any elapsed/tokens meter rides on the right.
+// Renderable entries only (match classify.py: dicts only) — ONE definition, shared by
+// the renderer and by row()'s toggle count so the label can never disagree with the box.
+const realSubs = (subs) =>
+  (Array.isArray(subs) ? subs : []).filter((a) => a && typeof a === "object" && !Array.isArray(a));
+
 function subagentsView(subs) {
   const box = document.createElement("div");
   box.className = "tasks subagents";
   box.innerHTML =
     `<div class="tasks-head">Sub-agents</div>` +
     subs
-      .filter((a) => a && typeof a === "object" && !Array.isArray(a)) // match classify.py: dicts only
       .map((a) => {
         const done = a.state === "done";
         const meter = [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).map(esc).join(" ");
