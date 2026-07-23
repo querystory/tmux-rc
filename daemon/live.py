@@ -35,7 +35,7 @@ def enabled() -> bool:
     TMUXRC_LIVE_MODE=1, then restart the daemon: .env is loaded once at process start
     (python-dotenv), so a StatReload does NOT re-read it — a full restart does. Read from
     os.environ per-call (not cached) so an env change is picked up without a code edit."""
-    return os.environ.get("TMUXRC_LIVE_MODE", "").lower() in ("1", "true", "yes", "on")
+    return os.environ.get("TMUXRC_LIVE_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 # The Live-capable model — NOT the flash-lite classifier model (which has no live/bidi

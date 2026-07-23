@@ -2053,7 +2053,7 @@ async function lmStart() {
         + "in your browser or Android app settings, then try again.");
     }
   };
-  lm.btn.title = lm.btn.ariaLabel = "End Live Mode";
+  lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
   render(Object.values(panesById)); // swap the active card's summary for the convo box
 }
 
@@ -2072,7 +2072,7 @@ function lmStop() {
   if (lmCtx) { try { lmCtx.close(); } catch {} lmCtx = null; }
   if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
   lm.btn.classList.remove("on", "listening");
-  lm.btn.title = lm.btn.ariaLabel = "Start Live Mode";
+  lm.btn.title = lm.btn.ariaLabel = "Start Live Mode (experimental)";
   render(Object.values(panesById)); // the active card gets its static summary back
 }
 
