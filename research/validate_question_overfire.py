@@ -33,10 +33,19 @@ _PROMPT = _HERE.parent / "daemon" / "parser_prompt.txt"
 # PATCHED = the working-tree prompt (what ships). BASELINE = the same file at origin/main,
 # read from git so there's no committed duplicate to drift — the A/B is prompt-vs-prompt.
 PATCHED = _PROMPT.read_text(encoding="utf-8").strip()
-BASELINE = subprocess.run(
+_baseline_proc = subprocess.run(
     ["git", "show", "origin/main:daemon/parser_prompt.txt"],
     capture_output=True, text=True, cwd=_HERE.parent,
-).stdout.strip()
+)
+BASELINE = _baseline_proc.stdout.strip()
+if _baseline_proc.returncode != 0 or not BASELINE:
+    # An empty/failed baseline (no origin/main, unfetched, wrong cwd) would silently make
+    # the A/B compare PATCHED against nothing — fail fast rather than report noise.
+    raise SystemExit(
+        "could not load baseline prompt from origin/main:daemon/parser_prompt.txt "
+        f"(git rc={_baseline_proc.returncode}): {_baseline_proc.stderr.strip()[:200]}\n"
+        "run `git fetch origin` from the worktree first."
+    )
 
 AFFECTED = ["%3", "%46", "%53", "%57"]
 CONTROLS = ["%49", "%24", "%54", "%52", "%48", "%16"]
@@ -67,8 +76,12 @@ def _classify(text: str, prompt: str) -> dict:
     )
     try:
         return json.loads(resp.text)
-    except Exception:
-        return {"_raw": resp.text}
+    except json.JSONDecodeError as e:
+        # A validation harness must NOT swallow a bad parse: counting it as "no question"
+        # would silently deflate the fire-rate and fake a passing result. Surface it.
+        raise RuntimeError(
+            f"model returned non-JSON (len {len(resp.text or '')}): {(resp.text or '')[:200]!r}"
+        ) from e
 
 
 def _has_q(d: dict) -> bool:
