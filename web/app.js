@@ -200,14 +200,23 @@ function workSub(s) {
 //   caret — the card's collapse ▾/▸ (rows don't collapse);
 //   icon  — the row shows the pane icon; the card doesn't (its dock tab IS the icon).
 // Returns the innerHTML string; callers wire their own click handlers on the result.
+// Non-negative int count of RUNNING sub-agents (parser derives s.agents). Coerce —
+// it's untyped LLM/server JSON headed for innerHTML, so junk must never reach the DOM.
+// One definition shared by the dock badge and the list-row icon.
+function nsubOf(s) {
+  return Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
+}
+
 function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
   const a = actOf(s);
+  const nsub = nsubOf(s);
   const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds)
     : a === "running" || a === "compacting" ? `<span class="pulse"></span>${a}` : a;
   return (
     (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
       + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
-    + (icon ? `<span class="icon">${iconFor(s.tool)}</span>` : "")
+    + (icon ? `<span class="icon">${iconFor(s.tool)}` +
+        (nsub > 0 ? `<sub class="sacount">${nsub}</sub>` : "") + `</span>` : "")
     + `<div class="ph-meta"><div class="ph-name">${esc(s.title || s.label || s.pane_id)}</div>`
     + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}">${badge}</span></div>`
@@ -577,6 +586,9 @@ const _joinRO = new ResizeObserver(() => {
 // List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
 // of just those panes (tapped via the dock's tally badges / "all").
 let listFilter = null;
+// Panes whose list-row sub-agent box is expanded — module state, so the expansion
+// survives the re-render every poll triggers (rows are rebuilt from scratch each time).
+const subsOpen = new Set();
 const dockEl = document.getElementById("dock");
 const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 function dock(states, act) {
@@ -598,11 +610,9 @@ function dock(states, act) {
     // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
     // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
     const a = actOf(s);
-    // Subscript count of RUNNING background sub-agents (parser derives s.agents). Coerce
-    // to a non-negative int — s.agents is untyped LLM/server JSON going into innerHTML,
-    // so a non-numeric value must never reach the DOM. Sits in the opposite corner from
-    // the activity dot — a glanceable "3 workers busy here".
-    const nsub = Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
+    // Subscript count of RUNNING background sub-agents — a glanceable "3 workers busy
+    // here", in the opposite corner from the activity dot (shared nsubOf coercion).
+    const nsub = nsubOf(s);
     b.innerHTML = iconFor(s.tool) +
       (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "") +
       (nsub > 0 ? `<sub class="sacount">${nsub}</sub>` : "");
@@ -758,9 +768,26 @@ function row(s, act) {
   el.setAttribute("role", "button");
   el.tabIndex = 0;
   el.onclick = () => { listFilter = null; setActive(s.pane_id); };
-  el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); } };
-  // Same shared header as the card (see paneHeader) — a row shows the icon and no caret.
-  el.innerHTML = paneHeader(s, { icon: true });
+  el.onkeydown = (e) => {
+    if (e.target.closest(".card-caret")) return; // the caret button handles its own keys
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); }
+  };
+  // Same shared header as the card (see paneHeader). A pane with sub-agents gets the
+  // card's caret too: it toggles the SAME subagentsView box the card shows (one
+  // component, two surfaces) without leaving list mode. Toggle state lives in subsOpen
+  // so it survives the per-poll row rebuild; re-render through render() so the open row
+  // is drawn by the one normal path, not a bespoke DOM patch that drifts from it.
+  const subs = Array.isArray(s.subagents) && s.subagents.length ? s.subagents : null;
+  const open = !!subs && subsOpen.has(s.pane_id);
+  el.innerHTML = paneHeader(s, { icon: true, caret: !!subs, collapsed: !open });
+  if (subs) {
+    el.querySelector(".card-caret").onclick = (e) => {
+      e.stopPropagation(); // a caret tap toggles the box — it must not open the card
+      subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
+      render(Object.values(panesById));
+    };
+    if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
+  }
   return el;
 }
 
@@ -1278,7 +1305,7 @@ function subagentsView(subs) {
   box.innerHTML =
     `<div class="tasks-head">Sub-agents</div>` +
     subs
-      .filter((a) => a && typeof a === "object") // match classify.py: skip non-object entries
+      .filter((a) => a && typeof a === "object" && !Array.isArray(a)) // match classify.py: dicts only
       .map((a) => {
         const done = a.state === "done";
         const meter = [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).map(esc).join(" ");

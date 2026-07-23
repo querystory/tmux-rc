@@ -238,8 +238,13 @@
   /* Firefox et al. lack -webkit-line-clamp; keep the collapsed headline one line there. */
   @supports not (-webkit-line-clamp: 1) {
     .card.collapsed .ph-sub { white-space: nowrap; text-overflow: ellipsis; } }
-  .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
+  .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center;
+    position: relative; /* anchors the .sacount subscript, same as .dock-icon */ }
   .icon svg { display: block; }
+  /* List row with its sub-agents box expanded: the box wraps to a full-width second
+     line inside the row (the row is otherwise a single flex line). */
+  .prow.subs-open { flex-wrap: wrap; }
+  .prow .subagents { flex-basis: 100%; margin-top: 4px; }
   .pulse {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: #3fb950; margin-right: 5px; vertical-align: middle;
