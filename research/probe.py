@@ -84,7 +84,7 @@ def _load_sample_text(path: Path) -> str:
     one-line message on the common CLI mistakes (missing file, bad JSON, no pane_text)
     instead of dumping a traceback."""
     try:
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")  # pane captures carry non-ASCII (❯, box chars, ⟪…⟫)
     except OSError as e:
         sys.exit(f"can't read sample {path}: {e.strerror}")
     if path.suffix != ".json":
