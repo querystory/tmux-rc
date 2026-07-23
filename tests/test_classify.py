@@ -136,6 +136,27 @@ def test_stray_waiting_on_dropped_when_not_waiting():
     assert "waiting_on" not in r
 
 
+def test_agents_count_matches_ui_not_done_rule():
+    # The dock badge count must agree with subagentsView, which pulses on state != "done".
+    # So any non-"done" state (running, missing, paused, a stray uppercase) counts as one
+    # running agent; only exactly "done" is excluded.
+    subs = [
+        {"state": "running"},
+        {"state": "done"},
+        {},  # missing state → running
+        {"state": "paused"},  # not "done" → still counted (matches the pulse)
+        {"state": "Running"},  # stray case → not "done" → counted
+    ]
+    r = classify(_pane(), "…", _llm({"activity": "running", "subagents": subs}))
+    assert r["agents"] == 4
+
+
+def test_agents_count_defaults_zero_without_subagents():
+    assert classify(_pane(), "…", _llm({"activity": "running"}))["agents"] == 0
+    # A non-list subagents (model glitch) must not leak through as a count.
+    assert classify(_pane(), "…", _llm({"subagents": "oops"}))["agents"] == 0
+
+
 def test_no_llm_fallback_idle_shell():
     r = classify(_pane("bash"), "shapor@host:~/proj$ ", llm_fn=None)
     assert r["tool"] == "shell" and r["activity"] == "idle"

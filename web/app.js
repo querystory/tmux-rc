@@ -200,14 +200,26 @@ function workSub(s) {
 //   caret — the card's collapse ▾/▸ (rows don't collapse);
 //   icon  — the row shows the pane icon; the card doesn't (its dock tab IS the icon).
 // Returns the innerHTML string; callers wire their own click handlers on the result.
+// Non-negative int count of RUNNING sub-agents (classify.py derives s.agents from
+// the parser's subagents[] before it reaches the UI). Coerce —
+// it's untyped LLM/server JSON headed for innerHTML, so junk must never reach the DOM.
+// One definition shared by the dock badge and the list-row icon.
+function nsubOf(s) {
+  return Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
+}
+
 function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
   const a = actOf(s);
+  const nsub = nsubOf(s);
   const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds)
     : a === "running" || a === "compacting" ? `<span class="pulse"></span>${a}` : a;
   return (
     (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
       + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
-    + (icon ? `<span class="icon">${iconFor(s.tool)}</span>` : "")
+    + (icon ? `<span class="icon">${iconFor(s.tool)}` +
+        // aria-hidden: a bare "2" is meaningless to AT (and garbles any computed name).
+        // The count is spoken via the sub-toggle chip's text / dock icons' aria-label.
+        (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : "") + `</span>` : "")
     + `<div class="ph-meta"><div class="ph-name">${esc(s.title || s.label || s.pane_id)}</div>`
     + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}">${badge}</span></div>`
@@ -595,6 +607,9 @@ const _joinRO = new ResizeObserver(() => {
 // List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
 // of just those panes (tapped via the dock's tally badges / "all").
 let listFilter = null;
+// Panes whose list-row sub-agent box is expanded — module state, so the expansion
+// survives the re-render every poll triggers (rows are rebuilt from scratch each time).
+const subsOpen = new Set();
 const dockEl = document.getElementById("dock");
 const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 function dock(states, act) {
@@ -616,10 +631,15 @@ function dock(states, act) {
     // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
     // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
     const a = actOf(s);
+    // Subscript count of RUNNING background sub-agents — a glanceable "3 workers busy
+    // here", in the opposite corner from the activity dot (shared nsubOf coercion).
+    const nsub = nsubOf(s);
     b.innerHTML = iconFor(s.tool) +
-      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "");
+      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "") +
+      (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : ""); // count is in aria-label below
     b.title = s.title || s.label || s.pane_id;
-    b.setAttribute("aria-label", b.title);
+    // Fold the sub-agent count into the button's own label so assistive tech announces it.
+    b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
@@ -764,14 +784,41 @@ function row(s, act) {
   el.className = "prow" + (a === "waiting" ? " waiting" : "")
     + (s.pane_id === act ? " sel" : "");
   el.dataset.pane = s.pane_id;
-  // Tapping a row opens that pane's card (drops back out of list view). Keyboard
-  // reachable too: it's a div, so it needs button semantics spelled out.
-  el.setAttribute("role", "button");
-  el.tabIndex = 0;
-  el.onclick = () => { listFilter = null; setActive(s.pane_id); };
-  el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.onclick(); } };
-  // Same shared header as the card (see paneHeader) — a row shows the icon and no caret.
+  // Tapping a row opens that pane's card (drops back out of list view). Structure:
+  // TWO SIBLING buttons, never nested — role=button on the row itself would be invalid
+  // ARIA once the sub-agents toggle (a real <button>) moved in. The icon+name+headline
+  // area becomes .row-open, a real button that opens the card (keyboard operable);
+  // the toggle sits beside it in .ph-right. The row div stays a pointer target so
+  // taps on its padding still open the card.
+  const goCard = () => { listFilter = null; setActive(s.pane_id); };
+  el.onclick = goCard;
   el.innerHTML = paneHeader(s, { icon: true });
+  const openBtn = document.createElement("button");
+  openBtn.className = "row-open";
+  openBtn.append(...[...el.children].filter((n) => !n.classList.contains("ph-right")));
+  el.prepend(openBtn);
+  openBtn.onclick = (e) => { e.stopPropagation(); goCard(); }; // don't double-fire via the row
+  // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
+  // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
+  // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
+  // the per-poll row rebuild; toggling re-renders through render(), the one normal
+  // path, not a bespoke DOM patch that drifts from it.
+  const subs = realSubs(s.subagents); // renderable entries only — same filter the box uses,
+  if (subs.length) {                  // so the chip's count can never disagree with it
+    const open = subsOpen.has(s.pane_id);
+    const t = document.createElement("button");
+    t.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
+    // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
+    t.textContent = `${subs.length} sub-agent${subs.length === 1 ? "" : "s"} ${open ? "▾" : "◂"}`;
+    t.setAttribute("aria-expanded", String(open));
+    t.onclick = (e) => {
+      e.stopPropagation(); // a toggle tap expands the box — it must not open the card
+      subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
+      render(Object.values(panesById));
+    };
+    el.querySelector(".ph-right").append(t);
+    if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
+  }
   return el;
 }
 
@@ -888,6 +935,7 @@ function card(s) {
   if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
   if (s.question) el.appendChild(question(s));
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
+  { const subs = realSubs(s.subagents); if (subs.length) el.appendChild(subagentsView(subs)); }
   if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
   const log = (eventLog[s.pane_id] || {}).events || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
@@ -1275,6 +1323,35 @@ function tasksView(tasks) {
           `<div class="task${t.done ? " done" : ""}">` +
           `<span class="tick">${t.done ? "✓" : "○"}</span>${esc(t.text || "")}</div>`
       )
+      .join("");
+  return box;
+}
+
+// Background sub-agents this agent spawned (parser JSON subagents[]) — distinct from the
+// agent's own TODO tasks above. Shares the .tasks box chrome; a running worker gets a
+// pulse dot, a finished one a check, and any elapsed/tokens meter rides on the right.
+// Renderable entries only (match classify.py: dicts only) — ONE definition, shared by
+// the renderer and by row()'s toggle count so the label can never disagree with the box.
+const realSubs = (subs) =>
+  (Array.isArray(subs) ? subs : []).filter((a) => a && typeof a === "object" && !Array.isArray(a));
+
+function subagentsView(subs) {
+  const box = document.createElement("div");
+  box.className = "tasks subagents";
+  box.innerHTML =
+    `<div class="tasks-head">Sub-agents</div>` +
+    subs
+      .map((a) => {
+        const done = a.state === "done";
+        const meter = [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).map(esc).join(" ");
+        return (
+          `<div class="task${done ? " done" : ""}">` +
+          `<span class="tick">${done ? "✓" : '<span class="pulse"></span>'}</span>` +
+          `<span class="sa-label">${esc(a.label || "")}</span>` +
+          (meter ? `<span class="worksub">${meter}</span>` : "") +
+          `</div>`
+        );
+      })
       .join("");
   return box;
 }

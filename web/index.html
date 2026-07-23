@@ -71,6 +71,11 @@
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: #6e7681; box-shadow: 0 0 0 2px #0b0f14; }
+  /* Running-subagent count, subscripted in the bottom-right corner (opposite the
+     activity dot). Purple echoes the .chip.agents "spawned workers" language. */
+  .sacount { position: absolute; bottom: 0; right: 0; min-width: 13px; height: 13px;
+    padding: 0 3px; border-radius: 7px; background: #6f42c1; color: #fff; font-size: 9px;
+    line-height: 13px; font-weight: 700; text-align: center; box-shadow: 0 0 0 2px #0b0f14; }
   .dock-counts { margin-left: auto; display: flex; gap: 4px; flex: none; align-items: center; }
   /* Same badges, now homed in the header: no auto-margin (space-between already sets the
      three-column layout), and on a tight phone they scroll horizontally rather than shove
@@ -233,8 +238,19 @@
   /* Firefox et al. lack -webkit-line-clamp; keep the collapsed headline one line there. */
   @supports not (-webkit-line-clamp: 1) {
     .card.collapsed .ph-sub { white-space: nowrap; text-overflow: ellipsis; } }
-  .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center; }
+  .icon { font-size: 20px; width: 24px; height: 24px; text-align: center; display: flex; align-items: center; justify-content: center;
+    position: relative; /* anchors the .sacount subscript, same as .dock-icon */ }
   .icon svg { display: block; }
+  /* List row with its sub-agents box expanded: the box wraps to a full-width second
+     line inside the row (the row is otherwise a single flex line). */
+  .prow.subs-open { flex-wrap: wrap; }
+  .prow .subagents { flex-basis: 100%; margin-top: 4px; }
+  /* .row-open: the icon+name+headline area as a real button (the keyboard/AT path to
+     the card, sibling of the sub-agents toggle — never nested). Inherits the row's
+     flex layout, sheds all button chrome. */
+  .row-open { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
+    background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
+    text-align: left; cursor: pointer; }
   .pulse {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: #3fb950; margin-right: 5px; vertical-align: middle;
@@ -261,6 +277,11 @@
   .mode-accept-edits { background: #238636; }
   .mode-bypass { background: #b62324; }
   .chip.agents { background: #2d2540; color: #c8a6ff; }
+  /* List-row sub-agents toggle: same pill size/shape as the activity badge (via .badge),
+     agents purple; the ::before halo extends the TAP target invisibly to finger size. */
+  .sub-toggle { border: 0; font-family: inherit; cursor: pointer; position: relative;
+    background: #2d2540; color: #c8a6ff; }
+  .sub-toggle::before { content: ""; position: absolute; inset: -10px; }
   .badge {
     font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600;
     white-space: nowrap;
@@ -336,6 +357,12 @@
   .task { padding: 6px 12px; font-size: 13px; color: #c9d1d9; display: flex; gap: 8px; }
   .task.done { color: #6e7681; text-decoration: line-through; }
   .task .tick { color: #3fb950; }
+  /* Sub-agents reuse the .tasks box; the label stretches so the elapsed/tokens meter
+     sits flush right, and a done row shouldn't strike through its meter. */
+  .subagents .task { align-items: center; }
+  .subagents .sa-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .subagents .task.done { text-decoration: none; color: #6e7681; }
+  .subagents .tick .pulse { margin: 0; }
   .notable { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
   .rewind { margin-top: 12px; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
   .rw-head { padding: 8px 12px; font-weight: 600; font-size: 13px; background: #161b22; border-bottom: 1px solid #30363d; }
