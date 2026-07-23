@@ -241,6 +241,22 @@ function tickBadges() {
   }
 }
 
+// Run the 1s badge clock ONLY while visible — a hidden/backgrounded PWA shouldn't wake
+// the JS engine each second. On visibilitychange we stop the interval when hidden and, on
+// return, tick once immediately (the badges froze while away) before rearming it.
+let _badgeTimer = null;
+function syncBadgeTick() {
+  if (document.visibilityState === "visible") {
+    if (_badgeTimer === null) _badgeTimer = setInterval(tickBadges, 1000);
+    tickBadges();
+  } else if (_badgeTimer !== null) {
+    clearInterval(_badgeTimer);
+    _badgeTimer = null;
+  }
+}
+document.addEventListener("visibilitychange", syncBadgeTick);
+window.addEventListener("pageshow", syncBadgeTick); // bfcache restore may skip visibilitychange
+
 let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
                            // null until the first reply so cold load asks for state outright
 let _booted = false;       // server has completed its first tick — an empty deck is only
@@ -1834,7 +1850,7 @@ if ("serviceWorker" in navigator) {
 }
 if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
 pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
-setInterval(tickBadges, 1000); // live-tick idle/waiting durations between sparse re-parses
+syncBadgeTick(); // live-tick idle/waiting durations while visible (paused when hidden)
 
 // Auto-update: when the web assets change, reload to the new version (checked every
 // 5s against /api/version; all durable state lives server-side). UNLESS the user has
