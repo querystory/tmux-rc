@@ -25,11 +25,11 @@
      dark). "tmuxrc-theme" is a manual override; absent means follow the OS. app.js
      owns the toggle button, persistence and the theme-color meta from here on. -->
 <script>
-  try {
-    var t = localStorage.getItem("tmuxrc-theme");
-    if (t === "light" || (!t && matchMedia("(prefers-color-scheme: light)").matches))
-      document.documentElement.classList.add("light");
-  } catch (e) {} /* no localStorage (private mode) ⇒ just follow the OS next line up */
+  var t = null;
+  try { t = localStorage.getItem("tmuxrc-theme"); } catch (e) {} /* private mode ⇒ no override */
+  /* Only the storage read needs guarding — a throw there must NOT skip the OS check. */
+  if (t === "light" || (!t && matchMedia("(prefers-color-scheme: light)").matches))
+    document.documentElement.classList.add("light");
 </script>
 <style>
   /* Theme palette. Dark (GitHub-dark-like) is the default; html.light swaps in a
@@ -533,7 +533,7 @@
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)">🎙 live<sup class="lm-exp">beta</sup></button>
-        <button id="theme-btn" title="Light mode" aria-label="Light mode" aria-pressed="false">☀&#xFE0E;</button>
+        <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false">☀&#xFE0E;</button>
         <a id="docs-link" href="/docs/" target="_blank" rel="noopener" title="Design docs (opens in a new tab)" aria-label="Design docs">docs</a>
         <!-- Status dot doubles as the LLM-telemetry toggle: the stats are dim debug
              chrome, so they stay hidden until you tap the dot (see #usage popover). -->

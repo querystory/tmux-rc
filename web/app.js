@@ -79,6 +79,12 @@ function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   themeBtn.setAttribute("aria-pressed", String(light));
   themeBtn.textContent = light ? "☾︎" : "☀︎"; // shows the mode a tap switches TO
+  themeBtn.title = light ? "Switch to dark mode" : "Switch to light mode";
+  // aria-label stays "Light mode" on purpose: an aria-pressed toggle keeps a FIXED
+  // accessible name (ARIA authoring practices) — pressed state carries the rest.
+  const to = light ? "Dark mode" : "Light mode"; // title/label track the glyph
+  themeBtn.title = to;
+  themeBtn.setAttribute("aria-label", to);
   document.querySelector('meta[name="theme-color"]').content =
     getComputedStyle(document.body).backgroundColor;
 }
