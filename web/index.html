@@ -25,15 +25,17 @@
      dark). "tmuxrc-theme" is a manual override; absent means follow the OS. app.js
      owns the toggle button, persistence and the theme-color meta from here on. -->
 <script>
-  var t = null;
-  try { t = localStorage.getItem("tmuxrc-theme"); } catch (e) {} /* private mode ⇒ no override */
-  /* Only the storage read needs guarding — a throw there must NOT skip the OS check. */
-  if (t === "light" || (!t && matchMedia("(prefers-color-scheme: light)").matches)) {
-    document.documentElement.classList.add("light");
-    /* Status bar must not flash dark before app.js syncs it. Literal hex: this runs
-       before <style> parses, so it can't read --bg — keep in sync with :root.light. */
-    document.querySelector('meta[name="theme-color"]').content = "#f6f8fa";
-  }
+  (function () { /* IIFE: nothing here may leak onto window */
+    var t = null;
+    try { t = localStorage.getItem("tmuxrc-theme"); } catch (e) {} /* private mode ⇒ no override */
+    /* Only the storage read needs guarding — a throw there must NOT skip the OS check. */
+    if (t === "light" || (!t && matchMedia("(prefers-color-scheme: light)").matches)) {
+      document.documentElement.classList.add("light");
+      /* Status bar must not flash dark before app.js syncs it. Literal hex: this runs
+         before <style> parses, so it can't read --bg — keep in sync with :root.light. */
+      document.querySelector('meta[name="theme-color"]').content = "#f6f8fa";
+    }
+  })();
 </script>
 <style>
   /* Theme palette. Dark (GitHub-dark-like) is the default; html.light swaps in a
@@ -153,9 +155,11 @@
     letter-spacing: .02em; }
   #docs-link:hover { color: var(--accent); }
   /* Theme toggle: quiet header chrome like the docs link — a 12px glyph showing the
-     mode a tap switches TO (app.js keeps glyph + aria-pressed in sync). */
-  #theme-btn { background: transparent; border: 0; padding: 0; font-size: 12px;
-    line-height: 1; color: var(--fg-faint); cursor: pointer; }
+     mode a tap switches TO (app.js keeps glyph + aria-pressed in sync). Padding grows
+     the TAP TARGET to finger size; the negative margin cancels it visually so the
+     header layout doesn't shift. */
+  #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
+    font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
   #theme-btn:hover { color: var(--accent); }
   /* overflow-x hidden: swipe gestures park the neighbor card off-screen with
      transforms — without this the page itself grows a horizontal scrollbar. */
