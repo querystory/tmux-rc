@@ -70,6 +70,35 @@ function setFavicon(waiting) {
   im.src = favBase;
 }
 
+// Theme. The inline boot script in index.html applied html.light before first paint;
+// here we own the header toggle, the "tmuxrc-theme" override (absent = follow the OS)
+// and the theme-color meta, so the PWA status bar tracks the page background.
+const themeBtn = document.getElementById("theme-btn");
+const prefersLight = matchMedia("(prefers-color-scheme: light)");
+function applyTheme(light) {
+  document.documentElement.classList.toggle("light", light);
+  themeBtn.setAttribute("aria-pressed", String(light));
+  themeBtn.textContent = light ? "☾︎" : "☀︎"; // shows the mode a tap switches TO
+  document.querySelector('meta[name="theme-color"]').content =
+    getComputedStyle(document.body).backgroundColor;
+}
+applyTheme(document.documentElement.classList.contains("light"));
+themeBtn.onclick = () => {
+  const light = !document.documentElement.classList.contains("light");
+  // Toggling INTO the OS's current preference clears the override — back to auto,
+  // so the app resumes following the OS (e.g. sunset auto-dark) instead of pinning.
+  try {
+    if (light === prefersLight.matches) localStorage.removeItem("tmuxrc-theme");
+    else localStorage.setItem("tmuxrc-theme", light ? "light" : "dark");
+  } catch {}
+  applyTheme(light);
+};
+prefersLight.addEventListener("change", (e) => {
+  let stored = null;
+  try { stored = localStorage.getItem("tmuxrc-theme"); } catch {}
+  if (!stored) applyTheme(e.matches); // no override ⇒ live-track the OS
+});
+
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
 // Collapse is a VIEW-WIDE preference, not per-pane: collapse one card (caret ▸) and
