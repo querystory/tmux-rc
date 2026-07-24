@@ -79,7 +79,10 @@ function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   if (themeBtn) { // a missing button must not abort the module (theme still applies)
     themeBtn.setAttribute("aria-pressed", String(light));
-    themeBtn.textContent = light ? "☾︎" : "☀︎"; // shows the mode a tap switches TO
+    // ︎ (text presentation) spelled as an ESCAPE: it's invisible as a literal,
+    // and without it some platforms render the colored emoji sun. Shows the mode a
+    // tap switches TO.
+    themeBtn.textContent = light ? "\u263E\uFE0E" : "\u2600\uFE0E";
     themeBtn.title = light ? "Switch to dark mode" : "Switch to light mode";
     // aria-label stays "Light mode" on purpose: an aria-pressed toggle keeps a FIXED
     // accessible name (ARIA authoring practices) — pressed state carries the rest.
@@ -101,7 +104,8 @@ if (themeBtn) themeBtn.onclick = () => {
 const onSchemeChange = (e) => {
   let stored = null;
   try { stored = localStorage.getItem("tmuxrc-theme"); } catch {}
-  if (!stored) applyTheme(e.matches); // no override ⇒ live-track the OS
+  // Same normalization as the boot script: junk/legacy values are NOT an override.
+  if (stored !== "light" && stored !== "dark") applyTheme(e.matches); // live-track the OS
 };
 // Older iOS Safari only has the deprecated addListener on MediaQueryList — and
 // phones are exactly where this app runs.

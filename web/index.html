@@ -28,7 +28,9 @@
   (function () { /* IIFE: nothing here may leak onto window */
     var t = null;
     try { t = localStorage.getItem("tmuxrc-theme"); } catch (e) {} /* private mode ⇒ no override */
-    /* Only the storage read needs guarding — a throw there must NOT skip the OS check. */
+    /* Only the storage read needs guarding — a throw there must NOT skip the OS check.
+       Only the two known values count as an override; junk/legacy falls back to auto. */
+    if (t !== "light" && t !== "dark") t = null;
     if (t === "light" || (!t && matchMedia("(prefers-color-scheme: light)").matches)) {
       document.documentElement.classList.add("light");
       /* Status bar must not flash dark before app.js syncs it. Literal hex: this runs
