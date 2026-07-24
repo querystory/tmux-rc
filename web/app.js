@@ -77,16 +77,18 @@ const themeBtn = document.getElementById("theme-btn");
 const prefersLight = matchMedia("(prefers-color-scheme: light)");
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
-  themeBtn.setAttribute("aria-pressed", String(light));
-  themeBtn.textContent = light ? "☾︎" : "☀︎"; // shows the mode a tap switches TO
-  themeBtn.title = light ? "Switch to dark mode" : "Switch to light mode";
-  // aria-label stays "Light mode" on purpose: an aria-pressed toggle keeps a FIXED
-  // accessible name (ARIA authoring practices) — pressed state carries the rest.
+  if (themeBtn) { // a missing button must not abort the module (theme still applies)
+    themeBtn.setAttribute("aria-pressed", String(light));
+    themeBtn.textContent = light ? "☾︎" : "☀︎"; // shows the mode a tap switches TO
+    themeBtn.title = light ? "Switch to dark mode" : "Switch to light mode";
+    // aria-label stays "Light mode" on purpose: an aria-pressed toggle keeps a FIXED
+    // accessible name (ARIA authoring practices) — pressed state carries the rest.
+  }
   document.querySelector('meta[name="theme-color"]').content =
     getComputedStyle(document.body).backgroundColor;
 }
 applyTheme(document.documentElement.classList.contains("light"));
-themeBtn.onclick = () => {
+if (themeBtn) themeBtn.onclick = () => {
   const light = !document.documentElement.classList.contains("light");
   // Toggling INTO the OS's current preference clears the override — back to auto,
   // so the app resumes following the OS (e.g. sunset auto-dark) instead of pinning.
