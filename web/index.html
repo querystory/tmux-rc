@@ -52,6 +52,7 @@
     --amber: #d29922; --amber-text: #e3b341; --amber-bg: #3d2e0a; --waiting-bg: #1c1a12;
     --purple: #a371f7; --purple-bg: #2a1e40; --agents-bg: #2d2540; --agents-fg: #c8a6ff;
     --red: #f85149; --red-bg: #3d1d20;
+    --brand: #1BB91F; /* tmux green; darkened in light for contrast on near-white */
     --link: #8ecbff; --link-bg: #1d3b53; --link-bg-active: #27506f; --sel-bg: #1f2b3d;
   }
   /* Light: text tiers re-picked for contrast on near-white (not just inverted grays),
@@ -66,6 +67,7 @@
     --amber: #bf8700; --amber-text: #9a6700; --amber-bg: #fff8c5; --waiting-bg: #fff8c5;
     --purple: #8250df; --purple-bg: #fbefff; --agents-bg: #fbefff; --agents-fg: #8250df;
     --red: #cf222e; --red-bg: #ffebe9;
+    --brand: #0e7a13;
     --link: #0969da; --link-bg: #ddf4ff; --link-bg-active: #b6e3ff; --sel-bg: #ddf4ff;
   }
   /* Terminal-capture font stack. ui-monospace (SF Mono on iOS/macOS) lacks the
@@ -98,7 +100,11 @@
   }
   .brand { display: inline-flex; align-items: flex-start; gap: 3px; }
   .brand-logo { height: 20px; display: block; }
-  .brand-sup { font-size: 14px; line-height: 1; color: #1BB91F; font-weight: 700; }
+  /* The logo SVG is dark-tuned (near-white screen face) — invert+hue-rotate flips its
+     luminance for light mode while keeping the greens green (same trick as sun mode);
+     recoloring per-fill isn't possible on an <img>-loaded SVG without inlining 4.5KB. */
+  :root.light .brand-logo { filter: invert(1) hue-rotate(180deg); }
+  .brand-sup { font-size: 14px; line-height: 1; color: var(--brand); font-weight: 700; }
   /* Non-active panes: one compact row each (icon · title · badge), stacked above the
      active pane's full card — whole-fleet status at a glance, tap to switch. */
   .prow { display: flex; align-items: center; gap: 10px; background: var(--surface);
