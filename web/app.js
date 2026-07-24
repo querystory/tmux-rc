@@ -96,11 +96,15 @@ themeBtn.onclick = () => {
   } catch {}
   applyTheme(light);
 };
-prefersLight.addEventListener("change", (e) => {
+const onSchemeChange = (e) => {
   let stored = null;
   try { stored = localStorage.getItem("tmuxrc-theme"); } catch {}
   if (!stored) applyTheme(e.matches); // no override ⇒ live-track the OS
-});
+};
+// Older iOS Safari only has the deprecated addListener on MediaQueryList — and
+// phones are exactly where this app runs.
+if (prefersLight.addEventListener) prefersLight.addEventListener("change", onSchemeChange);
+else if (prefersLight.addListener) prefersLight.addListener(onSchemeChange);
 
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();

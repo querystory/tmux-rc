@@ -28,8 +28,12 @@
   var t = null;
   try { t = localStorage.getItem("tmuxrc-theme"); } catch (e) {} /* private mode ⇒ no override */
   /* Only the storage read needs guarding — a throw there must NOT skip the OS check. */
-  if (t === "light" || (!t && matchMedia("(prefers-color-scheme: light)").matches))
+  if (t === "light" || (!t && matchMedia("(prefers-color-scheme: light)").matches)) {
     document.documentElement.classList.add("light");
+    /* Status bar must not flash dark before app.js syncs it. Literal hex: this runs
+       before <style> parses, so it can't read --bg — keep in sync with :root.light. */
+    document.querySelector('meta[name="theme-color"]').content = "#f6f8fa";
+  }
 </script>
 <style>
   /* Theme palette. Dark (GitHub-dark-like) is the default; html.light swaps in a
