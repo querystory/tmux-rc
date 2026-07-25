@@ -29,6 +29,22 @@ const actOf = (s) => {
 };
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
+
+// Lucide icons (ISC), inlined: stroke follows currentColor so they theme for free —
+// the emoji they replace rendered as platform-colored glyphs that clashed with the
+// chrome (and differed per device). Same inline-SVG approach as the ⤢ fsbtn.
+const LUCIDE = {
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
+  paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+};
+const licon = (name, size = 16) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
+  ` stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
+
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
@@ -69,6 +85,47 @@ function setFavicon(waiting) {
   };
   im.src = favBase;
 }
+
+// Theme. The inline boot script in index.html applied html.light before first paint;
+// here we own the header toggle, the "tmuxrc-theme" override (absent = follow the OS)
+// and the theme-color meta, so the PWA status bar tracks the page background.
+const themeBtn = document.getElementById("theme-btn");
+const prefersLight = matchMedia("(prefers-color-scheme: light)");
+function applyTheme(light) {
+  document.documentElement.classList.toggle("light", light);
+  if (themeBtn) { // a missing button must not abort the module (theme still applies)
+    themeBtn.setAttribute("aria-pressed", String(light));
+    // Lucide sun/moon (shows the mode a tap switches TO) — SVGs render identically
+    // everywhere, unlike the emoji glyphs these replaced.
+    themeBtn.innerHTML = licon(light ? "moon" : "sun", 14);
+    themeBtn.title = light ? "Switch to dark mode" : "Switch to light mode";
+    // aria-label stays "Light mode" on purpose: an aria-pressed toggle keeps a FIXED
+    // accessible name (ARIA authoring practices) — pressed state carries the rest.
+  }
+  document.querySelector('meta[name="theme-color"]').content =
+    getComputedStyle(document.body).backgroundColor;
+}
+applyTheme(document.documentElement.classList.contains("light"));
+if (themeBtn) themeBtn.onclick = () => {
+  const light = !document.documentElement.classList.contains("light");
+  // Toggling INTO the OS's current preference clears the override — back to auto,
+  // so the app resumes following the OS (e.g. sunset auto-dark) instead of pinning.
+  try {
+    if (light === prefersLight.matches) localStorage.removeItem("tmuxrc-theme");
+    else localStorage.setItem("tmuxrc-theme", light ? "light" : "dark");
+  } catch {}
+  applyTheme(light);
+};
+const onSchemeChange = (e) => {
+  let stored = null;
+  try { stored = localStorage.getItem("tmuxrc-theme"); } catch {}
+  // Same normalization as the boot script: junk/legacy values are NOT an override.
+  if (stored !== "light" && stored !== "dark") applyTheme(e.matches); // live-track the OS
+};
+// Older iOS Safari only has the deprecated addListener on MediaQueryList — and
+// phones are exactly where this app runs.
+if (prefersLight.addEventListener) prefersLight.addEventListener("change", onSchemeChange);
+else if (prefersLight.addListener) prefersLight.addListener(onSchemeChange);
 
 // Track which pane's timeline is expanded so a re-render doesn't collapse it.
 const openTimelines = new Set();
@@ -293,11 +350,19 @@ async function poll() {
     // "Failed to fetch" is usually a resume/network blip (the OS aborted the in-flight
     // long-poll while backgrounded), NOT a stale bundle — the resume handler below
     // re-polls immediately, so don't send the user hard-refreshing over a transient.
-    liveEl.className = "dot off";
+    liveEl.className = "dot off rc"; // pulsing gray = reconnecting, not dead
+    liveEl.title = "reconnecting…";
     const transient = /failed to fetch|networkerror|load failed/i.test(String(e && e.message || e));
     // Report the NON-transient poll failures (a resume/network blip is expected noise);
     // a persistent JSON/parse fault is the invisible-on-mobile bug #57 is about.
     if (!transient) reportError("poll", e);
+    // A transient blip while a deck is on screen (the Android app-switch case: the OS
+    // aborts the in-flight long-poll, first re-poll fails while the radio wakes): KEEP
+    // the cached UI — it was correct a second ago and the pulsing dot already says
+    // "reconnecting". Nuking it for an error page threw away good content on every
+    // app resume. Full replacement only when nothing is rendered yet (cold load) or
+    // the failure isn't transient.
+    if (transient && panesEl.children.length && !panesEl.querySelector(".empty")) return false;
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(${hint})</small></div>`;
@@ -356,12 +421,19 @@ liveEl.onkeydown = (e) => {
 liveEl.onkeyup = (e) => {
   if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
+// The docs link rides in the popover (rebuilt on every showUsage), not the top bar —
+// header space is too tight on phones for a rarely-tapped link.
+const DOCS_LINK = '<span class="u-row u-docs"><a id="docs-link" href="/docs/" target="_blank"' +
+  ' rel="noopener" title="Design docs (opens in a new tab)">design docs ↗</a></span>';
+// One labeled menu row: what the number IS on the left, the number on the right.
+const uRow = (label, val, cls = "") =>
+  `<span class="u-row"><span>${label}</span><span class="u-val${cls}">${val}</span></span>`;
 function showUsage(u, err) {
   if (!u) {
-    // Gone (reconnect, fresh daemon): clear the leftovers too — a stale tooltip on an
-    // empty span, or a popover left open with nothing to show.
-    usageEl.textContent = ""; usageEl.title = "";
-    usageEl.hidden = true; liveEl.setAttribute("aria-expanded", "false");
+    // Gone (reconnect, fresh daemon): drop the stale stats but keep the docs link —
+    // and DON'T touch hidden/aria-expanded: force-closing on every poll would slam
+    // the popover shut under a user who opened it for the docs link.
+    usageEl.innerHTML = DOCS_LINK; usageEl.title = "";
     return;
   }
   // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
@@ -373,20 +445,21 @@ function showUsage(u, err) {
   // Total tokens = parser + voice, matching the combined `cost` (otherwise the readout
   // would show a parser-only token count next to a parser+voice dollar figure).
   const tok = ((u.in_tokens + u.out_tokens + live.in_tokens + live.out_tokens) / 1000).toFixed(0);
-  const parts = [
-    `${tok}k tok`,
-    `<span${u.errors ? ' class="warn"' : ""}>$${u.cost.toFixed(3)}</span>`,
-    `${u.rate_per_min}/min`,  // parser calls/min (voice isn't a per-tick call) — see tooltip
-  ];
-  if (live.sessions) parts.push(`🎙${live.sessions}`); // voice sessions this run
-  if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
-  usageEl.innerHTML = parts.join(" · ");
-  // Tooltip: total, then the parser/voice split so the combined cost is explainable.
   const parser = (u.parser_cost ?? u.cost);
-  usageEl.title = `LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} total`
-    + ` (parser $${parser.toFixed(3)}`
-    + (live.sessions ? `, voice $${live.cost.toFixed(3)} over ${live.sessions} session${live.sessions > 1 ? "s" : ""}` : "")
-    + `) · ${u.rate_per_min} parser calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
+  const rows = [
+    uRow("LLM tokens (parser + voice)", `${tok}k`),
+    uRow("spend this run", `$${u.cost.toFixed(3)}`, u.errors ? " warn" : ""),
+    uRow("parser calls", `${u.rate_per_min}/min`),
+  ];
+  if (live.sessions) {
+    rows.push(uRow("voice sessions", String(live.sessions)));
+    rows.push(uRow("voice spend (of total)", `$${live.cost.toFixed(3)}`));
+    rows.push(uRow("parser spend (of total)", `$${parser.toFixed(3)}`));
+  }
+  if (err) rows.push(uRow("last LLM error", `<span class="warn" title="${escAttr(err)}">${licon("alert", 12)}</span>`));
+  rows.push(DOCS_LINK);
+  usageEl.innerHTML = rows.join("");
+  usageEl.title = ""; // the labels ARE the explanation now — no tooltip needed
 }
 // Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
 // quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
@@ -1510,6 +1583,10 @@ async function submitComposer(s) {
   const segs = composerSegments();
   if (!segs.length) return;
   busy = true;
+  // Immediate feedback: the Send button spins for the whole request — on a slow
+  // connection (image uploads) this runs for seconds, and silence reads as hung.
+  bar.send?.classList.add("sending");
+  bar.send && (bar.send.disabled = true);
   try {
     // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
     // submitting now would send the surrounding text without its image and drop the
@@ -1527,6 +1604,10 @@ async function submitComposer(s) {
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
+    // Button un-spins NOW (the work is done); busy holds a beat longer so the poll
+    // doesn't repaint mid-settle.
+    bar.send?.classList.remove("sending");
+    bar.send && (bar.send.disabled = false);
     setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
@@ -1792,8 +1873,21 @@ function openScreen(paneId, label) {
   const ov = document.createElement("div");
   ov.className = "screen-overlay";
   ov.innerHTML =
-    `<div class="screen-head"><span>${esc(label || paneId)}</span><button class="screen-close">✕</button></div>` +
+    `<div class="screen-head"><span>${esc(label || paneId)}</span><span class="hd-btns">` +
+    `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-label="Sun mode" aria-pressed="false">${licon("sun", 16)}</button>` +
+    `<button class="screen-close">✕</button></span></div>` +
     `<div class="screen-body"><pre class="screen-pre">(connecting…)</pre></div>`;
+  // Sun mode persists across opens — outdoors you want every pane light, not one.
+  const sun = ov.querySelector(".screen-sun");
+  const setSun = (on) => {
+    ov.classList.toggle("light", on);
+    sun.setAttribute("aria-pressed", String(on));
+    try { localStorage.setItem("tmuxrc-sun", on ? "1" : ""); } catch {}
+  };
+  let sunOn = false;
+  try { sunOn = !!localStorage.getItem("tmuxrc-sun"); } catch {} // private mode ⇒ default dark
+  setSun(sunOn);
+  sun.onclick = () => setSun(!ov.classList.contains("light"));
   const body = ov.querySelector(".screen-body");
   const pre = ov.querySelector(".screen-pre");
   // Seed with the pane's last-known frame (gray) so the view isn't blank while the
@@ -1801,7 +1895,10 @@ function openScreen(paneId, label) {
   const cached = peekCache[paneId];
   if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
   document.body.appendChild(ov);
-  pinchZoom(body, pre);
+  // Selection containment flag — a class, not :has() (unsupported on older iOS
+  // Safari, which this codebase otherwise accounts for).
+  document.body.classList.add("screen-open");
+  pinchZoom(body, pre, null, false, true); // selectable: one finger = native select/copy
   // Only ONE stream per pane at a time. screenOpen makes bgTerm stand the peek down
   // for as long as the overlay lives — without it the 2s render() poll would keep
   // restarting a second peek stream. Stop the current peek now; the overlay owns the
@@ -1814,14 +1911,20 @@ function openScreen(paneId, label) {
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
       const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
-      if (pre.innerHTML !== html) pre.innerHTML = html; // no-op swap = flicker; skip it
       peekCache[paneId] = { html }; // shared cache with the peek
+      // A live frame swap would destroy the selection the user is building — hold
+      // updates while one exists in the terminal; the next frame after it's dismissed
+      // catches up (frames keep coming).
+      const sel = document.getSelection();
+      if (sel && !sel.isCollapsed && pre.contains(sel.anchorNode)) return;
+      if (pre.innerHTML !== html) pre.innerHTML = html; // no-op swap = flicker; skip it
     },
     onLive: () => pre.classList.remove("stale"),
     onQuiet: () => pre.classList.add("stale"),
   });
   ov.querySelector(".screen-close").onclick = () => {
     stop(); ov.remove(); screenOpen = false; // next poll re-mounts the peek stream
+    document.body.classList.remove("screen-open");
   };
 }
 
@@ -1832,7 +1935,7 @@ function openScreen(paneId, label) {
 // BOTTOM-left — the end of a capture is the live state. (Captures shorter than the
 // window stay top-aligned: that's the Math.min clamp.) `snapHome`: unzoomed pans
 // spring back on release (drag-to-peek) instead of parking the content askew.
-function pinchZoom(container, el, st, snapHome) {
+function pinchZoom(container, el, st, snapHome, selectable) {
   st = st || { scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) };
   let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
   const apply = () => { el.style.transform = `translate(${st.tx}px,${st.ty}px) scale(${st.scale})`; };
@@ -1841,6 +1944,10 @@ function pinchZoom(container, el, st, snapHome) {
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
   container.addEventListener("touchstart", (e) => {
+    // `selectable`: ONE finger belongs to the browser — long-press → select → copy
+    // (copying out of the terminal is a core use case). Our JS claims only two-finger
+    // gestures there; without it (the peek) one-finger drag still pans.
+    if (selectable && e.touches.length === 1) return;
     busy = true; // freeze poll re-renders mid-gesture
     if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
     else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - st.tx, y: e.touches[0].clientY - st.ty };
@@ -1851,11 +1958,12 @@ function pinchZoom(container, el, st, snapHome) {
     if (start.pan && e.touches.length === 1) {
       st.tx = e.touches[0].clientX - start.x; st.ty = e.touches[0].clientY - start.y;
     } else if (e.touches.length === 2) {
+      const m = mid(e.touches); // anchor to the LIVE midpoint: pinch zooms AND pans
       const f = dist(e.touches) / start.dist;
       st.scale = Math.min(6, Math.max(0.4, start.s * f));
-      // keep the pinch midpoint stationary
-      st.tx = start.cx - (start.cx - start.tx) * (st.scale / start.s);
-      st.ty = start.cy - (start.cy - start.ty) * (st.scale / start.s);
+      // the content point under the start midpoint stays under the fingers
+      st.tx = m.x - (start.cx - start.tx) * (st.scale / start.s);
+      st.ty = m.y - (start.cy - start.ty) * (st.scale / start.s);
     }
     apply();
   }, { passive: false });
@@ -1973,6 +2081,11 @@ if (window.visualViewport && barEl) {
 // header pill is the status, and the rolling conversation renders in the active card's
 // summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
 const lm = { btn: document.getElementById("lm-btn") };
+// The static buttons get their icons here (their HTML ships empty): mic without the
+// word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
+if (lm.btn) lm.btn.innerHTML = licon("mic", 14) + '<sup class="lm-exp">beta</sup>';
+bar.keysToggle.innerHTML = licon("keyboard", 17);
+bar.attach.innerHTML = licon("paperclip", 15);
 // Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
 // the server reports it enabled — one source of truth, so a stale tab can't offer a
 // button the /api/live-mode route will just refuse. Hidden until confirmed.
@@ -2120,7 +2233,7 @@ async function lmStart() {
     else if (m.type === "audio") lmPlayChunk(m.data);
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
-    else if (m.type === "error") lmAdd("err", `⚠ ${m.message}`);
+    else if (m.type === "error") lmAdd("err", m.message); // .lm-err red = the signal
   };
   ws.onclose = (e) => {
     if (lmWs !== ws) return;
