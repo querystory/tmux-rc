@@ -1873,7 +1873,7 @@ function openScreen(paneId, label) {
   ov.className = "screen-overlay";
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><span class="hd-btns">` +
-    `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-pressed="false">${licon("sun", 16)}</button>` +
+    `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-label="Sun mode" aria-pressed="false">${licon("sun", 16)}</button>` +
     `<button class="screen-close">✕</button></span></div>` +
     `<div class="screen-body"><pre class="screen-pre">(connecting…)</pre></div>`;
   // Sun mode persists across opens — outdoors you want every pane light, not one.
