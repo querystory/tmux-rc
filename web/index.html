@@ -494,7 +494,7 @@
   /* While the terminal overlay is up, ONLY its text is selectable: dragging a
      selection handle must not spill the highlight into the app UI around/behind it
      (.screen-pre re-enables text selection above). */
-  body:has(.screen-overlay) { user-select: none; -webkit-user-select: none; }
+  body.screen-open { user-select: none; -webkit-user-select: none; }
   /* Pinch-to-zoom + pan the terminal content. The body is the gesture surface
      (touch-action:none so our JS owns pinch/drag); the <pre> is transformed. */
   /* touch-action manipulation (NOT none): one finger belongs to the BROWSER here so

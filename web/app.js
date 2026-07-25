@@ -1883,7 +1883,9 @@ function openScreen(paneId, label) {
     sun.setAttribute("aria-pressed", String(on));
     try { localStorage.setItem("tmuxrc-sun", on ? "1" : ""); } catch {}
   };
-  setSun(!!localStorage.getItem("tmuxrc-sun"));
+  let sunOn = false;
+  try { sunOn = !!localStorage.getItem("tmuxrc-sun"); } catch {} // private mode ⇒ default dark
+  setSun(sunOn);
   sun.onclick = () => setSun(!ov.classList.contains("light"));
   const body = ov.querySelector(".screen-body");
   const pre = ov.querySelector(".screen-pre");
@@ -1892,6 +1894,9 @@ function openScreen(paneId, label) {
   const cached = peekCache[paneId];
   if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
   document.body.appendChild(ov);
+  // Selection containment flag — a class, not :has() (unsupported on older iOS
+  // Safari, which this codebase otherwise accounts for).
+  document.body.classList.add("screen-open");
   pinchZoom(body, pre, null, false, true); // selectable: one finger = native select/copy
   // Only ONE stream per pane at a time. screenOpen makes bgTerm stand the peek down
   // for as long as the overlay lives — without it the 2s render() poll would keep
@@ -1918,6 +1923,7 @@ function openScreen(paneId, label) {
   });
   ov.querySelector(".screen-close").onclick = () => {
     stop(); ov.remove(); screenOpen = false; // next poll re-mounts the peek stream
+    document.body.classList.remove("screen-open");
   };
 }
 
