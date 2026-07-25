@@ -429,10 +429,10 @@ const uRow = (label, val, cls = "") =>
   `<span class="u-row"><span>${label}</span><span class="u-val${cls}">${val}</span></span>`;
 function showUsage(u, err) {
   if (!u) {
-    // Gone (reconnect, fresh daemon): drop the stale stats/tooltip but keep the docs
-    // link — the popover stays useful as the docs home even with no telemetry.
+    // Gone (reconnect, fresh daemon): drop the stale stats but keep the docs link —
+    // and DON'T touch hidden/aria-expanded: force-closing on every poll would slam
+    // the popover shut under a user who opened it for the docs link.
     usageEl.innerHTML = DOCS_LINK; usageEl.title = "";
-    usageEl.hidden = true; liveEl.setAttribute("aria-expanded", "false");
     return;
   }
   // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
