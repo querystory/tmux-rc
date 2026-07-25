@@ -39,6 +39,7 @@ const LUCIDE = {
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -455,7 +456,7 @@ function showUsage(u, err) {
     rows.push(uRow("voice spend (of total)", `$${live.cost.toFixed(3)}`));
     rows.push(uRow("parser spend (of total)", `$${parser.toFixed(3)}`));
   }
-  if (err) rows.push(uRow("last LLM error", `<span class="warn" title="${escAttr(err)}">⚠</span>`));
+  if (err) rows.push(uRow("last LLM error", `<span class="warn" title="${escAttr(err)}">${licon("alert", 12)}</span>`));
   rows.push(DOCS_LINK);
   usageEl.innerHTML = rows.join("");
   usageEl.title = ""; // the labels ARE the explanation now — no tooltip needed
@@ -2232,7 +2233,7 @@ async function lmStart() {
     else if (m.type === "audio") lmPlayChunk(m.data);
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
-    else if (m.type === "error") lmAdd("err", `⚠ ${m.message}`);
+    else if (m.type === "error") lmAdd("err", m.message); // .lm-err red = the signal
   };
   ws.onclose = (e) => {
     if (lmWs !== ws) return;
