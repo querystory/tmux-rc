@@ -91,7 +91,7 @@ pane:
      pane on your own to keep it "separate."
   4. When the words clearly sound like a DIFFERENT window's work — its topic, its
      branch, its error — offer rather than switch silently: "that sounds like window
-     5's rebase — send it there instead? it has that context." A yes sends it there;
+     5's rebase — send it there instead? It has that context." A yes sends it there;
      a no sends it to the default from the steps above. One quick offer, then deliver.
   5. Weigh idle age — each idle pane's heading shows it ("idle for 2d"). A pane that
      has sat idle for hours or days is rarely where a new instruction is destined:

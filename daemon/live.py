@@ -235,7 +235,7 @@ def _pane_block(d: dict, screen: str | None) -> str:
         head += f' "{name}"'
     head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
-    # Idle AGE, not just the state: "idle 2d" and "idle 40s" are different routing
+    # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
     # candidates — the prompt tells the model a long-idle pane is rarely where a new
     # instruction is destined (see live_prompt's targeting ladder).
     idle = d.get("idle_seconds")
