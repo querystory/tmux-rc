@@ -29,6 +29,21 @@ const actOf = (s) => {
 };
 const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
 const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
+
+// Lucide icons (ISC), inlined: stroke follows currentColor so they theme for free —
+// the emoji they replace rendered as platform-colored glyphs that clashed with the
+// chrome (and differed per device). Same inline-SVG approach as the ⤢ fsbtn.
+const LUCIDE = {
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
+  paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+};
+const licon = (name, size = 16) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
+  ` stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
+
 const panesEl = document.getElementById("panes");
 const liveEl = document.getElementById("live");
 
@@ -79,10 +94,9 @@ function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   if (themeBtn) { // a missing button must not abort the module (theme still applies)
     themeBtn.setAttribute("aria-pressed", String(light));
-    // ︎ (text presentation) spelled as an ESCAPE: it's invisible as a literal,
-    // and without it some platforms render the colored emoji sun. Shows the mode a
-    // tap switches TO.
-    themeBtn.textContent = light ? "\u263E\uFE0E" : "\u2600\uFE0E";
+    // Lucide sun/moon (shows the mode a tap switches TO) — SVGs render identically
+    // everywhere, unlike the emoji glyphs these replaced.
+    themeBtn.innerHTML = licon(light ? "moon" : "sun", 14);
     themeBtn.title = light ? "Switch to dark mode" : "Switch to light mode";
     // aria-label stays "Light mode" on purpose: an aria-pressed toggle keeps a FIXED
     // accessible name (ARIA authoring practices) — pressed state carries the rest.
@@ -437,7 +451,7 @@ function showUsage(u, err) {
     uRow("parser calls", `${u.rate_per_min}/min`),
   ];
   if (live.sessions) {
-    rows.push(uRow("voice sessions 🎙", String(live.sessions)));
+    rows.push(uRow("voice sessions", String(live.sessions)));
     rows.push(uRow("voice spend (of total)", `$${live.cost.toFixed(3)}`));
     rows.push(uRow("parser spend (of total)", `$${parser.toFixed(3)}`));
   }
@@ -1859,7 +1873,7 @@ function openScreen(paneId, label) {
   ov.className = "screen-overlay";
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><span class="hd-btns">` +
-    `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-pressed="false">☀</button>` +
+    `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-pressed="false">${licon("sun", 16)}</button>` +
     `<button class="screen-close">✕</button></span></div>` +
     `<div class="screen-body"><pre class="screen-pre">(connecting…)</pre></div>`;
   // Sun mode persists across opens — outdoors you want every pane light, not one.
@@ -2060,6 +2074,11 @@ if (window.visualViewport && barEl) {
 // header pill is the status, and the rolling conversation renders in the active card's
 // summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
 const lm = { btn: document.getElementById("lm-btn") };
+// The static buttons get their icons here (their HTML ships empty): mic without the
+// word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
+if (lm.btn) lm.btn.innerHTML = licon("mic", 14) + '<sup class="lm-exp">beta</sup>';
+bar.keysToggle.innerHTML = licon("keyboard", 17);
+bar.attach.innerHTML = licon("paperclip", 15);
 // Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
 // the server reports it enabled — one source of truth, so a stale tab can't offer a
 // button the /api/live-mode route will just refuse. Hidden until confirmed.

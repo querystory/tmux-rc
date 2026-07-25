@@ -523,8 +523,10 @@
   /* Live Mode: quiet header pill; red while a session is running, and the mic pulses
      while it's actually listening — that pulse IS the status display. */
   #lm-btn { background: var(--chrome); border: 1px solid var(--border); color: var(--fg);
-    border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600;
-    cursor: pointer; }
+    border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
+  /* Inline-SVG icon buttons (licon): block display centers the glyph in its button. */
+  .inputwrap .attach svg, #theme-btn svg, .screen-sun svg { display: block; margin: auto; }
   /* "beta" tag: Live Mode is experimental/opt-in — a quiet superscript, not a shout. */
   .lm-exp { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--purple);
     margin-left: 3px; vertical-align: super; letter-spacing: .04em; }
@@ -597,8 +599,8 @@
            scroll off once enough panes fill the width. Built by dock(). -->
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
-        <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)">🎙 live<sup class="lm-exp">beta</sup></button>
-        <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false">☀&#xFE0E;</button>
+        <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)"></button>
+        <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false"></button>
         <!-- docs link lives INSIDE the status-dot popover (see showUsage) — the top
              bar is too tight on phones to spend on a rarely-tapped link. -->
         <!-- Status dot doubles as the LLM-telemetry toggle: the stats are dim debug
@@ -627,8 +629,8 @@
     </div>
     <div class="freetext">
       <div class="inputwrap">
-        <button id="bar-keys-toggle" class="attach" title="Special keys" aria-label="Special keys" aria-pressed="false">⌨</button>
-        <button id="bar-attach" class="attach" title="Attach image" aria-label="Attach image">📎</button>
+        <button id="bar-keys-toggle" class="attach" title="Special keys" aria-label="Special keys" aria-pressed="false"></button>
+        <button id="bar-attach" class="attach" title="Attach image" aria-label="Attach image"></button>
         <!-- Rich composer: contenteditable (not <input>) so image thumbnails can sit
              INLINE at the caret, interleaved with typed text — the ORDER of text vs.
              images is what we send (see submitComposer's DOM walk). A plain <input>
