@@ -123,12 +123,12 @@
   .dock-icon.sel { background: var(--chrome); border-color: var(--accent); }
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
-    border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--bg); }
+    border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--surface); }
   /* Running-subagent count, subscripted in the bottom-right corner (opposite the
      activity dot). Purple echoes the .chip.agents "spawned workers" language. */
   .sacount { position: absolute; bottom: 0; right: 0; min-width: 13px; height: 13px;
     padding: 0 3px; border-radius: 7px; background: #6f42c1; color: #fff; font-size: 9px;
-    line-height: 13px; font-weight: 700; text-align: center; box-shadow: 0 0 0 2px var(--bg); }
+    line-height: 13px; font-weight: 700; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
   .dock-counts { margin-left: auto; display: flex; gap: 4px; flex: none; align-items: center; }
   /* Same badges, now homed in the header: no auto-margin (space-between already sets the
      three-column layout), and on a tight phone they scroll horizontally rather than shove
@@ -157,6 +157,9 @@
   .ph-right .worksub { white-space: nowrap; }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
   header .off { background: var(--fg-faint); }
+  /* Reconnecting: the gray dot pulses (reuses lm-pulse) — the quiet "working on it"
+     signal while the deck stays up through a transient poll failure (app resume). */
+  header .dot.rc { animation: lm-pulse 1.4s ease-in-out infinite; }
   .hdr-right { display: inline-flex; align-items: center; gap: 12px; }
   /* Docs link: quiet by default like the rest of the header chrome, brightens on hover. */
   #docs-link { font-size: 12px; font-weight: 600; color: var(--fg-faint); text-decoration: none;
@@ -250,8 +253,21 @@
      Fillets live in #top — NOT the deck — because they extend above the card line and
      the deck clips its overflow. */
   .tab-fillet { position: absolute; width: 8px; height: 8px; z-index: 6; pointer-events: none; }
-  .tab-fillet.l { background: radial-gradient(circle at top left, var(--surface) 6.5px, var(--accent) 7px 8px, var(--surface) 8.5px); }
-  .tab-fillet.r { background: radial-gradient(circle at top right, var(--surface) 6.5px, var(--accent) 7px 8px, var(--surface) 8.5px); }
+  /* Eraser + REAL border arc (not a gradient): ::before repaints the old square corner
+     in surface color; ::after draws the quarter-arc as an actual curved border, so it
+     rasterizes at exactly the same 1px weight as the straight borders it meets. The
+     radial-gradient band always rendered fatter (gradient AA is blurrier than the
+     border rasterizer) — invisible on dark, glaring on light. Same circle geometry:
+     bottom-right radius 8 puts the arc's center at the patch's top-left, and mirrored. */
+  .tab-fillet::before { content: ""; position: absolute; inset: 0; background: var(--surface); }
+  /* The arc box extends 1px past the patch on its tangent sides, giving each end a 1px
+     STRAIGHT lead-in that overlaps the line/border it meets — the joint can't gap no
+     matter which way sub-pixel rounding falls (accent over accent is invisible). */
+  .tab-fillet::after { content: ""; position: absolute; border: 0 solid var(--accent); }
+  .tab-fillet.l::after { inset: -1px 0 0 -1px;
+    border-right-width: 1px; border-bottom-width: 1px; border-bottom-right-radius: 8px; }
+  .tab-fillet.r::after { inset: -1px -1px 0 0;
+    border-left-width: 1px; border-bottom-width: 1px; border-bottom-left-radius: 8px; }
   #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
     background: var(--bar-bg); border-top: 1px solid var(--border);
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
@@ -289,9 +305,13 @@
   .row { display: flex; align-items: center; gap: 10px; }
   /* Collapse caret: shrinks the card to just this header row, giving the live terminal
      the screen. Muted, rotates with state; the whole header stays tappable to select. */
-  .card-caret { flex: none; background: transparent; border: 0; color: var(--fg-faint);
-    font-size: 12px; line-height: 1; padding: 2px 4px; cursor: pointer; align-self: flex-start; margin-top: 3px; }
-  .card-caret:hover { color: var(--fg-mid); }
+  /* A real control, not a speck: 16px glyph, mid-tier color, and an invisible ::before
+     halo growing the tap target to finger size without shifting the header layout. */
+  .card-caret { flex: none; background: transparent; border: 0; color: var(--fg-dim);
+    font-size: 16px; line-height: 1; padding: 2px 6px; cursor: pointer; align-self: flex-start;
+    position: relative; }
+  .card-caret::before { content: ""; position: absolute; inset: -10px; }
+  .card-caret:hover { color: var(--fg); }
   /* Collapsed: one-line header only (the return in card() drops the body), and the
      status headline clamps to a single line so it reads like the list-row form. */
   .card.collapsed { max-height: none; overflow: visible; }
@@ -394,6 +414,15 @@
   .inputwrap button.send { background: var(--chrome-2); color: var(--fg-mid); border: 0; border-radius: 8px;
     padding: 7px 14px; margin: 4px; font-size: 13px; font-weight: 600; flex: none; cursor: pointer; }
   .inputwrap button.send:active { background: var(--accent); color: #fff; }
+  /* In-flight send: the button becomes a spinner the INSTANT you tap — on a slow
+     uplink (image uploads) the request can run for many seconds, and a mute button
+     reads as "completely broken". Text goes transparent (keeps the width), a rotating
+     ring overlays it, and pointer-events off suppresses double-taps. */
+  .inputwrap button.send.sending { color: transparent; position: relative; pointer-events: none; }
+  .inputwrap button.send.sending::after { content: ""; position: absolute; top: 50%; left: 50%;
+    width: 14px; height: 14px; margin: -8px 0 0 -8px; border: 2px solid var(--fg-mid);
+    border-top-color: transparent; border-radius: 50%; animation: sendspin .7s linear infinite; }
+  @keyframes sendspin { to { transform: rotate(360deg); } }
   /* ~5 rows visible, scroll for the rest — the feed was eating 40vh and burying the
      terminal peek below the card, which is the thing worth the vertical space. */
   .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
@@ -455,10 +484,25 @@
     padding: 12px 16px; border-bottom: 1px solid #30363d; font-weight: 600; }
   .screen-close { background: #21262d; border: 1px solid #30363d; color: #e6edf3;
     border-radius: 8px; width: 34px; height: 34px; font-size: 16px; cursor: pointer; }
+  .screen-head .hd-btns { display: flex; gap: 8px; }
+  .screen-sun { background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+    border-radius: 8px; width: 34px; height: 34px; font-size: 16px; cursor: pointer; }
+  /* Sun mode: dark-on-light for outdoor readability. invert+hue-rotate flips the
+     terminal's luminance (dark bg → light) while keeping ANSI hues roughly themselves —
+     one rule, no second color palette to maintain. Chrome (head) stays dark. */
+  .screen-overlay.light .screen-body { filter: invert(1) hue-rotate(180deg); }
+  /* While the terminal overlay is up, ONLY its text is selectable: dragging a
+     selection handle must not spill the highlight into the app UI around/behind it
+     (.screen-pre re-enables text selection above). */
+  body:has(.screen-overlay) { user-select: none; -webkit-user-select: none; }
   /* Pinch-to-zoom + pan the terminal content. The body is the gesture surface
      (touch-action:none so our JS owns pinch/drag); the <pre> is transformed. */
-  .screen-body { flex: 1; overflow: hidden; touch-action: none; position: relative; background: #0d1117; }
+  /* touch-action manipulation (NOT none): one finger belongs to the BROWSER here so
+     long-press → select → copy works — copying out of the terminal is a core use case.
+     Our JS only claims two-finger gestures (pinch-zoom+pan, see pinchZoom selectable). */
+  .screen-body { flex: 1; overflow: hidden; touch-action: manipulation; position: relative; background: #0d1117; }
   .screen-pre { margin: 0; padding: 12px 16px; white-space: pre; will-change: transform;
+    user-select: text; -webkit-user-select: text;
     font: 12px/1.2 var(--mono-term); color: #c9d1d9; }
   .empty { text-align: center; color: var(--fg-faint); padding: 60px 20px; }
   /* Initial-load spinner: shown while the deck is empty but the server hasn't finished
@@ -505,12 +549,17 @@
      while the dot is toggled on (#usage[hidden] otherwise). Dim debug chrome, so it reads
      recessed even when open — it's for us, not the operator. */
   .usage { position: absolute; top: 100%; right: 12px; z-index: 6; margin-top: 2px;
-    max-width: calc(100vw - 24px); white-space: nowrap; overflow-x: auto; scrollbar-width: none;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px;
+    max-width: calc(100vw - 24px); display: flex; flex-direction: column; gap: 6px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
     box-shadow: 0 4px 16px #0008;
-    font-size: 11px; color: var(--fg-dim); font-family: ui-monospace, monospace; font-weight: 400; }
+    font-size: 12px; color: var(--fg-dim); font-weight: 400; }
   .usage[hidden] { display: none; }
-  .usage::-webkit-scrollbar { display: none; }
+  /* One labeled row per stat: description left (dim), value right (mono) — a menu you
+     can actually read, not a strip smeared over the tab headers. */
+  .usage .u-row { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; }
+  .usage .u-val { font-family: var(--mono-term); color: var(--fg); }
+  .usage .u-docs { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 8px; }
+  .usage .u-docs:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
   /* The dot lights green when the telemetry popover is open — a subtle "you tapped me". */
   header .dot[aria-expanded="true"] { box-shadow: 0 0 0 3px #3fb95033; }
   /* The dot is an 8×8 visual, but it's now a tap toggle — an invisible pseudo-element
@@ -550,11 +599,12 @@
       <span class="hdr-right">
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)">🎙 live<sup class="lm-exp">beta</sup></button>
         <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false">☀&#xFE0E;</button>
-        <a id="docs-link" href="/docs/" target="_blank" rel="noopener" title="Design docs (opens in a new tab)" aria-label="Design docs">docs</a>
+        <!-- docs link lives INSIDE the status-dot popover (see showUsage) — the top
+             bar is too tight on phones to spend on a rarely-tapped link. -->
         <!-- Status dot doubles as the LLM-telemetry toggle: the stats are dim debug
              chrome, so they stay hidden until you tap the dot (see #usage popover). -->
         <span id="live" class="dot off" title="connection" role="button" tabindex="0" aria-expanded="false" aria-controls="usage" aria-label="Connection status — tap for LLM telemetry"></span>
-        <span id="usage" class="usage" role="region" aria-label="LLM telemetry (parser + voice)" hidden></span>
+        <span id="usage" class="usage" role="region" aria-label="LLM telemetry and links" hidden></span>
       </span>
     </header>
 

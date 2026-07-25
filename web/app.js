@@ -335,11 +335,19 @@ async function poll() {
     // "Failed to fetch" is usually a resume/network blip (the OS aborted the in-flight
     // long-poll while backgrounded), NOT a stale bundle — the resume handler below
     // re-polls immediately, so don't send the user hard-refreshing over a transient.
-    liveEl.className = "dot off";
+    liveEl.className = "dot off rc"; // pulsing gray = reconnecting, not dead
+    liveEl.title = "reconnecting…";
     const transient = /failed to fetch|networkerror|load failed/i.test(String(e && e.message || e));
     // Report the NON-transient poll failures (a resume/network blip is expected noise);
     // a persistent JSON/parse fault is the invisible-on-mobile bug #57 is about.
     if (!transient) reportError("poll", e);
+    // A transient blip while a deck is on screen (the Android app-switch case: the OS
+    // aborts the in-flight long-poll, first re-poll fails while the radio wakes): KEEP
+    // the cached UI — it was correct a second ago and the pulsing dot already says
+    // "reconnecting". Nuking it for an error page threw away good content on every
+    // app resume. Full replacement only when nothing is rendered yet (cold load) or
+    // the failure isn't transient.
+    if (transient && panesEl.children.length && !panesEl.querySelector(".empty")) return false;
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
       `<small>(${hint})</small></div>`;
@@ -398,11 +406,18 @@ liveEl.onkeydown = (e) => {
 liveEl.onkeyup = (e) => {
   if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
+// The docs link rides in the popover (rebuilt on every showUsage), not the top bar —
+// header space is too tight on phones for a rarely-tapped link.
+const DOCS_LINK = '<span class="u-row u-docs"><a id="docs-link" href="/docs/" target="_blank"' +
+  ' rel="noopener" title="Design docs (opens in a new tab)">design docs ↗</a></span>';
+// One labeled menu row: what the number IS on the left, the number on the right.
+const uRow = (label, val, cls = "") =>
+  `<span class="u-row"><span>${label}</span><span class="u-val${cls}">${val}</span></span>`;
 function showUsage(u, err) {
   if (!u) {
-    // Gone (reconnect, fresh daemon): clear the leftovers too — a stale tooltip on an
-    // empty span, or a popover left open with nothing to show.
-    usageEl.textContent = ""; usageEl.title = "";
+    // Gone (reconnect, fresh daemon): drop the stale stats/tooltip but keep the docs
+    // link — the popover stays useful as the docs home even with no telemetry.
+    usageEl.innerHTML = DOCS_LINK; usageEl.title = "";
     usageEl.hidden = true; liveEl.setAttribute("aria-expanded", "false");
     return;
   }
@@ -415,20 +430,21 @@ function showUsage(u, err) {
   // Total tokens = parser + voice, matching the combined `cost` (otherwise the readout
   // would show a parser-only token count next to a parser+voice dollar figure).
   const tok = ((u.in_tokens + u.out_tokens + live.in_tokens + live.out_tokens) / 1000).toFixed(0);
-  const parts = [
-    `${tok}k tok`,
-    `<span${u.errors ? ' class="warn"' : ""}>$${u.cost.toFixed(3)}</span>`,
-    `${u.rate_per_min}/min`,  // parser calls/min (voice isn't a per-tick call) — see tooltip
-  ];
-  if (live.sessions) parts.push(`🎙${live.sessions}`); // voice sessions this run
-  if (err) parts.push(`<span class="warn" title="${escAttr(err)}">⚠</span>`);
-  usageEl.innerHTML = parts.join(" · ");
-  // Tooltip: total, then the parser/voice split so the combined cost is explainable.
   const parser = (u.parser_cost ?? u.cost);
-  usageEl.title = `LLM telemetry · ${tok}k tokens · $${u.cost.toFixed(3)} total`
-    + ` (parser $${parser.toFixed(3)}`
-    + (live.sessions ? `, voice $${live.cost.toFixed(3)} over ${live.sessions} session${live.sessions > 1 ? "s" : ""}` : "")
-    + `) · ${u.rate_per_min} parser calls/min` + (u.errors ? ` · ${u.errors} errors` : "");
+  const rows = [
+    uRow("LLM tokens (parser + voice)", `${tok}k`),
+    uRow("spend this run", `$${u.cost.toFixed(3)}`, u.errors ? " warn" : ""),
+    uRow("parser calls", `${u.rate_per_min}/min`),
+  ];
+  if (live.sessions) {
+    rows.push(uRow("voice sessions 🎙", String(live.sessions)));
+    rows.push(uRow("voice spend (of total)", `$${live.cost.toFixed(3)}`));
+    rows.push(uRow("parser spend (of total)", `$${parser.toFixed(3)}`));
+  }
+  if (err) rows.push(uRow("last LLM error", `<span class="warn" title="${escAttr(err)}">⚠</span>`));
+  rows.push(DOCS_LINK);
+  usageEl.innerHTML = rows.join("");
+  usageEl.title = ""; // the labels ARE the explanation now — no tooltip needed
 }
 // Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
 // quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
@@ -1552,6 +1568,10 @@ async function submitComposer(s) {
   const segs = composerSegments();
   if (!segs.length) return;
   busy = true;
+  // Immediate feedback: the Send button spins for the whole request — on a slow
+  // connection (image uploads) this runs for seconds, and silence reads as hung.
+  bar.send?.classList.add("sending");
+  bar.send && (bar.send.disabled = true);
   try {
     // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
     // submitting now would send the surrounding text without its image and drop the
@@ -1569,6 +1589,10 @@ async function submitComposer(s) {
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
+    // Button un-spins NOW (the work is done); busy holds a beat longer so the poll
+    // doesn't repaint mid-settle.
+    bar.send?.classList.remove("sending");
+    bar.send && (bar.send.disabled = false);
     setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
@@ -1834,8 +1858,19 @@ function openScreen(paneId, label) {
   const ov = document.createElement("div");
   ov.className = "screen-overlay";
   ov.innerHTML =
-    `<div class="screen-head"><span>${esc(label || paneId)}</span><button class="screen-close">✕</button></div>` +
+    `<div class="screen-head"><span>${esc(label || paneId)}</span><span class="hd-btns">` +
+    `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-pressed="false">☀</button>` +
+    `<button class="screen-close">✕</button></span></div>` +
     `<div class="screen-body"><pre class="screen-pre">(connecting…)</pre></div>`;
+  // Sun mode persists across opens — outdoors you want every pane light, not one.
+  const sun = ov.querySelector(".screen-sun");
+  const setSun = (on) => {
+    ov.classList.toggle("light", on);
+    sun.setAttribute("aria-pressed", String(on));
+    try { localStorage.setItem("tmuxrc-sun", on ? "1" : ""); } catch {}
+  };
+  setSun(!!localStorage.getItem("tmuxrc-sun"));
+  sun.onclick = () => setSun(!ov.classList.contains("light"));
   const body = ov.querySelector(".screen-body");
   const pre = ov.querySelector(".screen-pre");
   // Seed with the pane's last-known frame (gray) so the view isn't blank while the
@@ -1843,7 +1878,7 @@ function openScreen(paneId, label) {
   const cached = peekCache[paneId];
   if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
   document.body.appendChild(ov);
-  pinchZoom(body, pre);
+  pinchZoom(body, pre, null, false, true); // selectable: one finger = native select/copy
   // Only ONE stream per pane at a time. screenOpen makes bgTerm stand the peek down
   // for as long as the overlay lives — without it the 2s render() poll would keep
   // restarting a second peek stream. Stop the current peek now; the overlay owns the
@@ -1856,8 +1891,13 @@ function openScreen(paneId, label) {
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
       const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
-      if (pre.innerHTML !== html) pre.innerHTML = html; // no-op swap = flicker; skip it
       peekCache[paneId] = { html }; // shared cache with the peek
+      // A live frame swap would destroy the selection the user is building — hold
+      // updates while one exists in the terminal; the next frame after it's dismissed
+      // catches up (frames keep coming).
+      const sel = document.getSelection();
+      if (sel && !sel.isCollapsed && pre.contains(sel.anchorNode)) return;
+      if (pre.innerHTML !== html) pre.innerHTML = html; // no-op swap = flicker; skip it
     },
     onLive: () => pre.classList.remove("stale"),
     onQuiet: () => pre.classList.add("stale"),
@@ -1874,7 +1914,7 @@ function openScreen(paneId, label) {
 // BOTTOM-left — the end of a capture is the live state. (Captures shorter than the
 // window stay top-aligned: that's the Math.min clamp.) `snapHome`: unzoomed pans
 // spring back on release (drag-to-peek) instead of parking the content askew.
-function pinchZoom(container, el, st, snapHome) {
+function pinchZoom(container, el, st, snapHome, selectable) {
   st = st || { scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) };
   let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
   const apply = () => { el.style.transform = `translate(${st.tx}px,${st.ty}px) scale(${st.scale})`; };
@@ -1883,6 +1923,10 @@ function pinchZoom(container, el, st, snapHome) {
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
   container.addEventListener("touchstart", (e) => {
+    // `selectable`: ONE finger belongs to the browser — long-press → select → copy
+    // (copying out of the terminal is a core use case). Our JS claims only two-finger
+    // gestures there; without it (the peek) one-finger drag still pans.
+    if (selectable && e.touches.length === 1) return;
     busy = true; // freeze poll re-renders mid-gesture
     if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
     else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - st.tx, y: e.touches[0].clientY - st.ty };
@@ -1893,11 +1937,12 @@ function pinchZoom(container, el, st, snapHome) {
     if (start.pan && e.touches.length === 1) {
       st.tx = e.touches[0].clientX - start.x; st.ty = e.touches[0].clientY - start.y;
     } else if (e.touches.length === 2) {
+      const m = mid(e.touches); // anchor to the LIVE midpoint: pinch zooms AND pans
       const f = dist(e.touches) / start.dist;
       st.scale = Math.min(6, Math.max(0.4, start.s * f));
-      // keep the pinch midpoint stationary
-      st.tx = start.cx - (start.cx - start.tx) * (st.scale / start.s);
-      st.ty = start.cy - (start.cy - start.ty) * (st.scale / start.s);
+      // the content point under the start midpoint stays under the fingers
+      st.tx = m.x - (start.cx - start.tx) * (st.scale / start.s);
+      st.ty = m.y - (start.cy - start.ty) * (st.scale / start.s);
     }
     apply();
   }, { passive: false });
