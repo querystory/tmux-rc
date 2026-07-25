@@ -53,7 +53,7 @@
     --green: #3fb950; --green-bright: #7ee787; --green-bg: #12331f;
     --amber: #d29922; --amber-text: #e3b341; --amber-bg: #3d2e0a; --waiting-bg: #1c1a12;
     --purple: #a371f7; --purple-bg: #2a1e40; --agents-bg: #2d2540; --agents-fg: #c8a6ff;
-    --red: #f85149; --red-bg: #3d1d20;
+    --red: #f85149; --red-bg: #3d1d20; --green-glow: #3fb95033;
     --brand: #1BB91F; /* tmux green; darkened in light for contrast on near-white */
     --link: #8ecbff; --link-bg: #1d3b53; --link-bg-active: #27506f; --sel-bg: #1f2b3d;
   }
@@ -68,7 +68,7 @@
     --green: #1a7f37; --green-bright: #1a7f37; --green-bg: #dafbe1;
     --amber: #bf8700; --amber-text: #9a6700; --amber-bg: #fff8c5; --waiting-bg: #fff8c5;
     --purple: #8250df; --purple-bg: #fbefff; --agents-bg: #fbefff; --agents-fg: #8250df;
-    --red: #cf222e; --red-bg: #ffebe9;
+    --red: #cf222e; --red-bg: #ffebe9; --green-glow: #1a7f3733;
     --brand: #0e7a13;
     --link: #0969da; --link-bg: #ddf4ff; --link-bg-active: #b6e3ff; --sel-bg: #ddf4ff;
   }
@@ -436,7 +436,7 @@
     overflow: hidden; cursor: pointer; }
   .sess-sum.open { -webkit-line-clamp: unset; }
   .ev { display: flex; align-items: baseline; gap: 8px; }
-  .ev::before { content: "•"; color: #57606a; flex: none; }
+  .ev::before { content: "•"; color: var(--fg-dim); flex: none; }
   .ev-hist .ev-text { color: var(--fg-faint); }
   .ev-text { flex: 1; color: var(--fg-dim); font-size: 12px; min-width: 0; }
   .ev-note { flex: 0 0 auto; color: var(--fg-faint); font-size: 11px; font-family: ui-monospace, monospace;
@@ -563,7 +563,7 @@
   .usage .u-docs { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 8px; }
   .usage .u-docs:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
   /* The dot lights green when the telemetry popover is open — a subtle "you tapped me". */
-  header .dot[aria-expanded="true"] { box-shadow: 0 0 0 3px #3fb95033; }
+  header .dot[aria-expanded="true"] { box-shadow: 0 0 0 3px var(--green-glow); }
   /* The dot is an 8×8 visual, but it's now a tap toggle — an invisible pseudo-element
      grows the hit area to ~40px (touch-target minimum) without inflating the dot. It's
      the rightmost header control, with 16px header padding to its right, so the hit area
