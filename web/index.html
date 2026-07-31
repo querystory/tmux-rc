@@ -126,6 +126,25 @@
      pane (whose tab joins flush-left) never shifts the row. */
   .prow.dock { gap: 4px; padding: 4px 8px 4px 0; overflow-x: auto; scrollbar-width: none; }
   .prow.dock::-webkit-scrollbar { display: none; }
+  /* Session trays in the dock (multi-session only — :only-of-type hides all the
+     chrome, so a single session looks exactly as before). One span per session's run
+     of icons; ::before writes the session name over a colored top rail, Chrome-tab-
+     group style. The hue cycles by POSITION — structural, deliberately not the
+     green/amber activity language — and the rail rides the TOP edge because the
+     dock's bottom seam belongs to the selected tab's card-join fillets. */
+  .dock-group { display: flex; gap: 4px; align-items: center; flex: none;
+    position: relative; --grp: var(--fg-faint); }
+  .dock-group:not(:only-of-type) { border-top: 2px solid var(--grp);
+    border-radius: 3px 3px 0 0; padding-top: 11px; overflow: hidden; }
+  .dock-group:not(:only-of-type)::before { content: attr(data-sess); position: absolute;
+    top: 2px; left: 3px; max-width: calc(100% - 6px); overflow: hidden; font-size: 9px;
+    line-height: 1; white-space: nowrap; color: var(--grp); font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
+  .dock-group:not(:only-of-type) + .dock-group { margin-left: 6px; }
+  .dock-group:nth-of-type(4n+1) { --grp: #5b8def; }
+  .dock-group:nth-of-type(4n+2) { --grp: #b06fc9; }
+  .dock-group:nth-of-type(4n+3) { --grp: #3fa587; }
+  .dock-group:nth-of-type(4n) { --grp: #c9884a; }
   .dock-icon { position: relative; background: transparent; border: 1px solid transparent;
     border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--fg-mid);
     font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }

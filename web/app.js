@@ -737,7 +737,19 @@ function dock(states, act) {
     el.onscroll = null;
     el.classList.remove("edge-l");
   }
+  // Chrome-tab-group-style session trays: each session's run of icons shares one
+  // .dock-group span whose ::before writes the session name over a colored top rail.
+  // The array is already in tmux session order, so a group is just "same session as
+  // the previous icon". Single-session decks render chrome-free (CSS :only-of-type),
+  // so nothing changes until sessions multiply.
+  let group = null;
   for (const s of states) {
+    if (!group || group.dataset.sess !== (s.session ?? "")) {
+      group = document.createElement("span");
+      group.className = "dock-group";
+      group.dataset.sess = s.session ?? "";
+      el.appendChild(group);
+    }
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
     b.dataset.pane = s.pane_id;
@@ -756,7 +768,7 @@ function dock(states, act) {
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
-    el.appendChild(b);
+    group.appendChild(b);
   }
   // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
   // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
