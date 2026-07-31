@@ -92,10 +92,14 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     live outside the captured text — an agent renames the title, tmux rename-window/
     -session changes the label, moving or closing windows renumbers the index, focus
     shifts — all while the screen sits still, so every state path (parse, cached,
-    error stub) must restamp them or the phone shows stale identity. `label` is NOT
-    stamped here — the parse path lets the classifier refine it (classify.py), so
-    label stays per-path while the structural fields get one source of truth."""
+    error stub) must restamp them or the phone shows stale identity. `label` resets
+    only on a tmux-side RENAME (tmux_label tracks what tmux last said): the parse
+    path may have refined it to the agent's own session name (classify.py), and an
+    unchanged-screen tick must not revert that refinement."""
     s["title"] = p.display_title
+    if s.get("tmux_label") != p.label:
+        s["label"] = p.label
+    s["tmux_label"] = p.label
     s["session"] = p.session
     s["window_index"] = p.window_index
     s["window_name"] = p.window_name
@@ -396,12 +400,11 @@ class Watcher:
             if not isinstance(s, dict):
                 s = {
                     "pane_id": p.id,
-                    "label": p.label,
                     "tool": "unknown",
                     "activity": "unknown",
                     "updated_at": time.time(),
                 }
-                _stamp_identity(s, p)
+                _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
             states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
@@ -685,7 +688,6 @@ class Watcher:
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
-            cached["label"] = pane.label
             _stamp_identity(cached, pane)
             # Idle a while with unsummarized activity → summarize the burst once, so the
             # UI can collapse those events under a {from,to,text} span.

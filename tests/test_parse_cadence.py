@@ -47,6 +47,22 @@ def test_states_carry_session_identity(monkeypatch):
             == ("work", "0", "work", True)
 
 
+def test_refined_label_survives_idle_ticks(monkeypatch):
+    # classify may refine label to the agent's own session name; an unchanged-screen
+    # tick must NOT revert it to the tmux label. A tmux-side RENAME still wins.
+    frame = ["$ x"]
+    w, _ = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "events": [], "tool": "shell",
+        "label": "agent-name", "tmux_label": pane.label})  # as classify.py emits
+    pane = _Pane()
+    for _ in range(2):  # parse tick, then a cached (unchanged) tick
+        w._forced_this_tick = set()
+        assert w._tick_pane(pane)["label"] == "agent-name"
+    w._forced_this_tick = set()
+    assert w._tick_pane(_Pane(label="renamed"))["label"] == "renamed"
+
+
 def test_unchanged_screen_parses_once(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)
