@@ -113,6 +113,15 @@
     border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
+  /* List-mode session divider (multi-session decks only): a quiet group label, not a
+     row — no surface/border, so the eye reads rows as members, headers as structure. */
+  .sess-hdr { color: var(--fg-faint); font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 4px 0; }
+  .sess-hdr:first-child { padding-top: 2px; }
+  /* tmux window number leading a row's name — the number the user's own status bar
+     shows. Faint and tabular so a column of rows aligns. */
+  .wnum { color: var(--fg-faint); font-weight: 600; font-variant-numeric: tabular-nums;
+    margin-right: 7px; }
   /* No left padding: icons always sit pulled to the left edge, so selecting the first
      pane (whose tab joins flush-left) never shifts the row. */
   .prow.dock { gap: 4px; padding: 4px 8px 4px 0; overflow-x: auto; scrollbar-width: none; }

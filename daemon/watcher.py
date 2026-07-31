@@ -87,6 +87,21 @@ def _fingerprint(text: str) -> str:
     return _VOLATILE_RE.sub("", text)
 
 
+def _stamp_identity(s: dict, p: tmux.Pane) -> None:
+    """Copy the pane's NAMES, NUMBERS and per-session focus onto a state dict. These
+    live outside the captured text — an agent renames the title, tmux rename-window/
+    -session changes the label, moving or closing windows renumbers the index, focus
+    shifts — all while the screen sits still, so every state path (parse, cached,
+    error stub) must restamp them or the phone shows stale identity. `label` is NOT
+    stamped here — the parse path lets the classifier refine it (classify.py), so
+    label stays per-path while the structural fields get one source of truth."""
+    s["title"] = p.display_title
+    s["session"] = p.session
+    s["window_index"] = p.window_index
+    s["window_name"] = p.window_name
+    s["session_active"] = p.session_active
+
+
 def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
     """Append events (stamped with `ts`) to a pane's activity-log cache, in place,
     holding it to EVENTS_LOG_MAX by dropping the oldest. See docs/design/activity-log.md."""
@@ -382,12 +397,11 @@ class Watcher:
                 s = {
                     "pane_id": p.id,
                     "label": p.label,
-                    "title": p.display_title,
-                    "window_index": p.window_index,
                     "tool": "unknown",
                     "activity": "unknown",
                     "updated_at": time.time(),
                 }
+                _stamp_identity(s, p)
             states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
@@ -442,7 +456,8 @@ class Watcher:
         # ("'None'").
         parts = [
             repr((
-                s.get("pane_id"), s.get("tmux_active"), s.get("label"), s.get("title"),
+                s.get("pane_id"), s.get("tmux_active"), s.get("session_active"),
+                s.get("label"), s.get("title"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
             ))
@@ -664,13 +679,11 @@ class Watcher:
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached["updated_at"] = now
-            # A pane's NAMES and NUMBER live outside the captured text — an agent renames
-            # the title, tmux rename-window/-session changes the label, moving or closing
-            # windows renumbers the index — all while the screen sits still. Refresh them
-            # even when nothing re-parses, or a titleless pane keeps a stale spoken name.
-            cached["title"] = pane.display_title
+            # Names/numbers/focus change while the screen sits still (see
+            # _stamp_identity) — refresh even when nothing re-parses, or a titleless
+            # pane keeps a stale spoken name and focus reads stale.
             cached["label"] = pane.label
-            cached["window_index"] = pane.window_index
+            _stamp_identity(cached, pane)
             # Idle a while with unsummarized activity → summarize the burst once, so the
             # UI can collapse those events under a {from,to,text} span.
             cached["summary"] = self._maybe_summarize(pane.id, idle)
@@ -792,13 +805,10 @@ class Watcher:
             else:
                 self._tool.pop(pane.id, None)  # agent is genuinely gone; forget it
 
-        # The pane's self-published title (see Pane.display_title) — the agent's own
-        # words for what it's doing, better than anything we could parse off the screen.
-        state["title"] = pane.display_title
-        # The tmux WINDOW number shown in the status bar (0,1,2…) — the identity a user
-        # reads off their own screen, so voice/UI can name a pane by it instead of the
-        # internal %id.
-        state["window_index"] = pane.window_index
+        # The pane's names (its self-published title beats anything parsed off the
+        # screen), window number as the user reads it in tmux's status bar, and
+        # per-session focus — see _stamp_identity.
+        _stamp_identity(state, pane)
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle

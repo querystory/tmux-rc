@@ -181,18 +181,37 @@ let panesById = {}; // latest state per pane, for the bottom bar to act on
 // back for a beat (then forward again) — the "ticky" double-switch. Held until the
 // server confirms, with a timeout so a focus change made in tmux itself still wins.
 let pending = null; // {id, ts}
+// The pane we last showed. NOT a selection (tmux stays the truth) — it anchors which
+// SESSION we're viewing. tmux's global "current pane" (tmux_active) flips to whichever
+// attached session the user touched last, so with several sessions attached, following
+// it yanks the phone between sessions on every desktop keystroke. Instead we follow
+// session_active — each session's own focused pane — but only within `shown`'s session;
+// focus movement in OTHER sessions is desktop noise, not a signal to switch the view.
+let shown = null;
 function activeId() {
   if (pending) {
     const s = panesById[pending.id];
     // Only SERVER data may confirm (panesById is never mutated locally): earlier this
     // also checked a locally-set tmux_active flag, which "confirmed" the pending pick
     // instantly — so the next stale poll yanked the selection back to the old pane.
-    if (s && s.tmux_active) pending = null; // server caught up — its truth takes over
+    // Confirm on session_active, not tmux_active: selecting a pane in another session
+    // makes it focused in ITS session immediately, but the GLOBAL current pane only
+    // moves if a client is attached there — cross-session picks would never confirm.
+    if (s && s.session_active) pending = null; // server caught up — its truth takes over
     else if (!s || Date.now() - pending.ts > 8000) pending = null; // pane gone / select never landed
-    else return pending.id;
+    else return (shown = pending.id);
   }
+  const cur = panesById[shown];
+  if (cur) {
+    // Follow tmux focus within the session we're on (desktop window switches there
+    // SHOULD move the phone); stay put if that session's focus is elsewhere-unknown.
+    const inSess = Object.values(panesById).find(
+      (s) => s.session === cur.session && s.session_active);
+    return (shown = (inSess || cur).pane_id);
+  }
+  // No anchor yet (first load) or our pane vanished: fall back to the global focus.
   const focused = Object.values(panesById).find((s) => s.tmux_active);
-  return focused ? focused.pane_id : Object.keys(panesById)[0] || null;
+  return (shown = focused ? focused.pane_id : Object.keys(panesById)[0] || null);
 }
 function setActive(id) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
@@ -277,7 +296,11 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
         // aria-hidden: a bare "2" is meaningless to AT (and garbles any computed name).
         // The count is spoken via the sub-toggle chip's text / dock icons' aria-label.
         (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : "") + `</span>` : "")
-    + `<div class="ph-meta"><div class="ph-name">${esc(s.title || s.label || s.pane_id)}</div>`
+    // Rows (icon mode) lead with the tmux window number — the identity the user reads
+    // off their own status bar — so the list scans as "the windows of this session".
+    + `<div class="ph-meta"><div class="ph-name">`
+    + (icon && s.window_index != null ? `<span class="wnum">${esc(String(s.window_index))}</span>` : "")
+    + `${esc(s.title || s.label || s.pane_id)}</div>`
     + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}">${badge}</span></div>`
   );
@@ -529,7 +552,20 @@ function render(states) {
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
-    panesEl.replaceChildren(...subset.map((s) => row(s, act))); // server order — same as the dock
+    // Rows in server order — same as the dock. That order is tmux's own
+    // session/window/pane order, so grouping windows under their session is just
+    // "insert a header where the session changes": no sorting, no client-side
+    // restructure. Headers only when the deck actually spans sessions — a lone
+    // header over every row would be noise for the single-session common case.
+    const multi = new Set(states.map((s) => s.session)).size > 1;
+    panesEl.replaceChildren(...subset.flatMap((s, i) => {
+      const r = row(s, act);
+      if (!multi || (i && subset[i - 1].session === s.session)) return [r];
+      const h = document.createElement("div");
+      h.className = "sess-hdr";
+      h.textContent = s.session;
+      return [h, r];
+    }));
     updateBar(panesById[act]);
     flipIn(panesEl);
     return;

@@ -34,6 +34,17 @@ def test_version_bumps_only_on_deck_change():
     assert w.state_version() == 3
 
 
+def test_session_focus_flip_bumps_version():
+    # A focus move WITHIN one session (session_active flips pane) must wake the long
+    # poll — it's what the phone follows across multiple attached sessions, where the
+    # global tmux_active may not move at all.
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "session_active": True}, {**B, "session_active": False}))
+    v = w.state_version()
+    w._bump_state_if_changed(_states({**A, "session_active": False}, {**B, "session_active": True}))
+    assert w.state_version() == v + 1
+
+
 def test_live_frame_churn_does_not_bump():
     # Fields not in the deck fingerprint (a frame hash, cost, etc.) must NOT bump the
     # version — that churn is /api/live's concern, not the deck hold's.
