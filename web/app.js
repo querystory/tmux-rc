@@ -202,7 +202,11 @@ function activeId() {
     // poll — clearing pending without re-anchoring would leave `shown` in the old
     // session and the tap would appear to do nothing.
     if (s && s.session_active) { pending = null; return (shown = s.pane_id); }
-    if (!s || Date.now() - pending.ts > 8000) pending = null; // pane gone / select never landed
+    // Pane gone / select never landed: drop the anchor too, not just the pending pick —
+    // `shown` was optimistically set below while pending, and keeping it would leave
+    // the view parked in a session tmux never actually switched to. Null falls through
+    // to the global-focus branch: resync to tmux's truth, same as before multi-session.
+    if (!s || Date.now() - pending.ts > 8000) { pending = null; shown = null; }
     else return (shown = pending.id);
   }
   const cur = panesById[shown];
