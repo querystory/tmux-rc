@@ -561,12 +561,15 @@ function render(states) {
     // "insert a header where the session changes": no sorting, no client-side
     // restructure. Headers only when the deck actually spans sessions — a lone
     // header over every row would be noise for the single-session common case.
-    const multi = new Set(states.map((s) => s.session)).size > 1;
+    // Ordinals come from the FULL deck (not the filtered subset) so a header's hue
+    // always matches that session's dock rail even when a filter hides sessions.
+    const ord = new Map();
+    states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
     panesEl.replaceChildren(...subset.flatMap((s, i) => {
       const r = row(s, act);
-      if (!multi || (i && subset[i - 1].session === s.session)) return [r];
+      if (ord.size < 2 || (i && subset[i - 1].session === s.session)) return [r];
       const h = document.createElement("div");
-      h.className = "sess-hdr";
+      h.className = "sess-hdr c" + ((ord.get(s.session) % 4) + 1);
       h.textContent = s.session;
       return [h, r];
     }));
@@ -742,13 +745,14 @@ function dock(states, act) {
   // The array is already in tmux session order, so a group is just "same session as
   // the previous icon". Single-session decks render chrome-free (CSS :only-of-type),
   // so nothing changes until sessions multiply.
-  let group = null;
+  let group = null, ngroups = 0;
   for (const s of states) {
     if (!group || group.dataset.sess !== (s.session ?? "")) {
       group = document.createElement("span");
       group.className = "dock-group";
       group.dataset.sess = s.session ?? "";
       el.appendChild(group);
+      ngroups++;
     }
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
@@ -770,6 +774,9 @@ function dock(states, act) {
     b.onclick = () => { listFilter = null; setActive(s.pane_id); };
     group.appendChild(b);
   }
+  // Tray chrome (rails + labels + the padding that hosts them) only when the deck
+  // actually spans sessions — the CSS keys off this class, not group count.
+  el.classList.toggle("grouped", ngroups > 1);
   // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
   // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
   // list view to those panes; "all" lists everything.

@@ -115,9 +115,16 @@
   .prow.sel { border-color: var(--accent); }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a
      row — no surface/border, so the eye reads rows as members, headers as structure. */
+  /* One hue per session ORDINAL (position in the deck, cycling by 4), shared by the
+     dock's group rail and the list's session header so both surfaces name the same
+     session in the same color. Mid-tone, legible on dark and light, and deliberately
+     none of the green/amber/purple activity-state hues. */
+  :root { --sessc1: #5b8def; --sessc2: #b06fc9; --sessc3: #3fa587; --sessc4: #c9884a; }
   .sess-hdr { color: var(--fg-faint); font-size: 12px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 4px 0; }
   .sess-hdr:first-child { padding-top: 2px; }
+  .sess-hdr.c1 { color: var(--sessc1); } .sess-hdr.c2 { color: var(--sessc2); }
+  .sess-hdr.c3 { color: var(--sessc3); } .sess-hdr.c4 { color: var(--sessc4); }
   /* tmux window number leading a row's name — the number the user's own status bar
      shows. Faint and tabular so a column of rows aligns. */
   .wnum { color: var(--fg-faint); font-weight: 600; font-variant-numeric: tabular-nums;
@@ -126,27 +133,38 @@
      pane (whose tab joins flush-left) never shifts the row. */
   .prow.dock { gap: 4px; padding: 4px 8px 4px 0; overflow-x: auto; scrollbar-width: none; }
   .prow.dock::-webkit-scrollbar { display: none; }
-  /* Session trays in the dock (multi-session only — :only-of-type hides all the
-     chrome, so a single session looks exactly as before). One span per session's run
-     of icons; ::before writes the session name over a colored top rail, Chrome-tab-
-     group style. The hue cycles by POSITION — structural, deliberately not the
-     green/amber activity language — and the rail rides the TOP edge because the
-     dock's bottom seam belongs to the selected tab's card-join fillets. */
-  .dock-group { display: flex; gap: 4px; align-items: center; flex: none;
-    position: relative; --grp: var(--fg-faint); }
-  /* No overflow:hidden here — it would clip the buttons' keyboard focus outlines;
-     the ::before label clips ITSELF (max-width + overflow) instead. */
-  .dock-group:not(:only-of-type) { border-top: 2px solid var(--grp);
-    border-radius: 3px 3px 0 0; padding-top: 11px; }
-  .dock-group:not(:only-of-type)::before { content: attr(data-sess); position: absolute;
-    top: 2px; left: 3px; max-width: calc(100% - 6px); overflow: hidden; font-size: 9px;
+  /* Session trays in the dock (.grouped = the deck spans >1 session; single-session
+     docks get no chrome and no extra padding — nothing changes until sessions
+     multiply). One span per session's run of icons; a colored top rail + session
+     name over each group, Chrome-tab-group style.
+     GEOMETRY CONTRACT: the tab-into-card join (below) works because the strip's
+     content height is defined by the icons themselves and the selected icon's
+     negative bottom margin rests it on the dock's padding-box bottom. The tray must
+     therefore add ZERO height anywhere in that chain: the group stretches to the
+     strip and centers its icons exactly as the dock did when they were its direct
+     children, and the rail + label are absolutely-positioned chrome painted in
+     padding-top the DOCK reserves — inside the scroller's clip (which cuts at the
+     padding box), above the icons, contributing no layout size. An earlier variant
+     put the chrome in the group's own border+padding; that inflated the group box,
+     un-seated the selected tab and broke the join. Hues cycle by POSITION —
+     structural, deliberately not the green/amber activity language. */
+  .prow.dock.grouped { padding-top: 17px; }  /* 4px strip pad + 13px tray chrome */
+  .dock-group { display: flex; gap: 4px; align-items: center; align-self: stretch;
+    flex: none; position: relative; --grp: var(--fg-faint); }
+  .grouped .dock-group::before { content: ""; position: absolute; top: -4px;
+    left: 0; right: 0; border-top: 2px solid var(--grp);
+    border-radius: 3px 3px 0 0; pointer-events: none; }
+  /* The label clips ITSELF (left+right insets + overflow) — never the group, whose
+     overflow must stay visible for the icons' keyboard focus outlines. */
+  .grouped .dock-group::after { content: attr(data-sess); position: absolute;
+    top: -15px; left: 2px; right: 2px; overflow: hidden; font-size: 9px;
     line-height: 1; white-space: nowrap; color: var(--grp); font-weight: 700;
     letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none; }
-  .dock-group:not(:only-of-type) + .dock-group { margin-left: 6px; }
-  .dock-group:nth-of-type(4n+1) { --grp: #5b8def; }
-  .dock-group:nth-of-type(4n+2) { --grp: #b06fc9; }
-  .dock-group:nth-of-type(4n+3) { --grp: #3fa587; }
-  .dock-group:nth-of-type(4n) { --grp: #c9884a; }
+  .grouped .dock-group + .dock-group { margin-left: 6px; }
+  .dock-group:nth-of-type(4n+1) { --grp: var(--sessc1); }
+  .dock-group:nth-of-type(4n+2) { --grp: var(--sessc2); }
+  .dock-group:nth-of-type(4n+3) { --grp: var(--sessc3); }
+  .dock-group:nth-of-type(4n) { --grp: var(--sessc4); }
   .dock-icon { position: relative; background: transparent; border: 1px solid transparent;
     border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--fg-mid);
     font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
