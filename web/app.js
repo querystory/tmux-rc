@@ -745,10 +745,10 @@ function dock(states, act) {
     el.classList.remove("edge-l");
   }
   // Chrome-tab-group-style session trays: each session's run of icons shares one
-  // .dock-group span whose ::before writes the session name over a colored top rail.
+  // .dock-group span; the tray CSS paints a colored rail + session name above it.
   // The array is already in tmux session order, so a group is just "same session as
-  // the previous icon". Single-session decks render chrome-free (CSS :only-of-type),
-  // so nothing changes until sessions multiply.
+  // the previous icon". All tray chrome keys off the .grouped class toggled below —
+  // single-session decks never get it, so nothing changes until sessions multiply.
   let group = null, ngroups = 0;
   for (const s of states) {
     if (!group || group.dataset.sess !== (s.session ?? "")) {
