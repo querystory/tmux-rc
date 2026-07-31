@@ -134,8 +134,10 @@
      dock's bottom seam belongs to the selected tab's card-join fillets. */
   .dock-group { display: flex; gap: 4px; align-items: center; flex: none;
     position: relative; --grp: var(--fg-faint); }
+  /* No overflow:hidden here — it would clip the buttons' keyboard focus outlines;
+     the ::before label clips ITSELF (max-width + overflow) instead. */
   .dock-group:not(:only-of-type) { border-top: 2px solid var(--grp);
-    border-radius: 3px 3px 0 0; padding-top: 11px; overflow: hidden; }
+    border-radius: 3px 3px 0 0; padding-top: 11px; }
   .dock-group:not(:only-of-type)::before { content: attr(data-sess); position: absolute;
     top: 2px; left: 3px; max-width: calc(100% - 6px); overflow: hidden; font-size: 9px;
     line-height: 1; white-space: nowrap; color: var(--grp); font-weight: 700;
