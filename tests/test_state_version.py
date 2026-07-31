@@ -45,6 +45,16 @@ def test_session_focus_flip_bumps_version():
     assert w.state_version() == v + 1
 
 
+def test_window_renumber_bumps_version():
+    # Moving/closing windows renumbers the survivors while their content sits still;
+    # the phone renders those numbers (and session headers), so the version must bump.
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "session": "gtm", "window_index": "3"}))
+    v = w.state_version()
+    w._bump_state_if_changed(_states({**A, "session": "gtm", "window_index": "2"}))
+    assert w.state_version() == v + 1
+
+
 def test_live_frame_churn_does_not_bump():
     # Fields not in the deck fingerprint (a frame hash, cost, etc.) must NOT bump the
     # version — that churn is /api/live's concern, not the deck hold's.

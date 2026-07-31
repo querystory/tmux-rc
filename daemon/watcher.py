@@ -457,6 +457,9 @@ class Watcher:
         parts = [
             repr((
                 s.get("pane_id"), s.get("tmux_active"), s.get("session_active"),
+                # The structural identity the phone RENDERS (headers, window numbers):
+                # a renumber/rename with unchanged content must still bump the version.
+                s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
                 Watcher._question_prompt(s), s.get("parsed_at"),

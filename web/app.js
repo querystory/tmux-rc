@@ -197,8 +197,12 @@ function activeId() {
     // Confirm on session_active, not tmux_active: selecting a pane in another session
     // makes it focused in ITS session immediately, but the GLOBAL current pane only
     // moves if a client is attached there — cross-session picks would never confirm.
-    if (s && s.session_active) pending = null; // server caught up — its truth takes over
-    else if (!s || Date.now() - pending.ts > 8000) pending = null; // pane gone / select never landed
+    // Confirmation must also MOVE the anchor: if the tapped pane was already its
+    // session's focused pane, session_active is true in the very next (even stale)
+    // poll — clearing pending without re-anchoring would leave `shown` in the old
+    // session and the tap would appear to do nothing.
+    if (s && s.session_active) { pending = null; return (shown = s.pane_id); }
+    if (!s || Date.now() - pending.ts > 8000) pending = null; // pane gone / select never landed
     else return (shown = pending.id);
   }
   const cur = panesById[shown];
