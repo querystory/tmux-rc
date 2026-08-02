@@ -162,8 +162,12 @@ def classify(
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.
+    # tmux_label records what tmux said at refinement time, so the watcher's identity
+    # stamp (which must reflect tmux RENAMES on idle ticks) can tell "unchanged —
+    # keep the refinement" from "renamed — tmux wins" (watcher._stamp_identity).
     sess = result.get("session")
     result["label"] = (
         str(sess)[:40] if isinstance(sess, str) and sess.strip() else pane.label
     )
+    result["tmux_label"] = pane.label
     return result
