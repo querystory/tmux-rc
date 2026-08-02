@@ -73,7 +73,15 @@ class PaneState(BaseModel):
     tmux "-- INSERT --" footer)."""
 
     pane_id: str
-    label: str  # "session:window"
+    label: str  # best human name (window > session > cwd; LLM may refine)
+    # Structural tmux identity, so the client can group windows under their session
+    # and follow focus per session (label collapses all of this into one string).
+    session: str = ""  # tmux session name, e.g. "gtm"
+    window_index: str = ""  # window number as shown in tmux's status bar
+    window_name: str = ""
+    # Focused pane WITHIN its session (current window's active pane). One per session —
+    # meaningful with several sessions attached, unlike the global tmux_active.
+    session_active: bool = False
     tool: Tool = "unknown"
     activity: Activity = "unknown"
     waiting_on: WaitingOn | None = None  # only meaningful when activity == "waiting"
