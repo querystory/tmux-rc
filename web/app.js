@@ -275,8 +275,11 @@ function fmtIdle(s) {
 // parse-time snapshot that undercounted a long-quiet pane. Falls back to that snapshot
 // only if an older daemon didn't send state_since.
 function stateDur(s) {
-  return s.state_since != null
-    ? Math.max(0, Math.floor(Date.now() / 1000 - s.state_since))
+  // Coerce: state is untyped server/LLM JSON. null must NOT coerce (+null is 0 — a
+  // missing timestamp would read as the epoch); junk falls back like absent.
+  const t = s.state_since == null ? NaN : +s.state_since;
+  return Number.isFinite(t)
+    ? Math.max(0, Math.floor(Date.now() / 1000 - t))
     : s.idle_seconds || 0;
 }
 
@@ -312,7 +315,10 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
   const timed = a === "idle" || a === "waiting";
   const badge = timed ? `${a} ${fmtIdle(stateDur(s))}`
     : a === "running" || a === "compacting" ? `<span class="pulse"></span>${a}` : a;
-  const since = timed && s.state_since != null ? ` data-since="${s.state_since}"` : "";
+  // Numeric-coerced before it touches innerHTML: paneHeader returns markup, so a
+  // quoted/junk state_since must never reach an attribute (same rule as nsubOf).
+  const t0 = s.state_since == null ? NaN : +s.state_since;
+  const since = timed && Number.isFinite(t0) ? ` data-since="${t0}"` : "";
   return (
     (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
       + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
