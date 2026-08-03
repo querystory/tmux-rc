@@ -1,0 +1,11 @@
+{
+  "description": "#65/#76 external-wait: agent blocked on background subagents finishing — there is NO input affordance, nothing for the human to do. Expected activity=waiting, waiting_on=external (shown as ordinary busy, NOT the amber tap-me badge). Synthetic.",
+  "current_command": "node",
+  "capture": "● Fanned out 3 subagents to build the corpus, the scorer, and the README in parallel.\n\n⏸ Waiting for 3 background agents to finish before assembling the results…\n\n──────────────────────────────────────────────────────────────── termiphone-dev ──\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ ❯                                                                              │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/qs/termiphone on feat/prompt-eval-harness | Opus 4.8 (1M context)\n  session: +90/-4 lines · 44% ctx · 18m · $7.30",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "headline": "Waiting for 3 background subagents to finish"
+  }
+}

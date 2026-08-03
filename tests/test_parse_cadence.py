@@ -12,7 +12,10 @@ class _Pane:
         self.id = pid
         self.label = label
         self.display_title = label
+        self.session = "work"
         self.window_index = "0"
+        self.window_name = label
+        self.session_active = True
 
 
 def _harness(monkeypatch, frame_holder):
@@ -29,6 +32,35 @@ def _harness(monkeypatch, frame_holder):
     # use_llm=False keeps the watcher fully off real LLM code (classify is stubbed above,
     # and the idle summarizer never reaches the network) so the test is CI-isolated.
     return Watcher(target=None, use_llm=False), calls
+
+
+def test_states_carry_session_identity(monkeypatch):
+    # Both tick paths must stamp the structural tmux identity (_stamp_identity) — the
+    # phone groups windows under their session and follows per-session focus from it.
+    frame = ["$ idle prompt"]
+    w, _ = _harness(monkeypatch, frame)
+    pane = _Pane()
+    for _ in range(2):  # parse path first, then the cached (unchanged-screen) path
+        w._forced_this_tick = set()
+        s = w._tick_pane(pane)
+        assert (s["session"], s["window_index"], s["window_name"], s["session_active"]) \
+            == ("work", "0", "work", True)
+
+
+def test_refined_label_survives_idle_ticks(monkeypatch):
+    # classify may refine label to the agent's own session name; an unchanged-screen
+    # tick must NOT revert it to the tmux label. A tmux-side RENAME still wins.
+    frame = ["$ x"]
+    w, _ = _harness(monkeypatch, frame)
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "events": [], "tool": "shell",
+        "label": "agent-name", "tmux_label": pane.label})  # as classify.py emits
+    pane = _Pane()
+    for _ in range(2):  # parse tick, then a cached (unchanged) tick
+        w._forced_this_tick = set()
+        assert w._tick_pane(pane)["label"] == "agent-name"
+    w._forced_this_tick = set()
+    assert w._tick_pane(_Pane(label="renamed"))["label"] == "renamed"
 
 
 def test_unchanged_screen_parses_once(monkeypatch):
