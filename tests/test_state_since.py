@@ -13,7 +13,10 @@ class _Pane:
         self.id = pid
         self.label = label
         self.display_title = label
+        self.session = "work"
         self.window_index = "0"
+        self.window_name = label
+        self.session_active = True
 
 
 def _harness(monkeypatch, frame_holder, state_holder, clock):
