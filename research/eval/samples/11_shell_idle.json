@@ -1,0 +1,10 @@
+{
+  "description": "Plain interactive shell sitting idle at a bare prompt — a command ran and finished, fresh prompt at the bottom. Expected tool=shell, activity=idle, no question. Real tmux-rc shell pattern.",
+  "current_command": "zsh",
+  "capture": "shapor@dev ~/src/qs/termiphone (feat/prompt-eval-harness) $ git status\nOn branch feat/prompt-eval-harness\nnothing to commit, working tree clean\nshapor@dev ~/src/qs/termiphone (feat/prompt-eval-harness) $",
+  "expected": {
+    "tool": "shell",
+    "activity": "idle",
+    "headline": "Idle shell; working tree clean"
+  }
+}

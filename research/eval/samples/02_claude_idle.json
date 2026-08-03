@@ -1,0 +1,10 @@
+{
+  "description": "Claude Code sitting idle at an empty input box — turn finished, no spinner, empty ❯ box, status line present. Should be idle, no question, no waiting.",
+  "current_command": "node",
+  "capture": "● Done — the harness now reads samples as UTF-8 and the table renders cleanly. All 12 samples pass.\n\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ ❯                                                                              │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/qs/termiphone on feat/prompt-eval-harness | Opus 4.8 (1M context)\n  session: +212/-40 lines · 31% ctx · 14m · $6.02\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "headline": "Finished wiring the sample loader; all samples pass"
+  }
+}

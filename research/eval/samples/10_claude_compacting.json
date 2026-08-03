@@ -1,0 +1,10 @@
+{
+  "description": "Claude Code COMPACTING — summarizing/condensing its own conversation history to reclaim context window. Looks busy but is housekeeping, not user-task progress. Expected activity=compacting (NOT running). Synthetic (faithful to the compaction indicator).",
+  "current_command": "node",
+  "capture": "● Context low — compacting the conversation to free up room.\n\n  Compacting conversation… ████████████░░░░░░░░  62%\n  Summarizing 214 messages into a condensed context\n\n──────────────────────────────────────────────────────────────── termiphone-dev ──\n  ~/src/qs/termiphone on feat/prompt-eval-harness | Opus 4.8 (1M context)\n  session: 4% ctx · 1h 12m · $22.40",
+  "expected": {
+    "tool": "claude",
+    "activity": "compacting",
+    "headline": "Compacting the conversation to reclaim context window"
+  }
+}

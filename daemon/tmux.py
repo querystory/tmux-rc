@@ -34,6 +34,8 @@ _PANE_FMT = "\t".join(
         "#{pane_title}",
         "#{pane_current_path}",
         "#{pane_pid}",
+        "#{window_active}",
+        "#{pane_active}",
     ]
 )
 
@@ -55,6 +57,11 @@ class Pane:
     # original pane, letting the watcher evict stale buffers. (pane_start_time is empty
     # on tmux 3.4; pane_pid is populated and just as unique.)
     pid: str = ""
+    # tmux's per-session focus flags: is this the current window of ITS session, and
+    # the active pane of its window. Unlike the global "current pane" (active_pane_id),
+    # these stay meaningful with several sessions attached at once.
+    window_active: str = "0"
+    pane_active: str = "0"
 
     @property
     def display_title(self) -> str | None:
@@ -63,6 +70,14 @@ class Pane:
         defaults the title to the hostname, which is noise -> None."""
         t = _TITLE_GLYPHS.sub("", self.title).strip()
         return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
+
+    @property
+    def session_active(self) -> bool:
+        """Is this the focused pane WITHIN its own session (current window's active
+        pane)? Every session has exactly one, regardless of which session the user
+        touched last — the identity the phone follows so focus changes in one
+        session never yank the view out of another."""
+        return self.window_active == "1" and self.pane_active == "1"
 
     @property
     def label(self) -> str:
@@ -187,7 +202,7 @@ def list_panes() -> list[Pane]:
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) != 9:
+        if len(parts) != 11:
             continue
         panes.append(Pane(*parts))
     return panes

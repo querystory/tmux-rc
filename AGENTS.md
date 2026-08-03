@@ -35,7 +35,34 @@ squash-merges) — prefer branching off main and merging main in, over stacking.
 No PR merges with unaddressed review comments. Drive Copilot review to clean (resolve
 every thread, re-request, repeat) before merging. Merge only on the user's explicit word.
 
+## UI iconography: no emoji — inline Lucide icons
+
+Never use emoji glyphs (🎙 ⌨ 📎 ☀ …) as UI chrome (buttons, badges, menus, toggles).
+Emoji render as platform-colored bitmaps: they ignore `currentColor` so they can't
+theme (glaring since light mode), they clash with the chrome, and they look different
+on every device.
+
+Instead, use the inline Lucide icons in `web/app.js`: the `LUCIDE` path map +
+`licon(name, size)` helper emit stroke-`currentColor` SVGs that theme for free and
+render identically everywhere (same approach as the ⤢ fullscreen button). To add an
+icon, copy its path data from lucide.dev into the map — **inline only, never a CDN or
+external fetch** (the app stays self-contained behind IAP). Static buttons ship empty
+in `index.html` and get their icon injected at boot.
+
+Emoji in *content* (terminal captures, transcripts, pane text) is data, not chrome —
+pass it through untouched.
+
 ## Tests
 
 `make test` runs `pytest -q tests/`. There is no JS test harness — browser-side logic is
 verified by hand against real DOM shapes and by live testing on the phone.
+
+## Classifier / prompt changes
+
+Any change to `daemon/parser_prompt.txt` or the classifier logic (`daemon/classify.py`)
+MUST be validated with the prompt-eval harness and MUST add or update a case in
+`research/eval/samples/` covering the behavior being fixed or changed — a prompt/classifier
+fix without a matching eval case is incomplete. Run `python -m research.eval` (all samples
+must pass); for a prompt edit, A/B it with `python -m research.eval --prompt <candidate>`
+to confirm the fix without regressing other cases. See `research/eval/README.md` for the
+scoring model, adding a sample, and `--model`/`--prompt`.

@@ -24,6 +24,29 @@ class Question(BaseModel):
     options: list[str] = []  # empty ⇒ free-text answer expected
 
 
+class Task(BaseModel):
+    """One item in the agent's OWN visible plan/TODO checklist (a ☐/☑ list on screen).
+    Distinct from a spawned sub-agent — see SubAgent."""
+
+    text: str
+    done: bool = False
+
+
+class SubAgent(BaseModel):
+    """A background agent THIS agent spawned to run in parallel (e.g. Claude Code's
+    `general-purpose  <task>  Nm  ↓Nk tokens` rows, or a "waiting for N background
+    agents" line). Not a checklist item — it's a running/finished worker, so it carries
+    a live `state` and whatever cheap on-screen signal (elapsed/tokens) is shown."""
+
+    label: str  # what the sub-agent is doing, e.g. "In-depth review PR 4012"
+    # The CONTRACT is running|done (default running). Consumers stay lenient on
+    # violations: classify's count and the UI both treat anything that isn't exactly
+    # "done" as running — a stray value degrades to "still working", never to dropped.
+    state: Literal["running", "done"] = "running"
+    elapsed: str | None = None  # e.g. "2m", if the row shows it
+    tokens: str | None = None  # e.g. "88.7k", if the row shows it
+
+
 class RewindEntry(BaseModel):
     """One entry in Claude Code's Esc-Esc Rewind picker (a past message you can
     restore to). `selected` marks the one under the ❯ cursor."""
@@ -50,7 +73,15 @@ class PaneState(BaseModel):
     tmux "-- INSERT --" footer)."""
 
     pane_id: str
-    label: str  # "session:window"
+    label: str  # best human name (window > session > cwd; LLM may refine)
+    # Structural tmux identity, so the client can group windows under their session
+    # and follow focus per session (label collapses all of this into one string).
+    session: str = ""  # tmux session name, e.g. "gtm"
+    window_index: str = ""  # window number as shown in tmux's status bar
+    window_name: str = ""
+    # Focused pane WITHIN its session (current window's active pane). One per session —
+    # meaningful with several sessions attached, unlike the global tmux_active.
+    session_active: bool = False
     tool: Tool = "unknown"
     activity: Activity = "unknown"
     waiting_on: WaitingOn | None = None  # only meaningful when activity == "waiting"
@@ -71,7 +102,12 @@ class PaneState(BaseModel):
     working_verb: str | None = None  # e.g. "Cultivating"
     elapsed: str | None = None  # e.g. "11m46s"
     tokens: str | None = None  # e.g. "13.3k"
-    agents: int = 0  # count of running sub-agents/tasks, when the agent shows them
+    # The agent's own plan checklist (tasks) vs. background workers it spawned
+    # (subagents) — two genuinely different things, kept apart. `agents` (running
+    # sub-agent count) stays derivable for the dock badge, computed in classify.py.
+    tasks: list[Task] = []
+    subagents: list[SubAgent] = []
+    agents: int = 0  # count of RUNNING subagents (derived from subagents[])
 
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0
