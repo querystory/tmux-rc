@@ -1983,11 +1983,16 @@ function barNote(msg) {
     el.type = "button";
     el.id = "bar-note";
     el.className = "bar-note";
-    // The message appears without any user action, so it also has to be SPOKEN. role=alert
-    // interrupts and reads it on insertion and on every later text change — which is what
-    // we want here: "Not sent" is the whole point, and missing it means silently believing
-    // the message went through.
-    el.setAttribute("role", "alert");
+    // The message appears without any user action, so it also has to be SPOKEN.
+    // aria-live=assertive rather than role=alert: role would REPLACE the button role and
+    // the "tap to dismiss" affordance would stop being announced, whereas a live region on
+    // the button keeps both — it reads on insertion and on every later text change, and it
+    // still presents as a button. Missing "Not sent" means believing the message went
+    // through, which is the worst outcome this notice has to prevent.
+    // No aria-label: it would REPLACE the message as the accessible name, so the failure
+    // itself would go unread. The message text is the name; the button role conveys that
+    // activating it does something, and dismissal is not the part the user must not miss.
+    el.setAttribute("aria-live", "assertive");
     el.onclick = () => el.remove();
     host.prepend(el); // first child of #bar: above the keys row and the composer
   }
