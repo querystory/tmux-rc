@@ -2493,8 +2493,16 @@ async function send(s, body) {
   } catch (e) {
     // postSend has a hard timeout now, so this path is reachable — without a catch it
     // would be an unhandled rejection and the user would see nothing at all.
+    //
+    // Un-spin FIRST. markReparsing() above put the card into "submitting" — spinner up,
+    // answer options gated by isReparsing — and that state clears only when a parse lands
+    // or REPARSE_TIMEOUT (12s) expires. Nothing was sent, so no parse is coming: the card
+    // would sit there spinning with its options locked for 12s while the notice below
+    // says "Tap again to retry", making the retry it asks for impossible.
+    delete reparsing[s.pane_id];
     barNote(`Not sent — ${e.message}. Tap again to retry.`);
     reportError("send", e);
+    render(Object.values(panesById)); // drop the spinner now, not on the next poll
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
     releaseBusySoon(); // guarded: a composer send may already be running (see the helper)
