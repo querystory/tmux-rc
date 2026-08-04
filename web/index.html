@@ -340,7 +340,7 @@
   /* Non-blocking failure notice in the input bar (barNote) — replaces the alert() that
      froze the page on a failed send (#101). Amber, not red: the message is still in the
      composer and retryable, not lost. Tap (or key) to dismiss.
-     It's a real <button>, since the failure channel must be dismissable without a pointer,
+     It's a real <button>, since the failure channel must be dismissible without a pointer,
      so it needs un-buttoning back into a full-width notice: buttons don't inherit the page
      font, center their text, or stretch. text-align:left keeps a wrapped message readable. */
   .bar-note { background: var(--amber-bg); color: var(--amber-text);
