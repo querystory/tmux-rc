@@ -210,6 +210,15 @@ def _screen_tail(watcher, pane_id: str) -> str:
     return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)
 
 
+def _fmt_age(sec: float) -> str:
+    """Human idle age at the coarsest useful unit: '40s', '12m', '3h', '2d'."""
+    sec = int(sec)
+    if sec < 60: return f"{sec}s"
+    if sec < 3600: return f"{sec // 60}m"
+    if sec < 86400: return f"{sec // 3600}h"
+    return f"{sec // 86400}d"
+
+
 def _pane_block(d: dict, screen: str | None) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
     leads with the user-facing identity (window number + title) and gives the internal
@@ -226,6 +235,12 @@ def _pane_block(d: dict, screen: str | None) -> str:
         head += f' "{name}"'
     head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
+    # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
+    # candidates — the prompt tells the model a long-idle pane is rarely where a new
+    # instruction is destined (see live_prompt's targeting ladder).
+    idle = d.get("idle_seconds")
+    if d.get("activity") == "idle" and isinstance(idle, (int, float)) and idle >= 0:
+        head += f" for {_fmt_age(idle)}"
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]

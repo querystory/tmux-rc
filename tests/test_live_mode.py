@@ -95,6 +95,27 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
     assert 'window 2 "shell" (id=%2)' in untitled
 
 
+def test_pane_block_idle_age_suffix():
+    # Idle panes carry their AGE ("idle for 2d") — the prompt's targeting ladder says a
+    # long-idle pane is rarely where a new instruction is destined, so the model needs
+    # the number. Non-idle panes and idle panes without a reading stay unsuffixed.
+    aged = L._pane_block(
+        {"pane_id": "%3", "window_index": "3", "title": "old", "tool": "claude",
+         "activity": "idle", "idle_seconds": 2 * 86400}, None)
+    assert "— idle for 2d" in aged.splitlines()[0]
+    fresh = L._pane_block(
+        {"pane_id": "%4", "window_index": "4", "title": "busy", "tool": "claude",
+         "activity": "running", "idle_seconds": 999}, None)
+    assert "for" not in fresh.splitlines()[0]
+    unknown = L._pane_block(
+        {"pane_id": "%5", "window_index": "5", "title": "n/a", "tool": "claude",
+         "activity": "idle"}, None)
+    assert unknown.splitlines()[0].endswith("— idle")
+    # unit ladder: coarsest useful unit at each scale
+    assert L._fmt_age(40) == "40s" and L._fmt_age(720) == "12m"
+    assert L._fmt_age(3 * 3600 + 5) == "3h" and L._fmt_age(86400 * 2 + 30) == "2d"
+
+
 def test_pane_block_sanitizes_name_quotes_and_newlines():
     # A title with quotes/newlines must not unbalance the heading's quoting or split it.
     b = L._pane_block(
