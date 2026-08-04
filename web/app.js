@@ -23,6 +23,16 @@
 // #bar (the composer) has always been built this way — static HTML, wired once — which
 // is exactly why typed text survives polls. tickBadges() is the other model: it reads
 // data-since off live nodes and writes textContent. This module now follows both.
+//
+// THE TWO SANCTIONED EXCEPTIONS, both outside the poll path:
+//   1. The TERMINAL paint (bgTerm's peek and openScreen's overlay) still swaps innerHTML
+//      wholesale, because renderCapture emits a whole colored frame. It is guarded by a
+//      selection check and _caretGrace instead; a TODO in bgTerm points at line-diffing it,
+//      which is what would let those guards go. This is the last rendering workaround left.
+//   2. One-shot innerHTML for STATIC inline SVG/icon markup (the ⤢ button, Lucide icons,
+//      the fullscreen overlay's chrome). Written once at build time from string literals,
+//      never per poll, and never from server data.
+// Anything else assigning innerHTML or replaceChildren inside a render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCapture } from "./terminal.js";
 
@@ -107,8 +117,10 @@ const actOf = (s) => {
   const a = ACTIVITIES.has(s.activity) ? s.activity : "unknown";
   return a === "waiting" && s.waiting_on === "external" ? "running" : a;
 };
-const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
-const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
+// The pane icon's src/alt (previously an img() markup template, needing escAttr on the
+// tool name): both dock icons and list rows now build a real <img> once and setAttr these
+// onto it, so nothing is interpolated into markup and nothing needs escaping.
+const logoFor = (tool) => (has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO);
 
 // Lucide icons (ISC), inlined: stroke follows currentColor so they theme for free —
 // the emoji they replace rendered as platform-colored glyphs that clashed with the
@@ -479,7 +491,7 @@ function applyPaneHeader(h, s, collapsed) {
     setText(h.caret, collapsed ? "▸" : "▾");
   }
   if (h.icon) {
-    setAttr(h.iconImg, "src", has(LOGOS, s.tool) ? LOGOS[s.tool] : UNKNOWN_LOGO);
+    setAttr(h.iconImg, "src", logoFor(s.tool));
     setAttr(h.iconImg, "alt", s.tool || "pane");
     const nsub = nsubOf(s);
     setText(h.sacount, nsub > 0 ? String(nsub) : "");
@@ -696,19 +708,60 @@ liveEl.onkeydown = (e) => {
 liveEl.onkeyup = (e) => {
   if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
-// The docs link rides in the popover (rebuilt on every showUsage), not the top bar —
-// header space is too tight on phones for a rarely-tapped link.
-const DOCS_LINK = '<span class="u-row u-docs"><a id="docs-link" href="/docs/" target="_blank"' +
-  ' rel="noopener" title="Design docs (opens in a new tab)">design docs ↗</a></span>';
-// One labeled menu row: what the number IS on the left, the number on the right.
-const uRow = (label, val, cls = "") =>
-  `<span class="u-row"><span>${label}</span><span class="u-val${cls}">${val}</span></span>`;
+// One labeled menu row: what the number IS on the left, the number on the right. Rows are
+// DESCRIPTORS keyed by name, so the numbers tick in place — the popover used to be rebuilt
+// wholesale on every poll, which destroyed the docs link (and any row) under a user who had
+// the popover open and was reaching for it.
+const uRow = (key, label, val, cls = "") => ({ key, label, val, cls });
+// The docs link rides in the popover, not the top bar — header space is too tight on phones
+// for a rarely-tapped link. It's a link, not a stat, so it gets its own row shape.
+const DOCS_ROW = { key: "docs", docs: true };
+
+function applyUsageRows(rows) {
+  keyedList(usageEl, rows, (r) => r.key, (r) => {
+    const sp = document.createElement("span");
+    if (r.docs) {
+      sp.className = "u-row u-docs";
+      const a = document.createElement("a");
+      a.id = "docs-link";
+      a.href = "/docs/";
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.title = "Design docs (opens in a new tab)";
+      a.textContent = "design docs ↗";
+      sp.appendChild(a);
+      return sp;
+    }
+    sp.className = "u-row";
+    sp._label = document.createElement("span");
+    sp._val = document.createElement("span");
+    // The error row shows a warning glyph rather than a number; the icon is static markup
+    // built once here, and only its title (the untrusted error text) is written per poll.
+    sp._icon = document.createElement("span");
+    sp._icon.className = "warn";
+    sp._icon.innerHTML = licon("alert", 12);
+    sp._val.append(sp._icon);
+    sp._num = document.createElement("span");
+    sp._val.append(sp._num);
+    sp.append(sp._label, sp._val);
+    return sp;
+  }, (sp, r) => {
+    if (r.docs) return;
+    setText(sp._label, r.label);
+    setAttr(sp._val, "class", "u-val" + (r.cls || ""));
+    setCls(sp._icon, "on", !!r.icon);
+    setAttr(sp._icon, "title", r.icon ? r.title : null);
+    setText(sp._num, r.icon ? "" : r.val);
+  });
+}
+
 function showUsage(u, err) {
   if (!u) {
     // Gone (reconnect, fresh daemon): drop the stale stats but keep the docs link —
     // and DON'T touch hidden/aria-expanded: force-closing on every poll would slam
     // the popover shut under a user who opened it for the docs link.
-    usageEl.innerHTML = DOCS_LINK; usageEl.title = "";
+    applyUsageRows([DOCS_ROW]);
+    usageEl.title = "";
     return;
   }
   // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
@@ -722,27 +775,27 @@ function showUsage(u, err) {
   const tok = ((u.in_tokens + u.out_tokens + live.in_tokens + live.out_tokens) / 1000).toFixed(0);
   const parser = (u.parser_cost ?? u.cost);
   const rows = [
-    uRow("LLM tokens (parser + voice)", `${tok}k`),
-    uRow("spend this run", `$${u.cost.toFixed(3)}`, u.errors ? " warn" : ""),
-    uRow("parser calls", `${u.rate_per_min}/min`),
+    uRow("tok", "LLM tokens (parser + voice)", `${tok}k`),
+    uRow("spend", "spend this run", `$${u.cost.toFixed(3)}`, u.errors ? " warn" : ""),
+    uRow("rate", "parser calls", `${u.rate_per_min}/min`),
   ];
   if (live.sessions) {
-    rows.push(uRow("voice sessions", String(live.sessions)));
-    rows.push(uRow("voice spend (of total)", `$${live.cost.toFixed(3)}`));
-    rows.push(uRow("parser spend (of total)", `$${parser.toFixed(3)}`));
+    rows.push(uRow("vsess", "voice sessions", String(live.sessions)));
+    rows.push(uRow("vspend", "voice spend (of total)", `$${live.cost.toFixed(3)}`));
+    rows.push(uRow("pspend", "parser spend (of total)", `$${parser.toFixed(3)}`));
   }
-  if (err) rows.push(uRow("last LLM error", `<span class="warn" title="${escAttr(err)}">${licon("alert", 12)}</span>`));
-  rows.push(DOCS_LINK);
-  usageEl.innerHTML = rows.join("");
+  // The error text is untrusted; it rides as a title ATTRIBUTE via setAttr, so it needs no
+  // escaping (it was escAttr'd only because it used to be interpolated into markup).
+  if (err) rows.push({ key: "err", label: "last LLM error", icon: true, title: String(err) });
+  rows.push(DOCS_ROW);
+  applyUsageRows(rows);
   usageEl.title = ""; // the labels ARE the explanation now — no tooltip needed
 }
-// Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
-// quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
-// a quote and break out of the attribute — these values come from parser JSON (untrusted).
-function escAttr(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
+// escAttr is GONE, and its absence is a property of the refactor rather than a cleanup:
+// nothing interpolates untrusted values into attribute markup any more. Every attribute is
+// written with setAttr, which sets a DOM property directly, so quotes and angle brackets in
+// parser JSON cannot break out of anything. (esc() survives for the one remaining markup
+// template, the fullscreen overlay's static chrome.)
 
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
@@ -1030,7 +1083,7 @@ function applyDockIcon(b, s, act) {
   const a = actOf(s);
   const nsub = nsubOf(s);
   setCls(b, "sel", s.pane_id === act);
-  setAttr(b._im, "src", has(LOGOS, s.tool) ? LOGOS[s.tool] : UNKNOWN_LOGO);
+  setAttr(b._im, "src", logoFor(s.tool));
   setAttr(b._im, "alt", s.tool || "pane");
   // The activity dot is a permanent node whose class carries the state; idle panes get
   // no dot at all — quiet is the default, only running/waiting/compacting earn a signal.
@@ -2129,25 +2182,36 @@ function applyRewind(ui, s) {
 // Compact metadata chips: model, context bar, cost, mode badge, agent count. Shown in
 // the bottom bar (below the input) for the ACTIVE pane only, not on every card. Only
 // renders the chips that have values, so a plain shell shows nothing here.
+// Returns chip DESCRIPTORS, not markup — applyChips builds/updates the nodes. Each carries
+// a stable `key` so a chip whose value changes (the cost ticking up, the context bar
+// filling) keeps its node instead of being replaced. Values go in as text, never markup, so
+// nothing here needs escaping.
 const MODE_LABEL = { plan: "plan", "accept-edits": "accept edits", bypass: "bypass perms" };
 function metaChips(s) {
   const chips = [];
-  if (s.model) chips.push(`<span class="chip">${esc(s.model)}</span>`);
+  if (s.model) chips.push({ key: "model", text: s.model });
   if (s.context_pct != null)
-    chips.push(
-      `<span class="chip ctxchip"><i style="width:${s.context_pct}%"></i>${s.context_pct}% ctx</span>`
-    );
-  if (s.cost) chips.push(`<span class="chip">${esc(s.cost)}</span>`);
-  // Generic status-line entries the parser surfaced (usage-limit %, queue depth, …):
-  // one chip each, no schema change per metric. LLM output — a non-array (e.g. a bare
-  // string) would otherwise .slice() into characters.
+    chips.push({ key: "ctx", cls: "ctxchip", pct: s.context_pct, text: `${s.context_pct}% ctx` });
+  if (s.cost) chips.push({ key: "cost", text: s.cost });
+  // Generic status-line entries the parser surfaced (usage-limit %, queue depth, …): one
+  // chip each, no schema change per metric. LLM output — a non-array (e.g. a bare string)
+  // would otherwise .slice() into characters.
   const entries = Array.isArray(s.status_entries) ? s.status_entries : [];
-  for (const t of entries.slice(0, 4))
-    if (t && String(t).trim()) chips.push(`<span class="chip">${esc(t)}</span>`);
+  entries.slice(0, 4).forEach((t, i) => {
+    if (t && String(t).trim()) chips.push({ key: "st" + i, text: String(t) });
+  });
+  // `mode` is parser (LLM) output interpolated into a CLASS name. setAttr writes a DOM
+  // property rather than markup so it cannot inject, but a junk value would still produce a
+  // garbage class — so only known modes get the mode-* class, matching how ACTIVITIES
+  // whitelists activity. An unknown mode still shows its label, just unstyled.
   if (s.mode && s.mode !== "normal" && s.mode !== "unknown")
-    chips.push(`<span class="chip mode mode-${s.mode}">${MODE_LABEL[s.mode] ?? s.mode}</span>`);
-  if (s.agents > 0) chips.push(`<span class="chip agents">⛓ ${s.agents} agents</span>`);
-  return chips.join("");
+    chips.push({
+      key: "mode",
+      cls: "mode" + (has(MODE_LABEL, s.mode) ? " mode-" + s.mode : ""),
+      text: MODE_LABEL[s.mode] ?? String(s.mode),
+    });
+  if (s.agents > 0) chips.push({ key: "agents", cls: "agents", text: `⛓ ${s.agents} agents` });
+  return chips;
 }
 
 // Always-available raw input: type any text into the pane, plus special keys. This
@@ -2194,9 +2258,30 @@ function updateBar(s) {
   // The CSS :empty::before placeholder isn't an accessible name, so mirror it into
   // aria-label — screen readers announce the per-pane target instead of a bare textbox.
   const label = s ? `Type into ${s.label || "pane"}…` : "No pane";
-  bar.input.dataset.placeholder = label;
-  bar.input.setAttribute("aria-label", label);
-  bar.meta.innerHTML = s ? metaChips(s) : "";
+  setAttr(bar.input, "data-placeholder", label);
+  setAttr(bar.input, "aria-label", label);
+  // Keyed, not innerHTML: the chips are re-derived every poll, and the context-percent chip
+  // in particular has a growing inner bar whose width would otherwise restart from a fresh
+  // node each time. .metarow:empty still works — keyedList removes leftovers.
+  applyChips(bar.meta, s ? metaChips(s) : []);
+}
+
+// One chip. `bar` is the context-percent chip's inner fill, present on every chip node but
+// only sized (and shown) for that one, so no chip type needs its own build function.
+function applyChips(host, chips) {
+  keyedList(host, chips, (c) => c.key, () => {
+    const sp = document.createElement("span");
+    sp._bar = document.createElement("i");
+    sp._txt = document.createElement("span");
+    sp.append(sp._bar, sp._txt);
+    return sp;
+  }, (sp, c) => {
+    setAttr(sp, "class", "chip" + (c.cls ? " " + c.cls : ""));
+    setCls(sp._bar, "on", c.pct != null);
+    if (c.pct != null) sp._bar.style.width = c.pct + "%";
+    setAttr(sp, "title", c.title || null);
+    setText(sp._txt, c.text);
+  });
 }
 // Stamped when the user is placing the caret in the composer. The live peek repaint
 // (an innerHTML swap) collapses the Selection, so on a busy pane it wiped the caret as
@@ -2950,14 +3035,21 @@ function lmAdd(role, text) {
   lmPaint();
 }
 
+// Keyed by position+role, so a GROWING transcript entry (fragments append to the last
+// entry of the same role) keeps its node and only its text changes. It used to
+// replaceChildren the whole log on every fragment, which meant a live transcript rebuilt
+// several times a second — the same pattern this refactor removes everywhere else, and here
+// it also fought text selection inside the transcript.
 function lmPaintInto(box) {
-  box.replaceChildren(...lmLog.map((e) => {
-    const d = document.createElement("div");
-    d.className = "lm-" + e.role;
-    d.textContent = (e.role === "user" ? "🗣 " : "") + e.text;
-    return d;
-  }));
-  box.scrollTop = box.scrollHeight;
+  const atBottom = atBottomOf(box);
+  keyedList(box, lmLog, (e, i) => i + ":" + e.role, () => document.createElement("div"),
+    (d, e) => {
+      setAttr(d, "class", "lm-" + e.role);
+      setText(d, (e.role === "user" ? "🗣 " : "") + e.text);
+    });
+  // Follow the tail only when already there, so reading back through the transcript isn't
+  // yanked down by the next incoming fragment.
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
 // Repaint in place between renders; card() re-inserts the box on every full render.

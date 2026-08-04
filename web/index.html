@@ -451,7 +451,13 @@
     flex: none; white-space: nowrap;
   }
   .ctxchip { position: relative; overflow: hidden; }
-  .ctxchip > i { position: absolute; left: 0; top: 0; bottom: 0; background: #1f6feb44; z-index: 0; }
+  /* Every chip carries this fill node (one build function for all chip types — see
+     applyChips), so it stays hidden unless .on marks it as the context-percent bar.
+     Keeping the node means the bar's width animates from its previous value instead of
+     restarting from a freshly-created element each poll. */
+  .chip > i { display: none; }
+  .ctxchip > i.on { display: block; position: absolute; left: 0; top: 0; bottom: 0;
+    background: #1f6feb44; z-index: 0; }
   .ctxchip { z-index: 1; }
   .chip.mode { color: #fff; }
   .mode-plan { background: #1f6feb; }
@@ -695,6 +701,10 @@
     width: 40px; height: 40px; margin-left: -8px; transform: translateY(-50%); }
   .usage .err { color: var(--red); }
   .usage .warn { color: var(--amber-text); }  /* transient LLM error hint, subtle not shouty */
+  /* Every usage row carries the warning-glyph node (one build function for all rows — see
+     applyUsageRows); .on marks the row that is actually an error. */
+  .usage .u-val > .warn { display: none; }
+  .usage .u-val > .warn.on { display: inline; }
 .links { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
 .linkbtn { display: inline-block; padding: 6px 10px; border-radius: 8px;
   background: var(--link-bg); color: var(--link); text-decoration: none; font-size: 13px; }
