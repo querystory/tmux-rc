@@ -238,7 +238,12 @@
      The pane's capture is its background (bottom-anchored, so the agent's status/input
      chrome lines hide behind the bar); the card floats over the top, content-sized,
      with the live terminal tail poking out BELOW it — pan/zoomable in place. The
-     negative margin cancels #panes' bar padding so the page itself never scrolls. */
+     negative margin pulls the deck's bottom back up under the fixed bar, so the deck's
+     full-viewport height does not extend the page. It no longer "cancels #panes' bar
+     padding": that padding is now switched OFF in card mode (see #panes:has(> .deck)
+     above), because having both was double-counting the bar height and scrolling the
+     whole document behind the card. The two mechanisms are independent — this margin
+     positions the deck, that rule keeps list-mode rows clear of the bar. */
   .deck { position: relative; height: calc(100dvh - var(--top-h, 122px)); /* top pad cancelled by the join margin below */
     margin-bottom: calc(-1 * (var(--bar-h, 150px) + 8px));
     overflow: hidden; display: flex; flex-direction: column; }
