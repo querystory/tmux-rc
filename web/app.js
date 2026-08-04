@@ -42,6 +42,7 @@ const LUCIDE = {
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1420,7 +1421,9 @@ let peekPrev = null; // the one previously observed wrap (only one is in the DOM
 // strip bidi controls, then cap by CODE POINTS so no surrogate pair is split. Bidi
 // controls matter because an unterminated RLO/LRO can visually reorder a row — reversing
 // a link's host indicator, or making a copy row's preview read as different content than
-// the clipboard carries. Every untrusted string headed for the DOM goes through here.
+// the clipboard carries. Use this for untrusted text set as textContent; the innerHTML
+// paths (tasks/events/subagents) go through esc() instead, which escapes markup but does
+// NOT strip bidi — those are plain rows where reordering is cosmetic, not deceptive.
 function safeText(v, max) {
   return Array.from(
     String(v ?? "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
@@ -1449,7 +1452,15 @@ function linksView(links) {
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     const label = safeText(l.text, 80);  // untrusted: bidi-stripped, code-point capped
-    a.textContent = `\u{1F517} ${label || host}`;
+    // Lucide icon, not the 🔗 emoji: AGENTS.md bans emoji as UI chrome (emoji ignore
+    // currentColor, so they can't theme, and they render differently per device). The
+    // label is untrusted, so it rides in its own span as textContent — never innerHTML.
+    const licn = document.createElement("span");
+    licn.className = "linkicon";
+    licn.innerHTML = licon("link", 13);
+    const ltxt = document.createElement("span");
+    ltxt.textContent = label || host;
+    a.append(licn, ltxt);
     const hostEl = document.createElement("span");
     hostEl.className = "linkhost";
     hostEl.textContent = ` ${host}`;

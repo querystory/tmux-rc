@@ -642,6 +642,9 @@
   background: var(--link-bg); color: var(--link); text-decoration: none; font-size: 13px; }
 .linkbtn:active { background: var(--link-bg-active); }
 .linkhost { opacity: .6; font-size: 11px; unicode-bidi: isolate; }
+  /* Lucide link glyph in the chip (replaced the 🔗 emoji — AGENTS.md bans emoji as
+     chrome). Inline-flex so it sits on the text baseline without stretching the chip. */
+  .linkicon { display: inline-flex; vertical-align: -2px; margin-right: 5px; opacity: .8; }
   /* Paste-me-elsewhere text (copyables): one full-width row per item, since the label
      is a sentence-ish summary that shouldn't be squeezed beside a sibling. Chrome
      styling, not link-blue — copying is a local action, nothing navigates. */
