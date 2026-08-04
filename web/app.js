@@ -269,6 +269,20 @@ function fmtIdle(s) {
   return Math.floor(s / 3600) + "h";
 }
 
+// Seconds a pane has been in its current state, computed LIVE from state_since (epoch
+// secs the daemon stamped when the activity/question last changed). Client-side so it
+// keeps climbing even when the pane stops re-parsing — idle_seconds was a frozen
+// parse-time snapshot that undercounted a long-quiet pane. Falls back to that snapshot
+// only if an older daemon didn't send state_since.
+function stateDur(s) {
+  // Coerce: state is untyped server/LLM JSON. null must NOT coerce (+null is 0 — a
+  // missing timestamp would read as the epoch); junk falls back like absent.
+  const t = s.state_since == null ? NaN : +s.state_since;
+  return Number.isFinite(t)
+    ? Math.max(0, Math.floor(Date.now() / 1000 - t))
+    : s.idle_seconds || 0;
+}
+
 // The working sub-line — verb · elapsed · ↓tokens (e.g. "Waiting for review 43s ↓40.4k")
 // — from the parser's `working` fields. Not gated on activity: a waiting pane still
 // reports what it's waiting on. Empty string when the parser gave no working fields.
@@ -295,8 +309,16 @@ function nsubOf(s) {
 function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
   const a = actOf(s);
   const nsub = nsubOf(s);
-  const badge = a === "idle" ? "idle " + fmtIdle(s.idle_seconds)
+  // idle and waiting both show time-in-state ("idle 4m" / "waiting 4m"); the
+  // data-since attr lets tickBadges() advance the text every second in place, so a
+  // parked pane's clock stays honest without a full re-render (see stateDur).
+  const timed = a === "idle" || a === "waiting";
+  const badge = timed ? `${a} ${fmtIdle(stateDur(s))}`
     : a === "running" || a === "compacting" ? `<span class="pulse"></span>${a}` : a;
+  // Numeric-coerced before it touches innerHTML: paneHeader returns markup, so a
+  // quoted/junk state_since must never reach an attribute (same rule as nsubOf).
+  const t0 = s.state_since == null ? NaN : +s.state_since;
+  const since = timed && Number.isFinite(t0) ? ` data-since="${t0}"` : "";
   return (
     (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
       + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
@@ -310,9 +332,36 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
     + (icon && s.window_index != null ? `<span class="wnum">${esc(String(s.window_index))}</span>` : "")
     + `${esc(s.title || s.label || s.pane_id)}</div>`
     + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
-    + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}">${badge}</span></div>`
+    + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}"${since}>${badge}</span></div>`
   );
 }
+
+// Advance every idle/waiting badge's text once a second, in place, from its data-since.
+// The server bumps the deck version only when something it renders changes, so a parked
+// pane wouldn't otherwise re-render — this keeps its clock climbing between the sparse
+// re-parses without repainting the whole deck (which would disrupt peek/scroll/animation).
+function tickBadges() {
+  for (const el of document.querySelectorAll(".badge[data-since]")) {
+    const a = el.classList.contains("b-waiting") ? "waiting" : "idle";
+    el.textContent = `${a} ${fmtIdle(stateDur({ state_since: +el.dataset.since }))}`;
+  }
+}
+
+// Run the 1s badge clock ONLY while visible — a hidden/backgrounded PWA shouldn't wake
+// the JS engine each second. On visibilitychange we stop the interval when hidden and, on
+// return, tick once immediately (the badges froze while away) before rearming it.
+let _badgeTimer = null;
+function syncBadgeTick() {
+  if (document.visibilityState === "visible") {
+    if (_badgeTimer === null) _badgeTimer = setInterval(tickBadges, 1000);
+    tickBadges();
+  } else if (_badgeTimer !== null) {
+    clearInterval(_badgeTimer);
+    _badgeTimer = null;
+  }
+}
+document.addEventListener("visibilitychange", syncBadgeTick);
+window.addEventListener("pageshow", syncBadgeTick); // bfcache restore may skip visibilitychange
 
 let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
                            // null until the first reply so cold load asks for state outright
@@ -2073,6 +2122,7 @@ if ("serviceWorker" in navigator) {
 }
 if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
 pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
+syncBadgeTick(); // live-tick idle/waiting durations while visible (paused when hidden)
 
 // Auto-update: when the web assets change, reload to the new version (checked every
 // 5s against /api/version; all durable state lives server-side). UNLESS the user has
