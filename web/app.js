@@ -238,19 +238,26 @@ function activeId() {
 // The guard has to be armed per-gesture, not sticky: a latched flag would swallow every
 // LATER keyboard activation of the same element, and — because the pointer's click still
 // bubbles — an outer onTap target (the row wrapping .row-open) would see an unguarded
-// click and fire a second time. So swallow the pointer's own click here, on the element
-// that handled the pointerdown, and disarm immediately after.
+// click and fire a second time. So swallow the pointer's own click, on the element that
+// handled the pointerdown, and disarm.
+//
+// Timestamp rather than a boolean because the disarm is not guaranteed: a press that
+// releases off the element produces neither `click` nor `pointercancel`, so a flag set on
+// pointerdown could stay armed indefinitely and eat the next keyboard activation. A click
+// belonging to our pointerdown always lands in the same task-ish window as the release, so
+// bounding the suppression in time is self-healing where an event-based reset isn't.
+const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
 function onTap(el, fn) {
-  let byPointer = false;
+  let downAt = 0;
   el.addEventListener("pointerdown", (e) => {
     if (e.button != null && e.button !== 0) return; // left/touch only
-    byPointer = true;
+    downAt = e.timeStamp || performance.now();
     fn(e);
   });
-  el.addEventListener("pointercancel", () => { byPointer = false; }); // no click will follow
   el.addEventListener("click", (e) => {
-    if (!byPointer) return void fn(e); // keyboard/AT: no pointerdown preceded this
-    byPointer = false;
+    const ts = e.timeStamp || performance.now();
+    if (!downAt || ts - downAt > TAP_CLICK_MS) return void fn(e); // keyboard/AT, or stale arm
+    downAt = 0;
     e.stopPropagation(); // handled on pointerdown already; don't let ancestors re-fire it
   });
 }
