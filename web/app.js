@@ -855,8 +855,7 @@ function joinTab(deck) {
   // join) — releases the observer AND the closure's captured DOM nodes for GC.
   _joinRO.disconnect();
   _joinPin = null;
-  const sel = dockEl.querySelector(".dock-icon.sel");
-  if (!sel) return;
+  if (!dockEl.querySelector(".dock-icon.sel")) return;
   const n = document.createElement("i");
   n.className = "tab-notch";
   deck.appendChild(n);
@@ -868,6 +867,12 @@ function joinTab(deck) {
     return f;
   });
   const pin = _joinPin = () => {
+    // Resolve the selected icon at CALL time, never from a closure. Dock icons are now
+    // permanent nodes whose .sel class MOVES between them (see the render invariant), so
+    // a captured `sel` would keep measuring whichever icon happened to be selected when
+    // this join was created — pinning the fillets under the wrong tab after a switch.
+    const sel = dockEl.querySelector(".dock-icon.sel");
+    if (!sel) return;
     const s = sel.getBoundingClientRect(),
       d = deck.getBoundingClientRect(), t = top.getBoundingClientRect(),
       dock = dockEl.getBoundingClientRect();
@@ -962,89 +967,120 @@ let listFilter = null;
 const subsOpen = new Set();
 const dockEl = document.getElementById("dock");
 const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
+// One dock icon, built once per pane. The handler closes over the pane_id STRING
+// (never over `s`), so it stays correct for the life of the node no matter how many
+// polls rewrite the icon around it — which is what lets a plain `click` work again:
+// the node survives press-to-release, so the browser has a common target to fire on.
+function buildDockIcon(paneId) {
+  const b = document.createElement("button");
+  b.className = "dock-icon";
+  b.dataset.pane = paneId;
+  const im = document.createElement("img");
+  im.width = im.height = 22;
+  im.style.borderRadius = "5px";
+  const dot = document.createElement("i");
+  dot.setAttribute("aria-hidden", "true");
+  const sac = document.createElement("sub");
+  sac.className = "sacount";
+  sac.setAttribute("aria-hidden", "true");
+  b.append(im, dot, sac);
+  b._im = im; b._dot = dot; b._sac = sac;
+  // Jump to that pane's CARD — including from list mode (a dock tap means "show me
+  // this pane", not "re-highlight it inside the list"). A plain click is correct now
+  // that the node is permanent; the icon lives in the .prow.dock overflow-x scroller,
+  // and click (unlike a pointerdown commit) already yields to a scroll gesture.
+  b.onclick = () => { listFilter = null; setActive(paneId); };
+  return b;
+}
+
+// Write the current state of one pane onto its existing icon.
+function applyDockIcon(b, s, act) {
+  const a = actOf(s);
+  const nsub = nsubOf(s);
+  setCls(b, "sel", s.pane_id === act);
+  setAttr(b._im, "src", has(LOGOS, s.tool) ? LOGOS[s.tool] : UNKNOWN_LOGO);
+  setAttr(b._im, "alt", s.tool || "pane");
+  // The activity dot is a permanent node whose class carries the state; idle panes get
+  // no dot at all — quiet is the default, only running/waiting/compacting earn a signal.
+  const dotted = a === "running" || a === "waiting" || a === "compacting";
+  setAttr(b._dot, "class", dotted ? `ddot d-${a}` : "ddot-off");
+  setText(b._sac, nsub > 0 ? String(nsub) : "");
+  const title = s.title || s.label || s.pane_id;
+  setAttr(b, "title", title);
+  // Fold the sub-agent count into the button's own label so AT announces it.
+  setAttr(b, "aria-label", title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
+}
+
 function dock(states, act) {
   const el = dockEl;
-  el.replaceChildren();
   // Card view only: the selected icon joins to the card below it (see .has-sel CSS).
   // In list mode there's no card under the dock, so no seam to open — and no fillets,
-  // and no scroll re-pin handler (it closes over the dead card's nodes).
-  const joined = el.classList.toggle("has-sel", !listFilter && states.some((s) => s.pane_id === act));
+  // and no scroll re-pin handler.
+  const joined = !listFilter && states.some((s) => s.pane_id === act);
+  setCls(el, "has-sel", joined);
   if (!joined) {
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     el.onscroll = null;
     el.classList.remove("edge-l");
   }
   // Chrome-tab-group-style session trays: each session's run of icons shares one
-  // .dock-group span; the tray CSS paints a colored rail + session name above it.
-  // The array is already in tmux session order, so a group is just "same session as
-  // the previous icon". All tray chrome keys off the .grouped class toggled below —
-  // single-session decks never get it, so nothing changes until sessions multiply.
-  let group = null, ngroups = 0;
+  // .dock-group span; the tray CSS paints a colored rail + session name above it. The
+  // array is already in tmux session order, so a group is just "same session as the
+  // previous icon".
+  //
+  // CRITICAL: .dock-group:nth-of-type(4n+1..4n) sets each tray's hue from its DOM
+  // POSITION, so the groups must be reconciled IN ORDER — keyedList's forward pass
+  // guarantees that, and keying by session name means a session keeps its own node
+  // (and therefore its icons' handlers) across polls.
+  const groups = [];
   for (const s of states) {
-    if (!group || group.dataset.sess !== (s.session ?? "")) {
-      group = document.createElement("span");
-      group.className = "dock-group";
-      group.dataset.sess = s.session ?? "";
-      el.appendChild(group);
-      ngroups++;
-    }
-    const b = document.createElement("button");
-    b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
-    b.dataset.pane = s.pane_id;
-    // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
-    // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
-    const a = actOf(s);
-    // Subscript count of RUNNING background sub-agents — a glanceable "3 workers busy
-    // here", in the opposite corner from the activity dot (shared nsubOf coercion).
-    const nsub = nsubOf(s);
-    b.innerHTML = iconFor(s.tool) +
-      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "") +
-      (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : ""); // count is in aria-label below
-    b.title = s.title || s.label || s.pane_id;
-    // Fold the sub-agent count into the button's own label so assistive tech announces it.
-    b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
-    // Jump to that pane's CARD — including from list mode (a dock tap means "show
-    // me this pane", not "re-highlight it inside the list").
-    // onTap because the dock is rebuilt every poll and a plain `click` gets eaten; deferred
-    // because .prow.dock is an overflow-x scroller, so a horizontal swipe to reach off-screen
-    // panes must scroll rather than switch pane on touch-down.
-    onTap(b, () => { listFilter = null; setActive(s.pane_id); }, true);
-    group.appendChild(b);
+    const sess = s.session ?? "";
+    if (!groups.length || groups[groups.length - 1].sess !== sess) groups.push({ sess, panes: [] });
+    groups[groups.length - 1].panes.push(s);
   }
+  keyedList(el, groups, (g) => g.sess, (g) => {
+    const sp = document.createElement("span");
+    sp.className = "dock-group";
+    sp.dataset.sess = g.sess;
+    return sp;
+  }, (sp, g) => {
+    keyedList(sp, g.panes, (s) => s.pane_id,
+      (s) => buildDockIcon(s.pane_id),
+      (b, s) => applyDockIcon(b, s, act));
+  });
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
   // actually spans sessions — the CSS keys off this class, not group count.
-  el.classList.toggle("grouped", ngroups > 1);
-  // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
-  // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
-  // list view to those panes; "all" lists everything.
-  filtersEl.replaceChildren();
+  setCls(el, "grouped", groups.length > 1);
+  // Density + navigation: per-activity tallies homed in the header title bar
+  // (#filters) — always visible no matter how many dock icons crowd the strip. Each
+  // one FILTERS the list view to those panes; "all" lists everything.
   const n = {};
   states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
-  const filt = (label, key) => {
+  const tallies = ["waiting", "running", "compacting", "idle", "unknown"]
+    .filter((a) => n[a]).map((a) => ({ key: a, label: `${n[a]} ${a}` }));
+  tallies.push({ key: "all", label: "all" });
+  // #filters:empty { display: none } — keyedList removes emptied children outright, so
+  // that rule keeps working. Badges are keyed by activity, so the "3 running" badge is
+  // ONE node whose text changes as the count moves, not a new node per poll.
+  keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
-    b.className = "badge b-" + key;
-    b.textContent = label;
-    // onTap because #filters is rebuilt every poll, so a rebuild between press and release
-    // swallows a plain click — worst exactly when a pane is BUSY, since a changing pane makes
-    // the deck version bump constantly. Deferred: #filters is an overflow-x scroller too.
-    onTap(b, () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); }, true);
-    filtersEl.appendChild(b);
-  };
-  ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
-  filt("all", "all");
+    b.className = "badge b-" + t.key;
+    // Plain click: the badge node is permanent now, so press and release land on the
+    // same element and the browser fires click normally.
+    b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
+    return b;
+  }, (b, t) => setText(b, t.label));
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
-  // screen — its card then joins to a tab that isn't visible (looks severed). Center the
-  // selected icon in the strip so it and its tab-join are always on screen. Deferred a
-  // frame: the icons were just (re)appended, so their positions aren't laid out yet.
-  // Gate on `joined` (card view AND the selected tab is joined to a card) — NOT just a
-  // .sel, which also exists in list mode where there's no card to keep aligned. Only
-  // scroll when the icon is actually clipped by the strip's edges — otherwise every
-  // render (an activity tick, new events) would re-fire a scroll and fight the resting
-  // position; when it's already fully visible we leave the dock where the user left it.
+  // screen — its card then joins to a tab that isn't visible (looks severed). Center
+  // the selected icon in the strip so it and its tab-join are always on screen.
+  // Deferred a frame so freshly-inserted icons are laid out. Gate on `joined` (card
+  // view AND the selected tab joined to a card) — NOT just a .sel, which also exists
+  // in list mode. Only scroll when the icon is actually clipped, else every render
+  // would re-fire a scroll and fight the resting position.
   const sel = joined && el.querySelector(".dock-icon.sel");
   if (sel) requestAnimationFrame(() => {
-    if (!sel.isConnected) return; // a re-render in the same frame swept this icon
+    if (!sel.isConnected) return;
     const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
     if (i.left < c.left || i.right > c.right)
       sel.scrollIntoView({

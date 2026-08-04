@@ -172,11 +172,18 @@
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--surface); }
+  /* The dot is a PERMANENT node (see the render invariant in app.js): an idle pane keeps
+     it in the DOM and swaps the class, rather than the node being created and destroyed
+     per poll. .ddot-off is that hidden state. */
+  .ddot-off { display: none; }
   /* Running-subagent count, subscripted in the bottom-right corner (opposite the
-     activity dot). Purple echoes the .chip.agents "spawned workers" language. */
+     activity dot). Purple echoes the .chip.agents "spawned workers" language.
+     Also permanent, so :empty hides it when the pane has no sub-agents — otherwise an
+     empty pill would still paint its purple background. */
   .sacount { position: absolute; bottom: 0; right: 0; min-width: 13px; height: 13px;
     padding: 0 3px; border-radius: 7px; background: #6f42c1; color: #fff; font-size: 9px;
     line-height: 13px; font-weight: 700; text-align: center; box-shadow: 0 0 0 2px var(--surface); }
+  .sacount:empty { display: none; }
   .dock-counts { margin-left: auto; display: flex; gap: 4px; flex: none; align-items: center; }
   /* Same badges, now homed in the header: no auto-margin (space-between already sets the
      three-column layout), and on a tight phone they scroll horizontally rather than shove
