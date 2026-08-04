@@ -40,6 +40,9 @@ const LUCIDE = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -221,6 +224,64 @@ function activeId() {
   const focused = Object.values(panesById).find((s) => s.tmux_active);
   return (shown = focused ? focused.pane_id : Object.keys(panesById)[0] || null);
 }
+// Wire an element so a tap commits on POINTERDOWN instead of click.
+//
+// Why: the dock and the list are rebuilt from scratch on every poll (~2s, and twice in a
+// frame when several fields change). The browser only fires `click` when press and release
+// land on the SAME element, so any rebuild between finger-down and finger-up silently
+// swallows the tap — the "tapping sometimes does nothing, or feels laggy" bug, where the
+// lag is really the wait until the user gives up and taps again. Swiping never had it: it
+// listens on the card and sets `busy = true`, freezing re-renders for the whole gesture.
+//
+// pointerdown can't be stolen by a rebuild, and acting early is safe here because these
+// taps only ever SELECT (setActive is idempotent, and `pending` makes it authoritative
+// until the server confirms). The click handler stays for keyboard/AT activation, which
+// synthesizes a click with no pointer event, guarded so a real tap can't fire twice.
+//
+// The guard has to be armed per-gesture, not sticky: a latched flag would swallow every
+// LATER keyboard activation of the same element, and — because the pointer's click still
+// bubbles — an outer onTap target (the row wrapping .row-open) would see an unguarded
+// click and fire a second time. So swallow the pointer's own click, on the element that
+// handled the pointerdown, and disarm.
+//
+// Timestamp rather than a boolean because the disarm is not guaranteed: a press that
+// releases off the element produces neither `click` nor `pointercancel`, so a flag set on
+// pointerdown could stay armed indefinitely and eat the next keyboard activation. A click
+// belonging to our pointerdown always lands in the same task-ish window as the release, so
+// bounding the suppression in time is self-healing where an event-based reset isn't.
+// `defer`: wait for pointerup instead of firing on pointerdown, and cancel if the finger
+// travels more than SLOP first. EVERY tap target here lives in a scroller — rows in
+// vertically-scrolling #panes, the dock and filter strips in their own overflow-x — so a
+// scroll gesture necessarily begins with pointerdown on one of them, and acting there
+// would navigate or re-filter mid-scroll. Deferring to pointerup keeps the rebuild-immunity
+// that motivates this whole helper (we still never depend on press and release landing on
+// the same NODE, only on the same pointer) while letting a scroll gesture win. `defer` stays
+// a parameter rather than the only behavior so a target outside any scroller can still take
+// the snappier path.
+const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
+const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
+function onTap(el, fn, defer) {
+  let downAt = 0, sx = 0, sy = 0, moved = false;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return; // left/touch only
+    downAt = e.timeStamp || performance.now();
+    sx = e.clientX; sy = e.clientY; moved = false;
+    if (!defer) fn(e);
+  });
+  if (defer) {
+    el.addEventListener("pointermove", (e) => {
+      if (downAt && Math.hypot(e.clientX - sx, e.clientY - sy) > TAP_SLOP) moved = true;
+    });
+    el.addEventListener("pointerup", (e) => { if (downAt && !moved) fn(e); });
+  }
+  el.addEventListener("click", (e) => {
+    const ts = e.timeStamp || performance.now();
+    if (!downAt || ts - downAt > TAP_CLICK_MS) return void fn(e); // keyboard/AT, or stale arm
+    downAt = 0;
+    e.stopPropagation(); // handled on pointerdown/up already; don't let ancestors re-fire it
+  });
+}
+
 function setActive(id) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
@@ -466,8 +527,32 @@ function pollSleep(ms) {
 // send/gesture froze re-renders) skip the fetch and wait a beat; poll() returning false
 // (backend down / legacy daemon) also backs off, so we never tight-loop.
 async function pollLoop() {
+  let heldSince = 0;
   for (;;) {
-    if (busy) { await pollSleep(250); continue; } // a send/gesture froze re-renders; re-check soon
+    if (busy) {
+      // WATCHDOG. `busy` is a re-render freeze owned by whichever gesture/send set it, and
+      // a missed release wedges the whole app: the poll stops, the deck goes stale, and the
+      // composer paths that coordinate through it stop working — indistinguishable from a
+      // dead app, unfixable without a reload. Every known leak is fixed, but the failure
+      // mode is severe and the flag is set from many places, so refuse to honor it beyond
+      // any plausible gesture or send (a slow image upload is seconds, not ten).
+      // Self-healing beats correct-in-theory here.
+      //
+      // `busy` ONLY — never `sending`. A >10s hold is usually a leak, but it is also exactly
+      // what a large image upload on a bad network looks like, and that send's fetch is
+      // still in flight. `sending` is the re-entry guard its owner releases in a finally;
+      // clearing it here would re-open Send mid-request and let the same message go twice.
+      // Unfreezing renders is always safe, so the watchdog's remit stops there.
+      heldSince = heldSince || Date.now();
+      if (Date.now() - heldSince > 10000) {
+        console.warn("[tmux-rc] busy held >10s — releasing (leaked gesture/send flag)");
+        reportError("busy-stuck", { name: "BusyWatchdog", message: "busy held >10s; force-released" });
+        busy = false; heldSince = 0;
+      } else {
+        await pollSleep(250); continue; // a send/gesture froze re-renders; re-check soon
+      }
+    }
+    heldSince = 0;
     const ok = await poll();
     if (!ok) await pollSleep(1000); // outage / resume blip / legacy daemon: back off, wake early on resume
   }
@@ -480,6 +565,11 @@ function onResume() {
   if (document.visibilityState !== "visible") return;
   _stateVersion = null;           // next poll = "give me current state now", never held
   if (_wakePoll) _wakePoll();     // cut short an in-progress backoff sleep
+  // Backgrounded mid-gesture, the OS may never deliver touchend, so the swipe/pinch that
+  // set `busy` never releases it and the returning user finds a frozen app. A real gesture
+  // can't survive backgrounding, so clearing here is free — and it belongs on this one
+  // already-registered listener rather than one per pinchZoom instance.
+  busy = false;
 }
 document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
@@ -824,7 +914,10 @@ function dock(states, act) {
     b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
-    b.onclick = () => { listFilter = null; setActive(s.pane_id); };
+    // onTap because the dock is rebuilt every poll and a plain `click` gets eaten; deferred
+    // because .prow.dock is an overflow-x scroller, so a horizontal swipe to reach off-screen
+    // panes must scroll rather than switch pane on touch-down.
+    onTap(b, () => { listFilter = null; setActive(s.pane_id); }, true);
     group.appendChild(b);
   }
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
@@ -840,7 +933,10 @@ function dock(states, act) {
     const b = document.createElement("button");
     b.className = "badge b-" + key;
     b.textContent = label;
-    b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
+    // onTap because #filters is rebuilt every poll, so a rebuild between press and release
+    // swallows a plain click — worst exactly when a pane is BUSY, since a changing pane makes
+    // the deck version bump constantly. Deferred: #filters is an overflow-x scroller too.
+    onTap(b, () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); }, true);
     filtersEl.appendChild(b);
   };
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
@@ -976,13 +1072,17 @@ function row(s, act) {
   // the toggle sits beside it in .ph-right. The row div stays a pointer target so
   // taps on its padding still open the card.
   const goCard = () => { listFilter = null; setActive(s.pane_id); };
-  el.onclick = goCard;
+  // defer: rows are rebuilt every poll (so `click` alone loses taps) but they also sit in
+  // vertically-scrolling #panes, so navigation waits for a pointerup that didn't scroll.
+  onTap(el, goCard, true);
   el.innerHTML = paneHeader(s, { icon: true });
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
   openBtn.append(...[...el.children].filter((n) => !n.classList.contains("ph-right")));
   el.prepend(openBtn);
-  openBtn.onclick = (e) => { e.stopPropagation(); goCard(); }; // don't double-fire via the row
+  // stopPropagation covers the KEYBOARD path — onTap already swallows the pointer's click,
+  // but an AT-synthesized click on the button would still bubble to the row and re-fire.
+  onTap(openBtn, (e) => { e.stopPropagation(); goCard(); }, true); // same scroll container
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
   // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
   // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
@@ -1122,6 +1222,7 @@ function card(s) {
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
   { const subs = realSubs(s.subagents); if (subs.length) el.appendChild(subagentsView(subs)); }
   if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
+  if (Array.isArray(s.copyables) && s.copyables.length) el.appendChild(copyView(s.copyables));
   const log = (eventLog[s.pane_id] || {}).events || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
@@ -1340,6 +1441,23 @@ function bgTerm(s) {
         // this frame would never render. Only the scroll-to-tail is suppressed during a
         // gesture (that's what fights the user's finger). Diff-skip avoids the reflow
         // when the content is actually identical (the flicker source).
+        // NEVER repaint while the user is typing or selecting. An innerHTML swap tears
+        // down and rebuilds the subtree, which collapses the document Selection — and on
+        // a BUSY pane these frames arrive continuously, so every attempt to place the
+        // caret in the composer was wiped within milliseconds. That is the "I can't even
+        // tap into the input box on a busy pane; I have to switch panes and back" bug
+        // (switching panes stops this stream, which is why it appeared to fix it).
+        // The fullscreen path already guarded its own selection this way; the peek didn't.
+        // Frames keep coming, so a skipped paint self-corrects on the next one.
+        // Only skip a paint while the caret is being PLACED or a selection is live, not
+        // for the whole time the composer holds focus — the terminal must keep streaming
+        // while you type. `_caretGrace` is stamped on composer pointerdown/focus, so the
+        // guard covers the vulnerable window (the tap and the moments after it) and then
+        // expires; a live selection is honored for as long as it exists.
+        const sel = document.getSelection();
+        const selecting = sel && !sel.isCollapsed
+          && (peekBox?.contains(sel.anchorNode) || bar.input?.contains(sel.anchorNode));
+        if (selecting || Date.now() - _caretGrace < 1200) return;
         if (peekBox && peekBox.innerHTML !== html) {
           peekBox.innerHTML = html;
           tuckChrome(peekWrap, peekBox);
@@ -1386,6 +1504,19 @@ const peekRO = new ResizeObserver((entries) =>
   }));
 let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
+// Display-safe text from an untrusted string (model output derived from pane content):
+// strip bidi controls, then cap by CODE POINTS so no surrogate pair is split. Bidi
+// controls matter because an unterminated RLO/LRO can visually reorder a row — reversing
+// a link's host indicator, or making a copy row's preview read as different content than
+// the clipboard carries. Use this for untrusted text set as textContent; the innerHTML
+// paths (tasks/events/subagents) go through esc() instead, which escapes markup but does
+// NOT strip bidi — those are plain rows where reordering is cosmetic, not deceptive.
+function safeText(v, max) {
+  return Array.from(
+    String(v ?? "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
+  ).slice(0, max).join("");
+}
+
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
 // raw screen text can't. stopPropagation so tapping opens the link, not the card.
@@ -1407,18 +1538,121 @@ function linksView(links) {
     a.href = l.href;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    // Strip bidi controls (an unterminated RLO in a model label could visually
-    // reverse the host indicator) and cap by code points (no split surrogates).
-    const label = Array.from(
-      String(l.text || "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
-    ).slice(0, 80).join("");
-    a.textContent = `\u{1F517} ${label || host}`;
+    const label = safeText(l.text, 80);  // untrusted: bidi-stripped, code-point capped
+    // Lucide icon, not the 🔗 emoji: AGENTS.md bans emoji as UI chrome (emoji ignore
+    // currentColor, so they can't theme, and they render differently per device). The
+    // label is untrusted, so it rides in its own span as textContent — never innerHTML.
+    const licn = document.createElement("span");
+    licn.className = "linkicon";
+    licn.innerHTML = licon("link", 13);
+    const ltxt = document.createElement("span");
+    ltxt.textContent = label || host;
+    a.append(licn, ltxt);
     const hostEl = document.createElement("span");
     hostEl.className = "linkhost";
     hostEl.textContent = ` ${host}`;
     a.appendChild(hostEl);
     a.onclick = (e) => e.stopPropagation();
     box.appendChild(a);
+  }
+  return box;
+}
+
+// Put text on the clipboard, resolving true/false so the caller can show the outcome
+// (a silent no-op reads as "the button is broken"). navigator.clipboard needs a secure
+// context: the PWA is served over HTTPS through the tunnel, but a plain-HTTP LAN visit
+// (http://host:8080) has no Clipboard API at all — fall back to the legacy
+// execCommand path so copy still works there.
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* fall through — denied permission or an insecure context */ }
+  const ta = document.createElement("textarea");
+  try {
+    ta.value = text;
+    // Off-screen but focusable, and readOnly so mobile keyboards don't pop up.
+    ta.readOnly = true;
+    ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length); // iOS ignores select() alone
+    return document.execCommand("copy");
+  } catch { return false; }
+  // Remove in `finally`: if select()/setSelectionRange() throws we'd otherwise leak a
+  // hidden textarea into the DOM on every failed attempt.
+  finally { ta.remove(); }
+}
+
+// One-tap copy for text the parser lifted off the screen (commands to run elsewhere,
+// drafted commit messages, generated tokens — see "copyables" in parser_prompt.txt).
+// TWO lines per row: the model's LABEL as a heading, plus a one-line PREVIEW of the
+// actual text under it. The preview is what makes the row decidable — a bare "API
+// token" or "Commit message" doesn't say WHICH token or what the message reads, so the
+// user had to copy-then-paste-somewhere just to look, which is the terminal problem all
+// over again. Full payload still rides on the button; only the preview is clipped.
+function copyView(items) {
+  const box = document.createElement("div");
+  box.className = "copyables";
+  const valid = items.filter((c) => c && typeof c.text === "string" && c.text.trim());
+  for (const c of valid.slice(0, 3)) {
+    const b = document.createElement("button");
+    b.className = "copybtn";
+    // Label is MODEL OUTPUT derived from untrusted pane content: strip bidi controls
+    // (an unterminated override would visually reorder the row) and cap by code points
+    // so a hostile pane can't bury the card under a wall of text. textContent, never
+    // innerHTML. Falls back to a generic name when the model gave no usable label.
+    const label = safeText(c.label, 60) || "Text";
+    // Icon is chrome (inline Lucide, themes via currentColor — AGENTS.md bans emoji
+    // here); the label is untrusted, so it rides in its own span as textContent and
+    // never touches innerHTML. Swap to a check when the copy lands.
+    const icon = document.createElement("span");
+    icon.className = "copyicon";
+    icon.innerHTML = licon("clipboard", 14);
+    // Preview: the payload's own first line, so the row says what it actually holds.
+    // Newlines collapse to a pilcrow-ish separator (a multi-line commit message must
+    // read as one line here) and runs of grid whitespace collapse so terminal padding
+    // doesn't eat the preview. Clipped by CSS, not here — the full text stays on the
+    // clipboard. Sliced generously (200) before CSS ellipsis so a hostile payload
+    // can't cost real layout work.
+    // safeText for the same reason the label gets it, and MORE so: this is the payload
+    // itself, so a bidi control here could make the row read as different content than
+    // the clipboard actually carries. Display only — c.text stays verbatim for the copy.
+    const preview = safeText(c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " "), 200);
+    const text = document.createElement("span");
+    text.className = "copylabel";
+    const prev = document.createElement("span");
+    prev.className = "copyprev";
+    prev.textContent = preview;
+    const lines = document.createElement("span");
+    lines.className = "copylines";
+    lines.append(text, prev);
+    const set = (t, done = false) => {
+      icon.innerHTML = licon(done ? "check" : "clipboard", 14);
+      text.textContent = t;
+    };
+    set(label);
+    b.append(icon, lines);
+    let revert = 0;
+    // onTap(defer), not onclick: the card is rebuilt on the ~2s poll, so a plain `click` is
+    // lost whenever a rebuild lands between finger-down and finger-up — the same swallowed-tap
+    // bug the dock had, and worse here because the payload is the whole point of the row.
+    // Deferred to pointerup: the card scrolls, so a scroll flick must not copy — and pointerup
+    // still carries the transient user activation that BOTH clipboard paths need
+    // (navigator.clipboard.writeText and the execCommand fallback alike).
+    onTap(b, async (e) => {
+      e.stopPropagation(); // copying must not also re-select the pane
+      const ok = await copyText(c.text);
+      // The card never shows the payload, so a failure has to send the user to where the
+      // text actually is — the pane itself — not to a "text" that isn't on screen.
+      set(ok ? "Copied" : "Copy failed — select it in the pane", ok);
+      b.classList.toggle("copied", ok);
+      // Revert so the row keeps naming its content (and a second copy is obvious). Clear
+      // the pending timer first: on a rapid second tap the older one would otherwise fire
+      // mid-confirmation and blank the state early.
+      clearTimeout(revert);
+      revert = setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);
+    }, true);
+    box.appendChild(b);
   }
   return box;
 }
@@ -1616,6 +1850,27 @@ function activeState() {
   const id = activeId();
   return panesById[id] || { pane_id: id, label: "" };
 }
+// Non-blocking failure notice pinned in the input bar. Lives OUTSIDE the card that
+// render() replaces, so it survives re-renders (the reason the mic/send paths reached for
+// alert() in the first place — see #101) without freezing the page like a modal does.
+// Auto-clears on the next successful action or after a while; tapping it dismisses.
+let _noteTimer = 0;
+function barNote(msg) {
+  const host = document.getElementById("bar");
+  if (!host) return;
+  let el = document.getElementById("bar-note");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "bar-note";
+    el.className = "bar-note";
+    el.onclick = () => el.remove();
+    host.prepend(el); // first child of #bar: above the keys row and the composer
+  }
+  el.textContent = msg; // untrusted-ish (error text): textContent, never innerHTML
+  clearTimeout(_noteTimer);
+  _noteTimer = setTimeout(() => el.remove(), 12000);
+}
+
 function updateBar(s) {
   // The CSS :empty::before placeholder isn't an accessible name, so mirror it into
   // aria-label — screen readers announce the per-pane target instead of a bare textbox.
@@ -1624,12 +1879,27 @@ function updateBar(s) {
   bar.input.setAttribute("aria-label", label);
   bar.meta.innerHTML = s ? metaChips(s) : "";
 }
+// Stamped when the user is placing the caret in the composer. The live peek repaint
+// (an innerHTML swap) collapses the Selection, so on a busy pane it wiped the caret as
+// fast as you could tap; the repaint yields for this window instead. Time-bounded so a
+// focused composer can never freeze the terminal stream.
+let _caretGrace = 0;
+
 if (bar.input) {
   // Send/Enter submits the composer: typed text and/or a staged image go to the pane
   // together, then one Enter (see submitComposer). Nothing reaches the pane at attach
   // time — the image waits here as a draft until you send, mirroring the phone's own
   // "type a caption, then send the photo" feel.
-  bar.send.onclick = () => submitComposer(activeState());
+  // onTap, not onclick: on a touchscreen the browser withholds `click` entirely if the
+  // finger drifts a few pixels between touchstart and touchend (easy on a phone, and on
+  // a soft-keyboard layout that shifts under your thumb). A withheld click is a Send that
+  // silently does nothing — the single worst failure this app can have, since the user's
+  // typed message just sits there. pointerdown always fires, and submitComposer is
+  // already re-entrancy-guarded by `sending`, so committing on touch-down is safe.
+  onTap(bar.send, () => submitComposer(activeState()));
+  // Any attempt to put the caret in the composer opens the repaint-grace window.
+  ["pointerdown", "focus", "click"].forEach((ev) =>
+    bar.input.addEventListener(ev, () => { _caretGrace = Date.now(); }, true));
   // Enter sends. We drive the send off `beforeinput`/insertParagraph rather than a
   // keydown "Enter" check because Android's soft keyboard (and IME composition) fires
   // keydown with keyCode 229 and NO usable `key` — so a keydown-only handler silently
@@ -1690,15 +1960,43 @@ if (bar.input) {
 // agent's prompt with the images exactly where they sat between the words, like Claude
 // Code's own composer. The DOM is the source of truth; there's no separate staged[].
 // Empty composer is a no-op (a bare Enter would submit whatever's already in the agent).
-async function submitComposer(s) {
-  if (busy) return; // a send is already in flight — don't double-fire (keydown+beforeinput)
-  const segs = composerSegments();
+let sending = false; // a send is IN FLIGHT — distinct from `busy` (see submitComposer)
+
+const _sendQueue = []; // taps that arrived while a send was in flight (never dropped)
+
+async function submitComposer(s, presetSegs) {
+  // Guard on `sending`, NOT the shared `busy`. `busy` is also set by swipes, pinch/drag
+  // gestures and option taps to freeze poll re-renders, so guarding on it made Send do
+  // nothing — silently — whenever a gesture had it held (a swipe keeps it for 150ms after
+  // release). "Sometimes the send button just does nothing" was that. `sending` is owned
+  // by this function alone, so it still blocks the genuine double-fire it was added for
+  // (keydown + beforeinput both firing for one Enter).
+  //
+  // Deliberately NOT blocked when the target pane is busy working: agents queue typed
+  // input, so sending mid-run is valid and useful — the user's message lands in the
+  // agent's queue rather than being dropped.
+  // NOTHING may silently swallow a Send. The old `if (sending) return` dropped the tap
+  // with no trace whenever a previous send was still in flight — and since an unbounded
+  // fetch could hang indefinitely, "in flight" could mean forever. Now a tap arriving
+  // mid-send SNAPSHOTS the composer, clears it, and queues the text to go out as soon as
+  // the current send finishes. The user's words are never lost and never require a retry.
+  const segs = presetSegs || composerSegments();
   if (!segs.length) return;
-  busy = true;
+  if (sending) {
+    _sendQueue.push({ s, segs });
+    clearComposer();          // the message is committed — it must leave the box
+    barNote("Queued — sending the previous message first.");
+    return;
+  }
+  sending = true;
+  busy = true; // also freeze poll re-renders while the composer is mid-flush
   // Immediate feedback: the Send button spins for the whole request — on a slow
   // connection (image uploads) this runs for seconds, and silence reads as hung.
   bar.send?.classList.add("sending");
-  bar.send && (bar.send.disabled = true);
+  // Do NOT disable the button: `sending` already blocks re-entry, and a disabled button
+  // is stranded unclickable if anything interrupts us before `finally` runs (a
+  // backgrounded tab killing the in-flight fetch, a navigation). The spinner class is
+  // the feedback; the guard is the correctness.
   try {
     // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
     // submitting now would send the surrounding text without its image and drop the
@@ -1714,12 +2012,29 @@ async function submitComposer(s) {
     // No burst needed: the visible raw surface streams via liveStream, so the sent
     // text/images show up in the next live frame on their own (docs/design/live-view.md).
   } catch (e) {
-    alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
+    // NOT alert(): a native modal is synchronous, so it halts the poll loop and the live
+    // stream until dismissed — the app looks frozen, and on iOS the browser starts
+    // offering "Suppress dialogs", after which this message vanishes silently forever
+    // (see #101). An inline banner conveys the same thing without stopping the world.
+    // The composer is deliberately NOT cleared, so the message is never lost.
+    barNote(`Not sent — ${e.message}. Your text is still here; tap Send to retry.`);
+    reportError("send", e); // so the failure rate is queryable, not just visible once
   } finally {
+    // Release `sending` HERE, not on a timer: it's the re-entry guard, so a thrown
+    // upload must not leave Send permanently dead (the failure path above tells the
+    // user to retry — it has to actually be retryable).
+    sending = false;
+    // Drain: a tap that arrived mid-flight queued its text rather than being dropped, so
+    // send it now. Deferred a tick so `sending` is observably clear first (and so a long
+    // queue can't recurse into a deep stack).
+    if (_sendQueue.length) {
+      const next = _sendQueue.shift();
+      setTimeout(() => submitComposer(next.s, next.segs), 0);
+    }
     // Button un-spins NOW (the work is done); busy holds a beat longer so the poll
     // doesn't repaint mid-settle.
     bar.send?.classList.remove("sending");
-    bar.send && (bar.send.disabled = false);
+    bar.send && (bar.send.disabled = false); // clear any legacy disabled state
     setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
@@ -1778,7 +2093,10 @@ function composerSegments() {
 async function uploadStagedImage(s, file) {
   const fd = new FormData();
   fd.append("file", file);
-  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
+  // Bounded like postSend, but with room for a real upload on a phone connection.
+  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
+    method: "POST", body: fd, signal: AbortSignal.timeout(45000),
+  });
   if (!r.ok) throw new Error("upload failed: " + r.status);
 }
 
@@ -1959,22 +2277,35 @@ async function sendRaw(s, keyName) {
 // error) so submitComposer's loop aborts before Enter/clear instead of dropping a
 // segment silently. Pure — callers own the `busy` freeze around it.
 async function postSend(s, body) {
+  // HARD TIMEOUT. Without one, a stalled request (phone radio handoff, tunnel/relay
+  // hiccup) hangs this await forever — and because the caller holds `sending` across it,
+  // EVERY later tap becomes a silent no-op. That is the "Send just hangs, then nothing
+  // works" failure: not a dropped tap, a latched guard behind a fetch with no deadline.
+  // 8s is far longer than a keystroke POST needs on a bad connection, and far shorter
+  // than a user's patience. On timeout we throw, which unlatches the guard and shows the
+  // inline notice, so the next tap can actually retry.
   const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
   });
   if (!r.ok) throw new Error("send failed: " + r.status);
 }
 
 async function send(s, body) {
-  if (busy) return; // a send is already in flight — a double-tapped option must not double-fire
+  // `sending`, not the shared `busy` (which swipes/gestures also hold) — same reason as
+  // submitComposer: guarding on busy made a legitimate answer tap silently do nothing
+  // when a gesture happened to own the flag. Still blocks the real double-fire.
+  if (sending) return;
+  sending = true;
   busy = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
   try {
     await postSend(s, body);
   } finally {
+    sending = false; // re-entry guard: released now, so a failed answer stays retryable
     setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
@@ -2059,19 +2390,25 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     // `selectable`: ONE finger belongs to the browser — long-press → select → copy
     // (copying out of the terminal is a core use case). Our JS claims only two-finger
     // gestures there; without it (the peek) one-finger drag still pans.
-    if (selectable && e.touches.length === 1) return;
+    // targetTouches, not touches, everywhere in here: `touches` counts every finger on the
+    // PAGE, so a thumb resting on the composer would make this container think a one-finger
+    // pan was a two-finger pinch, and would hold `start` alive after the user lifted off it.
+    // targetTouches counts only the fingers that started on this container.
+    const t = e.targetTouches;
+    if (selectable && t.length === 1) return;
     busy = true; // freeze poll re-renders mid-gesture
-    if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
-    else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - st.tx, y: e.touches[0].clientY - st.ty };
+    if (t.length === 2) { const m = mid(t); start = { dist: dist(t), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
+    else if (t.length === 1) start = { pan: true, x: t[0].clientX - st.tx, y: t[0].clientY - st.ty };
   }, { passive: false });
   container.addEventListener("touchmove", (e) => {
     if (!start) return;
     e.preventDefault();
-    if (start.pan && e.touches.length === 1) {
-      st.tx = e.touches[0].clientX - start.x; st.ty = e.touches[0].clientY - start.y;
-    } else if (e.touches.length === 2) {
-      const m = mid(e.touches); // anchor to the LIVE midpoint: pinch zooms AND pans
-      const f = dist(e.touches) / start.dist;
+    const t = e.targetTouches;
+    if (start.pan && t.length === 1) {
+      st.tx = t[0].clientX - start.x; st.ty = t[0].clientY - start.y;
+    } else if (t.length === 2) {
+      const m = mid(t); // anchor to the LIVE midpoint: pinch zooms AND pans
+      const f = dist(t) / start.dist;
       st.scale = Math.min(6, Math.max(0.4, start.s * f));
       // the content point under the start midpoint stays under the fingers
       st.tx = m.x - (start.cx - start.tx) * (st.scale / start.s);
@@ -2080,8 +2417,32 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     apply();
   }, { passive: false });
   const release = (e) => {
-    if (e.touches.length !== 0) return;
-    start = null; busy = false;
+    // ALWAYS release the poll freeze, even while fingers remain down. This used to be
+    // gated behind the `touches.length !== 0` early-return below, which leaked
+    // `busy = true` FOREVER whenever a gesture ended without a clean zero-touch
+    // touchend — a second finger lifting, a touch that starts here and ends elsewhere,
+    // an OS interruption. A leaked `busy` freezes the poll loop permanently: the deck
+    // stops updating, and the composer/Send paths that coordinate through it wedge, so
+    // the app looks dead (can't send, can't even focus the input) until a reload.
+    // Reproduced by dispatching touchstart then a touchend still reporting one touch:
+    // zero dock rebuilds in the following 5s.
+    busy = false;
+    if (e.targetTouches.length !== 0) {
+      // Fingers still down, so the gesture continues — but it is a DIFFERENT gesture now.
+      // Lifting one finger of a pinch leaves `start` describing two, and touchmove would
+      // then preventDefault (start is truthy) while updating nothing (not .pan, and only
+      // one touch), pinning the content unresponsive under the remaining finger. Re-seed
+      // as a pan from where that finger actually is so it keeps working; anything else
+      // (>2 fingers, or a selectable container's single finger) ends the gesture cleanly.
+      const t = e.targetTouches;
+      if (t.length === 1 && !selectable) {
+        start = { pan: true, x: t[0].clientX - st.tx, y: t[0].clientY - st.ty };
+      } else {
+        start = null;
+      }
+      return;
+    }
+    start = null;
     if (!snapHome) return;
     // Clamp at ANY zoom so no edge ever shows a black gap: slide the content back
     // until it covers the window (or pins bottom-left when it's smaller than it).
@@ -2107,6 +2468,11 @@ function pinchZoom(container, el, st, snapHome, selectable) {
   };
   container.addEventListener("touchend", release);
   container.addEventListener("touchcancel", release);
+  // The backgrounded-mid-gesture unwedge lives in onResume, NOT here: pinchZoom runs on the
+  // per-poll card/peek rebuild, so a `document` listener per call leaked one every ~2s (the
+  // `container` ones die with the detached DOM; a document one never does). Only `busy`
+  // needs the global reset — `start` is per-instance and a stale instance's container is
+  // already detached, so its gesture can neither continue nor be re-entered.
 }
 
 function esc(s) {
