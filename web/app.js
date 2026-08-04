@@ -1483,13 +1483,19 @@ function copyView(items) {
     };
     set(label);
     b.append(icon, text);
+    let revert = 0;
     b.onclick = async (e) => {
       e.stopPropagation(); // copying must not also re-select the pane
       const ok = await copyText(c.text);
-      set(ok ? "Copied" : "Copy failed — long-press the text instead", ok);
+      // The card never shows the payload, so a failure has to send the user to where the
+      // text actually is — the pane itself — not to a "text" that isn't on screen.
+      set(ok ? "Copied" : "Copy failed — select it in the pane", ok);
       b.classList.toggle("copied", ok);
-      // Revert so the row keeps naming its content (and a second copy is obvious).
-      setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);
+      // Revert so the row keeps naming its content (and a second copy is obvious). Clear
+      // the pending timer first: on a rapid second tap the older one would otherwise fire
+      // mid-confirmation and blank the state early.
+      clearTimeout(revert);
+      revert = setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);
     };
     box.appendChild(b);
   }

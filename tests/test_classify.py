@@ -182,12 +182,17 @@ def test_copyables_capped_and_malformed_dropped():
                     {"label": "too long", "text": "x" * 4001},
                     {"label": "empty", "text": ""},
                     "not a dict",
-                    {"label": "fourth", "text": "over the cap of 3"},
+                    {"label": "fourth", "text": "past the malformed ones"},
                 ],
             }
         ),
     )
-    assert r["copyables"] == [{"label": "Commit message", "text": "fix: unwrap the thing"}]
+    # Only the two well-formed entries survive. The trailing one is KEPT: validation runs
+    # before the 3-item cap, so the malformed entries above it don't consume slots.
+    assert r["copyables"] == [
+        {"label": "Commit message", "text": "fix: unwrap the thing"},
+        {"label": "fourth", "text": "past the malformed ones"},
+    ]
 
 
 def test_copyables_reemitted_minimally():
@@ -210,6 +215,39 @@ def test_copyables_reemitted_minimally():
         {"label": "L" * 200, "text": "paste me"},
         {"label": "", "text": "no label at all"},
     ]
+
+
+def test_copyables_validated_before_capping():
+    # Malformed entries must not burn one of the 3 slots: the prompt orders copyables
+    # most-pasteable-first, so capping the raw list would drop a good trailing entry.
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "copyables": [
+                    "junk",
+                    {"label": "no text"},
+                    {"label": "a", "text": "first"},
+                    {"label": "b", "text": "second"},
+                    {"label": "c", "text": "third"},
+                ],
+            }
+        ),
+    )
+    assert [c["text"] for c in r["copyables"]] == ["first", "second", "third"]
+
+
+def test_copyables_all_malformed_omits_field():
+    # Nothing survived — omit the field rather than shipping an empty list (the prompt
+    # says omit when there's nothing, and the UI keys off presence).
+    r = classify(
+        _pane(),
+        "…",
+        _llm({"activity": "idle", "copyables": [{"label": "x"}, "junk"]}),
+    )
+    assert "copyables" not in r
 
 
 def test_copyables_non_list_dropped():

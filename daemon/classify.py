@@ -169,15 +169,24 @@ def classify(
     # extra key it invents would ride the wire for free, and the label (a one-line
     # summary) is capped here too so it can't itself become the wall of text. The client
     # re-caps at 60 for display; this bound is about payload, not layout.
+    # Validate BEFORE capping, not after: the prompt asks for the most-pasteable entries
+    # first, so slicing the raw list would let a malformed early entry burn a slot and
+    # drop a good one that was under the cap. Nothing surviving means the field goes away
+    # entirely rather than shipping `copyables: []` — the prompt says omit when there's
+    # nothing, and the UI keys off presence.
     cps = result.get("copyables")
     if isinstance(cps, list):
-        result["copyables"] = [
+        good = [
             {"label": str(c.get("label") or "")[:200], "text": c["text"]}
-            for c in cps[:3]
+            for c in cps
             if isinstance(c, dict)
             and isinstance(c.get("text"), str)
             and 0 < len(c["text"]) <= 4000
-        ]
+        ][:3]
+        if good:
+            result["copyables"] = good
+        else:
+            result.pop("copyables", None)
     else:
         result.pop("copyables", None)
     result["pane_id"] = pane.id
