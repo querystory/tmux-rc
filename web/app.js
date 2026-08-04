@@ -491,7 +491,12 @@ function nsubOf(s) {
   return Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
 }
 
-function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
+// `link`: may the headline contain anchors? NO for list rows, where row() moves this
+// header INTO a <button> (.row-open) — an <a> inside a <button> is invalid HTML, and
+// browsers disagree about which one a click or Enter activates, so the row's own
+// open-the-card action becomes unreliable and AT announces it inconsistently. The card
+// header is not inside a button, so it keeps its links.
+function paneHeader(s, { caret = false, collapsed = false, icon = false, link = false } = {}) {
   const a = actOf(s);
   const nsub = nsubOf(s);
   // idle and waiting both show time-in-state ("idle 4m" / "waiting 4m"); the
@@ -516,7 +521,7 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
     + `<div class="ph-meta"><div class="ph-name">`
     + (icon && s.window_index != null ? `<span class="wnum">${esc(String(s.window_index))}</span>` : "")
     + `${esc(s.title || s.label || s.pane_id)}</div>`
-    + (s.headline ? `<div class="ph-sub">${linkifyText(s.headline)}</div>` : "")
+    + (s.headline ? `<div class="ph-sub">${link ? linkifyText(s.headline) : esc(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}"${since}>${badge}</span></div>`
   );
 }
@@ -1387,7 +1392,7 @@ function card(s) {
   // the icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just
   // this header row (still tab-joined), handing the live terminal the screen; collapse
   // state is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
-  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false });
+  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false, link: true });
   onTap(row.querySelector(".card-caret"), (e) => {
     e.stopPropagation(); // don't also re-select the pane
     cardsCollapsed = !collapsed;
