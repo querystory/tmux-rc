@@ -281,6 +281,16 @@
   #top .dock.has-sel { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .dock.has-sel .dock-icon.sel { border-bottom: 0; border-bottom-left-radius: 0;
     border-bottom-right-radius: 0; margin-bottom: -4px; padding-bottom: 11px; background: var(--surface); }
+  /* Keep the sub-agent badge OFF the join. .sacount is anchored bottom:0 of the icon's
+     padding box, so the +5px padding-bottom above (6px → 11px) rides it down onto the
+     tab's foot: its 2px --surface ring then straddles the card's top border, punching a
+     hole in the blue line and in the right fillet's arc. Lift it back so the whole ring —
+     spread included — lands above the dock's padding-box bottom, i.e. inside the scroller's
+     clip, exactly where an UNSELECTED icon's badge sits: 5px cancels the added padding and
+     the 6th clears the ring's own 2px spread past the clip edge. This was invisible while
+     the ring was hard-coded near-black (it matched the dark chrome); themed --surface made
+     it #fff in light mode, which is when the "lines under the icon" appeared. */
+  .dock.has-sel .dock-icon.sel .sacount { bottom: 6px; }
   .tab-notch { position: absolute; top: 0; height: 1px; background: var(--surface); z-index: 2; pointer-events: none; }
   /* Edge tabs: a flare landing inside the card's corner-radius zone has no flat line
      to join (the border is curving away there) — square that corner instead. */
