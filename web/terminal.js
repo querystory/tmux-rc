@@ -50,7 +50,11 @@ const LINK_RE = new RegExp(
 const anchor = (href, shown) =>
   `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(shown)}</a>`;
 
-function linkify(text) {
+// `join` (default on) enables cross-line URL rejoining. It is a TERMINAL-GRID heuristic and
+// must be off for prose — see linkifyText: prose lines are broken by the author, not by a
+// fixed width, so "these two lines are the same length" carries no meaning there and the
+// heuristic mistakes coincidence for wrapping.
+function linkify(text, join = true) {
   // Cross-line URL joining: a URL that reaches a full-width line's end continues on the
   // next line (that's wrapping). Only join when the frame shows real wrapping — a
   // plausible width (>=40) and >=2 full-width lines — so a lone long line ending in a
@@ -59,7 +63,7 @@ function linkify(text) {
   const lines = text.split("\n");
   const maxLen = Math.max(0, ...lines.map((l) => l.length));
   const fullLines = lines.filter((l) => l.length >= maxLen - 1).length;
-  const canJoin = maxLen >= 40 && fullLines >= 2 && fullLines < lines.length;
+  const canJoin = join && maxLen >= 40 && fullLines >= 2 && fullLines < lines.length;
   const joinWidth = maxLen - 1;
   const lineEndLen = new Map(); // offset of each \n -> length of the line it ends
   let off = 0;
@@ -100,11 +104,15 @@ const SGR_SPLIT = /(\x1b\[[0-9;]*m)/;
 const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 
 // Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
-// terminal gets — markdown [label](url) and bare URLs — but without the grid-specific
-// wrap-joining, since prose isn't a fixed-width character grid. Escapes everything else,
-// so it is a drop-in replacement for esc() on untrusted model text.
+// terminal gets — markdown [label](url) and bare URLs — but with wrap-joining OFF, because
+// that heuristic reads equal line lengths as evidence of a fixed-width grid. In prose the
+// line breaks are the author's, so two coincidentally similar lines were enough to glue the
+// following words onto the href: a summary line ending in a URL produced an anchor pointing
+// at "https://ex.com/abc" + the next line's text, and swallowed that text into the link.
+// Escapes everything it doesn't anchor, so it is a drop-in replacement for esc() on
+// untrusted model text.
 export function linkifyText(text) {
-  return linkify(String(text ?? ""));
+  return linkify(String(text ?? ""), false);
 }
 
 export function renderCapture(text, { color = false } = {}) {

@@ -135,8 +135,22 @@ const openTimelines = new Set();
 let cardsCollapsed = false;
 // `busy` freezes polling re-renders while a mutation is mid-flight: an answer/composer
 // send (so a fresh parse doesn't replace the card under the user) and swipe/pinch
-// gestures. While set, send() also no-ops to avoid double-firing.
+// gestures. It is ONLY a render freeze — re-entry into a send is guarded by `sending`,
+// which those functions own. Conflating the two is what made Send silently do nothing
+// whenever a gesture happened to hold this flag.
 let busy = false;
+
+// A fetch deadline that works on older iOS Safari too. AbortSignal.timeout only landed in
+// Safari 16, and this file otherwise accounts for older iOS (the MediaQueryList and :has()
+// notes below), so calling it unguarded would throw before the request even starts —
+// turning a timeout safeguard into a hard failure on exactly the phones this app targets.
+// Shared rather than inlined per call site so every bounded fetch expires the same way.
+function timeoutSignal(ms) {
+  if (AbortSignal.timeout) return AbortSignal.timeout(ms);
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(new DOMException("TimeoutError", "TimeoutError")), ms);
+  return ac.signal;
+}
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
 // sent. The card (and its answered question) render in a spinning "reparsing" state
 // until the served parsed_at advances past this — so a submitted answer / picked menu
@@ -264,7 +278,7 @@ function activeId() {
 // never observe a different finger's release, and nothing accumulates between gestures.
 const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
 const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
-let _tapClaimed = null;   // the pointerup a deferred tap already acted on (see done())
+let _tapClaimed = "";     // pointerId:timeStamp of the pointerup a deferred tap acted on
 function onTap(el, fn, defer) {
   let downAt = 0;
   el.addEventListener("pointerdown", (e) => {
@@ -295,8 +309,11 @@ function onTap(el, fn, defer) {
       // inner target: pointerdown still bubbles element-first, so .row-open registered its
       // document listener before the row did. Both actions are idempotent anyway — the
       // claim is what keeps it to one /select POST instead of two.
-      if (_tapClaimed === ev) return;
-      _tapClaimed = ev;
+      // Keyed by pointerId+timeStamp rather than the event object: holding the event would
+      // pin its .target, a row a rebuild just detached, alive until the next tap.
+      const claim = `${ev.pointerId}:${ev.timeStamp}`;
+      if (_tapClaimed === claim) return;
+      _tapClaimed = claim;
       fn(ev);
     };
     document.addEventListener("pointermove", move, true);
@@ -685,6 +702,42 @@ function escAttr(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+// What the rendered UI actually depends on. If this is unchanged, a re-render would
+// rebuild identical DOM — so we skip it entirely and every live node (with its handlers,
+// focus, caret, scroll position and in-flight gesture) survives.
+//
+// THE RULE THIS ENFORCES: nothing in the UI may break because a pane is updating. Every
+// control here is created fresh by render() and wired per render, so a rebuild landing
+// between a finger going down and coming up silently swallowed the tap — the caret, the
+// fullscreen button, answer options, the sub-agent toggle, Send, dock tabs, filters. That
+// was fixed control-by-control with onTap, which is real but only ever protects the
+// controls someone remembered. Skipping the pointless rebuild protects ALL of them,
+// including any added later, and is also strictly less work.
+//
+// Deliberately EXCLUDES the streaming terminal frame (the peek repaints itself via its
+// own stream, not through render) and volatile counters, so a busy pane whose output is
+// scrolling does NOT churn the card. Includes everything the card/dock/list actually
+// draw: identity, activity, badges, question shape, event sequence, and view mode.
+function _renderFp(states) {
+  return JSON.stringify([
+    listFilter, cardsCollapsed, activeId(),
+    states.map((s) => [
+      s.pane_id, s.session, s.window_index, s.label, s.title, s.headline,
+      actOf(s), s.waiting_on, s.tool, s.mode, s.model, s.context_pct, s.cost,
+      s.session_active, s.tmux_active, s.events_seq, s.snapshot_id,
+      s.agents, (s.subagents || []).length, (s.tasks || []).length,
+      (s.copyables || []).length, (s.links || []).length, (s.tables || []).length,
+      s.question ? [s.question.prompt, (s.question.options || []).length] : 0,
+      s.rewind ? 1 : 0, s.session_summary, isReparsing(s),
+      // idle/waiting badges tick from data-since in place (tickBadges), so the SECOND
+      // must not enter the fingerprint or a parked pane would rebuild once a second.
+      s.state_since ?? null,
+      [...subsOpen].includes(s.pane_id),
+    ]),
+  ]);
+}
+let _renderFpLast = null;
+
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
@@ -738,6 +791,12 @@ function render(states) {
   // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting)
   // each get a compact row above it; plain shells fold into one summary line so a
   // big fleet doesn't shove the active card off screen.
+  // Nothing the UI draws has changed ⇒ do not touch the DOM. This is what makes the app
+  // safe to use while panes are updating: handlers, focus, caret and gestures all live on.
+  const fp = _renderFp(states);
+  if (fp === _renderFpLast && panesEl.firstChild) { updateBar(panesById[activeId()]); return; }
+  _renderFpLast = fp;
+
   const act = activeId();
   // List mode (a dock tally badge or "all" was tapped): just those panes as
   // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
@@ -786,7 +845,7 @@ function render(states) {
         '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>';
       fs.title = "Full screen";
       fs.setAttribute("aria-label", "Full screen");
-      fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
+      onTap(fs, () => openScreen(a.pane_id, a.title || a.label));
       deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
     }
     panesEl.replaceChildren(deck);
@@ -1142,11 +1201,11 @@ function row(s, act) {
     // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
     t.textContent = `${subs.length} sub-agent${subs.length === 1 ? "" : "s"} ${open ? "▾" : "◂"}`;
     t.setAttribute("aria-expanded", String(open));
-    t.onclick = (e) => {
+    onTap(t, (e) => {
       e.stopPropagation(); // a toggle tap expands the box — it must not open the card
       subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
       render(Object.values(panesById));
-    };
+    });
     el.querySelector(".ph-right").append(t);
     if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
   }
@@ -1223,10 +1282,10 @@ function card(s) {
     + (isReparsing(s) ? " reparsing" : ""); // input sent, awaiting the forced re-parse
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
-  el.onclick = (e) => {
+  onTap(el, (e) => {
     if (e.target.closest("button, input, a, summary, details")) return; // don't steal option/timeline taps
     setActive(s.pane_id);
-  };
+  }, true); // defer: the card scrolls, so only a tap that didn't drag counts
 
   const row = document.createElement("div");
   row.className = "row";
@@ -1235,11 +1294,11 @@ function card(s) {
   // this header row (still tab-joined), handing the live terminal the screen; collapse
   // state is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
   row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false });
-  row.querySelector(".card-caret").onclick = (e) => {
+  onTap(row.querySelector(".card-caret"), (e) => {
     e.stopPropagation(); // don't also re-select the pane
     cardsCollapsed = !collapsed;
     render(Object.values(panesById));
-  };
+  });
   el.appendChild(row);
   if (collapsed) return el; // one-line form: header only, everything below is hidden
 
@@ -1257,7 +1316,7 @@ function card(s) {
     const sum = document.createElement("div");
     sum.className = "sess-sum";
     sum.innerHTML = linkifyText(s.session_summary); // linkifyText escapes non-anchors
-    sum.onclick = (e) => { e.stopPropagation(); sum.classList.toggle("open"); };
+    onTap(sum, (e) => { e.stopPropagation(); sum.classList.toggle("open"); });
     el.appendChild(sum);
   }
 
@@ -1896,6 +1955,10 @@ if (bar.input) {
 let sending = false; // a send is IN FLIGHT — distinct from `busy` (see submitComposer)
 
 const _sendQueue = []; // taps that arrived while a send was in flight (never dropped)
+// One Enter can fire submitComposer twice (keydown AND beforeinput — see the guard below).
+// Re-entry inside this window is that echo, not a second message.
+const SUBMIT_DEDUPE_MS = 250;
+let _lastSubmitAt = 0;
 
 async function submitComposer(s, presetSegs) {
   // Guard on `sending`, NOT the shared `busy`. `busy` is also set by swipes, pinch/drag
@@ -1916,11 +1979,24 @@ async function submitComposer(s, presetSegs) {
   const segs = presetSegs || composerSegments();
   if (!segs.length) return;
   if (sending) {
+    // The double-fire this used to absorb is now a DUPLICATE, not a no-op. One Enter can
+    // reach here twice: keydown fires first and preventDefault normally suppresses
+    // beforeinput/insertParagraph, but not on every engine — which is exactly why both
+    // handlers exist (Android's soft keyboard gives keydown no usable `key`, so
+    // beforeinput is the only reliable signal there). When `sending` merely returned, the
+    // second call vanished harmlessly. Queuing it instead would send the message twice.
+    //
+    // So: a re-entry within one input event's worth of time (and not a queue drain, which
+    // passes presetSegs) is the same keystroke arriving twice, and is dropped. A genuine
+    // second tap can't beat a human reaction time to it. Anything later is a real new
+    // message and still gets queued rather than dropped.
+    if (!presetSegs && Date.now() - _lastSubmitAt < SUBMIT_DEDUPE_MS) return;
     _sendQueue.push({ s, segs });
     clearComposer();          // the message is committed — it must leave the box
     barNote("Queued — sending the previous message first.");
     return;
   }
+  _lastSubmitAt = Date.now();
   sending = true;
   busy = true; // also freeze poll re-renders while the composer is mid-flush
   // Immediate feedback: the Send button spins for the whole request — on a slow
@@ -2028,7 +2104,7 @@ async function uploadStagedImage(s, file) {
   fd.append("file", file);
   // Bounded like postSend, but with room for a real upload on a phone connection.
   const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
-    method: "POST", body: fd, signal: AbortSignal.timeout(45000),
+    method: "POST", body: fd, signal: timeoutSignal(45000),
   });
   if (!r.ok) throw new Error("upload failed: " + r.status);
 }
@@ -2165,7 +2241,7 @@ function question(s) {
       b.className = "opt";
       b.textContent = opt;
       b.disabled = spinning;
-      b.onclick = () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); };
+      onTap(b, () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); });
       opts.appendChild(b);
     });
     q.appendChild(opts);
@@ -2221,7 +2297,7 @@ async function postSend(s, body) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8000),
+    signal: timeoutSignal(8000),
   });
   if (!r.ok) throw new Error("send failed: " + r.status);
 }
@@ -2230,13 +2306,24 @@ async function send(s, body) {
   // `sending`, not the shared `busy` (which swipes/gestures also hold) — same reason as
   // submitComposer: guarding on busy made a legitimate answer tap silently do nothing
   // when a gesture happened to own the flag. Still blocks the real double-fire.
-  if (sending) return;
+  //
+  // This path DROPS rather than queues, unlike the composer: an option tap or a raw key
+  // is only meaningful against the screen the user was looking at, so replaying it after
+  // an unrelated send lands could answer a different prompt than the one they read. But
+  // dropping it silently is what "the button just does nothing" felt like, so say so —
+  // the whole point of this PR is that no send disappears without a trace.
+  if (sending) return void barNote("Busy sending — that didn't go through. Tap again.");
   sending = true;
   busy = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
   try {
     await postSend(s, body);
+  } catch (e) {
+    // postSend has a hard timeout now, so this path is reachable — without a catch it
+    // would be an unhandled rejection and the user would see nothing at all.
+    barNote(`Not sent — ${e.message}. Tap again to retry.`);
+    reportError("send", e);
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
     setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
