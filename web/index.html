@@ -626,6 +626,20 @@
   background: var(--link-bg); color: var(--link); text-decoration: none; font-size: 13px; }
 .linkbtn:active { background: var(--link-bg-active); }
 .linkhost { opacity: .6; font-size: 11px; unicode-bidi: isolate; }
+  /* Paste-me-elsewhere text (copyables): one full-width row per item, since the label
+     is a sentence-ish summary that shouldn't be squeezed beside a sibling. Chrome
+     styling, not link-blue — copying is a local action, nothing navigates. The label is
+     untrusted model output, so isolate its bidi and ellipsize rather than wrap. */
+  .copyables { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 2px; }
+  .copybtn { display: block; width: 100%; text-align: left; padding: 8px 10px;
+    border-radius: 8px; background: var(--chrome); color: var(--fg-soft);
+    border: 1px solid var(--border); font: inherit; font-size: 13px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    unicode-bidi: isolate; }
+  .copybtn:active { background: var(--chrome-2); }
+  /* Confirmation: green for the ~1.6s the button reports the copy landed. */
+  .copybtn.copied { background: var(--green-bg); color: var(--green-bright);
+    border-color: var(--green); }
 .screen-pre a, .bg-term a { color: #8ecbff; } /* on the dark terminal, both themes */
 /* Live = color; quiet/stale stream = desaturate to gray (docs/design/live-view.md).
    A CSS filter, not a re-render — it dims the colors while leaving link <a>s and text

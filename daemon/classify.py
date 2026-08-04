@@ -159,6 +159,23 @@ def classify(
         if isinstance(subs, list)
         else 0
     )
+    # Copyables carry a whole payload each (a commit message, a code block), and they
+    # ride EVERY /api/state poll for as long as the screen shows them. Cap count and
+    # size here — a wall-of-text screen (or a hostile pane) must not inflate the deck
+    # for every client. 4000 chars is far past any realistic paste; drop rather than
+    # truncate, since a silently clipped paste is worse than none (the prompt says the
+    # same). Malformed entries are dropped, not repaired.
+    cps = result.get("copyables")
+    if isinstance(cps, list):
+        result["copyables"] = [
+            c
+            for c in cps[:3]
+            if isinstance(c, dict)
+            and isinstance(c.get("text"), str)
+            and 0 < len(c["text"]) <= 4000
+        ]
+    else:
+        result.pop("copyables", None)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.

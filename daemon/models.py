@@ -66,6 +66,17 @@ class Rewind(BaseModel):
     more_below: int = 0
 
 
+class Copyable(BaseModel):
+    """Text on screen whose purpose is to be pasted somewhere else — a command to run
+    in another terminal, a drafted commit message, a generated token, a code block.
+    Copying out of a raw terminal capture on a phone is the thing this exists to avoid
+    (wrapped lines, box-drawing borders and gutter glyphs land inside the selection), so
+    the parser reconstructs clean paste-ready text and the card offers one-tap copy."""
+
+    label: str  # one-line summary of WHAT it is: "Commit message", "gcloud auth command"
+    text: str  # the verbatim paste-ready content (unwrapped, chrome stripped)
+
+
 class PaneState(BaseModel):
     """Everything the phone needs to render one pane. The rich fields (model, cost,
     mode, working_*) are populated by the LLM pass from an agent's status line — see
@@ -108,6 +119,7 @@ class PaneState(BaseModel):
     tasks: list[Task] = []
     subagents: list[SubAgent] = []
     agents: int = 0  # count of RUNNING subagents (derived from subagents[])
+    copyables: list[Copyable] = []  # paste-me-elsewhere text, one-tap copy in the card
 
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0

@@ -165,3 +165,31 @@ def test_no_llm_fallback_idle_shell():
 def test_no_llm_fallback_running():
     r = classify(_pane("node"), "streaming output...\nmore", llm_fn=None)
     assert r["activity"] == "running"
+
+
+def test_copyables_capped_and_malformed_dropped():
+    # copyables ride EVERY state poll, so classify caps count/size and drops junk
+    # rather than repairing it — a clipped paste is worse than no paste.
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "copyables": [
+                    {"label": "Commit message", "text": "fix: unwrap the thing"},
+                    {"label": "no text field"},
+                    {"label": "too long", "text": "x" * 4001},
+                    {"label": "empty", "text": ""},
+                    "not a dict",
+                    {"label": "fourth", "text": "over the cap of 3"},
+                ],
+            }
+        ),
+    )
+    assert r["copyables"] == [{"label": "Commit message", "text": "fix: unwrap the thing"}]
+
+
+def test_copyables_non_list_dropped():
+    r = classify(_pane(), "…", _llm({"activity": "idle", "copyables": "nope"}))
+    assert "copyables" not in r

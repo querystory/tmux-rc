@@ -1073,6 +1073,7 @@ function card(s) {
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
   { const subs = realSubs(s.subagents); if (subs.length) el.appendChild(subagentsView(subs)); }
   if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
+  if (Array.isArray(s.copyables) && s.copyables.length) el.appendChild(copyView(s.copyables));
   const log = (eventLog[s.pane_id] || {}).events || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
@@ -1370,6 +1371,64 @@ function linksView(links) {
     a.appendChild(hostEl);
     a.onclick = (e) => e.stopPropagation();
     box.appendChild(a);
+  }
+  return box;
+}
+
+// Put text on the clipboard, resolving true/false so the caller can show the outcome
+// (a silent no-op reads as "the button is broken"). navigator.clipboard needs a secure
+// context: the PWA is served over HTTPS through the tunnel, but a plain-HTTP LAN visit
+// (http://host:8080) has no Clipboard API at all — fall back to the legacy
+// execCommand path so copy still works there.
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* fall through — denied permission or an insecure context */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    // Off-screen but focusable, and readOnly so mobile keyboards don't pop up.
+    ta.readOnly = true;
+    ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length); // iOS ignores select() alone
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch { return false; }
+}
+
+// One-tap copy for text the parser lifted off the screen (commands to run elsewhere,
+// drafted commit messages, generated tokens — see "copyables" in parser_prompt.txt).
+// The card shows only the LABEL: the point is to skip the raw-terminal selection
+// problem, so the payload rides on the button instead of taking card space. Tap copies
+// and the button self-reports; long content stays whole on the clipboard.
+function copyView(items) {
+  const box = document.createElement("div");
+  box.className = "copyables";
+  const valid = items.filter((c) => c && typeof c.text === "string" && c.text.trim());
+  for (const c of valid.slice(0, 3)) {
+    const b = document.createElement("button");
+    b.className = "copybtn";
+    // Label is MODEL OUTPUT derived from untrusted pane content: strip bidi controls
+    // (an unterminated override would visually reorder the row) and cap by code points
+    // so a hostile pane can't bury the card under a wall of text. textContent, never
+    // innerHTML. Falls back to a generic name when the model gave no usable label.
+    const label = Array.from(
+      String(c.label || "").replace(/[‪-‮⁦-⁩]/g, "").trim()
+    ).slice(0, 60).join("") || "Text";
+    const set = (t) => { b.textContent = `\u{1F4CB} ${t}`; };
+    set(label);
+    b.onclick = async (e) => {
+      e.stopPropagation(); // copying must not also re-select the pane
+      const ok = await copyText(c.text);
+      set(ok ? "Copied" : "Copy failed — long-press the text instead");
+      b.classList.toggle("copied", ok);
+      // Revert so the row keeps naming its content (and a second copy is obvious).
+      setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);
+    };
+    box.appendChild(b);
   }
   return box;
 }
