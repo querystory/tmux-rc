@@ -247,12 +247,14 @@ function activeId() {
 // belonging to our pointerdown always lands in the same task-ish window as the release, so
 // bounding the suppression in time is self-healing where an event-based reset isn't.
 // `defer`: wait for pointerup instead of firing on pointerdown, and cancel if the finger
-// travels more than SLOP first. Rows live inside vertically-scrolling #panes, where a
-// scroll flick necessarily begins with pointerdown on a row — acting there would navigate
-// away mid-scroll. Deferring to pointerup keeps the rebuild-immunity that motivates this
-// whole helper (we still never depend on press and release landing on the same NODE, only
-// on the same pointer) while letting a scroll gesture win. The dock and filter strips scroll
-// horizontally at most and are one row tall, so they keep the snappier pointerdown path.
+// travels more than SLOP first. EVERY tap target here lives in a scroller — rows in
+// vertically-scrolling #panes, the dock and filter strips in their own overflow-x — so a
+// scroll gesture necessarily begins with pointerdown on one of them, and acting there
+// would navigate or re-filter mid-scroll. Deferring to pointerup keeps the rebuild-immunity
+// that motivates this whole helper (we still never depend on press and release landing on
+// the same NODE, only on the same pointer) while letting a scroll gesture win. `defer` stays
+// a parameter rather than the only behavior so a target outside any scroller can still take
+// the snappier path.
 const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
 const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
 function onTap(el, fn, defer) {
@@ -909,8 +911,10 @@ function dock(states, act) {
     b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
-    // pointerdown, not click: the dock is rebuilt every poll and would eat the tap (onTap).
-    onTap(b, () => { listFilter = null; setActive(s.pane_id); });
+    // onTap because the dock is rebuilt every poll and a plain `click` gets eaten; deferred
+    // because .prow.dock is an overflow-x scroller, so a horizontal swipe to reach off-screen
+    // panes must scroll rather than switch pane on touch-down.
+    onTap(b, () => { listFilter = null; setActive(s.pane_id); }, true);
     group.appendChild(b);
   }
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
@@ -926,10 +930,10 @@ function dock(states, act) {
     const b = document.createElement("button");
     b.className = "badge b-" + key;
     b.textContent = label;
-    // pointerdown, not click: #filters is rebuilt every poll, so a rebuild between
-    // press and release swallows the tap — worst exactly when a pane is BUSY, since a
-    // changing pane makes the deck version bump constantly. See onTap.
-    onTap(b, () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); });
+    // onTap because #filters is rebuilt every poll, so a rebuild between press and release
+    // swallows a plain click — worst exactly when a pane is BUSY, since a changing pane makes
+    // the deck version bump constantly. Deferred: #filters is an overflow-x scroller too.
+    onTap(b, () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); }, true);
     filtersEl.appendChild(b);
   };
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
