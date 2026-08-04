@@ -517,11 +517,17 @@ async function pollLoop() {
       // mode is severe and the flag is set from many places, so refuse to honor it beyond
       // any plausible gesture or send (a slow image upload is seconds, not ten).
       // Self-healing beats correct-in-theory here.
+      //
+      // `busy` ONLY — never `sending`. A >10s hold is usually a leak, but it is also exactly
+      // what a large image upload on a bad network looks like, and that send's fetch is
+      // still in flight. `sending` is the re-entry guard its owner releases in a finally;
+      // clearing it here would re-open Send mid-request and let the same message go twice.
+      // Unfreezing renders is always safe, so the watchdog's remit stops there.
       heldSince = heldSince || Date.now();
       if (Date.now() - heldSince > 10000) {
         console.warn("[tmux-rc] busy held >10s — releasing (leaked gesture/send flag)");
         reportError("busy-stuck", { name: "BusyWatchdog", message: "busy held >10s; force-released" });
-        busy = false; sending = false; heldSince = 0;
+        busy = false; heldSince = 0;
       } else {
         await pollSleep(250); continue; // a send/gesture froze re-renders; re-check soon
       }
