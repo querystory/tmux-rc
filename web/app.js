@@ -310,6 +310,10 @@ function onTap(el, fn, defer) {
     // per-gesture (added here, removed in done()) rather than one long-lived pair, so
     // there is no cross-gesture state to get out of sync and nothing left behind.
     const id = e.pointerId, sx = e.clientX, sy = e.clientY;
+    // Measure the target NOW, while it is still in the document. A poll rebuild can detach
+    // it before the release, and a detached node's rect is 0x0 — useless for deciding
+    // whether the finger came up on it. See tapStillOn.
+    const downRect = el.getBoundingClientRect();
     let moved = false;
     const move = (ev) => {
       if (ev.pointerId !== id) return;
@@ -322,7 +326,7 @@ function onTap(el, fn, defer) {
       document.removeEventListener("pointercancel", done, true);
       // A release that scrolled, or that dragged off the target, is not a tap on it.
       if (ev.type !== "pointerup" || moved) return;
-      if (!tapStillOn(el, ev)) return;
+      if (!tapStillOn(el, ev, downRect)) return;
       // One release, one action. .row-open is nested inside the row and BOTH are onTap
       // targets, so one finger arms two gestures. On document, DOM nesting no longer orders
       // the handlers and stopPropagation cannot suppress a sibling document listener, so
@@ -382,17 +386,22 @@ function onTap(el, fn, defer) {
 
 // Did the finger come up still over the thing it pressed? `el` may have been replaced by a
 // poll rebuild mid-gesture, so element identity is the wrong question — geometry is. If `el`
-// is still connected, the plain containment check is exact. If it was swapped out, fall back
-// to its last known box: a rebuild re-renders the SAME list in the same place, so the node
-// now under those coordinates is the replacement for what the user aimed at. Releasing
-// outside that box is a drag-away, which should cancel.
-function tapStillOn(el, ev) {
+// is still connected, the plain containment check is exact.
+//
+// If it was swapped out, judge against `downRect` — its box CAPTURED AT POINTERDOWN, while
+// it was still in the document. Measuring at pointerup instead cannot work: a detached node
+// reports a 0x0 rect, which fell through to "no geometry, don't drop the tap" and quietly
+// disabled the drag-off-to-cancel rule for precisely the rebuilt-node case this function
+// exists to handle. A rebuild re-renders the SAME list in the same place, so the box the
+// user aimed at is where its replacement now sits; releasing outside it is a drag-away and
+// should cancel.
+function tapStillOn(el, ev, downRect) {
   if (el.isConnected) {
     const t = document.elementFromPoint(ev.clientX, ev.clientY);
     return !!t && (el === t || el.contains(t));
   }
-  const r = el.getBoundingClientRect();
-  if (!r.width && !r.height) return true; // no geometry to judge by — don't drop the tap
+  const r = downRect;
+  if (!r || (!r.width && !r.height)) return true; // never measured — don't drop the tap
   return ev.clientX >= r.left && ev.clientX <= r.right
       && ev.clientY >= r.top && ev.clientY <= r.bottom;
 }
@@ -577,14 +586,18 @@ async function poll() {
     // _stateVersion, so the next (post-freeze) hold re-fetches from the same version and
     // renders in order.
     //
-    // Returns FALSE, not true: `false` makes pollLoop back off before re-requesting.
-    // Dropping the body leaves _stateVersion pointing at a version the server has already
-    // moved past, so the next request cannot HOLD — the server only holds while v equals
-    // its current version — and answers immediately. Reporting success there re-requests
-    // with zero gap, and if the freeze has since lifted, pollLoop's own busy-sleep is not
+    // Returns FALSE, not true, so pollLoop puts a gap in before re-requesting. Dropping
+    // the body leaves _stateVersion pointing at a version the server has already moved
+    // past, so the next request cannot HOLD — the server holds only while v equals its
+    // current version — and is answered immediately. Reporting success there re-requests
+    // with zero gap, and once the freeze lifts pollLoop's own busy-sleep is no longer
     // there to bound it either: an instantly-answered request in a zero-gap loop is a hot
-    // spin against the backend for as long as the race persists. The backoff makes the
-    // dropped poll cost one gap instead.
+    // spin against the backend for as long as the race lasts.
+    //
+    // The version deliberately stays STALE rather than being advanced-without-rendering.
+    // Advancing it would re-hold on a version whose content was never drawn, so if nothing
+    // changed again the server would hold ~25s with the card still stale. Keeping it behind
+    // is what guarantees the next poll re-fetches and renders.
     if (isBusy()) return false;
     // A well-formed response always carries a numeric version. version 0 = no initial
     // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
