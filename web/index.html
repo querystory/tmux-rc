@@ -337,6 +337,12 @@
   #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
     background: var(--bar-bg); border-top: 1px solid var(--border);
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
+  /* Non-blocking failure notice in the input bar (barNote) — replaces the alert() that
+     froze the page on a failed send (#101). Amber, not red: the message is still in the
+     composer and retryable, not lost. Tap to dismiss. */
+  .bar-note { background: var(--amber-bg); color: var(--amber-text);
+    border: 1px solid var(--amber); border-radius: 8px; padding: 7px 10px;
+    font-size: 13px; cursor: pointer; }
   /* attach clip lives INSIDE the input field (like a chat composer) */
   .inputwrap { flex: 1; display: flex; align-items: center; background: var(--chrome); border: 1px solid var(--border); border-radius: 10px; padding-left: 6px; }
   /* Focus lights up the WHOLE composer (keys toggle, clip, thumbnail, Send) — the

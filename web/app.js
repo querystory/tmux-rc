@@ -1833,6 +1833,27 @@ function activeState() {
   const id = activeId();
   return panesById[id] || { pane_id: id, label: "" };
 }
+// Non-blocking failure notice pinned in the input bar. Lives OUTSIDE the card that
+// render() replaces, so it survives re-renders (the reason the mic/send paths reached for
+// alert() in the first place — see #101) without freezing the page like a modal does.
+// Auto-clears on the next successful action or after a while; tapping it dismisses.
+let _noteTimer = 0;
+function barNote(msg) {
+  const host = document.getElementById("bar");
+  if (!host) return;
+  let el = document.getElementById("bar-note");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "bar-note";
+    el.className = "bar-note";
+    el.onclick = () => el.remove();
+    host.prepend(el); // first child of #bar: above the keys row and the composer
+  }
+  el.textContent = msg; // untrusted-ish (error text): textContent, never innerHTML
+  clearTimeout(_noteTimer);
+  _noteTimer = setTimeout(() => el.remove(), 12000);
+}
+
 function updateBar(s) {
   // The CSS :empty::before placeholder isn't an accessible name, so mirror it into
   // aria-label — screen readers announce the per-pane target instead of a bare textbox.
@@ -1846,7 +1867,13 @@ if (bar.input) {
   // together, then one Enter (see submitComposer). Nothing reaches the pane at attach
   // time — the image waits here as a draft until you send, mirroring the phone's own
   // "type a caption, then send the photo" feel.
-  bar.send.onclick = () => submitComposer(activeState());
+  // onTap, not onclick: on a touchscreen the browser withholds `click` entirely if the
+  // finger drifts a few pixels between touchstart and touchend (easy on a phone, and on
+  // a soft-keyboard layout that shifts under your thumb). A withheld click is a Send that
+  // silently does nothing — the single worst failure this app can have, since the user's
+  // typed message just sits there. pointerdown always fires, and submitComposer is
+  // already re-entrancy-guarded by `sending`, so committing on touch-down is safe.
+  onTap(bar.send, () => submitComposer(activeState()));
   // Enter sends. We drive the send off `beforeinput`/insertParagraph rather than a
   // keydown "Enter" check because Android's soft keyboard (and IME composition) fires
   // keydown with keyCode 229 and NO usable `key` — so a keydown-only handler silently
@@ -1909,7 +1936,9 @@ if (bar.input) {
 // Empty composer is a no-op (a bare Enter would submit whatever's already in the agent).
 let sending = false; // a send is IN FLIGHT — distinct from `busy` (see submitComposer)
 
-async function submitComposer(s) {
+const _sendQueue = []; // taps that arrived while a send was in flight (never dropped)
+
+async function submitComposer(s, presetSegs) {
   // Guard on `sending`, NOT the shared `busy`. `busy` is also set by swipes, pinch/drag
   // gestures and option taps to freeze poll re-renders, so guarding on it made Send do
   // nothing — silently — whenever a gesture had it held (a swipe keeps it for 150ms after
@@ -1920,15 +1949,28 @@ async function submitComposer(s) {
   // Deliberately NOT blocked when the target pane is busy working: agents queue typed
   // input, so sending mid-run is valid and useful — the user's message lands in the
   // agent's queue rather than being dropped.
-  if (sending) return;
-  const segs = composerSegments();
+  // NOTHING may silently swallow a Send. The old `if (sending) return` dropped the tap
+  // with no trace whenever a previous send was still in flight — and since an unbounded
+  // fetch could hang indefinitely, "in flight" could mean forever. Now a tap arriving
+  // mid-send SNAPSHOTS the composer, clears it, and queues the text to go out as soon as
+  // the current send finishes. The user's words are never lost and never require a retry.
+  const segs = presetSegs || composerSegments();
   if (!segs.length) return;
+  if (sending) {
+    _sendQueue.push({ s, segs });
+    clearComposer();          // the message is committed — it must leave the box
+    barNote("Queued — sending the previous message first.");
+    return;
+  }
   sending = true;
   busy = true; // also freeze poll re-renders while the composer is mid-flush
   // Immediate feedback: the Send button spins for the whole request — on a slow
   // connection (image uploads) this runs for seconds, and silence reads as hung.
   bar.send?.classList.add("sending");
-  bar.send && (bar.send.disabled = true);
+  // Do NOT disable the button: `sending` already blocks re-entry, and a disabled button
+  // is stranded unclickable if anything interrupts us before `finally` runs (a
+  // backgrounded tab killing the in-flight fetch, a navigation). The spinner class is
+  // the feedback; the guard is the correctness.
   try {
     // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
     // submitting now would send the surrounding text without its image and drop the
@@ -1944,16 +1986,29 @@ async function submitComposer(s) {
     // No burst needed: the visible raw surface streams via liveStream, so the sent
     // text/images show up in the next live frame on their own (docs/design/live-view.md).
   } catch (e) {
-    alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
+    // NOT alert(): a native modal is synchronous, so it halts the poll loop and the live
+    // stream until dismissed — the app looks frozen, and on iOS the browser starts
+    // offering "Suppress dialogs", after which this message vanishes silently forever
+    // (see #101). An inline banner conveys the same thing without stopping the world.
+    // The composer is deliberately NOT cleared, so the message is never lost.
+    barNote(`Not sent — ${e.message}. Your text is still here; tap Send to retry.`);
+    reportError("send", e); // so the failure rate is queryable, not just visible once
   } finally {
     // Release `sending` HERE, not on a timer: it's the re-entry guard, so a thrown
     // upload must not leave Send permanently dead (the failure path above tells the
     // user to retry — it has to actually be retryable).
     sending = false;
+    // Drain: a tap that arrived mid-flight queued its text rather than being dropped, so
+    // send it now. Deferred a tick so `sending` is observably clear first (and so a long
+    // queue can't recurse into a deep stack).
+    if (_sendQueue.length) {
+      const next = _sendQueue.shift();
+      setTimeout(() => submitComposer(next.s, next.segs), 0);
+    }
     // Button un-spins NOW (the work is done); busy holds a beat longer so the poll
     // doesn't repaint mid-settle.
     bar.send?.classList.remove("sending");
-    bar.send && (bar.send.disabled = false);
+    bar.send && (bar.send.disabled = false); // clear any legacy disabled state
     setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
@@ -2012,7 +2067,10 @@ function composerSegments() {
 async function uploadStagedImage(s, file) {
   const fd = new FormData();
   fd.append("file", file);
-  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, { method: "POST", body: fd });
+  // Bounded like postSend, but with room for a real upload on a phone connection.
+  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
+    method: "POST", body: fd, signal: AbortSignal.timeout(45000),
+  });
   if (!r.ok) throw new Error("upload failed: " + r.status);
 }
 
@@ -2193,10 +2251,18 @@ async function sendRaw(s, keyName) {
 // error) so submitComposer's loop aborts before Enter/clear instead of dropping a
 // segment silently. Pure — callers own the `busy` freeze around it.
 async function postSend(s, body) {
+  // HARD TIMEOUT. Without one, a stalled request (phone radio handoff, tunnel/relay
+  // hiccup) hangs this await forever — and because the caller holds `sending` across it,
+  // EVERY later tap becomes a silent no-op. That is the "Send just hangs, then nothing
+  // works" failure: not a dropped tap, a latched guard behind a fetch with no deadline.
+  // 8s is far longer than a keystroke POST needs on a bad connection, and far shorter
+  // than a user's patience. On timeout we throw, which unlatches the guard and shows the
+  // inline notice, so the next tap can actually retry.
   const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/send`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
   });
   if (!r.ok) throw new Error("send failed: " + r.status);
 }
