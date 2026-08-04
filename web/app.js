@@ -1065,6 +1065,30 @@ const _joinRO = new ResizeObserver(() => {
 // List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
 // of just those panes (tapped via the dock's tally badges / "all").
 let listFilter = null;
+
+// How long a pane must sit IDLE before the dock folds it away as parked.
+//
+// 10 minutes, chosen against how the deck is actually used: a pane you stepped away
+// from mid-thought is back inside a couple of minutes, and the daemon's own activity
+// classification settles within seconds — so anything past ten minutes is a pane you
+// left, not a pane you're using. Long enough that a coffee break doesn't fold your
+// work away; short enough that a 21-pane deck (measured: 16 of them idle for over an
+// hour) collapses to the handful in play. Deliberately NOT tuned to the strip width:
+// the fold means "you are done with this", and that shouldn't change with the viewport.
+const PARKED_IDLE_SECS = 600;
+
+// Is this pane still in play? Anything the agent is DOING (running/compacting) or that
+// is WAITING on the user counts as recent no matter how old — a question that has gone
+// unanswered for an hour is the most important thing on the deck, not the stalest.
+// Only genuinely idle panes age out, so "recent" is really "not parked".
+function isRecent(s) {
+  return actOf(s) !== "idle" || stateDur(s) < PARKED_IDLE_SECS;
+}
+
+// Sessions whose parked panes the user expanded by tapping the fold chip. Module state
+// so the expansion survives the rebuild every poll triggers (same reason as subsOpen).
+// Keyed by session name: the fold is per-session, so expanding one leaves the rest folded.
+const foldOpen = new Set();
 // Panes whose list-row sub-agent box is expanded — module state, so the expansion
 // survives the re-render every poll triggers (rows are rebuilt from scratch each time).
 const subsOpen = new Set();
@@ -1087,14 +1111,46 @@ function dock(states, act) {
   // The array is already in tmux session order, so a group is just "same session as
   // the previous icon". All tray chrome keys off the .grouped class toggled below —
   // single-session decks never get it, so nothing changes until sessions multiply.
+  //
+  // Parked panes (idle past PARKED_IDLE_SECS) fold to the END of their own session's
+  // tray behind one "+N" chip, so the panes actually in play stay on screen. Why the
+  // tray's tail and not in place: a session's parked panes are INTERLEAVED with its
+  // live ones (measured on a real 21-pane deck: stale,stale,live,stale,live,live,live,
+  // stale,stale,stale in one session), so folding each contiguous run in place yields
+  // five chips scattered through the strip — 544px of content, still overflowing a
+  // 364px phone strip, and the chip positions encode nothing the user thinks in (they
+  // are an artifact of tmux window numbering). One chip per session reads as a fact —
+  // "6 parked here" — and measured 412px, which fits all three sessions on screen at
+  // 390px. See the PR for the reordering trade-off this accepts.
   let group = null, ngroups = 0;
+  // Folding is a DOCK-ONLY view concern: `states` is never reordered or filtered, so the
+  // list, the swipe carousel (which walks panesById's server order) and the tally badges
+  // all still see tmux's own session/window/pane order. The dock trades strict order
+  // WITHIN a session tray for density; nothing else does.
+  const trays = new Map();  // session -> its .dock-group element (so the chip pass needs no re-query)
+  const parked = new Map(); // session -> count of its parked panes
+  const folded = (s) =>
+    !isRecent(s) && !foldOpen.has(s.session ?? "") &&
+    // Never fold the SELECTED pane: in card view its icon IS the tab joined to the card
+    // below, so folding it away would leave the card joined to nothing. This is also what
+    // keeps the fold coherent with swiping: swipeNav walks the full server order (folded
+    // panes included), so a swipe can land on a parked pane — and because `act` comes from
+    // the one activeId() that dock() is handed, that pane is always un-folded back into
+    // its tray. You can swipe into the parked set; the dock follows you there.
+    s.pane_id !== act;
   for (const s of states) {
     if (!group || group.dataset.sess !== (s.session ?? "")) {
       group = document.createElement("span");
       group.className = "dock-group";
       group.dataset.sess = s.session ?? "";
       el.appendChild(group);
+      trays.set(group.dataset.sess, group);
       ngroups++;
+    }
+    if (folded(s)) {
+      const k = s.session ?? "";
+      parked.set(k, (parked.get(k) || 0) + 1);
+      continue;
     }
     const b = document.createElement("button");
     b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
@@ -1119,9 +1175,46 @@ function dock(states, act) {
     onTap(b, () => { listFilter = null; setActive(s.pane_id); }, true);
     group.appendChild(b);
   }
+  // The fold chip at the tail of a session's tray: "+N" when its parked panes are hidden,
+  // "−" to hide them again. A <button> among the tray's icon <button>s, so it can't
+  // disturb the group hue cycling (.dock-group:nth-of-type counts <span>s) nor the strip's
+  // height (same 36px box as an icon — the join's geometry contract requires the tray add
+  // zero height). Deferred tap for the same reason the icons use it: the dock is an
+  // overflow-x scroller rebuilt every poll, so a horizontal scroll gesture must not trip
+  // the chip, and a rebuild between press and release must not eat it. captureIconRects()
+  // so the list view's FLIP still has icon rects to animate from.
+  const foldChip = (sess, text, label, open) => {
+    const g = trays.get(sess);
+    if (!g) return;
+    const c = document.createElement("button");
+    c.className = "dock-fold" + (open ? " open" : "");
+    c.textContent = text;
+    c.title = label;
+    c.setAttribute("aria-label", label);
+    c.setAttribute("aria-expanded", String(open));
+    onTap(c, () => {
+      if (open) foldOpen.delete(sess); else foldOpen.add(sess);
+      captureIconRects();
+      render(Object.values(panesById));
+    }, true);
+    g.appendChild(c);
+  };
+  for (const [sess, n] of parked)
+    foldChip(sess, "+" + n, `Show ${n} parked pane${n === 1 ? "" : "s"} in ${sess || "this session"}`, false);
+  // An expanded tray gets the inverse chip — otherwise unfolding is a one-way door for the
+  // session (nothing re-parks it until the page reloads). Only when there is actually
+  // something to re-fold: a session whose panes all went busy again has nothing parked,
+  // and a dead "−" would confuse. U+2212 MINUS, not a hyphen (which reads as a dash).
+  for (const sess of foldOpen)
+    if (states.some((s) => (s.session ?? "") === sess && !isRecent(s) && s.pane_id !== act))
+      foldChip(sess, "−", `Hide parked panes in ${sess || "this session"}`, true);
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
   // actually spans sessions — the CSS keys off this class, not group count.
   el.classList.toggle("grouped", ngroups > 1);
+  // Drop unfold state for sessions that no longer exist, so killing and recreating a
+  // session under the same name doesn't come back pre-expanded (and the set can't grow
+  // without bound over a long-lived page) — same discipline as render()'s cache pruning.
+  for (const sess of foldOpen) if (!trays.has(sess)) foldOpen.delete(sess);
   // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
   // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
   // list view to those panes; "all" lists everything.
