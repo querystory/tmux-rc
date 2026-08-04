@@ -2174,19 +2174,25 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     // `selectable`: ONE finger belongs to the browser — long-press → select → copy
     // (copying out of the terminal is a core use case). Our JS claims only two-finger
     // gestures there; without it (the peek) one-finger drag still pans.
-    if (selectable && e.touches.length === 1) return;
+    // targetTouches, not touches, everywhere in here: `touches` counts every finger on the
+    // PAGE, so a thumb resting on the composer would make this container think a one-finger
+    // pan was a two-finger pinch, and would hold `start` alive after the user lifted off it.
+    // targetTouches counts only the fingers that started on this container.
+    const t = e.targetTouches;
+    if (selectable && t.length === 1) return;
     busy = true; // freeze poll re-renders mid-gesture
-    if (e.touches.length === 2) { const m = mid(e.touches); start = { dist: dist(e.touches), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
-    else if (e.touches.length === 1) start = { pan: true, x: e.touches[0].clientX - st.tx, y: e.touches[0].clientY - st.ty };
+    if (t.length === 2) { const m = mid(t); start = { dist: dist(t), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
+    else if (t.length === 1) start = { pan: true, x: t[0].clientX - st.tx, y: t[0].clientY - st.ty };
   }, { passive: false });
   container.addEventListener("touchmove", (e) => {
     if (!start) return;
     e.preventDefault();
-    if (start.pan && e.touches.length === 1) {
-      st.tx = e.touches[0].clientX - start.x; st.ty = e.touches[0].clientY - start.y;
-    } else if (e.touches.length === 2) {
-      const m = mid(e.touches); // anchor to the LIVE midpoint: pinch zooms AND pans
-      const f = dist(e.touches) / start.dist;
+    const t = e.targetTouches;
+    if (start.pan && t.length === 1) {
+      st.tx = t[0].clientX - start.x; st.ty = t[0].clientY - start.y;
+    } else if (t.length === 2) {
+      const m = mid(t); // anchor to the LIVE midpoint: pinch zooms AND pans
+      const f = dist(t) / start.dist;
       st.scale = Math.min(6, Math.max(0.4, start.s * f));
       // the content point under the start midpoint stays under the fingers
       st.tx = m.x - (start.cx - start.tx) * (st.scale / start.s);
@@ -2205,7 +2211,7 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     // Reproduced by dispatching touchstart then a touchend still reporting one touch:
     // zero dock rebuilds in the following 5s.
     busy = false;
-    if (e.touches.length !== 0) return; // fingers still down: keep the gesture live
+    if (e.targetTouches.length !== 0) return; // OUR fingers still down: keep the gesture live
     start = null;
     if (!snapHome) return;
     // Clamp at ANY zoom so no edge ever shows a black gap: slide the content back
