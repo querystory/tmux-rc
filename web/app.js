@@ -1441,6 +1441,23 @@ function bgTerm(s) {
         // this frame would never render. Only the scroll-to-tail is suppressed during a
         // gesture (that's what fights the user's finger). Diff-skip avoids the reflow
         // when the content is actually identical (the flicker source).
+        // NEVER repaint while the user is typing or selecting. An innerHTML swap tears
+        // down and rebuilds the subtree, which collapses the document Selection — and on
+        // a BUSY pane these frames arrive continuously, so every attempt to place the
+        // caret in the composer was wiped within milliseconds. That is the "I can't even
+        // tap into the input box on a busy pane; I have to switch panes and back" bug
+        // (switching panes stops this stream, which is why it appeared to fix it).
+        // The fullscreen path already guarded its own selection this way; the peek didn't.
+        // Frames keep coming, so a skipped paint self-corrects on the next one.
+        // Only skip a paint while the caret is being PLACED or a selection is live, not
+        // for the whole time the composer holds focus — the terminal must keep streaming
+        // while you type. `_caretGrace` is stamped on composer pointerdown/focus, so the
+        // guard covers the vulnerable window (the tap and the moments after it) and then
+        // expires; a live selection is honored for as long as it exists.
+        const sel = document.getSelection();
+        const selecting = sel && !sel.isCollapsed
+          && (peekBox?.contains(sel.anchorNode) || bar.input?.contains(sel.anchorNode));
+        if (selecting || Date.now() - _caretGrace < 1200) return;
         if (peekBox && peekBox.innerHTML !== html) {
           peekBox.innerHTML = html;
           tuckChrome(peekWrap, peekBox);
@@ -1862,6 +1879,12 @@ function updateBar(s) {
   bar.input.setAttribute("aria-label", label);
   bar.meta.innerHTML = s ? metaChips(s) : "";
 }
+// Stamped when the user is placing the caret in the composer. The live peek repaint
+// (an innerHTML swap) collapses the Selection, so on a busy pane it wiped the caret as
+// fast as you could tap; the repaint yields for this window instead. Time-bounded so a
+// focused composer can never freeze the terminal stream.
+let _caretGrace = 0;
+
 if (bar.input) {
   // Send/Enter submits the composer: typed text and/or a staged image go to the pane
   // together, then one Enter (see submitComposer). Nothing reaches the pane at attach
@@ -1874,6 +1897,9 @@ if (bar.input) {
   // typed message just sits there. pointerdown always fires, and submitComposer is
   // already re-entrancy-guarded by `sending`, so committing on touch-down is safe.
   onTap(bar.send, () => submitComposer(activeState()));
+  // Any attempt to put the caret in the composer opens the repaint-grace window.
+  ["pointerdown", "focus", "click"].forEach((ev) =>
+    bar.input.addEventListener(ev, () => { _caretGrace = Date.now(); }, true));
   // Enter sends. We drive the send off `beforeinput`/insertParagraph rather than a
   // keydown "Enter" check because Android's soft keyboard (and IME composition) fires
   // keydown with keyCode 229 and NO usable `key` — so a keydown-only handler silently
