@@ -181,6 +181,7 @@ def test_copyables_capped_and_malformed_dropped():
                     {"label": "no text field"},
                     {"label": "too long", "text": "x" * 4001},
                     {"label": "empty", "text": ""},
+                    {"label": "blank", "text": "   \n  "},
                     "not a dict",
                     {"label": "fourth", "text": "past the malformed ones"},
                 ],

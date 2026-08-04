@@ -181,7 +181,10 @@ def classify(
             for c in cps
             if isinstance(c, dict)
             and isinstance(c.get("text"), str)
-            and 0 < len(c["text"]) <= 4000
+            # strip() not len(): whitespace-only text is nothing to paste, and the client
+            # discards it anyway — dropping here keeps it off every poll for every client.
+            and c["text"].strip()
+            and len(c["text"]) <= 4000
         ][:3]
         if isinstance(cps, list)
         else []

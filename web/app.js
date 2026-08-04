@@ -1470,7 +1470,10 @@ function copyView(items) {
     // so a hostile pane can't bury the card under a wall of text. textContent, never
     // innerHTML. Falls back to a generic name when the model gave no usable label.
     const label = Array.from(
-      String(c.label || "").replace(/[‪-‮⁦-⁩]/g, "").trim()
+      // ESCAPED ranges, never literal bidi controls: embedding invisible characters in
+      // source is the Trojan-Source hazard this sanitizer exists to defuse, and linksView
+      // above writes the same range escaped — keep the two identical.
+      String(c.label || "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
     ).slice(0, 60).join("") || "Text";
     // Icon is chrome (inline Lucide, themes via currentColor — AGENTS.md bans emoji
     // here); the label is untrusted, so it rides in its own span as textContent and
