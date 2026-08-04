@@ -1,7 +1,87 @@
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step (native ES module — index.html loads type=module).
+//
+// ════════════════════════════ THE RENDER INVARIANT ════════════════════════════
+// A node, once built, is NEVER replaced. Handlers close over `pane_id` (a string),
+// never over a state object, and read current state via `panesById[paneId]` at call
+// time. render() may only write text/attrs/classes onto existing nodes, or
+// insert/remove whole pane-level nodes when deck membership changes.
+//
+// WHY (this is not a performance rule — it is a correctness rule):
+//   • The long-poll returns the instant anything changes, so a busy pane re-renders
+//     constantly. The browser only fires `click` when press AND release land on the
+//     SAME element, so replacing a node between finger-down and finger-up silently
+//     SWALLOWS the tap. That ate taps on Send, dock tabs, filter badges, list rows,
+//     the collapse caret, the fullscreen button, the sub-agent toggle and answer
+//     options. Building once means handlers, focus, caret, scroll position, selection
+//     and in-flight gestures survive BY CONSTRUCTION rather than by workaround.
+//   • Assigning an identical `textContent` still destroys and recreates the text node,
+//     which collapses any document Selection inside it — which is why the setText/
+//     setAttr/setCls no-ops below are SEMANTIC, not an optimization.
+//
+// #bar (the composer) has always been built this way — static HTML, wired once — which
+// is exactly why typed text survives polls. tickBadges() is the other model: it reads
+// data-since off live nodes and writes textContent. This module now follows both.
+// ══════════════════════════════════════════════════════════════════════════════
 import { renderCapture } from "./terminal.js";
+
+// ── In-place write primitives ────────────────────────────────────────────────
+// Each no-ops when the value is already current. The no-op is the POINT (see the
+// invariant above): an identical textContent assignment still tears down the text
+// node and collapses any selection inside it, and a redundant attribute write can
+// restart a CSS animation or transition.
+function setText(node, s) {
+  if (!node) return;
+  const v = s == null ? "" : String(s);
+  if (node.textContent !== v) node.textContent = v;
+}
+function setAttr(node, k, v) {
+  if (!node) return;
+  if (v == null || v === false) { if (node.hasAttribute(k)) node.removeAttribute(k); return; }
+  const s = String(v);
+  if (node.getAttribute(k) !== s) node.setAttribute(k, s);
+}
+function setCls(node, name, on) {
+  if (!node) return;
+  if (node.classList.contains(name) !== !!on) node.classList.toggle(name, !!on);
+}
+
+// ── keyedList: the one reconciler ────────────────────────────────────────────
+// Used by the dock, list rows, option buttons, tasks, subagents, links, rewind
+// entries and the event feed. `build(item, key)` makes a node the FIRST time a key is
+// seen; `apply(node, item, i)` updates it every time. Nodes are cached on the parent
+// so a later call reuses them — that is what makes handlers wired inside build()
+// permanent.
+//
+// SERVER ARRAY ORDER IS THE ORDER. tmux's own session/window/pane order is
+// load-bearing (it drives the dock, the list and swipe navigation), so a single
+// forward pass is exact — no LIS, no move-minimization heuristics. insertBefore is
+// called ONLY when a node is not already in the right position, so a stable list
+// performs zero DOM moves.
+function keyedList(parentEl, items, keyFn, build, apply) {
+  let cache = parentEl._klCache;
+  if (!cache) cache = parentEl._klCache = new Map();
+  const next = new Map();
+  let cursor = parentEl.firstChild;
+  items.forEach((item, i) => {
+    const key = String(keyFn(item, i));
+    let node = cache.get(key);
+    if (!node) node = build(item, key);
+    if (!node) return;
+    next.set(key, node);
+    if (apply) apply(node, item, i);
+    // Already in the right slot? Then advance past it and touch nothing.
+    if (cursor === node) { cursor = node.nextSibling; return; }
+    parentEl.insertBefore(node, cursor);
+  });
+  // Remove leftovers. Actually REMOVE them (never hide): CSS structural selectors
+  // (#top .dock:empty, #filters:empty, .metarow:empty, .lm-convo:empty) depend on an
+  // emptied list having no children at all.
+  for (const [key, node] of cache) if (!next.has(key)) node.remove();
+  parentEl._klCache = next;
+  return next;
+}
 
 // Real brand marks per tool (served from web/). One img template so every icon renders
 // identically; unidentified panes fall back to the tmux logomark. `tool` comes from
@@ -300,6 +380,11 @@ function setActive(id) {
 // once full while content still rotates.) Fetches are per-pane, deduped while in flight.
 const eventLog = {}; // pane_id -> {seq, events: [{text, file?, meta?, ts, historical?}]}
 const evFetching = new Set();
+
+// Per-pane DOM handles: pane_id -> { root, ...named nodes }. Built once by the build*
+// half of each component, then written through by its apply* half (see the render
+// invariant at the top). Pruned in render()'s cache-prune loop when a pane vanishes.
+const paneUI = new Map();
 
 function syncEvents(s) {
   const id = s.pane_id;
@@ -649,6 +734,12 @@ function render(states) {
   // without bound over a long-running session.
   for (const m of [eventLog, eventScroll, peekCache, bgZoom])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
+  // paneUI holds the per-pane DOM handles the in-place renderer writes through. Its
+  // prune rides in this same loop (a Map, so it can't use the Object.keys pass above):
+  // a vanished pane's nodes are detached AND forgotten, or pane churn would leak a
+  // full card's worth of nodes per dead pane.
+  for (const k of [...paneUI.keys()])
+    if (!has(panesById, k)) { paneUI.get(k).root?.remove(); paneUI.delete(k); }
   setFavicon(states.some((s) => actOf(s) === "waiting"));
   // No card visible (empty / list mode) ⇒ no peek stream should be running. bgTerm
   // restarts it when a card renders; here we make sure it's stopped otherwise.
