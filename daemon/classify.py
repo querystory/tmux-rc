@@ -15,6 +15,7 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import re
+from itertools import islice
 from pathlib import Path
 
 from .tmux import Pane
@@ -187,21 +188,21 @@ def classify(
         if isinstance(link, dict) and link.get("href")
     }
     cps = result.get("copyables")
-    good = (
-        [
-            {"label": str(c.get("label") or "")[:200], "text": c["text"]}
-            for c in cps
-            if isinstance(c, dict)
-            and isinstance(c.get("text"), str)
+
+    def _valid(cps):
+        """Validated entries, lazily — islice below stops us at 3 without validating the
+        rest of a long model response on the hot /api/state path."""
+        for c in cps:
+            if not isinstance(c, dict) or not isinstance(c.get("text"), str):
+                continue
             # strip() not len(): whitespace-only text is nothing to paste, and the client
             # discards it anyway — dropping here keeps it off every poll for every client.
-            and c["text"].strip()
-            and len(c["text"]) <= 4000
-            and c["text"].strip() not in hrefs
-        ][:3]
-        if isinstance(cps, list)
-        else []
-    )
+            stripped = c["text"].strip()
+            if not stripped or len(c["text"]) > 4000 or stripped in hrefs:
+                continue
+            yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
+
+    good = list(islice(_valid(cps), 3)) if isinstance(cps, list) else []
     if good:
         result["copyables"] = good
     else:
