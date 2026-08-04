@@ -573,9 +573,19 @@ async function poll() {
     const data = await r.json();
     // The freeze may have gone up WHILE this request was in flight (a send/gesture
     // started mid-fetch). Applying the response now would replace the card under the
-    // user — the very thing `busy` freezes. Drop it without touching _stateVersion, so
-    // the next (post-busy) hold re-fetches from the same version and renders in order.
-    if (isBusy()) return true;
+    // user — the very thing the freeze exists to prevent. Drop it without touching
+    // _stateVersion, so the next (post-freeze) hold re-fetches from the same version and
+    // renders in order.
+    //
+    // Returns FALSE, not true: `false` makes pollLoop back off before re-requesting.
+    // Dropping the body leaves _stateVersion pointing at a version the server has already
+    // moved past, so the next request cannot HOLD — the server only holds while v equals
+    // its current version — and answers immediately. Reporting success there re-requests
+    // with zero gap, and if the freeze has since lifted, pollLoop's own busy-sleep is not
+    // there to bound it either: an instantly-answered request in a zero-gap loop is a hot
+    // spin against the backend for as long as the race persists. The backoff makes the
+    // dropped poll cost one gap instead.
+    if (isBusy()) return false;
     // A well-formed response always carries a numeric version. version 0 = no initial
     // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
     // Both must back off, else pollLoop re-requests with gap=0 and tight-loops the backend.
@@ -855,6 +865,15 @@ function render(states) {
   // big fleet doesn't shove the active card off screen.
   // Nothing the UI draws has changed ⇒ do not touch the DOM. This is what makes the app
   // safe to use while panes are updating: handlers, focus, caret and gestures all live on.
+  //
+  // A skip here CANNOT hot-spin the poll loop, and the reason is an ordering that must be
+  // preserved: poll() assigns _stateVersion from the response BEFORE calling render(). So
+  // the version the server just published is always recorded, whether or not this render
+  // runs, and the next long-poll re-holds on it. Were the assignment moved after render —
+  // or made conditional on the render happening — every skipped render would re-request
+  // with a version the server had already passed, the hold condition (v == current) would
+  // never be met, and each reply would return instantly: a genuine hot loop, measured at
+  // ~1000 req/s against the daemon's ~3.5/s change rate.
   const fp = _renderFp(states);
   if (fp === _renderFpLast && panesEl.firstChild) { updateBar(panesById[activeId()]); return; }
   _renderFpLast = fp;
