@@ -169,6 +169,21 @@
     border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--fg-mid);
     font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
   .dock-icon.sel { background: var(--chrome); border-color: var(--accent); }
+  /* Fold chip: "+6" standing in for a session's parked panes (idle past
+     PARKED_IDLE_SECS), at the tail of its tray; "−" folds them back. Tap to toggle.
+     GEOMETRY: same 36px box and `flex: none` as a .dock-icon, deliberately — it lives
+     inside a .dock-group, and the tray's zero-added-height contract (see above) is what
+     keeps the selected tab seated on the dock's padding-box bottom for the card join.
+     Never give this a taller box, a margin, or an outline that grows the strip.
+     40px min-width keeps it a full-size touch target on a phone (a 23x17 chip here was
+     genuinely untappable), and it reads as chrome — dashed, faint, no activity hue — so
+     it can't be mistaken for a pane icon with a state. */
+  .dock-fold { flex: none; display: flex; align-items: center; justify-content: center;
+    min-width: 40px; height: 36px; padding: 0 6px; box-sizing: border-box;
+    border: 1px dashed var(--border); border-radius: 8px; background: var(--chrome);
+    color: var(--fg-faint); font-family: inherit; font-size: 11px; font-weight: 600;
+    line-height: 1; font-variant-numeric: tabular-nums; cursor: pointer; }
+  .dock-fold.open { font-size: 15px; }  /* the − glyph is small at 11px */
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--surface); }
