@@ -254,3 +254,26 @@ def test_copyables_all_malformed_omits_field():
 def test_copyables_non_list_dropped():
     r = classify(_pane(), "…", _llm({"activity": "idle", "copyables": "nope"}))
     assert "copyables" not in r
+
+
+def test_copyable_duplicating_a_link_is_dropped():
+    # A copy row holding a URL the card already renders as a tap-to-open link chip is a
+    # duplicate affordance. Text that merely CONTAINS a URL still copies.
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "links": [{"href": "https://github.com/o/r/pull/5", "text": "PR #5"}],
+                "copyables": [
+                    {"label": "PR URL", "text": "https://github.com/o/r/pull/5"},
+                    {"label": "PR URL padded", "text": "  https://github.com/o/r/pull/5  "},
+                    {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"},
+                ],
+            }
+        ),
+    )
+    assert r["copyables"] == [
+        {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"}
+    ]

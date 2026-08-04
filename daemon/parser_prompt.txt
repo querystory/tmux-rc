@@ -193,6 +193,11 @@ tool.
   command when the screen is telling the USER to run it themselves somewhere else
   ("run this in the other repo", setup/install instructions, a command to paste into a
   different terminal).
+- A BARE URL is never a copyable. Links already render as tap-to-open chips from
+  "links", so a copy row holding the same URL is a duplicate of an affordance the card
+  already shows — put the URL in "links" and nothing else. (Text that merely CONTAINS a
+  URL is fine: a command with a --scopes=https://… flag, or a config block with an
+  endpoint in it, is still one paste-worthy blob.)
 - Do NOT include: anything already carried by another field (a URL belongs in "links",
   tabular data in "tables", a question's options in "question"), commands the agent is
   seeking approval to execute (above), the agent's conversational prose, its status line

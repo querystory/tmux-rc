@@ -174,6 +174,18 @@ def classify(
     # a good one; and when nothing survives, drop the field entirely instead of shipping
     # `copyables: []` — the prompt says omit when there's nothing, and the UI keys off
     # presence.
+    #
+    # And a copyable that is JUST a URL already in `links` is a DUPLICATE affordance: the
+    # card renders that link as a tap-to-open chip, so a second row offering the same
+    # string is noise stacked under it. The prompt says a URL belongs in "links", but
+    # prose can't enforce it — here the two fields are side by side and comparable, so
+    # drop the overlap in code. Only whole-URL copyables go: text that CONTAINS a link
+    # (a command with a --scopes=https://… flag, a config block) is still worth copying.
+    hrefs = {
+        str(link["href"]).strip()
+        for link in (result.get("links") or [])
+        if isinstance(link, dict) and link.get("href")
+    }
     cps = result.get("copyables")
     good = (
         [
@@ -185,6 +197,7 @@ def classify(
             # discards it anyway — dropping here keeps it off every poll for every client.
             and c["text"].strip()
             and len(c["text"]) <= 4000
+            and c["text"].strip() not in hrefs
         ][:3]
         if isinstance(cps, list)
         else []
