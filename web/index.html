@@ -628,11 +628,11 @@
 .linkhost { opacity: .6; font-size: 11px; unicode-bidi: isolate; }
   /* Paste-me-elsewhere text (copyables): one full-width row per item, since the label
      is a sentence-ish summary that shouldn't be squeezed beside a sibling. Chrome
-     styling, not link-blue — copying is a local action, nothing navigates. The label is
-     untrusted model output, so isolate its bidi and ellipsize rather than wrap. */
+     styling, not link-blue — copying is a local action, nothing navigates. */
   .copyables { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 2px; }
-  /* Icon + label sit in a row; the label is the flex child that ellipsizes (min-width:0
-     lets it shrink below its content), so the icon never gets clipped away. */
+  /* Icon + label sit in a row. The label is the flex child that ellipsizes rather than
+     wraps (min-width:0 lets it shrink below its content) so the icon is never the thing
+     that gets clipped, and it isolates its bidi since it's untrusted model output. */
   .copybtn { display: flex; align-items: center; gap: 7px; width: 100%;
     text-align: left; padding: 8px 10px;
     border-radius: 8px; background: var(--chrome); color: var(--fg-soft);
