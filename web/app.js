@@ -234,6 +234,12 @@ function activeId() {
 // taps only ever SELECT (setActive is idempotent, and `pending` makes it authoritative
 // until the server confirms). The click handler stays for keyboard/AT activation, which
 // synthesizes a click with no pointer event, guarded so a real tap can't fire twice.
+//
+// The guard has to be armed per-gesture, not sticky: a latched flag would swallow every
+// LATER keyboard activation of the same element, and — because the pointer's click still
+// bubbles — an outer onTap target (the row wrapping .row-open) would see an unguarded
+// click and fire a second time. So swallow the pointer's own click here, on the element
+// that handled the pointerdown, and disarm immediately after.
 function onTap(el, fn) {
   let byPointer = false;
   el.addEventListener("pointerdown", (e) => {
@@ -241,7 +247,12 @@ function onTap(el, fn) {
     byPointer = true;
     fn(e);
   });
-  el.addEventListener("click", (e) => { if (!byPointer) fn(e); });
+  el.addEventListener("pointercancel", () => { byPointer = false; }); // no click will follow
+  el.addEventListener("click", (e) => {
+    if (!byPointer) return void fn(e); // keyboard/AT: no pointerdown preceded this
+    byPointer = false;
+    e.stopPropagation(); // handled on pointerdown already; don't let ancestors re-fire it
+  });
 }
 
 function setActive(id) {
@@ -1027,7 +1038,9 @@ function row(s, act) {
   openBtn.className = "row-open";
   openBtn.append(...[...el.children].filter((n) => !n.classList.contains("ph-right")));
   el.prepend(openBtn);
-  onTap(openBtn, (e) => { e.stopPropagation(); goCard(); }); // don't double-fire via the row
+  // stopPropagation covers the KEYBOARD path — onTap already swallows the pointer's click,
+  // but an AT-synthesized click on the button would still bubble to the row and re-fire.
+  onTap(openBtn, (e) => { e.stopPropagation(); goCard(); });
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
   // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
   // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
