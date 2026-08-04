@@ -108,6 +108,28 @@ Opus/Fable-tier tokens to notice an Opus-tier agent is stuck; you spend fraction
 route, and unblock, and reserve the real money for the real reasoning. Keeping expensive agents fed
 and unblocked is exactly where a cheap watching layer pays for itself many times over.
 
+### The same reader can build the UI's affordances, not just describe state
+
+Once a cheap model reads every frame, something bigger than classification falls out. There is a
+class of UI problem that is **impossible to solve generically and trivial to solve semantically** —
+so traditional software ships a bad generic answer, or ships nothing and leaves the work to the
+user. A model already in the render path can just *decide*, per screen, and be right.
+
+The shipped example is getting text OUT of a terminal. Copying from a pane is miserable: a
+fixed-width grid drags borders and column padding into any selection, long lines are hard-wrapped,
+and on a phone a drag pans instead of selects. Every generic fix is bad — copy-the-whole-frame hands
+you the chrome, rule-based structure detection is an arms race against every TUI, and per-tool copy
+buttons would require the very integration this project refuses. But *"what on this screen exists to
+be pasted somewhere else?"* is one sentence, and the Flash Lite pass answering it was already
+running. So the card grows labeled one-tap copy buttons holding clean, unwrapped, border-free text.
+
+The hard part is not extraction — it's **judgment about intent**: a command the agent is asking
+permission to run is deliberately NOT offered for copying, because there the user's job is to
+approve it, not carry it elsewhere. No regex expresses that. A sentence of prompt does.
+
+This generalizes well past tmux-rc, and it's the concept most worth stealing from this project — see
+[the thin LLM layer on top of the UI](thin-llm-ui-layer.md).
+
 ## The bigger prize: an outer loop, not just thumbs
 
 Answering prompts from a phone is the visible feature. The deeper reason is **orchestration** —
