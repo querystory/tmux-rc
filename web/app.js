@@ -1453,9 +1453,11 @@ async function copyText(text) {
 
 // One-tap copy for text the parser lifted off the screen (commands to run elsewhere,
 // drafted commit messages, generated tokens — see "copyables" in parser_prompt.txt).
-// The card shows only the LABEL: the point is to skip the raw-terminal selection
-// problem, so the payload rides on the button instead of taking card space. Tap copies
-// and the button self-reports; long content stays whole on the clipboard.
+// TWO lines per row: the model's LABEL as a heading, plus a one-line PREVIEW of the
+// actual text under it. The preview is what makes the row decidable — a bare "API
+// token" or "Commit message" doesn't say WHICH token or what the message reads, so the
+// user had to copy-then-paste-somewhere just to look, which is the terminal problem all
+// over again. Full payload still rides on the button; only the preview is clipped.
 function copyView(items) {
   const box = document.createElement("div");
   box.className = "copyables";
@@ -1476,13 +1478,27 @@ function copyView(items) {
     const icon = document.createElement("span");
     icon.className = "copyicon";
     icon.innerHTML = licon("clipboard", 14);
+    // Preview: the payload's own first line, so the row says what it actually holds.
+    // Newlines collapse to a pilcrow-ish separator (a multi-line commit message must
+    // read as one line here) and runs of grid whitespace collapse so terminal padding
+    // doesn't eat the preview. Clipped by CSS, not here — the full text stays on the
+    // clipboard. Sliced generously (200) before CSS ellipsis so a hostile payload
+    // can't cost real layout work.
+    const preview = c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " ").trim().slice(0, 200);
     const text = document.createElement("span");
+    text.className = "copylabel";
+    const prev = document.createElement("span");
+    prev.className = "copyprev";
+    prev.textContent = preview;
+    const lines = document.createElement("span");
+    lines.className = "copylines";
+    lines.append(text, prev);
     const set = (t, done = false) => {
       icon.innerHTML = licon(done ? "check" : "clipboard", 14);
       text.textContent = t;
     };
     set(label);
-    b.append(icon, text);
+    b.append(icon, lines);
     let revert = 0;
     b.onclick = async (e) => {
       e.stopPropagation(); // copying must not also re-select the pane

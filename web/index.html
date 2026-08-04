@@ -630,16 +630,23 @@
      is a sentence-ish summary that shouldn't be squeezed beside a sibling. Chrome
      styling, not link-blue — copying is a local action, nothing navigates. */
   .copyables { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 2px; }
-  /* Icon + label sit in a row. The label is the flex child that ellipsizes rather than
-     wraps (min-width:0 lets it shrink below its content) so the icon is never the thing
-     that gets clipped, and it isolates its bidi since it's untrusted model output. */
-  .copybtn { display: flex; align-items: center; gap: 7px; width: 100%;
+  /* Icon + a two-line stack (label over payload preview). The stack is the flex child
+     that shrinks (min-width:0) so the icon is never what gets clipped; each line
+     ellipsizes independently. align-items:flex-start keeps the icon on the label's line
+     rather than floating between the two. */
+  .copybtn { display: flex; align-items: flex-start; gap: 7px; width: 100%;
     text-align: left; padding: 8px 10px;
     border-radius: 8px; background: var(--chrome); color: var(--fg-soft);
     border: 1px solid var(--border); font: inherit; font-size: 13px; cursor: pointer; }
-  .copybtn > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden;
+  .copylines { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  /* Both lines are untrusted model/pane content: isolate bidi, ellipsize, never wrap. */
+  .copylines > span { min-width: 0; white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; unicode-bidi: isolate; }
-  .copyicon { flex: none; display: flex; opacity: .75; }
+  /* The preview is the actual payload — monospace (it's terminal text, and a token or
+     command reads wrong in the UI face) and dimmer, so the label stays the heading. */
+  .copyprev { font-family: var(--mono-term); font-size: 11px; color: var(--fg-dim); }
+  .copybtn.copied .copyprev { opacity: .7; }
+  .copyicon { flex: none; display: flex; opacity: .75; margin-top: 2px; }
   .copybtn:active { background: var(--chrome-2); }
   /* Confirmation: green for the ~1.6s the button reports the copy landed. */
   .copybtn.copied { background: var(--green-bg); color: var(--green-bright);
