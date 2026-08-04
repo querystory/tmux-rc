@@ -629,7 +629,7 @@ async function poll() {
     // "reconnecting". Nuking it for an error page threw away good content on every
     // app resume. Only show the notice when nothing is rendered yet (cold load) or the
     // failure isn't transient.
-    const showing = _panesUI && !_panesUI.deck.classList.contains("off");
+    const showing = _panesUI && !_panesUI.deck.classList.contains("hid");
     if (transient && showing) return false;
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     showNotice(`poll error: ${String(e && e.message || e)} (${hint})`);
@@ -642,10 +642,10 @@ async function poll() {
 // an outage and are simply revealed again when the next poll succeeds.
 function showNotice(msg) {
   const ui = panesUI();
-  setCls(ui.deck, "off", true);
-  setCls(ui.list, "off", true);
-  setCls(ui.empty, "off", false);
-  setCls(ui.spinner, "off", true);
+  setCls(ui.deck, "hid", true);
+  setCls(ui.list, "hid", true);
+  setCls(ui.empty, "hid", false);
+  setCls(ui.spinner, "hid", true);
   setText(ui.emptyText, msg); // error text is untrusted-ish: textContent, never innerHTML
 }
 // Woken when the PWA returns to the foreground: an interruptible backoff sleep resolves
@@ -835,23 +835,23 @@ function render(states) {
     // longer has a card.
     dockEl.onscroll = null;
     dockEl.classList.remove("edge-l", "has-sel");
-    setCls(ui.deck, "off", true);
-    setCls(ui.list, "off", true);
-    setCls(ui.empty, "off", false);
+    setCls(ui.deck, "hid", true);
+    setCls(ui.list, "hid", true);
+    setCls(ui.empty, "hid", false);
     // Empty deck has two causes: still loading (server booting / initial pane parses in
     // flight) vs. genuinely no panes. Only claim "no panes" once the server has booted —
     // otherwise show a spinner, since panes may exist and just aren't parsed yet.
     // The spinner is a PERMANENT node, so the loading state spanning several polls can no
     // longer restart its CSS animation (the visible jitter the old data-empty key guarded
     // against by hand — that guard is now structural).
-    setCls(ui.spinner, "off", !!_booted);
+    setCls(ui.spinner, "hid", !!_booted);
     setText(ui.emptyText, _booted
       ? "No tmux pane found. Start a session and it will appear here."
       : "Loading panes…");
     updateBar(null);
     return;
   }
-  setCls(ui.empty, "off", true);
+  setCls(ui.empty, "hid", true);
   // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting) each
   // get a compact row above it; plain shells fold into one summary line so a big fleet
   // doesn't shove the active card off screen.
@@ -861,22 +861,22 @@ function render(states) {
   const subset = listFilter && states.filter((s) => listFilter === "all" || actOf(s) === listFilter);
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
-    setCls(ui.deck, "off", true);
-    setCls(ui.list, "off", false);
+    setCls(ui.deck, "hid", true);
+    setCls(ui.list, "hid", false);
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
     applyList(ui.list, states, subset, act);
     updateBar(panesById[act]);
     return;
   }
   listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
-  setCls(ui.list, "off", true);
+  setCls(ui.list, "hid", true);
   // Hiding the list must also EMPTY it: a .sess-hdr:first-child rule and the row nodes
   // themselves would otherwise linger behind the hidden class, and stale rows holding
   // pane state is exactly what this refactor is removing.
   applyList(ui.list, states, [], act);
   dock(states, act); // sticky top bar — constant height, content swaps below it
   const a = panesById[act];
-  setCls(ui.deck, "off", !a);
+  setCls(ui.deck, "hid", !a);
   if (a) {
     applyCard(cardUI, a);
     bgTerm(a);
@@ -1231,7 +1231,7 @@ function buildRow(paneId) {
 // just this row without a full render.
 function applyRowSubs(el, subs) {
   const n = subs.length;
-  setCls(el._toggle, "off", !n);
+  setCls(el._toggle, "hid", !n);
   const open = !!el._subsOpen && n > 0;
   if (n) {
     // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
@@ -1361,7 +1361,7 @@ function applyCard(ui, s) {
   // question and event views.
   const lmOwns = !collapsed && !!lmWs && s.pane_id === activeId();
   const body = !collapsed && !lmOwns;
-  setCls(ui.lm, "off", !lmOwns);
+  setCls(ui.lm, "hid", !lmOwns);
   if (lmOwns) lmPaintInto(ui.lm); else keyedList(ui.lm, [], (x) => x, () => null);
   // The bootstrap "story so far" — orientation when picking a session up cold. Clamped
   // to a few lines; tap toggles the full text.
@@ -1943,7 +1943,7 @@ function applyTables(host, tables) {
   }, (box, t) => {
     setText(box._title, t.title || "");
     const headers = t.headers || [];
-    setCls(box._thead, "off", !headers.length);
+    setCls(box._thead, "hid", !headers.length);
     keyedList(box._headRow, headers, (h, i) => i, () => document.createElement("th"), setText);
     keyedList(box._tbody, t.rows || [], (r, i) => i, () => document.createElement("tr"),
       (tr, r) => keyedList(tr, r || [], (c, i) => i, () => document.createElement("td"), setText));
@@ -2025,7 +2025,7 @@ const atBottomOf = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < 24
 
 function applyEvents(ui, events, paneId, summary) {
   const root = ui.root;
-  setCls(root, "off", !events.length);
+  setCls(root, "hid", !events.length);
   setAttr(root, "data-pane", paneId || "");
   // Pane switch: the new pane's feed is a different log, so follow ITS tail rather than
   // inheriting the previous pane's scroll position.
@@ -2039,7 +2039,7 @@ function applyEvents(ui, events, paneId, summary) {
   // timestamp, to avoid client-ms vs server-sec clock skew — the log is time-ordered so
   // the oldest N are the summarized burst.
   const folding = !!(summary && summary.text && summary.count > 1 && events.length > summary.count);
-  setCls(ui.det, "off", !folding);
+  setCls(ui.det, "hid", !folding);
   if (folding) {
     setText(ui.smText, summary.text);
     setText(ui.smCount, `(${summary.count})`);
@@ -2087,7 +2087,7 @@ function buildTask() {
 }
 
 function applyTasks(ui, tasks) {
-  setCls(ui.root, "off", !tasks.length);
+  setCls(ui.root, "hid", !tasks.length);
   keyedList(ui.list, tasks, (t, i) => i + "|" + (t.text || ""), buildTask, (d, t) => {
     setCls(d, "done", !!t.done);
     setCls(d._pulse, "on", false); // plain tasks never pulse
@@ -2106,7 +2106,7 @@ const realSubs = (subs) =>
   (Array.isArray(subs) ? subs : []).filter((a) => a && typeof a === "object" && !Array.isArray(a));
 
 function applySubagents(ui, subs) {
-  setCls(ui.root, "off", !subs.length);
+  setCls(ui.root, "hid", !subs.length);
   keyedList(ui.list, subs, (a, i) => i + "|" + (a.label || ""), buildTask, (d, a) => {
     const done = a.state === "done";
     setCls(d, "done", done);
@@ -2157,7 +2157,7 @@ function buildRewind() {
 
 function applyRewind(ui, s) {
   const rw = s && s.rewind;
-  setCls(ui.root, "off", !rw);
+  setCls(ui.root, "hid", !rw);
   if (!rw) { keyedList(ui.list, [], (x) => x, () => null); return; }
   setText(ui.more, rw.more_above ? `↑ ${rw.more_above} more above` : "");
   keyedList(ui.list, rw.entries || [], (e, i) => i + "|" + (e.text || ""), () => {
@@ -2654,7 +2654,7 @@ function buildQuestion(cardUi) {
 }
 
 function applyQuestion(ui, s) {
-  setCls(ui.root, "off", !s);
+  setCls(ui.root, "hid", !s);
   if (!s) { keyedList(ui.opts, [], (x) => x, () => null); setText(ui.promptText, ""); return; }
   const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
   setText(ui.promptText, s.question.prompt);
@@ -2662,7 +2662,7 @@ function applyQuestion(ui, s) {
   // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
   const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
   const paneId = s.pane_id;
-  keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
+  keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
     b.onclick = () => {

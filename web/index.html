@@ -93,14 +93,17 @@
   /* ── The one hide class ──────────────────────────────────────────────────────────
      Under the render invariant (see app.js) a node, once built, is never replaced — so a
      view that does not apply to the current pane is HIDDEN rather than removed, and its
-     handlers, scroll offset and identity survive. `.off` is that state, one rule for every
+     handlers, scroll offset and identity survive. `.hid` is that state, one rule for every
      such node. It has to win over the per-component display rules (.events and .tasks set
-     display:flex, .q-spin display:inline-block), hence !important — the alternative is an
-     .off variant beside every one of them.
+     display:flex, .q-spin display:inline-block, the keyed wrappers display:contents), hence
+     !important — the alternative is a variant beside every one of them.
+     NAMED `.hid`, NOT `.off`: `.off` is already taken by the header connection dot, which
+     uses it for "offline/stalled" (class="dot off") — a global .off{display:none} would make
+     the live-status dot vanish exactly when it has something to report.
      NOTE: hiding is for whole SUBVIEWS. A list that empties must have its children actually
      REMOVED, because #top .dock:empty, #filters:empty, .metarow:empty and .lm-convo:empty
      are structural selectors — keyedList removes leftovers for exactly this reason. */
-  .off { display: none !important; }
+  .hid { display: none !important; }
   #top { position: sticky; top: 0; z-index: 5; background: var(--bg-glass); backdrop-filter: blur(8px); }
   /* No bottom gap: the active card below butts against the dock so the two read as one
      tab-header unit (selected icon = the tab, card = its body). */
@@ -515,7 +518,7 @@
      and box chrome they always had, so these are pure pass-throughs. `display: contents`
      makes the wrapper vanish from layout entirely, which is what keeps .tasks' border/
      radius wrapping its rows and the table boxes spaced as before.
-     .off overrides this to display:none (it is !important), so hiding still works. */
+     .hid overrides this to display:none (it is !important), so hiding still works. */
   .tables, .task-list, .rw-list { display: contents; }
   /* .plist is a REAL box, not a pass-through: it is the list-mode scroll container that
      holds the session headers and pane rows as siblings (so .sess-hdr:first-child still
