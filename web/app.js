@@ -281,12 +281,16 @@ function activeId() {
 // never observe a different finger's release, and nothing accumulates between gestures.
 const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
 const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
+// When a pointer gesture last ran an onTap action, in event-timeStamp terms. Module
+// scope on purpose: it must outlive any node a handler replaces (see the click branch).
+let _lastPointerAction = -1e9;
+
 function onTap(el, fn, defer) {
   let downAt = 0;
   el.addEventListener("pointerdown", (e) => {
     if (e.button != null && e.button !== 0) return; // left/touch only
     downAt = e.timeStamp || performance.now();
-    if (!defer) return void fn(e);
+    if (!defer) { _lastPointerAction = downAt; return void fn(e); }
     // Deferred: follow THIS pointer on document until it releases. The listeners are
     // per-gesture (added here, removed in done()) rather than one long-lived pair, so
     // there is no cross-gesture state to get out of sync and nothing left behind.
@@ -321,6 +325,7 @@ function onTap(el, fn, defer) {
       // would.
       if (ev._tapClaimed) return;
       ev._tapClaimed = true;
+      _lastPointerAction = ev.timeStamp || performance.now();
       fn(ev);
     };
     document.addEventListener("pointermove", move, true);
@@ -328,10 +333,23 @@ function onTap(el, fn, defer) {
     document.addEventListener("pointercancel", done, true);
   });
   el.addEventListener("click", (e) => {
+    // Suppress the click that FOLLOWS a pointer gesture we already handled, and let a
+    // genuine keyboard/AT activation (which has no preceding pointerdown) through.
+    //
+    // The "did we already handle this?" state must live on the GESTURE, not on this
+    // element. `downAt` was per-element, so a handler that re-renders — the caret, whose
+    // fn() calls render() and replaces its own button — destroyed the node holding the
+    // guard; the click then arrived at a FRESH button with downAt === 0, was read as
+    // keyboard activation, and fired fn a second time. One tap toggled collapse and
+    // immediately toggled it back. _lastPointerAction is module-scoped and survives the
+    // rebuild, so the follow-up click is recognized no matter which node receives it.
     const ts = e.timeStamp || performance.now();
-    if (!downAt || ts - downAt > TAP_CLICK_MS) return void fn(e); // keyboard/AT, or stale arm
-    downAt = 0;
-    e.stopPropagation(); // handled on pointerdown/up already; don't let ancestors re-fire it
+    if (ts - _lastPointerAction <= TAP_CLICK_MS) {
+      e.stopPropagation(); // already actioned on pointerdown/up
+      return;
+    }
+    if (downAt && ts - downAt <= TAP_CLICK_MS) { downAt = 0; e.stopPropagation(); return; }
+    fn(e); // no recent pointer gesture ⇒ keyboard / assistive activation
   });
 }
 
@@ -739,7 +757,7 @@ function _renderFp(states) {
       // idle/waiting badges tick from data-since in place (tickBadges), so the SECOND
       // must not enter the fingerprint or a parked pane would rebuild once a second.
       s.state_since ?? null,
-      [...subsOpen].includes(s.pane_id),
+      subsOpen.has(s.pane_id), // a Set — .has, not a spread + linear scan per pane per poll
     ]),
   ]);
 }
