@@ -99,6 +99,14 @@ function linkify(text) {
 const SGR_SPLIT = /(\x1b\[[0-9;]*m)/;
 const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
 
+// Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
+// terminal gets — markdown [label](url) and bare URLs — but without the grid-specific
+// wrap-joining, since prose isn't a fixed-width character grid. Escapes everything else,
+// so it is a drop-in replacement for esc() on untrusted model text.
+export function linkifyText(text) {
+  return linkify(String(text ?? ""));
+}
+
 export function renderCapture(text, { color = false } = {}) {
   text = text.replace(/\r/g, ""); // normalize CR for BOTH paths — progress bars etc.
   if (!color) return linkify(text);

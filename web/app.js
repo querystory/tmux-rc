@@ -1,7 +1,7 @@
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step (native ES module — index.html loads type=module).
-import { renderCapture } from "./terminal.js";
+import { renderCapture, linkifyText } from "./terminal.js";
 
 // Real brand marks per tool (served from web/). One img template so every icon renders
 // identically; unidentified panes fall back to the tmux logomark. `tool` comes from
@@ -392,7 +392,7 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
     + `<div class="ph-meta"><div class="ph-name">`
     + (icon && s.window_index != null ? `<span class="wnum">${esc(String(s.window_index))}</span>` : "")
     + `${esc(s.title || s.label || s.pane_id)}</div>`
-    + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
+    + (s.headline ? `<div class="ph-sub">${linkifyText(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}"${since}>${badge}</span></div>`
   );
 }
@@ -1210,7 +1210,7 @@ function card(s) {
   if (s.session_summary) {
     const sum = document.createElement("div");
     sum.className = "sess-sum";
-    sum.textContent = s.session_summary;
+    sum.innerHTML = linkifyText(s.session_summary); // linkifyText escapes non-anchors
     sum.onclick = (e) => { e.stopPropagation(); sum.classList.toggle("open"); };
     el.appendChild(sum);
   }
@@ -1686,7 +1686,11 @@ function evHtml(e) {
   }
   // historical = reconstructed from scrollback by the bootstrap pass, not observed
   // live — rendered dimmer so it never masquerades as watched fact.
-  return `<div class="ev${e.historical ? " ev-hist" : ""}"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
+  // linkifyText, not esc: an event that mentions a URL or a markdown [label](url) — a PR
+  // the agent opened, a preview deploy — should be tappable here exactly as it is in the
+  // terminal below. It escapes everything it doesn't turn into an anchor, so it is a safe
+  // drop-in for esc() on this untrusted model text.
+  return `<div class="ev${e.historical ? " ev-hist" : ""}"><span class="ev-text">${linkifyText(e.text || "")}</span>${note}</div>`;
 }
 
 function eventsView(events, paneId, summary) {
