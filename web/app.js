@@ -343,13 +343,22 @@ function onTap(el, fn, defer) {
     // keyboard activation, and fired fn a second time. One tap toggled collapse and
     // immediately toggled it back. _lastPointerAction is module-scoped and survives the
     // rebuild, so the follow-up click is recognized no matter which node receives it.
+    //
+    // But ask WHAT the click is before asking WHEN it arrived. detail is the click count:
+    // 0 only for a synthesized activation (keyboard Enter/Space, AT), >=1 for anything a
+    // pointer produced. Time alone can't tell those apart, and since the stamp is global it
+    // would swallow a real keyboard activation on a DIFFERENT element merely for landing
+    // within TAP_CLICK_MS of an unrelated tap — tap a dock tab, then immediately press
+    // Enter on the caret, and the caret would do nothing. Checking detail first makes the
+    // time window a backstop for pointer clicks only, which is all it was ever for.
+    if (e.detail === 0) return void fn(e); // keyboard / AT: never a follow-up
     const ts = e.timeStamp || performance.now();
     if (ts - _lastPointerAction <= TAP_CLICK_MS) {
       e.stopPropagation(); // already actioned on pointerdown/up
       return;
     }
     if (downAt && ts - downAt <= TAP_CLICK_MS) { downAt = 0; e.stopPropagation(); return; }
-    fn(e); // no recent pointer gesture ⇒ keyboard / assistive activation
+    fn(e); // a pointer click with no recent handled gesture (e.g. non-deferred miss)
   });
 }
 
