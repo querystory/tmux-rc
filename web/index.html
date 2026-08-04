@@ -290,9 +290,11 @@
      The offset is 5px, not 6: `bottom` is measured from the padding box's inner edge, so
      the removed border already accounts for 1px of the 6px box growth. MEASURED, not
      derived — at 5px the badge's box bottom is 93 selected and unselected alike (so the
-     number does not shift when you tap a tab), and the ring bottom lands at 95, clear of
-     the dock's padding-box clip at 94 and well clear of the card line at 98. 6px looked
-     right on paper but lifted it 1px, which reads as the number twitching upward.
+     number does not shift when you tap a tab). The ring's 2px spread would reach 95, but
+     the dock is an overflow-x scroller, so it is CLIPPED at 94 — nothing paints below
+     that, which is what keeps it off the card line at 98. That 1px of clipped spread is
+     also why the unselected badge already looks right: same overhang, same clip. 6px
+     looked right on paper but lifted the number 1px, which reads as a twitch on tap.
      Invisible while the ring was hard-coded near-black (it matched the dark chrome);
      themed --surface made it #fff in light mode, which is when the "lines under the
      icon" appeared. */
