@@ -1389,6 +1389,17 @@ const peekRO = new ResizeObserver((entries) =>
   }));
 let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
+// Display-safe text from an untrusted string (model output derived from pane content):
+// strip bidi controls, then cap by CODE POINTS so no surrogate pair is split. Bidi
+// controls matter because an unterminated RLO/LRO can visually reorder a row — reversing
+// a link's host indicator, or making a copy row's preview read as different content than
+// the clipboard carries. Every untrusted string headed for the DOM goes through here.
+function safeText(v, max) {
+  return Array.from(
+    String(v ?? "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
+  ).slice(0, max).join("");
+}
+
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
 // raw screen text can't. stopPropagation so tapping opens the link, not the card.
@@ -1410,11 +1421,7 @@ function linksView(links) {
     a.href = l.href;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    // Strip bidi controls (an unterminated RLO in a model label could visually
-    // reverse the host indicator) and cap by code points (no split surrogates).
-    const label = Array.from(
-      String(l.text || "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
-    ).slice(0, 80).join("");
+    const label = safeText(l.text, 80);  // untrusted: bidi-stripped, code-point capped
     a.textContent = `\u{1F517} ${label || host}`;
     const hostEl = document.createElement("span");
     hostEl.className = "linkhost";
@@ -1469,12 +1476,7 @@ function copyView(items) {
     // (an unterminated override would visually reorder the row) and cap by code points
     // so a hostile pane can't bury the card under a wall of text. textContent, never
     // innerHTML. Falls back to a generic name when the model gave no usable label.
-    const label = Array.from(
-      // ESCAPED ranges, never literal bidi controls: embedding invisible characters in
-      // source is the Trojan-Source hazard this sanitizer exists to defuse, and linksView
-      // above writes the same range escaped — keep the two identical.
-      String(c.label || "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
-    ).slice(0, 60).join("") || "Text";
+    const label = safeText(c.label, 60) || "Text";
     // Icon is chrome (inline Lucide, themes via currentColor — AGENTS.md bans emoji
     // here); the label is untrusted, so it rides in its own span as textContent and
     // never touches innerHTML. Swap to a check when the copy lands.
@@ -1487,7 +1489,10 @@ function copyView(items) {
     // doesn't eat the preview. Clipped by CSS, not here — the full text stays on the
     // clipboard. Sliced generously (200) before CSS ellipsis so a hostile payload
     // can't cost real layout work.
-    const preview = c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " ").trim().slice(0, 200);
+    // safeText for the same reason the label gets it, and MORE so: this is the payload
+    // itself, so a bidi control here could make the row read as different content than
+    // the clipboard actually carries. Display only — c.text stays verbatim for the copy.
+    const preview = safeText(c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " "), 200);
     const text = document.createElement("span");
     text.className = "copylabel";
     const prev = document.createElement("span");
