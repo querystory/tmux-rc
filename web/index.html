@@ -281,6 +281,24 @@
   #top .dock.has-sel { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .dock.has-sel .dock-icon.sel { border-bottom: 0; border-bottom-left-radius: 0;
     border-bottom-right-radius: 0; margin-bottom: -4px; padding-bottom: 11px; background: var(--surface); }
+  /* Keep the sub-agent badge OFF the join, and STILL while selecting. .sacount is
+     anchored bottom:0 of the icon's padding box; the rule above grows that box downward
+     (padding-bottom 6px → 11px, and border-bottom 1px → 0 which drops the padding-box
+     edge 1px further), so on selection the badge rode down onto the tab's foot and its
+     2px --surface ring straddled the card's top border — punching a hole in the blue line
+     and in the right fillet's arc.
+     The offset is 5px, not 6: `bottom` is measured from the padding box's inner edge, so
+     the removed border already accounts for 1px of the 6px box growth. MEASURED, not
+     derived — at 5px the badge's box bottom is 93 selected and unselected alike (so the
+     number does not shift when you tap a tab). The ring's 2px spread would reach 95, but
+     the dock is an overflow-x scroller, so it is CLIPPED at 94 — nothing paints below
+     that, which is what keeps it off the card line at 98. That 1px of clipped spread is
+     also why the unselected badge already looks right: same overhang, same clip. 6px
+     looked right on paper but lifted the number 1px, which reads as a twitch on tap.
+     Invisible while the ring was hard-coded near-black (it matched the dark chrome);
+     themed --surface made it #fff in light mode, which is when the "lines under the
+     icon" appeared. */
+  .dock.has-sel .dock-icon.sel .sacount { bottom: 5px; }
   .tab-notch { position: absolute; top: 0; height: 1px; background: var(--surface); z-index: 2; pointer-events: none; }
   /* Edge tabs: a flare landing inside the card's corner-radius zone has no flat line
      to join (the border is curving away there) — square that corner instead. */
@@ -632,6 +650,34 @@
   background: var(--link-bg); color: var(--link); text-decoration: none; font-size: 13px; }
 .linkbtn:active { background: var(--link-bg-active); }
 .linkhost { opacity: .6; font-size: 11px; unicode-bidi: isolate; }
+  /* Lucide link glyph in the chip (replaced the 🔗 emoji — AGENTS.md bans emoji as
+     chrome). Inline-flex so it sits on the text baseline without stretching the chip. */
+  .linkicon { display: inline-flex; vertical-align: -2px; margin-right: 5px; opacity: .8; }
+  /* Paste-me-elsewhere text (copyables): one full-width row per item, since the label
+     is a sentence-ish summary that shouldn't be squeezed beside a sibling. Chrome
+     styling, not link-blue — copying is a local action, nothing navigates. */
+  .copyables { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 2px; }
+  /* Icon + a two-line stack (label over payload preview). The stack is the flex child
+     that shrinks (min-width:0) so the icon is never what gets clipped; each line
+     ellipsizes independently. align-items:flex-start keeps the icon on the label's line
+     rather than floating between the two. */
+  .copybtn { display: flex; align-items: flex-start; gap: 7px; width: 100%;
+    text-align: left; padding: 8px 10px;
+    border-radius: 8px; background: var(--chrome); color: var(--fg-soft);
+    border: 1px solid var(--border); font: inherit; font-size: 13px; cursor: pointer; }
+  .copylines { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  /* Both lines are untrusted model/pane content: isolate bidi, ellipsize, never wrap. */
+  .copylines > span { min-width: 0; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; unicode-bidi: isolate; }
+  /* The preview is the actual payload — monospace (it's terminal text, and a token or
+     command reads wrong in the UI face) and dimmer, so the label stays the heading. */
+  .copyprev { font-family: var(--mono-term); font-size: 11px; color: var(--fg-dim); }
+  .copybtn.copied .copyprev { opacity: .7; }
+  .copyicon { flex: none; display: flex; opacity: .75; margin-top: 2px; }
+  .copybtn:active { background: var(--chrome-2); }
+  /* Confirmation: green for the ~1.6s the button reports the copy landed. */
+  .copybtn.copied { background: var(--green-bg); color: var(--green-bright);
+    border-color: var(--green); }
 .screen-pre a, .bg-term a { color: #8ecbff; } /* on the dark terminal, both themes */
 /* Live = color; quiet/stale stream = desaturate to gray (docs/design/live-view.md).
    A CSS filter, not a re-render — it dims the colors while leaving link <a>s and text

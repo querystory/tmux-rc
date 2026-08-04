@@ -40,6 +40,9 @@ const LUCIDE = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1327,6 +1330,7 @@ function card(s) {
   if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
   { const subs = realSubs(s.subagents); if (subs.length) el.appendChild(subagentsView(subs)); }
   if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
+  if (Array.isArray(s.copyables) && s.copyables.length) el.appendChild(copyView(s.copyables));
   const log = (eventLog[s.pane_id] || {}).events || [];
   if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
   // No per-card input anymore — a single persistent bar at the bottom of the page
@@ -1608,6 +1612,19 @@ const peekRO = new ResizeObserver((entries) =>
   }));
 let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
+// Display-safe text from an untrusted string (model output derived from pane content):
+// strip bidi controls, then cap by CODE POINTS so no surrogate pair is split. Bidi
+// controls matter because an unterminated RLO/LRO can visually reorder a row — reversing
+// a link's host indicator, or making a copy row's preview read as different content than
+// the clipboard carries. Use this for untrusted text set as textContent; the innerHTML
+// paths (tasks/events/subagents) go through esc() instead, which escapes markup but does
+// NOT strip bidi — those are plain rows where reordering is cosmetic, not deceptive.
+function safeText(v, max) {
+  return Array.from(
+    String(v ?? "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
+  ).slice(0, max).join("");
+}
+
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
 // raw screen text can't. stopPropagation so tapping opens the link, not the card.
@@ -1629,18 +1646,121 @@ function linksView(links) {
     a.href = l.href;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    // Strip bidi controls (an unterminated RLO in a model label could visually
-    // reverse the host indicator) and cap by code points (no split surrogates).
-    const label = Array.from(
-      String(l.text || "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim()
-    ).slice(0, 80).join("");
-    a.textContent = `\u{1F517} ${label || host}`;
+    const label = safeText(l.text, 80);  // untrusted: bidi-stripped, code-point capped
+    // Lucide icon, not the 🔗 emoji: AGENTS.md bans emoji as UI chrome (emoji ignore
+    // currentColor, so they can't theme, and they render differently per device). The
+    // label is untrusted, so it rides in its own span as textContent — never innerHTML.
+    const licn = document.createElement("span");
+    licn.className = "linkicon";
+    licn.innerHTML = licon("link", 13);
+    const ltxt = document.createElement("span");
+    ltxt.textContent = label || host;
+    a.append(licn, ltxt);
     const hostEl = document.createElement("span");
     hostEl.className = "linkhost";
     hostEl.textContent = ` ${host}`;
     a.appendChild(hostEl);
     a.onclick = (e) => e.stopPropagation();
     box.appendChild(a);
+  }
+  return box;
+}
+
+// Put text on the clipboard, resolving true/false so the caller can show the outcome
+// (a silent no-op reads as "the button is broken"). navigator.clipboard needs a secure
+// context: the PWA is served over HTTPS through the tunnel, but a plain-HTTP LAN visit
+// (http://host:8080) has no Clipboard API at all — fall back to the legacy
+// execCommand path so copy still works there.
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* fall through — denied permission or an insecure context */ }
+  const ta = document.createElement("textarea");
+  try {
+    ta.value = text;
+    // Off-screen but focusable, and readOnly so mobile keyboards don't pop up.
+    ta.readOnly = true;
+    ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length); // iOS ignores select() alone
+    return document.execCommand("copy");
+  } catch { return false; }
+  // Remove in `finally`: if select()/setSelectionRange() throws we'd otherwise leak a
+  // hidden textarea into the DOM on every failed attempt.
+  finally { ta.remove(); }
+}
+
+// One-tap copy for text the parser lifted off the screen (commands to run elsewhere,
+// drafted commit messages, generated tokens — see "copyables" in parser_prompt.txt).
+// TWO lines per row: the model's LABEL as a heading, plus a one-line PREVIEW of the
+// actual text under it. The preview is what makes the row decidable — a bare "API
+// token" or "Commit message" doesn't say WHICH token or what the message reads, so the
+// user had to copy-then-paste-somewhere just to look, which is the terminal problem all
+// over again. Full payload still rides on the button; only the preview is clipped.
+function copyView(items) {
+  const box = document.createElement("div");
+  box.className = "copyables";
+  const valid = items.filter((c) => c && typeof c.text === "string" && c.text.trim());
+  for (const c of valid.slice(0, 3)) {
+    const b = document.createElement("button");
+    b.className = "copybtn";
+    // Label is MODEL OUTPUT derived from untrusted pane content: strip bidi controls
+    // (an unterminated override would visually reorder the row) and cap by code points
+    // so a hostile pane can't bury the card under a wall of text. textContent, never
+    // innerHTML. Falls back to a generic name when the model gave no usable label.
+    const label = safeText(c.label, 60) || "Text";
+    // Icon is chrome (inline Lucide, themes via currentColor — AGENTS.md bans emoji
+    // here); the label is untrusted, so it rides in its own span as textContent and
+    // never touches innerHTML. Swap to a check when the copy lands.
+    const icon = document.createElement("span");
+    icon.className = "copyicon";
+    icon.innerHTML = licon("clipboard", 14);
+    // Preview: the payload's own first line, so the row says what it actually holds.
+    // Newlines collapse to a pilcrow-ish separator (a multi-line commit message must
+    // read as one line here) and runs of grid whitespace collapse so terminal padding
+    // doesn't eat the preview. Clipped by CSS, not here — the full text stays on the
+    // clipboard. Sliced generously (200) before CSS ellipsis so a hostile payload
+    // can't cost real layout work.
+    // safeText for the same reason the label gets it, and MORE so: this is the payload
+    // itself, so a bidi control here could make the row read as different content than
+    // the clipboard actually carries. Display only — c.text stays verbatim for the copy.
+    const preview = safeText(c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " "), 200);
+    const text = document.createElement("span");
+    text.className = "copylabel";
+    const prev = document.createElement("span");
+    prev.className = "copyprev";
+    prev.textContent = preview;
+    const lines = document.createElement("span");
+    lines.className = "copylines";
+    lines.append(text, prev);
+    const set = (t, done = false) => {
+      icon.innerHTML = licon(done ? "check" : "clipboard", 14);
+      text.textContent = t;
+    };
+    set(label);
+    b.append(icon, lines);
+    let revert = 0;
+    // onTap(defer), not onclick: the card is rebuilt on the ~2s poll, so a plain `click` is
+    // lost whenever a rebuild lands between finger-down and finger-up — the same swallowed-tap
+    // bug the dock had, and worse here because the payload is the whole point of the row.
+    // Deferred to pointerup: the card scrolls, so a scroll flick must not copy — and pointerup
+    // still carries the transient user activation that BOTH clipboard paths need
+    // (navigator.clipboard.writeText and the execCommand fallback alike).
+    onTap(b, async (e) => {
+      e.stopPropagation(); // copying must not also re-select the pane
+      const ok = await copyText(c.text);
+      // The card never shows the payload, so a failure has to send the user to where the
+      // text actually is — the pane itself — not to a "text" that isn't on screen.
+      set(ok ? "Copied" : "Copy failed — select it in the pane", ok);
+      b.classList.toggle("copied", ok);
+      // Revert so the row keeps naming its content (and a second copy is obvious). Clear
+      // the pending timer first: on a rapid second tap the older one would otherwise fire
+      // mid-confirmation and blank the state early.
+      clearTimeout(revert);
+      revert = setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);
+    }, true);
+    box.appendChild(b);
   }
   return box;
 }
