@@ -1612,7 +1612,13 @@ function copyView(items) {
     set(label);
     b.append(icon, lines);
     let revert = 0;
-    b.onclick = async (e) => {
+    // onTap(defer), not onclick: the card is rebuilt on the ~2s poll, so a plain `click` is
+    // lost whenever a rebuild lands between finger-down and finger-up — the same swallowed-tap
+    // bug the dock had, and worse here because the payload is the whole point of the row.
+    // Deferred to pointerup: the card scrolls, so a scroll flick must not copy — and pointerup
+    // still carries the transient user activation that BOTH clipboard paths need
+    // (navigator.clipboard.writeText and the execCommand fallback alike).
+    onTap(b, async (e) => {
       e.stopPropagation(); // copying must not also re-select the pane
       const ok = await copyText(c.text);
       // The card never shows the payload, so a failure has to send the user to where the
@@ -1624,7 +1630,7 @@ function copyView(items) {
       // mid-confirmation and blank the state early.
       clearTimeout(revert);
       revert = setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);
-    };
+    }, true);
     box.appendChild(b);
   }
   return box;
