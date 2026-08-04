@@ -40,6 +40,8 @@ const LUCIDE = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1433,8 +1435,8 @@ async function copyText(text) {
   try {
     if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
   } catch { /* fall through — denied permission or an insecure context */ }
+  const ta = document.createElement("textarea");
   try {
-    const ta = document.createElement("textarea");
     ta.value = text;
     // Off-screen but focusable, and readOnly so mobile keyboards don't pop up.
     ta.readOnly = true;
@@ -1442,10 +1444,11 @@ async function copyText(text) {
     document.body.appendChild(ta);
     ta.select();
     ta.setSelectionRange(0, text.length); // iOS ignores select() alone
-    const ok = document.execCommand("copy");
-    ta.remove();
-    return ok;
+    return document.execCommand("copy");
   } catch { return false; }
+  // Remove in `finally`: if select()/setSelectionRange() throws we'd otherwise leak a
+  // hidden textarea into the DOM on every failed attempt.
+  finally { ta.remove(); }
 }
 
 // One-tap copy for text the parser lifted off the screen (commands to run elsewhere,
@@ -1467,12 +1470,23 @@ function copyView(items) {
     const label = Array.from(
       String(c.label || "").replace(/[‪-‮⁦-⁩]/g, "").trim()
     ).slice(0, 60).join("") || "Text";
-    const set = (t) => { b.textContent = `\u{1F4CB} ${t}`; };
+    // Icon is chrome (inline Lucide, themes via currentColor — AGENTS.md bans emoji
+    // here); the label is untrusted, so it rides in its own span as textContent and
+    // never touches innerHTML. Swap to a check when the copy lands.
+    const icon = document.createElement("span");
+    icon.className = "copyicon";
+    icon.innerHTML = licon("clipboard", 14);
+    const text = document.createElement("span");
+    const set = (t, done = false) => {
+      icon.innerHTML = licon(done ? "check" : "clipboard", 14);
+      text.textContent = t;
+    };
     set(label);
+    b.append(icon, text);
     b.onclick = async (e) => {
       e.stopPropagation(); // copying must not also re-select the pane
       const ok = await copyText(c.text);
-      set(ok ? "Copied" : "Copy failed — long-press the text instead");
+      set(ok ? "Copied" : "Copy failed — long-press the text instead", ok);
       b.classList.toggle("copied", ok);
       // Revert so the row keeps naming its content (and a second copy is obvious).
       setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);

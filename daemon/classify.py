@@ -165,10 +165,14 @@ def classify(
     # for every client. 4000 chars is far past any realistic paste; drop rather than
     # truncate, since a silently clipped paste is worse than none (the prompt says the
     # same). Malformed entries are dropped, not repaired.
+    # Re-emit a minimal {label, text} rather than passing the model's dict through: an
+    # extra key it invents would ride the wire for free, and the label (a one-line
+    # summary) is capped here too so it can't itself become the wall of text. The client
+    # re-caps at 60 for display; this bound is about payload, not layout.
     cps = result.get("copyables")
     if isinstance(cps, list):
         result["copyables"] = [
-            c
+            {"label": str(c.get("label") or "")[:200], "text": c["text"]}
             for c in cps[:3]
             if isinstance(c, dict)
             and isinstance(c.get("text"), str)

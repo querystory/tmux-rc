@@ -631,11 +631,15 @@
      styling, not link-blue — copying is a local action, nothing navigates. The label is
      untrusted model output, so isolate its bidi and ellipsize rather than wrap. */
   .copyables { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 2px; }
-  .copybtn { display: block; width: 100%; text-align: left; padding: 8px 10px;
+  /* Icon + label sit in a row; the label is the flex child that ellipsizes (min-width:0
+     lets it shrink below its content), so the icon never gets clipped away. */
+  .copybtn { display: flex; align-items: center; gap: 7px; width: 100%;
+    text-align: left; padding: 8px 10px;
     border-radius: 8px; background: var(--chrome); color: var(--fg-soft);
-    border: 1px solid var(--border); font: inherit; font-size: 13px; cursor: pointer;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    unicode-bidi: isolate; }
+    border: 1px solid var(--border); font: inherit; font-size: 13px; cursor: pointer; }
+  .copybtn > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; unicode-bidi: isolate; }
+  .copyicon { flex: none; display: flex; opacity: .75; }
   .copybtn:active { background: var(--chrome-2); }
   /* Confirmation: green for the ~1.6s the button reports the copy landed. */
   .copybtn.copied { background: var(--green-bg); color: var(--green-bright);

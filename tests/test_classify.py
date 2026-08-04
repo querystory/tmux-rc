@@ -190,6 +190,28 @@ def test_copyables_capped_and_malformed_dropped():
     assert r["copyables"] == [{"label": "Commit message", "text": "fix: unwrap the thing"}]
 
 
+def test_copyables_reemitted_minimally():
+    # The model's dict is not passed through: an invented key would ride every poll for
+    # free, and an enormous label is payload too (the client's 60 cap is only display).
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "copyables": [
+                    {"label": "L" * 500, "text": "paste me", "junk": "x" * 9000},
+                    {"text": "no label at all"},
+                ],
+            }
+        ),
+    )
+    assert r["copyables"] == [
+        {"label": "L" * 200, "text": "paste me"},
+        {"label": "", "text": "no label at all"},
+    ]
+
+
 def test_copyables_non_list_dropped():
     r = classify(_pane(), "…", _llm({"activity": "idle", "copyables": "nope"}))
     assert "copyables" not in r
