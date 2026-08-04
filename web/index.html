@@ -90,6 +90,17 @@
     background: var(--bg); color: var(--fg);
     padding: env(safe-area-inset-top) 0 0;
   }
+  /* ── The one hide class ──────────────────────────────────────────────────────────
+     Under the render invariant (see app.js) a node, once built, is never replaced — so a
+     view that does not apply to the current pane is HIDDEN rather than removed, and its
+     handlers, scroll offset and identity survive. `.off` is that state, one rule for every
+     such node. It has to win over the per-component display rules (.events and .tasks set
+     display:flex, .q-spin display:inline-block), hence !important — the alternative is an
+     .off variant beside every one of them.
+     NOTE: hiding is for whole SUBVIEWS. A list that empties must have its children actually
+     REMOVED, because #top .dock:empty, #filters:empty, .metarow:empty and .lm-convo:empty
+     are structural selectors — keyedList removes leftovers for exactly this reason. */
+  .off { display: none !important; }
   #top { position: sticky; top: 0; z-index: 5; background: var(--bg-glass); backdrop-filter: blur(8px); }
   /* No bottom gap: the active card below butts against the dock so the two read as one
      tab-header unit (selected icon = the tab, card = its body). */
@@ -210,6 +221,10 @@
   .ph-right { flex: none; display: flex; flex-direction: column; align-items: flex-end;
     gap: 4px; text-align: right; }
   .ph-right .worksub { white-space: nowrap; }
+  /* The headline, working sub-line and window number are PERMANENT nodes the renderer
+     empties rather than removes (see the render invariant in app.js), so they must not
+     occupy layout — or claim .ph-right's flex gap — when they carry no text. */
+  .ph-sub:empty, .worksub:empty, .wnum:empty { display: none; }
   header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
   header .off { background: var(--fg-faint); }
   /* Reconnecting: the gray dot pulses (reuses lm-pulse) — the quiet "working on it"
@@ -417,6 +432,12 @@
     animation: pulse 1.1s ease-in-out infinite;
   }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  /* The activity badge's pulse is a PERMANENT node (see the render invariant in app.js):
+     it stays in the DOM across polls and .on carries whether this state shows it, so an
+     idle badge doesn't destroy and recreate the dot. Scoped to .badge so the subagent
+     ticks' own .pulse (always shown) is untouched. */
+  .badge > .pulse { display: none; }
+  .badge > .pulse.on { display: inline-block; }
   .sub { color: var(--fg-faint); font-size: 12px; margin-top: 3px; }
   .worksub { color: var(--fg-faint); font-size: 11px; font-weight: 400; }
   /* Bar rows never wrap: one line each, extra chips/keys overflow off the edge
@@ -471,12 +492,29 @@
      submitted answer visibly WORKS instead of sitting stale. Cleared when the fresh
      parse arrives (parsed_at advances) or after the client-side timeout. */
   .card.reparsing { opacity: .8; }
-  .q-spin { display: inline-block; width: 20px; height: 20px; vertical-align: -4px;
+  /* The reparse spinner is a PERMANENT node now, shown by .on. Because it is never
+     recreated, its animation simply keeps running — which deletes the negative
+     animation-delay hack that used to seed each rebuilt spinner with the previous one's
+     phase (a fresh element's animation always restarts at 0°, and the card rebuilt faster
+     than one revolution, so the spinner visibly snapped back to its first quarter-turn). */
+  .q-spin { display: none; width: 20px; height: 20px; vertical-align: -4px;
     border: 3px solid var(--border); border-top-color: var(--accent-text); border-radius: 50%;
     animation: spin .7s linear infinite; }
+  .q-spin.on { display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
   /* Honour a reduced-motion preference: keep the spinner as a static "busy" ring. */
   @media (prefers-reduced-motion: reduce) { .q-spin { animation: none; } }
+  /* Wrappers the keyed reconciler owns. Each exists so its children can be reconciled in
+     isolation, and must not introduce spacing of its own — the children keep the margins
+     and box chrome they always had, so these are pure pass-throughs. `display: contents`
+     makes the wrapper vanish from layout entirely, which is what keeps .tasks' border/
+     radius wrapping its rows and the table boxes spaced as before.
+     .off overrides this to display:none (it is !important), so hiding still works. */
+  .tables, .task-list, .rw-list { display: contents; }
+  /* .plist is a REAL box, not a pass-through: it is the list-mode scroll container that
+     holds the session headers and pane rows as siblings (so .sess-hdr:first-child still
+     matches). */
+  .plist { display: block; }
   /* Structured tables: scroll horizontally AND vertically, capped so a big one doesn't
      dominate the card. */
   .tablewrap { margin-top: 12px; }
@@ -507,6 +545,11 @@
   .events { margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
     max-height: 8.5em; overflow-y: auto; }
   .events::-webkit-scrollbar { width: 6px; } .events::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  /* The feed's two keyed sections (the folded burst inside <details>, and the live tail).
+     They exist so each can be reconciled independently while the rows themselves persist —
+     see the append-only feed in app.js. Both inherit the column flow so the rows lay out
+     exactly as they did when .events held them directly. */
+  .ev-folded, .ev-rest { display: flex; flex-direction: column; gap: 6px; }
   /* Hierarchy: the session OVERVIEW is the headline content — bright, roomy (6 lines,
      tap for all of it). The recent-events log is supporting detail below it — smaller,
      dimmer, bulleted. (History reconstructed from scrollback dims further still.) */
