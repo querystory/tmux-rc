@@ -281,7 +281,6 @@ function activeId() {
 // never observe a different finger's release, and nothing accumulates between gestures.
 const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
 const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
-let _tapClaimed = "";     // pointerId:timeStamp of the pointerup a deferred tap acted on
 function onTap(el, fn, defer) {
   let downAt = 0;
   el.addEventListener("pointerdown", (e) => {
@@ -312,11 +311,16 @@ function onTap(el, fn, defer) {
       // inner target: pointerdown still bubbles element-first, so .row-open registered its
       // document listener before the row did. Both actions are idempotent anyway — the
       // claim is what keeps it to one /select POST instead of two.
-      // Keyed by pointerId+timeStamp rather than the event object: holding the event would
-      // pin its .target, a row a rebuild just detached, alive until the next tap.
-      const claim = `${ev.pointerId}:${ev.timeStamp}`;
-      if (_tapClaimed === claim) return;
-      _tapClaimed = claim;
+      //
+      // The claim is a flag ON the event, not a remembered key. A key built from
+      // pointerId+timeStamp looked tidy but collides: timeStamp can be 0 (this function
+      // already distrusts it — see `e.timeStamp || performance.now()` below), and every
+      // release would then hash to the same "1:0" and silently drop the SECOND real tap.
+      // Marking the event is exact by construction, and nothing outlives the dispatch, so
+      // it can't pin a detached row the way holding the event object in a module global
+      // would.
+      if (ev._tapClaimed) return;
+      ev._tapClaimed = true;
       fn(ev);
     };
     document.addEventListener("pointermove", move, true);
@@ -1972,9 +1976,18 @@ function barNote(msg) {
   if (!host) return;
   let el = document.getElementById("bar-note");
   if (!el) {
-    el = document.createElement("div");
+    // A real <button>, not a clickable div: this is the app's failure channel, so the way
+    // to dismiss it has to be reachable without a pointer — a div with onclick is neither
+    // focusable nor announced as actionable. type=button so it can never submit anything.
+    el = document.createElement("button");
+    el.type = "button";
     el.id = "bar-note";
     el.className = "bar-note";
+    // The message appears without any user action, so it also has to be SPOKEN. role=alert
+    // interrupts and reads it on insertion and on every later text change — which is what
+    // we want here: "Not sent" is the whole point, and missing it means silently believing
+    // the message went through.
+    el.setAttribute("role", "alert");
     el.onclick = () => el.remove();
     host.prepend(el); // first child of #bar: above the keys row and the composer
   }
@@ -2169,8 +2182,18 @@ async function submitComposer(s, presetSegs) {
     // doesn't repaint mid-settle.
     bar.send?.classList.remove("sending");
     bar.send && (bar.send.disabled = false); // clear any legacy disabled state
-    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
+    releaseBusySoon();
   }
+}
+
+// Let the render-freeze lapse a beat after a send settles, so the poll doesn't repaint
+// mid-settle. Deliberately NOT an unconditional `busy = false`: a queued send starts on a
+// 0ms timer, so the previous send's 400ms timer would land squarely inside the next one and
+// unfreeze the deck while it was still in flight — replacing the card under the user, which
+// is exactly what the freeze exists to prevent. Whoever is still sending owns the flag and
+// will schedule its own release; this one just stands down.
+function releaseBusySoon() {
+  setTimeout(() => { if (!sending) busy = false; }, 400);
 }
 
 // Walk the composer's children in DOM order into ordered send segments. A text node (or
@@ -2451,7 +2474,7 @@ async function send(s, body) {
     reportError("send", e);
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
-    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
+    releaseBusySoon(); // guarded: a composer send may already be running (see the helper)
   }
 }
 

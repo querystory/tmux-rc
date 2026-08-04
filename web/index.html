@@ -340,9 +340,13 @@
   /* Non-blocking failure notice in the input bar (barNote) — replaces the alert() that
      froze the page on a failed send (#101). Amber, not red: the message is still in the
      composer and retryable, not lost. Tap to dismiss. */
+  /* A real <button> (keyboard-dismissable — it's the failure channel), so it has to be
+     un-buttoned back to a full-width notice: buttons don't inherit the page font, center
+     their text, or stretch. text-align:left keeps a wrapped two-line message readable. */
   .bar-note { background: var(--amber-bg); color: var(--amber-text);
     border: 1px solid var(--amber); border-radius: 8px; padding: 7px 10px;
-    font-size: 13px; cursor: pointer; }
+    font: inherit; font-size: 13px; text-align: left; width: 100%;
+    display: block; cursor: pointer; }
   /* attach clip lives INSIDE the input field (like a chat composer) */
   .inputwrap { flex: 1; display: flex; align-items: center; background: var(--chrome); border: 1px solid var(--border); border-radius: 10px; padding-left: 6px; }
   /* Focus lights up the WHOLE composer (keys toggle, clip, thumbnail, Send) — the
