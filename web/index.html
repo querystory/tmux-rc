@@ -247,10 +247,13 @@
          shadow cannot read correctly on both: dark needs depth from a near-black card on a
          near-black terminal, light needs a soft grey that doesn't look like dirt. */
   .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    --card-radius: 14px; /* ONE definition: the overlap below must equal the radius, or
+                            the corner arcs expose the terminal again as sharp wedges */
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--card-radius);
     padding: 12px 14px; overflow-y: auto; position: relative; z-index: 2; flex: none;
     max-height: calc(100% - var(--bar-h, 150px) - 80px); /* ≥~5 terminal lines stay visible */
-    margin-bottom: -14px; /* == border-radius: the corner arcs land ON the terminal */
+    margin-bottom: calc(-1 * var(--card-radius)); /* the corner arcs land ON the terminal */
     box-shadow: 0 6px 16px -4px #0008, 0 2px 6px -2px #0006;
   }
   /* Light mode: a soft neutral shadow. The dark-mode alphas read as grime on near-white. */
