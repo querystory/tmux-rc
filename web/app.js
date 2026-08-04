@@ -489,8 +489,26 @@ function pollSleep(ms) {
 // send/gesture froze re-renders) skip the fetch and wait a beat; poll() returning false
 // (backend down / legacy daemon) also backs off, so we never tight-loop.
 async function pollLoop() {
+  let heldSince = 0;
   for (;;) {
-    if (busy) { await pollSleep(250); continue; } // a send/gesture froze re-renders; re-check soon
+    if (busy) {
+      // WATCHDOG. `busy` is a re-render freeze owned by whichever gesture/send set it, and
+      // a missed release wedges the whole app: the poll stops, the deck goes stale, and the
+      // composer paths that coordinate through it stop working — indistinguishable from a
+      // dead app, unfixable without a reload. Every known leak is fixed, but the failure
+      // mode is severe and the flag is set from many places, so refuse to honor it beyond
+      // any plausible gesture or send (a slow image upload is seconds, not ten).
+      // Self-healing beats correct-in-theory here.
+      heldSince = heldSince || Date.now();
+      if (Date.now() - heldSince > 10000) {
+        console.warn("[tmux-rc] busy held >10s — releasing (leaked gesture/send flag)");
+        reportError("busy-stuck", { name: "BusyWatchdog", message: "busy held >10s; force-released" });
+        busy = false; sending = false; heldSince = 0;
+      } else {
+        await pollSleep(250); continue; // a send/gesture froze re-renders; re-check soon
+      }
+    }
+    heldSince = 0;
     const ok = await poll();
     if (!ok) await pollSleep(1000); // outage / resume blip / legacy daemon: back off, wake early on resume
   }
@@ -2129,8 +2147,18 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     apply();
   }, { passive: false });
   const release = (e) => {
-    if (e.touches.length !== 0) return;
-    start = null; busy = false;
+    // ALWAYS release the poll freeze, even while fingers remain down. This used to be
+    // gated behind the `touches.length !== 0` early-return below, which leaked
+    // `busy = true` FOREVER whenever a gesture ended without a clean zero-touch
+    // touchend — a second finger lifting, a touch that starts here and ends elsewhere,
+    // an OS interruption. A leaked `busy` freezes the poll loop permanently: the deck
+    // stops updating, and the composer/Send paths that coordinate through it wedge, so
+    // the app looks dead (can't send, can't even focus the input) until a reload.
+    // Reproduced by dispatching touchstart then a touchend still reporting one touch:
+    // zero dock rebuilds in the following 5s.
+    busy = false;
+    if (e.touches.length !== 0) return; // fingers still down: keep the gesture live
+    start = null;
     if (!snapHome) return;
     // Clamp at ANY zoom so no edge ever shows a black gap: slide the content back
     // until it covers the window (or pins bottom-left when it's smaller than it).
@@ -2156,6 +2184,13 @@ function pinchZoom(container, el, st, snapHome, selectable) {
   };
   container.addEventListener("touchend", release);
   container.addEventListener("touchcancel", release);
+  // Last-resort unwedge: if the page is hidden/backgrounded mid-gesture the OS may never
+  // deliver touchend at all, so a returning user would find a frozen app. Clearing on
+  // visibility change costs nothing (a real in-progress gesture can't survive
+  // backgrounding anyway) and guarantees `busy` can't outlive the gesture.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") { start = null; busy = false; }
+  });
 }
 
 function esc(s) {
