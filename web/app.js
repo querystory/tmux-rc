@@ -221,6 +221,29 @@ function activeId() {
   const focused = Object.values(panesById).find((s) => s.tmux_active);
   return (shown = focused ? focused.pane_id : Object.keys(panesById)[0] || null);
 }
+// Wire an element so a tap commits on POINTERDOWN instead of click.
+//
+// Why: the dock and the list are rebuilt from scratch on every poll (~2s, and twice in a
+// frame when several fields change). The browser only fires `click` when press and release
+// land on the SAME element, so any rebuild between finger-down and finger-up silently
+// swallows the tap — the "tapping sometimes does nothing, or feels laggy" bug, where the
+// lag is really the wait until the user gives up and taps again. Swiping never had it: it
+// listens on the card and sets `busy = true`, freezing re-renders for the whole gesture.
+//
+// pointerdown can't be stolen by a rebuild, and acting early is safe here because these
+// taps only ever SELECT (setActive is idempotent, and `pending` makes it authoritative
+// until the server confirms). The click handler stays for keyboard/AT activation, which
+// synthesizes a click with no pointer event, guarded so a real tap can't fire twice.
+function onTap(el, fn) {
+  let byPointer = false;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return; // left/touch only
+    byPointer = true;
+    fn(e);
+  });
+  el.addEventListener("click", (e) => { if (!byPointer) fn(e); });
+}
+
 function setActive(id) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
@@ -824,7 +847,8 @@ function dock(states, act) {
     b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
     // Jump to that pane's CARD — including from list mode (a dock tap means "show
     // me this pane", not "re-highlight it inside the list").
-    b.onclick = () => { listFilter = null; setActive(s.pane_id); };
+    // pointerdown, not click: the dock is rebuilt every poll and would eat the tap (onTap).
+    onTap(b, () => { listFilter = null; setActive(s.pane_id); });
     group.appendChild(b);
   }
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
@@ -840,7 +864,10 @@ function dock(states, act) {
     const b = document.createElement("button");
     b.className = "badge b-" + key;
     b.textContent = label;
-    b.onclick = () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); };
+    // pointerdown, not click: #filters is rebuilt every poll, so a rebuild between
+    // press and release swallows the tap — worst exactly when a pane is BUSY, since a
+    // changing pane makes the deck version bump constantly. See onTap.
+    onTap(b, () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); });
     filtersEl.appendChild(b);
   };
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
@@ -976,13 +1003,13 @@ function row(s, act) {
   // the toggle sits beside it in .ph-right. The row div stays a pointer target so
   // taps on its padding still open the card.
   const goCard = () => { listFilter = null; setActive(s.pane_id); };
-  el.onclick = goCard;
+  onTap(el, goCard); // rows are rebuilt every poll too — see onTap
   el.innerHTML = paneHeader(s, { icon: true });
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
   openBtn.append(...[...el.children].filter((n) => !n.classList.contains("ph-right")));
   el.prepend(openBtn);
-  openBtn.onclick = (e) => { e.stopPropagation(); goCard(); }; // don't double-fire via the row
+  onTap(openBtn, (e) => { e.stopPropagation(); goCard(); }); // don't double-fire via the row
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
   // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
   // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
@@ -1690,11 +1717,24 @@ if (bar.input) {
 // agent's prompt with the images exactly where they sat between the words, like Claude
 // Code's own composer. The DOM is the source of truth; there's no separate staged[].
 // Empty composer is a no-op (a bare Enter would submit whatever's already in the agent).
+let sending = false; // a send is IN FLIGHT — distinct from `busy` (see submitComposer)
+
 async function submitComposer(s) {
-  if (busy) return; // a send is already in flight — don't double-fire (keydown+beforeinput)
+  // Guard on `sending`, NOT the shared `busy`. `busy` is also set by swipes, pinch/drag
+  // gestures and option taps to freeze poll re-renders, so guarding on it made Send do
+  // nothing — silently — whenever a gesture had it held (a swipe keeps it for 150ms after
+  // release). "Sometimes the send button just does nothing" was that. `sending` is owned
+  // by this function alone, so it still blocks the genuine double-fire it was added for
+  // (keydown + beforeinput both firing for one Enter).
+  //
+  // Deliberately NOT blocked when the target pane is busy working: agents queue typed
+  // input, so sending mid-run is valid and useful — the user's message lands in the
+  // agent's queue rather than being dropped.
+  if (sending) return;
   const segs = composerSegments();
   if (!segs.length) return;
-  busy = true;
+  sending = true;
+  busy = true; // also freeze poll re-renders while the composer is mid-flush
   // Immediate feedback: the Send button spins for the whole request — on a slow
   // connection (image uploads) this runs for seconds, and silence reads as hung.
   bar.send?.classList.add("sending");
@@ -1716,6 +1756,10 @@ async function submitComposer(s) {
   } catch (e) {
     alert("Image upload failed — not sent. Your text and images are still in the composer.\n\n" + e.message);
   } finally {
+    // Release `sending` HERE, not on a timer: it's the re-entry guard, so a thrown
+    // upload must not leave Send permanently dead (the failure path above tells the
+    // user to retry — it has to actually be retryable).
+    sending = false;
     // Button un-spins NOW (the work is done); busy holds a beat longer so the poll
     // doesn't repaint mid-settle.
     bar.send?.classList.remove("sending");
@@ -1968,13 +2012,18 @@ async function postSend(s, body) {
 }
 
 async function send(s, body) {
-  if (busy) return; // a send is already in flight — a double-tapped option must not double-fire
+  // `sending`, not the shared `busy` (which swipes/gestures also hold) — same reason as
+  // submitComposer: guarding on busy made a legitimate answer tap silently do nothing
+  // when a gesture happened to own the flag. Still blocks the real double-fire.
+  if (sending) return;
+  sending = true;
   busy = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
   try {
     await postSend(s, body);
   } finally {
+    sending = false; // re-entry guard: released now, so a failed answer stays retryable
     setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
   }
 }
