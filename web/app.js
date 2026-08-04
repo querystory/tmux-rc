@@ -1964,9 +1964,10 @@ async function submitComposer(s, presetSegs) {
   // Guard on `sending`, NOT the shared `busy`. `busy` is also set by swipes, pinch/drag
   // gestures and option taps to freeze poll re-renders, so guarding on it made Send do
   // nothing — silently — whenever a gesture had it held (a swipe keeps it for 150ms after
-  // release). "Sometimes the send button just does nothing" was that. `sending` is owned
-  // by this function alone, so it still blocks the genuine double-fire it was added for
-  // (keydown + beforeinput both firing for one Enter).
+  // release). "Sometimes the send button just does nothing" was that. `sending` is owned by
+  // this function alone, so it means only what it says: a send is in flight. It no longer
+  // doubles as the double-fire guard — the dedupe window below does that, because `sending`
+  // now queues instead of returning and a queued echo is a message sent twice.
   //
   // Deliberately NOT blocked when the target pane is busy working: agents queue typed
   // input, so sending mid-run is valid and useful — the user's message lands in the
@@ -1996,7 +1997,11 @@ async function submitComposer(s, presetSegs) {
     barNote("Queued — sending the previous message first.");
     return;
   }
-  _lastSubmitAt = Date.now();
+  // Stamp only USER-initiated submits. A queue drain passes presetSegs, and stamping it
+  // would open a 250ms window right after the drain in which a real Enter looks like an
+  // echo of it and gets dropped — losing a message, which is the one outcome this whole
+  // path exists to prevent. An echo only ever follows the keystroke that caused it.
+  if (!presetSegs) _lastSubmitAt = Date.now();
   sending = true;
   busy = true; // also freeze poll re-renders while the composer is mid-flush
   // Immediate feedback: the Send button spins for the whole request — on a slow
