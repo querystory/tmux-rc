@@ -254,12 +254,14 @@
     padding: 12px 14px; overflow-y: auto; position: relative; z-index: 2; flex: none;
     max-height: calc(100% - var(--bar-h, 150px) - 80px); /* ≥~5 terminal lines stay visible */
     margin-bottom: calc(-1 * var(--card-radius)); /* the corner arcs land ON the terminal */
-    box-shadow: 0 6px 16px -4px #0008, 0 2px 6px -2px #0006;
+    box-shadow: var(--card-lift);
   }
-  /* Light mode: a soft neutral shadow. The dark-mode alphas read as grime on near-white. */
-  :root.light .card {
-    box-shadow: 0 6px 16px -6px #1f23281f, 0 2px 5px -2px #1f232814;
-  }
+  /* ONE definition of the lift, so .card and .card.active cannot drift apart. Per-theme
+     because a single shadow cannot read correctly on both: dark needs real depth to
+     separate a near-black card from a near-black terminal, and those same alphas read as
+     grime on near-white. */
+  :root { --card-lift: 0 6px 16px -4px #0008, 0 2px 6px -2px #0006; }
+  :root.light { --card-lift: 0 6px 16px -6px #1f23281f, 0 2px 5px -2px #1f232814; }
   /* The card is scrollable, so its shadow must not be clipped by its own overflow box —
      it isn't (box-shadow paints outside), but the DECK clips overflow, and the bottom
      shadow now falls inside the deck rather than past its edge, so it survives. */
@@ -295,9 +297,7 @@
      card the user is actually looking at almost all the time. Ring first (tight to the
      border), depth after. */
   .card.active { border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent-glow), 0 6px 16px -4px #0008, 0 2px 6px -2px #0006; }
-  :root.light .card.active { border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent-glow), 0 6px 16px -6px #1f23281f, 0 2px 5px -2px #1f232814; }
+    box-shadow: 0 0 0 1px var(--accent-glow), var(--card-lift); }
   /* Tab-into-card join (card mode). Structure, not pixel-chasing:
      - The dock's bottom OPENS: border 0, square bottom corners. Its bottom edge is
        simply where the card begins.
