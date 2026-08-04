@@ -246,19 +246,34 @@ function activeId() {
 // pointerdown could stay armed indefinitely and eat the next keyboard activation. A click
 // belonging to our pointerdown always lands in the same task-ish window as the release, so
 // bounding the suppression in time is self-healing where an event-based reset isn't.
+// `defer`: wait for pointerup instead of firing on pointerdown, and cancel if the finger
+// travels more than SLOP first. Rows live inside vertically-scrolling #panes, where a
+// scroll flick necessarily begins with pointerdown on a row — acting there would navigate
+// away mid-scroll. Deferring to pointerup keeps the rebuild-immunity that motivates this
+// whole helper (we still never depend on press and release landing on the same NODE, only
+// on the same pointer) while letting a scroll gesture win. The dock and filter strips scroll
+// horizontally at most and are one row tall, so they keep the snappier pointerdown path.
 const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
-function onTap(el, fn) {
-  let downAt = 0;
+const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
+function onTap(el, fn, defer) {
+  let downAt = 0, sx = 0, sy = 0, moved = false;
   el.addEventListener("pointerdown", (e) => {
     if (e.button != null && e.button !== 0) return; // left/touch only
     downAt = e.timeStamp || performance.now();
-    fn(e);
+    sx = e.clientX; sy = e.clientY; moved = false;
+    if (!defer) fn(e);
   });
+  if (defer) {
+    el.addEventListener("pointermove", (e) => {
+      if (downAt && Math.hypot(e.clientX - sx, e.clientY - sy) > TAP_SLOP) moved = true;
+    });
+    el.addEventListener("pointerup", (e) => { if (downAt && !moved) fn(e); });
+  }
   el.addEventListener("click", (e) => {
     const ts = e.timeStamp || performance.now();
     if (!downAt || ts - downAt > TAP_CLICK_MS) return void fn(e); // keyboard/AT, or stale arm
     downAt = 0;
-    e.stopPropagation(); // handled on pointerdown already; don't let ancestors re-fire it
+    e.stopPropagation(); // handled on pointerdown/up already; don't let ancestors re-fire it
   });
 }
 
@@ -545,6 +560,11 @@ function onResume() {
   if (document.visibilityState !== "visible") return;
   _stateVersion = null;           // next poll = "give me current state now", never held
   if (_wakePoll) _wakePoll();     // cut short an in-progress backoff sleep
+  // Backgrounded mid-gesture, the OS may never deliver touchend, so the swipe/pinch that
+  // set `busy` never releases it and the returning user finds a frozen app. A real gesture
+  // can't survive backgrounding, so clearing here is free — and it belongs on this one
+  // already-registered listener rather than one per pinchZoom instance.
+  busy = false;
 }
 document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
@@ -1045,7 +1065,9 @@ function row(s, act) {
   // the toggle sits beside it in .ph-right. The row div stays a pointer target so
   // taps on its padding still open the card.
   const goCard = () => { listFilter = null; setActive(s.pane_id); };
-  onTap(el, goCard); // rows are rebuilt every poll too — see onTap
+  // defer: rows are rebuilt every poll (so `click` alone loses taps) but they also sit in
+  // vertically-scrolling #panes, so navigation waits for a pointerup that didn't scroll.
+  onTap(el, goCard, true);
   el.innerHTML = paneHeader(s, { icon: true });
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
@@ -1053,7 +1075,7 @@ function row(s, act) {
   el.prepend(openBtn);
   // stopPropagation covers the KEYBOARD path — onTap already swallows the pointer's click,
   // but an AT-synthesized click on the button would still bubble to the row and re-fire.
-  onTap(openBtn, (e) => { e.stopPropagation(); goCard(); });
+  onTap(openBtn, (e) => { e.stopPropagation(); goCard(); }, true); // same scroll container
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
   // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
   // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
@@ -2210,13 +2232,11 @@ function pinchZoom(container, el, st, snapHome, selectable) {
   };
   container.addEventListener("touchend", release);
   container.addEventListener("touchcancel", release);
-  // Last-resort unwedge: if the page is hidden/backgrounded mid-gesture the OS may never
-  // deliver touchend at all, so a returning user would find a frozen app. Clearing on
-  // visibility change costs nothing (a real in-progress gesture can't survive
-  // backgrounding anyway) and guarantees `busy` can't outlive the gesture.
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { start = null; busy = false; }
-  });
+  // The backgrounded-mid-gesture unwedge lives in onResume, NOT here: pinchZoom runs on the
+  // per-poll card/peek rebuild, so a `document` listener per call leaked one every ~2s (the
+  // `container` ones die with the detached DOM; a document one never does). Only `busy`
+  // needs the global reset — `start` is per-instance and a stale instance's container is
+  // already detached, so its gesture can neither continue nor be re-entered.
 }
 
 function esc(s) {
