@@ -255,28 +255,77 @@ function activeId() {
 // the same NODE, only on the same pointer) while letting a scroll gesture win. `defer` stays
 // a parameter rather than the only behavior so a target outside any scroller can still take
 // the snappier path.
+//
+// The deferred path's move/up listeners go on `document`, NOT on `el`. Binding them to the
+// element would hand the whole bug straight back: the element is exactly the thing a poll
+// rebuild detaches, and a detached node's `pointerup` never fires, so the tap would be
+// swallowed again — for rows, which are the surface that motivated this. `document` outlives
+// every rebuild. They are keyed by pointerId and torn down on up/cancel so a gesture can
+// never observe a different finger's release, and nothing accumulates between gestures.
 const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
 const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
+let _tapClaimed = null;   // the pointerup a deferred tap already acted on (see done())
 function onTap(el, fn, defer) {
-  let downAt = 0, sx = 0, sy = 0, moved = false;
+  let downAt = 0;
   el.addEventListener("pointerdown", (e) => {
     if (e.button != null && e.button !== 0) return; // left/touch only
     downAt = e.timeStamp || performance.now();
-    sx = e.clientX; sy = e.clientY; moved = false;
-    if (!defer) fn(e);
+    if (!defer) return void fn(e);
+    // Deferred: follow THIS pointer on document until it releases. The listeners are
+    // per-gesture (added here, removed in done()) rather than one long-lived pair, so
+    // there is no cross-gesture state to get out of sync and nothing left behind.
+    const id = e.pointerId, sx = e.clientX, sy = e.clientY;
+    let moved = false;
+    const move = (ev) => {
+      if (ev.pointerId !== id) return;
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > TAP_SLOP) moved = true;
+    };
+    const done = (ev) => {
+      if (ev.pointerId !== id) return;
+      document.removeEventListener("pointermove", move, true);
+      document.removeEventListener("pointerup", done, true);
+      document.removeEventListener("pointercancel", done, true);
+      // A release that scrolled, or that dragged off the target, is not a tap on it.
+      if (ev.type !== "pointerup" || moved) return;
+      if (!tapStillOn(el, ev)) return;
+      // One release, one action. .row-open is nested inside the row and BOTH are onTap
+      // targets, so one finger arms two gestures. On document, DOM nesting no longer orders
+      // the handlers and stopPropagation cannot suppress a sibling document listener, so
+      // whichever runs first CLAIMS the release and the other stands down. First is the
+      // inner target: pointerdown still bubbles element-first, so .row-open registered its
+      // document listener before the row did. Both actions are idempotent anyway — the
+      // claim is what keeps it to one /select POST instead of two.
+      if (_tapClaimed === ev) return;
+      _tapClaimed = ev;
+      fn(ev);
+    };
+    document.addEventListener("pointermove", move, true);
+    document.addEventListener("pointerup", done, true);
+    document.addEventListener("pointercancel", done, true);
   });
-  if (defer) {
-    el.addEventListener("pointermove", (e) => {
-      if (downAt && Math.hypot(e.clientX - sx, e.clientY - sy) > TAP_SLOP) moved = true;
-    });
-    el.addEventListener("pointerup", (e) => { if (downAt && !moved) fn(e); });
-  }
   el.addEventListener("click", (e) => {
     const ts = e.timeStamp || performance.now();
     if (!downAt || ts - downAt > TAP_CLICK_MS) return void fn(e); // keyboard/AT, or stale arm
     downAt = 0;
     e.stopPropagation(); // handled on pointerdown/up already; don't let ancestors re-fire it
   });
+}
+
+// Did the finger come up still over the thing it pressed? `el` may have been replaced by a
+// poll rebuild mid-gesture, so element identity is the wrong question — geometry is. If `el`
+// is still connected, the plain containment check is exact. If it was swapped out, fall back
+// to its last known box: a rebuild re-renders the SAME list in the same place, so the node
+// now under those coordinates is the replacement for what the user aimed at. Releasing
+// outside that box is a drag-away, which should cancel.
+function tapStillOn(el, ev) {
+  if (el.isConnected) {
+    const t = document.elementFromPoint(ev.clientX, ev.clientY);
+    return !!t && (el === t || el.contains(t));
+  }
+  const r = el.getBoundingClientRect();
+  if (!r.width && !r.height) return true; // no geometry to judge by — don't drop the tap
+  return ev.clientX >= r.left && ev.clientX <= r.right
+      && ev.clientY >= r.top && ev.clientY <= r.bottom;
 }
 
 function setActive(id) {
