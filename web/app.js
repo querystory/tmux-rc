@@ -2211,7 +2211,21 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     // Reproduced by dispatching touchstart then a touchend still reporting one touch:
     // zero dock rebuilds in the following 5s.
     busy = false;
-    if (e.targetTouches.length !== 0) return; // OUR fingers still down: keep the gesture live
+    if (e.targetTouches.length !== 0) {
+      // Fingers still down, so the gesture continues — but it is a DIFFERENT gesture now.
+      // Lifting one finger of a pinch leaves `start` describing two, and touchmove would
+      // then preventDefault (start is truthy) while updating nothing (not .pan, and only
+      // one touch), pinning the content unresponsive under the remaining finger. Re-seed
+      // as a pan from where that finger actually is so it keeps working; anything else
+      // (>2 fingers, or a selectable container's single finger) ends the gesture cleanly.
+      const t = e.targetTouches;
+      if (t.length === 1 && !selectable) {
+        start = { pan: true, x: t[0].clientX - st.tx, y: t[0].clientY - st.ty };
+      } else {
+        start = null;
+      }
+      return;
+    }
     start = null;
     if (!snapHome) return;
     // Clamp at ANY zoom so no edge ever shows a black gap: slide the content back
