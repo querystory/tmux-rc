@@ -1304,7 +1304,7 @@ function row(s, act) {
       e.stopPropagation(); // a toggle tap expands the box — it must not open the card
       subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
       render(Object.values(panesById));
-    });
+    }, true); // defer: inside the vertical scroller
     el.querySelector(".ph-right").append(t);
     if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
   }
@@ -1397,7 +1397,7 @@ function card(s) {
     e.stopPropagation(); // don't also re-select the pane
     cardsCollapsed = !collapsed;
     render(Object.values(panesById));
-  });
+  }, true); // defer: inside a vertical scroller — a scroll must not fire it
   el.appendChild(row);
   if (collapsed) return el; // one-line form: header only, everything below is hidden
 
@@ -1415,7 +1415,7 @@ function card(s) {
     const sum = document.createElement("div");
     sum.className = "sess-sum";
     sum.innerHTML = linkifyText(s.session_summary); // linkifyText escapes non-anchors
-    onTap(sum, (e) => { e.stopPropagation(); sum.classList.toggle("open"); });
+    onTap(sum, (e) => { e.stopPropagation(); sum.classList.toggle("open"); }, true); // defer: card scroller
     el.appendChild(sum);
   }
 
@@ -2490,7 +2490,7 @@ function question(s) {
       b.className = "opt";
       b.textContent = opt;
       b.disabled = spinning;
-      onTap(b, () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); });
+      onTap(b, () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); }, true); // defer: a scroll must never submit an answer
       opts.appendChild(b);
     });
     q.appendChild(opts);
