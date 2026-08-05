@@ -475,7 +475,11 @@
   .card-caret { flex: none; background: transparent; border: 0; color: var(--fg-dim);
     font-size: 16px; line-height: 1; padding: 2px 6px; cursor: pointer; align-self: flex-start;
     position: relative; }
-  .card-caret::before { content: ""; position: absolute; inset: -10px; }
+  /* HIT AREA only — the glyph box stays 20x20 so the header layout does not move. -12 on
+     every side makes the tappable region 44x44, the mobile minimum. It was -10 (40x40),
+     which is marginal enough that a thumb misses it; the user confirmed zooming in makes
+     the caret work, which isolates size from every other theory. */
+  .card-caret::before { content: ""; position: absolute; inset: -12px; }
   .card-caret:hover { color: var(--fg); }
   /* Collapsed: one-line header only (the return in card() drops the body), and the
      status headline clamps to a single line so it reads like the list-row form. */
