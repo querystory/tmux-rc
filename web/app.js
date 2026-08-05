@@ -377,10 +377,6 @@ function setActive(id) {
 const eventLog = {}; // pane_id -> {seq, events: [{text, file?, meta?, ts, historical?}]}
 const evFetching = new Set();
 
-// Per-pane DOM handles: pane_id -> { root, ...named nodes }. Built once by the build*
-// half of each component, then written through by its apply* half (see the render
-// invariant at the top). Pruned in render()'s cache-prune loop when a pane vanishes.
-const paneUI = new Map();
 
 function syncEvents(s) {
   const id = s.pane_id;
@@ -850,12 +846,6 @@ function render(states) {
   // without bound over a long-running session.
   for (const m of [eventLog, peekCache, bgZoom, cardUI ? cardUI.events.openByPane : {}])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
-  // paneUI holds the per-pane DOM handles the in-place renderer writes through. Its
-  // prune rides in this same loop (a Map, so it can't use the Object.keys pass above):
-  // a vanished pane's nodes are detached AND forgotten, or pane churn would leak a
-  // full card's worth of nodes per dead pane.
-  for (const k of [...paneUI.keys()])
-    if (!has(panesById, k)) { paneUI.get(k).root?.remove(); paneUI.delete(k); }
   setFavicon(states.some((s) => actOf(s) === "waiting"));
   // No card visible (empty / list mode) ⇒ no peek stream should be running. bgTerm
   // restarts it when a card renders; here we make sure it's stopped otherwise.
