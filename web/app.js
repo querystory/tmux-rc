@@ -1426,7 +1426,14 @@ function card(s) {
     const sum = document.createElement("div");
     sum.className = "sess-sum";
     sum.innerHTML = linkifyText(s.session_summary); // linkifyText escapes non-anchors
-    onTap(sum, (e) => { e.stopPropagation(); sum.classList.toggle("open"); }, true); // defer: card scroller
+    onTap(sum, (e) => {
+      e.stopPropagation();
+      // The summary is linkified now, so it can contain anchors. A tap on one must NAVIGATE
+      // only — toggling as well would collapse the text out from under the user as the link
+      // opens, and on a target that is also the expand affordance that reads as a glitch.
+      if (e.target.closest("a")) return;
+      sum.classList.toggle("open");
+    }, true); // defer: card scroller
     el.appendChild(sum);
   }
 
