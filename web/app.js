@@ -167,7 +167,14 @@ function timeoutSignal(ms) {
   // ReferenceError here would break every send and upload outright, which is worse.
   if (typeof AbortController === "undefined") return undefined;
   const ac = new AbortController();
-  setTimeout(() => ac.abort(new DOMException("TimeoutError", "TimeoutError")), ms);
+  // abort() with a reason only if DOMException exists — an engine can have AbortController
+  // without it, and throwing inside this timer would leave the request UNaborted plus raise
+  // an uncaught async error. A bare abort() still cancels; the reason is only for the
+  // catch's message. Third unguarded global in this one helper: fetch existing does not
+  // imply the abort family exists.
+  setTimeout(() => ac.abort(
+    typeof DOMException === "undefined" ? undefined
+      : new DOMException("TimeoutError", "TimeoutError")), ms);
   return ac.signal;
 }
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
