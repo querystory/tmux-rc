@@ -230,8 +230,10 @@
      runs under the bar through its own negative bottom margin, so adding bar-height
      padding underneath double-counts it — measured 787px of content in a 725px viewport,
      which scrolled the whole document ~62px behind the card and produced a SECOND
-     scrollbar outside the card's own. :has() scopes it to the mode that needs it; on
-     engines without :has() the padding simply stays, which is today's behavior. */
+     scrollbar outside the card's own. A CLASS (#panes.cardmode, toggled in render) scopes
+     it to the mode that needs it — deliberately NOT :has(), which this codebase avoids for
+     older iOS Safari; there the rule would be ignored and the bug would persist on exactly
+     the phones this app targets. */
   #panes { padding: 8px 12px calc(var(--bar-h, 150px) + 8px); display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
   #panes.cardmode { padding-bottom: 0; }
   /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
