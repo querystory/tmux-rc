@@ -1264,7 +1264,11 @@ function dock(states, act) {
     onTap(b, () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); }, true);
     filtersEl.appendChild(b);
   };
-  ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
+  // "idle" is deliberately absent: on a real deck most panes are idle, so the number is
+  // both the largest and the least actionable on the strip, and "N recent" below now
+  // carries the half that matters. The idle panes are still reachable — "all" lists
+  // everything, and a session's parked ones sit behind its "+N" chip.
+  ["waiting", "running", "compacting", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
   // "N recent" — the count the user actually wants at a glance: how much of the fleet is
   // live right now, which no single activity badge answers (a waiting pane and a running
   // pane are both recent). Same predicate the dock folds on, so the number and the strip
