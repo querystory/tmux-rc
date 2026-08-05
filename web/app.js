@@ -161,7 +161,11 @@ const isBusy = () => busySend || busyGesture;
 // turning a timeout safeguard into a hard failure on exactly the phones this app targets.
 // Shared rather than inlined per call site so every bounded fetch expires the same way.
 function timeoutSignal(ms) {
-  if (AbortSignal.timeout) return AbortSignal.timeout(ms);
+  if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) return AbortSignal.timeout(ms);
+  // No abort primitives at all (old engines that still have fetch): return undefined so
+  // the caller sends an UNBOUNDED request. Losing the deadline is bad; throwing a
+  // ReferenceError here would break every send and upload outright, which is worse.
+  if (typeof AbortController === "undefined") return undefined;
   const ac = new AbortController();
   setTimeout(() => ac.abort(new DOMException("TimeoutError", "TimeoutError")), ms);
   return ac.signal;
@@ -379,8 +383,8 @@ function onTap(el, fn, defer) {
       e.stopPropagation(); // already actioned on pointerdown/up
       return;
     }
-    if (downAt && ts - downAt <= TAP_CLICK_MS) { downAt = 0; e.stopPropagation(); return; }
-    fn(e); // a pointer click with no recent handled gesture (e.g. non-deferred miss)
+    if (downAt) { downAt = 0; e.stopPropagation(); return; } // this pointer's own click
+    fn(e); // no pointerdown seen at all ⇒ keyboard / assistive activation
   });
 }
 
