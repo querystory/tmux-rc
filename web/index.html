@@ -576,6 +576,10 @@
   .ev-text { flex: 1; color: var(--fg-dim); font-size: 12px; min-width: 0; }
   .ev-note { flex: 0 0 auto; color: var(--fg-faint); font-size: 11px; font-family: ui-monospace, monospace;
     white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+  /* Permanent node, emptied rather than removed for events with no metadata (most of
+     them) — .ev is a flex row with gap:8px, so without this every such row pays an extra
+     8px gap for an invisible column. Can't use :empty: .ev-note always holds its three
+     permanent child spans, so applyEvent toggles .hid on it instead. */
   .ev-note .add { color: var(--green); } .ev-note .del { color: var(--red); margin-left: 3px; }
   .tasks { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .tasks-head { padding: 6px 12px; font-weight: 600; font-size: 12px; background: var(--surface); color: var(--fg-dim); border-bottom: 1px solid var(--border); }

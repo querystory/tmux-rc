@@ -1908,6 +1908,10 @@ function applyEvent(d, e) {
   setText(d._path, isFile ? (e.file.path || "") + " " : (e.meta || ""));
   setText(d._add, isFile && e.file.added ? "+" + e.file.added : "");
   setText(d._del, isFile && e.file.removed ? "-" + e.file.removed : "");
+  // Hide the note column outright when this event has no metadata. The span is permanent
+  // and holds three permanent children, so :empty can never match it — and .ev is a flex
+  // row with a gap, which an always-present empty column would silently widen.
+  setCls(d._note, "hid", !(isFile || e.meta));
 }
 
 // A stable identity per event. The log is append-only and time-ordered server-side, so
