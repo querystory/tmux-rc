@@ -233,14 +233,14 @@
      scrollbar outside the card's own. :has() scopes it to the mode that needs it; on
      engines without :has() the padding simply stays, which is today's behavior. */
   #panes { padding: 8px 12px calc(var(--bar-h, 150px) + 8px); display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
-  #panes:has(> .deck) { padding-bottom: 0; }
+  #panes.cardmode { padding-bottom: 0; }
   /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
      The pane's capture is its background (bottom-anchored, so the agent's status/input
      chrome lines hide behind the bar); the card floats over the top, content-sized,
      with the live terminal tail poking out BELOW it — pan/zoomable in place. The
      negative margin pulls the deck's bottom back up under the fixed bar, so the deck's
      full-viewport height does not extend the page. It no longer "cancels #panes' bar
-     padding": that padding is now switched OFF in card mode (see #panes:has(> .deck)
+     padding": that padding is now switched OFF in card mode (see #panes.cardmode
      above), because having both was double-counting the bar height and scrolling the
      whole document behind the card. The two mechanisms are independent — this margin
      positions the deck, that rule keeps list-mode rows clear of the bar. */
