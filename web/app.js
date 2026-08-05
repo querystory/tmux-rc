@@ -42,6 +42,7 @@ const LUCIDE = {
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
 };
 const licon = (name, size = 16) =>
@@ -2785,7 +2786,7 @@ function openScreen(paneId, label) {
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><span class="hd-btns">` +
     `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-label="Sun mode" aria-pressed="false">${licon("sun", 16)}</button>` +
-    `<button class="screen-close">✕</button></span></div>` +
+    `<button class="screen-close" title="Close" aria-label="Close">${licon("x", 16)}</button></span></div>` +
     `<div class="screen-body"><pre class="screen-pre">(connecting…)</pre></div>`;
   // Sun mode persists across opens — outdoors you want every pane light, not one.
   const sun = ov.querySelector(".screen-sun");
