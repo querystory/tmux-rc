@@ -367,7 +367,26 @@ function setActive(id) {
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
   pending = { id, ts: Date.now() };
-  render(Object.values(panesById));
+  // MOVE THE HIGHLIGHT FIRST, in this same task, before the full reconcile. A tap used to
+  // show nothing until render() had walked the dock, the card, the peek and the event feed
+  // — so tapping a tab felt dead while SWIPING felt instant, purely because a swipe paints
+  // a compositor-only transform up front and only calls setActive 150ms later. This gives
+  // a tap the same immediate acknowledgement: one class move per icon, which is cheap and
+  // needs no layout, then the rest of the render can take as long as it takes.
+  for (const b of dockEl.querySelectorAll(".dock-icon"))
+    setCls(b, "sel", b.dataset.pane === id);
+  // Let that highlight actually REACH THE SCREEN before the reconcile runs. Same task means
+  // same frame, so the browser would paint the class move and the full render together and
+  // the user would still wait for both. Deferring puts the reconcile in the next frame,
+  // after this one has been presented.
+  //
+  // rAF ONLY when the page is visible: a hidden or backgrounded tab never fires it, so the
+  // reconcile would never run and the deck would freeze on the old content until the next
+  // poll. (That suspension is real — it produced a whole set of phantom "stalls" while
+  // debugging this.) setTimeout still fires when hidden, so it is the safe fallback.
+  const soon = document.visibilityState === "visible"
+    ? requestAnimationFrame : (fn) => setTimeout(fn, 0);
+  soon(() => render(Object.values(panesById)));
 }
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded
