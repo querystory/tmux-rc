@@ -583,7 +583,7 @@ let _booted = false;       // server has completed its first tick — an empty d
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
 // switch, add/remove, label/activity, new events) or ~25s, then returns. pollLoop is the
 // ONLY caller and runs one at a time, so there's no concurrent-fetch state to track —
-// sends never poll (they just hold the freeze; pollLoop resumes when it clears). Returns true
+// sends never poll, and nothing pauses this loop any more. Returns true
 // on success, false to signal pollLoop to back off before the next hold.
 async function poll() {
   try {
@@ -2818,7 +2818,7 @@ async function sendRaw(s, keyName) {
 // liveStream, so the keystroke shows up in the next live frame on its own
 // (docs/design/live-view.md). Throws on a bad response (fetch only rejects on network
 // error) so submitComposer's loop aborts before Enter/clear instead of dropping a
-// segment silently. Pure — callers own the render freeze around it.
+// segment silently. Pure — it owns no flag; `sending` belongs to its callers.
 async function postSend(s, body) {
   // HARD TIMEOUT. Without one, a stalled request (phone radio handoff, tunnel/relay
   // hiccup) hangs this await forever — and because the caller holds `sending` across it,
