@@ -486,6 +486,8 @@ async function poll() {
       // would be the same keystroke under two labels — hide the literal one there rather
       // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
       // config change without a reload.
+      // Starts hidden in the HTML (a flashed duplicate is worse than a late button), so
+      // this both reveals and hides — never assume it began visible.
       const cb = document.getElementById("bar-ctrl-b");
       if (cb) cb.hidden = data.prefix === "C-b";
     }
@@ -1005,9 +1007,10 @@ function dock(states, act) {
   // disturb the group hue cycling (.dock-group:nth-of-type counts <span>s) nor the strip's
   // height (same 36px box as an icon — the join's geometry contract requires the tray add
   // zero height). Deferred tap for the same reason the icons use it: the dock is an
-  // overflow-x scroller rebuilt every poll, so a horizontal scroll gesture must not trip
-  // the chip, and a rebuild between press and release must not eat it. captureIconRects()
-  // so the list view's FLIP still has icon rects to animate from.
+  // Commits on POINTERDOWN, not deferred: the dock is an overflow-x scroller a thumb
+  // brushes constantly AND it is rebuilt every poll, so waiting for pointerup lost the
+  // chip out from under a held finger. Safe here because the action is local and
+  // idempotent (toggle a Set, re-render) — no send a mis-fire could deliver.
   const foldChip = (sess, text, label, open) => {
     const g = trays.get(sess);
     if (!g) return;
@@ -1025,8 +1028,10 @@ function dock(states, act) {
     // Safe here because the action is idempotent and purely local (toggle a Set, re-render):
     // no send, nothing that a mis-fire could deliver to a pane.
     onTap(c, () => {
+      // No captureIconRects(): that primes the list view's FLIP, and folding is a
+      // DOCK-only concern — the list's rows are identical before and after, so priming
+      // it only risks animating rows that did not move.
       if (open) foldOpen.delete(sess); else foldOpen.add(sess);
-      captureIconRects();
       render(Object.values(panesById));
     });
     g.appendChild(c);
