@@ -497,11 +497,21 @@
   .row-open { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
     background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
     text-align: left; cursor: pointer; }
+  /* EVERY .pulse is a PERMANENT node (see the render invariant in app.js): it stays in the
+     DOM across polls and `.on` carries whether this state shows it, so an idle badge or a
+     finished sub-agent doesn't destroy and recreate the dot. Hence `.on` gates visibility
+     GLOBALLY, not just under .badge: the activity badge, a plain task's tick and a
+     sub-agent's tick all hold one, and all three set .on explicitly (app.js: setCls on
+     h.pulse, and on d._pulse for tasks/subagents). When this was scoped to `.badge > `,
+     the base rule below left the ticks' dot permanently displayed, so a DONE sub-agent and
+     every plain task rendered a green pulsing dot beside their ✓. No .pulse is ever built
+     in static markup, so nothing depends on it showing without .on. */
   .pulse {
-    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    display: none; width: 6px; height: 6px; border-radius: 50%;
     background: var(--green); margin-right: 5px; vertical-align: middle;
     animation: pulse 1.1s ease-in-out infinite;
   }
+  .pulse.on { display: inline-block; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
   .sub { color: var(--fg-faint); font-size: 12px; margin-top: 3px; }
   .worksub { color: var(--fg-faint); font-size: 11px; font-weight: 400; }
