@@ -3116,7 +3116,7 @@ if (window.visualViewport && barEl) {
 // Live session and streams back voice audio, both transcripts, and a "typed" event for
 // every keystroke the model puts into a pane. Nothing overlays the app: the pulsing 🎙
 // header pill is the status, and the rolling conversation renders in the active card's
-// summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
+// summary slot (see applyCard's `lmOwns`). Design: docs/design/live-mode.md.
 const lm = { btn: document.getElementById("lm-btn") };
 // The static buttons get their icons here (their HTML ships empty): mic without the
 // word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
@@ -3165,20 +3165,12 @@ function lmPaintInto(box) {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-// Repaint in place between renders; card() re-inserts the box on every full render.
+// Repaint between renders, straight onto the card's PERMANENT .lm-convo node — the card
+// is retargeted rather than rebuilt, so the box a transcript fragment paints into is the
+// same one applyCard writes, and there is no re-inserted copy to go looking for.
 function lmPaint() {
-  const box = document.querySelector(".card.active .lm-convo");
+  const box = cardUI && cardUI.lm;
   if (box) lmPaintInto(box);
-}
-
-function lmConvoView() {
-  const box = document.createElement("div");
-  box.className = "lm-convo";
-  // No aria-live: we repaint the whole box (replaceChildren) on every transcript
-  // fragment, which a live region would re-announce in full — deafeningly noisy while
-  // streaming. The transcript is a visible running log, not an announce-on-change alert.
-  lmPaintInto(box);
-  return box;
 }
 
 // The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
