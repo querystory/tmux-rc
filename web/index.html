@@ -388,10 +388,14 @@
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
   /* Non-blocking failure notice in the input bar (barNote) — replaces the alert() that
      froze the page on a failed send (#101). Amber, not red: the message is still in the
-     composer and retryable, not lost. Tap to dismiss. */
+     composer and retryable, not lost. Tap (or key) to dismiss.
+     It's a real <button>, since the failure channel must be dismissible without a pointer,
+     so it needs un-buttoning back into a full-width notice: buttons don't inherit the page
+     font, center their text, or stretch. text-align:left keeps a wrapped message readable. */
   .bar-note { background: var(--amber-bg); color: var(--amber-text);
     border: 1px solid var(--amber); border-radius: 8px; padding: 7px 10px;
-    font-size: 13px; cursor: pointer; }
+    font: inherit; font-size: 13px; text-align: left; width: 100%;
+    display: block; cursor: pointer; }
   /* attach clip lives INSIDE the input field (like a chat composer) */
   .inputwrap { flex: 1; display: flex; align-items: center; background: var(--chrome); border: 1px solid var(--border); border-radius: 10px; padding-left: 6px; }
   /* Focus lights up the WHOLE composer (keys toggle, clip, thumbnail, Send) — the
@@ -413,8 +417,22 @@
   /* Placeholder for the empty composer (contenteditable has no native one). :empty holds
      only while there are zero child nodes — one typed char or one image chip clears it. */
   .inputwrap #bar-input:empty::before { content: attr(data-placeholder); color: var(--fg-faint); pointer-events: none; }
+  /* TOUCH TARGET, not just a glyph. These were 23x17 CSS px — roughly a third of the
+     44x44 minimum the mobile HIGs specify — sitting immediately beside a contenteditable
+     that happily takes any tap that misses, which is why the keyboard and attach buttons
+     "sometimes" did nothing: a near-miss lands in the composer instead.
+     The BOX is 40x40 and the ::after pad takes the hit area to 44x44. Measured: a 44px box
+     grows the bar 3px (the composer is 41px, so the taller child wins), and that 3px comes
+     off the terminal on every screen. The pad overflows instead, so the target meets the
+     minimum while the layout does not move. */
   .inputwrap .attach { background: transparent; border: 0; color: var(--fg-dim); font-size: 14px;
-    line-height: 1; cursor: pointer; padding: 0 3px; opacity: .8; }
+    line-height: 1; cursor: pointer; opacity: .8;
+    min-width: 40px; height: 40px; padding: 0 4px; flex: none;
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center; }
+  /* The extra 2px of reach on every side. Not a visual change — it only enlarges what the
+     finger can hit, and it sits under the glyph so it cannot intercept its own button. */
+  .inputwrap .attach::after { content: ""; position: absolute; inset: -2px; }
   .inputwrap .attach[aria-pressed="true"] { color: var(--accent-text); opacity: 1; }
   /* Inline image thumbnail: an <img> living INSIDE the contenteditable at the caret,
      interleaved with text (mirrors [Image #N] in Claude Code's composer) until the next

@@ -1,7 +1,7 @@
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step (native ES module — index.html loads type=module).
-import { renderCapture } from "./terminal.js";
+import { renderCapture, linkifyText } from "./terminal.js";
 
 // Real brand marks per tool (served from web/). One img template so every icon renders
 // identically; unidentified panes fall back to the tmux logomark. `tool` comes from
@@ -136,10 +136,47 @@ const openTimelines = new Set();
 // every pane — including ones you swipe to — shows its one-line header, handing the
 // screen to the live terminal. Expanding anywhere expands them all.
 let cardsCollapsed = false;
-// `busy` freezes polling re-renders while a mutation is mid-flight: an answer/composer
-// send (so a fresh parse doesn't replace the card under the user) and swipe/pinch
-// gestures. While set, send() also no-ops to avoid double-firing.
-let busy = false;
+// The render freeze: while held, poll re-renders are suppressed so a rebuild can't replace
+// the DOM under a finger or mid-send. It is ONLY a render freeze — re-entry into a send is
+// guarded by `sending`, which those functions own. Conflating the two is what made Send
+// silently do nothing whenever a gesture happened to hold this flag.
+//
+// TWO independent holders, because one shared boolean let either subsystem release the
+// other's freeze: a send settling on its 400ms timer while a swipe was still in progress
+// flipped the flag and let a render land mid-gesture — the "DOM replaced under the finger"
+// bug this PR exists to fix, reintroduced through the flag meant to prevent it.
+//
+// Deliberately two booleans rather than a refcount: pinchZoom's release() MUST be able to
+// clear its hold unconditionally (a gesture that ends without a clean zero-touch touchend
+// used to leak the freeze forever and wedge the whole app), and "release no matter what" is
+// not expressible in a refcount without leaking the count. Each subsystem owns exactly one
+// flag it may set or clear freely, and neither can speak for the other.
+let busySend = false;    // a send is flushing (composer or answer/key)
+let busyGesture = false; // a swipe/pinch owns the screen
+const isBusy = () => busySend || busyGesture;
+
+// A fetch deadline that works on older iOS Safari too. AbortSignal.timeout only landed in
+// Safari 16, and this file otherwise accounts for older iOS (the MediaQueryList and :has()
+// notes below), so calling it unguarded would throw before the request even starts —
+// turning a timeout safeguard into a hard failure on exactly the phones this app targets.
+// Shared rather than inlined per call site so every bounded fetch expires the same way.
+function timeoutSignal(ms) {
+  if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) return AbortSignal.timeout(ms);
+  // No abort primitives at all (old engines that still have fetch): return undefined so
+  // the caller sends an UNBOUNDED request. Losing the deadline is bad; throwing a
+  // ReferenceError here would break every send and upload outright, which is worse.
+  if (typeof AbortController === "undefined") return undefined;
+  const ac = new AbortController();
+  // abort() with a reason only if DOMException exists — an engine can have AbortController
+  // without it, and throwing inside this timer would leave the request UNaborted plus raise
+  // an uncaught async error. A bare abort() still cancels; the reason is only for the
+  // catch's message. Third unguarded global in this one helper: fetch existing does not
+  // imply the abort family exists.
+  setTimeout(() => ac.abort(
+    typeof DOMException === "undefined" ? undefined
+      : new DOMException("TimeoutError", "TimeoutError")), ms);
+  return ac.signal;
+}
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
 // sent. The card (and its answered question) render in a spinning "reparsing" state
 // until the served parsed_at advances past this — so a submitted answer / picked menu
@@ -231,7 +268,7 @@ function activeId() {
 // land on the SAME element, so any rebuild between finger-down and finger-up silently
 // swallows the tap — the "tapping sometimes does nothing, or feels laggy" bug, where the
 // lag is really the wait until the user gives up and taps again. Swiping never had it: it
-// listens on the card and sets `busy = true`, freezing re-renders for the whole gesture.
+// listens on the card and holds the gesture freeze for the whole gesture.
 //
 // pointerdown can't be stolen by a rebuild, and acting early is safe here because these
 // taps only ever SELECT (setActive is idempotent, and `pending` makes it authoritative
@@ -258,28 +295,126 @@ function activeId() {
 // the same NODE, only on the same pointer) while letting a scroll gesture win. `defer` stays
 // a parameter rather than the only behavior so a target outside any scroller can still take
 // the snappier path.
+//
+// The deferred path's move/up listeners go on `document`, NOT on `el`. Binding them to the
+// element would hand the whole bug straight back: the element is exactly the thing a poll
+// rebuild detaches, and a detached node's `pointerup` never fires, so the tap would be
+// swallowed again — for rows, which are the surface that motivated this. `document` outlives
+// every rebuild. They are keyed by pointerId and torn down on up/cancel so a gesture can
+// never observe a different finger's release, and nothing accumulates between gestures.
 const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
 const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
+// When a pointer gesture last ran an onTap action, in event-timeStamp terms. Module
+// scope on purpose: it must outlive any node a handler replaces (see the click branch).
+let _lastPointerAction = -1e9;
+// Releases a deferred tap already acted on — see done(). Weak and keyed by event identity,
+// so it neither mutates a host Event nor retains one.
+const _tapClaims = new WeakSet();
+
 function onTap(el, fn, defer) {
-  let downAt = 0, sx = 0, sy = 0, moved = false;
+  let downAt = 0;
   el.addEventListener("pointerdown", (e) => {
     if (e.button != null && e.button !== 0) return; // left/touch only
     downAt = e.timeStamp || performance.now();
-    sx = e.clientX; sy = e.clientY; moved = false;
-    if (!defer) fn(e);
+    if (!defer) { _lastPointerAction = downAt; return void fn(e); }
+    // Deferred: follow THIS pointer on document until it releases. The listeners are
+    // per-gesture (added here, removed in done()) rather than one long-lived pair, so
+    // there is no cross-gesture state to get out of sync and nothing left behind.
+    const id = e.pointerId, sx = e.clientX, sy = e.clientY;
+    // Measure the target NOW, while it is still in the document. A poll rebuild can detach
+    // it before the release, and a detached node's rect is 0x0 — useless for deciding
+    // whether the finger came up on it. See tapStillOn.
+    const downRect = el.getBoundingClientRect();
+    let moved = false;
+    const move = (ev) => {
+      if (ev.pointerId !== id) return;
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > TAP_SLOP) moved = true;
+    };
+    const done = (ev) => {
+      if (ev.pointerId !== id) return;
+      document.removeEventListener("pointermove", move, true);
+      document.removeEventListener("pointerup", done, true);
+      document.removeEventListener("pointercancel", done, true);
+      // A release that scrolled, or that dragged off the target, is not a tap on it.
+      if (ev.type !== "pointerup" || moved) return;
+      if (!tapStillOn(el, ev, downRect)) return;
+      // One release, one action. .row-open is nested inside the row and BOTH are onTap
+      // targets, so one finger arms two gestures. On document, DOM nesting no longer orders
+      // the handlers and stopPropagation cannot suppress a sibling document listener, so
+      // whichever runs first CLAIMS the release and the other stands down. First is the
+      // inner target: pointerdown still bubbles element-first, so .row-open registered its
+      // document listener before the row did. Both actions are idempotent anyway — the
+      // claim is what keeps it to one /select POST instead of two.
+      //
+      // The claim is keyed by the EVENT IDENTITY, not by a derived key. A key built from
+      // pointerId+timeStamp looked tidy but collides: timeStamp can be 0 (this function
+      // already distrusts it — see `e.timeStamp || performance.now()` below), and every
+      // release would then hash to the same "1:0" and silently drop the SECOND real tap.
+      //
+      // A WeakSet rather than a property ON the event: this module is strict mode, and a
+      // host Event object is not guaranteed extensible, so `ev._x = true` can throw a
+      // TypeError and take out deferred taps entirely — the whole mechanism, on whichever
+      // engine does that. The WeakSet needs nothing of the event but its identity, and
+      // holds it weakly, so it can't pin a row a rebuild just detached.
+      if (_tapClaims.has(ev)) return;
+      _tapClaims.add(ev);
+      _lastPointerAction = ev.timeStamp || performance.now();
+      fn(ev);
+    };
+    document.addEventListener("pointermove", move, true);
+    document.addEventListener("pointerup", done, true);
+    document.addEventListener("pointercancel", done, true);
   });
-  if (defer) {
-    el.addEventListener("pointermove", (e) => {
-      if (downAt && Math.hypot(e.clientX - sx, e.clientY - sy) > TAP_SLOP) moved = true;
-    });
-    el.addEventListener("pointerup", (e) => { if (downAt && !moved) fn(e); });
-  }
   el.addEventListener("click", (e) => {
+    // Suppress the click that FOLLOWS a pointer gesture we already handled, and let a
+    // genuine keyboard/AT activation (which has no preceding pointerdown) through.
+    //
+    // The "did we already handle this?" state must live on the GESTURE, not on this
+    // element. `downAt` was per-element, so a handler that re-renders — the caret, whose
+    // fn() calls render() and replaces its own button — destroyed the node holding the
+    // guard; the click then arrived at a FRESH button with downAt === 0, was read as
+    // keyboard activation, and fired fn a second time. One tap toggled collapse and
+    // immediately toggled it back. _lastPointerAction is module-scoped and survives the
+    // rebuild, so the follow-up click is recognized no matter which node receives it.
+    //
+    // But ask WHAT the click is before asking WHEN it arrived. detail is the click count:
+    // 0 only for a synthesized activation (keyboard Enter/Space, AT), >=1 for anything a
+    // pointer produced. Time alone can't tell those apart, and since the stamp is global it
+    // would swallow a real keyboard activation on a DIFFERENT element merely for landing
+    // within TAP_CLICK_MS of an unrelated tap — tap a dock tab, then immediately press
+    // Enter on the caret, and the caret would do nothing. Checking detail first makes the
+    // time window a backstop for pointer clicks only, which is all it was ever for.
+    if (e.detail === 0) return void fn(e); // keyboard / AT: never a follow-up
     const ts = e.timeStamp || performance.now();
-    if (!downAt || ts - downAt > TAP_CLICK_MS) return void fn(e); // keyboard/AT, or stale arm
-    downAt = 0;
-    e.stopPropagation(); // handled on pointerdown/up already; don't let ancestors re-fire it
+    if (ts - _lastPointerAction <= TAP_CLICK_MS) {
+      e.stopPropagation(); // already actioned on pointerdown/up
+      return;
+    }
+    if (downAt) { downAt = 0; e.stopPropagation(); return; } // this pointer's own click
+    fn(e); // no pointerdown seen at all ⇒ keyboard / assistive activation
   });
+}
+
+// Did the finger come up still over the thing it pressed? `el` may have been replaced by a
+// poll rebuild mid-gesture, so element identity is the wrong question — geometry is. If `el`
+// is still connected, the plain containment check is exact.
+//
+// If it was swapped out, judge against `downRect` — its box CAPTURED AT POINTERDOWN, while
+// it was still in the document. Measuring at pointerup instead cannot work: a detached node
+// reports a 0x0 rect, which fell through to "no geometry, don't drop the tap" and quietly
+// disabled the drag-off-to-cancel rule for precisely the rebuilt-node case this function
+// exists to handle. A rebuild re-renders the SAME list in the same place, so the box the
+// user aimed at is where its replacement now sits; releasing outside it is a drag-away and
+// should cancel.
+function tapStillOn(el, ev, downRect) {
+  if (el.isConnected) {
+    const t = document.elementFromPoint(ev.clientX, ev.clientY);
+    return !!t && (el === t || el.contains(t));
+  }
+  const r = downRect;
+  if (!r || (!r.width && !r.height)) return true; // never measured — don't drop the tap
+  return ev.clientX >= r.left && ev.clientX <= r.right
+      && ev.clientY >= r.top && ev.clientY <= r.bottom;
 }
 
 function setActive(id) {
@@ -367,7 +502,12 @@ function nsubOf(s) {
   return Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
 }
 
-function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
+// `link`: may the headline contain anchors? NO for list rows, where row() moves this
+// header INTO a <button> (.row-open) — an <a> inside a <button> is invalid HTML, and
+// browsers disagree about which one a click or Enter activates, so the row's own
+// open-the-card action becomes unreliable and AT announces it inconsistently. The card
+// header is not inside a button, so it keeps its links.
+function paneHeader(s, { caret = false, collapsed = false, icon = false, link = false } = {}) {
   const a = actOf(s);
   const nsub = nsubOf(s);
   // idle and waiting both show time-in-state ("idle 4m" / "waiting 4m"); the
@@ -392,7 +532,7 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
     + `<div class="ph-meta"><div class="ph-name">`
     + (icon && s.window_index != null ? `<span class="wnum">${esc(String(s.window_index))}</span>` : "")
     + `${esc(s.title || s.label || s.pane_id)}</div>`
-    + (s.headline ? `<div class="ph-sub">${esc(s.headline)}</div>` : "")
+    + (s.headline ? `<div class="ph-sub">${link ? linkifyText(s.headline) : esc(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}"${since}>${badge}</span></div>`
   );
 }
@@ -431,7 +571,7 @@ let _booted = false;       // server has completed its first tick — an empty d
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
 // switch, add/remove, label/activity, new events) or ~25s, then returns. pollLoop is the
 // ONLY caller and runs one at a time, so there's no concurrent-fetch state to track —
-// sends never poll (they just set `busy`; pollLoop resumes when it clears). Returns true
+// sends never poll (they just hold the freeze; pollLoop resumes when it clears). Returns true
 // on success, false to signal pollLoop to back off before the next hold.
 async function poll() {
   try {
@@ -456,11 +596,25 @@ async function poll() {
       return false;  // back off — without a gap pollLoop would re-request instantly and hammer
     }
     const data = await r.json();
-    // `busy` may have flipped true WHILE this request was in flight (a send/gesture
+    // The freeze may have gone up WHILE this request was in flight (a send/gesture
     // started mid-fetch). Applying the response now would replace the card under the
-    // user — the very thing `busy` freezes. Drop it without touching _stateVersion, so
-    // the next (post-busy) hold re-fetches from the same version and renders in order.
-    if (busy) return true;
+    // user — the very thing the freeze exists to prevent. Drop it without touching
+    // _stateVersion, so the next (post-freeze) hold re-fetches from the same version and
+    // renders in order.
+    //
+    // Returns FALSE, not true, so pollLoop puts a gap in before re-requesting. Dropping
+    // the body leaves _stateVersion pointing at a version the server has already moved
+    // past, so the next request cannot HOLD — the server holds only while v equals its
+    // current version — and is answered immediately. Reporting success there re-requests
+    // with zero gap, and once the freeze lifts pollLoop's own busy-sleep is no longer
+    // there to bound it either: an instantly-answered request in a zero-gap loop is a hot
+    // spin against the backend for as long as the race lasts.
+    //
+    // The version deliberately stays STALE rather than being advanced-without-rendering.
+    // Advancing it would re-hold on a version whose content was never drawn, so if nothing
+    // changed again the server would hold ~25s with the card still stale. Keeping it behind
+    // is what guarantees the next poll re-fetches and renders.
+    if (isBusy()) return false;
     // A well-formed response always carries a numeric version. version 0 = no initial
     // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
     // Both must back off, else pollLoop re-requests with gap=0 and tight-loops the backend.
@@ -537,8 +691,8 @@ function pollSleep(ms) {
 async function pollLoop() {
   let heldSince = 0;
   for (;;) {
-    if (busy) {
-      // WATCHDOG. `busy` is a re-render freeze owned by whichever gesture/send set it, and
+    if (isBusy()) {
+      // WATCHDOG. The freeze is owned by whichever gesture/send set it, and
       // a missed release wedges the whole app: the poll stops, the deck goes stale, and the
       // composer paths that coordinate through it stop working — indistinguishable from a
       // dead app, unfixable without a reload. Every known leak is fixed, but the failure
@@ -546,7 +700,7 @@ async function pollLoop() {
       // any plausible gesture or send (a slow image upload is seconds, not ten).
       // Self-healing beats correct-in-theory here.
       //
-      // `busy` ONLY — never `sending`. A >10s hold is usually a leak, but it is also exactly
+      // The FREEZE only — never `sending`. A >10s hold is usually a leak, but it is also exactly
       // what a large image upload on a bad network looks like, and that send's fetch is
       // still in flight. `sending` is the re-entry guard its owner releases in a finally;
       // clearing it here would re-open Send mid-request and let the same message go twice.
@@ -555,7 +709,7 @@ async function pollLoop() {
       if (Date.now() - heldSince > 10000) {
         console.warn("[tmux-rc] busy held >10s — releasing (leaked gesture/send flag)");
         reportError("busy-stuck", { name: "BusyWatchdog", message: "busy held >10s; force-released" });
-        busy = false; heldSince = 0;
+        busySend = false; busyGesture = false; heldSince = 0;
       } else {
         await pollSleep(250); continue; // a send/gesture froze re-renders; re-check soon
       }
@@ -574,10 +728,11 @@ function onResume() {
   _stateVersion = null;           // next poll = "give me current state now", never held
   if (_wakePoll) _wakePoll();     // cut short an in-progress backoff sleep
   // Backgrounded mid-gesture, the OS may never deliver touchend, so the swipe/pinch that
-  // set `busy` never releases it and the returning user finds a frozen app. A real gesture
-  // can't survive backgrounding, so clearing here is free — and it belongs on this one
-  // already-registered listener rather than one per pinchZoom instance.
-  busy = false;
+  // set the freeze never releases it and the returning user finds a frozen app. A real
+  // gesture can't survive backgrounding, so clearing here is free — and it belongs on this
+  // one already-registered listener rather than one per pinchZoom instance. Clears the SEND
+  // hold too: an in-flight fetch was aborted by the suspend, and its finally may never run.
+  busySend = false; busyGesture = false;
 }
 document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
@@ -647,6 +802,51 @@ function escAttr(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+// What the rendered UI actually depends on. If this is unchanged, a re-render would
+// rebuild identical DOM — so we skip it entirely and every live node (with its handlers,
+// focus, caret, scroll position and in-flight gesture) survives.
+//
+// THE RULE THIS ENFORCES: nothing in the UI may break because a pane is updating. Every
+// control here is created fresh by render() and wired per render, so a rebuild landing
+// between a finger going down and coming up silently swallowed the tap — the caret, the
+// fullscreen button, answer options, the sub-agent toggle, Send, dock tabs, filters. That
+// was fixed control-by-control with onTap, which is real but only ever protects the
+// controls someone remembered. Skipping the pointless rebuild protects ALL of them,
+// including any added later, and is also strictly less work.
+//
+// Deliberately EXCLUDES the streaming terminal frame (the peek repaints itself via its
+// own stream, not through render) and volatile counters, so a busy pane whose output is
+// scrolling does NOT churn the card. Includes everything the card/dock/list actually
+// draw: identity, activity, badges, question shape, event sequence, and view mode.
+function _renderFp(states) {
+  return JSON.stringify([
+    listFilter, cardsCollapsed, activeId(),
+    states.map((s) => [
+      s.pane_id, s.session, s.window_index, s.label, s.title, s.headline,
+      actOf(s), s.waiting_on, s.tool, s.mode, s.model, s.context_pct, s.cost,
+      s.session_active, s.tmux_active, s.events_seq, s.snapshot_id,
+      // parsed_at is load-bearing, not decoration. The lists below are fingerprinted by
+      // LENGTH, so a re-parse that REWRITES content without changing counts — a task's
+      // text, a link's label, a copyable's payload — was invisible here and the render got
+      // skipped, leaving the card stale against a parse the server had already published.
+      // The daemon bumps the state version on parsed_at (watcher.py _deck_fp), so keying on
+      // it makes this skip a strict subset of the server's "something changed" condition,
+      // which is correct by construction instead of by remembering to list every drawn
+      // field. It only advances on an actual re-parse, so it costs no extra rebuilds.
+      s.parsed_at,
+      s.agents, (s.subagents || []).length, (s.tasks || []).length,
+      (s.copyables || []).length, (s.links || []).length, (s.tables || []).length,
+      s.question ? [s.question.prompt, (s.question.options || []).length] : 0,
+      s.rewind ? 1 : 0, s.session_summary, isReparsing(s),
+      // idle/waiting badges tick from data-since in place (tickBadges), so the SECOND
+      // must not enter the fingerprint or a parked pane would rebuild once a second.
+      s.state_since ?? null,
+      subsOpen.has(s.pane_id), // a Set — .has, not a spread + linear scan per pane per poll
+    ]),
+  ]);
+}
+let _renderFpLast = null;
+
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
@@ -704,6 +904,21 @@ function render(states) {
   // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting)
   // each get a compact row above it; plain shells fold into one summary line so a
   // big fleet doesn't shove the active card off screen.
+  // Nothing the UI draws has changed ⇒ do not touch the DOM. This is what makes the app
+  // safe to use while panes are updating: handlers, focus, caret and gestures all live on.
+  //
+  // A skip here CANNOT hot-spin the poll loop, and the reason is an ordering that must be
+  // preserved: poll() assigns _stateVersion from the response BEFORE calling render(). So
+  // the version the server just published is always recorded, whether or not this render
+  // runs, and the next long-poll re-holds on it. Were the assignment moved after render —
+  // or made conditional on the render happening — every skipped render would re-request
+  // with a version the server had already passed, the hold condition (v == current) would
+  // never be met, and each reply would return instantly: a genuine hot loop, measured at
+  // ~1000 req/s against the daemon's ~3.5/s change rate.
+  const fp = _renderFp(states);
+  if (fp === _renderFpLast && panesEl.firstChild) { updateBar(panesById[activeId()]); return; }
+  _renderFpLast = fp;
+
   const act = activeId();
   // List mode (a dock tally badge or "all" was tapped): just those panes as
   // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
@@ -753,7 +968,7 @@ function render(states) {
         '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>';
       fs.title = "Full screen";
       fs.setAttribute("aria-label", "Full screen");
-      fs.onclick = () => openScreen(a.pane_id, a.title || a.label);
+      onTap(fs, () => openScreen(a.pane_id, a.title || a.label));
       deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
     }
     panesEl.classList.add("cardmode"); // drops #panes' bar padding — see the CSS
@@ -1110,11 +1325,11 @@ function row(s, act) {
     // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
     t.textContent = `${subs.length} sub-agent${subs.length === 1 ? "" : "s"} ${open ? "▾" : "◂"}`;
     t.setAttribute("aria-expanded", String(open));
-    t.onclick = (e) => {
+    onTap(t, (e) => {
       e.stopPropagation(); // a toggle tap expands the box — it must not open the card
       subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
       render(Object.values(panesById));
-    };
+    }, true); // defer: inside the vertical scroller
     el.querySelector(".ph-right").append(t);
     if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
   }
@@ -1143,7 +1358,7 @@ function swipeNav(el, id) {
     if (sx == null) return;
     dx = e.touches[0].clientX - sx;
     if (Math.abs(dx) <= Math.abs(e.touches[0].clientY - sy) || Math.abs(dx) <= 10) return;
-    busy = true; // freeze poll re-renders mid-drag — they'd replace the card under the finger
+    busyGesture = true; // freeze poll re-renders mid-drag — they'd replace the card under the finger
     el.style.transition = "none"; // track the finger 1:1, no easing lag
     el.style.transform = `translateX(${dx}px)`;
     const dir = dx < 0 ? -1 : 1;
@@ -1165,18 +1380,18 @@ function swipeNav(el, id) {
     if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids().length < 2) {
       el.style.transform = ""; // snap back, neighbor retreats
       if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
-      busy = false;
+      busyGesture = false;
       return;
     }
     const dir = dx < 0 ? -1 : 1;
     el.style.transform = `translateX(${dir * W()}px)`;
     if (ghost) ghost.style.transform = "translateX(0)";
-    setTimeout(() => { busy = false; setActive(neighbor(dir)); }, 150);
+    setTimeout(() => { busyGesture = false; setActive(neighbor(dir)); }, 150);
   });
   // A cancelled gesture (OS interruption) must release the poll freeze and snap back,
   // or polling stays frozen indefinitely.
   el.addEventListener("touchcancel", () => {
-    sx = null; busy = false;
+    sx = null; busyGesture = false;
     el.style.transition = "";
     el.style.transform = "";
     if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
@@ -1191,10 +1406,10 @@ function card(s) {
     + (isReparsing(s) ? " reparsing" : ""); // input sent, awaiting the forced re-parse
   swipeNav(el, s.pane_id);
   // Tapping a card makes it the target of the single bottom input bar.
-  el.onclick = (e) => {
+  onTap(el, (e) => {
     if (e.target.closest("button, input, a, summary, details")) return; // don't steal option/timeline taps
     setActive(s.pane_id);
-  };
+  }, true); // defer: the card scrolls, so only a tap that didn't drag counts
 
   const row = document.createElement("div");
   row.className = "row";
@@ -1202,12 +1417,12 @@ function card(s) {
   // the icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just
   // this header row (still tab-joined), handing the live terminal the screen; collapse
   // state is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
-  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false });
-  row.querySelector(".card-caret").onclick = (e) => {
+  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false, link: true });
+  onTap(row.querySelector(".card-caret"), (e) => {
     e.stopPropagation(); // don't also re-select the pane
     cardsCollapsed = !collapsed;
     render(Object.values(panesById));
-  };
+  }, true); // defer: inside a vertical scroller — a scroll must not fire it
   el.appendChild(row);
   if (collapsed) return el; // one-line form: header only, everything below is hidden
 
@@ -1224,8 +1439,15 @@ function card(s) {
   if (s.session_summary) {
     const sum = document.createElement("div");
     sum.className = "sess-sum";
-    sum.textContent = s.session_summary;
-    sum.onclick = (e) => { e.stopPropagation(); sum.classList.toggle("open"); };
+    sum.innerHTML = linkifyText(s.session_summary); // linkifyText escapes non-anchors
+    onTap(sum, (e) => {
+      e.stopPropagation();
+      // The summary is linkified now, so it can contain anchors. A tap on one must NAVIGATE
+      // only — toggling as well would collapse the text out from under the user as the link
+      // opens, and on a target that is also the expand affordance that reads as a glitch.
+      if (e.target.closest("a")) return;
+      sum.classList.toggle("open");
+    }, true); // defer: card scroller
     el.appendChild(sum);
   }
 
@@ -1475,7 +1697,7 @@ function bgTerm(s) {
         if (peekBox && peekBox.innerHTML !== html) {
           peekBox.innerHTML = html;
           tuckChrome(peekWrap, peekBox);
-          if (!busy && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
+          if (!isBusy() && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
         }
       },
       onLive: () => { if (streamPane === peekStreamPane) { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); } },
@@ -1700,7 +1922,11 @@ function evHtml(e) {
   }
   // historical = reconstructed from scrollback by the bootstrap pass, not observed
   // live — rendered dimmer so it never masquerades as watched fact.
-  return `<div class="ev${e.historical ? " ev-hist" : ""}"><span class="ev-text">${esc(e.text || "")}</span>${note}</div>`;
+  // linkifyText, not esc: an event that mentions a URL or a markdown [label](url) — a PR
+  // the agent opened, a preview deploy — should be tappable here exactly as it is in the
+  // terminal below. It escapes everything it doesn't turn into an anchor, so it is a safe
+  // drop-in for esc() on this untrusted model text.
+  return `<div class="ev${e.historical ? " ev-hist" : ""}"><span class="ev-text">${linkifyText(e.text || "")}</span>${note}</div>`;
 }
 
 function eventsView(events, paneId, summary) {
@@ -1874,9 +2100,23 @@ function barNote(msg) {
   if (!host) return;
   let el = document.getElementById("bar-note");
   if (!el) {
-    el = document.createElement("div");
+    // A real <button>, not a clickable div: this is the app's failure channel, so the way
+    // to dismiss it has to be reachable without a pointer — a div with onclick is neither
+    // focusable nor announced as actionable. type=button so it can never submit anything.
+    el = document.createElement("button");
+    el.type = "button";
     el.id = "bar-note";
     el.className = "bar-note";
+    // The message appears without any user action, so it also has to be SPOKEN.
+    // aria-live=assertive rather than role=alert: role would REPLACE the button role and
+    // the "tap to dismiss" affordance would stop being announced, whereas a live region on
+    // the button keeps both — it reads on insertion and on every later text change, and it
+    // still presents as a button. Missing "Not sent" means believing the message went
+    // through, which is the worst outcome this notice has to prevent.
+    // No aria-label: it would REPLACE the message as the accessible name, so the failure
+    // itself would go unread. The message text is the name; the button role conveys that
+    // activating it does something, and dismissal is not the part the user must not miss.
+    el.setAttribute("aria-live", "assertive");
     el.onclick = () => el.remove();
     host.prepend(el); // first child of #bar: above the keys row and the composer
   }
@@ -1974,17 +2214,22 @@ if (bar.input) {
 // agent's prompt with the images exactly where they sat between the words, like Claude
 // Code's own composer. The DOM is the source of truth; there's no separate staged[].
 // Empty composer is a no-op (a bare Enter would submit whatever's already in the agent).
-let sending = false; // a send is IN FLIGHT — distinct from `busy` (see submitComposer)
+let sending = false; // a send is IN FLIGHT — distinct from the render freeze (see submitComposer)
 
 const _sendQueue = []; // taps that arrived while a send was in flight (never dropped)
+// One Enter can fire submitComposer twice (keydown AND beforeinput — see the guard below).
+// Re-entry inside this window is that echo, not a second message.
+const SUBMIT_DEDUPE_MS = 250;
+let _lastSubmitAt = 0;
 
 async function submitComposer(s, presetSegs) {
-  // Guard on `sending`, NOT the shared `busy`. `busy` is also set by swipes, pinch/drag
+  // Guard on `sending`, NOT the render freeze. That freeze is also set by swipes, pinch/drag
   // gestures and option taps to freeze poll re-renders, so guarding on it made Send do
   // nothing — silently — whenever a gesture had it held (a swipe keeps it for 150ms after
-  // release). "Sometimes the send button just does nothing" was that. `sending` is owned
-  // by this function alone, so it still blocks the genuine double-fire it was added for
-  // (keydown + beforeinput both firing for one Enter).
+  // release). "Sometimes the send button just does nothing" was that. `sending` is owned by
+  // this function alone, so it means only what it says: a send is in flight. It no longer
+  // doubles as the double-fire guard — the dedupe window below does that, because `sending`
+  // now queues instead of returning and a queued echo is a message sent twice.
   //
   // Deliberately NOT blocked when the target pane is busy working: agents queue typed
   // input, so sending mid-run is valid and useful — the user's message lands in the
@@ -1997,13 +2242,30 @@ async function submitComposer(s, presetSegs) {
   const segs = presetSegs || composerSegments();
   if (!segs.length) return;
   if (sending) {
+    // The double-fire this used to absorb is now a DUPLICATE, not a no-op. One Enter can
+    // reach here twice: keydown fires first and preventDefault normally suppresses
+    // beforeinput/insertParagraph, but not on every engine — which is exactly why both
+    // handlers exist (Android's soft keyboard gives keydown no usable `key`, so
+    // beforeinput is the only reliable signal there). When `sending` merely returned, the
+    // second call vanished harmlessly. Queuing it instead would send the message twice.
+    //
+    // So: a re-entry within one input event's worth of time (and not a queue drain, which
+    // passes presetSegs) is the same keystroke arriving twice, and is dropped. A genuine
+    // second tap can't beat a human reaction time to it. Anything later is a real new
+    // message and still gets queued rather than dropped.
+    if (!presetSegs && Date.now() - _lastSubmitAt < SUBMIT_DEDUPE_MS) return;
     _sendQueue.push({ s, segs });
     clearComposer();          // the message is committed — it must leave the box
     barNote("Queued — sending the previous message first.");
     return;
   }
+  // Stamp only USER-initiated submits. A queue drain passes presetSegs, and stamping it
+  // would open a 250ms window right after the drain in which a real Enter looks like an
+  // echo of it and gets dropped — losing a message, which is the one outcome this whole
+  // path exists to prevent. An echo only ever follows the keystroke that caused it.
+  if (!presetSegs) _lastSubmitAt = Date.now();
   sending = true;
-  busy = true; // also freeze poll re-renders while the composer is mid-flush
+  busySend = true; // also freeze poll re-renders while the composer is mid-flush
   // Immediate feedback: the Send button spins for the whole request — on a slow
   // connection (image uploads) this runs for seconds, and silence reads as hung.
   bar.send?.classList.add("sending");
@@ -2045,12 +2307,26 @@ async function submitComposer(s, presetSegs) {
       const next = _sendQueue.shift();
       setTimeout(() => submitComposer(next.s, next.segs), 0);
     }
-    // Button un-spins NOW (the work is done); busy holds a beat longer so the poll
+    // Button un-spins NOW (the work is done); the freeze holds a beat longer so the poll
     // doesn't repaint mid-settle.
     bar.send?.classList.remove("sending");
     bar.send && (bar.send.disabled = false); // clear any legacy disabled state
-    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
+    releaseBusySoon();
   }
+}
+
+// Let the render-freeze lapse a beat after a send settles, so the poll doesn't repaint
+// mid-settle. Deliberately NOT an unconditional clear: a queued send starts on a
+// 0ms timer, so the previous send's 400ms timer would land squarely inside the next one and
+// unfreeze the deck while it was still in flight — replacing the card under the user, which
+// is exactly what the freeze exists to prevent. Whoever is still sending owns the flag and
+// will schedule its own release; this one just stands down.
+//
+// It touches busySend ONLY, so it can no longer end a swipe's or pinch's freeze — a send
+// settling mid-gesture used to flip the one shared flag and let a render land under the
+// finger, which is the same failure by a different route.
+function releaseBusySoon() {
+  setTimeout(() => { if (!sending) busySend = false; }, 400);
 }
 
 // Walk the composer's children in DOM order into ordered send segments. A text node (or
@@ -2109,7 +2385,7 @@ async function uploadStagedImage(s, file) {
   fd.append("file", file);
   // Bounded like postSend, but with room for a real upload on a phone connection.
   const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
-    method: "POST", body: fd, signal: AbortSignal.timeout(45000),
+    method: "POST", body: fd, signal: timeoutSignal(45000),
   });
   if (!r.ok) throw new Error("upload failed: " + r.status);
 }
@@ -2246,7 +2522,7 @@ function question(s) {
       b.className = "opt";
       b.textContent = opt;
       b.disabled = spinning;
-      b.onclick = () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); };
+      onTap(b, () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); }, true); // defer: a scroll must never submit an answer
       opts.appendChild(b);
     });
     q.appendChild(opts);
@@ -2289,7 +2565,7 @@ async function sendRaw(s, keyName) {
 // liveStream, so the keystroke shows up in the next live frame on its own
 // (docs/design/live-view.md). Throws on a bad response (fetch only rejects on network
 // error) so submitComposer's loop aborts before Enter/clear instead of dropping a
-// segment silently. Pure — callers own the `busy` freeze around it.
+// segment silently. Pure — callers own the render freeze around it.
 async function postSend(s, body) {
   // HARD TIMEOUT. Without one, a stalled request (phone radio handoff, tunnel/relay
   // hiccup) hangs this await forever — and because the caller holds `sending` across it,
@@ -2302,25 +2578,44 @@ async function postSend(s, body) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8000),
+    signal: timeoutSignal(8000),
   });
   if (!r.ok) throw new Error("send failed: " + r.status);
 }
 
 async function send(s, body) {
-  // `sending`, not the shared `busy` (which swipes/gestures also hold) — same reason as
-  // submitComposer: guarding on busy made a legitimate answer tap silently do nothing
+  // `sending`, not the render freeze (which swipes/gestures also hold) — same reason as
+  // submitComposer: guarding on the freeze made a legitimate answer tap silently do nothing
   // when a gesture happened to own the flag. Still blocks the real double-fire.
-  if (sending) return;
+  //
+  // This path DROPS rather than queues, unlike the composer: an option tap or a raw key
+  // is only meaningful against the screen the user was looking at, so replaying it after
+  // an unrelated send lands could answer a different prompt than the one they read. But
+  // dropping it silently is what "the button just does nothing" felt like, so say so —
+  // the whole point of this PR is that no send disappears without a trace.
+  if (sending) return void barNote("Busy sending — that didn't go through. Tap again.");
   sending = true;
-  busy = true;
+  busySend = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
   try {
     await postSend(s, body);
+  } catch (e) {
+    // postSend has a hard timeout now, so this path is reachable — without a catch it
+    // would be an unhandled rejection and the user would see nothing at all.
+    //
+    // Un-spin FIRST. markReparsing() above put the card into "submitting" — spinner up,
+    // answer options gated by isReparsing — and that state clears only when a parse lands
+    // or REPARSE_TIMEOUT (12s) expires. Nothing was sent, so no parse is coming: the card
+    // would sit there spinning with its options locked for 12s while the notice below
+    // says "Tap again to retry", making the retry it asks for impossible.
+    delete reparsing[s.pane_id];
+    barNote(`Not sent — ${e.message}. Tap again to retry.`);
+    reportError("send", e);
+    render(Object.values(panesById)); // drop the spinner now, not on the next poll
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
-    setTimeout(() => { busy = false; }, 400); // pollLoop resumes on its own once busy clears
+    releaseBusySoon(); // guarded: a composer send may already be running (see the helper)
   }
 }
 
@@ -2410,7 +2705,7 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     // targetTouches counts only the fingers that started on this container.
     const t = e.targetTouches;
     if (selectable && t.length === 1) return;
-    busy = true; // freeze poll re-renders mid-gesture
+    busyGesture = true; // freeze poll re-renders mid-gesture
     if (t.length === 2) { const m = mid(t); start = { dist: dist(t), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
     else if (t.length === 1) start = { pan: true, x: t[0].clientX - st.tx, y: t[0].clientY - st.ty };
   }, { passive: false });
@@ -2432,15 +2727,16 @@ function pinchZoom(container, el, st, snapHome, selectable) {
   }, { passive: false });
   const release = (e) => {
     // ALWAYS release the poll freeze, even while fingers remain down. This used to be
-    // gated behind the `touches.length !== 0` early-return below, which leaked
-    // `busy = true` FOREVER whenever a gesture ended without a clean zero-touch
-    // touchend — a second finger lifting, a touch that starts here and ends elsewhere,
-    // an OS interruption. A leaked `busy` freezes the poll loop permanently: the deck
-    // stops updating, and the composer/Send paths that coordinate through it wedge, so
-    // the app looks dead (can't send, can't even focus the input) until a reload.
-    // Reproduced by dispatching touchstart then a touchend still reporting one touch:
-    // zero dock rebuilds in the following 5s.
-    busy = false;
+    // gated behind the `touches.length !== 0` early-return below, which leaked the freeze
+    // FOREVER whenever a gesture ended without a clean zero-touch touchend — a second
+    // finger lifting, a touch that starts here and ends elsewhere, an OS interruption.
+    // A leaked freeze stops the poll loop permanently: the deck stops updating, and the
+    // composer/Send paths that coordinate through it wedge, so the app looks dead (can't
+    // send, can't even focus the input) until a reload. Reproduced by dispatching
+    // touchstart then a touchend still reporting one touch: zero dock rebuilds in 5s.
+    // This unconditional clear is why the freeze is two booleans and not a refcount —
+    // "release no matter what" cannot be expressed in a count without leaking it.
+    busyGesture = false;
     if (e.targetTouches.length !== 0) {
       // Fingers still down, so the gesture continues — but it is a DIFFERENT gesture now.
       // Lifting one finger of a pinch leaves `start` describing two, and touchmove would
