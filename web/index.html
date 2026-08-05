@@ -183,7 +183,15 @@
     border: 1px dashed var(--border); border-radius: 8px; background: var(--chrome);
     color: var(--fg-faint); font-family: inherit; font-size: 11px; font-weight: 600;
     line-height: 1; font-variant-numeric: tabular-nums; cursor: pointer; }
-  .dock-fold.open { font-size: 15px; }  /* the − glyph is small at 11px */
+  /* The RE-FOLD control reads as a quiet affordance, not a peer of the "+8" chip. A
+     same-size dashed button showing a bare "−" gave no clue what it did. Narrow, no
+     border, no fill: a chevron tucked at the tray's edge. The 40px min-width floor is
+     dropped here because the parent tray's own padding keeps the touch area honest —
+     height stays 36 and the hit box is 26x36, which is still a comfortable thumb target
+     for a control you use rarely. */
+  .dock-fold.open { min-width: 26px; padding: 0 4px; font-size: 17px;
+    border: 0; background: transparent; color: var(--fg-dim); }
+  .dock-fold.open:active { color: var(--accent); }
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--surface); }
@@ -202,6 +210,9 @@
   #filters:empty { display: none; }
   .dock-counts .badge { border: 0; cursor: pointer; font-family: inherit; }
   .badge.b-all { background: var(--chrome); color: var(--fg-mid); }
+  /* "N recent" spans activities, so it must not borrow any activity's colour (green would
+     claim running, amber waiting). Accent-tinted: a navigational count, not a state. */
+  .badge.b-recent { background: var(--sel-bg); color: var(--accent-text); }
   .dim { color: var(--fg-faint); }
   .d-running { background: var(--green); } .d-waiting { background: var(--amber-text); }
   /* Compacting: agent is condensing its own context — busy, but housekeeping, not user

@@ -894,7 +894,11 @@ function render(states) {
   const act = activeId();
   // List mode (a dock tally badge or "all" was tapped): just those panes as
   // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
-  const subset = listFilter && states.filter((s) => listFilter === "all" || actOf(s) === listFilter);
+  // "recent" is not an activity — it deliberately spans them (see isRecent: anything not
+  // idle counts however old, plus idle panes younger than PARKED_IDLE_SECS). So it gets its
+  // own arm rather than being compared against actOf().
+  const subset = listFilter && states.filter((s) =>
+    listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
@@ -1129,8 +1133,20 @@ function dock(states, act) {
   // WITHIN a session tray for density; nothing else does.
   const trays = new Map();  // session -> its .dock-group element (so the chip pass needs no re-query)
   const parked = new Map(); // session -> count of its parked panes
+  // A tray must never fold to NOTHING. Measured on the real deck: one session had all four
+  // of its panes parked, leaving a bare "+4" chip under a labelled rail — a session you can
+  // see no state for at all, which is worse than one stale icon. So each session keeps its
+  // freshest pane visible as a floor. Computed from the same duration the fold uses, so the
+  // kept pane is genuinely the most recently active one.
+  const freshest = new Map(); // session -> pane_id of its least-idle pane
+  for (const s of states) {
+    const k = s.session ?? "", cur = freshest.get(k);
+    if (!cur || stateDur(s) < cur.d) freshest.set(k, { id: s.pane_id, d: stateDur(s) });
+  }
   const folded = (s) =>
     !isRecent(s) && !foldOpen.has(s.session ?? "") &&
+    // The session's floor: keep its freshest pane on screen even when everything is parked.
+    freshest.get(s.session ?? "")?.id !== s.pane_id &&
     // Never fold the SELECTED pane: in card view its icon IS the tab joined to the card
     // below, so folding it away would leave the card joined to nothing. This is also what
     // keeps the fold coherent with swiping: swipeNav walks the full server order (folded
@@ -1192,22 +1208,31 @@ function dock(states, act) {
     c.title = label;
     c.setAttribute("aria-label", label);
     c.setAttribute("aria-expanded", String(open));
+    // NOT deferred. Deferred mode waits for pointerup and cancels past TAP_SLOP, but the
+    // dock is a horizontal scroller a thumb brushes constantly, AND it rebuilds every
+    // poll — so a held finger lost the chip out from under it and the tap did nothing,
+    // repeatedly, until a rebuild put a different icon under the thumb and switched panes.
+    // Committing on pointerdown cannot be cancelled by drift or stolen by a rebuild.
+    // Safe here because the action is idempotent and purely local (toggle a Set, re-render):
+    // no send, nothing that a mis-fire could deliver to a pane.
     onTap(c, () => {
       if (open) foldOpen.delete(sess); else foldOpen.add(sess);
       captureIconRects();
       render(Object.values(panesById));
-    }, true);
+    });
     g.appendChild(c);
   };
   for (const [sess, n] of parked)
     foldChip(sess, "+" + n, `Show ${n} parked pane${n === 1 ? "" : "s"} in ${sess || "this session"}`, false);
+  // NOTE: an expanded tray's re-fold control is rendered as a small chevron below, not as
+  // a second full-size chip — a bare "−" the same size as "+8" gave no clue what it did.
   // An expanded tray gets the inverse chip — otherwise unfolding is a one-way door for the
   // session (nothing re-parks it until the page reloads). Only when there is actually
   // something to re-fold: a session whose panes all went busy again has nothing parked,
   // and a dead "−" would confuse. U+2212 MINUS, not a hyphen (which reads as a dash).
   for (const sess of foldOpen)
     if (states.some((s) => (s.session ?? "") === sess && !isRecent(s) && s.pane_id !== act))
-      foldChip(sess, "−", `Hide parked panes in ${sess || "this session"}`, true);
+      foldChip(sess, "\u2039", `Hide parked panes in ${sess || "this session"}`, true);
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
   // actually spans sessions — the CSS keys off this class, not group count.
   el.classList.toggle("grouped", ngroups > 1);
@@ -1232,6 +1257,14 @@ function dock(states, act) {
     filtersEl.appendChild(b);
   };
   ["waiting", "running", "compacting", "idle", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
+  // "N recent" — the count the user actually wants at a glance: how much of the fleet is
+  // live right now, which no single activity badge answers (a waiting pane and a running
+  // pane are both recent). Same predicate the dock folds on, so the number and the strip
+  // can never disagree. Shown only when it is informative: if every pane is recent it just
+  // restates the deck size, and if none are the whole fleet is parked and "0 recent" adds
+  // nothing an empty strip hasn't said.
+  const nRecent = states.filter(isRecent).length;
+  if (nRecent && nRecent < states.length) filt(`${nRecent} recent`, "recent");
   filt("all", "all");
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
