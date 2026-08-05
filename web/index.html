@@ -444,15 +444,21 @@
      only while there are zero child nodes — one typed char or one image chip clears it. */
   .inputwrap #bar-input:empty::before { content: attr(data-placeholder); color: var(--fg-faint); pointer-events: none; }
   /* TOUCH TARGET, not just a glyph. These were 23x17 CSS px — roughly a third of the
-     44x44 minimum every mobile HIG specifies — sitting immediately beside a
-     contenteditable that happily takes any tap that misses. That is why the keyboard and
-     attach buttons "sometimes" did nothing: the miss rate on a 17px-tall target is high,
-     and the near-miss lands in the composer instead. Height/min-width give the real
-     target; the glyph inside is unchanged, so the bar looks identical. */
+     44x44 minimum the mobile HIGs specify — sitting immediately beside a contenteditable
+     that happily takes any tap that misses, which is why the keyboard and attach buttons
+     "sometimes" did nothing: a near-miss lands in the composer instead.
+     The BOX is 40x40 and the ::after pad takes the hit area to 44x44. Measured: a 44px box
+     grows the bar 3px (the composer is 41px, so the taller child wins), and that 3px comes
+     off the terminal on every screen. The pad overflows instead, so the target meets the
+     minimum while the layout does not move. */
   .inputwrap .attach { background: transparent; border: 0; color: var(--fg-dim); font-size: 14px;
     line-height: 1; cursor: pointer; opacity: .8;
     min-width: 40px; height: 40px; padding: 0 4px; flex: none;
+    position: relative;
     display: inline-flex; align-items: center; justify-content: center; }
+  /* The extra 2px of reach on every side. Not a visual change — it only enlarges what the
+     finger can hit, and it sits under the glyph so it cannot intercept its own button. */
+  .inputwrap .attach::after { content: ""; position: absolute; inset: -2px; }
   .inputwrap .attach[aria-pressed="true"] { color: var(--accent-text); opacity: 1; }
   /* Inline image thumbnail: an <img> living INSIDE the contenteditable at the caret,
      interleaved with text (mirrors [Image #N] in Claude Code's composer) until the next

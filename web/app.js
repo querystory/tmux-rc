@@ -161,9 +161,20 @@ const isBusy = () => busySend || busyGesture;
 // turning a timeout safeguard into a hard failure on exactly the phones this app targets.
 // Shared rather than inlined per call site so every bounded fetch expires the same way.
 function timeoutSignal(ms) {
-  if (AbortSignal.timeout) return AbortSignal.timeout(ms);
+  if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) return AbortSignal.timeout(ms);
+  // No abort primitives at all (old engines that still have fetch): return undefined so
+  // the caller sends an UNBOUNDED request. Losing the deadline is bad; throwing a
+  // ReferenceError here would break every send and upload outright, which is worse.
+  if (typeof AbortController === "undefined") return undefined;
   const ac = new AbortController();
-  setTimeout(() => ac.abort(new DOMException("TimeoutError", "TimeoutError")), ms);
+  // abort() with a reason only if DOMException exists — an engine can have AbortController
+  // without it, and throwing inside this timer would leave the request UNaborted plus raise
+  // an uncaught async error. A bare abort() still cancels; the reason is only for the
+  // catch's message. Third unguarded global in this one helper: fetch existing does not
+  // imply the abort family exists.
+  setTimeout(() => ac.abort(
+    typeof DOMException === "undefined" ? undefined
+      : new DOMException("TimeoutError", "TimeoutError")), ms);
   return ac.signal;
 }
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
@@ -379,8 +390,8 @@ function onTap(el, fn, defer) {
       e.stopPropagation(); // already actioned on pointerdown/up
       return;
     }
-    if (downAt && ts - downAt <= TAP_CLICK_MS) { downAt = 0; e.stopPropagation(); return; }
-    fn(e); // a pointer click with no recent handled gesture (e.g. non-deferred miss)
+    if (downAt) { downAt = 0; e.stopPropagation(); return; } // this pointer's own click
+    fn(e); // no pointerdown seen at all ⇒ keyboard / assistive activation
   });
 }
 
@@ -491,7 +502,12 @@ function nsubOf(s) {
   return Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
 }
 
-function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) {
+// `link`: may the headline contain anchors? NO for list rows, where row() moves this
+// header INTO a <button> (.row-open) — an <a> inside a <button> is invalid HTML, and
+// browsers disagree about which one a click or Enter activates, so the row's own
+// open-the-card action becomes unreliable and AT announces it inconsistently. The card
+// header is not inside a button, so it keeps its links.
+function paneHeader(s, { caret = false, collapsed = false, icon = false, link = false } = {}) {
   const a = actOf(s);
   const nsub = nsubOf(s);
   // idle and waiting both show time-in-state ("idle 4m" / "waiting 4m"); the
@@ -516,7 +532,7 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false } = {}) 
     + `<div class="ph-meta"><div class="ph-name">`
     + (icon && s.window_index != null ? `<span class="wnum">${esc(String(s.window_index))}</span>` : "")
     + `${esc(s.title || s.label || s.pane_id)}</div>`
-    + (s.headline ? `<div class="ph-sub">${linkifyText(s.headline)}</div>` : "")
+    + (s.headline ? `<div class="ph-sub">${link ? linkifyText(s.headline) : esc(s.headline)}</div>` : "")
     + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}"${since}>${badge}</span></div>`
   );
 }
@@ -1443,7 +1459,7 @@ function row(s, act) {
       e.stopPropagation(); // a toggle tap expands the box — it must not open the card
       subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
       render(Object.values(panesById));
-    });
+    }, true); // defer: inside the vertical scroller
     el.querySelector(".ph-right").append(t);
     if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
   }
@@ -1531,12 +1547,12 @@ function card(s) {
   // the icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just
   // this header row (still tab-joined), handing the live terminal the screen; collapse
   // state is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
-  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false });
+  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false, link: true });
   onTap(row.querySelector(".card-caret"), (e) => {
     e.stopPropagation(); // don't also re-select the pane
     cardsCollapsed = !collapsed;
     render(Object.values(panesById));
-  });
+  }, true); // defer: inside a vertical scroller — a scroll must not fire it
   el.appendChild(row);
   if (collapsed) return el; // one-line form: header only, everything below is hidden
 
@@ -1554,7 +1570,14 @@ function card(s) {
     const sum = document.createElement("div");
     sum.className = "sess-sum";
     sum.innerHTML = linkifyText(s.session_summary); // linkifyText escapes non-anchors
-    onTap(sum, (e) => { e.stopPropagation(); sum.classList.toggle("open"); });
+    onTap(sum, (e) => {
+      e.stopPropagation();
+      // The summary is linkified now, so it can contain anchors. A tap on one must NAVIGATE
+      // only — toggling as well would collapse the text out from under the user as the link
+      // opens, and on a target that is also the expand affordance that reads as a glitch.
+      if (e.target.closest("a")) return;
+      sum.classList.toggle("open");
+    }, true); // defer: card scroller
     el.appendChild(sum);
   }
 
@@ -2629,7 +2652,7 @@ function question(s) {
       b.className = "opt";
       b.textContent = opt;
       b.disabled = spinning;
-      onTap(b, () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); });
+      onTap(b, () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); }, true); // defer: a scroll must never submit an answer
       opts.appendChild(b);
     });
     q.appendChild(opts);
