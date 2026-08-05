@@ -486,11 +486,14 @@ async function poll() {
       // would be the same keystroke under two labels — hide the literal one there rather
       // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
       // config change without a reload.
-      // Starts hidden in the HTML (a flashed duplicate is worse than a late button), so
-      // this both reveals and hides — never assume it began visible.
-      const cb = document.getElementById("bar-ctrl-b");
-      if (cb) cb.hidden = data.prefix === "C-b";
     }
+    // OUTSIDE the `data.prefix` guard on purpose. The button starts hidden in the HTML so a
+    // stock-tmux user never sees it flash as a duplicate of Prefix — which means the reveal
+    // is the only thing that can ever show it. Gated on a truthy prefix, a legacy or partial
+    // /api/state that omits the field would hide Ctrl-B FOREVER, turning a cosmetic flicker
+    // fix into a missing key. Absent prefix ⇒ we cannot know it is C-b ⇒ show it.
+    const cb = document.getElementById("bar-ctrl-b");
+    if (cb) cb.hidden = data.prefix === "C-b";
     // Legacy daemons omit `booted`; treat its absence as booted so old servers keep
     // their previous behavior (empty ⇒ "no panes") rather than spinning forever.
     _booted = data.booted !== false;
@@ -1048,8 +1051,20 @@ function dock(states, act) {
   // second full-size chip: a same-size button showing a bare glyph gave no clue what it did.
   // Only when something is actually parked — a session whose panes all went busy again has
   // nothing to re-fold, and a dead control would confuse.
-  for (const sess of foldOpen)
-    if (states.some((s) => (s.session ?? "") === sess && !isRecent(s) && s.pane_id !== act))
+  // Ask `folded()` itself — with the session's unfold temporarily discounted — rather than
+  // re-deriving "is anything parked here". The hand-written version omitted the freshest-pane
+  // FLOOR, so a session whose only parked pane is also its freshest got a chevron that would
+  // hide nothing when tapped. Reusing the predicate means the control and the fold can never
+  // disagree again.
+  const wouldFold = (sess) => states.some((s) => {
+    if ((s.session ?? "") !== sess) return false;
+    foldOpen.delete(sess);                 // pretend the tray is closed
+    const yes = folded(s);
+    foldOpen.add(sess);                    // restore — we are iterating over foldOpen
+    return yes;
+  });
+  for (const sess of [...foldOpen])
+    if (wouldFold(sess))
       foldChip(sess, "\u2039", `Hide parked panes in ${sess || "this session"}`, true);
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
   // actually spans sessions — the CSS keys off this class, not group count.
