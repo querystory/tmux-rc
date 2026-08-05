@@ -35,7 +35,7 @@
 //      never per poll, and never from server data.
 // Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
-import { renderCapture } from "./terminal.js";
+import { renderCapture, linkifyText } from "./terminal.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -54,6 +54,20 @@ function setAttr(node, k, v) {
 function setCls(node, name, on) {
   if (!node) return;
   if (node.classList.contains(name) !== !!on) node.classList.toggle(name, !!on);
+}
+// setHtml is the ONE sanctioned in-place innerHTML write, for the three surfaces whose
+// content is linkified prose (headline, session summary, event text): linkifyText returns
+// MARKUP, so textContent would show the tags. It is safe only because linkifyText escapes
+// everything it does not itself turn into an anchor — never hand this raw server text.
+//
+// The unchanged-guard is as load-bearing here as in setText, and more so: assigning an
+// identical innerHTML tears down and rebuilds the whole subtree, which collapses any
+// Selection inside it — the user copying a URL out of the summary would lose it on every
+// poll. Comparing against the live innerHTML is exact for our own serialized output.
+function setHtml(node, html) {
+  if (!node) return;
+  const v = html == null ? "" : String(html);
+  if (node.innerHTML !== v) node.innerHTML = v;
 }
 
 // ── keyedList: the one reconciler ────────────────────────────────────────────
@@ -221,6 +235,37 @@ else if (prefersLight.addListener) prefersLight.addListener(onSchemeChange);
 // every pane — including ones you swipe to — shows its one-line header, handing the
 // screen to the live terminal. Expanding anywhere expands them all.
 let cardsCollapsed = false;
+// NO render-freeze flag here, deliberately. `busy` / `busySend` / `busyGesture` and their
+// 10s watchdog existed because a poll render REPLACED the DOM under a finger or mid-send.
+// Under the render invariant a render only rewrites text/attrs on the very nodes a gesture
+// is already translating, so there is nothing to freeze — and nothing that a missed release
+// can leak into a wedged app, which is what the watchdog was rescuing. The two things the
+// freeze also did are now local: swipeNav snapshots the id list at touchstart (so a
+// mid-swipe reorder cannot change which pane it commits to) and pinchZoom exposes
+// panning() for the peek's scroll-to-tail. `sending` — a real in-flight POST guard — stays.
+
+// A fetch deadline that works on older iOS Safari too. AbortSignal.timeout only landed in
+// Safari 16, and this file otherwise accounts for older iOS (the MediaQueryList and :has()
+// notes below), so calling it unguarded would throw before the request even starts —
+// turning a timeout safeguard into a hard failure on exactly the phones this app targets.
+// Shared rather than inlined per call site so every bounded fetch expires the same way.
+function timeoutSignal(ms) {
+  if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) return AbortSignal.timeout(ms);
+  // No abort primitives at all (old engines that still have fetch): return undefined so
+  // the caller sends an UNBOUNDED request. Losing the deadline is bad; throwing a
+  // ReferenceError here would break every send and upload outright, which is worse.
+  if (typeof AbortController === "undefined") return undefined;
+  const ac = new AbortController();
+  // abort() with a reason only if DOMException exists — an engine can have AbortController
+  // without it, and throwing inside this timer would leave the request UNaborted plus raise
+  // an uncaught async error. A bare abort() still cancels; the reason is only for the
+  // catch's message. Third unguarded global in this one helper: fetch existing does not
+  // imply the abort family exists.
+  setTimeout(() => ac.abort(
+    typeof DOMException === "undefined" ? undefined
+      : new DOMException("TimeoutError", "TimeoutError")), ms);
+  return ac.signal;
+}
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
 // sent. The card (and its answered question) render in a spinning "reparsing" state
 // until the served parsed_at advances past this — so a submitted answer / picked menu
@@ -308,6 +353,11 @@ function activeId() {
 // Taps are plain `click` handlers. Nodes are permanent (see the render invariant), so
 // press and release always land on the same element — and `click`, unlike a pointerdown
 // commit, still yields to a scroll gesture in the overflow-x strips for free.
+// Because a tap is a plain `click`, the four in-scroller controls (collapse caret,
+// session-summary toggle, sub-agents chip, question ANSWER OPTIONS) can no longer be
+// fired by a scroll that merely STARTED on them: `click` requires press and release on
+// the same element and the browser withholds it after a scroll. That is what onTap's
+// `defer` mode was hand-rolling, and it comes for free once nodes are permanent.
 function setActive(id) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
@@ -396,8 +446,15 @@ function nsubOf(s) {
 // Nodes that don't apply to a given state are EMPTIED, not removed, so their handlers and
 // identity persist; CSS :empty rules hide them (see .ph-sub:empty / .worksub:empty /
 // .wnum:empty in index.html).
-function buildPaneHeader(parent, { caret = false, icon = false } = {}, onCaret) {
-  const h = {};
+// `link`: may the headline contain anchors? NO for list rows — row() puts this header
+// INSIDE .row-open, a real <button>, and an <a> inside a <button> is invalid HTML:
+// browsers disagree about which element a click or Enter activates, so the row's own
+// open-the-card tap becomes unreliable and AT announces it inconsistently. The card
+// header is not inside a button, so it keeps its links. Recorded on the header handle at
+// BUILD time (not passed per apply) because it is a property of where the header lives,
+// which never changes for a given node — the invariant's whole point.
+function buildPaneHeader(parent, { caret = false, icon = false, link = false } = {}, onCaret) {
+  const h = { link };
   if (caret) {
     h.caret = document.createElement("button");
     h.caret.className = "card-caret";
@@ -465,7 +522,12 @@ function applyPaneHeader(h, s, collapsed) {
   }
   if (h.wnum) setText(h.wnum, s.window_index != null ? String(s.window_index) : "");
   setText(h.nameText, s.title || s.label || s.pane_id);
-  setText(h.sub, s.headline || "");
+  // linkifyText escapes everything it does not turn into an anchor, so it is a safe
+  // drop-in for untrusted model text — but it produces MARKUP, so it needs innerHTML and
+  // its own unchanged-guard (assigning identical innerHTML would still rebuild the
+  // subtree and collapse a selection inside it, which setText exists to avoid).
+  if (h.link) setHtml(h.sub, s.headline ? linkifyText(s.headline) : "");
+  else setText(h.sub, s.headline || "");
   // The working sub-line — verb · elapsed · ↓tokens (e.g. "Waiting for review 43s
   // ↓40.4k"). Not gated on activity: a waiting pane still reports what it waits on.
   const w = s.working || {};
@@ -521,7 +583,7 @@ let _booted = false;       // server has completed its first tick — an empty d
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
 // switch, add/remove, label/activity, new events) or ~25s, then returns. pollLoop is the
 // ONLY caller and runs one at a time, so there's no concurrent-fetch state to track —
-// sends never poll (they just set `busy`; pollLoop resumes when it clears). Returns true
+// sends never poll (they just hold the freeze; pollLoop resumes when it clears). Returns true
 // on success, false to signal pollLoop to back off before the next hold.
 async function poll() {
   try {
@@ -572,6 +634,21 @@ async function poll() {
       // dataset.k keeps tmux's exact name (C-a).
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
+    // The literal Ctrl-B button exists because a remapped prefix (this host uses C-a)
+    // leaves no way to send a real Ctrl-B, which nested tmux and apps that bind it
+    // themselves need. On a STOCK tmux the prefix already IS C-b, so the two buttons
+    // would be the same keystroke under two labels — hide the literal one there rather
+    // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
+    // config change without a reload.
+    //
+    // OUTSIDE the `if (data.prefix)` guard, and the button starts `hidden` in the HTML.
+    // Inside the guard, a response that omitted `prefix` never ran this line, so the
+    // button kept whatever visibility it had — and since it shipped VISIBLE, a stock-C-b
+    // host that then served one prefix-less response showed a permanent duplicate of the
+    // Prefix button. Starting hidden and assigning unconditionally makes the state a pure
+    // function of the last response instead of a latch.
+    const cb = document.getElementById("bar-ctrl-b");
+    if (cb) cb.hidden = !data.prefix || data.prefix === "C-b";
     // Legacy daemons omit `booted`; treat its absence as booted so old servers keep
     // their previous behavior (empty ⇒ "no panes") rather than spinning forever.
     _booted = data.booted !== false;
@@ -756,6 +833,7 @@ function showUsage(u, err) {
 // and angle brackets in parser JSON cannot break out. esc() survives for the one remaining
 // markup template, the fullscreen overlay's static chrome.
 
+
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
@@ -806,6 +884,10 @@ function render(states) {
     setText(ui.emptyText, _booted
       ? "No tmux pane found. Start a session and it will appear here."
       : "Loading panes…");
+    // The empty/loading state is neither mode, and it returns BEFORE the branches below —
+    // so clear cardmode here (#106) or a stale one from the last render leaves #panes with
+    // no bar padding and squeezes the message against the input bar.
+    panesEl.classList.remove("cardmode");
     updateBar(null);
     return;
   }
@@ -813,6 +895,16 @@ function render(states) {
   // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting) each
   // get a compact row above it; plain shells fold into one summary line so a big fleet
   // doesn't shove the active card off screen.
+  //
+  // NO render-skip fingerprint (_renderFp/_renderFpLast are gone). It existed to protect
+  // live nodes from a rebuild that no longer happens: every write below goes through
+  // setText/setAttr/setCls/setHtml, each a no-op when the value is already current, so an
+  // unchanged poll performs ZERO DOM mutations without having to predict that in advance.
+  // That is strictly better than the fingerprint, which had to ENUMERATE the drawn fields
+  // and silently skipped whatever it forgot — it omitted parsed_at and dropped 6 of 10 real
+  // content changes (a task's text, a link's label, a copyable's payload: all rewrites that
+  // left the sampled LENGTHS unchanged). Here those same changes flow through setText,
+  // which compares the actual value and writes it. There is no field to remember.
   const act = activeId();
   // List mode (a dock tally badge or "all" was tapped): just those panes as one-liners;
   // the dock stays up (tap an icon or a row to open that pane's card).
@@ -822,6 +914,10 @@ function render(states) {
     setCls(ui.deck, "hid", true);
     setCls(ui.list, "hid", false);
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
+    panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
+    // Session headers, ordinals and row order all live in applyList — it keys headers and
+    // rows into one list so a session boundary appearing/disappearing inserts or removes
+    // exactly that header, instead of re-keying the rows after it.
     applyList(ui.list, states, subset, act);
     updateBar(panesById[act]);
     return;
@@ -834,6 +930,13 @@ function render(states) {
   applyList(ui.list, states, [], act);
   dock(states, act); // sticky top bar — constant height, content swaps below it
   const a = panesById[act];
+  // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
+  // remaining viewport AND runs under the bar via its own negative margin, so counting the
+  // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
+  // being SHOWN, not merely to reaching this branch: with no active pane the deck is hidden
+  // and nothing is sized to the viewport, so the padding is what keeps content off the bar.
+  // (A class, not :has() — app.js deliberately avoids :has() for older iOS Safari.)
+  setCls(panesEl, "cardmode", !!a);
   setCls(ui.deck, "hid", !a);
   if (a) {
     applyCard(cardUI, a);
@@ -1153,7 +1256,8 @@ function buildRow(paneId) {
   // navigate twice.
   openBtn.onclick = (e) => { e.stopPropagation(); goCard(); };
   el.appendChild(openBtn);
-  const hdr = buildPaneHeader(openBtn, { icon: true });
+  // link:false — this header goes INSIDE .row-open, a <button>. See buildPaneHeader.
+  const hdr = buildPaneHeader(openBtn, { icon: true, link: false });
   // .ph-right belongs to the ROW, beside .row-open — not inside it (see the ARIA note).
   el.appendChild(hdr.right);
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the card
@@ -1257,7 +1361,7 @@ function buildCard() {
   // icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just this
   // header row (still tab-joined), handing the live terminal the screen; collapse state
   // is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
-  ui.hdr = buildPaneHeader(row, { caret: true }, (e) => {
+  ui.hdr = buildPaneHeader(row, { caret: true, link: true }, (e) => {
     e.stopPropagation(); // don't also re-select the pane
     cardsCollapsed = !cardsCollapsed;
     render(Object.values(panesById));
@@ -1270,7 +1374,15 @@ function buildCard() {
   ui.lm.className = "lm-convo";
   ui.sum = document.createElement("div");
   ui.sum.className = "sess-sum";
-  ui.sum.onclick = (e) => { e.stopPropagation(); ui.sum.classList.toggle("open"); };
+  ui.sum.onclick = (e) => {
+    e.stopPropagation();
+    // The summary is linkified, so it can hold anchors. A tap on one must NAVIGATE only:
+    // toggling as well would collapse the text out from under the user as the link opens,
+    // and on an element that is simultaneously the content AND the expand affordance that
+    // reads as a glitch rather than two intended actions.
+    if (e.target.closest("a")) return;
+    ui.sum.classList.toggle("open");
+  };
   ui.rewind = buildRewind();
   ui.tables = document.createElement("div");
   ui.tables.className = "tables";
@@ -1311,7 +1423,11 @@ function applyCard(ui, s) {
   if (lmOwns) lmPaintInto(ui.lm); else keyedList(ui.lm, [], (x) => x, () => null);
   // The bootstrap "story so far" — orientation when picking a session up cold. Clamped
   // to a few lines; tap toggles the full text.
-  setText(ui.sum, body && s.session_summary ? s.session_summary : "");
+  // linkifyText, not textContent: a summary that mentions a PR or a URL should be tappable
+  // here exactly as it is in the terminal below. It escapes everything it does not turn
+  // into an anchor, so it is safe on this untrusted model text. setHtml's unchanged-guard
+  // is what keeps a poll from rebuilding the subtree under a selection.
+  setHtml(ui.sum, body && s.session_summary ? linkifyText(s.session_summary) : "");
   applyRewind(ui.rewind, body ? s : null);
   applyTables(ui.tables, body && Array.isArray(s.tables) ? s.tables : []);
   applyQuestion(ui.q, body && s.question ? s : null);
@@ -1902,7 +2018,11 @@ function applyEvent(d, e) {
   // historical = reconstructed from scrollback by the bootstrap pass, not observed live —
   // rendered dimmer so it never masquerades as watched fact.
   setCls(d, "ev-hist", !!e.historical);
-  setText(d._text, e.text || "");
+  // linkifyText, not setText: an event that mentions a URL or a markdown [label](url) — a
+  // PR the agent opened, a preview deploy — should be tappable here exactly as it is in
+  // the terminal below. It escapes everything it doesn't turn into an anchor, so it is
+  // safe on this untrusted model text; setHtml keeps the unchanged-write no-op.
+  setHtml(d._text, e.text ? linkifyText(e.text) : "");
   const isFile = !!e.file;
   setCls(d._note, "ev-file", isFile);
   setText(d._path, isFile ? (e.file.path || "") + " " : (e.meta || ""));
@@ -2173,9 +2293,23 @@ function barNote(msg) {
   if (!host) return;
   let el = document.getElementById("bar-note");
   if (!el) {
-    el = document.createElement("div");
+    // A real <button>, not a clickable div: this is the app's failure channel, so the way
+    // to dismiss it has to be reachable without a pointer — a div with onclick is neither
+    // focusable nor announced as actionable. type=button so it can never submit anything.
+    el = document.createElement("button");
+    el.type = "button";
     el.id = "bar-note";
     el.className = "bar-note";
+    // The message appears without any user action, so it also has to be SPOKEN.
+    // aria-live=assertive rather than role=alert: role would REPLACE the button role and
+    // the "tap to dismiss" affordance would stop being announced, whereas a live region on
+    // the button keeps both — it reads on insertion and on every later text change, and it
+    // still presents as a button. Missing "Not sent" means believing the message went
+    // through, which is the worst outcome this notice has to prevent.
+    // No aria-label: it would REPLACE the message as the accessible name, so the failure
+    // itself would go unread. The message text is the name; the button role conveys that
+    // activating it does something, and dismissal is not the part the user must not miss.
+    el.setAttribute("aria-live", "assertive");
     el.onclick = () => el.remove();
     host.prepend(el); // first child of #bar: above the keys row and the composer
   }
@@ -2337,17 +2471,22 @@ if (bar.input) {
 // agent's prompt with the images exactly where they sat between the words, like Claude
 // Code's own composer. The DOM is the source of truth; there's no separate staged[].
 // Empty composer is a no-op (a bare Enter would submit whatever's already in the agent).
-let sending = false; // a send is IN FLIGHT — distinct from `busy` (see submitComposer)
+let sending = false; // a send is IN FLIGHT. The ONLY guard flag left (see submitComposer)
 
 const _sendQueue = []; // taps that arrived while a send was in flight (never dropped)
+// One Enter can fire submitComposer twice (keydown AND beforeinput — see the guard below).
+// Re-entry inside this window is that echo, not a second message.
+const SUBMIT_DEDUPE_MS = 250;
+let _lastSubmitAt = 0;
 
 async function submitComposer(s, presetSegs) {
-  // Guard on `sending`, NOT the shared `busy`. `busy` is also set by swipes, pinch/drag
-  // gestures and option taps to freeze poll re-renders, so guarding on it made Send do
-  // nothing — silently — whenever a gesture had it held (a swipe keeps it for 150ms after
-  // release). "Sometimes the send button just does nothing" was that. `sending` is owned
-  // by this function alone, so it still blocks the genuine double-fire it was added for
-  // (keydown + beforeinput both firing for one Enter).
+  // `sending` means ONE thing: a POST is in flight. It never doubled as a render freeze —
+  // the old shared `busy` flag did, and guarding Send on it made Send silently do nothing
+  // whenever a swipe or pinch happened to hold it ("sometimes the send button just does
+  // nothing"). There is no freeze flag at all now; a poll render only writes text onto the
+  // nodes already on screen, so nothing needs freezing. `sending` also does NOT serve as the
+  // double-fire guard — the dedupe window below does, because this function now QUEUES
+  // instead of returning, and a queued echo is a message sent twice.
   //
   // Deliberately NOT blocked when the target pane is busy working: agents queue typed
   // input, so sending mid-run is valid and useful — the user's message lands in the
@@ -2360,11 +2499,28 @@ async function submitComposer(s, presetSegs) {
   const segs = presetSegs || composerSegments();
   if (!segs.length) return;
   if (sending) {
+    // The double-fire this used to absorb is now a DUPLICATE, not a no-op. One Enter can
+    // reach here twice: keydown fires first and preventDefault normally suppresses
+    // beforeinput/insertParagraph, but not on every engine — which is exactly why both
+    // handlers exist (Android's soft keyboard gives keydown no usable `key`, so
+    // beforeinput is the only reliable signal there). When `sending` merely returned, the
+    // second call vanished harmlessly. Queuing it instead would send the message twice.
+    //
+    // So: a re-entry within one input event's worth of time (and not a queue drain, which
+    // passes presetSegs) is the same keystroke arriving twice, and is dropped. A genuine
+    // second tap can't beat a human reaction time to it. Anything later is a real new
+    // message and still gets queued rather than dropped.
+    if (!presetSegs && Date.now() - _lastSubmitAt < SUBMIT_DEDUPE_MS) return;
     _sendQueue.push({ s, segs });
     clearComposer();          // the message is committed — it must leave the box
     barNote("Queued — sending the previous message first.");
     return;
   }
+  // Stamp only USER-initiated submits. A queue drain passes presetSegs, and stamping it
+  // would open a 250ms window right after the drain in which a real Enter looks like an
+  // echo of it and gets dropped — losing a message, which is the one outcome this whole
+  // path exists to prevent. An echo only ever follows the keystroke that caused it.
+  if (!presetSegs) _lastSubmitAt = Date.now();
   sending = true;
   // Immediate feedback: the Send button spins for the whole request — on a slow
   // connection (image uploads) this runs for seconds, and silence reads as hung.
@@ -2413,6 +2569,7 @@ async function submitComposer(s, presetSegs) {
     bar.send && (bar.send.disabled = false); // clear any legacy disabled state
   }
 }
+
 
 // Walk the composer's children in DOM order into ordered send segments. A text node (or
 // a <br>/<div> the browser inserts on Shift+Enter) contributes to a text run; an
@@ -2470,7 +2627,7 @@ async function uploadStagedImage(s, file) {
   fd.append("file", file);
   // Bounded like postSend, but with room for a real upload on a phone connection.
   const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
-    method: "POST", body: fd, signal: AbortSignal.timeout(45000),
+    method: "POST", body: fd, signal: timeoutSignal(45000),
   });
   if (!r.ok) throw new Error("upload failed: " + r.status);
 }
@@ -2661,7 +2818,7 @@ async function sendRaw(s, keyName) {
 // liveStream, so the keystroke shows up in the next live frame on its own
 // (docs/design/live-view.md). Throws on a bad response (fetch only rejects on network
 // error) so submitComposer's loop aborts before Enter/clear instead of dropping a
-// segment silently. Pure — callers own the `busy` freeze around it.
+// segment silently. Pure — callers own the render freeze around it.
 async function postSend(s, body) {
   // HARD TIMEOUT. Without one, a stalled request (phone radio handoff, tunnel/relay
   // hiccup) hangs this await forever — and because the caller holds `sending` across it,
@@ -2674,7 +2831,7 @@ async function postSend(s, body) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8000),
+    signal: timeoutSignal(8000),
   });
   if (!r.ok) throw new Error("send failed: " + r.status);
 }
@@ -2682,12 +2839,31 @@ async function postSend(s, body) {
 async function send(s, body) {
   // `sending` guards a real in-flight POST against double-firing — a genuine concern, and
   // distinct from anything about rendering.
-  if (sending) return;
+  //
+  // This path DROPS rather than queues, unlike the composer: an option tap or a raw key is
+  // only meaningful against the screen the user was looking at, so replaying it after an
+  // unrelated send lands could answer a different prompt than the one they read. But
+  // dropping it silently is exactly the "the button just does nothing" this branch exists
+  // to eliminate, so say so.
+  if (sending) return void barNote("Busy sending — that didn't go through. Tap again.");
   sending = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
   try {
     await postSend(s, body);
+  } catch (e) {
+    // postSend has a hard timeout now, so this path is reachable — without a catch it
+    // would be an unhandled rejection and the user would see nothing at all.
+    //
+    // Un-spin FIRST. markReparsing() above put the card into "submitting" — spinner up,
+    // answer options gated by isReparsing — and that state clears only when a parse lands
+    // or REPARSE_TIMEOUT (12s) expires. Nothing was sent, so no parse is coming: the card
+    // would sit there spinning with its options locked for 12s while the notice below
+    // says "Tap again to retry", making the retry it asks for impossible.
+    delete reparsing[s.pane_id];
+    barNote(`Not sent — ${e.message}. Tap again to retry.`);
+    reportError("send", e);
+    render(Object.values(panesById)); // drop the spinner now, not on the next poll
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
   }
