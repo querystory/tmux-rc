@@ -1031,13 +1031,18 @@ function dock(states, act) {
     c.title = label;
     c.setAttribute("aria-label", label);
     c.setAttribute("aria-expanded", String(open));
-    // NOT deferred. Deferred mode waits for pointerup and cancels past TAP_SLOP, but the
-    // dock is a horizontal scroller a thumb brushes constantly, AND it rebuilds every
-    // poll — so a held finger lost the chip out from under it and the tap did nothing,
-    // repeatedly, until a rebuild put a different icon under the thumb and switched panes.
-    // Committing on pointerdown cannot be cancelled by drift or stolen by a rebuild.
-    // Safe here because the action is idempotent and purely local (toggle a Set, re-render):
-    // no send, nothing that a mis-fire could deliver to a pane.
+    // DEFERRED, and pointer-captured so deferral is safe here. Two requirements pull against
+    // each other: the dock is an overflow-x scroller, so a horizontal drag starting on the
+    // chip must scroll rather than toggle — that needs waiting for pointerup. But the dock is
+    // rebuilt every poll, and a deferred listener bound to the node dies with it, which is
+    // what made the chip dead to the touch (tap, nothing, tap again, then a rebuild put a
+    // different icon under the thumb and switched panes).
+    // setPointerCapture routes the remainder of THIS gesture to this element even after the
+    // strip re-renders, so the tap survives the rebuild while slop still cancels a scroll.
+    c.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return; // left/touch only
+      try { c.setPointerCapture(e.pointerId); } catch { /* unsupported: plain deferral */ }
+    });
     onTap(c, () => {
       // No captureIconRects(): that primes the list view's FLIP, and folding is a
       // DOCK-only concern — the list's rows are identical before and after, so priming
