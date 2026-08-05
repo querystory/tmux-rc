@@ -962,8 +962,11 @@ function dock(states, act) {
     const k = s.session ?? "", cur = freshest.get(k), d = stateDur(s);
     if (!cur || d < cur.d) freshest.set(k, { id: s.pane_id, d });
   }
-  const folded = (s) =>
-    !isRecent(s) && !foldOpen.has(s.session ?? "") &&
+  // `unfolded` is a parameter, not a read of foldOpen, so a caller can ask the SAME question
+  // about a hypothetically-closed tray without mutating shared state during render (the
+  // chevron below needs exactly that). Defaults to the real state.
+  const folded = (s, unfolded = foldOpen.has(s.session ?? "")) =>
+    !isRecent(s) && !unfolded &&
     // The session's floor: keep its freshest pane on screen even when everything is parked.
     freshest.get(s.session ?? "")?.id !== s.pane_id &&
     // Never fold the SELECTED pane: in card view its icon IS the tab joined to the card
@@ -1041,7 +1044,7 @@ function dock(states, act) {
       // it only risks animating rows that did not move.
       if (open) foldOpen.delete(sess); else foldOpen.add(sess);
       render(Object.values(panesById));
-    });
+    }, true);
     g.appendChild(c);
   };
   for (const [sess, n] of parked)
@@ -1056,14 +1059,12 @@ function dock(states, act) {
   // FLOOR, so a session whose only parked pane is also its freshest got a chevron that would
   // hide nothing when tapped. Reusing the predicate means the control and the fold can never
   // disagree again.
-  const wouldFold = (sess) => states.some((s) => {
-    if ((s.session ?? "") !== sess) return false;
-    foldOpen.delete(sess);                 // pretend the tray is closed
-    const yes = folded(s);
-    foldOpen.add(sess);                    // restore — we are iterating over foldOpen
-    return yes;
-  });
-  for (const sess of [...foldOpen])
+  // Pass unfolded=false to ask "would this pane fold if the tray were closed?" — no
+  // delete/add on foldOpen, so render stays free of side effects and Set insertion order
+  // is untouched.
+  const wouldFold = (sess) =>
+    states.some((s) => (s.session ?? "") === sess && folded(s, false));
+  for (const sess of foldOpen)
     if (wouldFold(sess))
       foldChip(sess, "\u2039", `Hide parked panes in ${sess || "this session"}`, true);
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
