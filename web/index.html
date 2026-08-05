@@ -225,25 +225,11 @@
   /* Same badges, now homed in the header: no auto-margin (space-between already sets the
      three-column layout), and on a tight phone they scroll horizontally rather than shove
      the brand or the mic pill off-screen. */
-  /* Fixed 44px so the pills inside can be 44px tall targets. Fixed rather than
-     content-sized: content-sizing is what made every attempt to enlarge the pills grow the
-     header. The header has the room — it is 40px of chrome in a much taller #top. */
   #filters { margin-left: 0; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none;
-    justify-content: center; padding: 0 8px; height: 44px; align-items: stretch; }
+    justify-content: center; padding: 0 8px; }
   #filters::-webkit-scrollbar { display: none; }
   #filters:empty { display: none; }
-  /* TOUCH TARGET. The tallies are buttons a thumb aims at and they measured 18px tall —
-     against a 44px minimum. That, not the tap plumbing, is why "I can't click the filter
-     pills" kept recurring; the user confirmed zooming in makes these work, which isolates
-     size from every other theory.
-     The reach comes from the pill filling a fixed-height strip, NOT from padding the pill
-     (that grows #filters and pushes the header around — tried and reverted) and NOT from an
-     overflowing ::after (#filters is an overflow-x scroller, so it CLIPS anything reaching
-     past it — measured: a tap 10px above a pill hit the header instead). The pill's visual
-     pill shape is unchanged: background and radius still hug the text, because the extra
-     height is the flex item stretching, with the label centred inside it. */
-  .dock-counts .badge { border: 0; cursor: pointer; font-family: inherit;
-    display: inline-flex; align-items: center; align-self: stretch; }
+  .dock-counts .badge { border: 0; cursor: pointer; font-family: inherit; }
   .badge.b-all { background: var(--chrome); color: var(--fg-mid); }
   /* "N recent" spans activities, so it must not borrow any activity's colour (green would
      claim running, amber waiting). Accent-tinted: a navigational count, not a state. */
