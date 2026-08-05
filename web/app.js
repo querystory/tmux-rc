@@ -877,8 +877,10 @@ const _joinRO = new ResizeObserver(() => {
 // session/window/pane order, matching the window numbers in tmux's status bar.
 // (%id creation order scrambles as windows come and go; don't sort by it.)
 
-// List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
-// of just those panes (tapped via the dock's tally badges / "all").
+// List filter: null = card view. Otherwise a one-liner list of matching panes, tapped from
+// the header tallies: an ACTIVITY ("waiting"/"running"/"compacting"/"unknown"), "recent"
+// (spans activities — see isRecent), or "all". No "idle": on a real deck most panes are
+// idle, so that tally was the largest and least actionable number on the strip.
 let listFilter = null;
 
 // How long a pane must sit IDLE before the dock folds it away as parked.
@@ -951,8 +953,11 @@ function dock(states, act) {
   // kept pane is genuinely the most recently active one.
   const freshest = new Map(); // session -> pane_id of its least-idle pane
   for (const s of states) {
-    const k = s.session ?? "", cur = freshest.get(k);
-    if (!cur || stateDur(s) < cur.d) freshest.set(k, { id: s.pane_id, d: stateDur(s) });
+    // ONE stateDur() call: it reads the clock, so calling it twice in the comparison both
+    // doubles the work on a per-poll path and lets the compared value differ from the
+    // stored one if the two reads straddle a second boundary.
+    const k = s.session ?? "", cur = freshest.get(k), d = stateDur(s);
+    if (!cur || d < cur.d) freshest.set(k, { id: s.pane_id, d });
   }
   const folded = (s) =>
     !isRecent(s) && !foldOpen.has(s.session ?? "") &&
@@ -1006,7 +1011,7 @@ function dock(states, act) {
   // "‹" to hide them again. A <button> among the tray's icon <button>s, so it can't
   // disturb the group hue cycling (.dock-group:nth-of-type counts <span>s) nor the strip's
   // height (same 36px box as an icon — the join's geometry contract requires the tray add
-  // zero height). Deferred tap for the same reason the icons use it: the dock is an
+  // zero height).
   // Commits on POINTERDOWN, not deferred: the dock is an overflow-x scroller a thumb
   // brushes constantly AND it is rebuilt every poll, so waiting for pointerup lost the
   // chip out from under a held finger. Safe here because the action is local and
