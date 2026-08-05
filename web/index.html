@@ -225,12 +225,27 @@
   body { overflow-x: hidden; }
   /* --bar-h / --top-h are MEASURED by JS (ResizeObserver) — the layout math below
      uses them instead of eyeballed constants that drift per device/content. */
+  /* The bottom padding keeps LIST-mode rows clear of the fixed input bar. It must not
+     apply in card mode: the deck is already sized to the remaining viewport and already
+     runs under the bar through its own negative bottom margin, so adding bar-height
+     padding underneath double-counts it — measured 787px of content in a 725px viewport,
+     which scrolled the whole document ~62px behind the card and produced a SECOND
+     scrollbar outside the card's own. A CLASS (#panes.cardmode, toggled in render) scopes
+     it to the mode that needs it — deliberately NOT :has(), which this codebase avoids for
+     older iOS Safari; there the rule would be ignored and the bug would persist on exactly
+     the phones this app targets. */
   #panes { padding: 8px 12px calc(var(--bar-h, 150px) + 8px); display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
+  #panes.cardmode { padding-bottom: 0; }
   /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
      The pane's capture is its background (bottom-anchored, so the agent's status/input
      chrome lines hide behind the bar); the card floats over the top, content-sized,
      with the live terminal tail poking out BELOW it — pan/zoomable in place. The
-     negative margin cancels #panes' bar padding so the page itself never scrolls. */
+     negative margin pulls the deck's bottom back up under the fixed bar, so the deck's
+     full-viewport height does not extend the page. It no longer "cancels #panes' bar
+     padding": that padding is now switched OFF in card mode (see #panes.cardmode
+     above), because having both was double-counting the bar height and scrolling the
+     whole document behind the card. The two mechanisms are independent — this margin
+     positions the deck, that rule keeps list-mode rows clear of the bar. */
   .deck { position: relative; height: calc(100dvh - var(--top-h, 122px)); /* top pad cancelled by the join margin below */
     margin-bottom: calc(-1 * (var(--bar-h, 150px) + 8px));
     overflow: hidden; display: flex; flex-direction: column; }
