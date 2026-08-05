@@ -1003,6 +1003,11 @@ function panesUI() {
 function joinTab(deck) {
   const top = document.getElementById("top");
   top.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+  // ...and the notch, which lives in the DECK rather than #top and so was missed by the
+  // sweep above. Every joinTab appended a fresh one, so they accumulated: each leftover
+  // stayed pinned where the tab was when it was made, painting the card's top border as a
+  // row of stray blue stubs under the dock icons. Observed 7 and climbing on a live deck.
+  deck.querySelectorAll(".tab-notch").forEach((e) => e.remove());
   // Stop watching the prior render's card up front, and drop the prior pin() closure so
   // EVERY exit — including the list-mode early return below (no selected icon, no card to
   // join) — releases the observer AND the closure's captured DOM nodes for GC.
