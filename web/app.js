@@ -877,6 +877,10 @@ function render(states) {
         ? '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>'
         : '<div class="empty"><span class="spinner" aria-hidden="true"></span><br>Loading panes…</div>';
     }
+    // The empty/loading state is neither mode, and it returns BEFORE the branches below —
+    // so clear the flag here or a stale cardmode from the last render squeezes the message
+    // against the bar.
+    panesEl.classList.remove("cardmode");
     updateBar(null);
     return;
   }
@@ -919,6 +923,7 @@ function render(states) {
     // always matches that session's dock rail even when a filter hides sessions.
     const ord = new Map();
     states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
+    panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
     panesEl.replaceChildren(...subset.flatMap((s, i) => {
       const r = row(s, act);
       if (ord.size < 2 || (i && subset[i - 1].session === s.session)) return [r];
@@ -954,6 +959,7 @@ function render(states) {
       onTap(fs, () => openScreen(a.pane_id, a.title || a.label));
       deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
     }
+    panesEl.classList.add("cardmode"); // drops #panes' bar padding — see the CSS
     panesEl.replaceChildren(deck);
     joinTab(deck);
   }
