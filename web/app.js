@@ -688,6 +688,12 @@ function showNotice(msg) {
   setCls(ui.list, "hid", true);
   setCls(ui.empty, "hid", false);
   setCls(ui.spinner, "hid", true);
+  // Drop cardmode with the deck (#106). This path is reached from an outage while a CARD
+  // was on screen, so the class is still set from that render — and it exists to switch OFF
+  // #panes' bar padding, which only the viewport-sized deck can do without. With the deck
+  // hidden the notice is a short block in an unpadded #panes, i.e. squeezed against the
+  // fixed input bar. Same reason render()'s empty/loading branch clears it.
+  panesEl.classList.remove("cardmode");
   setText(ui.emptyText, msg); // error text is untrusted-ish: textContent, never innerHTML
 }
 // Woken when the PWA returns to the foreground: an interruptible backoff sleep resolves
@@ -842,7 +848,7 @@ function render(states) {
   states.forEach(syncEvents);
   // Prune per-pane caches when panes vanish — otherwise pane churn grows them
   // without bound over a long-running session.
-  for (const m of [eventLog, peekCache, bgZoom])
+  for (const m of [eventLog, peekCache, bgZoom, cardUI ? cardUI.events.openByPane : {}])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   // paneUI holds the per-pane DOM handles the in-place renderer writes through. Its
   // prune rides in this same loop (a Map, so it can't use the Object.keys pass above):
@@ -1393,7 +1399,7 @@ function buildCard() {
   ui.links.className = "links";
   ui.copy = document.createElement("div");
   ui.copy.className = "copyables";
-  ui.events = buildEvents(ui);
+  ui.events = buildEvents();
   el.append(ui.lm, ui.sum, ui.rewind.root, ui.tables, ui.q.root, ui.tasks.root,
     ui.subs.root, ui.links, ui.copy, ui.events.root);
   // The swipe listens on the card for the life of the page; it reads the pane it acts on
@@ -1835,7 +1841,9 @@ function applyLinks(box, links) {
     if (!l || !l.href || !/^https?:\/\//i.test(l.href)) return false;
     try { new URL(l.href); return true; } catch { return false; }  // pre-cap: malformed can't eat slots
   }).slice(0, 3);
-  keyedList(box, valid, (l) => l.href, () => {
+  // Index + href, for the same reason as the copyables below: the same URL can appear twice
+  // with different labels, and a bare-href key collapsed both onto one cached node.
+  keyedList(box, valid, (l, i) => i + "|" + l.href, () => {
     const a = document.createElement("a");
     a.className = "linkbtn";
     a.target = "_blank";
@@ -1900,7 +1908,13 @@ async function copyText(text) {
 // which is what lets the "Copied" confirmation actually last its full 1.6s.
 function applyCopy(box, items) {
   const valid = items.filter((c) => c && typeof c.text === "string" && c.text.trim()).slice(0, 3);
-  keyedList(box, valid, (c) => c.text, () => {
+  // Keyed by INDEX + payload, not payload alone. Two copyables can legitimately carry the
+  // same text under different labels (an agent printing one command under two headings),
+  // and a bare-content key made both items resolve to the SAME cached node: it was applied
+  // twice with the last write winning, then re-inserted, so on the next poll the rows swapped
+  // labels and one payload became unreachable. The index disambiguates while the payload
+  // still prevents a row being reused for different content if the list shifts.
+  keyedList(box, valid, (c, i) => i + "|" + c.text, () => {
     const b = document.createElement("button");
     b.className = "copybtn";
     // Icon is chrome (inline Lucide, themes via currentColor — AGENTS.md bans emoji
@@ -2062,7 +2076,14 @@ function buildEvents() {
   const rest = document.createElement("div");
   rest.className = "ev-rest";
   root.append(det, rest);
-  const ui = { root, det, smText, smCount, folded, rest };
+  // PER-PANE expansion state. The <details> is now ONE permanent node shared by every pane
+  // (the card is retargeted, not rebuilt), so its `open` flag is not per-pane by itself —
+  // expanding pane A's folded burst would leave pane B's summary rendering already-open,
+  // showing a different pane's collapsed history as expanded. The old code got this from a
+  // module-level Set keyed `paneId + ":sum"`; the state still has to be keyed by pane, it
+  // just lives on this handle now instead of in a side table.
+  const ui = { root, det, smText, smCount, folded, rest, openByPane: {} };
+  det.ontoggle = () => { if (ui.pane) ui.openByPane[ui.pane] = det.open; };
   // Measure BEFORE the append, not after: whether the user was at the bottom is a fact
   // about the pre-append scroll state, and reading it after new rows land always says
   // "not at bottom". Recorded on scroll, and re-derived just before each apply.
@@ -2082,6 +2103,10 @@ function applyEvents(ui, events, paneId, summary) {
   // inheriting the previous pane's scroll position.
   const switched = ui.pane !== paneId;
   ui.pane = paneId;
+  // Restore THIS pane's expansion (see openByPane in buildEvents). Assigned only on a
+  // switch: writing it every poll would slam the burst shut under a user who just opened
+  // it, since ontoggle records asynchronously relative to the poll.
+  if (switched) ui.det.open = !!ui.openByPane[paneId];
   // Pre-measure. Do it here, before any row is inserted, so "was the user at the bottom"
   // reflects the state the user actually left the feed in.
   const stick = switched || ui.atBottom === undefined || ui.atBottom || atBottomOf(root);
