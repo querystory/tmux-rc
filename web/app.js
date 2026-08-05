@@ -12,35 +12,34 @@
 //   • The long-poll returns the instant anything changes, so a busy pane re-renders
 //     constantly. The browser only fires `click` when press AND release land on the
 //     SAME element, so replacing a node between finger-down and finger-up silently
-//     SWALLOWS the tap. That ate taps on Send, dock tabs, filter badges, list rows,
-//     the collapse caret, the fullscreen button, the sub-agent toggle and answer
-//     options. Building once means handlers, focus, caret, scroll position, selection
-//     and in-flight gestures survive BY CONSTRUCTION rather than by workaround.
+//     SWALLOWS the tap. Building once means handlers, focus, caret, scroll position,
+//     selection and in-flight gestures survive BY CONSTRUCTION, not by workaround.
 //   • Assigning an identical `textContent` still destroys and recreates the text node,
 //     which collapses any document Selection inside it — which is why the setText/
 //     setAttr/setCls no-ops below are SEMANTIC, not an optimization.
 //
 // #bar (the composer) has always been built this way — static HTML, wired once — which
 // is exactly why typed text survives polls. tickBadges() is the other model: it reads
-// data-since off live nodes and writes textContent. This module now follows both.
+// data-since off live nodes and writes textContent. This module follows both.
 //
-// THE TWO SANCTIONED EXCEPTIONS, both outside the poll path:
-//   1. The TERMINAL paint (bgTerm's peek and openScreen's overlay) still swaps innerHTML
+// THE SANCTIONED EXCEPTIONS, none of them on the poll path:
+//   1. ONE-TIME skeleton construction. panesUI() and the build* half of each build/apply
+//      pair may replaceChildren/append freely; they are memoized and run once per node's
+//      lifetime, not per render.
+//   2. The TERMINAL paint (bgTerm's peek and openScreen's overlay) still swaps innerHTML
 //      wholesale, because renderCapture emits a whole colored frame. It is guarded by a
 //      selection check and _caretGrace instead; a TODO in bgTerm points at line-diffing it,
 //      which is what would let those guards go. This is the last rendering workaround left.
-//   2. One-shot innerHTML for STATIC inline SVG/icon markup (the ⤢ button, Lucide icons,
+//   3. One-shot innerHTML for STATIC inline SVG/icon markup (the ⤢ button, Lucide icons,
 //      the fullscreen overlay's chrome). Written once at build time from string literals,
 //      never per poll, and never from server data.
-// Anything else assigning innerHTML or replaceChildren inside a render path is a bug.
+// Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCapture } from "./terminal.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
-// Each no-ops when the value is already current. The no-op is the POINT (see the
-// invariant above): an identical textContent assignment still tears down the text
-// node and collapses any selection inside it, and a redundant attribute write can
-// restart a CSS animation or transition.
+// Each no-ops when the value is already current. The no-op is the POINT (see the invariant
+// above); a redundant attribute write also restarts a CSS animation or transition.
 function setText(node, s) {
   if (!node) return;
   const v = s == null ? "" : String(s);
@@ -58,17 +57,14 @@ function setCls(node, name, on) {
 }
 
 // ── keyedList: the one reconciler ────────────────────────────────────────────
-// Used by the dock, list rows, option buttons, tasks, subagents, links, rewind
-// entries and the event feed. `build(item, key)` makes a node the FIRST time a key is
-// seen; `apply(node, item, i)` updates it every time. Nodes are cached on the parent
-// so a later call reuses them — that is what makes handlers wired inside build()
-// permanent.
+// `build(item, key)` makes a node the FIRST time a key is seen; `apply(node, item, i)`
+// updates it every time. Nodes are cached on the parent, which is what makes handlers
+// wired inside build() permanent.
 //
-// SERVER ARRAY ORDER IS THE ORDER. tmux's own session/window/pane order is
-// load-bearing (it drives the dock, the list and swipe navigation), so a single
-// forward pass is exact — no LIS, no move-minimization heuristics. insertBefore is
-// called ONLY when a node is not already in the right position, so a stable list
-// performs zero DOM moves.
+// SERVER ARRAY ORDER IS THE ORDER. tmux's own session/window/pane order is load-bearing
+// (it drives the dock, the list and swipe navigation), so a single forward pass is exact —
+// no LIS, no move-minimization heuristics. insertBefore is called ONLY when a node is not
+// already in position, so a stable list performs zero DOM moves.
 function keyedList(parentEl, items, keyFn, build, apply) {
   let cache = parentEl._klCache;
   if (!cache) cache = parentEl._klCache = new Map();
@@ -117,9 +113,8 @@ const actOf = (s) => {
   const a = ACTIVITIES.has(s.activity) ? s.activity : "unknown";
   return a === "waiting" && s.waiting_on === "external" ? "running" : a;
 };
-// The pane icon's src/alt (previously an img() markup template, needing escAttr on the
-// tool name): both dock icons and list rows now build a real <img> once and setAttr these
-// onto it, so nothing is interpolated into markup and nothing needs escaping.
+// The pane icon's src/alt. Both dock icons and list rows build a real <img> once and
+// setAttr these onto it, so the tool name never reaches markup and needs no escaping.
 const logoFor = (tool) => (has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO);
 
 // Lucide icons (ISC), inlined: stroke follows currentColor so they theme for free —
@@ -226,20 +221,6 @@ else if (prefersLight.addListener) prefersLight.addListener(onSchemeChange);
 // every pane — including ones you swipe to — shows its one-line header, handing the
 // screen to the live terminal. Expanding anywhere expands them all.
 let cardsCollapsed = false;
-// `busy` IS GONE. It was a global "freeze all polling re-renders" flag held by swipes,
-// pinches, answer taps and composer sends, and it existed for exactly one reason: a
-// re-render would REPLACE the card under the user mid-interaction. Renders no longer
-// replace anything, so there is nothing to freeze — and the flag was actively harmful,
-// because any path that failed to release it wedged the whole app (the poll stopped, the
-// deck went stale, Send stopped working) in a way indistinguishable from a crash. It
-// needed a 10-second watchdog to self-heal, which is gone with it.
-//
-// What replaced it, per surface:
-//   • swipe   — snapshots the pane id list at touchstart (the ordering it actually needed).
-//   • peek    — pinchZoom's own local `panning()`, which only suppresses scroll-to-tail.
-//   • sends   — `sending` and `_sendQueue`, which are KEPT: they guard a real in-flight
-//               POST against double-firing, which is a genuine concern and not a rendering
-//               one.
 // Panes awaiting a forced reparse after input: pane_id -> the parsed_at we saw when we
 // sent. The card (and its answered question) render in a spinning "reparsing" state
 // until the served parsed_at advances past this — so a submitted answer / picked menu
@@ -324,21 +305,9 @@ function activeId() {
   const focused = Object.values(panesById).find((s) => s.tmux_active);
   return (shown = focused ? focused.pane_id : Object.keys(panesById)[0] || null);
 }
-// Taps are plain `click` handlers again. There used to be an onTap() helper here that
-// committed on POINTERDOWN, with ~55 lines of commentary, because the dock and list were
-// rebuilt every poll and the browser only fires `click` when press and release land on the
-// same element — so a rebuild mid-tap silently swallowed it.
-//
-// It was a workaround, and it reintroduced the very bug it fixed THREE separate times: a
-// dedupe key built on `timeStamp` (which can be 0, so every release hashed alike and every
-// SECOND tap was dropped); an echo-dedupe that ate real Enters; and a guard stored on the
-// node, so a handler that re-rendered destroyed its own guard and one tap fired twice —
-// the caret collapsing and instantly reopening. It also needed a `defer` mode to avoid
-// hijacking scroll gestures in the overflow-x strips, since acting on pointerdown fires
-// before the browser knows a scroll is starting.
-//
-// Nodes are now permanent (see the render invariant), so press and release always land on
-// the same element and `click` is both correct and scroll-aware for free.
+// Taps are plain `click` handlers. Nodes are permanent (see the render invariant), so
+// press and release always land on the same element — and `click`, unlike a pointerdown
+// commit, still yields to a scroll gesture in the overflow-x strips for free.
 function setActive(id) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
@@ -421,14 +390,12 @@ function nsubOf(s) {
 }
 
 // The ONE pane-header, as a build/apply pair so the card and the rows share both halves
-// and can't drift. buildPaneHeader creates every node the header can ever need — the
-// caret, the icon, the sub-count, the window number, the headline, the working sub-line —
-// and applyPaneHeader writes current state onto them. Nodes that don't apply to a given
-// state are EMPTIED, not removed, so their handlers and identity persist; CSS :empty
-// rules hide them (see .ph-sub:empty / .worksub:empty / .wnum:empty in index.html).
+// and can't drift. buildPaneHeader creates every node the header can ever need;
+// applyPaneHeader writes current state onto them.
 //
-// `onCaret` is wired ONCE here and closes over nothing but the callback the caller
-// passed, which itself closes over a pane_id string — never over a state object.
+// Nodes that don't apply to a given state are EMPTIED, not removed, so their handlers and
+// identity persist; CSS :empty rules hide them (see .ph-sub:empty / .worksub:empty /
+// .wnum:empty in index.html).
 function buildPaneHeader(parent, { caret = false, icon = false } = {}, onCaret) {
   const h = {};
   if (caret) {
@@ -582,11 +549,9 @@ async function poll() {
       return false;  // back off — without a gap pollLoop would re-request instantly and hammer
     }
     const data = await r.json();
-    // No in-flight-mutation guard here any more: applying a response mid-gesture used to
-    // replace the card under the user, which is what `busy` was dropping the response to
-    // prevent. A render now only writes text onto nodes the gesture is animating, so
-    // applying it is harmless — and never dropping a response means the deck can't go
-    // stale behind a flag that failed to clear.
+    // Applied unconditionally, even mid-gesture: a render only writes text onto nodes the
+    // gesture is animating, so there is no reason to drop a response (and dropping one
+    // leaves the deck stale).
     // A well-formed response always carries a numeric version. version 0 = no initial
     // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
     // Both must back off, else pollLoop re-requests with gap=0 and tight-loops the backend.
@@ -664,11 +629,8 @@ function pollSleep(ms) {
 // ONLY caller of poll(), so no concurrent-fetch coordination is needed. poll() returning
 // false (backend down / legacy daemon) backs off, so we never tight-loop.
 //
-// This loop used to open by honoring the `busy` render freeze, with a 10-second WATCHDOG
-// that force-cleared it because a missed release wedged the entire app — the poll stopped,
-// the deck went stale, and Send stopped working, indistinguishable from a crash. The
-// freeze is gone (renders no longer replace anything), so the loop never pauses and the
-// watchdog has nothing to rescue.
+// The loop never pauses for rendering: nothing freezes renders any more, so there is no
+// freeze flag that a missed release could leak into a wedged app.
 async function pollLoop() {
   for (;;) {
     const ok = await poll();
@@ -683,10 +645,9 @@ function onResume() {
   if (document.visibilityState !== "visible") return;
   _stateVersion = null;           // next poll = "give me current state now", never held
   if (_wakePoll) _wakePoll();     // cut short an in-progress backoff sleep
-  // Nothing to unwedge here any more. This used to clear `busy`, because backgrounding
-  // mid-gesture means the OS may never deliver touchend, so a swipe/pinch could leave the
-  // freeze set and the returning user found a frozen app. With no freeze, an abandoned
-  // gesture leaves only per-instance state that the next touchstart overwrites.
+  // Nothing to unwedge: backgrounding mid-gesture means the OS may never deliver touchend,
+  // but an abandoned gesture leaves only per-instance state that the next touchstart
+  // overwrites — no global flag can survive to freeze the returning user's app.
 }
 document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
@@ -709,9 +670,8 @@ liveEl.onkeyup = (e) => {
   if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
 // One labeled menu row: what the number IS on the left, the number on the right. Rows are
-// DESCRIPTORS keyed by name, so the numbers tick in place — the popover used to be rebuilt
-// wholesale on every poll, which destroyed the docs link (and any row) under a user who had
-// the popover open and was reaching for it.
+// DESCRIPTORS keyed by name, so the numbers tick in place — rebuilding would destroy the
+// docs link under a user who has the popover open and is reaching for it.
 const uRow = (key, label, val, cls = "") => ({ key, label, val, cls });
 // The docs link rides in the popover, not the top bar — header space is too tight on phones
 // for a rarely-tapped link. It's a link, not a stat, so it gets its own row shape.
@@ -784,18 +744,17 @@ function showUsage(u, err) {
     rows.push(uRow("vspend", "voice spend (of total)", `$${live.cost.toFixed(3)}`));
     rows.push(uRow("pspend", "parser spend (of total)", `$${parser.toFixed(3)}`));
   }
-  // The error text is untrusted; it rides as a title ATTRIBUTE via setAttr, so it needs no
-  // escaping (it was escAttr'd only because it used to be interpolated into markup).
+  // The error text is untrusted; it rides as a title ATTRIBUTE via setAttr, which sets the
+  // DOM property directly, so it needs no escaping.
   if (err) rows.push({ key: "err", label: "last LLM error", icon: true, title: String(err) });
   rows.push(DOCS_ROW);
   applyUsageRows(rows);
   usageEl.title = ""; // the labels ARE the explanation now — no tooltip needed
 }
-// escAttr is GONE, and its absence is a property of the refactor rather than a cleanup:
-// nothing interpolates untrusted values into attribute markup any more. Every attribute is
-// written with setAttr, which sets a DOM property directly, so quotes and angle brackets in
-// parser JSON cannot break out of anything. (esc() survives for the one remaining markup
-// template, the fullscreen overlay's static chrome.)
+// No attribute escaping helper: nothing interpolates untrusted values into attribute
+// markup. Every attribute goes through setAttr (a direct DOM property write), so quotes
+// and angle brackets in parser JSON cannot break out. esc() survives for the one remaining
+// markup template, the fullscreen overlay's static chrome.
 
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
@@ -841,9 +800,8 @@ function render(states) {
     // Empty deck has two causes: still loading (server booting / initial pane parses in
     // flight) vs. genuinely no panes. Only claim "no panes" once the server has booted —
     // otherwise show a spinner, since panes may exist and just aren't parsed yet.
-    // The spinner is a PERMANENT node, so the loading state spanning several polls can no
-    // longer restart its CSS animation (the visible jitter the old data-empty key guarded
-    // against by hand — that guard is now structural).
+    // The spinner is a PERMANENT node: recreating it across the several polls a load can
+    // span would restart its CSS animation and visibly jitter.
     setCls(ui.spinner, "hid", !!_booted);
     setText(ui.emptyText, _booted
       ? "No tmux pane found. Start a session and it will appear here."
@@ -1054,8 +1012,7 @@ const dockEl = document.getElementById("dock");
 const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 // One dock icon, built once per pane. The handler closes over the pane_id STRING
 // (never over `s`), so it stays correct for the life of the node no matter how many
-// polls rewrite the icon around it — which is what lets a plain `click` work again:
-// the node survives press-to-release, so the browser has a common target to fire on.
+// polls rewrite the icon around it.
 function buildDockIcon(paneId) {
   const b = document.createElement("button");
   b.className = "dock-icon";
@@ -1071,9 +1028,7 @@ function buildDockIcon(paneId) {
   b.append(im, dot, sac);
   b._im = im; b._dot = dot; b._sac = sac;
   // Jump to that pane's CARD — including from list mode (a dock tap means "show me
-  // this pane", not "re-highlight it inside the list"). A plain click is correct now
-  // that the node is permanent; the icon lives in the .prow.dock overflow-x scroller,
-  // and click (unlike a pointerdown commit) already yields to a scroll gesture.
+  // this pane", not "re-highlight it inside the list").
   b.onclick = () => { listFilter = null; setActive(paneId); };
   return b;
 }
@@ -1150,8 +1105,6 @@ function dock(states, act) {
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
     b.className = "badge b-" + t.key;
-    // Plain click: the badge node is permanent now, so press and release land on the
-    // same element and the browser fires click normally.
     b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
     return b;
   }, (b, t) => setText(b, t.label));
@@ -1177,15 +1130,11 @@ function dock(states, act) {
 }
 
 // One list row per pane, built once and keyed by pane_id, so the row the user is
-// pressing is still there when their finger lifts. That is what lets both taps here be
-// plain `click` handlers again (they were onTap sites purely because rows were rebuilt).
+// pressing is still there when their finger lifts.
 //
-// THE FLIP SYSTEM IS GONE. flipFrom, flipPrev, captureIconRects, flyClone, flipIn,
-// flipDelta, cx and cy (~95 lines) existed only because replaceChildren deleted rows
-// before they could animate, so entering/leaving rows had to be reconstructed as
-// position-fixed CLONES flown across the screen. Rows now persist, so there is nothing to
-// clone — the filter switch is instant. A future transition would be a genuine FLIP on
-// the surviving nodes (measure, invert, play) rather than clone choreography.
+// The filter switch is INSTANT by design: the old flying-clone animation only existed
+// because rows were deleted before they could animate. Rows persist now, so a future
+// transition would be a genuine FLIP on the surviving nodes (measure, invert, play).
 //
 // Structure: TWO SIBLING buttons, never nested — role=button on the row itself would be
 // invalid ARIA once the sub-agents toggle (a real <button>) moved in. The icon+name+
@@ -1209,9 +1158,8 @@ function buildRow(paneId) {
   el.appendChild(hdr.right);
   // A pane with sub-agents gets a labeled chip under the activity badge (reusing the card
   // meta's .chip.agents look) that toggles the SAME sub-agents box the card shows — one
-  // component, two surfaces. The open flag lives ON THE ROW NODE, which now persists, so
-  // the module-level `subsOpen` Set that existed to survive the per-poll rebuild is
-  // deleted. Toggling repaints just this row — no full render() round-trip.
+  // component, two surfaces. The open flag lives ON THE ROW NODE rather than in a
+  // module-level Set, since the row persists. Toggling repaints just this row.
   const toggle = document.createElement("button");
   toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
   const subsBox = buildTasks("Sub-agents", "tasks subagents");
@@ -1257,9 +1205,9 @@ function applyRow(el, s, act) {
 //
 // Headers and rows share ONE keyed list, because .sess-hdr:first-child is a structural
 // selector — the header has to be a real sibling at the right index, not a wrapper.
-// Ordinals come from the FULL deck (not the filtered subset) so a header's hue always
-// matches that session's dock rail even when a filter hides sessions. That is a
-// JS-computed ordinal over the full deck, NOT nth-of-type.
+// Hue ordinals are JS-computed over the FULL deck (never nth-of-type, never the filtered
+// subset), so a header's hue matches that session's dock rail even when a filter hides
+// sessions.
 function applyList(host, states, subset, act) {
   const ord = new Map();
   states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
@@ -1287,9 +1235,7 @@ function applyList(host, states, subset, act) {
 
 
 // ONE persistent card, retargeted to whichever pane is active — NOT one card per pane.
-// The card is a viewport onto the active pane, so building per-pane cards would multiply
-// the DOM by the fleet size for no gain. `cardUI` holds its handles; `cardUI.pane` is
-// the pane_id it currently shows.
+// `cardUI` holds its handles; `cardUI.pane` is the pane_id it currently shows.
 let cardUI = null;
 
 // Every handler here closes over NOTHING but the card itself, and reads the pane it
@@ -1388,12 +1334,10 @@ function applyCard(ui, s) {
 // gesture time rather than closing over an id, since the card is retargeted rather than
 // rebuilt.
 //
-// The id list is SNAPSHOTTED at touchstart instead of freezing renders for the whole
-// gesture. That snapshot is what `busy` was really protecting here: a poll landing
-// mid-swipe used to be able to reorder panesById under the gesture, so the pane you
-// committed to was not the one whose ghost you saw. Renders during the swipe are now
-// harmless — they only rewrite text on nodes the gesture is translating — so the freeze
-// (and the watchdog that had to guard against it leaking) is gone.
+// The id list is SNAPSHOTTED at touchstart: a poll landing mid-swipe can reorder
+// panesById, and without the snapshot the pane you commit to is not the one whose ghost
+// you saw. Renders during the swipe need no other guard — they only rewrite text on the
+// nodes the gesture is translating.
 function swipeNav(el, ui) {
   let sx = null, sy = null, dx = 0, ghost = null, gdir = 0, ids = [];
   const neighbor = (dir) => { // dir -1: swiping left reveals the NEXT pane; +1: previous
@@ -1417,10 +1361,9 @@ function swipeNav(el, ui) {
     const dir = dx < 0 ? -1 : 1;
     if (dir !== gdir && ids.length > 1) {
       clear(); gdir = dir;
-      // A throwaway peek at the neighbour, not a second card: the ghost is chrome that
-      // exists for ~200ms, so it shows the incoming pane's header only. Building a full
-      // card here would mean a second card in the DOM — exactly what the one-persistent-
-      // card rule exists to avoid — and its subviews would never be seen anyway.
+      // A throwaway peek at the neighbour, not a second card: it exists for ~200ms, so it
+      // shows the incoming pane's HEADER only — subviews would never be seen, and a full
+      // card here would violate the one-persistent-card rule.
       const nb = panesById[neighbor(dir)];
       if (nb) {
         ghost = document.createElement("div");
@@ -1629,12 +1572,8 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ONE peek wrap/box for the life of the page, RETARGETED on pane switch rather than
-// rebuilt per render. It used to be recreated every poll, which is why so much of the
-// logic below existed: a fresh wrap had to be re-seeded from peekCache, re-flagged stale
-// or live, re-pinned to the tail, and re-registered with the ResizeObserver, and a
-// brand-new <pre> meant the terminal repaint could never be anything but a full
-// innerHTML swap. Now the nodes persist, so a pane switch is: point the transform state
-// at the new pane, repaint once, re-pin.
+// rebuilt per render. A pane switch is: point the transform state at the new pane,
+// repaint once, re-pin.
 let peekUI = null;
 function buildPeek() {
   // Wrapper = the visible window (starts right below the card, ends near the bar); the
@@ -1655,9 +1594,8 @@ function buildPeek() {
     clearTimeout(scrollIdle);
     scrollIdle = setTimeout(() => wrap.scrollTo({ left: 0, behavior: "smooth" }), 500);
   });
-  // Wired ONCE. pinchZoom returns a handle so the persisted per-pane transform can be
-  // re-pointed at bgZoom[newPane] on a switch, instead of a new pinchZoom per rebuild
-  // (which is what leaked a listener set every ~2s before).
+  // Wired ONCE. pinchZoom returns a handle so a pane switch re-points the persisted
+  // transform at bgZoom[newPane] instead of constructing another instance.
   const zoom = pinchZoom(wrap, box, null, true);
   peekRO.observe(wrap); // one wrap, one registration, for the life of the page
   return { wrap, box, zoom };
@@ -1717,25 +1655,19 @@ function bgTerm(s) {
     const streamPane = s.pane_id; // captured: ignore late frames after a pane switch
     peekStop = liveStream(streamPane, {
       onFrame: (txt) => {
-        // LOAD-BEARING, and more so now that the nodes are shared: a response that
-        // resolved just as the user switched panes must not paint or cache into the new
-        // pane. Before, a late frame at least painted into its own (soon-detached) wrap;
-        // now peekUI is THE one box on screen, so an unguarded late frame would paint the
-        // OLD pane's screen into the NEW pane's window.
+        // LOAD-BEARING: peekUI is THE one box on screen, shared across panes, so a frame
+        // that resolves just after a pane switch would paint the OLD pane's screen into
+        // the NEW pane's window (and cache it there) without this guard.
         if (streamPane !== peekStreamPane) return;
         const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
         peekCache[streamPane] = { html }; // cache for the next stale-on-switch
-        // NEVER repaint while the user is typing or selecting. This paint is still a whole
-        // innerHTML swap, which tears down and rebuilds the subtree and so collapses the
-        // document Selection — on a BUSY pane these frames arrive continuously, so every
-        // attempt to place the caret in the composer was wiped within milliseconds. Frames
-        // keep coming, so a skipped paint self-corrects on the next one.
+        // NEVER repaint while the user is typing or selecting. This paint is a whole
+        // innerHTML swap, which collapses the document Selection — and on a busy pane the
+        // frames arrive continuously, so the caret gets wiped within milliseconds of being
+        // placed. Skipping is safe: frames keep coming, so it self-corrects on the next one.
         //
-        // TODO: this guard (and _caretGrace) is the LAST rendering workaround left. It
-        // survives the in-place refactor because the terminal paint is not line-diffed —
-        // deliberately out of scope here. Diffing renderCapture's output into persistent
-        // per-line nodes would let the terminal repaint without touching the selection at
-        // all, at which point both this guard and _caretGrace can be deleted.
+        // TODO: this guard and _caretGrace are the last rendering workarounds left. Diffing
+        // renderCapture's output into persistent per-line nodes would let both go.
         const sel = document.getSelection();
         const selecting = sel && !sel.isCollapsed
           && (peekBox?.contains(sel.anchorNode) || bar.input?.contains(sel.anchorNode));
@@ -1744,8 +1676,7 @@ function bgTerm(s) {
           peekBox.innerHTML = html;
           tuckChrome(peekWrap, peekBox);
           // Suppress the scroll-to-tail only while the user's own finger is panning this
-          // surface — that is the one thing a re-pin fights. `zoom.panning` is local to the
-          // pinchZoom instance, which is what `busy` was standing in for here.
+          // surface — that is the one thing a re-pin fights.
           if (!zoom.panning() && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
         }
       },
@@ -1782,8 +1713,7 @@ function safeText(v, max) {
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
 // raw screen text can't. stopPropagation so tapping opens the link, not the card.
-// Keyed by href, so a link that persists across polls keeps its node (and its anchor
-// stays tappable through a rebuild that would previously have replaced it).
+// Keyed by href, so a link that persists across polls keeps its node and stays tappable.
 function applyLinks(box, links) {
   const valid = links.filter((l) => {
     if (!l || !l.href || !/^https?:\/\//i.test(l.href)) return false;
@@ -1851,10 +1781,7 @@ async function copyText(text) {
 // user had to copy-then-paste-somewhere just to look, which is the terminal problem all
 // over again. Full payload still rides on the button; only the preview is clipped.
 // Keyed by the payload text, so a copyable that persists across polls keeps its node —
-// which is what lets the "Copied" confirmation actually last its 1.6s. Previously the
-// per-poll rebuild destroyed the button mid-confirmation, so the check-mark could vanish
-// before the user saw it, and a plain `click` was lost whenever a rebuild landed between
-// finger-down and finger-up (the onTap this deletes).
+// which is what lets the "Copied" confirmation actually last its full 1.6s.
 function applyCopy(box, items) {
   const valid = items.filter((c) => c && typeof c.text === "string" && c.text.trim()).slice(0, 3);
   keyedList(box, valid, (c) => c.text, () => {
@@ -1909,13 +1836,11 @@ function applyCopy(box, items) {
     // otherwise reset the label to its name while the check-mark is still showing.
     if (!b._confirm) setText(b._label, b._labelText);
     // Preview: the payload's own first line, so the row says what it actually holds.
-    // Newlines collapse to a separator (a multi-line commit message must read as one line
-    // here) and runs of grid whitespace collapse so terminal padding doesn't eat the
-    // preview. Clipped by CSS — the full text stays on the clipboard. Sliced generously
-    // (200) before CSS ellipsis so a hostile payload can't cost real layout work. safeText
-    // for the same reason the label gets it, and MORE so: this is the payload itself, so a
-    // bidi control here could make the row read as different content than the clipboard
-    // actually carries.
+    // Newlines collapse to a separator and runs of grid whitespace collapse, so a
+    // multi-line payload reads as one line and terminal padding doesn't eat the preview.
+    // Clipped by CSS; sliced first so a hostile payload can't cost real layout work.
+    // safeText because a bidi control could make the row read as different content than
+    // the clipboard actually carries.
     setText(b._prev, safeText(c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " "), 200));
   });
 }
@@ -1954,12 +1879,8 @@ function applyTables(host, tables) {
 // optional metadata (a file diff, or a `meta` string) renders as a small, muted,
 // right-justified side-note. A file edit is just an event whose metadata is a diff.
 //
-// APPEND-ONLY now. The feed used to re-innerHTML the whole log every poll, which meant
-// the scroll position had to be saved to a side table (eventScroll) and restored on the
-// next frame, and an expanded <details> had to be tracked in another (openTimelines) —
-// both of which exist ONLY because the nodes were destroyed. keyedList keeps the existing
-// event rows, so the scroll position and the open/closed state are simply never lost, and
-// both side tables are deleted.
+// APPEND-ONLY: keyedList keeps the existing event rows, so scroll position and each
+// <details> open/closed state are never lost and need no side table to restore them.
 function buildEvent() {
   const d = document.createElement("div");
   d.className = "ev";
@@ -2182,10 +2103,8 @@ function applyRewind(ui, s) {
 // Compact metadata chips: model, context bar, cost, mode badge, agent count. Shown in
 // the bottom bar (below the input) for the ACTIVE pane only, not on every card. Only
 // renders the chips that have values, so a plain shell shows nothing here.
-// Returns chip DESCRIPTORS, not markup — applyChips builds/updates the nodes. Each carries
-// a stable `key` so a chip whose value changes (the cost ticking up, the context bar
-// filling) keeps its node instead of being replaced. Values go in as text, never markup, so
-// nothing here needs escaping.
+// Returns chip DESCRIPTORS, not markup — applyChips builds/updates the nodes, keyed so a
+// chip whose value changes keeps its node. Values go in as text, never markup.
 const MODE_LABEL = { plan: "plan", "accept-edits": "accept edits", bypass: "bypass perms" };
 function metaChips(s) {
   const chips = [];
@@ -2294,15 +2213,12 @@ if (bar.input) {
   // together, then one Enter (see submitComposer). Nothing reaches the pane at attach
   // time — the image waits here as a draft until you send, mirroring the phone's own
   // "type a caption, then send the photo" feel.
-  // Send keeps a pointer-driven commit, and it is the ONE place that is not about
-  // rebuilds: #bar is static HTML and was never re-rendered, so this button always
-  // survived press-to-release. The reason here is finger DRIFT — on a touchscreen the
-  // browser withholds `click` entirely if the finger moves a few pixels between
-  // touchstart and touchend (easy on a phone, and on a soft-keyboard layout that shifts
-  // under your thumb). A withheld click is a Send that silently does nothing, the single
-  // worst failure this app can have, since the user's typed message just sits there.
+  // Send commits on pointerup, NOT plain click, and this is not about rebuilds: the
+  // browser withholds `click` entirely if the finger drifts a few pixels between
+  // touchstart and touchend — easy on a phone, and on a soft keyboard that shifts under
+  // your thumb. A withheld click is a Send that silently does nothing.
   //
-  // pointerup, not pointerdown: it still fires regardless of drift, but unlike a
+  // pointerup rather than pointerdown: it still fires regardless of drift, but unlike a
   // touch-down commit it cannot fire for a press the user slides away from and abandons.
   // submitComposer is re-entrancy-guarded by `sending`, so a stray double is harmless.
   let sendDown = false;
@@ -2459,9 +2375,8 @@ async function submitComposer(s, presetSegs) {
       const next = _sendQueue.shift();
       setTimeout(() => submitComposer(next.s, next.segs), 0);
     }
-    // Button un-spins NOW (the work is done). There is no longer a trailing render freeze
-    // to hold "a beat longer so the poll doesn't repaint mid-settle" — a repaint mid-settle
-    // writes text onto the same nodes and disturbs nothing.
+    // Button un-spins NOW (the work is done) — no need to hold it a beat longer, since a
+    // poll repainting mid-settle only writes text onto the same nodes.
     bar.send?.classList.remove("sending");
     bar.send && (bar.send.disabled = false); // clear any legacy disabled state
   }
@@ -2624,13 +2539,10 @@ function clearComposer() {
   sweepChipUrls(); // emptied the field → every chip is now an orphan; revoke all blobs
 }
 
-// The question block, built once. The spinner is a permanent node: it used to be created
-// per render, and because a fresh element's CSS animation always starts at 0° while the
-// card rebuilt every ~500ms reparse-poll (faster than the 0.7s spin), the spinner kept
-// snapping back to its first quarter-turn. It was patched with a negative
-// animation-delay seeded to (Date.now() mod period) so each NEW spinner resumed the
-// previous one's phase. A permanent node needs none of that — the animation simply keeps
-// running, so that seeding is deleted here.
+// The question block, built once. The spinner must be a PERMANENT node: a fresh element's
+// CSS animation always restarts at 0°, so a spinner recreated per render visibly snaps
+// back to its first quarter-turn. Kept alive, the animation simply keeps running — no
+// negative-animation-delay phase seeding needed.
 function buildQuestion(cardUi) {
   const root = document.createElement("div");
   root.className = "q";
@@ -2645,11 +2557,9 @@ function buildQuestion(cardUi) {
   const opts = document.createElement("div");
   opts.className = "opts";
   root.append(prompt, opts);
-  // Option buttons are keyed by their own text, so a menu that keeps the same options
-  // across polls keeps the same button nodes — which is what makes a plain `click`
-  // reliable on them (they were an onTap site precisely because they were rebuilt).
-  // The handler reads the CURRENT question off panesById at call time, so a stale option
-  // node can never answer with a stale prompt's keystroke.
+  // Keyed by their own text, so a menu that keeps the same options keeps the same button
+  // nodes. The handler reads the CURRENT question off panesById at call time, so a stale
+  // option node can never answer with a stale prompt's keystroke.
   return { root, prompt, promptText, spin, opts, cardUi };
 }
 
@@ -2738,9 +2648,8 @@ async function postSend(s, body) {
 }
 
 async function send(s, body) {
-  // `sending` is the re-entry guard, and it is KEPT: it blocks a genuine double-fire of an
-  // in-flight POST. (It was already the right flag here — guarding on the old shared render
-  // freeze made a legitimate answer tap silently do nothing whenever a gesture owned it.)
+  // `sending` guards a real in-flight POST against double-firing — a genuine concern, and
+  // distinct from anything about rendering.
   if (sending) return;
   sending = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
@@ -2822,12 +2731,11 @@ function openScreen(paneId, label) {
 //
 // Returns a handle:
 //   retarget(next) — point the gesture state at a DIFFERENT persisted transform and apply
-//     it. The peek is now ONE element reused across panes (see bgTerm), so switching panes
-//     re-points this rather than constructing a new pinchZoom — which is also what stops
-//     the old per-poll rebuild from leaking a listener set every ~2s.
+//     it. The peek is ONE element reused across panes (see bgTerm), so a pane switch
+//     re-points this instead of constructing a new pinchZoom and leaking a listener set.
 //   panning()      — is the user's finger on this surface right now. The live repaint uses
-//     it to suppress its scroll-to-tail, which is the ONLY thing the global `busy` flag was
-//     doing for this surface; keeping it local means a gesture here can't freeze the app.
+//     it to suppress its scroll-to-tail. Deliberately local, not a global flag: a stuck
+//     gesture here must not be able to freeze anything else.
 function pinchZoom(container, el, st, snapHome, selectable) {
   const fresh = () => ({ scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) });
   st = st || fresh();
@@ -2908,10 +2816,9 @@ function pinchZoom(container, el, st, snapHome, selectable) {
   };
   container.addEventListener("touchend", release);
   container.addEventListener("touchcancel", release);
-  // No document-level listener and nothing global to unwedge: `start` is per-instance, and
-  // this instance now lives as long as its element does. A gesture interrupted by the OS
-  // just leaves `start` set on an instance nobody is touching, which the next touchstart
-  // overwrites — it can no longer freeze rendering, because rendering is never frozen.
+  // No document-level listener and nothing global to unwedge: `start` is per-instance. A
+  // gesture interrupted by the OS just leaves `start` set on an instance nobody is
+  // touching, which the next touchstart overwrites.
   return {
     retarget(next) { st = next || fresh(); start = null; apply(); },
     panning() { return start !== null; },
@@ -3036,10 +2943,8 @@ function lmAdd(role, text) {
 }
 
 // Keyed by position+role, so a GROWING transcript entry (fragments append to the last
-// entry of the same role) keeps its node and only its text changes. It used to
-// replaceChildren the whole log on every fragment, which meant a live transcript rebuilt
-// several times a second — the same pattern this refactor removes everywhere else, and here
-// it also fought text selection inside the transcript.
+// entry of the same role) keeps its node and only its text changes — fragments arrive
+// several times a second, and rebuilding would fight text selection in the transcript.
 function lmPaintInto(box) {
   const atBottom = atBottomOf(box);
   keyedList(box, lmLog, (e, i) => i + ":" + e.role, () => document.createElement("div"),
