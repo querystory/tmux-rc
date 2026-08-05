@@ -2000,7 +2000,13 @@ function applyTables(host, tables) {
     box.append(box._title, scroll);
     return box;
   }, (box, t) => {
+    // The title node is permanent, so an untitled table leaves it empty. Today that costs
+    // nothing (an empty block is 0-height and its 4px margin-bottom collapses into
+    // .tablewrap's margin-top), but that only holds while nothing gives .tbl-title padding
+    // or makes its parent a flex/grid container, either of which would turn the empty node
+    // into a visible gap. `hid` states the intent instead of relying on that.
     setText(box._title, t.title || "");
+    setCls(box._title, "hid", !t.title);
     const headers = t.headers || [];
     setCls(box._thead, "hid", !headers.length);
     keyedList(box._headRow, headers, (h, i) => i, () => document.createElement("th"), setText);
