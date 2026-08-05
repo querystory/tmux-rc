@@ -170,7 +170,8 @@
     font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
   .dock-icon.sel { background: var(--chrome); border-color: var(--accent); }
   /* Fold chip: "+6" standing in for a session's parked panes (idle past
-     PARKED_IDLE_SECS), at the tail of its tray; "−" folds them back. Tap to toggle.
+     PARKED_IDLE_SECS), at the tail of its tray. A "‹" chevron (styled small and
+     borderless below) folds them back.
      GEOMETRY: same 36px box and `flex: none` as a .dock-icon, deliberately — it lives
      inside a .dock-group, and the tray's zero-added-height contract (see above) is what
      keeps the selected tab seated on the dock's padding-box bottom for the card join.
@@ -183,9 +184,8 @@
     border: 1px dashed var(--border); border-radius: 8px; background: var(--chrome);
     color: var(--fg-faint); font-family: inherit; font-size: 11px; font-weight: 600;
     line-height: 1; font-variant-numeric: tabular-nums; cursor: pointer; }
-  /* The RE-FOLD control reads as a quiet affordance, not a peer of the "+8" chip. A
-     same-size dashed button showing a bare "−" gave no clue what it did. Narrow, no
-     border, no fill: a chevron tucked at the tray's edge. The 40px min-width floor is
+  /* The RE-FOLD chevron reads as a quiet affordance, not a peer of the "+8" chip: narrow,
+     no border, no fill, tucked at the tray's edge. The 40px min-width floor is
      dropped here because the parent tray's own padding keeps the touch area honest —
      height stays 36 and the hit box is 26x36, which is still a comfortable thumb target
      for a control you use rarely. */

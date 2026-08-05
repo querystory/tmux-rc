@@ -1001,7 +1001,7 @@ function dock(states, act) {
     group.appendChild(b);
   }
   // The fold chip at the tail of a session's tray: "+N" when its parked panes are hidden,
-  // "−" to hide them again. A <button> among the tray's icon <button>s, so it can't
+  // "‹" to hide them again. A <button> among the tray's icon <button>s, so it can't
   // disturb the group hue cycling (.dock-group:nth-of-type counts <span>s) nor the strip's
   // height (same 36px box as an icon — the join's geometry contract requires the tray add
   // zero height). Deferred tap for the same reason the icons use it: the dock is an
@@ -1033,12 +1033,11 @@ function dock(states, act) {
   };
   for (const [sess, n] of parked)
     foldChip(sess, "+" + n, `Show ${n} parked pane${n === 1 ? "" : "s"} in ${sess || "this session"}`, false);
-  // NOTE: an expanded tray's re-fold control is rendered as a small chevron below, not as
-  // a second full-size chip — a bare "−" the same size as "+8" gave no clue what it did.
-  // An expanded tray gets the inverse chip — otherwise unfolding is a one-way door for the
-  // session (nothing re-parks it until the page reloads). Only when there is actually
-  // something to re-fold: a session whose panes all went busy again has nothing parked,
-  // and a dead "−" would confuse. U+2212 MINUS, not a hyphen (which reads as a dash).
+  // An expanded tray gets a re-fold control, or unfolding is a one-way door for the session
+  // (nothing re-parks it until a reload). Rendered as a small chevron (U+2039), NOT a
+  // second full-size chip: a same-size button showing a bare glyph gave no clue what it did.
+  // Only when something is actually parked — a session whose panes all went busy again has
+  // nothing to re-fold, and a dead control would confuse.
   for (const sess of foldOpen)
     if (states.some((s) => (s.session ?? "") === sess && !isRecent(s) && s.pane_id !== act))
       foldChip(sess, "\u2039", `Hide parked panes in ${sess || "this session"}`, true);
