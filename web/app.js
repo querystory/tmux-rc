@@ -1917,7 +1917,13 @@ function applyEvent(d, e) {
 // A stable identity per event. The log is append-only and time-ordered server-side, so
 // index-within-log is stable for everything already rendered; ts+text keeps a row from
 // being reused for a different event if the server ever trims the head.
-const evKey = (e, i) => `${i}|${e.ts || ""}|${e.text || ""}`;
+//
+// The index must be the event's position in the WHOLE log, not in the slice it was passed
+// in. The feed splits into two keyedLists at summary.count, and that boundary moves as the
+// server folds more of a burst — a slice-local index would re-key every row below the
+// fold on each move and rebuild the entire tail, which is the churn this file exists to
+// avoid. Hence the explicit offset rather than keyedList's own index argument.
+const evKeyAt = (offset) => (e, i) => `${offset + i}|${e.ts || ""}|${e.text || ""}`;
 
 function buildEvents() {
   const root = document.createElement("div");
@@ -1969,8 +1975,9 @@ function applyEvents(ui, events, paneId, summary) {
     setText(ui.smText, summary.text);
     setText(ui.smCount, `(${summary.count})`);
   }
-  keyedList(ui.folded, folding ? events.slice(0, summary.count) : [], evKey, buildEvent, applyEvent);
-  keyedList(ui.rest, folding ? events.slice(summary.count) : events, evKey, buildEvent, applyEvent);
+  const cut = folding ? summary.count : 0;
+  keyedList(ui.folded, folding ? events.slice(0, cut) : [], evKeyAt(0), buildEvent, applyEvent);
+  keyedList(ui.rest, folding ? events.slice(cut) : events, evKeyAt(cut), buildEvent, applyEvent);
   if (stick) {
     // Defer one frame so the just-inserted rows are laid out and scrollHeight is real.
     requestAnimationFrame(() => { root.scrollTop = root.scrollHeight; ui.atBottom = true; });
