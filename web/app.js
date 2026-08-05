@@ -1440,7 +1440,7 @@ function applyCard(ui, s) {
   setHtml(ui.sum, body && s.session_summary ? linkifyText(s.session_summary) : "");
   applyRewind(ui.rewind, body ? s : null);
   applyTables(ui.tables, body && Array.isArray(s.tables) ? s.tables : []);
-  applyQuestion(ui.q, body && s.question ? s : null);
+  applyQuestion(ui.q, body && s.question ? s : null, ui);
   applyTasks(ui.tasks, body && Array.isArray(s.tasks) ? s.tasks : []);
   applySubagents(ui.subs, body ? realSubs(s.subagents) : []);
   applyLinks(ui.links, body && Array.isArray(s.links) ? s.links : []);
@@ -2787,7 +2787,13 @@ function buildQuestion(cardUi) {
   return { root, prompt, promptText, spin, opts, cardUi };
 }
 
-function applyQuestion(ui, s) {
+// `card` is the enclosing card's handle set, and is what the option handlers read the
+// target pane from (card.pane) at CALL time. It cannot be captured from `s` at build time:
+// options are keyed by index+text, so two panes asking the same thing at the same index
+// (a plain Yes/No is the common case) REUSE the button, and a build-time pane_id would
+// then answer whichever pane the card showed when the node was first created. That is the
+// invariant at the top of buildCard — every handler closes over the card, never a state.
+function applyQuestion(ui, s, card) {
   setCls(ui.root, "hid", !s);
   if (!s) { keyedList(ui.opts, [], (x) => x, () => null); setText(ui.promptText, ""); return; }
   const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
@@ -2795,14 +2801,15 @@ function applyQuestion(ui, s) {
   setCls(ui.spin, "on", spinning);
   // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
   const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
-  const paneId = s.pane_id;
   keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
     b.onclick = () => {
-      // Read the live state at CALL time: the node persists across polls, so closing over
-      // `s` would answer with whatever question was on screen when the button was built.
-      const cur = panesById[paneId];
+      // Read BOTH the pane and its state at CALL time. The node persists across polls AND
+      // across pane switches (see the note above applyQuestion), so a captured pane_id or
+      // `s` would answer the pane that happened to be on screen when it was built.
+      const paneId = card ? card.pane : undefined;
+      const cur = paneId && panesById[paneId];
       if (!cur || !cur.question) return;
       const i = b._optIndex;
       setActive(paneId);
