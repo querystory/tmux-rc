@@ -1018,10 +1018,8 @@ function dock(states, act) {
   // disturb the group hue cycling (.dock-group:nth-of-type counts <span>s) nor the strip's
   // height (same 36px box as an icon — the join's geometry contract requires the tray add
   // zero height).
-  // Commits on POINTERDOWN, not deferred: the dock is an overflow-x scroller a thumb
-  // brushes constantly AND it is rebuilt every poll, so waiting for pointerup lost the
-  // chip out from under a held finger. Safe here because the action is local and
-  // idempotent (toggle a Set, re-render) — no send a mis-fire could deliver.
+  // Tap handling is DEFERRED (acts on pointerup, cancels past slop) and pointer-captured;
+  // see the block on the handler below for why both halves are needed.
   const foldChip = (sess, text, label, open) => {
     const g = trays.get(sess);
     if (!g) return;
