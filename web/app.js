@@ -667,7 +667,15 @@ async function poll() {
     // "reconnecting". Nuking it for an error page threw away good content on every
     // app resume. Only show the notice when nothing is rendered yet (cold load) or the
     // failure isn't transient.
-    const showing = _panesUI && !_panesUI.deck.classList.contains("hid");
+    // EITHER mode counts as "content on screen". Checking only the deck was wrong: in list
+    // mode the deck is hidden and the LIST is what the user is looking at, so a blip there
+    // fell through and replaced their rows with an error page — the exact behaviour this
+    // guard exists to prevent, for half the UI. (main's version asked `panesEl.children
+    // .length && !panesEl.querySelector(".empty")`, which was mode-agnostic; naming the
+    // deck when the persistent nodes arrived is what narrowed it.) The empty/notice node
+    // being visible means nothing is rendered yet, so a cold-load failure still shows.
+    const showing = _panesUI && _panesUI.empty.classList.contains("hid")
+      && (!_panesUI.deck.classList.contains("hid") || !_panesUI.list.classList.contains("hid"));
     if (transient && showing) return false;
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
     showNotice(`poll error: ${String(e && e.message || e)} (${hint})`);
