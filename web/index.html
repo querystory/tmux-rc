@@ -260,11 +260,37 @@
   .deck { position: relative; height: calc(100dvh - var(--top-h, 122px)); /* top pad cancelled by the join margin below */
     margin-bottom: calc(-1 * (var(--bar-h, 150px) + 8px));
     overflow: hidden; display: flex; flex-direction: column; }
+  /* The card COVERS the terminal — it is a sheet lying on top of it, not a panel butted
+     against it. Two things make that read:
+       - The bottom corners overlap the terminal instead of exposing it. .bg-wrap is a flex
+         sibling starting exactly at the card's bottom edge, so a 14px bottom radius let the
+         #0d1117 surface show through the corner arcs as two sharp dark wedges — the giveaway
+         that the card was merely adjacent. A negative bottom margin slides the card's last
+         14px over the terminal (its own background fills the corners) and z-index keeps it
+         above; the terminal's visible height is unchanged because .bg-wrap's flex basis is
+         computed before the margin.
+       - A drop shadow gives it height off the surface. Tuned per theme below, since one
+         shadow cannot read correctly on both: dark needs depth from a near-black card on a
+         near-black terminal, light needs a soft grey that doesn't look like dirt. */
   .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-    padding: 12px 14px; overflow-y: auto; position: relative; z-index: 1; flex: none;
+    --card-radius: 14px; /* ONE definition: the overlap below must equal the radius, or
+                            the corner arcs expose the terminal again as sharp wedges */
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 12px 14px; overflow-y: auto; position: relative; z-index: 2; flex: none;
     max-height: calc(100% - var(--bar-h, 150px) - 80px); /* ≥~5 terminal lines stay visible */
+    margin-bottom: calc(-1 * var(--card-radius)); /* the corner arcs land ON the terminal */
+    box-shadow: var(--card-lift);
   }
+  /* ONE definition of the lift, so .card and .card.active cannot drift apart. Per-theme
+     because a single shadow cannot read correctly on both: dark needs real depth to
+     separate a near-black card from a near-black terminal, and those same alphas read as
+     grime on near-white. */
+  :root { --card-lift: 0 6px 16px -4px #0008, 0 2px 6px -2px #0006; }
+  :root.light { --card-lift: 0 6px 16px -6px #1f23281f, 0 2px 5px -2px #1f232814; }
+  /* The card is scrollable, so its shadow must not be clipped by its own overflow box —
+     it isn't (box-shadow paints outside), but the DECK clips overflow, and the bottom
+     shadow now falls inside the deck rather than past its edge, so it survives. */
   /* The capture's window: right below the card down to the bar. Agent panes overlap
      the bar a little (their tail is status/input chrome); shells stop above it so a
      trailing prompt stays visible. Long captures are scrolled to their tail. */
@@ -287,9 +313,17 @@
     background: #21262dcc; border: 1px solid #30363d; color: #adbac7; border-radius: 8px;
     font-size: 18px; cursor: pointer; }
   .card { transition: transform .15s, opacity .15s; }
+  /* Swipe neighbour: same cover treatment, so a mid-swipe card doesn't briefly show the
+     bare corner wedges the real card no longer has. z-index 1 keeps it under the real card
+     (which is 2) while both sit above the terminal. */
   .card.ghost { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; z-index: 1; }
   .card.waiting { border-color: var(--amber); background: var(--waiting-bg); }
-  .card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+  /* The accent ring must ADD to the lift, not replace it — box-shadow is one property, so
+     listing only the ring here would drop the drop-shadow on the active card, i.e. on the
+     card the user is actually looking at almost all the time. Ring first (tight to the
+     border), depth after. */
+  .card.active { border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent-glow), var(--card-lift); }
   /* Tab-into-card join (card mode). Structure, not pixel-chasing:
      - The dock's bottom OPENS: border 0, square bottom corners. Its bottom edge is
        simply where the card begins.
@@ -762,6 +796,11 @@
       <button data-k="Down">↓</button>
       <button data-k="C-o">Ctrl-O</button>
       <button id="bar-prefix" data-k="C-b" title="tmux prefix">Prefix</button>
+      <!-- Ctrl-B as a LITERAL key, distinct from the Prefix button above. Prefix sends
+           whatever tmux reports as its own prefix (this host: C-a), so on any setup that
+           remapped it there was no way to send a real Ctrl-B — which nested tmux sessions
+           and editors/pagers that bind it themselves need. -->
+      <button id="bar-ctrl-b" data-k="C-b">Ctrl-B</button>
       <button data-k="C-c">Ctrl-C</button>
       <button data-k="C-d">Ctrl-D</button>
     </div>

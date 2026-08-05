@@ -618,6 +618,14 @@ async function poll() {
       // Uppercase the key in the LABEL only (Ctrl-A, matching the other key buttons);
       // dataset.k keeps tmux's exact name (C-a).
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
+      // The literal Ctrl-B button exists because a remapped prefix (this host uses C-a)
+      // leaves no way to send a real Ctrl-B, which nested tmux and apps that bind it
+      // themselves need. On a STOCK tmux the prefix already IS C-b, so the two buttons
+      // would be the same keystroke under two labels — hide the literal one there rather
+      // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
+      // config change without a reload.
+      const cb = document.getElementById("bar-ctrl-b");
+      if (cb) cb.hidden = data.prefix === "C-b";
     }
     // Legacy daemons omit `booted`; treat its absence as booted so old servers keep
     // their previous behavior (empty ⇒ "no panes") rather than spinning forever.
