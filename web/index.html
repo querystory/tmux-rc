@@ -565,6 +565,10 @@
   .sess-sum { margin-top: 10px; color: var(--fg-soft); font-size: 14px; font-style: italic;
     display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical;
     overflow: hidden; cursor: pointer; }
+  /* Permanent node, emptied rather than removed when a pane has no summary — so it needs
+     :empty, or its margin-top and cursor:pointer leave a 10px clickable blank above the
+     event log. Must beat the display:-webkit-box above, hence the higher specificity. */
+  .card .sess-sum:empty { display: none; }
   .sess-sum.open { -webkit-line-clamp: unset; }
   .ev { display: flex; align-items: baseline; gap: 8px; }
   .ev::before { content: "•"; color: var(--fg-dim); flex: none; }

@@ -2221,18 +2221,39 @@ if (bar.input) {
   // pointerup rather than pointerdown: it still fires regardless of drift, but unlike a
   // touch-down commit it cannot fire for a press the user slides away from and abandons.
   // submitComposer is re-entrancy-guarded by `sending`, so a stray double is harmless.
-  let sendDown = false;
+  let sendDown = 0; // the captured pointerId, or 0 when no press is in flight
   let sentAt = 0; // when pointerup last submitted, so the follow-up click can be ignored
   bar.send.addEventListener("pointerdown", (e) => {
-    sendDown = e.button == null || e.button === 0; // left/touch only
+    if (!(e.button == null || e.button === 0)) return; // left/touch only
+    sendDown = e.pointerId || 1;
+    // CAPTURE the pointer so this button receives the release even when the finger drifts
+    // off it. Without capture, pointerup fires on whatever element the finger ended over,
+    // so a press abandoned off-button left `sendDown` armed and the NEXT release on the
+    // button sent unintentionally.
+    try { bar.send.setPointerCapture(e.pointerId); } catch { /* capture is best-effort */ }
   });
-  bar.send.addEventListener("pointerup", () => {
-    if (!sendDown) return;
-    sendDown = false;
+  const endSend = (e, submit) => {
+    if (!sendDown || (e.pointerId || 1) !== sendDown) return;
+    sendDown = 0;
+    // Release unconditionally, before any submit can throw — a conditional release leaks
+    // the flag and wedges Send for the rest of the session.
+    try { bar.send.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (!submit) return;
     sentAt = Date.now();
     submitComposer(activeState());
+  };
+  // With capture the release always arrives here, so decide by COORDINATES: a release
+  // near the button sends, one the user deliberately slid away does not. The 24px slop is
+  // deliberately generous — dropping a real Send is far worse than an extra one, and
+  // submitComposer is guarded by `sending` anyway.
+  const SEND_SLOP = 24;
+  bar.send.addEventListener("pointerup", (e) => {
+    const r = bar.send.getBoundingClientRect();
+    const near = e.clientX >= r.left - SEND_SLOP && e.clientX <= r.right + SEND_SLOP &&
+                 e.clientY >= r.top - SEND_SLOP && e.clientY <= r.bottom + SEND_SLOP;
+    endSend(e, near);
   });
-  bar.send.addEventListener("pointercancel", () => { sendDown = false; });
+  bar.send.addEventListener("pointercancel", (e) => endSend(e, false));
   // Keyboard/AT activation synthesizes a click with NO pointer events, so it needs its own
   // path. A real tap also produces a click right after our pointerup, so ignore one that
   // follows a submit we just did. Time-bounded rather than a latched flag: the click is not
