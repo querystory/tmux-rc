@@ -873,9 +873,10 @@ function render(states) {
   };
   if (!states.length) {
     stopPeek();
-    // Sweep the tab-join fillets too: they're parented to #top (to escape the dock's
-    // overflow clip), so replacing #panes/#dock leaves them dangling over the empty
-    // screen — the two stray blue curves seen during a daemon reload's brief no-panes.
+    // Sweep the tab-join fillets too: they're parented to #panes (to escape the dock's
+    // overflow clip while still scrolling with the strip), so replacing #panes/#dock leaves
+    // them dangling over the empty screen — the two stray blue curves seen during a daemon
+    // reload's brief no-panes.
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     _joinRO.disconnect(); // stop watching the card we're about to drop
     dockEl.replaceChildren();
@@ -883,7 +884,10 @@ function render(states) {
 
     // Drop the card-view dock state too: its onscroll pin closes over the now-dead
     // card nodes, and the seam classes would style a dock that no longer has a card.
+    // BOTH re-pin handlers go: the dock's horizontal one and the scroller's vertical one,
+    // which joinTab now also installs.
     dockEl.onscroll = null;
+    panesEl.onscroll = null;
     dockEl.classList.remove("edge-l", "has-sel");
     // Empty deck has two causes: still loading (server booting / initial pane parses in
     // flight) vs. genuinely no panes. Only claim "no panes" once the server has booted —
@@ -946,7 +950,9 @@ function render(states) {
     const ord = new Map();
     states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
     panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
-    panesEl.replaceChildren(...subset.flatMap((s, i) => {
+    // dockEl leads: it is a #panes child now (it scrolls with the card — see its CSS), so
+    // every rebuild must re-insert it or the tab strip is destroyed.
+    panesEl.replaceChildren(dockEl, ...subset.flatMap((s, i) => {
       const r = row(s, act);
       if (ord.size < 2 || (i && subset[i - 1].session === s.session)) return [r];
       const h = document.createElement("div");
@@ -982,7 +988,7 @@ function render(states) {
       deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
     }
     panesEl.classList.add("cardmode"); // drops #panes' bar padding — see the CSS
-    panesEl.replaceChildren(deck);
+    panesEl.replaceChildren(dockEl, deck); // dockEl leads — see the list branch above
     joinTab(deck);
   }
   updateBar(panesById[act]);
@@ -992,12 +998,15 @@ function render(states) {
 // top border under the selected dock icon (the break that lets the tab's open bottom
 // flow into the card), plus a concave fillet at each of the tab's feet curving the
 // line up into the tab's sides, Chrome-style (see .tab-notch / .tab-fillet CSS).
-// All positioned from measured rects (never guessed), re-pinned on dock scroll.
-// Fillets live in #top (the deck would clip their above-the-line half); stale ones
-// are swept each call — and by dock() in list mode, where there's no card to join.
+// All positioned from measured rects (never guessed), re-pinned on dock scroll AND on
+// #panes scroll (the strip now scrolls behind the ribbon, so the tab's viewport position
+// changes under a stationary join — it did not before, when the dock was fixed chrome).
+// Fillets live in #panes, the scroller (the deck would clip their above-the-line half, and
+// the fixed ribbon would strand them in the viewport while the tab scrolled away); stale
+// ones are swept each call — and by dock() in list mode, where there's no card to join.
 function joinTab(deck) {
-  const top = document.getElementById("top");
-  top.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+  const host = panesEl;
+  host.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
   // Stop watching the prior render's card up front, and drop the prior pin() closure so
   // EVERY exit — including the list-mode early return below (no selected icon, no card to
   // join) — releases the observer AND the closure's captured DOM nodes for GC.
@@ -1012,12 +1021,12 @@ function joinTab(deck) {
   const [fl, fr] = ["l", "r"].map((side) => {
     const f = document.createElement("i");
     f.className = "tab-fillet " + side;
-    top.appendChild(f);
+    host.appendChild(f);
     return f;
   });
   const pin = _joinPin = () => {
     const s = sel.getBoundingClientRect(),
-      d = deck.getBoundingClientRect(), t = top.getBoundingClientRect(),
+      d = deck.getBoundingClientRect(), t = host.getBoundingClientRect(),
       dock = dockEl.getBoundingClientRect();
     // The fillets/notch live in #top (outside the dock's overflow clip), so when the
     // selected icon scrolls out of the dock's visible strip nothing clips them — they'd
@@ -1056,7 +1065,14 @@ function joinTab(deck) {
     // Each patch is placed so the arc's center (its top corner) sits radius-8 from the
     // tab border it curves into — tangency by construction, not tuning. The patch spans
     // the tab's 1px side border plus the flare beyond it (the flare replaces the border).
-    fl.style.top = fr.style.top = t.height - 7 + "px";
+    // Vertical anchor: the dock's own bottom edge, in host coordinates. It used to be
+    // `t.height - 7` — the height of #top, which worked only because the dock was #top's
+    // last child so its bottom WAS #top's bottom. In the scroller #panes has top padding
+    // and grows to its whole content height, so that number is meaningless here; measure
+    // the dock and subtract the 7px the patch rises above the line. host.scrollTop enters
+    // because getBoundingClientRect is viewport-relative while `top` on an absolutely
+    // positioned child is relative to the padding box's ORIGIN, which scrolls away.
+    fl.style.top = fr.style.top = dock.bottom - t.top + host.scrollTop - 7 + "px";
     fl.style.left = s.left - t.left - 7 + "px";
     fr.style.left = s.right - t.left - 1 + "px";
   };
@@ -1068,6 +1084,11 @@ function joinTab(deck) {
   // fillet was already removed (isConnected) — its own render's pin owns the corner now.
   requestAnimationFrame(() => { if (fl.isConnected) pin(); });
   dockEl.onscroll = pin;
+  // The strip now scrolls behind the ribbon, which moves the selected tab in the VIEWPORT
+  // — and every rect above is viewport-measured. Without this the notch and both fillets
+  // stay frozen at the offset they were pinned at while the tab climbs away from them.
+  // The dock's own horizontal scroll keeps its handler above; this is the vertical one.
+  panesEl.onscroll = pin;
   // Re-pin whenever the active card's height changes BETWEEN renders — a live-updating
   // card (its summary/events growing as the pane works) reflows the deck under the
   // already-placed fillets, leaving them detached from the card's moved top edge. render()
@@ -1090,7 +1111,7 @@ const _joinRO = new ResizeObserver(() => {
   if (_joinRAF) return; // a pin is already queued for the next frame
   _joinRAF = requestAnimationFrame(() => {
     _joinRAF = 0;
-    const fl = document.querySelector("#top .tab-fillet");
+    const fl = document.querySelector("#panes > .tab-fillet");
     if (fl && fl.isConnected && _joinPin) _joinPin();
   });
 });
@@ -1146,6 +1167,7 @@ function dock(states, act) {
   if (!joined) {
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     el.onscroll = null;
+    panesEl.onscroll = null; // the scroller's re-pin handler, installed alongside the dock's
     el.classList.remove("edge-l");
   }
   // Chrome-tab-group-style session trays: each session's run of icons shares one
@@ -1368,7 +1390,10 @@ function captureIconRects() {
   // Clone each live row NOW: after replaceChildren the originals are gone, but a leaving
   // row must linger to animate out — the clone (positioned fixed at its old rect) does
   // that without fighting the re-render, mirroring the icon-fly's clone approach.
-  panesEl.querySelectorAll(".prow").forEach((r) => {
+  // :not(.dock) — the tab strip is a .prow too (class="prow dock") and is a #panes child
+  // now that it scrolls with the card, so an unscoped query captures the whole strip as
+  // flipPrev[undefined] and animates it as if it were a list row.
+  panesEl.querySelectorAll(".prow:not(.dock)").forEach((r) => {
     flipPrev[r.dataset.pane] = { rect: r.getBoundingClientRect(), node: r.cloneNode(true) };
   });
 }
@@ -1411,7 +1436,9 @@ function flipIn(root) {
   if (!flipFrom) return;
   const from = flipFrom, prev = flipPrev;
   flipFrom = flipPrev = null;
-  const now = new Set([...root.querySelectorAll(".prow")].map((r) => r.dataset.pane));
+  // :not(.dock) throughout: the tab strip matches .prow and is a #panes child now — see
+  // the capture in flipCapture.
+  const now = new Set([...root.querySelectorAll(".prow:not(.dock)")].map((r) => r.dataset.pane));
   // Leaving rows: in the old list but not the new. Fade+drift their clone out in place —
   // `to` is the same box nudged down 12px (all four edges, so the center delta is a clean
   // 12px drop). flipDelta reads left/right/top/bottom, so give it a full rect-like.
@@ -1420,7 +1447,7 @@ function flipIn(root) {
       const r = p.rect;
       flyClone(p.node, r, { left: r.left, right: r.right, top: r.top + 12, bottom: r.bottom + 12 }, true);
     }
-  root.querySelectorAll(".prow").forEach((r) => {
+  root.querySelectorAll(".prow:not(.dock)").forEach((r) => {
     const old = prev[r.dataset.pane];
     // SURVIVOR: already on screen in the old filter — no icon-fly, no invisibility. FLIP:
     // start it at its old position (First→Invert) and slide the delta to its new spot (Play).
@@ -2995,6 +3022,15 @@ const barEl = document.getElementById("bar");
 // Publish the MEASURED heights of the fixed chrome as CSS vars — deck/peek/card
 // layout math uses them instead of hardcoded px that drift per device and content
 // (a taller chip row made the peek window end mid-line with dead black below it).
+// --top-h is the PINNED RIBBON's height and nothing more. It used to include the tab
+// strip, because #top contained both; the strip now lives inside the scroller (#panes),
+// so #top measures just the ribbon and the number shrank by the strip's height. Both
+// consumers stay correct BY CONSTRUCTION: #panes reserves exactly --top-h of top padding
+// for the fixed ribbon, and .deck sizes to 100dvh - --top-h, i.e. the viewport below the
+// ribbon. The strip's height is no longer subtracted from the deck because it is no longer
+// chrome above it — it is scrolling content, and it correspondingly becomes the scroller's
+// scrollable distance. Keep measuring #top, NOT a #top-plus-dock span, or the deck loses
+// that many pixels and the peek ends mid-line again.
 {
   const topBlock = document.getElementById("top");
   const sizes = () => {

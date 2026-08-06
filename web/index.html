@@ -90,11 +90,31 @@
     background: var(--bg); color: var(--fg);
     padding: env(safe-area-inset-top) 0 0;
   }
-  #top { position: sticky; top: 0; z-index: 5; background: var(--bg-glass); backdrop-filter: blur(8px); }
+  /* ── Pinned ribbon over a scrolling tab strip ────────────────────────────────────
+     ONLY the ribbon (#top: brand + filter pills) is pinned. The tab strip is NOT: it is
+     the first child of #panes, the scroller, so it scrolls up and BEHIND this ribbon
+     along with the card it is joined to.
+     Why the dock cannot stay up here: the selected tab IS the card's top edge (see the
+     tab-into-card join below — a notch and two fillets draw them as one unit). #panes is
+     the element that scrolls, so a dock outside it stayed put while the card slid out from
+     under its own tab — the join tore open and the card's first line was cut off behind the
+     strip. Measured: the dock's rect was frozen at y=40..98 at EVERY scroll offset while
+     the card climbed from 98 to 1.
+     Note sticky on #top (or on its header) cannot achieve this: #top is a SIBLING of
+     #panes, not inside it, so it never scrolls and sticky never engages. Moving the dock
+     into the scroller is the only thing that makes it move.
+     position:fixed, not sticky: #top is outside the scroller, so there is no scroll for
+     sticky to react to. Fixed takes it out of flow, hence the #panes top padding that
+     reserves its height, and --top-h (measured from #top) still means exactly "the pinned
+     chrome above the scroller". */
+  #top { position: fixed; top: env(safe-area-inset-top); left: 0; right: 0; z-index: 6;
+    background: var(--bg-glass); backdrop-filter: blur(8px); }
   /* No bottom gap: the active card below butts against the dock so the two read as one
      tab-header unit (selected icon = the tab, card = its body). */
-  #top .dock { margin: 0 12px 0; }
-  #top .dock:empty { display: none; }
+  /* Keyed to #panes now that the dock lives in the scroller; :empty is STRUCTURAL (the
+     dock must vanish when it has no icons, so list/empty modes show no stray rail). */
+  #panes > .dock { margin: 0; flex: none; }
+  #panes > .dock:empty { display: none; }
   header {
     padding: 12px 16px 4px; font-weight: 600; font-size: 17px;
     display: flex; justify-content: space-between; align-items: center;
@@ -260,7 +280,22 @@
      it to the mode that needs it — deliberately NOT :has(), which this codebase avoids for
      older iOS Safari; there the rule would be ignored and the bug would persist on exactly
      the phones this app targets. */
-  #panes { padding: 8px 12px calc(var(--bar-h, 150px) + 8px); display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
+  /* The TOP padding reserves the pinned ribbon's height (#top is position:fixed, so it no
+     longer occupies flow). --top-h is the ribbon's MEASURED height, so this tracks a ribbon
+     that grows (wrapped pills, larger text). The 8px the old rule spent on a top gap is
+     folded in; the deck's join margin below cancels the flex gap that now separates the
+     dock from the deck. This padding is INSIDE the scroller, so it scrolls away like the
+     dock does — deliberate: at rest nothing hides behind the ribbon, and once scrolled the
+     strip passes behind it.
+     position:relative + z-index: TWO jobs. (1) containing block for the absolutely
+     positioned tab-join fillets, so their coordinates are scroller-relative and they travel
+     with the dock they cap. (2) z-index 5 against the ribbon's 6 makes #panes a stacking
+     context strictly BELOW it, so the strip and its fillets pass BEHIND the ribbon rather
+     than over it — the fillets' own z-index 6 is then local to #panes and can no longer
+     out-paint the ribbon (both were 6, and #panes comes later in DOM order). */
+  #panes { padding: calc(var(--top-h, 122px) + 8px) 12px calc(var(--bar-h, 150px) + 8px);
+    display: flex; flex-direction: column; gap: 10px; overflow-x: hidden;
+    position: relative; z-index: 5; }
   #panes.cardmode { padding-bottom: 0; }
   /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
      The pane's capture is its background (bottom-anchored, so the agent's status/input
@@ -342,8 +377,10 @@
   /* Tab-into-card join (card mode). Structure, not pixel-chasing:
      - The dock's bottom OPENS: border 0, square bottom corners. Its bottom edge is
        simply where the card begins.
-     - .deck margin cancels #panes' top pad EXACTLY, so card top edge == dock bottom
-       edge, and the card's blue top border becomes the rail's bottom line.
+     - .deck margin cancels #panes' 10px FLEX GAP exactly, so card top edge == dock bottom
+       edge, and the card's blue top border becomes the rail's bottom line. (It used to
+       cancel #panes' 8px top padding, when the deck was the scroller's first child; the
+       dock is now that child and sits immediately above the deck.)
      - The selected icon reaches down to that line: its negative margin swallows the
        dock's own bottom padding, so it stays INSIDE the overflow-clip region (the
        scroller clips at the padding box — anything past it gets cut, which is why
@@ -352,8 +389,8 @@
      - JS lays a 1px card-colored .tab-notch over the card's border directly under the
        icon (position measured, re-pinned on dock scroll), breaking the blue line so
        the icon's outline flows into the card's — a true tab. */
-  .deck { margin-top: -8px; }
-  #top .dock.has-sel { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .deck { margin-top: -10px; }
+  #panes > .dock.has-sel { border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .dock.has-sel .dock-icon.sel { border-bottom: 0; border-bottom-left-radius: 0;
     border-bottom-right-radius: 0; margin-bottom: -4px; padding-bottom: 11px; background: var(--surface); }
   /* Keep the sub-agent badge OFF the join, and STILL while selecting. .sacount is
@@ -383,7 +420,7 @@
      squared so no gray arc dangles), which puts the flush tab's own blue left border
      exactly collinear with the card's border below — one straight contiguous line,
      and the tab keeps its normal rounded top corners like every other tab. */
-  #top .dock.has-sel.edge-l { border-left: 0; border-top-left-radius: 0; }
+  #panes > .dock.has-sel.edge-l { border-left: 0; border-top-left-radius: 0; }
   /* Chrome-style concave fillets at the tab's feet: the card line flares up into the
      tab's sides. Each is an 8×8 patch over the old sharp L-corner: a radial gradient
      paints the blue quarter-arc — tangent to the tab border's inner edge and the
@@ -391,8 +428,10 @@
      pill, tab, and card are all var(--surface), so "erase and redraw curved" is this one
      gradient). The card's own top corners keep their normal convex radius — rounding,
      not flaring, is the right shape there (the tab is the only thing attached).
-     Fillets live in #top — NOT the deck — because they extend above the card line and
-     the deck clips its overflow. */
+     Fillets live in #panes — NOT the deck — because they extend above the card line and
+     the deck clips its overflow. #panes (not #top) because they must ALSO scroll with the
+     dock: parented to the fixed ribbon they would hang in the viewport while the tab they
+     cap scrolled away. #panes is position:relative for exactly this. */
   .tab-fillet { position: absolute; width: 8px; height: 8px; z-index: 6; pointer-events: none; }
   /* Eraser + REAL border arc (not a gradient): ::before repaints the old square corner
      in surface color; ::after draws the quarter-arc as an actual curved border, so it
@@ -808,9 +847,12 @@
       </span>
     </header>
 
-    <div id="dock" class="prow dock"></div>
   </div>
-  <div id="panes"><div class="empty">Connecting…</div></div>
+  <!-- #panes is the SCROLLER (see its CSS). The dock is its first child so the tab strip
+       scrolls up and behind the ribbon with the card it is joined to, instead of staying
+       frozen while the card slides out from under its tab. render() re-inserts it as the
+       leading child on every rebuild (see panesEl.replaceChildren calls). -->
+  <div id="panes"><div id="dock" class="prow dock"></div><div class="empty">Connecting…</div></div>
   <!-- Single persistent input bar, fixed at the bottom. Targets the active card. -->
   <div id="bar">
     <!-- Special keys, hidden by default (toggled by the ⌨ button in the input) so they
