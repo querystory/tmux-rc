@@ -1661,8 +1661,11 @@ function tuckChrome(wrap, box) {
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--)
     if (/^[╭┌]─/.test(lines[i])) { rows = lines.length - i; break; }
   const lineH = parseFloat(getComputedStyle(box).lineHeight) || 13.5;
-  wrap.style.marginBottom =
-    `calc(var(--bar-h, 150px) - ${rows ? Math.round(rows * lineH) + 6 : 60}px)`;
+  // NEGATIVE, and no longer containing --bar-h: that term was cancelling the deck's own
+  // overhang past the bar, not tucking anything. The deck now ends AT the bar, so keeping
+  // --bar-h here cut a whole bar's height out of the visible peek. What's left is the real
+  // job — pull the wrap's bottom up by exactly the chrome rows we want hidden.
+  wrap.style.marginBottom = `${-(rows ? Math.round(rows * lineH) + 6 : 60)}px`;
 }
 // One long-poll live stream (docs/design/live-view.md). Holds /live?frame=<hash> open;
 // the daemon answers the moment the pane's screen differs (checked server-side every
