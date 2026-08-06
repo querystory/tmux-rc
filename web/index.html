@@ -475,10 +475,12 @@
   .card-caret { flex: none; background: transparent; border: 0; color: var(--fg-dim);
     font-size: 22px; line-height: 1; padding: 2px 6px; cursor: pointer; align-self: flex-start;
     position: relative; }
-  /* HIT AREA only — the glyph box stays 20x20 so the header layout does not move. -12 on
-     every side makes the tappable region 44x44, the mobile minimum. It was -10 (40x40),
-     which is marginal enough that a thumb misses it; the user confirmed zooming in makes
-     the caret work, which isolates size from every other theory. */
+  /* HIT AREA only — the ::before overflows the button rather than resizing it, so the header
+     layout does not move. The button has no fixed width or height (it sizes to the glyph and
+     its padding, ~20x20 at the current font-size), so -12 on every side is what takes the
+     tappable region to roughly 44x44 — the mobile minimum. Measured, not derived: a tap 8px
+     outside the glyph box lands on the caret. The user confirmed zooming in made the caret
+     work, which is what isolated size from every other theory. */
   .card-caret::before { content: ""; position: absolute; inset: -12px; }
   .card-caret:hover { color: var(--fg); }
   /* Collapsed: one-line header only (the return in card() drops the body), and the
