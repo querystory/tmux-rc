@@ -90,7 +90,16 @@
     background: var(--bg); color: var(--fg);
     padding: env(safe-area-inset-top) 0 0;
   }
-  #top { position: sticky; top: 0; z-index: 5; background: var(--bg-glass); backdrop-filter: blur(8px); }
+  /* Only the RIBBON stays pinned; the dock scrolls away with the card.
+     #top used to be sticky as a whole, which pinned the tab strip too — so scrolling the
+     card left the selected tab's outline joined to nothing and the card's first line cut off
+     underneath it. The tab IS the card's top edge (see the tab-into-card join below), so the
+     two have to travel together.
+     #top keeps its full height in the layout (--top-h is measured from it and the deck sizes
+     against that), and stickiness moves to its header child. */
+  #top { position: relative; z-index: 5; }
+  #top > header { position: sticky; top: 0; z-index: 6;
+    background: var(--bg-glass); backdrop-filter: blur(8px); }
   /* No bottom gap: the active card below butts against the dock so the two read as one
      tab-header unit (selected icon = the tab, card = its body). */
   #top .dock { margin: 0 12px 0; }
