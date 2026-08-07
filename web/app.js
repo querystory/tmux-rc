@@ -1,7 +1,107 @@
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step (native ES module — index.html loads type=module).
+//
+// ════════════════════════════ THE RENDER INVARIANT ════════════════════════════
+// A node, once built, is NEVER replaced. Handlers close over `pane_id` (a string),
+// never over a state object, and read current state via `panesById[paneId]` at call
+// time. render() may only write text/attrs/classes onto existing nodes, or
+// insert/remove whole pane-level nodes when deck membership changes.
+//
+// WHY (this is not a performance rule — it is a correctness rule):
+//   • The long-poll returns the instant anything changes, so a busy pane re-renders
+//     constantly. The browser only fires `click` when press AND release land on the
+//     SAME element, so replacing a node between finger-down and finger-up silently
+//     SWALLOWS the tap. Building once means handlers, focus, caret, scroll position,
+//     selection and in-flight gestures survive BY CONSTRUCTION, not by workaround.
+//   • Assigning an identical `textContent` still destroys and recreates the text node,
+//     which collapses any document Selection inside it — which is why the setText/
+//     setAttr/setCls no-ops below are SEMANTIC, not an optimization.
+//
+// #bar (the composer) has always been built this way — static HTML, wired once — which
+// is exactly why typed text survives polls. tickBadges() is the other model: it reads
+// data-since off live nodes and writes textContent. This module follows both.
+//
+// THE SANCTIONED EXCEPTIONS, none of them on the poll path:
+//   1. ONE-TIME skeleton construction. panesUI() and the build* half of each build/apply
+//      pair may replaceChildren/append freely; they are memoized and run once per node's
+//      lifetime, not per render.
+//   2. The TERMINAL paint (bgTerm's peek and openScreen's overlay) still swaps innerHTML
+//      wholesale, because renderCapture emits a whole colored frame. It is guarded by a
+//      selection check and _caretGrace instead; a TODO in bgTerm points at line-diffing it,
+//      which is what would let those guards go. This is the last rendering workaround left.
+//   3. One-shot innerHTML for STATIC inline SVG/icon markup (the ⤢ button, Lucide icons,
+//      the fullscreen overlay's chrome). Written once at build time from string literals,
+//      never per poll, and never from server data.
+// Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
+// ══════════════════════════════════════════════════════════════════════════════
 import { renderCapture, linkifyText } from "./terminal.js";
+
+// ── In-place write primitives ────────────────────────────────────────────────
+// Each no-ops when the value is already current. The no-op is the POINT (see the invariant
+// above); a redundant attribute write also restarts a CSS animation or transition.
+function setText(node, s) {
+  if (!node) return;
+  const v = s == null ? "" : String(s);
+  if (node.textContent !== v) node.textContent = v;
+}
+function setAttr(node, k, v) {
+  if (!node) return;
+  if (v == null || v === false) { if (node.hasAttribute(k)) node.removeAttribute(k); return; }
+  const s = String(v);
+  if (node.getAttribute(k) !== s) node.setAttribute(k, s);
+}
+function setCls(node, name, on) {
+  if (!node) return;
+  if (node.classList.contains(name) !== !!on) node.classList.toggle(name, !!on);
+}
+// setHtml is the ONE sanctioned in-place innerHTML write, for the three surfaces whose
+// content is linkified prose (headline, session summary, event text): linkifyText returns
+// MARKUP, so textContent would show the tags. It is safe only because linkifyText escapes
+// everything it does not itself turn into an anchor — never hand this raw server text.
+//
+// The unchanged-guard is as load-bearing here as in setText, and more so: assigning an
+// identical innerHTML tears down and rebuilds the whole subtree, which collapses any
+// Selection inside it — the user copying a URL out of the summary would lose it on every
+// poll. Comparing against the live innerHTML is exact for our own serialized output.
+function setHtml(node, html) {
+  if (!node) return;
+  const v = html == null ? "" : String(html);
+  if (node.innerHTML !== v) node.innerHTML = v;
+}
+
+// ── keyedList: the one reconciler ────────────────────────────────────────────
+// `build(item, key)` makes a node the FIRST time a key is seen; `apply(node, item, i)`
+// updates it every time. Nodes are cached on the parent, which is what makes handlers
+// wired inside build() permanent.
+//
+// SERVER ARRAY ORDER IS THE ORDER. tmux's own session/window/pane order is load-bearing
+// (it drives the dock, the list and swipe navigation), so a single forward pass is exact —
+// no LIS, no move-minimization heuristics. insertBefore is called ONLY when a node is not
+// already in position, so a stable list performs zero DOM moves.
+function keyedList(parentEl, items, keyFn, build, apply) {
+  let cache = parentEl._klCache;
+  if (!cache) cache = parentEl._klCache = new Map();
+  const next = new Map();
+  let cursor = parentEl.firstChild;
+  items.forEach((item, i) => {
+    const key = String(keyFn(item, i));
+    let node = cache.get(key);
+    if (!node) node = build(item, key);
+    if (!node) return;
+    next.set(key, node);
+    if (apply) apply(node, item, i);
+    // Already in the right slot? Then advance past it and touch nothing.
+    if (cursor === node) { cursor = node.nextSibling; return; }
+    parentEl.insertBefore(node, cursor);
+  });
+  // Remove leftovers. Actually REMOVE them (never hide): CSS structural selectors
+  // (#top .dock:empty, #filters:empty, .metarow:empty, .lm-convo:empty) depend on an
+  // emptied list having no children at all.
+  for (const [key, node] of cache) if (!next.has(key)) node.remove();
+  parentEl._klCache = next;
+  return next;
+}
 
 // Real brand marks per tool (served from web/). One img template so every icon renders
 // identically; unidentified panes fall back to the tmux logomark. `tool` comes from
@@ -27,8 +127,9 @@ const actOf = (s) => {
   const a = ACTIVITIES.has(s.activity) ? s.activity : "unknown";
   return a === "waiting" && s.waiting_on === "external" ? "running" : a;
 };
-const img = (src, alt) => `<img src="${src}" width="22" height="22" alt="${escAttr(alt)}" style="border-radius:5px" />`;
-const iconFor = (tool) => img(has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO, tool || "pane");
+// The pane icon's src/alt. Both dock icons and list rows build a real <img> once and
+// setAttr these onto it, so the tool name never reaches markup and needs no escaping.
+const logoFor = (tool) => (has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO);
 
 // Lucide icons (ISC), inlined: stroke follows currentColor so they theme for free —
 // the emoji they replace rendered as platform-colored glyphs that clashed with the
@@ -42,6 +143,7 @@ const LUCIDE = {
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
 };
 const licon = (name, size = 16) =>
@@ -130,30 +232,18 @@ const onSchemeChange = (e) => {
 if (prefersLight.addEventListener) prefersLight.addEventListener("change", onSchemeChange);
 else if (prefersLight.addListener) prefersLight.addListener(onSchemeChange);
 
-// Track which pane's timeline is expanded so a re-render doesn't collapse it.
-const openTimelines = new Set();
 // Collapse is a VIEW-WIDE preference, not per-pane: collapse one card (caret ▸) and
 // every pane — including ones you swipe to — shows its one-line header, handing the
 // screen to the live terminal. Expanding anywhere expands them all.
 let cardsCollapsed = false;
-// The render freeze: while held, poll re-renders are suppressed so a rebuild can't replace
-// the DOM under a finger or mid-send. It is ONLY a render freeze — re-entry into a send is
-// guarded by `sending`, which those functions own. Conflating the two is what made Send
-// silently do nothing whenever a gesture happened to hold this flag.
-//
-// TWO independent holders, because one shared boolean let either subsystem release the
-// other's freeze: a send settling on its 400ms timer while a swipe was still in progress
-// flipped the flag and let a render land mid-gesture — the "DOM replaced under the finger"
-// bug this PR exists to fix, reintroduced through the flag meant to prevent it.
-//
-// Deliberately two booleans rather than a refcount: pinchZoom's release() MUST be able to
-// clear its hold unconditionally (a gesture that ends without a clean zero-touch touchend
-// used to leak the freeze forever and wedge the whole app), and "release no matter what" is
-// not expressible in a refcount without leaking the count. Each subsystem owns exactly one
-// flag it may set or clear freely, and neither can speak for the other.
-let busySend = false;    // a send is flushing (composer or answer/key)
-let busyGesture = false; // a swipe/pinch owns the screen
-const isBusy = () => busySend || busyGesture;
+// NO render-freeze flag here, deliberately. `busy` / `busySend` / `busyGesture` and their
+// 10s watchdog existed because a poll render REPLACED the DOM under a finger or mid-send.
+// Under the render invariant a render only rewrites text/attrs on the very nodes a gesture
+// is already translating, so there is nothing to freeze — and nothing that a missed release
+// can leak into a wedged app, which is what the watchdog was rescuing. The two things the
+// freeze also did are now local: swipeNav snapshots the id list at touchstart (so a
+// mid-swipe reorder cannot change which pane it commits to) and pinchZoom exposes
+// panning() for the peek's scroll-to-tail. `sending` — a real in-flight POST guard — stays.
 
 // A fetch deadline that works on older iOS Safari too. AbortSignal.timeout only landed in
 // Safari 16, and this file otherwise accounts for older iOS (the MediaQueryList and :has()
@@ -261,162 +351,14 @@ function activeId() {
   const focused = Object.values(panesById).find((s) => s.tmux_active);
   return (shown = focused ? focused.pane_id : Object.keys(panesById)[0] || null);
 }
-// Wire an element so a tap commits on POINTERDOWN instead of click.
-//
-// Why: the dock and the list are rebuilt from scratch on every poll (~2s, and twice in a
-// frame when several fields change). The browser only fires `click` when press and release
-// land on the SAME element, so any rebuild between finger-down and finger-up silently
-// swallows the tap — the "tapping sometimes does nothing, or feels laggy" bug, where the
-// lag is really the wait until the user gives up and taps again. Swiping never had it: it
-// listens on the card and holds the gesture freeze for the whole gesture.
-//
-// pointerdown can't be stolen by a rebuild, and acting early is safe here because these
-// taps only ever SELECT (setActive is idempotent, and `pending` makes it authoritative
-// until the server confirms). The click handler stays for keyboard/AT activation, which
-// synthesizes a click with no pointer event, guarded so a real tap can't fire twice.
-//
-// The guard has to be armed per-gesture, not sticky: a latched flag would swallow every
-// LATER keyboard activation of the same element, and — because the pointer's click still
-// bubbles — an outer onTap target (the row wrapping .row-open) would see an unguarded
-// click and fire a second time. So swallow the pointer's own click, on the element that
-// handled the pointerdown, and disarm.
-//
-// Timestamp rather than a boolean because the disarm is not guaranteed: a press that
-// releases off the element produces neither `click` nor `pointercancel`, so a flag set on
-// pointerdown could stay armed indefinitely and eat the next keyboard activation. A click
-// belonging to our pointerdown always lands in the same task-ish window as the release, so
-// bounding the suppression in time is self-healing where an event-based reset isn't.
-// `defer`: wait for pointerup instead of firing on pointerdown, and cancel if the finger
-// travels more than SLOP first. EVERY tap target here lives in a scroller — rows in
-// vertically-scrolling #panes, the dock and filter strips in their own overflow-x — so a
-// scroll gesture necessarily begins with pointerdown on one of them, and acting there
-// would navigate or re-filter mid-scroll. Deferring to pointerup keeps the rebuild-immunity
-// that motivates this whole helper (we still never depend on press and release landing on
-// the same NODE, only on the same pointer) while letting a scroll gesture win. `defer` stays
-// a parameter rather than the only behavior so a target outside any scroller can still take
-// the snappier path.
-//
-// The deferred path's move/up listeners go on `document`, NOT on `el`. Binding them to the
-// element would hand the whole bug straight back: the element is exactly the thing a poll
-// rebuild detaches, and a detached node's `pointerup` never fires, so the tap would be
-// swallowed again — for rows, which are the surface that motivated this. `document` outlives
-// every rebuild. They are keyed by pointerId and torn down on up/cancel so a gesture can
-// never observe a different finger's release, and nothing accumulates between gestures.
-const TAP_CLICK_MS = 700; // generous: a slow press-and-hold still releases well inside it
-const TAP_SLOP = 10;      // px of travel that still counts as a tap, not a scroll
-// When a pointer gesture last ran an onTap action, in event-timeStamp terms. Module
-// scope on purpose: it must outlive any node a handler replaces (see the click branch).
-let _lastPointerAction = -1e9;
-// Releases a deferred tap already acted on — see done(). Weak and keyed by event identity,
-// so it neither mutates a host Event nor retains one.
-const _tapClaims = new WeakSet();
-
-function onTap(el, fn, defer) {
-  let downAt = 0;
-  el.addEventListener("pointerdown", (e) => {
-    if (e.button != null && e.button !== 0) return; // left/touch only
-    downAt = e.timeStamp || performance.now();
-    if (!defer) { _lastPointerAction = downAt; return void fn(e); }
-    // Deferred: follow THIS pointer on document until it releases. The listeners are
-    // per-gesture (added here, removed in done()) rather than one long-lived pair, so
-    // there is no cross-gesture state to get out of sync and nothing left behind.
-    const id = e.pointerId, sx = e.clientX, sy = e.clientY;
-    // Measure the target NOW, while it is still in the document. A poll rebuild can detach
-    // it before the release, and a detached node's rect is 0x0 — useless for deciding
-    // whether the finger came up on it. See tapStillOn.
-    const downRect = el.getBoundingClientRect();
-    let moved = false;
-    const move = (ev) => {
-      if (ev.pointerId !== id) return;
-      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > TAP_SLOP) moved = true;
-    };
-    const done = (ev) => {
-      if (ev.pointerId !== id) return;
-      document.removeEventListener("pointermove", move, true);
-      document.removeEventListener("pointerup", done, true);
-      document.removeEventListener("pointercancel", done, true);
-      // A release that scrolled, or that dragged off the target, is not a tap on it.
-      if (ev.type !== "pointerup" || moved) return;
-      if (!tapStillOn(el, ev, downRect)) return;
-      // One release, one action. .row-open is nested inside the row and BOTH are onTap
-      // targets, so one finger arms two gestures. On document, DOM nesting no longer orders
-      // the handlers and stopPropagation cannot suppress a sibling document listener, so
-      // whichever runs first CLAIMS the release and the other stands down. First is the
-      // inner target: pointerdown still bubbles element-first, so .row-open registered its
-      // document listener before the row did. Both actions are idempotent anyway — the
-      // claim is what keeps it to one /select POST instead of two.
-      //
-      // The claim is keyed by the EVENT IDENTITY, not by a derived key. A key built from
-      // pointerId+timeStamp looked tidy but collides: timeStamp can be 0 (this function
-      // already distrusts it — see `e.timeStamp || performance.now()` below), and every
-      // release would then hash to the same "1:0" and silently drop the SECOND real tap.
-      //
-      // A WeakSet rather than a property ON the event: this module is strict mode, and a
-      // host Event object is not guaranteed extensible, so `ev._x = true` can throw a
-      // TypeError and take out deferred taps entirely — the whole mechanism, on whichever
-      // engine does that. The WeakSet needs nothing of the event but its identity, and
-      // holds it weakly, so it can't pin a row a rebuild just detached.
-      if (_tapClaims.has(ev)) return;
-      _tapClaims.add(ev);
-      _lastPointerAction = ev.timeStamp || performance.now();
-      fn(ev);
-    };
-    document.addEventListener("pointermove", move, true);
-    document.addEventListener("pointerup", done, true);
-    document.addEventListener("pointercancel", done, true);
-  });
-  el.addEventListener("click", (e) => {
-    // Suppress the click that FOLLOWS a pointer gesture we already handled, and let a
-    // genuine keyboard/AT activation (which has no preceding pointerdown) through.
-    //
-    // The "did we already handle this?" state must live on the GESTURE, not on this
-    // element. `downAt` was per-element, so a handler that re-renders — the caret, whose
-    // fn() calls render() and replaces its own button — destroyed the node holding the
-    // guard; the click then arrived at a FRESH button with downAt === 0, was read as
-    // keyboard activation, and fired fn a second time. One tap toggled collapse and
-    // immediately toggled it back. _lastPointerAction is module-scoped and survives the
-    // rebuild, so the follow-up click is recognized no matter which node receives it.
-    //
-    // But ask WHAT the click is before asking WHEN it arrived. detail is the click count:
-    // 0 only for a synthesized activation (keyboard Enter/Space, AT), >=1 for anything a
-    // pointer produced. Time alone can't tell those apart, and since the stamp is global it
-    // would swallow a real keyboard activation on a DIFFERENT element merely for landing
-    // within TAP_CLICK_MS of an unrelated tap — tap a dock tab, then immediately press
-    // Enter on the caret, and the caret would do nothing. Checking detail first makes the
-    // time window a backstop for pointer clicks only, which is all it was ever for.
-    if (e.detail === 0) return void fn(e); // keyboard / AT: never a follow-up
-    const ts = e.timeStamp || performance.now();
-    if (ts - _lastPointerAction <= TAP_CLICK_MS) {
-      e.stopPropagation(); // already actioned on pointerdown/up
-      return;
-    }
-    if (downAt) { downAt = 0; e.stopPropagation(); return; } // this pointer's own click
-    fn(e); // no pointerdown seen at all ⇒ keyboard / assistive activation
-  });
-}
-
-// Did the finger come up still over the thing it pressed? `el` may have been replaced by a
-// poll rebuild mid-gesture, so element identity is the wrong question — geometry is. If `el`
-// is still connected, the plain containment check is exact.
-//
-// If it was swapped out, judge against `downRect` — its box CAPTURED AT POINTERDOWN, while
-// it was still in the document. Measuring at pointerup instead cannot work: a detached node
-// reports a 0x0 rect, which fell through to "no geometry, don't drop the tap" and quietly
-// disabled the drag-off-to-cancel rule for precisely the rebuilt-node case this function
-// exists to handle. A rebuild re-renders the SAME list in the same place, so the box the
-// user aimed at is where its replacement now sits; releasing outside it is a drag-away and
-// should cancel.
-function tapStillOn(el, ev, downRect) {
-  if (el.isConnected) {
-    const t = document.elementFromPoint(ev.clientX, ev.clientY);
-    return !!t && (el === t || el.contains(t));
-  }
-  const r = downRect;
-  if (!r || (!r.width && !r.height)) return true; // never measured — don't drop the tap
-  return ev.clientX >= r.left && ev.clientX <= r.right
-      && ev.clientY >= r.top && ev.clientY <= r.bottom;
-}
-
+// Taps are plain `click` handlers. Nodes are permanent (see the render invariant), so
+// press and release always land on the same element — and `click`, unlike a pointerdown
+// commit, still yields to a scroll gesture in the overflow-x strips for free.
+// Because a tap is a plain `click`, the four in-scroller controls (collapse caret,
+// session-summary toggle, sub-agents chip, question ANSWER OPTIONS) can no longer be
+// fired by a scroll that merely STARTED on them: `click` requires press and release on
+// the same element and the browser withholds it after a scroll. That is what onTap's
+// `defer` mode was hand-rolling, and it comes for free once nodes are permanent.
 function setActive(id) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
@@ -435,6 +377,7 @@ function setActive(id) {
 // once full while content still rotates.) Fetches are per-pane, deduped while in flight.
 const eventLog = {}; // pane_id -> {seq, events: [{text, file?, meta?, ts, historical?}]}
 const evFetching = new Set();
+
 
 function syncEvents(s) {
   const id = s.pane_id;
@@ -479,15 +422,6 @@ function stateDur(s) {
     : s.idle_seconds || 0;
 }
 
-// The working sub-line — verb · elapsed · ↓tokens (e.g. "Waiting for review 43s ↓40.4k")
-// — from the parser's `working` fields. Not gated on activity: a waiting pane still
-// reports what it's waiting on. Empty string when the parser gave no working fields.
-function workSub(s) {
-  const w = s.working || {};
-  const parts = [w.verb, w.elapsed, w.tokens && "↓" + w.tokens].filter(Boolean);
-  return parts.length ? `<span class="worksub">${parts.map(esc).join(" ")}</span>` : "";
-}
-
 // The ONE pane-header layout, shared by the expanded card and the list rows so they
 // can't drift: [caret?] [icon?] · title + headline (left, ellipsized) · working +
 // activity badge (right column, right-justified, stacked). Differences are just flags:
@@ -502,39 +436,109 @@ function nsubOf(s) {
   return Number.isFinite(+s.agents) && +s.agents > 0 ? Math.floor(+s.agents) : 0;
 }
 
-// `link`: may the headline contain anchors? NO for list rows, where row() moves this
-// header INTO a <button> (.row-open) — an <a> inside a <button> is invalid HTML, and
-// browsers disagree about which one a click or Enter activates, so the row's own
-// open-the-card action becomes unreliable and AT announces it inconsistently. The card
-// header is not inside a button, so it keeps its links.
-function paneHeader(s, { caret = false, collapsed = false, icon = false, link = false } = {}) {
-  const a = actOf(s);
-  const nsub = nsubOf(s);
-  // idle and waiting both show time-in-state ("idle 4m" / "waiting 4m"); the
-  // data-since attr lets tickBadges() advance the text every second in place, so a
-  // parked pane's clock stays honest without a full re-render (see stateDur).
-  const timed = a === "idle" || a === "waiting";
-  const badge = timed ? `${a} ${fmtIdle(stateDur(s))}`
-    : a === "running" || a === "compacting" ? `<span class="pulse"></span>${a}` : a;
-  // Numeric-coerced before it touches innerHTML: paneHeader returns markup, so a
-  // quoted/junk state_since must never reach an attribute (same rule as nsubOf).
-  const t0 = s.state_since == null ? NaN : +s.state_since;
-  const since = timed && Number.isFinite(t0) ? ` data-since="${t0}"` : "";
-  return (
-    (caret ? `<button class="card-caret" aria-label="${collapsed ? "expand" : "collapse"}"`
-      + ` aria-expanded="${!collapsed}">${collapsed ? "▸" : "▾"}</button>` : "")
-    + (icon ? `<span class="icon">${iconFor(s.tool)}` +
-        // aria-hidden: a bare "2" is meaningless to AT (and garbles any computed name).
-        // The count is spoken via the sub-toggle chip's text / dock icons' aria-label.
-        (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : "") + `</span>` : "")
+// The ONE pane-header, as a build/apply pair so the card and the rows share both halves
+// and can't drift. buildPaneHeader creates every node the header can ever need;
+// applyPaneHeader writes current state onto them.
+//
+// Nodes that don't apply to a given state are EMPTIED, not removed, so their handlers and
+// identity persist; CSS :empty rules hide them (see .ph-sub:empty / .worksub:empty /
+// .wnum:empty in index.html).
+// `link`: may the headline contain anchors? NO for list rows — row() puts this header
+// INSIDE .row-open, a real <button>, and an <a> inside a <button> is invalid HTML:
+// browsers disagree about which element a click or Enter activates, so the row's own
+// open-the-card tap becomes unreliable and AT announces it inconsistently. The card
+// header is not inside a button, so it keeps its links. Recorded on the header handle at
+// BUILD time (not passed per apply) because it is a property of where the header lives,
+// which never changes for a given node — the invariant's whole point.
+function buildPaneHeader(parent, { caret = false, icon = false, link = false } = {}, onCaret) {
+  const h = { link };
+  if (caret) {
+    h.caret = document.createElement("button");
+    h.caret.className = "card-caret";
+    if (onCaret) h.caret.onclick = onCaret;
+    parent.appendChild(h.caret);
+  }
+  if (icon) {
+    h.icon = document.createElement("span");
+    h.icon.className = "icon";
+    h.iconImg = document.createElement("img");
+    h.iconImg.width = h.iconImg.height = 22;
+    h.iconImg.style.borderRadius = "5px";
+    // aria-hidden: a bare "2" is meaningless to AT (and garbles any computed name). The
+    // count is spoken via the sub-toggle chip's text / the dock icons' aria-label.
+    h.sacount = document.createElement("sub");
+    h.sacount.className = "sacount";
+    h.sacount.setAttribute("aria-hidden", "true");
+    h.icon.append(h.iconImg, h.sacount);
+    parent.appendChild(h.icon);
+  }
+  const meta = document.createElement("div");
+  meta.className = "ph-meta";
+  h.name = document.createElement("div");
+  h.name.className = "ph-name";
+  if (icon) {
     // Rows (icon mode) lead with the tmux window number — the identity the user reads
     // off their own status bar — so the list scans as "the windows of this session".
-    + `<div class="ph-meta"><div class="ph-name">`
-    + (icon && s.window_index != null ? `<span class="wnum">${esc(String(s.window_index))}</span>` : "")
-    + `${esc(s.title || s.label || s.pane_id)}</div>`
-    + (s.headline ? `<div class="ph-sub">${link ? linkifyText(s.headline) : esc(s.headline)}</div>` : "")
-    + `</div><div class="ph-right">${workSub(s)}<span class="badge b-${a}"${since}>${badge}</span></div>`
-  );
+    h.wnum = document.createElement("span");
+    h.wnum.className = "wnum";
+    h.name.appendChild(h.wnum);
+  }
+  h.nameText = document.createElement("span");
+  h.name.appendChild(h.nameText);
+  h.sub = document.createElement("div");
+  h.sub.className = "ph-sub";
+  meta.append(h.name, h.sub);
+  h.right = document.createElement("div");
+  h.right.className = "ph-right";
+  h.work = document.createElement("span");
+  h.work.className = "worksub";
+  h.badge = document.createElement("span");
+  h.badge.className = "badge";
+  // The pulse dot is permanent; running/compacting show it, other states empty it out.
+  h.pulse = document.createElement("span");
+  h.pulse.className = "pulse";
+  h.badgeText = document.createElement("span");
+  h.badge.append(h.pulse, h.badgeText);
+  h.right.append(h.work, h.badge);
+  parent.append(meta, h.right);
+  return h;
+}
+
+function applyPaneHeader(h, s, collapsed) {
+  const a = actOf(s);
+  if (h.caret) {
+    setAttr(h.caret, "aria-label", collapsed ? "expand" : "collapse");
+    setAttr(h.caret, "aria-expanded", String(!collapsed));
+    setText(h.caret, collapsed ? "▸" : "▾");
+  }
+  if (h.icon) {
+    setAttr(h.iconImg, "src", logoFor(s.tool));
+    setAttr(h.iconImg, "alt", s.tool || "pane");
+    const nsub = nsubOf(s);
+    setText(h.sacount, nsub > 0 ? String(nsub) : "");
+  }
+  if (h.wnum) setText(h.wnum, s.window_index != null ? String(s.window_index) : "");
+  setText(h.nameText, s.title || s.label || s.pane_id);
+  // linkifyText escapes everything it does not turn into an anchor, so it is a safe
+  // drop-in for untrusted model text — but it produces MARKUP, so it needs innerHTML and
+  // its own unchanged-guard (assigning identical innerHTML would still rebuild the
+  // subtree and collapse a selection inside it, which setText exists to avoid).
+  if (h.link) setHtml(h.sub, s.headline ? linkifyText(s.headline) : "");
+  else setText(h.sub, s.headline || "");
+  // The working sub-line — verb · elapsed · ↓tokens (e.g. "Waiting for review 43s
+  // ↓40.4k"). Not gated on activity: a waiting pane still reports what it waits on.
+  const w = s.working || {};
+  setText(h.work, [w.verb, w.elapsed, w.tokens && "↓" + w.tokens].filter(Boolean).join(" "));
+  // idle and waiting both show time-in-state ("idle 4m" / "waiting 4m"); the data-since
+  // attr lets tickBadges() advance the text every second in place, so a parked pane's
+  // clock stays honest without a re-render (see stateDur).
+  const timed = a === "idle" || a === "waiting";
+  setAttr(h.badge, "class", "badge b-" + a);
+  // Numeric-coerced: a quoted/junk state_since must never reach the attribute.
+  const t0 = s.state_since == null ? NaN : +s.state_since;
+  setAttr(h.badge, "data-since", timed && Number.isFinite(t0) ? String(t0) : null);
+  setCls(h.pulse, "on", a === "running" || a === "compacting");
+  setText(h.badgeText, timed ? `${a} ${fmtIdle(stateDur(s))}` : a);
 }
 
 // Advance every idle/waiting badge's text once a second, in place, from its data-since.
@@ -544,7 +548,12 @@ function paneHeader(s, { caret = false, collapsed = false, icon = false, link = 
 function tickBadges() {
   for (const el of document.querySelectorAll(".badge[data-since]")) {
     const a = el.classList.contains("b-waiting") ? "waiting" : "idle";
-    el.textContent = `${a} ${fmtIdle(stateDur({ state_since: +el.dataset.since }))}`;
+    const txt = `${a} ${fmtIdle(stateDur({ state_since: +el.dataset.since }))}`;
+    // Write the inner text span, NOT el.textContent: the badge owns a permanent .pulse
+    // child (see buildPaneHeader), and setting textContent on the badge would delete it.
+    // setText's no-op also means a badge whose second hasn't ticked over is left
+    // completely alone, so a selection inside it survives.
+    setText(el.lastElementChild || el, txt);
   }
 }
 
@@ -571,7 +580,7 @@ let _booted = false;       // server has completed its first tick — an empty d
 // Long-poll /api/state: the request HOLDS on the server until the deck changes (pane
 // switch, add/remove, label/activity, new events) or ~25s, then returns. pollLoop is the
 // ONLY caller and runs one at a time, so there's no concurrent-fetch state to track —
-// sends never poll (they just hold the freeze; pollLoop resumes when it clears). Returns true
+// sends never poll, and nothing pauses this loop any more. Returns true
 // on success, false to signal pollLoop to back off before the next hold.
 async function poll() {
   try {
@@ -591,30 +600,17 @@ async function poll() {
       const hint = r.status === 502 || r.status === 503 || r.status === 504
         ? "tunnel or backend is down — is the tunnel client running?"
         : "";
-      panesEl.innerHTML = `<div class="empty">backend unavailable (${r.status})` +
-        (body ? `: ${esc(body)}` : "") + (hint ? `<br><small>${esc(hint)}</small>` : "") + `</div>`;
+      // Write through the persistent empty-state node instead of replacing #panes: the
+      // deck, card and peek live in there, and blowing them away would take the peek's
+      // live stream and every wired handler with them.
+      showNotice(`backend unavailable (${r.status})` + (body ? `: ${body}` : "")
+        + (hint ? ` — ${hint}` : ""));
       return false;  // back off — without a gap pollLoop would re-request instantly and hammer
     }
     const data = await r.json();
-    // The freeze may have gone up WHILE this request was in flight (a send/gesture
-    // started mid-fetch). Applying the response now would replace the card under the
-    // user — the very thing the freeze exists to prevent. Drop it without touching
-    // _stateVersion, so the next (post-freeze) hold re-fetches from the same version and
-    // renders in order.
-    //
-    // Returns FALSE, not true, so pollLoop puts a gap in before re-requesting. Dropping
-    // the body leaves _stateVersion pointing at a version the server has already moved
-    // past, so the next request cannot HOLD — the server holds only while v equals its
-    // current version — and is answered immediately. Reporting success there re-requests
-    // with zero gap, and once the freeze lifts pollLoop's own busy-sleep is no longer
-    // there to bound it either: an instantly-answered request in a zero-gap loop is a hot
-    // spin against the backend for as long as the race lasts.
-    //
-    // The version deliberately stays STALE rather than being advanced-without-rendering.
-    // Advancing it would re-hold on a version whose content was never drawn, so if nothing
-    // changed again the server would hold ~25s with the card still stale. Keeping it behind
-    // is what guarantees the next poll re-fetches and renders.
-    if (isBusy()) return false;
+    // Applied unconditionally, even mid-gesture: a render only writes text onto nodes the
+    // gesture is animating, so there is no reason to drop a response (and dropping one
+    // leaves the deck stale).
     // A well-formed response always carries a numeric version. version 0 = no initial
     // state yet; a missing/non-numeric version = an older daemon that predates long-poll.
     // Both must back off, else pollLoop re-requests with gap=0 and tight-loops the backend.
@@ -668,14 +664,40 @@ async function poll() {
     // aborts the in-flight long-poll, first re-poll fails while the radio wakes): KEEP
     // the cached UI — it was correct a second ago and the pulsing dot already says
     // "reconnecting". Nuking it for an error page threw away good content on every
-    // app resume. Full replacement only when nothing is rendered yet (cold load) or
-    // the failure isn't transient.
-    if (transient && panesEl.children.length && !panesEl.querySelector(".empty")) return false;
+    // app resume. Only show the notice when nothing is rendered yet (cold load) or the
+    // failure isn't transient.
+    // EITHER mode counts as "content on screen". Checking only the deck was wrong: in list
+    // mode the deck is hidden and the LIST is what the user is looking at, so a blip there
+    // fell through and replaced their rows with an error page — the exact behaviour this
+    // guard exists to prevent, for half the UI. (main's version asked `panesEl.children
+    // .length && !panesEl.querySelector(".empty")`, which was mode-agnostic; naming the
+    // deck when the persistent nodes arrived is what narrowed it.) The empty/notice node
+    // being visible means nothing is rendered yet, so a cold-load failure still shows.
+    const showing = _panesUI && _panesUI.empty.classList.contains("hid")
+      && (!_panesUI.deck.classList.contains("hid") || !_panesUI.list.classList.contains("hid"));
+    if (transient && showing) return false;
     const hint = transient ? "reconnecting…" : "often a stale cached app.js — hard-refresh";
-    panesEl.innerHTML = `<div class="empty">poll error: ${esc(String(e && e.message || e))}<br>` +
-      `<small>(${hint})</small></div>`;
+    showNotice(`poll error: ${String(e && e.message || e)} (${hint})`);
     return false;
   }
+}
+
+// The one place a full-screen message replaces the deck. It writes through the PERSISTENT
+// empty-state node (never #panes.innerHTML), so the card, peek and their handlers survive
+// an outage and are simply revealed again when the next poll succeeds.
+function showNotice(msg) {
+  const ui = panesUI();
+  setCls(ui.deck, "hid", true);
+  setCls(ui.list, "hid", true);
+  setCls(ui.empty, "hid", false);
+  setCls(ui.spinner, "hid", true);
+  // Drop cardmode with the deck (#106). This path is reached from an outage while a CARD
+  // was on screen, so the class is still set from that render — and it exists to switch OFF
+  // #panes' bar padding, which only the viewport-sized deck can do without. With the deck
+  // hidden the notice is a short block in an unpadded #panes, i.e. squeezed against the
+  // fixed input bar. Same reason render()'s empty/loading branch clears it.
+  panesEl.classList.remove("cardmode");
+  setText(ui.emptyText, msg); // error text is untrusted-ish: textContent, never innerHTML
 }
 // Woken when the PWA returns to the foreground: an interruptible backoff sleep resolves
 // early via this, so a resume cuts short the post-error wait AND the version reset makes
@@ -690,36 +712,13 @@ function pollSleep(ms) {
 }
 // Drive the long-poll: as soon as one hold returns, start the next. The server does the
 // waiting (holds ~25s or until change), so this is not a busy-loop — and pollLoop is the
-// ONLY caller of poll(), so no concurrent-fetch coordination is needed. While `busy` (a
-// send/gesture froze re-renders) skip the fetch and wait a beat; poll() returning false
-// (backend down / legacy daemon) also backs off, so we never tight-loop.
+// ONLY caller of poll(), so no concurrent-fetch coordination is needed. poll() returning
+// false (backend down / legacy daemon) backs off, so we never tight-loop.
+//
+// The loop never pauses for rendering: nothing freezes renders any more, so there is no
+// freeze flag that a missed release could leak into a wedged app.
 async function pollLoop() {
-  let heldSince = 0;
   for (;;) {
-    if (isBusy()) {
-      // WATCHDOG. The freeze is owned by whichever gesture/send set it, and
-      // a missed release wedges the whole app: the poll stops, the deck goes stale, and the
-      // composer paths that coordinate through it stop working — indistinguishable from a
-      // dead app, unfixable without a reload. Every known leak is fixed, but the failure
-      // mode is severe and the flag is set from many places, so refuse to honor it beyond
-      // any plausible gesture or send (a slow image upload is seconds, not ten).
-      // Self-healing beats correct-in-theory here.
-      //
-      // The FREEZE only — never `sending`. A >10s hold is usually a leak, but it is also exactly
-      // what a large image upload on a bad network looks like, and that send's fetch is
-      // still in flight. `sending` is the re-entry guard its owner releases in a finally;
-      // clearing it here would re-open Send mid-request and let the same message go twice.
-      // Unfreezing renders is always safe, so the watchdog's remit stops there.
-      heldSince = heldSince || Date.now();
-      if (Date.now() - heldSince > 10000) {
-        console.warn("[tmux-rc] busy held >10s — releasing (leaked gesture/send flag)");
-        reportError("busy-stuck", { name: "BusyWatchdog", message: "busy held >10s; force-released" });
-        busySend = false; busyGesture = false; heldSince = 0;
-      } else {
-        await pollSleep(250); continue; // a send/gesture froze re-renders; re-check soon
-      }
-    }
-    heldSince = 0;
     const ok = await poll();
     if (!ok) await pollSleep(1000); // outage / resume blip / legacy daemon: back off, wake early on resume
   }
@@ -732,12 +731,9 @@ function onResume() {
   if (document.visibilityState !== "visible") return;
   _stateVersion = null;           // next poll = "give me current state now", never held
   if (_wakePoll) _wakePoll();     // cut short an in-progress backoff sleep
-  // Backgrounded mid-gesture, the OS may never deliver touchend, so the swipe/pinch that
-  // set the freeze never releases it and the returning user finds a frozen app. A real
-  // gesture can't survive backgrounding, so clearing here is free — and it belongs on this
-  // one already-registered listener rather than one per pinchZoom instance. Clears the SEND
-  // hold too: an in-flight fetch was aborted by the suspend, and its finally may never run.
-  busySend = false; busyGesture = false;
+  // Nothing to unwedge: backgrounding mid-gesture means the OS may never deliver touchend,
+  // but an abandoned gesture leaves only per-instance state that the next touchstart
+  // overwrites — no global flag can survive to freeze the returning user's app.
 }
 document.addEventListener("visibilitychange", onResume);
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
@@ -759,19 +755,59 @@ liveEl.onkeydown = (e) => {
 liveEl.onkeyup = (e) => {
   if (e.key === " ") { e.preventDefault(); liveEl.click(); }
 };
-// The docs link rides in the popover (rebuilt on every showUsage), not the top bar —
-// header space is too tight on phones for a rarely-tapped link.
-const DOCS_LINK = '<span class="u-row u-docs"><a id="docs-link" href="/docs/" target="_blank"' +
-  ' rel="noopener" title="Design docs (opens in a new tab)">design docs ↗</a></span>';
-// One labeled menu row: what the number IS on the left, the number on the right.
-const uRow = (label, val, cls = "") =>
-  `<span class="u-row"><span>${label}</span><span class="u-val${cls}">${val}</span></span>`;
+// One labeled menu row: what the number IS on the left, the number on the right. Rows are
+// DESCRIPTORS keyed by name, so the numbers tick in place — rebuilding would destroy the
+// docs link under a user who has the popover open and is reaching for it.
+const uRow = (key, label, val, cls = "") => ({ key, label, val, cls });
+// The docs link rides in the popover, not the top bar — header space is too tight on phones
+// for a rarely-tapped link. It's a link, not a stat, so it gets its own row shape.
+const DOCS_ROW = { key: "docs", docs: true };
+
+function applyUsageRows(rows) {
+  keyedList(usageEl, rows, (r) => r.key, (r) => {
+    const sp = document.createElement("span");
+    if (r.docs) {
+      sp.className = "u-row u-docs";
+      const a = document.createElement("a");
+      a.id = "docs-link";
+      a.href = "/docs/";
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.title = "Design docs (opens in a new tab)";
+      a.textContent = "design docs ↗";
+      sp.appendChild(a);
+      return sp;
+    }
+    sp.className = "u-row";
+    sp._label = document.createElement("span");
+    sp._val = document.createElement("span");
+    // The error row shows a warning glyph rather than a number; the icon is static markup
+    // built once here, and only its title (the untrusted error text) is written per poll.
+    sp._icon = document.createElement("span");
+    sp._icon.className = "warn";
+    sp._icon.innerHTML = licon("alert", 12);
+    sp._val.append(sp._icon);
+    sp._num = document.createElement("span");
+    sp._val.append(sp._num);
+    sp.append(sp._label, sp._val);
+    return sp;
+  }, (sp, r) => {
+    if (r.docs) return;
+    setText(sp._label, r.label);
+    setAttr(sp._val, "class", "u-val" + (r.cls || ""));
+    setCls(sp._icon, "on", !!r.icon);
+    setAttr(sp._icon, "title", r.icon ? r.title : null);
+    setText(sp._num, r.icon ? "" : r.val);
+  });
+}
+
 function showUsage(u, err) {
   if (!u) {
     // Gone (reconnect, fresh daemon): drop the stale stats but keep the docs link —
     // and DON'T touch hidden/aria-expanded: force-closing on every poll would slam
     // the popover shut under a user who opened it for the docs link.
-    usageEl.innerHTML = DOCS_LINK; usageEl.title = "";
+    applyUsageRows([DOCS_ROW]);
+    usageEl.title = "";
     return;
   }
   // Debug telemetry, not session-critical — so it sits dimmed in the background (CSS)
@@ -785,72 +821,27 @@ function showUsage(u, err) {
   const tok = ((u.in_tokens + u.out_tokens + live.in_tokens + live.out_tokens) / 1000).toFixed(0);
   const parser = (u.parser_cost ?? u.cost);
   const rows = [
-    uRow("LLM tokens (parser + voice)", `${tok}k`),
-    uRow("spend this run", `$${u.cost.toFixed(3)}`, u.errors ? " warn" : ""),
-    uRow("parser calls", `${u.rate_per_min}/min`),
+    uRow("tok", "LLM tokens (parser + voice)", `${tok}k`),
+    uRow("spend", "spend this run", `$${u.cost.toFixed(3)}`, u.errors ? " warn" : ""),
+    uRow("rate", "parser calls", `${u.rate_per_min}/min`),
   ];
   if (live.sessions) {
-    rows.push(uRow("voice sessions", String(live.sessions)));
-    rows.push(uRow("voice spend (of total)", `$${live.cost.toFixed(3)}`));
-    rows.push(uRow("parser spend (of total)", `$${parser.toFixed(3)}`));
+    rows.push(uRow("vsess", "voice sessions", String(live.sessions)));
+    rows.push(uRow("vspend", "voice spend (of total)", `$${live.cost.toFixed(3)}`));
+    rows.push(uRow("pspend", "parser spend (of total)", `$${parser.toFixed(3)}`));
   }
-  if (err) rows.push(uRow("last LLM error", `<span class="warn" title="${escAttr(err)}">${licon("alert", 12)}</span>`));
-  rows.push(DOCS_LINK);
-  usageEl.innerHTML = rows.join("");
+  // The error text is untrusted; it rides as a title ATTRIBUTE via setAttr, which sets the
+  // DOM property directly, so it needs no escaping.
+  if (err) rows.push({ key: "err", label: "last LLM error", icon: true, title: String(err) });
+  rows.push(DOCS_ROW);
+  applyUsageRows(rows);
   usageEl.title = ""; // the labels ARE the explanation now — no tooltip needed
 }
-// Full attribute escaping: & FIRST (so introduced entities aren't re-escaped), then the
-// quote/angle set. A partial escape (only ") lets a value like `&quot;` decode back into
-// a quote and break out of the attribute — these values come from parser JSON (untrusted).
-function escAttr(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
+// No attribute escaping helper: nothing interpolates untrusted values into attribute
+// markup. Every attribute goes through setAttr (a direct DOM property write), so quotes
+// and angle brackets in parser JSON cannot break out. esc() survives for the one remaining
+// markup template, the fullscreen overlay's static chrome.
 
-// What the rendered UI actually depends on. If this is unchanged, a re-render would
-// rebuild identical DOM — so we skip it entirely and every live node (with its handlers,
-// focus, caret, scroll position and in-flight gesture) survives.
-//
-// THE RULE THIS ENFORCES: nothing in the UI may break because a pane is updating. Every
-// control here is created fresh by render() and wired per render, so a rebuild landing
-// between a finger going down and coming up silently swallowed the tap — the caret, the
-// fullscreen button, answer options, the sub-agent toggle, Send, dock tabs, filters. That
-// was fixed control-by-control with onTap, which is real but only ever protects the
-// controls someone remembered. Skipping the pointless rebuild protects ALL of them,
-// including any added later, and is also strictly less work.
-//
-// Deliberately EXCLUDES the streaming terminal frame (the peek repaints itself via its
-// own stream, not through render) and volatile counters, so a busy pane whose output is
-// scrolling does NOT churn the card. Includes everything the card/dock/list actually
-// draw: identity, activity, badges, question shape, event sequence, and view mode.
-function _renderFp(states) {
-  return JSON.stringify([
-    listFilter, cardsCollapsed, activeId(),
-    states.map((s) => [
-      s.pane_id, s.session, s.window_index, s.label, s.title, s.headline,
-      actOf(s), s.waiting_on, s.tool, s.mode, s.model, s.context_pct, s.cost,
-      s.session_active, s.tmux_active, s.events_seq, s.snapshot_id,
-      // parsed_at is load-bearing, not decoration. The lists below are fingerprinted by
-      // LENGTH, so a re-parse that REWRITES content without changing counts — a task's
-      // text, a link's label, a copyable's payload — was invisible here and the render got
-      // skipped, leaving the card stale against a parse the server had already published.
-      // The daemon bumps the state version on parsed_at (watcher.py _deck_fp), so keying on
-      // it makes this skip a strict subset of the server's "something changed" condition,
-      // which is correct by construction instead of by remembering to list every drawn
-      // field. It only advances on an actual re-parse, so it costs no extra rebuilds.
-      s.parsed_at,
-      s.agents, (s.subagents || []).length, (s.tasks || []).length,
-      (s.copyables || []).length, (s.links || []).length, (s.tables || []).length,
-      s.question ? [s.question.prompt, (s.question.options || []).length] : 0,
-      s.rewind ? 1 : 0, s.session_summary, isReparsing(s),
-      // idle/waiting badges tick from data-since in place (tickBadges), so the SECOND
-      // must not enter the fingerprint or a parked pane would rebuild once a second.
-      s.state_since ?? null,
-      subsOpen.has(s.pane_id), // a Set — .has, not a spread + linear scan per pane per poll
-    ]),
-  ]);
-}
-let _renderFpLast = null;
 
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
@@ -860,7 +851,7 @@ function render(states) {
   states.forEach(syncEvents);
   // Prune per-pane caches when panes vanish — otherwise pane churn grows them
   // without bound over a long-running session.
-  for (const m of [eventLog, eventScroll, peekCache, bgZoom])
+  for (const m of [eventLog, peekCache, bgZoom, cardUI ? cardUI.events.openByPane : {}])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   setFavicon(states.some((s) => actOf(s) === "waiting"));
   // No card visible (empty / list mode) ⇒ no peek stream should be running. bgTerm
@@ -870,60 +861,53 @@ function render(states) {
     peekStreamPane = peekBox = peekWrap = null;
     peekLive = false;
   };
+  const ui = panesUI();
   if (!states.length) {
     stopPeek();
-    // Sweep the tab-join fillets too: they're parented to #top (to escape the dock's
-    // overflow clip), so replacing #panes/#dock leaves them dangling over the empty
-    // screen — the two stray blue curves seen during a daemon reload's brief no-panes.
+    // Sweep the tab-join fillets: they're parented to #top (to escape the dock's overflow
+    // clip), so a hidden deck leaves them dangling over the empty screen — the two stray
+    // blue curves seen during a daemon reload's brief no-panes.
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
-    _joinRO.disconnect(); // stop watching the card we're about to drop
-    dockEl.replaceChildren();
-    filtersEl.replaceChildren(); // no panes ⇒ no tallies to filter by
-
-    // Drop the card-view dock state too: its onscroll pin closes over the now-dead
-    // card nodes, and the seam classes would style a dock that no longer has a card.
+    _joinRO.disconnect(); // stop watching the card we're about to hide
+    keyedList(dockEl, [], (x) => x, () => null);
+    keyedList(filtersEl, [], (x) => x, () => null); // no panes ⇒ no tallies to filter by
+    // Drop the card-view dock state too: the seam classes would style a dock that no
+    // longer has a card.
     dockEl.onscroll = null;
     dockEl.classList.remove("edge-l", "has-sel");
+    setCls(ui.deck, "hid", true);
+    setCls(ui.list, "hid", true);
+    setCls(ui.empty, "hid", false);
     // Empty deck has two causes: still loading (server booting / initial pane parses in
     // flight) vs. genuinely no panes. Only claim "no panes" once the server has booted —
     // otherwise show a spinner, since panes may exist and just aren't parsed yet.
-    // Keyed by data-empty so we only rewrite innerHTML when the STATE changes: the
-    // loading window spans several polls, and re-setting innerHTML each time recreated
-    // the .spinner element, restarting its CSS animation → visible jitter. Same key =
-    // leave the existing (still-spinning) node alone.
-    const key = _booted ? "none" : "loading";
-    if (panesEl.dataset.empty !== key) {
-      panesEl.dataset.empty = key;
-      panesEl.innerHTML = _booted
-        ? '<div class="empty">No tmux pane found.<br>Start a session and it will appear here.</div>'
-        : '<div class="empty"><span class="spinner" aria-hidden="true"></span><br>Loading panes…</div>';
-    }
+    // The spinner is a PERMANENT node: recreating it across the several polls a load can
+    // span would restart its CSS animation and visibly jitter.
+    setCls(ui.spinner, "hid", !!_booted);
+    setText(ui.emptyText, _booted
+      ? "No tmux pane found. Start a session and it will appear here."
+      : "Loading panes…");
     // The empty/loading state is neither mode, and it returns BEFORE the branches below —
-    // so clear the flag here or a stale cardmode from the last render squeezes the message
-    // against the bar.
+    // so clear cardmode here (#106) or a stale one from the last render leaves #panes with
+    // no bar padding and squeezes the message against the input bar.
     panesEl.classList.remove("cardmode");
     updateBar(null);
     return;
   }
-  delete panesEl.dataset.empty; // re-arm the empty-state guard for the next empty deck
-  // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting)
-  // each get a compact row above it; plain shells fold into one summary line so a
-  // big fleet doesn't shove the active card off screen.
-  // Nothing the UI draws has changed ⇒ do not touch the DOM. This is what makes the app
-  // safe to use while panes are updating: handlers, focus, caret and gestures all live on.
+  setCls(ui.empty, "hid", true);
+  // Only the ACTIVE pane gets a full card. Other AGENT panes (and anything waiting) each
+  // get a compact row above it; plain shells fold into one summary line so a big fleet
+  // doesn't shove the active card off screen.
   //
-  // A skip here CANNOT hot-spin the poll loop, and the reason is an ordering that must be
-  // preserved: poll() assigns _stateVersion from the response BEFORE calling render(). So
-  // the version the server just published is always recorded, whether or not this render
-  // runs, and the next long-poll re-holds on it. Were the assignment moved after render —
-  // or made conditional on the render happening — every skipped render would re-request
-  // with a version the server had already passed, the hold condition (v == current) would
-  // never be met, and each reply would return instantly: a genuine hot loop, measured at
-  // ~1000 req/s against the daemon's ~3.5/s change rate.
-  const fp = _renderFp(states);
-  if (fp === _renderFpLast && panesEl.firstChild) { updateBar(panesById[activeId()]); return; }
-  _renderFpLast = fp;
-
+  // NO render-skip fingerprint (_renderFp/_renderFpLast are gone). It existed to protect
+  // live nodes from a rebuild that no longer happens: every write below goes through
+  // setText/setAttr/setCls/setHtml, each a no-op when the value is already current, so an
+  // unchanged poll performs ZERO DOM mutations without having to predict that in advance.
+  // That is strictly better than the fingerprint, which had to ENUMERATE the drawn fields
+  // and silently skipped whatever it forgot — it omitted parsed_at and dropped 6 of 10 real
+  // content changes (a task's text, a link's label, a copyable's payload: all rewrites that
+  // left the sampled LENGTHS unchanged). Here those same changes flow through setText,
+  // which compares the actual value and writes it. There is no field to remember.
   const act = activeId();
   // List mode (a dock tally badge or "all" was tapped): just those panes as
   // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
@@ -934,57 +918,82 @@ function render(states) {
     listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
+    setCls(ui.deck, "hid", true);
+    setCls(ui.list, "hid", false);
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
-    // Rows in server order — same as the dock. That order is tmux's own
-    // session/window/pane order, so grouping windows under their session is just
-    // "insert a header where the session changes": no sorting, no client-side
-    // restructure. Headers only when the deck actually spans sessions — a lone
-    // header over every row would be noise for the single-session common case.
-    // Ordinals come from the FULL deck (not the filtered subset) so a header's hue
-    // always matches that session's dock rail even when a filter hides sessions.
-    const ord = new Map();
-    states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
     panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
-    panesEl.replaceChildren(...subset.flatMap((s, i) => {
-      const r = row(s, act);
-      if (ord.size < 2 || (i && subset[i - 1].session === s.session)) return [r];
-      const h = document.createElement("div");
-      h.className = "sess-hdr c" + ((ord.get(s.session) % 4) + 1);
-      h.textContent = s.session;
-      return [h, r];
-    }));
+    // Session headers, ordinals and row order all live in applyList — it keys headers and
+    // rows into one list so a session boundary appearing/disappearing inserts or removes
+    // exactly that header, instead of re-keying the rows after it.
+    applyList(ui.list, states, subset, act);
     updateBar(panesById[act]);
-    flipIn(panesEl);
     return;
   }
   listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
+  setCls(ui.list, "hid", true);
+  // Hiding the list must also EMPTY it: a .sess-hdr:first-child rule and the row nodes
+  // themselves would otherwise linger behind the hidden class, and stale rows holding
+  // pane state is exactly what this refactor is removing.
+  applyList(ui.list, states, [], act);
   dock(states, act); // sticky top bar — constant height, content swaps below it
-  {
-    // The deck is a positioning context: the pane's capture as background, the card
-    // floating over its top (swipe ghosts overlay here too), ⤢ for the full view.
-    const deck = document.createElement("div");
-    deck.className = "deck";
-    const a = panesById[act];
-    if (a) {
-      const fs = document.createElement("button");
-      fs.className = "fsbtn";
-      // Inline SVG, not the ⤢ glyph: the phone's font fallback renders the char with
-      // odd metrics (tiny ink, wide advance), distorting the button — confirmed by
-      // A/B on device. SVG renders identically everywhere.
-      fs.innerHTML =
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
-        ' stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
-        '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>';
-      fs.title = "Full screen";
-      fs.setAttribute("aria-label", "Full screen");
-      onTap(fs, () => openScreen(a.pane_id, a.title || a.label));
-      deck.append(card(a), bgTerm(a), fs); // flex column: DOM order = visual order
-    }
-    panesEl.classList.add("cardmode"); // drops #panes' bar padding — see the CSS
-    panesEl.replaceChildren(deck);
-    joinTab(deck);
+  const a = panesById[act];
+  // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
+  // remaining viewport AND runs under the bar via its own negative margin, so counting the
+  // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
+  // being SHOWN, not merely to reaching this branch: with no active pane the deck is hidden
+  // and nothing is sized to the viewport, so the padding is what keeps content off the bar.
+  // (A class, not :has() — app.js deliberately avoids :has() for older iOS Safari.)
+  setCls(panesEl, "cardmode", !!a);
+  setCls(ui.deck, "hid", !a);
+  if (a) {
+    applyCard(cardUI, a);
+    bgTerm(a);
+    ui.fs._pane = a.pane_id;
+    ui.fs._label = a.title || a.label;
+    joinTab(ui.deck);
   }
   updateBar(panesById[act]);
+}
+
+// #panes' one-time skeleton: the empty/loading notice, the list container, and the deck
+// (a positioning context holding the card, the background terminal and the ⤢ button).
+// All three are created once and shown/hidden by class — never replaced.
+let _panesUI = null;
+function panesUI() {
+  if (_panesUI) return _panesUI;
+  const empty = document.createElement("div");
+  empty.className = "empty";
+  const spinner = document.createElement("span");
+  spinner.className = "spinner";
+  spinner.setAttribute("aria-hidden", "true");
+  const emptyText = document.createElement("div");
+  empty.append(spinner, emptyText);
+  const list = document.createElement("div");
+  list.className = "plist";
+  const deck = document.createElement("div");
+  deck.className = "deck";
+  const fs = document.createElement("button");
+  fs.className = "fsbtn";
+  // Inline SVG, not the ⤢ glyph: the phone's font fallback renders the char with odd
+  // metrics (tiny ink, wide advance), distorting the button — confirmed by A/B on device.
+  fs.innerHTML =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+    ' stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+    '<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>';
+  fs.title = "Full screen";
+  fs.setAttribute("aria-label", "Full screen");
+  // Reads the pane it targets off the node at CALL time, so the one persistent button
+  // always opens the pane the deck currently shows.
+  fs.onclick = () => { if (fs._pane) openScreen(fs._pane, fs._label); };
+  cardUI = buildCard();
+  // flex column: DOM order = visual order. bgTerm's wrap is inserted between the card and
+  // the ⤢ by buildPeek (see bgTerm), which owns that slot for the life of the page.
+  deck.append(cardUI.root, fs);
+  // REPLACE the boot placeholder (#panes ships with a "Connecting…" .empty div) rather than
+  // appending beside it — otherwise it lingers above the deck forever, since nothing else
+  // ever clears #panes now.
+  panesEl.replaceChildren(empty, list, deck);
+  return (_panesUI = { empty, spinner, emptyText, list, deck, fs });
 }
 
 // The tab-to-card join hardware: a 1px card-colored notch laid over the card's blue
@@ -997,13 +1006,17 @@ function render(states) {
 function joinTab(deck) {
   const top = document.getElementById("top");
   top.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
+  // ...and the notch, which lives in the DECK rather than #top and so was missed by the
+  // sweep above. Every joinTab appended a fresh one, so they accumulated: each leftover
+  // stayed pinned where the tab was when it was made, painting the card's top border as a
+  // row of stray blue stubs under the dock icons. Observed 7 and climbing on a live deck.
+  deck.querySelectorAll(".tab-notch").forEach((e) => e.remove());
   // Stop watching the prior render's card up front, and drop the prior pin() closure so
   // EVERY exit — including the list-mode early return below (no selected icon, no card to
   // join) — releases the observer AND the closure's captured DOM nodes for GC.
   _joinRO.disconnect();
   _joinPin = null;
-  const sel = dockEl.querySelector(".dock-icon.sel");
-  if (!sel) return;
+  if (!dockEl.querySelector(".dock-icon.sel")) return;
   const n = document.createElement("i");
   n.className = "tab-notch";
   deck.appendChild(n);
@@ -1015,6 +1028,12 @@ function joinTab(deck) {
     return f;
   });
   const pin = _joinPin = () => {
+    // Resolve the selected icon at CALL time, never from a closure. Dock icons are now
+    // permanent nodes whose .sel class MOVES between them (see the render invariant), so
+    // a captured `sel` would keep measuring whichever icon happened to be selected when
+    // this join was created — pinning the fillets under the wrong tab after a switch.
+    const sel = dockEl.querySelector(".dock-icon.sel");
+    if (!sel) return;
     const s = sel.getBoundingClientRect(),
       d = deck.getBoundingClientRect(), t = top.getBoundingClientRect(),
       dock = dockEl.getBoundingClientRect();
@@ -1135,23 +1154,69 @@ const foldOpen = new Set();
 const subsOpen = new Set();
 const dockEl = document.getElementById("dock");
 const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
+// One dock icon, built once per pane. The handler closes over the pane_id STRING
+// (never over `s`), so it stays correct for the life of the node no matter how many
+// polls rewrite the icon around it.
+function buildDockIcon(paneId) {
+  const b = document.createElement("button");
+  b.className = "dock-icon";
+  b.dataset.pane = paneId;
+  const im = document.createElement("img");
+  im.width = im.height = 22;
+  im.style.borderRadius = "5px";
+  const dot = document.createElement("i");
+  dot.setAttribute("aria-hidden", "true");
+  const sac = document.createElement("sub");
+  sac.className = "sacount";
+  sac.setAttribute("aria-hidden", "true");
+  b.append(im, dot, sac);
+  b._im = im; b._dot = dot; b._sac = sac;
+  // Jump to that pane's CARD — including from list mode (a dock tap means "show me
+  // this pane", not "re-highlight it inside the list").
+  b.onclick = () => { listFilter = null; setActive(paneId); };
+  return b;
+}
+
+// Write the current state of one pane onto its existing icon.
+function applyDockIcon(b, s, act) {
+  const a = actOf(s);
+  const nsub = nsubOf(s);
+  setCls(b, "sel", s.pane_id === act);
+  setAttr(b._im, "src", logoFor(s.tool));
+  setAttr(b._im, "alt", s.tool || "pane");
+  // The activity dot is a permanent node whose class carries the state; idle panes get
+  // no dot at all — quiet is the default, only running/waiting/compacting earn a signal.
+  const dotted = a === "running" || a === "waiting" || a === "compacting";
+  setAttr(b._dot, "class", dotted ? `ddot d-${a}` : "ddot-off");
+  setText(b._sac, nsub > 0 ? String(nsub) : "");
+  const title = s.title || s.label || s.pane_id;
+  setAttr(b, "title", title);
+  // Fold the sub-agent count into the button's own label so AT announces it.
+  setAttr(b, "aria-label", title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
+}
+
 function dock(states, act) {
   const el = dockEl;
-  el.replaceChildren();
   // Card view only: the selected icon joins to the card below it (see .has-sel CSS).
   // In list mode there's no card under the dock, so no seam to open — and no fillets,
-  // and no scroll re-pin handler (it closes over the dead card's nodes).
-  const joined = el.classList.toggle("has-sel", !listFilter && states.some((s) => s.pane_id === act));
+  // and no scroll re-pin handler.
+  const joined = !listFilter && states.some((s) => s.pane_id === act);
+  setCls(el, "has-sel", joined);
   if (!joined) {
     document.querySelectorAll(".tab-fillet").forEach((e) => e.remove());
     el.onscroll = null;
     el.classList.remove("edge-l");
   }
   // Chrome-tab-group-style session trays: each session's run of icons shares one
-  // .dock-group span; the tray CSS paints a colored rail + session name above it.
-  // The array is already in tmux session order, so a group is just "same session as
-  // the previous icon". All tray chrome keys off the .grouped class toggled below —
-  // single-session decks never get it, so nothing changes until sessions multiply.
+  // .dock-group span; the tray CSS paints a colored rail + session name above it. The
+  // array is already in tmux session order, so a group is just "same session as the
+  // previous icon". All tray chrome keys off the .grouped class toggled below — single-
+  // session decks never get it, so nothing changes until sessions multiply.
+  //
+  // CRITICAL: .dock-group:nth-of-type(4n+1..4n) sets each tray's hue from its DOM
+  // POSITION, so the groups must be reconciled IN ORDER — keyedList's forward pass
+  // guarantees that, and keying by session name means a session keeps its own node
+  // (and therefore its icons' handlers) across polls.
   //
   // Parked panes (idle past PARKED_IDLE_SECS) fold to the END of their own session's
   // tray behind one "+N" chip, so the panes actually in play stay on screen. Why the
@@ -1163,19 +1228,24 @@ function dock(states, act) {
   // are an artifact of tmux window numbering). One chip per session reads as a fact —
   // "6 parked here" — and measured 412px, which fits all three sessions on screen at
   // 390px. See the PR for the reordering trade-off this accepts.
-  let group = null, ngroups = 0;
+  //
   // Folding is a DOCK-ONLY view concern: `states` is never reordered or filtered, so the
   // list, the swipe carousel (which walks panesById's server order) and the tally badges
   // all still see tmux's own session/window/pane order. The dock trades strict order
   // WITHIN a session tray for density; nothing else does.
-  const trays = new Map();  // session -> its .dock-group element (so the chip pass needs no re-query)
-  const parked = new Map(); // session -> count of its parked panes
+  //
+  // The fold decides WHICH panes go in a tray, so it is computed HERE, while building the
+  // `groups` array — the inner keyedList is then handed only the visible panes and stays a
+  // plain reconcile. Folding a pane away removes its icon node (keyedList's leftover pass);
+  // unfolding builds it again. That is the one thing in the dock that is not a persistent
+  // node, and it cannot be otherwise: a hidden icon would still occupy tray width.
+  //
   // A tray must never fold to NOTHING. Measured on the real deck: one session had all four
   // of its panes parked, leaving a bare "+4" chip under a labelled rail — a session you can
   // see no state for at all, which is worse than one stale icon. So each session keeps its
   // freshest pane visible as a floor. Computed from the same duration the fold uses, so the
   // kept pane is genuinely the most recently active one.
-  const freshest = new Map(); // session -> pane_id of its least-idle pane
+  const freshest = new Map(); // session -> { id, d } of its least-idle pane
   for (const s of states) {
     // ONE stateDur() call: it reads the clock, so calling it twice in the comparison both
     // doubles the work on a per-poll path and lets the compared value differ from the
@@ -1197,128 +1267,103 @@ function dock(states, act) {
     // the one activeId() that dock() is handed, that pane is always un-folded back into
     // its tray. You can swipe into the parked set; the dock follows you there.
     s.pane_id !== act;
-  for (const s of states) {
-    if (!group || group.dataset.sess !== (s.session ?? "")) {
-      group = document.createElement("span");
-      group.className = "dock-group";
-      group.dataset.sess = s.session ?? "";
-      el.appendChild(group);
-      trays.set(group.dataset.sess, group);
-      ngroups++;
-    }
-    if (folded(s)) {
-      const k = s.session ?? "";
-      parked.set(k, (parked.get(k) || 0) + 1);
-      continue;
-    }
-    const b = document.createElement("button");
-    b.className = "dock-icon" + (s.pane_id === act ? " sel" : "");
-    b.dataset.pane = s.pane_id;
-    // Badge dot overlaps the logo's corner (like the favicon dot); idle panes get
-    // none — quiet is the default, only busy states (running/waiting/compacting) earn a signal.
-    const a = actOf(s);
-    // Subscript count of RUNNING background sub-agents — a glanceable "3 workers busy
-    // here", in the opposite corner from the activity dot (shared nsubOf coercion).
-    const nsub = nsubOf(s);
-    b.innerHTML = iconFor(s.tool) +
-      (a === "running" || a === "waiting" || a === "compacting" ? `<i class="ddot d-${a}" aria-hidden="true"></i>` : "") +
-      (nsub > 0 ? `<sub class="sacount" aria-hidden="true">${nsub}</sub>` : ""); // count is in aria-label below
-    b.title = s.title || s.label || s.pane_id;
-    // Fold the sub-agent count into the button's own label so assistive tech announces it.
-    b.setAttribute("aria-label", b.title + (nsub > 0 ? `, ${nsub} sub-agent${nsub === 1 ? "" : "s"}` : ""));
-    // Jump to that pane's CARD — including from list mode (a dock tap means "show
-    // me this pane", not "re-highlight it inside the list").
-    // onTap because the dock is rebuilt every poll and a plain `click` gets eaten; deferred
-    // because .prow.dock is an overflow-x scroller, so a horizontal swipe to reach off-screen
-    // panes must scroll rather than switch pane on touch-down.
-    onTap(b, () => { listFilter = null; setActive(s.pane_id); }, true);
-    group.appendChild(b);
-  }
-  // The fold chip at the tail of a session's tray: "+N" when its parked panes are hidden,
-  // "‹" to hide them again. A <button> among the tray's icon <button>s, so it can't
-  // disturb the group hue cycling (.dock-group:nth-of-type counts <span>s) nor the strip's
-  // height (same 36px box as an icon — the join's geometry contract requires the tray add
-  // zero height).
-  // Tap handling is DEFERRED (acts on pointerup, cancels past slop) and pointer-captured;
-  // see the block on the handler below for why both halves are needed.
-  const foldChip = (sess, text, label, open) => {
-    const g = trays.get(sess);
-    if (!g) return;
-    const c = document.createElement("button");
-    c.className = "dock-fold" + (open ? " open" : "");
-    c.textContent = text;
-    c.title = label;
-    c.setAttribute("aria-label", label);
-    c.setAttribute("aria-expanded", String(open));
-    // DEFERRED, and pointer-captured so deferral is safe here. Two requirements pull against
-    // each other: the dock is an overflow-x scroller, so a horizontal drag starting on the
-    // chip must scroll rather than toggle — that needs waiting for pointerup. But the dock is
-    // rebuilt every poll, and a deferred listener bound to the node dies with it, which is
-    // what made the chip dead to the touch (tap, nothing, tap again, then a rebuild put a
-    // different icon under the thumb and switched panes).
-    // setPointerCapture routes the remainder of THIS gesture to this element even after the
-    // strip re-renders, so the tap survives the rebuild while slop still cancels a scroll.
-    c.addEventListener("pointerdown", (e) => {
-      if (e.button != null && e.button !== 0) return; // left/touch only
-      try { c.setPointerCapture(e.pointerId); } catch { /* unsupported: plain deferral */ }
-    });
-    onTap(c, () => {
-      // No captureIconRects(): that primes the list view's FLIP, and folding is a
-      // DOCK-only concern — the list's rows are identical before and after, so priming
-      // it only risks animating rows that did not move.
-      if (open) foldOpen.delete(sess); else foldOpen.add(sess);
-      render(Object.values(panesById));
-    }, true);
-    g.appendChild(c);
-  };
-  for (const [sess, n] of parked)
-    foldChip(sess, "+" + n, `Show ${n} parked pane${n === 1 ? "" : "s"} in ${sess || "this session"}`, false);
-  // An expanded tray gets a re-fold control, or unfolding is a one-way door for the session
-  // (nothing re-parks it until a reload). Rendered as a small chevron (U+2039), NOT a
-  // second full-size chip: a same-size button showing a bare glyph gave no clue what it did.
-  // Only when something is actually parked — a session whose panes all went busy again has
-  // nothing to re-fold, and a dead control would confuse.
-  // Ask `folded()` itself — with the session's unfold temporarily discounted — rather than
-  // re-deriving "is anything parked here". The hand-written version omitted the freshest-pane
-  // FLOOR, so a session whose only parked pane is also its freshest got a chevron that would
-  // hide nothing when tapped. Reusing the predicate means the control and the fold can never
-  // disagree again.
   // Pass unfolded=false to ask "would this pane fold if the tray were closed?" — no
   // delete/add on foldOpen, so render stays free of side effects and Set insertion order
   // is untouched.
   const wouldFold = (sess) =>
     states.some((s) => (s.session ?? "") === sess && folded(s, false));
-  for (const sess of foldOpen)
-    if (wouldFold(sess))
-      foldChip(sess, "\u2039", `Hide parked panes in ${sess || "this session"}`, true);
+  // One group per session run: `panes` are the VISIBLE ones, `parked` the count folded
+  // away, `open` whether the user expanded this tray.
+  const groups = [];
+  for (const s of states) {
+    const sess = s.session ?? "";
+    if (!groups.length || groups[groups.length - 1].sess !== sess)
+      groups.push({ sess, panes: [], parked: 0, open: foldOpen.has(sess) });
+    const g = groups[groups.length - 1];
+    if (folded(s)) g.parked++;
+    else g.panes.push(s);
+  }
+  // The fold control is keyed INSIDE the tray's own list under a synthetic key, so it is a
+  // PERSISTENT node like every icon beside it: built once, its handler wired once, and
+  // never replaced by a poll. That is what makes a plain `click` correct here (see the
+  // render invariant at the top of the file) — the deferred onTap this used to need existed
+  // only because the node died between press and release, and the browser already withholds
+  // `click` after a scroll, which is the behaviour the deferral was emulating.
+  //
+  // A synthetic key is safe because pane ids are tmux "%N" strings and can never collide
+  // with "__fold"/"__unfold". Two DISTINCT keys, not one node re-labelled: the chip and the
+  // chevron are different controls (different class, size, text and action), and a shared
+  // node would have to be mutated into the other on every toggle.
+  //
+  // A <button> among the tray's icon <button>s, so it can't disturb the group hue cycling
+  // (.dock-group:nth-of-type counts <span>s) nor the strip's height (same 36px box as an
+  // icon — the join's geometry contract requires the tray add zero height).
+  const FOLD_KEY = "__fold", UNFOLD_KEY = "__unfold";
+  const buildFold = (sess, key) => {
+    const c = document.createElement("button");
+    c.className = "dock-fold" + (key === UNFOLD_KEY ? " open" : "");
+    // No captureIconRects() to prime a list FLIP: folding is a DOCK-only concern — the
+    // list's rows are identical before and after.
+    c.onclick = () => {
+      if (key === UNFOLD_KEY) foldOpen.delete(sess); else foldOpen.add(sess);
+      render(Object.values(panesById));
+    };
+    return c;
+  };
+  keyedList(el, groups, (g) => g.sess, (g) => {
+    const sp = document.createElement("span");
+    sp.className = "dock-group";
+    sp.dataset.sess = g.sess;
+    return sp;
+  }, (sp, g) => {
+    // The tray's children, in DOM order: its visible icons, then at most one fold control.
+    // "+N" when panes are hidden; "‹" (U+2039) to re-fold an expanded tray — rendered as a
+    // small chevron, NOT a second full-size chip, because a same-size button showing a bare
+    // glyph gave no clue what it did. The chevron appears only when re-folding would
+    // actually hide something: asked via folded() itself with the unfold discounted, so the
+    // control and the fold can never disagree (a hand-written check omitted the freshest-
+    // pane FLOOR, and a session whose only parked pane was also its freshest got a chevron
+    // that would hide nothing when tapped).
+    const items = g.panes.map((s) => ({ key: s.pane_id, pane: s }));
+    if (g.parked > 0)
+      items.push({ key: FOLD_KEY,
+        text: "+" + g.parked,
+        label: `Show ${g.parked} parked pane${g.parked === 1 ? "" : "s"} in ${g.sess || "this session"}`,
+        open: false });
+    else if (g.open && wouldFold(g.sess))
+      items.push({ key: UNFOLD_KEY,
+        text: "‹",
+        label: `Hide parked panes in ${g.sess || "this session"}`,
+        open: true });
+    keyedList(sp, items, (it) => it.key,
+      (it) => (it.pane ? buildDockIcon(it.pane.pane_id) : buildFold(g.sess, it.key)),
+      (node, it) => {
+        if (it.pane) return applyDockIcon(node, it.pane, act);
+        setText(node, it.text);
+        setAttr(node, "title", it.label);
+        setAttr(node, "aria-label", it.label);
+        setAttr(node, "aria-expanded", String(it.open));
+      });
+  });
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
   // actually spans sessions — the CSS keys off this class, not group count.
-  el.classList.toggle("grouped", ngroups > 1);
+  setCls(el, "grouped", groups.length > 1);
   // Drop unfold state for sessions that no longer exist, so killing and recreating a
   // session under the same name doesn't come back pre-expanded (and the set can't grow
   // without bound over a long-lived page) — same discipline as render()'s cache pruning.
-  for (const sess of foldOpen) if (!trays.has(sess)) foldOpen.delete(sess);
-  // Density + navigation: per-activity tallies homed in the header title bar (#filters) —
-  // always visible no matter how many dock icons crowd the strip. Each one FILTERS the
-  // list view to those panes; "all" lists everything.
-  filtersEl.replaceChildren();
+  const live = new Set(groups.map((g) => g.sess));
+  for (const sess of foldOpen) if (!live.has(sess)) foldOpen.delete(sess);
+  // Density + navigation: per-activity tallies homed in the header title bar
+  // (#filters) — always visible no matter how many dock icons crowd the strip. Each
+  // one FILTERS the list view to those panes; "all" lists everything.
   const n = {};
   states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
-  const filt = (label, key) => {
-    const b = document.createElement("button");
-    b.className = "badge b-" + key;
-    b.textContent = label;
-    // onTap because #filters is rebuilt every poll, so a rebuild between press and release
-    // swallows a plain click — worst exactly when a pane is BUSY, since a changing pane makes
-    // the deck version bump constantly. Deferred: #filters is an overflow-x scroller too.
-    onTap(b, () => { captureIconRects(); listFilter = key; render(Object.values(panesById)); }, true);
-    filtersEl.appendChild(b);
-  };
   // "idle" is deliberately absent: on a real deck most panes are idle, so the number is
   // both the largest and the least actionable on the strip, and "N recent" below now
   // carries the half that matters. The idle panes are still reachable — "all" lists
   // everything, and a session's parked ones sit behind its "+N" chip.
-  ["waiting", "running", "compacting", "unknown"].filter((a) => n[a]).forEach((a) => filt(`${n[a]} ${a}`, a));
+  const tallies = ["waiting", "running", "compacting", "unknown"]
+    .filter((a) => n[a]).map((a) => ({ key: a, label: `${n[a]} ${a}` }));
   // "N recent" — the count the user actually wants at a glance: how much of the fleet is
   // live right now, which no single activity badge answers (a waiting pane and a running
   // pane are both recent). Same predicate the dock folds on, so the number and the strip
@@ -1326,21 +1371,28 @@ function dock(states, act) {
   // restates the deck size, and if none are the whole fleet is parked and "0 recent" adds
   // nothing an empty strip hasn't said.
   const nRecent = states.filter(isRecent).length;
-  if (nRecent && nRecent < states.length) filt(`${nRecent} recent`, "recent");
-  filt("all", "all");
+  if (nRecent && nRecent < states.length) tallies.push({ key: "recent", label: `${nRecent} recent` });
+  tallies.push({ key: "all", label: "all" });
+  // #filters:empty { display: none } — keyedList removes emptied children outright, so
+  // that rule keeps working. Badges are keyed by activity, so the "3 running" badge is
+  // ONE node whose text changes as the count moves, not a new node per poll.
+  keyedList(filtersEl, tallies, (t) => t.key, (t) => {
+    const b = document.createElement("button");
+    b.className = "badge b-" + t.key;
+    b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
+    return b;
+  }, (b, t) => setText(b, t.label));
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
-  // screen — its card then joins to a tab that isn't visible (looks severed). Center the
-  // selected icon in the strip so it and its tab-join are always on screen. Deferred a
-  // frame: the icons were just (re)appended, so their positions aren't laid out yet.
-  // Gate on `joined` (card view AND the selected tab is joined to a card) — NOT just a
-  // .sel, which also exists in list mode where there's no card to keep aligned. Only
-  // scroll when the icon is actually clipped by the strip's edges — otherwise every
-  // render (an activity tick, new events) would re-fire a scroll and fight the resting
-  // position; when it's already fully visible we leave the dock where the user left it.
+  // screen — its card then joins to a tab that isn't visible (looks severed). Center
+  // the selected icon in the strip so it and its tab-join are always on screen.
+  // Deferred a frame so freshly-inserted icons are laid out. Gate on `joined` (card
+  // view AND the selected tab joined to a card) — NOT just a .sel, which also exists
+  // in list mode. Only scroll when the icon is actually clipped, else every render
+  // would re-fire a scroll and fight the resting position.
   const sel = joined && el.querySelector(".dock-icon.sel");
   if (sel) requestAnimationFrame(() => {
-    if (!sel.isConnected) return; // a re-render in the same frame swept this icon
+    if (!sel.isConnected) return;
     const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
     if (i.left < c.left || i.right > c.right)
       sel.scrollIntoView({
@@ -1351,181 +1403,266 @@ function dock(states, act) {
   });
 }
 
-// The list transition is a FLIP keyed on what actually changed between the two filter
-// states. Captured at filter-tap time (before the re-render): the dock icons' rects
-// (where ENTERING rows fly from) AND the currently-visible rows' rects (where SURVIVING
-// rows slide from). Survivors are keyed off having a prior-row rect, so entering the list
-// from card view (empty→list, no prior rows captured) stays a full icon-fly for every row.
-let flipFrom = null; // pane_id -> dock-icon DOMRect (for entering rows)
-let flipPrev = null; // pane_id -> { rect, node } of the outgoing row (survivors + leavers)
-function captureIconRects() {
-  flipFrom = {};
-  dockEl.querySelectorAll(".dock-icon").forEach((b) => {
-    if (b.dataset.pane) flipFrom[b.dataset.pane] = b.getBoundingClientRect();
-  });
-  flipPrev = {};
-  // Clone each live row NOW: after replaceChildren the originals are gone, but a leaving
-  // row must linger to animate out — the clone (positioned fixed at its old rect) does
-  // that without fighting the re-render, mirroring the icon-fly's clone approach.
-  panesEl.querySelectorAll(".prow").forEach((r) => {
-    flipPrev[r.dataset.pane] = { rect: r.getBoundingClientRect(), node: r.cloneNode(true) };
-  });
-}
-// FLIP delta as CENTER-to-center — a dock icon and a row icon are different sizes, so a
-// top-left delta would land the clone offset by half their size difference. Survivors use
-// this too (same-size rects, so it reduces to the plain delta) to keep one convention.
-const cx = (r) => (r.left + r.right) / 2, cy = (r) => (r.top + r.bottom) / 2;
-const flipDelta = (from, to) => `translate(${cx(to) - cx(from)}px,${cy(to) - cy(from)}px)`;
-// Fly a clone from `from` to `to` and, if `fade`, opacity out — the one WAI engine shared
-// by all three list cases. WAI not CSS-class transitions: keyframes take effect the moment
-// they're created, so the start state actually paints (the class-toggle version lost the
-// race and text popped in early). The clone keeps its OWN natural size (`box`, default the
-// `from` rect — the leaver IS its from rect; the entrant icon passes its own smaller box so
-// it isn't stretched to the dock icon's), CENTERED on `from`, then flown center→center.
-function flyClone(node, from, to, fade, done, box = from) {
-  Object.assign(node.style, {
-    position: "fixed", left: cx(from) - box.width / 2 + "px", top: cy(from) - box.height / 2 + "px",
-    width: box.width + "px", height: box.height + "px", margin: "0", zIndex: 30, pointerEvents: "none",
-  });
-  // A clone is throwaway chrome — never a control. Leaving-row clones are cloned .prow
-  // nodes (role=button, tabIndex=0 from row()), so strip interactivity and hide from AT
-  // before it enters the DOM, or a mid-flight clone becomes tab-focusable / announced.
-  node.setAttribute("aria-hidden", "true");
-  node.tabIndex = -1;
-  node.removeAttribute("role");
-  document.body.appendChild(node);
-  // Idempotent teardown: onfinish and the safety timer race, but whichever fires first
-  // clears the other so the clone is removed and `done` runs exactly once (same one-shot
-  // guard style as the icon-fly's reveal). Interrupted flights still can't strand a clone.
-  let timer;
-  const end = () => { clearTimeout(timer); if (!node.isConnected) return; node.remove(); if (done) done(); };
-  node.animate(
-    [{ transform: "translate(0,0)", ...(fade && { opacity: 1 }) },
-     { transform: flipDelta(from, to), ...(fade && { opacity: 0 }) }],
-    { duration: 250, easing: "ease-out", fill: "forwards" }
-  ).onfinish = end;
-  timer = setTimeout(end, 400);
-}
-function flipIn(root) {
-  if (!flipFrom) return;
-  const from = flipFrom, prev = flipPrev;
-  flipFrom = flipPrev = null;
-  const now = new Set([...root.querySelectorAll(".prow")].map((r) => r.dataset.pane));
-  // Leaving rows: in the old list but not the new. Fade+drift their clone out in place —
-  // `to` is the same box nudged down 12px (all four edges, so the center delta is a clean
-  // 12px drop). flipDelta reads left/right/top/bottom, so give it a full rect-like.
-  for (const [id, p] of Object.entries(prev))
-    if (!now.has(id)) {
-      const r = p.rect;
-      flyClone(p.node, r, { left: r.left, right: r.right, top: r.top + 12, bottom: r.bottom + 12 }, true);
-    }
-  root.querySelectorAll(".prow").forEach((r) => {
-    const old = prev[r.dataset.pane];
-    // SURVIVOR: already on screen in the old filter — no icon-fly, no invisibility. FLIP:
-    // start it at its old position (First→Invert) and slide the delta to its new spot (Play).
-    if (old) {
-      r.animate(
-        [{ transform: flipDelta(r.getBoundingClientRect(), old.rect) }, { transform: "translate(0,0)" }],
-        { duration: 250, easing: "ease-out" }
-      );
-      return;
-    }
-    // ENTERING (or empty→list, where nothing was captured so every row lands here): fly
-    // the pane's dock icon down to the row's icon spot. The row stays INVISIBLE until its
-    // icon lands — reveal on finish, drawing the rest of the summary only then.
-    const src = from[r.dataset.pane];
-    const icon = r.querySelector(".icon");
-    if (!src || !icon) return;
-    r.style.opacity = "0";
-    const dst = icon.getBoundingClientRect(); // the clone is icon-sized, so freeze its box to this
-    flyClone(icon.cloneNode(true), src, dst, false, () => {
-      if (r.style.opacity !== "0") return;
-      r.style.opacity = "";
-      r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 });
-    }, dst);
-  });
-}
-
-function row(s, act) {
-  const a = actOf(s);
+// One list row per pane, built once and keyed by pane_id, so the row the user is
+// pressing is still there when their finger lifts.
+//
+// The filter switch is INSTANT by design: the old flying-clone animation only existed
+// because rows were deleted before they could animate. Rows persist now, so a future
+// transition would be a genuine FLIP on the surviving nodes (measure, invert, play).
+//
+// Structure: TWO SIBLING buttons, never nested — role=button on the row itself would be
+// invalid ARIA once the sub-agents toggle (a real <button>) moved in. The icon+name+
+// headline area is .row-open, a real button that opens the card (keyboard operable); the
+// toggle sits beside it in .ph-right. The row div stays a pointer target so taps on its
+// padding still open the card.
+function buildRow(paneId) {
   const el = document.createElement("div");
-  el.className = "prow" + (a === "waiting" ? " waiting" : "")
-    + (s.pane_id === act ? " sel" : "");
-  el.dataset.pane = s.pane_id;
-  // Tapping a row opens that pane's card (drops back out of list view). Structure:
-  // TWO SIBLING buttons, never nested — role=button on the row itself would be invalid
-  // ARIA once the sub-agents toggle (a real <button>) moved in. The icon+name+headline
-  // area becomes .row-open, a real button that opens the card (keyboard operable);
-  // the toggle sits beside it in .ph-right. The row div stays a pointer target so
-  // taps on its padding still open the card.
-  const goCard = () => { listFilter = null; setActive(s.pane_id); };
-  // defer: rows are rebuilt every poll (so `click` alone loses taps) but they also sit in
-  // vertically-scrolling #panes, so navigation waits for a pointerup that didn't scroll.
-  onTap(el, goCard, true);
-  el.innerHTML = paneHeader(s, { icon: true });
+  el.className = "prow";
+  el.dataset.pane = paneId;
+  const goCard = () => { listFilter = null; setActive(paneId); };
+  el.onclick = goCard;
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
-  openBtn.append(...[...el.children].filter((n) => !n.classList.contains("ph-right")));
-  el.prepend(openBtn);
-  // stopPropagation covers the KEYBOARD path — onTap already swallows the pointer's click,
-  // but an AT-synthesized click on the button would still bubble to the row and re-fire.
-  onTap(openBtn, (e) => { e.stopPropagation(); goCard(); }, true); // same scroll container
-  // A pane with sub-agents gets a labeled chip under the activity badge (reusing the
-  // card meta's .chip.agents look) that toggles the SAME subagentsView box the card
-  // shows — one component, two surfaces. Toggle state lives in subsOpen so it survives
-  // the per-poll row rebuild; toggling re-renders through render(), the one normal
-  // path, not a bespoke DOM patch that drifts from it.
-  const subs = realSubs(s.subagents); // renderable entries only — same filter the box uses,
-  if (subs.length) {                  // so the chip's count can never disagree with it
-    const open = subsOpen.has(s.pane_id);
-    const t = document.createElement("button");
-    t.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
-    // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
-    t.textContent = `${subs.length} sub-agent${subs.length === 1 ? "" : "s"} ${open ? "▾" : "◂"}`;
-    t.setAttribute("aria-expanded", String(open));
-    onTap(t, (e) => {
-      e.stopPropagation(); // a toggle tap expands the box — it must not open the card
-      subsOpen.has(s.pane_id) ? subsOpen.delete(s.pane_id) : subsOpen.add(s.pane_id);
-      render(Object.values(panesById));
-    }, true); // defer: inside the vertical scroller
-    el.querySelector(".ph-right").append(t);
-    if (open) { el.classList.add("subs-open"); el.appendChild(subagentsView(subs)); }
-  }
+  // stopPropagation so an activation on the button doesn't also bubble to the row and
+  // navigate twice.
+  openBtn.onclick = (e) => { e.stopPropagation(); goCard(); };
+  el.appendChild(openBtn);
+  // link:false — this header goes INSIDE .row-open, a <button>. See buildPaneHeader.
+  const hdr = buildPaneHeader(openBtn, { icon: true, link: false });
+  // .ph-right belongs to the ROW, beside .row-open — not inside it (see the ARIA note).
+  el.appendChild(hdr.right);
+  // A pane with sub-agents gets a labeled chip under the activity badge (reusing the card
+  // meta's .chip.agents look) that toggles the SAME sub-agents box the card shows — one
+  // component, two surfaces. The open flag lives ON THE ROW NODE rather than in a
+  // module-level Set, since the row persists. Toggling repaints just this row.
+  const toggle = document.createElement("button");
+  toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
+  const subsBox = buildTasks("Sub-agents", "tasks subagents");
+  toggle.onclick = (e) => {
+    e.stopPropagation(); // a toggle tap expands the box — it must not open the card
+    el._subsOpen = !el._subsOpen;
+    const cur = panesById[paneId];
+    if (cur) applyRowSubs(el, realSubs(cur.subagents));
+  };
+  hdr.right.appendChild(toggle);
+  el.appendChild(subsBox.root);
+  el._hdr = hdr; el._toggle = toggle; el._subs = subsBox; el._subsOpen = false;
   return el;
 }
 
+// The row's sub-agent chip + expandable box. Split out so the toggle handler can repaint
+// just this row without a full render.
+function applyRowSubs(el, subs) {
+  const n = subs.length;
+  setCls(el._toggle, "hid", !n);
+  const open = !!el._subsOpen && n > 0;
+  if (n) {
+    // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
+    setText(el._toggle, `${n} sub-agent${n === 1 ? "" : "s"} ${open ? "▾" : "◂"}`);
+    setAttr(el._toggle, "aria-expanded", String(open));
+  }
+  setCls(el, "subs-open", open);
+  applySubagents(el._subs, open ? subs : []);
+}
+
+function applyRow(el, s, act) {
+  setCls(el, "waiting", actOf(s) === "waiting");
+  setCls(el, "sel", s.pane_id === act);
+  applyPaneHeader(el._hdr, s, false);
+  // Renderable entries only — the same filter the box uses, so the chip's count can never
+  // disagree with it.
+  applyRowSubs(el, realSubs(s.subagents));
+}
+
+// Rows in server order — same as the dock. That order is tmux's own session/window/pane
+// order, so grouping windows under their session is just "insert a header where the
+// session changes": no sorting, no client-side restructure.
+//
+// Headers and rows share ONE keyed list, because .sess-hdr:first-child is a structural
+// selector — the header has to be a real sibling at the right index, not a wrapper.
+// Hue ordinals are JS-computed over the FULL deck (never nth-of-type, never the filtered
+// subset), so a header's hue matches that session's dock rail even when a filter hides
+// sessions.
+function applyList(host, states, subset, act) {
+  const ord = new Map();
+  states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
+  // Headers only when the deck actually spans sessions — a lone header over every row
+  // would be noise for the single-session common case.
+  const items = [];
+  subset.forEach((s, i) => {
+    if (ord.size > 1 && (!i || subset[i - 1].session !== s.session))
+      items.push({ hdr: true, session: s.session, c: (ord.get(s.session) % 4) + 1 });
+    items.push({ hdr: false, s });
+  });
+  keyedList(host, items,
+    (it) => (it.hdr ? "h:" + it.session : "r:" + it.s.pane_id),
+    (it) => (it.hdr ? document.createElement("div") : buildRow(it.s.pane_id)),
+    (node, it) => {
+      if (it.hdr) {
+        setAttr(node, "class", "sess-hdr c" + it.c);
+        setText(node, it.session);
+      } else {
+        applyRow(node, it.s, act);
+      }
+    });
+}
+
+
+
+// ONE persistent card, retargeted to whichever pane is active — NOT one card per pane.
+// `cardUI` holds its handles; `cardUI.pane` is the pane_id it currently shows.
+let cardUI = null;
+
+// Every handler here closes over NOTHING but the card itself, and reads the pane it
+// currently targets from cardUI.pane at call time — so retargeting the card to another
+// pane cannot leave a handler pointing at the old one.
+function buildCard() {
+  const el = document.createElement("div");
+  el.className = "card";
+  const ui = { root: el, pane: null };
+  // Tapping a card makes it the target of the single bottom input bar.
+  el.onclick = (e) => {
+    // don't steal option/timeline taps
+    if (e.target.closest("button, input, a, summary, details")) return;
+    if (ui.pane) setActive(ui.pane);
+  };
+  const row = document.createElement("div");
+  row.className = "row";
+  // Shared header (see buildPaneHeader). The card adds the collapse caret and omits the
+  // icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just this
+  // header row (still tab-joined), handing the live terminal the screen; collapse state
+  // is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
+  ui.hdr = buildPaneHeader(row, { caret: true, link: true }, (e) => {
+    e.stopPropagation(); // don't also re-select the pane
+    cardsCollapsed = !cardsCollapsed;
+    render(Object.values(panesById));
+  });
+  el.appendChild(row);
+  // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order
+  // matters and is encoded here rather than by append order per render: tables render
+  // BEFORE the question so they act as context above the options.
+  ui.lm = document.createElement("div");
+  ui.lm.className = "lm-convo";
+  ui.sum = document.createElement("div");
+  ui.sum.className = "sess-sum";
+  ui.sum.onclick = (e) => {
+    e.stopPropagation();
+    // The summary is linkified, so it can hold anchors. A tap on one must NAVIGATE only:
+    // toggling as well would collapse the text out from under the user as the link opens,
+    // and on an element that is simultaneously the content AND the expand affordance that
+    // reads as a glitch rather than two intended actions.
+    if (e.target.closest("a")) return;
+    ui.sum.classList.toggle("open");
+  };
+  ui.rewind = buildRewind();
+  ui.tables = document.createElement("div");
+  ui.tables.className = "tables";
+  ui.q = buildQuestion(ui);
+  ui.tasks = buildTasks("Tasks", "tasks");
+  ui.subs = buildTasks("Sub-agents", "tasks subagents");
+  ui.links = document.createElement("div");
+  ui.links.className = "links";
+  ui.copy = document.createElement("div");
+  ui.copy.className = "copyables";
+  ui.events = buildEvents();
+  el.append(ui.lm, ui.sum, ui.rewind.root, ui.tables, ui.q.root, ui.tasks.root,
+    ui.subs.root, ui.links, ui.copy, ui.events.root);
+  // The swipe listens on the card for the life of the page; it reads the pane it acts on
+  // from cardUI.pane at gesture time.
+  swipeNav(el, ui);
+  return ui;
+}
+
+// Point the one card at `s` and write its current state. Subviews that don't apply are
+// hidden AND emptied (keyedList with an empty list removes their children), so the CSS
+// :empty rules keep working and no stale content lurks behind a hidden class.
+function applyCard(ui, s) {
+  const el = ui.root;
+  ui.pane = s.pane_id;
+  const collapsed = cardsCollapsed;
+  setCls(el, "waiting", actOf(s) === "waiting");
+  setCls(el, "active", s.pane_id === activeId());
+  setCls(el, "collapsed", collapsed);
+  setCls(el, "reparsing", isReparsing(s)); // input sent, awaiting the forced re-parse
+  applyPaneHeader(ui.hdr, s, collapsed);
+  // Collapsed: the one-line form, everything below the header hidden. Live Mode: the
+  // voice interface owns everything below the header, in place of the pane's summary,
+  // question and event views.
+  const lmOwns = !collapsed && !!lmWs && s.pane_id === activeId();
+  const body = !collapsed && !lmOwns;
+  setCls(ui.lm, "hid", !lmOwns);
+  if (lmOwns) lmPaintInto(ui.lm); else keyedList(ui.lm, [], (x) => x, () => null);
+  // The bootstrap "story so far" — orientation when picking a session up cold. Clamped
+  // to a few lines; tap toggles the full text.
+  // linkifyText, not textContent: a summary that mentions a PR or a URL should be tappable
+  // here exactly as it is in the terminal below. It escapes everything it does not turn
+  // into an anchor, so it is safe on this untrusted model text. setHtml's unchanged-guard
+  // is what keeps a poll from rebuilding the subtree under a selection.
+  setHtml(ui.sum, body && s.session_summary ? linkifyText(s.session_summary) : "");
+  applyRewind(ui.rewind, body ? s : null);
+  applyTables(ui.tables, body && Array.isArray(s.tables) ? s.tables : []);
+  applyQuestion(ui.q, body && s.question ? s : null, ui);
+  applyTasks(ui.tasks, body && Array.isArray(s.tasks) ? s.tasks : []);
+  applySubagents(ui.subs, body ? realSubs(s.subagents) : []);
+  applyLinks(ui.links, body && Array.isArray(s.links) ? s.links : []);
+  applyCopy(ui.copy, body && Array.isArray(s.copyables) ? s.copyables : []);
+  const log = (eventLog[s.pane_id] || {}).events || [];
+  applyEvents(ui.events, body ? log : [], s.pane_id, body ? s.summary : null);
+  // No per-card input — one persistent bar at the bottom of the page handles
+  // text/keys/images for whichever card is active (see the #bar element).
+}
 
 // Horizontal swipe on the active card switches panes (tmux window order, wraps), as a
-// carousel: the NEIGHBOR card slides in alongside your finger (so it reads as paging,
-// not dismissal), both animate home on commit, short/vertical drags snap back.
-// Touches starting in a horizontal scroller (tables) keep their native gesture.
-function swipeNav(el, id) {
-  let sx = null, sy = null, dx = 0, ghost = null, gdir = 0;
-  const ids = () => Object.keys(panesById); // insertion order = server (tmux) order
+// carousel: the NEIGHBOR card slides in alongside your finger (so it reads as paging, not
+// dismissal), both animate home on commit, short/vertical drags snap back. Touches
+// starting in a horizontal scroller (tables) keep their native gesture.
+//
+// Wired ONCE, for the life of the page: it reads the pane it acts on from `ui.pane` at
+// gesture time rather than closing over an id, since the card is retargeted rather than
+// rebuilt.
+//
+// The id list is SNAPSHOTTED at touchstart: a poll landing mid-swipe can reorder
+// panesById, and without the snapshot the pane you commit to is not the one whose ghost
+// you saw. Renders during the swipe need no other guard — they only rewrite text on the
+// nodes the gesture is translating.
+function swipeNav(el, ui) {
+  let sx = null, sy = null, dx = 0, ghost = null, gdir = 0, ids = [];
   const neighbor = (dir) => { // dir -1: swiping left reveals the NEXT pane; +1: previous
-    const a = ids(), i = a.indexOf(id);
-    return a[(i + (dir < 0 ? 1 : a.length - 1)) % a.length];
+    const i = ids.indexOf(ui.pane);
+    if (i < 0) return null;
+    return ids[(i + (dir < 0 ? 1 : ids.length - 1)) % ids.length];
   };
   const W = () => el.offsetWidth + 12; // card width + gap
   const clear = () => { if (ghost) ghost.remove(); ghost = null; gdir = 0; };
   el.addEventListener("touchstart", (e) => {
     sx = e.target.closest(".tbl-scroll, .bg-wrap") ? null : e.touches[0].clientX;
     sy = e.touches[0].clientY; dx = 0; clear();
+    ids = Object.keys(panesById); // insertion order = server (tmux) order, frozen for this gesture
   }, { passive: true });
   el.addEventListener("touchmove", (e) => {
     if (sx == null) return;
     dx = e.touches[0].clientX - sx;
     if (Math.abs(dx) <= Math.abs(e.touches[0].clientY - sy) || Math.abs(dx) <= 10) return;
-    busyGesture = true; // freeze poll re-renders mid-drag — they'd replace the card under the finger
     el.style.transition = "none"; // track the finger 1:1, no easing lag
     el.style.transform = `translateX(${dx}px)`;
     const dir = dx < 0 ? -1 : 1;
-    if (dir !== gdir && ids().length > 1) {
+    if (dir !== gdir && ids.length > 1) {
       clear(); gdir = dir;
-      ghost = card(panesById[neighbor(dir)]);
-      ghost.classList.add("ghost");
-      ghost.style.transition = "none";
-      el.parentElement.appendChild(ghost);
+      // A throwaway peek at the neighbour, not a second card: it exists for ~200ms, so it
+      // shows the incoming pane's HEADER only — subviews would never be seen, and a full
+      // card here would violate the one-persistent-card rule.
+      const nb = panesById[neighbor(dir)];
+      if (nb) {
+        ghost = document.createElement("div");
+        ghost.className = "card ghost";
+        ghost.setAttribute("aria-hidden", "true"); // throwaway chrome is never a control
+        const grow = document.createElement("div");
+        grow.className = "row";
+        applyPaneHeader(buildPaneHeader(grow, {}), nb, false);
+        ghost.appendChild(grow);
+        ghost.style.transition = "none";
+        el.parentElement.appendChild(ghost);
+      }
     }
     if (ghost) ghost.style.transform = `translateX(${dx - gdir * W()}px)`;
   }, { passive: true });
@@ -1535,93 +1672,33 @@ function swipeNav(el, id) {
     sx = null;
     el.style.transition = "";
     if (ghost) ghost.style.transition = "";
-    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids().length < 2) {
+    if (Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy) || ids.length < 2) {
       el.style.transform = ""; // snap back, neighbor retreats
       if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
-      busyGesture = false;
       return;
     }
     const dir = dx < 0 ? -1 : 1;
+    const target = neighbor(dir);
     el.style.transform = `translateX(${dir * W()}px)`;
     if (ghost) ghost.style.transform = "translateX(0)";
-    setTimeout(() => { busyGesture = false; setActive(neighbor(dir)); }, 150);
+    setTimeout(() => {
+      // Clear the transform BEFORE retargeting: the one persistent card slides back to
+      // its home position and the render points it at the new pane, so the swipe reads as
+      // paging rather than the card snapping back with new content.
+      el.style.transition = "none";
+      el.style.transform = "";
+      requestAnimationFrame(() => { el.style.transition = ""; });
+      clear();
+      if (target) setActive(target);
+    }, 150);
   });
-  // A cancelled gesture (OS interruption) must release the poll freeze and snap back,
-  // or polling stays frozen indefinitely.
+  // A cancelled gesture (OS interruption) must snap back.
   el.addEventListener("touchcancel", () => {
-    sx = null; busyGesture = false;
+    sx = null;
     el.style.transition = "";
     el.style.transform = "";
     if (ghost) { ghost.style.transform = `translateX(${-gdir * W()}px)`; setTimeout(clear, 160); }
   });
-}
-
-function card(s) {
-  const el = document.createElement("div");
-  const collapsed = cardsCollapsed;
-  el.className = "card" + (actOf(s) === "waiting" ? " waiting" : "")
-    + (s.pane_id === activeId() ? " active" : "") + (collapsed ? " collapsed" : "")
-    + (isReparsing(s) ? " reparsing" : ""); // input sent, awaiting the forced re-parse
-  swipeNav(el, s.pane_id);
-  // Tapping a card makes it the target of the single bottom input bar.
-  onTap(el, (e) => {
-    if (e.target.closest("button, input, a, summary, details")) return; // don't steal option/timeline taps
-    setActive(s.pane_id);
-  }, true); // defer: the card scrolls, so only a tap that didn't drag counts
-
-  const row = document.createElement("div");
-  row.className = "row";
-  // Shared header layout (see paneHeader). The card adds the collapse caret and omits
-  // the icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just
-  // this header row (still tab-joined), handing the live terminal the screen; collapse
-  // state is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
-  row.innerHTML = paneHeader(s, { caret: true, collapsed, icon: false, link: true });
-  onTap(row.querySelector(".card-caret"), (e) => {
-    e.stopPropagation(); // don't also re-select the pane
-    cardsCollapsed = !collapsed;
-    render(Object.values(panesById));
-  }, true); // defer: inside a vertical scroller — a scroll must not fire it
-  el.appendChild(row);
-  if (collapsed) return el; // one-line form: header only, everything below is hidden
-
-  // While a voice session runs, Live Mode owns the active card: everything below the
-  // header is the live interface — the rolling conversation with every typed action —
-  // in place of the pane's summary, question, and event views.
-  if (lmWs && s.pane_id === activeId()) {
-    el.appendChild(lmConvoView());
-    return el;
-  }
-
-  // The bootstrap "story so far" — orientation when picking a session up cold.
-  // Clamped to a few lines; tap toggles the full text.
-  if (s.session_summary) {
-    const sum = document.createElement("div");
-    sum.className = "sess-sum";
-    sum.innerHTML = linkifyText(s.session_summary); // linkifyText escapes non-anchors
-    onTap(sum, (e) => {
-      e.stopPropagation();
-      // The summary is linkified now, so it can contain anchors. A tap on one must NAVIGATE
-      // only — toggling as well would collapse the text out from under the user as the link
-      // opens, and on a target that is also the expand affordance that reads as a glitch.
-      if (e.target.closest("a")) return;
-      sum.classList.toggle("open");
-    }, true); // defer: card scroller
-    el.appendChild(sum);
-  }
-
-  if (s.rewind) el.appendChild(rewindView(s));
-  // Tables render BEFORE the question so they act as context above the options.
-  if (Array.isArray(s.tables)) s.tables.forEach((t) => el.appendChild(tableView(t)));
-  if (s.question) el.appendChild(question(s));
-  if (Array.isArray(s.tasks) && s.tasks.length) el.appendChild(tasksView(s.tasks));
-  { const subs = realSubs(s.subagents); if (subs.length) el.appendChild(subagentsView(subs)); }
-  if (Array.isArray(s.links) && s.links.length) el.appendChild(linksView(s.links));
-  if (Array.isArray(s.copyables) && s.copyables.length) el.appendChild(copyView(s.copyables));
-  const log = (eventLog[s.pane_id] || {}).events || [];
-  if (log.length) el.appendChild(eventsView(log, s.pane_id, s.summary));
-  // No per-card input anymore — a single persistent bar at the bottom of the page
-  // handles text/keys/images for whichever card is active (see the #bar element).
-  return el;
 }
 
 // The deck's background terminal layer: the pane's latest capture, bottom-anchored so
@@ -1781,89 +1858,20 @@ function liveStream(paneId, { onFrame, onLive, onQuiet }) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function bgTerm(s) {
-  // Wrapper = the visible window (starts right below the card, ends near the bar);
-  // the trimmed capture is top-anchored inside it, scrolled to its tail when longer.
-  // So a 1-line shell prompt sits right under the card instead of drowning in the
-  // blank lines tmux pads the capture with.
+// ONE peek wrap/box for the life of the page, RETARGETED on pane switch rather than
+// rebuilt per render. A pane switch is: point the transform state at the new pane,
+// repaint once, re-pin.
+let peekUI = null;
+function buildPeek() {
+  // Wrapper = the visible window (starts right below the card, ends near the bar); the
+  // trimmed capture is top-anchored inside it, scrolled to its tail when longer. So a
+  // 1-line shell prompt sits right under the card instead of drowning in the blank lines
+  // tmux pads the capture with.
   const wrap = document.createElement("div");
-  // "shell" here means "no status chrome at the bottom of the capture" — agents get
-  // their chrome tucked behind the bar, shells keep their prompt visible above it.
-  // (Don't key this on LOGOS: shell has a logo too now.)
-  wrap.className = "bg-wrap" + (AGENT_TOOLS.has(s.tool) ? "" : " shell");
-  wrap.dataset.pane = s.pane_id; // the ResizeObserver keys zHome off the OWNING pane
+  wrap.className = "bg-wrap";
   const box = document.createElement("pre");
   box.className = "bg-term";
   wrap.appendChild(box);
-  const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
-  const paint = (html) => {
-    box.innerHTML = html;
-    tuckChrome(wrap, box);
-    if (zHome(s.pane_id)) toEnd();
-  };
-  // Instant frame on (re)mount from cache. Its GRAY/live state must reflect the
-  // ACTUAL stream health (peekLive), not a blanket "stale": on a same-pane re-render
-  // (every 2s) the stream is already connected, so a fresh wrap must NOT flash gray
-  // and then wait up to a full 25s hold for the next onLive to clear it. A pane never
-  // viewed this session has no cache — "(connecting…)" until the first frame.
-  const c = peekCache[s.pane_id];
-  if (c) { paint(c.html); if (!peekLive) wrap.classList.add("stale"); }
-  else box.textContent = "(connecting…)";
-  // The peek streams for the ACTIVE pane. render() rebuilds the deck every poll, so
-  // the stream is NOT re-created per render (that would restart the long-poll hold
-  // each time) — it's keyed to the pane and its callbacks target the CURRENT elements
-  // via the module-level peekBox refs, which each bgTerm updates. Restart only when
-  // the streamed pane actually changes.
-  peekBox = box; peekWrap = wrap;
-  // While the fullscreen overlay owns this pane's one stream, the peek stands down —
-  // otherwise the 2s render() poll would start a SECOND concurrent stream here. The
-  // peek re-mounts on the next poll after the overlay closes (screenOpen back to false).
-  if (screenOpen) { if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; } }
-  else if (peekStreamPane !== s.pane_id) {
-    peekStop && peekStop();
-    peekStreamPane = s.pane_id;
-    const streamPane = s.pane_id; // captured: ignore late frames after a pane switch
-    peekStop = liveStream(streamPane, {
-      onFrame: (txt) => {
-        // A response that resolved just as the user switched panes must not paint or
-        // cache into the new pane (the module-level peek* refs now point elsewhere).
-        if (streamPane !== peekStreamPane) return;
-        const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
-        peekCache[streamPane] = { html }; // cache for the next stale-on-mount
-        // ALWAYS paint the newest frame — dropping it while busy would strand it: the
-        // stream advances its hash regardless, so the next poll returns "no change" and
-        // this frame would never render. Only the scroll-to-tail is suppressed during a
-        // gesture (that's what fights the user's finger). Diff-skip avoids the reflow
-        // when the content is actually identical (the flicker source).
-        // NEVER repaint while the user is typing or selecting. An innerHTML swap tears
-        // down and rebuilds the subtree, which collapses the document Selection — and on
-        // a BUSY pane these frames arrive continuously, so every attempt to place the
-        // caret in the composer was wiped within milliseconds. That is the "I can't even
-        // tap into the input box on a busy pane; I have to switch panes and back" bug
-        // (switching panes stops this stream, which is why it appeared to fix it).
-        // The fullscreen path already guarded its own selection this way; the peek didn't.
-        // Frames keep coming, so a skipped paint self-corrects on the next one.
-        // Only skip a paint while the caret is being PLACED or a selection is live, not
-        // for the whole time the composer holds focus — the terminal must keep streaming
-        // while you type. `_caretGrace` is stamped on composer pointerdown/focus, so the
-        // guard covers the vulnerable window (the tap and the moments after it) and then
-        // expires; a live selection is honored for as long as it exists.
-        const sel = document.getSelection();
-        const selecting = sel && !sel.isCollapsed
-          && (peekBox?.contains(sel.anchorNode) || bar.input?.contains(sel.anchorNode));
-        if (selecting || Date.now() - _caretGrace < 1200) return;
-        if (peekBox && peekBox.innerHTML !== html) {
-          peekBox.innerHTML = html;
-          tuckChrome(peekWrap, peekBox);
-          if (!isBusy() && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
-        }
-      },
-      onLive: () => { if (streamPane === peekStreamPane) { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); } },
-      onQuiet: () => { if (streamPane === peekStreamPane) { peekLive = false; peekWrap && peekWrap.classList.add("stale"); } },
-    });
-  } else if (peekLive) {
-    wrap.classList.remove("stale"); // same-pane remount, stream already live
-  }
   // Desktop has no pan gesture — dragging a text selection auto-scrolls the window
   // sideways with nothing to bring it home (touch pans go through pinchZoom's clamp).
   // Ease scrollLeft back once the drag settles.
@@ -1873,30 +1881,108 @@ function bgTerm(s) {
     clearTimeout(scrollIdle);
     scrollIdle = setTimeout(() => wrap.scrollTo({ left: 0, behavior: "smooth" }), 500);
   });
-  pinchZoom(wrap, box, (bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }), true);
-  // ALWAYS pin fresh elements to the tail — this is the coordinate BASELINE the
-  // persisted pan/zoom transform overlays (each rebuild starts at scrollTop 0; a
-  // panned user's offset is relative to the tail, so skipping this would show the
-  // buffer TOP through their transform). The zHome guards above apply only to
-  // CONTENT updates on an existing element, where moving the scroll is a yank.
-  requestAnimationFrame(toEnd);
-  // The window's height changes after we pin the scroll (the card above grows as
-  // events/images render, flex re-settles) — each change slid the view off the tail,
-  // half-clipping the last line. Re-pin whenever the wrap is resized.
-  if (peekPrev) peekRO.unobserve(peekPrev);
-  peekRO.observe(wrap);
-  peekPrev = wrap;
-  return wrap;
+  // Wired ONCE. pinchZoom returns a handle so a pane switch re-points the persisted
+  // transform at bgZoom[newPane] instead of constructing another instance.
+  const zoom = pinchZoom(wrap, box, null, true);
+  peekRO.observe(wrap); // one wrap, one registration, for the life of the page
+  return { wrap, box, zoom };
 }
-// ONE shared observer for every peek window; each render explicitly unobserves the
-// pane's previous (now detached) wrap, so tracked targets stay bounded at one per pane.
+
+function bgTerm(s) {
+  if (!peekUI) {
+    peekUI = buildPeek();
+    // The peek sits between the card and the ⤢ button: flex column, DOM order = visual order.
+    _panesUI.deck.insertBefore(peekUI.wrap, _panesUI.fs);
+  }
+  const { wrap, box, zoom } = peekUI;
+  // "shell" here means "no status chrome at the bottom of the capture" — agents get their
+  // chrome tucked behind the bar, shells keep their prompt visible above it. (Don't key
+  // this on LOGOS: shell has a logo too now.)
+  setCls(wrap, "shell", !AGENT_TOOLS.has(s.tool));
+  const switched = wrap.dataset.pane !== s.pane_id;
+  setAttr(wrap, "data-pane", s.pane_id); // the ResizeObserver keys zHome off the OWNING pane
+  // Re-point the pan/zoom state at THIS pane's persisted transform and apply it, so a
+  // switch restores where that pane was left rather than inheriting the previous pane's.
+  if (switched) zoom.retarget((bgZoom[s.pane_id] ||= { scale: 1, tx: 0, ty: 0 }));
+  const toEnd = () => { wrap.scrollTop = wrap.scrollHeight; };
+  // Only on a SWITCH does the box need re-seeding: same-pane polls leave the streamed
+  // content alone entirely (the stream itself paints it), which is what keeps a selection
+  // inside the terminal alive across a poll.
+  if (switched) {
+    // Instant frame on switch from cache. Its GRAY/live state must reflect the ACTUAL
+    // stream health (peekLive), not a blanket "stale". A pane never viewed this session
+    // has no cache — "(connecting…)" until the first frame.
+    const c = peekCache[s.pane_id];
+    if (c) {
+      box.innerHTML = c.html;
+      tuckChrome(wrap, box);
+      setCls(wrap, "stale", !peekLive);
+    } else {
+      setText(box, "(connecting…)");
+      setCls(wrap, "stale", false);
+    }
+    // ALWAYS pin to the tail on a switch — this is the coordinate BASELINE the persisted
+    // pan/zoom transform overlays (scrollTop starts at 0; a panned user's offset is
+    // relative to the tail, so skipping this would show the buffer TOP through their
+    // transform). The zHome guards elsewhere apply only to CONTENT updates on the
+    // already-shown pane, where moving the scroll is a yank.
+    requestAnimationFrame(toEnd);
+  }
+  // The peek streams for the ACTIVE pane. The stream is keyed to the pane, NOT recreated
+  // per render (that would restart the long-poll hold each time); its callbacks target the
+  // now-permanent peekUI nodes. Restart only when the streamed pane actually changes.
+  peekBox = box; peekWrap = wrap;
+  // While the fullscreen overlay owns this pane's one stream, the peek stands down —
+  // otherwise the poll would start a SECOND concurrent stream here. The peek resumes on
+  // the next poll after the overlay closes (screenOpen back to false).
+  if (screenOpen) { if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; } }
+  else if (peekStreamPane !== s.pane_id) {
+    peekStop && peekStop();
+    peekStreamPane = s.pane_id;
+    const streamPane = s.pane_id; // captured: ignore late frames after a pane switch
+    peekStop = liveStream(streamPane, {
+      onFrame: (txt) => {
+        // LOAD-BEARING: peekUI is THE one box on screen, shared across panes, so a frame
+        // that resolves just after a pane switch would paint the OLD pane's screen into
+        // the NEW pane's window (and cache it there) without this guard.
+        if (streamPane !== peekStreamPane) return;
+        const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
+        peekCache[streamPane] = { html }; // cache for the next stale-on-switch
+        // NEVER repaint while the user is typing or selecting. This paint is a whole
+        // innerHTML swap, which collapses the document Selection — and on a busy pane the
+        // frames arrive continuously, so the caret gets wiped within milliseconds of being
+        // placed. Skipping is safe: frames keep coming, so it self-corrects on the next one.
+        //
+        // TODO: this guard and _caretGrace are the last rendering workarounds left. Diffing
+        // renderCapture's output into persistent per-line nodes would let both go.
+        const sel = document.getSelection();
+        const selecting = sel && !sel.isCollapsed
+          && (peekBox?.contains(sel.anchorNode) || bar.input?.contains(sel.anchorNode));
+        if (selecting || Date.now() - _caretGrace < 1200) return;
+        if (peekBox && peekBox.innerHTML !== html) {
+          peekBox.innerHTML = html;
+          tuckChrome(peekWrap, peekBox);
+          // Suppress the scroll-to-tail only while the user's own finger is panning this
+          // surface — that is the one thing a re-pin fights.
+          if (!zoom.panning() && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
+        }
+      },
+      onLive: () => { if (streamPane === peekStreamPane) { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); } },
+      onQuiet: () => { if (streamPane === peekStreamPane) { peekLive = false; peekWrap && peekWrap.classList.add("stale"); } },
+    });
+  } else if (peekLive) {
+    setCls(wrap, "stale", false); // stream already live for this pane
+  }
+}
+// ONE shared observer, now for the ONE peek window (registered in buildPeek). The window's
+// height changes as the card above it grows (events/images render, flex re-settles), which
+// slid the view off the tail and half-clipped the last line — so re-pin on resize.
 const peekRO = new ResizeObserver((entries) =>
   entries.forEach((e) => {
-    // The wrap's OWN pane, not activeId() — a pending selection can diverge from
-    // the rendered wrap and re-pin a pane the user has deliberately panned.
+    // The wrap's OWN pane, not activeId() — a pending selection can diverge from the
+    // rendered wrap and re-pin a pane the user has deliberately panned.
     if (zHome(e.target.dataset.pane)) e.target.scrollTop = e.target.scrollHeight;
   }));
-let peekPrev = null; // the one previously observed wrap (only one is in the DOM at a time)
 
 // Display-safe text from an untrusted string (model output derived from pane content):
 // strip bidi controls, then cap by CODE POINTS so no surrogate pair is split. Bidi
@@ -1914,42 +2000,41 @@ function safeText(v, max) {
 // Tap-to-open links the parser extracted (auth URLs, PRs, previews). The parser
 // reassembles URLs that wrap across terminal lines, so these work where regexing the
 // raw screen text can't. stopPropagation so tapping opens the link, not the card.
-function linksView(links) {
-  const box = document.createElement("div");
-  box.className = "links";
+// Keyed by href, so a link that persists across polls keeps its node and stays tappable.
+function applyLinks(box, links) {
   const valid = links.filter((l) => {
     if (!l || !l.href || !/^https?:\/\//i.test(l.href)) return false;
     try { new URL(l.href); return true; } catch { return false; }  // pre-cap: malformed can't eat slots
-  });
-  for (const l of valid.slice(0, 3)) {
-    // The label is MODEL OUTPUT derived from untrusted pane content — a hostile pane
-    // can suggest a reassuring label for a phishing URL. Always show the destination
-    // host next to the label so the user sees where the tap goes; cap the label so a
-    // hostile pane can't bury the card's actionable UI under a wall of text.
-    const host = new URL(l.href).host;
+  }).slice(0, 3);
+  // Index + href, for the same reason as the copyables below: the same URL can appear twice
+  // with different labels, and a bare-href key collapsed both onto one cached node.
+  keyedList(box, valid, (l, i) => i + "|" + l.href, () => {
     const a = document.createElement("a");
     a.className = "linkbtn";
-    a.href = l.href;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    const label = safeText(l.text, 80);  // untrusted: bidi-stripped, code-point capped
     // Lucide icon, not the 🔗 emoji: AGENTS.md bans emoji as UI chrome (emoji ignore
-    // currentColor, so they can't theme, and they render differently per device). The
-    // label is untrusted, so it rides in its own span as textContent — never innerHTML.
+    // currentColor, so they can't theme, and they render differently per device).
     const licn = document.createElement("span");
     licn.className = "linkicon";
     licn.innerHTML = licon("link", 13);
-    const ltxt = document.createElement("span");
-    ltxt.textContent = label || host;
-    a.append(licn, ltxt);
-    const hostEl = document.createElement("span");
-    hostEl.className = "linkhost";
-    hostEl.textContent = ` ${host}`;
-    a.appendChild(hostEl);
+    // The label is untrusted, so it rides in its own span as textContent, never innerHTML.
+    a._txt = document.createElement("span");
+    a._host = document.createElement("span");
+    a._host.className = "linkhost";
+    a.append(licn, a._txt, a._host);
     a.onclick = (e) => e.stopPropagation();
-    box.appendChild(a);
-  }
-  return box;
+    return a;
+  }, (a, l) => {
+    // The label is MODEL OUTPUT derived from untrusted pane content — a hostile pane can
+    // suggest a reassuring label for a phishing URL. Always show the destination host
+    // next to the label so the user sees where the tap goes; cap the label so a hostile
+    // pane can't bury the card's actionable UI under a wall of text.
+    const host = new URL(l.href).host;
+    setAttr(a, "href", l.href);
+    setText(a._txt, safeText(l.text, 80) || host); // untrusted: bidi-stripped, capped
+    setText(a._host, ` ${host}`);
+  });
 }
 
 // Put text on the clipboard, resolving true/false so the caller can show the outcome
@@ -1984,249 +2069,395 @@ async function copyText(text) {
 // token" or "Commit message" doesn't say WHICH token or what the message reads, so the
 // user had to copy-then-paste-somewhere just to look, which is the terminal problem all
 // over again. Full payload still rides on the button; only the preview is clipped.
-function copyView(items) {
-  const box = document.createElement("div");
-  box.className = "copyables";
-  const valid = items.filter((c) => c && typeof c.text === "string" && c.text.trim());
-  for (const c of valid.slice(0, 3)) {
+// Keyed by the payload text, so a copyable that persists across polls keeps its node —
+// which is what lets the "Copied" confirmation actually last its full 1.6s.
+function applyCopy(box, items) {
+  const valid = items.filter((c) => c && typeof c.text === "string" && c.text.trim()).slice(0, 3);
+  // Keyed by INDEX + payload, not payload alone. Two copyables can legitimately carry the
+  // same text under different labels (an agent printing one command under two headings),
+  // and a bare-content key made both items resolve to the SAME cached node: it was applied
+  // twice with the last write winning, then re-inserted, so on the next poll the rows swapped
+  // labels and one payload became unreachable. The index disambiguates while the payload
+  // still prevents a row being reused for different content if the list shifts.
+  keyedList(box, valid, (c, i) => i + "|" + c.text, () => {
     const b = document.createElement("button");
     b.className = "copybtn";
-    // Label is MODEL OUTPUT derived from untrusted pane content: strip bidi controls
-    // (an unterminated override would visually reorder the row) and cap by code points
-    // so a hostile pane can't bury the card under a wall of text. textContent, never
-    // innerHTML. Falls back to a generic name when the model gave no usable label.
-    const label = safeText(c.label, 60) || "Text";
     // Icon is chrome (inline Lucide, themes via currentColor — AGENTS.md bans emoji
-    // here); the label is untrusted, so it rides in its own span as textContent and
-    // never touches innerHTML. Swap to a check when the copy lands.
-    const icon = document.createElement("span");
-    icon.className = "copyicon";
-    icon.innerHTML = licon("clipboard", 14);
-    // Preview: the payload's own first line, so the row says what it actually holds.
-    // Newlines collapse to a pilcrow-ish separator (a multi-line commit message must
-    // read as one line here) and runs of grid whitespace collapse so terminal padding
-    // doesn't eat the preview. Clipped by CSS, not here — the full text stays on the
-    // clipboard. Sliced generously (200) before CSS ellipsis so a hostile payload
-    // can't cost real layout work.
-    // safeText for the same reason the label gets it, and MORE so: this is the payload
-    // itself, so a bidi control here could make the row read as different content than
-    // the clipboard actually carries. Display only — c.text stays verbatim for the copy.
-    const preview = safeText(c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " "), 200);
-    const text = document.createElement("span");
-    text.className = "copylabel";
-    const prev = document.createElement("span");
-    prev.className = "copyprev";
-    prev.textContent = preview;
+    // here). Swapped to a check when the copy lands.
+    b._icon = document.createElement("span");
+    b._icon.className = "copyicon";
+    b._icon.innerHTML = licon("clipboard", 14);
+    // The label is untrusted, so it rides in its own span as textContent, never innerHTML.
+    b._label = document.createElement("span");
+    b._label.className = "copylabel";
+    b._prev = document.createElement("span");
+    b._prev.className = "copyprev";
     const lines = document.createElement("span");
     lines.className = "copylines";
-    lines.append(text, prev);
-    const set = (t, done = false) => {
-      icon.innerHTML = licon(done ? "check" : "clipboard", 14);
-      text.textContent = t;
-    };
-    set(label);
-    b.append(icon, lines);
-    let revert = 0;
-    // onTap(defer), not onclick: the card is rebuilt on the ~2s poll, so a plain `click` is
-    // lost whenever a rebuild lands between finger-down and finger-up — the same swallowed-tap
-    // bug the dock had, and worse here because the payload is the whole point of the row.
-    // Deferred to pointerup: the card scrolls, so a scroll flick must not copy — and pointerup
-    // still carries the transient user activation that BOTH clipboard paths need
-    // (navigator.clipboard.writeText and the execCommand fallback alike).
-    onTap(b, async (e) => {
+    lines.append(b._label, b._prev);
+    b.append(b._icon, lines);
+    b._revert = 0;
+    b._confirm = ""; // non-empty while a copy confirmation is showing (see apply below)
+    // Plain click, and it still carries the transient user activation that BOTH clipboard
+    // paths need (navigator.clipboard.writeText and the execCommand fallback alike).
+    b.onclick = async (e) => {
       e.stopPropagation(); // copying must not also re-select the pane
-      const ok = await copyText(c.text);
+      const ok = await copyText(b._payload);
       // The card never shows the payload, so a failure has to send the user to where the
       // text actually is — the pane itself — not to a "text" that isn't on screen.
-      set(ok ? "Copied" : "Copy failed — select it in the pane", ok);
-      b.classList.toggle("copied", ok);
-      // Revert so the row keeps naming its content (and a second copy is obvious). Clear
-      // the pending timer first: on a rapid second tap the older one would otherwise fire
+      b._confirm = ok ? "Copied" : "Copy failed — select it in the pane";
+      b._icon.innerHTML = licon(ok ? "check" : "clipboard", 14);
+      setText(b._label, b._confirm);
+      setCls(b, "copied", ok);
+      // Clear the pending timer first: on a rapid second tap the older one would fire
       // mid-confirmation and blank the state early.
-      clearTimeout(revert);
-      revert = setTimeout(() => { set(label); b.classList.remove("copied"); }, 1600);
-    }, true);
-    box.appendChild(b);
-  }
-  return box;
+      clearTimeout(b._revert);
+      b._revert = setTimeout(() => {
+        b._confirm = "";
+        b._icon.innerHTML = licon("clipboard", 14);
+        setText(b._label, b._labelText);
+        b.classList.remove("copied");
+      }, 1600);
+    };
+    return b;
+  }, (b, c) => {
+    b._payload = c.text; // verbatim for the copy — never the display-sanitized form
+    // Label is MODEL OUTPUT derived from untrusted pane content: strip bidi controls (an
+    // unterminated override would visually reorder the row) and cap by code points so a
+    // hostile pane can't bury the card under a wall of text. Falls back to a generic name
+    // when the model gave no usable label.
+    b._labelText = safeText(c.label, 60) || "Text";
+    // Don't stomp a live confirmation: a poll landing during the 1.6s window would
+    // otherwise reset the label to its name while the check-mark is still showing.
+    if (!b._confirm) setText(b._label, b._labelText);
+    // Preview: the payload's own first line, so the row says what it actually holds.
+    // Newlines collapse to a separator and runs of grid whitespace collapse, so a
+    // multi-line payload reads as one line and terminal padding doesn't eat the preview.
+    // Clipped by CSS; sliced first so a hostile payload can't cost real layout work.
+    // safeText because a bidi control could make the row read as different content than
+    // the clipboard actually carries.
+    setText(b._prev, safeText(c.text.replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " "), 200));
+  });
 }
 
-// Render structured table data as a real HTML table in a box that scrolls both ways
-// (horizontal for wide tables, vertical for tall ones) — from the parser's `tables`.
-function tableView(t) {
-  const box = document.createElement("div");
-  box.className = "tablewrap";
-  const head = (t.headers || []).map((h) => `<th>${esc(h)}</th>`).join("");
-  const body = (t.rows || [])
-    .map((r) => `<tr>${(r || []).map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`)
-    .join("");
-  box.innerHTML =
-    (t.title ? `<div class="tbl-title">${esc(t.title)}</div>` : "") +
-    `<div class="tbl-scroll"><table>${head ? `<thead><tr>${head}</tr></thead>` : ""}<tbody>${body}</tbody></table></div>`;
-  return box;
+// Tables are reconciled three levels deep (table, row, cell) so a table whose numbers
+// tick keeps its nodes — and therefore the .tbl-scroll box keeps its scroll offset, which
+// a rebuild reset to the left edge on every poll.
+function applyTables(host, tables) {
+  keyedList(host, tables, (t, i) => i + "|" + (t.title || ""), () => {
+    const box = document.createElement("div");
+    box.className = "tablewrap";
+    box._title = document.createElement("div");
+    box._title.className = "tbl-title";
+    const scroll = document.createElement("div");
+    scroll.className = "tbl-scroll";
+    const table = document.createElement("table");
+    box._thead = document.createElement("thead");
+    box._headRow = document.createElement("tr");
+    box._thead.appendChild(box._headRow);
+    box._tbody = document.createElement("tbody");
+    table.append(box._thead, box._tbody);
+    scroll.appendChild(table);
+    box.append(box._title, scroll);
+    return box;
+  }, (box, t) => {
+    // The title node is permanent, so an untitled table leaves it empty. Today that costs
+    // nothing (an empty block is 0-height and its 4px margin-bottom collapses into
+    // .tablewrap's margin-top), but that only holds while nothing gives .tbl-title padding
+    // or makes its parent a flex/grid container, either of which would turn the empty node
+    // into a visible gap. `hid` states the intent instead of relying on that.
+    setText(box._title, t.title || "");
+    setCls(box._title, "hid", !t.title);
+    const headers = t.headers || [];
+    setCls(box._thead, "hid", !headers.length);
+    keyedList(box._headRow, headers, (h, i) => i, () => document.createElement("th"), setText);
+    keyedList(box._tbody, t.rows || [], (r, i) => i, () => document.createElement("tr"),
+      (tr, r) => keyedList(tr, r || [], (c, i) => i, () => document.createElement("td"), setText));
+  });
 }
 
 // The activity feed: "what the thing did". Each event's `text` is the primary line;
 // optional metadata (a file diff, or a `meta` string) renders as a small, muted,
 // right-justified side-note. A file edit is just an event whose metadata is a diff.
-function evHtml(e) {
-  let note = "";
-  if (e.file) {
-    const add = e.file.added ? `<span class="add">+${e.file.added}</span>` : "";
-    const del = e.file.removed ? `<span class="del">-${e.file.removed}</span>` : "";
-    note = `<span class="ev-note ev-file">${esc(e.file.path || "")} ${add}${del}</span>`;
-  } else if (e.meta) {
-    note = `<span class="ev-note">${esc(e.meta)}</span>`;
-  }
-  // historical = reconstructed from scrollback by the bootstrap pass, not observed
-  // live — rendered dimmer so it never masquerades as watched fact.
-  // linkifyText, not esc: an event that mentions a URL or a markdown [label](url) — a PR
-  // the agent opened, a preview deploy — should be tappable here exactly as it is in the
-  // terminal below. It escapes everything it doesn't turn into an anchor, so it is a safe
-  // drop-in for esc() on this untrusted model text.
-  return `<div class="ev${e.historical ? " ev-hist" : ""}"><span class="ev-text">${linkifyText(e.text || "")}</span>${note}</div>`;
+//
+// APPEND-ONLY: keyedList keeps the existing event rows, so scroll position and each
+// <details> open/closed state are never lost and need no side table to restore them.
+function buildEvent() {
+  const d = document.createElement("div");
+  d.className = "ev";
+  d._text = document.createElement("span");
+  d._text.className = "ev-text";
+  d._note = document.createElement("span");
+  d._note.className = "ev-note";
+  d._add = document.createElement("span");
+  d._add.className = "add";
+  d._del = document.createElement("span");
+  d._del.className = "del";
+  d._path = document.createElement("span");
+  d._note.append(d._path, d._add, d._del);
+  d.append(d._text, d._note);
+  return d;
 }
 
-function eventsView(events, paneId, summary) {
-  const box = document.createElement("div");
-  box.className = "events";
-  box.dataset.pane = paneId || "";
-  // When the pane went idle and the server summarized a burst of `count` events,
-  // collapse the OLDEST `count` events under a summary line (expandable). We fold by
-  // count, not timestamp, to avoid client-ms vs server-sec clock skew — the log is
-  // time-ordered so the oldest N are the summarized burst.
-  let head = "";
-  let rest = events;
-  if (summary && summary.text && summary.count > 1 && events.length > summary.count) {
-    const folded = events.slice(0, summary.count);
-    rest = events.slice(summary.count);
-    const open = openTimelines.has(paneId + ":sum");
-    head =
-      `<details class="ev-summary"${open ? " open" : ""} data-sum="${esc(paneId)}">` +
-      `<summary>▤ ${esc(summary.text)} <span class="dim">(${summary.count})</span></summary>` +
-      folded.map(evHtml).join("") +
-      `</details>`;
-  }
-  box.innerHTML = head + rest.map(evHtml).join("");
-  // Newest events are at the bottom. The card re-renders every poll, so after it's in
-  // the DOM, restore the user's scroll — but if they were at (or near) the bottom,
-  // stick to the bottom so new activity stays in view. Scrolling up to read history
-  // is preserved and won't get yanked back down.
-  const prev = eventScroll[paneId];
-  requestAnimationFrame(() => {
-    if (prev == null || prev.atBottom) box.scrollTop = box.scrollHeight;
-    else box.scrollTop = prev.top;
-  });
-  box.addEventListener("scroll", () => {
-    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-    eventScroll[paneId] = { top: box.scrollTop, atBottom };
-  });
-  const det = box.querySelector("details.ev-summary");
-  if (det) det.ontoggle = () =>
-    det.open ? openTimelines.add(paneId + ":sum") : openTimelines.delete(paneId + ":sum");
-  return box;
+function applyEvent(d, e) {
+  // historical = reconstructed from scrollback by the bootstrap pass, not observed live —
+  // rendered dimmer so it never masquerades as watched fact.
+  setCls(d, "ev-hist", !!e.historical);
+  // linkifyText, not setText: an event that mentions a URL or a markdown [label](url) — a
+  // PR the agent opened, a preview deploy — should be tappable here exactly as it is in
+  // the terminal below. It escapes everything it doesn't turn into an anchor, so it is
+  // safe on this untrusted model text; setHtml keeps the unchanged-write no-op.
+  setHtml(d._text, e.text ? linkifyText(e.text) : "");
+  const isFile = !!e.file;
+  setCls(d._note, "ev-file", isFile);
+  setText(d._path, isFile ? (e.file.path || "") + " " : (e.meta || ""));
+  setText(d._add, isFile && e.file.added ? "+" + e.file.added : "");
+  setText(d._del, isFile && e.file.removed ? "-" + e.file.removed : "");
+  // Hide the note column outright when this event has no metadata. The span is permanent
+  // and holds three permanent children, so :empty can never match it — and .ev is a flex
+  // row with a gap, which an always-present empty column would silently widen.
+  setCls(d._note, "hid", !(isFile || e.meta));
 }
-const eventScroll = {}; // pane_id -> {top, atBottom} to preserve scroll across re-renders
+
+// A stable identity per event. The log is append-only and time-ordered server-side, so
+// index-within-log is stable for everything already rendered; ts+text keeps a row from
+// being reused for a different event if the server ever trims the head.
+//
+// The index must be the event's position in the WHOLE log, not in the slice it was passed
+// in. The feed splits into two keyedLists at summary.count, and that boundary moves as the
+// server folds more of a burst — a slice-local index would re-key every row below the
+// fold on each move and rebuild the entire tail, which is the churn this file exists to
+// avoid. Hence the explicit offset rather than keyedList's own index argument.
+const evKeyAt = (offset) => (e, i) => `${offset + i}|${e.ts || ""}|${e.text || ""}`;
+
+function buildEvents() {
+  const root = document.createElement("div");
+  root.className = "events";
+  const det = document.createElement("details");
+  det.className = "ev-summary";
+  const sm = document.createElement("summary");
+  const smText = document.createElement("span");
+  const smCount = document.createElement("span");
+  smCount.className = "dim";
+  sm.append(document.createTextNode("▤ "), smText, document.createTextNode(" "), smCount);
+  det.appendChild(sm);
+  const folded = document.createElement("div");
+  folded.className = "ev-folded";
+  det.appendChild(folded);
+  const rest = document.createElement("div");
+  rest.className = "ev-rest";
+  root.append(det, rest);
+  // PER-PANE expansion state. The <details> is now ONE permanent node shared by every pane
+  // (the card is retargeted, not rebuilt), so its `open` flag is not per-pane by itself —
+  // expanding pane A's folded burst would leave pane B's summary rendering already-open,
+  // showing a different pane's collapsed history as expanded. The old code got this from a
+  // module-level Set keyed `paneId + ":sum"`; the state still has to be keyed by pane, it
+  // just lives on this handle now instead of in a side table.
+  const ui = { root, det, smText, smCount, folded, rest, openByPane: {} };
+  det.ontoggle = () => { if (ui.pane) ui.openByPane[ui.pane] = det.open; };
+  // Measure BEFORE the append, not after: whether the user was at the bottom is a fact
+  // about the pre-append scroll state, and reading it after new rows land always says
+  // "not at bottom". Recorded on scroll, and re-derived just before each apply.
+  root.addEventListener("scroll", () => { ui.atBottom = atBottomOf(root); });
+  return ui;
+}
+
+// Within 24px of the bottom counts as "at the bottom" — a user parked at the tail should
+// keep following new activity, while someone who scrolled up to read history is left alone.
+const atBottomOf = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+
+function applyEvents(ui, events, paneId, summary) {
+  const root = ui.root;
+  setCls(root, "hid", !events.length);
+  setAttr(root, "data-pane", paneId || "");
+  // Pane switch: the new pane's feed is a different log, so follow ITS tail rather than
+  // inheriting the previous pane's scroll position.
+  const switched = ui.pane !== paneId;
+  ui.pane = paneId;
+  // Restore THIS pane's expansion (see openByPane in buildEvents). Assigned only on a
+  // switch: writing it every poll would slam the burst shut under a user who just opened
+  // it, since ontoggle records asynchronously relative to the poll.
+  if (switched) ui.det.open = !!ui.openByPane[paneId];
+  // Pre-measure. Do it here, before any row is inserted, so "was the user at the bottom"
+  // reflects the state the user actually left the feed in.
+  const stick = switched || ui.atBottom === undefined || ui.atBottom || atBottomOf(root);
+  // When the pane went idle and the server summarized a burst of `count` events, collapse
+  // the OLDEST `count` events under a summary line (expandable). We fold by count, not
+  // timestamp, to avoid client-ms vs server-sec clock skew — the log is time-ordered so
+  // the oldest N are the summarized burst.
+  const folding = !!(summary && summary.text && summary.count > 1 && events.length > summary.count);
+  setCls(ui.det, "hid", !folding);
+  if (folding) {
+    setText(ui.smText, summary.text);
+    setText(ui.smCount, `(${summary.count})`);
+  }
+  const cut = folding ? summary.count : 0;
+  keyedList(ui.folded, folding ? events.slice(0, cut) : [], evKeyAt(0), buildEvent, applyEvent);
+  keyedList(ui.rest, folding ? events.slice(cut) : events, evKeyAt(cut), buildEvent, applyEvent);
+  if (stick) {
+    // Defer one frame so the just-inserted rows are laid out and scrollHeight is real.
+    requestAnimationFrame(() => { root.scrollTop = root.scrollHeight; ui.atBottom = true; });
+  }
+}
 
 // Task/TODO checklist the agent is tracking (done vs open) — from parser JSON tasks[].
-function tasksView(tasks) {
-  const box = document.createElement("div");
-  box.className = "tasks";
-  box.innerHTML =
-    `<div class="tasks-head">Tasks</div>` +
-    tasks
-      .map(
-        (t) =>
-          `<div class="task${t.done ? " done" : ""}">` +
-          `<span class="tick">${t.done ? "✓" : "○"}</span>${esc(t.text || "")}</div>`
-      )
-      .join("");
-  return box;
+// One box shape serves both this and the sub-agents list below (same .tasks chrome), so
+// the heading text and the extra class are the only parameters.
+function buildTasks(head, cls) {
+  const root = document.createElement("div");
+  root.className = cls;
+  const h = document.createElement("div");
+  h.className = "tasks-head";
+  h.textContent = head;
+  const list = document.createElement("div");
+  list.className = "task-list";
+  root.append(h, list);
+  return { root, list };
+}
+
+function buildTask() {
+  const d = document.createElement("div");
+  d.className = "task";
+  d._tick = document.createElement("span");
+  d._tick.className = "tick";
+  // A sub-agent's tick is either a check or a pulse dot; both are permanent nodes and the
+  // class decides which shows, so a worker finishing doesn't rebuild the row.
+  d._tickText = document.createElement("span");
+  d._pulse = document.createElement("span");
+  d._pulse.className = "pulse";
+  d._tick.append(d._tickText, d._pulse);
+  d._label = document.createElement("span");
+  d._label.className = "sa-label";
+  d._meter = document.createElement("span");
+  d._meter.className = "worksub";
+  d.append(d._tick, d._label, d._meter);
+  return d;
+}
+
+function applyTasks(ui, tasks) {
+  setCls(ui.root, "hid", !tasks.length);
+  keyedList(ui.list, tasks, (t, i) => i + "|" + (t.text || ""), buildTask, (d, t) => {
+    setCls(d, "done", !!t.done);
+    setCls(d._pulse, "on", false); // plain tasks never pulse
+    setText(d._tickText, t.done ? "✓" : "○");
+    setText(d._label, t.text || "");
+    setText(d._meter, "");
+  });
 }
 
 // Background sub-agents this agent spawned (parser JSON subagents[]) — distinct from the
 // agent's own TODO tasks above. Shares the .tasks box chrome; a running worker gets a
 // pulse dot, a finished one a check, and any elapsed/tokens meter rides on the right.
 // Renderable entries only (match classify.py: dicts only) — ONE definition, shared by
-// the renderer and by row()'s toggle count so the label can never disagree with the box.
+// the renderer and by the row's toggle count so the label can never disagree with the box.
 const realSubs = (subs) =>
   (Array.isArray(subs) ? subs : []).filter((a) => a && typeof a === "object" && !Array.isArray(a));
 
-function subagentsView(subs) {
-  const box = document.createElement("div");
-  box.className = "tasks subagents";
-  box.innerHTML =
-    `<div class="tasks-head">Sub-agents</div>` +
-    subs
-      .map((a) => {
-        const done = a.state === "done";
-        const meter = [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).map(esc).join(" ");
-        return (
-          `<div class="task${done ? " done" : ""}">` +
-          `<span class="tick">${done ? "✓" : '<span class="pulse"></span>'}</span>` +
-          `<span class="sa-label">${esc(a.label || "")}</span>` +
-          (meter ? `<span class="worksub">${meter}</span>` : "") +
-          `</div>`
-        );
-      })
-      .join("");
-  return box;
+function applySubagents(ui, subs) {
+  setCls(ui.root, "hid", !subs.length);
+  keyedList(ui.list, subs, (a, i) => i + "|" + (a.label || ""), buildTask, (d, a) => {
+    const done = a.state === "done";
+    setCls(d, "done", done);
+    setText(d._tickText, done ? "✓" : "");
+    setCls(d._pulse, "on", !done);
+    setText(d._label, a.label || "");
+    setText(d._meter, [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).join(" "));
+  });
 }
 
 // Render Claude Code's Esc-Esc Rewind picker as a scrollable history list. The ❯
 // entry is highlighted; ↑/↓ (the key buttons, which move the real terminal cursor)
 // scroll the selection and the card reflects it each poll; Enter restores. A tap on a
 // row is a convenience: send ↑ to reveal more when it's the top "N more above" marker.
-// Colorize a Rewind note's diff stats: "+58" green, "-3" red; other text dim.
-function diffStat(note) {
-  return esc(note).replace(/([+-]\d+)/g, (m) =>
-    `<span class="${m[0] === "+" ? "add" : "del"}">${m}</span>`
-  );
+// Colorize a Rewind note's diff stats: "+58" green, "-3" red; other text dim. Builds
+// real nodes rather than a markup string, so the note is never re-parsed as HTML.
+function applyDiffStat(host, note) {
+  // Split on the signed-number runs, keeping them: even indices are plain text, odd are
+  // the stats. The shape is stable for a given note, so keyedList reuses the spans.
+  const parts = String(note ?? "").split(/([+-]\d+)/).filter((p) => p !== "");
+  keyedList(host, parts, (p, i) => i, () => document.createElement("span"), (sp, p) => {
+    const stat = /^[+-]\d+$/.test(p);
+    setAttr(sp, "class", stat ? (p[0] === "+" ? "add" : "del") : "");
+    setText(sp, p);
+  });
 }
 
-function rewindView(s) {
-  const box = document.createElement("div");
-  box.className = "rewind";
-  const rows = s.rewind.entries
-    .map(
-      (e) =>
-        `<div class="rw-entry${e.selected ? " sel" : ""}">` +
-        `<span class="rw-cursor">${e.selected ? "❯" : ""}</span>` +
-        `<span class="rw-text">${esc(e.text)}</span>` +
-        (e.note ? `<span class="rw-note">${diffStat(e.note)}</span>` : "") +
-        `</div>`
-    )
-    .join("");
-  box.innerHTML =
-    `<div class="rw-head">⟲ Rewind — restore to a previous point` +
-    (s.rewind.more_above ? ` <span class="rw-more">↑ ${s.rewind.more_above} more above</span>` : "") +
-    `</div>${rows}` +
-    `<div class="rw-hint">Use ↑ / ↓ to move, Enter to restore, Esc to cancel</div>`;
-  return box;
+// Claude Code's Esc-Esc Rewind picker as a scrollable history list. The ❯ entry is
+// highlighted; ↑/↓ (the key buttons, which move the real terminal cursor) scroll the
+// selection and the card reflects it each poll; Enter restores.
+function buildRewind() {
+  const root = document.createElement("div");
+  root.className = "rewind";
+  const head = document.createElement("div");
+  head.className = "rw-head";
+  head.appendChild(document.createTextNode("⟲ Rewind — restore to a previous point"));
+  const more = document.createElement("span");
+  more.className = "rw-more";
+  head.appendChild(more);
+  const list = document.createElement("div");
+  list.className = "rw-list";
+  const hint = document.createElement("div");
+  hint.className = "rw-hint";
+  hint.textContent = "Use ↑ / ↓ to move, Enter to restore, Esc to cancel";
+  root.append(head, list, hint);
+  return { root, more, list };
+}
+
+function applyRewind(ui, s) {
+  const rw = s && s.rewind;
+  setCls(ui.root, "hid", !rw);
+  if (!rw) { keyedList(ui.list, [], (x) => x, () => null); return; }
+  setText(ui.more, rw.more_above ? `↑ ${rw.more_above} more above` : "");
+  keyedList(ui.list, rw.entries || [], (e, i) => i + "|" + (e.text || ""), () => {
+    const d = document.createElement("div");
+    d.className = "rw-entry";
+    d._cur = document.createElement("span");
+    d._cur.className = "rw-cursor";
+    d._txt = document.createElement("span");
+    d._txt.className = "rw-text";
+    d._note = document.createElement("span");
+    d._note.className = "rw-note";
+    d.append(d._cur, d._txt, d._note);
+    return d;
+  }, (d, e) => {
+    setCls(d, "sel", !!e.selected);
+    setText(d._cur, e.selected ? "❯" : "");
+    setText(d._txt, e.text);
+    applyDiffStat(d._note, e.note || "");
+  });
 }
 
 // Compact metadata chips: model, context bar, cost, mode badge, agent count. Shown in
 // the bottom bar (below the input) for the ACTIVE pane only, not on every card. Only
 // renders the chips that have values, so a plain shell shows nothing here.
+// Returns chip DESCRIPTORS, not markup — applyChips builds/updates the nodes, keyed so a
+// chip whose value changes keeps its node. Values go in as text, never markup.
 const MODE_LABEL = { plan: "plan", "accept-edits": "accept edits", bypass: "bypass perms" };
 function metaChips(s) {
   const chips = [];
-  if (s.model) chips.push(`<span class="chip">${esc(s.model)}</span>`);
+  if (s.model) chips.push({ key: "model", text: s.model });
   if (s.context_pct != null)
-    chips.push(
-      `<span class="chip ctxchip"><i style="width:${s.context_pct}%"></i>${s.context_pct}% ctx</span>`
-    );
-  if (s.cost) chips.push(`<span class="chip">${esc(s.cost)}</span>`);
-  // Generic status-line entries the parser surfaced (usage-limit %, queue depth, …):
-  // one chip each, no schema change per metric. LLM output — a non-array (e.g. a bare
-  // string) would otherwise .slice() into characters.
+    chips.push({ key: "ctx", cls: "ctxchip", pct: s.context_pct, text: `${s.context_pct}% ctx` });
+  if (s.cost) chips.push({ key: "cost", text: s.cost });
+  // Generic status-line entries the parser surfaced (usage-limit %, queue depth, …): one
+  // chip each, no schema change per metric. LLM output — a non-array (e.g. a bare string)
+  // would otherwise .slice() into characters.
   const entries = Array.isArray(s.status_entries) ? s.status_entries : [];
-  for (const t of entries.slice(0, 4))
-    if (t && String(t).trim()) chips.push(`<span class="chip">${esc(t)}</span>`);
+  entries.slice(0, 4).forEach((t, i) => {
+    if (t && String(t).trim()) chips.push({ key: "st" + i, text: String(t) });
+  });
+  // `mode` is parser (LLM) output interpolated into a CLASS name. setAttr writes a DOM
+  // property rather than markup so it cannot inject, but a junk value would still produce a
+  // garbage class — so only known modes get the mode-* class, matching how ACTIVITIES
+  // whitelists activity. An unknown mode still shows its label, just unstyled.
   if (s.mode && s.mode !== "normal" && s.mode !== "unknown")
-    chips.push(`<span class="chip mode mode-${s.mode}">${MODE_LABEL[s.mode] ?? s.mode}</span>`);
-  if (s.agents > 0) chips.push(`<span class="chip agents">⛓ ${s.agents} agents</span>`);
-  return chips.join("");
+    chips.push({
+      key: "mode",
+      cls: "mode" + (has(MODE_LABEL, s.mode) ? " mode-" + s.mode : ""),
+      text: MODE_LABEL[s.mode] ?? String(s.mode),
+    });
+  if (s.agents > 0) chips.push({ key: "agents", cls: "agents", text: `⛓ ${s.agents} agents` });
+  return chips;
 }
 
 // Always-available raw input: type any text into the pane, plus special keys. This
@@ -2287,9 +2518,30 @@ function updateBar(s) {
   // The CSS :empty::before placeholder isn't an accessible name, so mirror it into
   // aria-label — screen readers announce the per-pane target instead of a bare textbox.
   const label = s ? `Type into ${s.label || "pane"}…` : "No pane";
-  bar.input.dataset.placeholder = label;
-  bar.input.setAttribute("aria-label", label);
-  bar.meta.innerHTML = s ? metaChips(s) : "";
+  setAttr(bar.input, "data-placeholder", label);
+  setAttr(bar.input, "aria-label", label);
+  // Keyed, not innerHTML: the chips are re-derived every poll, and the context-percent chip
+  // in particular has a growing inner bar whose width would otherwise restart from a fresh
+  // node each time. .metarow:empty still works — keyedList removes leftovers.
+  applyChips(bar.meta, s ? metaChips(s) : []);
+}
+
+// One chip. `bar` is the context-percent chip's inner fill, present on every chip node but
+// only sized (and shown) for that one, so no chip type needs its own build function.
+function applyChips(host, chips) {
+  keyedList(host, chips, (c) => c.key, () => {
+    const sp = document.createElement("span");
+    sp._bar = document.createElement("i");
+    sp._txt = document.createElement("span");
+    sp.append(sp._bar, sp._txt);
+    return sp;
+  }, (sp, c) => {
+    setAttr(sp, "class", "chip" + (c.cls ? " " + c.cls : ""));
+    setCls(sp._bar, "on", c.pct != null);
+    if (c.pct != null) sp._bar.style.width = c.pct + "%";
+    setAttr(sp, "title", c.title || null);
+    setText(sp._txt, c.text);
+  });
 }
 // Stamped when the user is placing the caret in the composer. The live peek repaint
 // (an innerHTML swap) collapses the Selection, so on a busy pane it wiped the caret as
@@ -2302,13 +2554,56 @@ if (bar.input) {
   // together, then one Enter (see submitComposer). Nothing reaches the pane at attach
   // time — the image waits here as a draft until you send, mirroring the phone's own
   // "type a caption, then send the photo" feel.
-  // onTap, not onclick: on a touchscreen the browser withholds `click` entirely if the
-  // finger drifts a few pixels between touchstart and touchend (easy on a phone, and on
-  // a soft-keyboard layout that shifts under your thumb). A withheld click is a Send that
-  // silently does nothing — the single worst failure this app can have, since the user's
-  // typed message just sits there. pointerdown always fires, and submitComposer is
-  // already re-entrancy-guarded by `sending`, so committing on touch-down is safe.
-  onTap(bar.send, () => submitComposer(activeState()));
+  // Send commits on pointerup, NOT plain click, and this is not about rebuilds: the
+  // browser withholds `click` entirely if the finger drifts a few pixels between
+  // touchstart and touchend — easy on a phone, and on a soft keyboard that shifts under
+  // your thumb. A withheld click is a Send that silently does nothing.
+  //
+  // pointerup rather than pointerdown: it still fires regardless of drift, but unlike a
+  // touch-down commit it cannot fire for a press the user slides away from and abandons.
+  // submitComposer is re-entrancy-guarded by `sending`, so a stray double is harmless.
+  let sendDown = 0; // the captured pointerId, or 0 when no press is in flight
+  let sentAt = 0; // when pointerup last submitted, so the follow-up click can be ignored
+  bar.send.addEventListener("pointerdown", (e) => {
+    if (!(e.button == null || e.button === 0)) return; // left/touch only
+    sendDown = e.pointerId || 1;
+    // CAPTURE the pointer so this button receives the release even when the finger drifts
+    // off it. Without capture, pointerup fires on whatever element the finger ended over,
+    // so a press abandoned off-button left `sendDown` armed and the NEXT release on the
+    // button sent unintentionally.
+    try { bar.send.setPointerCapture(e.pointerId); } catch { /* capture is best-effort */ }
+  });
+  const endSend = (e, submit) => {
+    if (!sendDown || (e.pointerId || 1) !== sendDown) return;
+    sendDown = 0;
+    // Release unconditionally, before any submit can throw — a conditional release leaks
+    // the flag and wedges Send for the rest of the session.
+    try { bar.send.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (!submit) return;
+    sentAt = Date.now();
+    submitComposer(activeState());
+  };
+  // With capture the release always arrives here, so decide by COORDINATES: a release
+  // near the button sends, one the user deliberately slid away does not. The 24px slop is
+  // deliberately generous — dropping a real Send is far worse than an extra one, and
+  // submitComposer is guarded by `sending` anyway.
+  const SEND_SLOP = 24;
+  bar.send.addEventListener("pointerup", (e) => {
+    const r = bar.send.getBoundingClientRect();
+    const near = e.clientX >= r.left - SEND_SLOP && e.clientX <= r.right + SEND_SLOP &&
+                 e.clientY >= r.top - SEND_SLOP && e.clientY <= r.bottom + SEND_SLOP;
+    endSend(e, near);
+  });
+  bar.send.addEventListener("pointercancel", (e) => endSend(e, false));
+  // Keyboard/AT activation synthesizes a click with NO pointer events, so it needs its own
+  // path. A real tap also produces a click right after our pointerup, so ignore one that
+  // follows a submit we just did. Time-bounded rather than a latched flag: the click is not
+  // guaranteed to arrive (so a flag could stay armed and eat the next keyboard activation),
+  // but when it does arrive it is always in the same instant as the release.
+  bar.send.addEventListener("click", () => {
+    if (Date.now() - sentAt < 700) return;
+    submitComposer(activeState());
+  });
   // Any attempt to put the caret in the composer opens the repaint-grace window.
   ["pointerdown", "focus", "click"].forEach((ev) =>
     bar.input.addEventListener(ev, () => { _caretGrace = Date.now(); }, true));
@@ -2372,7 +2667,7 @@ if (bar.input) {
 // agent's prompt with the images exactly where they sat between the words, like Claude
 // Code's own composer. The DOM is the source of truth; there's no separate staged[].
 // Empty composer is a no-op (a bare Enter would submit whatever's already in the agent).
-let sending = false; // a send is IN FLIGHT — distinct from the render freeze (see submitComposer)
+let sending = false; // a send is IN FLIGHT. The ONLY guard flag left (see submitComposer)
 
 const _sendQueue = []; // taps that arrived while a send was in flight (never dropped)
 // One Enter can fire submitComposer twice (keydown AND beforeinput — see the guard below).
@@ -2381,13 +2676,13 @@ const SUBMIT_DEDUPE_MS = 250;
 let _lastSubmitAt = 0;
 
 async function submitComposer(s, presetSegs) {
-  // Guard on `sending`, NOT the render freeze. That freeze is also set by swipes, pinch/drag
-  // gestures and option taps to freeze poll re-renders, so guarding on it made Send do
-  // nothing — silently — whenever a gesture had it held (a swipe keeps it for 150ms after
-  // release). "Sometimes the send button just does nothing" was that. `sending` is owned by
-  // this function alone, so it means only what it says: a send is in flight. It no longer
-  // doubles as the double-fire guard — the dedupe window below does that, because `sending`
-  // now queues instead of returning and a queued echo is a message sent twice.
+  // `sending` means ONE thing: a POST is in flight. It never doubled as a render freeze —
+  // the old shared `busy` flag did, and guarding Send on it made Send silently do nothing
+  // whenever a swipe or pinch happened to hold it ("sometimes the send button just does
+  // nothing"). There is no freeze flag at all now; a poll render only writes text onto the
+  // nodes already on screen, so nothing needs freezing. `sending` also does NOT serve as the
+  // double-fire guard — the dedupe window below does, because this function now QUEUES
+  // instead of returning, and a queued echo is a message sent twice.
   //
   // Deliberately NOT blocked when the target pane is busy working: agents queue typed
   // input, so sending mid-run is valid and useful — the user's message lands in the
@@ -2423,7 +2718,6 @@ async function submitComposer(s, presetSegs) {
   // path exists to prevent. An echo only ever follows the keystroke that caused it.
   if (!presetSegs) _lastSubmitAt = Date.now();
   sending = true;
-  busySend = true; // also freeze poll re-renders while the composer is mid-flush
   // Immediate feedback: the Send button spins for the whole request — on a slow
   // connection (image uploads) this runs for seconds, and silence reads as hung.
   bar.send?.classList.add("sending");
@@ -2465,27 +2759,13 @@ async function submitComposer(s, presetSegs) {
       const next = _sendQueue.shift();
       setTimeout(() => submitComposer(next.s, next.segs), 0);
     }
-    // Button un-spins NOW (the work is done); the freeze holds a beat longer so the poll
-    // doesn't repaint mid-settle.
+    // Button un-spins NOW (the work is done) — no need to hold it a beat longer, since a
+    // poll repainting mid-settle only writes text onto the same nodes.
     bar.send?.classList.remove("sending");
     bar.send && (bar.send.disabled = false); // clear any legacy disabled state
-    releaseBusySoon();
   }
 }
 
-// Let the render-freeze lapse a beat after a send settles, so the poll doesn't repaint
-// mid-settle. Deliberately NOT an unconditional clear: a queued send starts on a
-// 0ms timer, so the previous send's 400ms timer would land squarely inside the next one and
-// unfreeze the deck while it was still in flight — replacing the card under the user, which
-// is exactly what the freeze exists to prevent. Whoever is still sending owns the flag and
-// will schedule its own release; this one just stands down.
-//
-// It touches busySend ONLY, so it can no longer end a swipe's or pinch's freeze — a send
-// settling mid-gesture used to flip the one shared flag and let a render land under the
-// finger, which is the same failure by a different route.
-function releaseBusySoon() {
-  setTimeout(() => { if (!sending) busySend = false; }, 400);
-}
 
 // Walk the composer's children in DOM order into ordered send segments. A text node (or
 // a <br>/<div> the browser inserts on Shift+Enter) contributes to a text run; an
@@ -2644,49 +2924,67 @@ function clearComposer() {
   sweepChipUrls(); // emptied the field → every chip is now an orphan; revoke all blobs
 }
 
-function question(s) {
-  const q = document.createElement("div");
-  q.className = "q";
-  const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
+// The question block, built once. The spinner must be a PERMANENT node: a fresh element's
+// CSS animation always restarts at 0°, so a spinner recreated per render visibly snaps
+// back to its first quarter-turn. Kept alive, the animation simply keeps running — no
+// negative-animation-delay phase seeding needed.
+function buildQuestion(cardUi) {
+  const root = document.createElement("div");
+  root.className = "q";
   const prompt = document.createElement("div");
   prompt.className = "prompt";
-  prompt.textContent = s.question.prompt;
-  if (spinning) {
-    // Built as a DOM node (not innerHTML +=) so the escaped prompt text isn't reparsed
-    // as HTML each render. Negative animation-delay = (Date.now() mod period): a freshly
-    // -created element's CSS animation always starts at 0°, and render() rebuilds the
-    // card every fast reparse-poll (~500ms < the 0.7s spin), so a plain spinner kept
-    // snapping back to the first quarter-turn. Seeding the delay to the current phase
-    // makes each rebuilt spinner RESUME where the last frame left off — one smooth spin.
-    const spin = document.createElement("span");
-    spin.className = "q-spin";
-    spin.setAttribute("role", "status");
-    spin.setAttribute("aria-label", "submitting");
-    spin.style.animationDelay = `${-((Date.now() % 700) / 1000)}s`;
-    prompt.append(" ", spin);
-  }
-  q.appendChild(prompt);
+  const promptText = document.createElement("span");
+  const spin = document.createElement("span");
+  spin.className = "q-spin";
+  spin.setAttribute("role", "status");
+  spin.setAttribute("aria-label", "submitting");
+  prompt.append(promptText, spin);
+  const opts = document.createElement("div");
+  opts.className = "opts";
+  root.append(prompt, opts);
+  // Keyed by their own text, so a menu that keeps the same options keeps the same button
+  // nodes. The handler reads the CURRENT question off panesById at call time, so a stale
+  // option node can never answer with a stale prompt's keystroke.
+  return { root, prompt, promptText, spin, opts, cardUi };
+}
 
-  // Option buttons (drop any "type something"/"Other" pseudo-option — the bottom bar
-  // covers free-text). Tapping an option also makes this pane active, then answers it.
-  // Once an answer is in flight (spinning) the options disable — a second tap would
-  // send a stray keystroke into the agent while the first is still being processed.
+// `card` is the enclosing card's handle set, and is what the option handlers read the
+// target pane from (card.pane) at CALL time. It cannot be captured from `s` at build time:
+// options are keyed by index+text, so two panes asking the same thing at the same index
+// (a plain Yes/No is the common case) REUSE the button, and a build-time pane_id would
+// then answer whichever pane the card showed when the node was first created. That is the
+// invariant at the top of buildCard — every handler closes over the card, never a state.
+function applyQuestion(ui, s, card) {
+  setCls(ui.root, "hid", !s);
+  if (!s) { keyedList(ui.opts, [], (x) => x, () => null); setText(ui.promptText, ""); return; }
+  const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
+  setText(ui.promptText, s.question.prompt);
+  setCls(ui.spin, "on", spinning);
+  // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
   const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
-  if (realOpts.length) {
-    const opts = document.createElement("div");
-    opts.className = "opts";
-    realOpts.forEach((opt, i) => {
-      const b = document.createElement("button");
-      b.className = "opt";
-      b.textContent = opt;
-      b.disabled = spinning;
-      onTap(b, () => { setActive(s.pane_id); answer(s, keyFor(s.question, opt, i)); }, true); // defer: a scroll must never submit an answer
-      opts.appendChild(b);
-    });
-    q.appendChild(opts);
-  }
+  keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.onclick = () => {
+      // Read BOTH the pane and its state at CALL time. The node persists across polls AND
+      // across pane switches (see the note above applyQuestion), so a captured pane_id or
+      // `s` would answer the pane that happened to be on screen when it was built.
+      const paneId = card ? card.pane : undefined;
+      const cur = paneId && panesById[paneId];
+      if (!cur || !cur.question) return;
+      const i = b._optIndex;
+      setActive(paneId);
+      answer(cur, keyFor(cur.question, b._optText, i));
+    };
+    return b;
+  }, (b, opt, i) => {
+    b._optText = opt; b._optIndex = i;
+    setText(b, opt);
+    // Once an answer is in flight the options disable — a second tap would send a stray
+    // keystroke into the agent while the first is still being processed.
+    if (b.disabled !== spinning) b.disabled = spinning;
+  });
   // Free-text reply goes through the single bottom bar (no per-card input anymore).
-  return q;
 }
 
 const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|write )/i;
@@ -2723,7 +3021,7 @@ async function sendRaw(s, keyName) {
 // liveStream, so the keystroke shows up in the next live frame on its own
 // (docs/design/live-view.md). Throws on a bad response (fetch only rejects on network
 // error) so submitComposer's loop aborts before Enter/clear instead of dropping a
-// segment silently. Pure — callers own the render freeze around it.
+// segment silently. Pure — it owns no flag; `sending` belongs to its callers.
 async function postSend(s, body) {
   // HARD TIMEOUT. Without one, a stalled request (phone radio handoff, tunnel/relay
   // hiccup) hangs this await forever — and because the caller holds `sending` across it,
@@ -2742,18 +3040,16 @@ async function postSend(s, body) {
 }
 
 async function send(s, body) {
-  // `sending`, not the render freeze (which swipes/gestures also hold) — same reason as
-  // submitComposer: guarding on the freeze made a legitimate answer tap silently do nothing
-  // when a gesture happened to own the flag. Still blocks the real double-fire.
+  // `sending` guards a real in-flight POST against double-firing — a genuine concern, and
+  // distinct from anything about rendering.
   //
-  // This path DROPS rather than queues, unlike the composer: an option tap or a raw key
-  // is only meaningful against the screen the user was looking at, so replaying it after
-  // an unrelated send lands could answer a different prompt than the one they read. But
-  // dropping it silently is what "the button just does nothing" felt like, so say so —
-  // the whole point of this PR is that no send disappears without a trace.
+  // This path DROPS rather than queues, unlike the composer: an option tap or a raw key is
+  // only meaningful against the screen the user was looking at, so replaying it after an
+  // unrelated send lands could answer a different prompt than the one they read. But
+  // dropping it silently is exactly the "the button just does nothing" this branch exists
+  // to eliminate, so say so.
   if (sending) return void barNote("Busy sending — that didn't go through. Tap again.");
   sending = true;
-  busySend = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
   try {
@@ -2773,7 +3069,6 @@ async function send(s, body) {
     render(Object.values(panesById)); // drop the spinner now, not on the next poll
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
-    releaseBusySoon(); // guarded: a composer send may already be running (see the helper)
   }
 }
 
@@ -2785,7 +3080,7 @@ function openScreen(paneId, label) {
   ov.innerHTML =
     `<div class="screen-head"><span>${esc(label || paneId)}</span><span class="hd-btns">` +
     `<button class="screen-sun" title="Sun mode — dark-on-light for outdoors" aria-label="Sun mode" aria-pressed="false">${licon("sun", 16)}</button>` +
-    `<button class="screen-close">✕</button></span></div>` +
+    `<button class="screen-close" title="Close" aria-label="Close">${licon("x", 16)}</button></span></div>` +
     `<div class="screen-body"><pre class="screen-pre">(connecting…)</pre></div>`;
   // Sun mode persists across opens — outdoors you want every pane light, not one.
   const sun = ov.querySelector(".screen-sun");
@@ -2840,13 +3135,21 @@ function openScreen(paneId, label) {
 
 // Pinch-to-zoom + pan for just the terminal content (transform on the <pre>, not the
 // page). One-finger drag pans; two-finger pinch zooms around the gesture midpoint.
-// Pass `st` to persist the transform across re-renders (the card's background layer
-// is rebuilt every poll); omitted (the full-screen overlay), it starts fresh at the
-// BOTTOM-left — the end of a capture is the live state. (Captures shorter than the
-// window stay top-aligned: that's the Math.min clamp.) `snapHome`: unzoomed pans
-// spring back on release (drag-to-peek) instead of parking the content askew.
+// Pass `st` to persist the transform (the peek's per-pane bgZoom entry); pass null and
+// it starts fresh at the BOTTOM-left — the end of a capture is the live state. (Captures
+// shorter than the window stay top-aligned: that's the Math.min clamp.) `snapHome`:
+// unzoomed pans spring back on release (drag-to-peek) instead of parking the content askew.
+//
+// Returns a handle:
+//   retarget(next) — point the gesture state at a DIFFERENT persisted transform and apply
+//     it. The peek is ONE element reused across panes (see bgTerm), so a pane switch
+//     re-points this instead of constructing a new pinchZoom and leaking a listener set.
+//   panning()      — is the user's finger on this surface right now. The live repaint uses
+//     it to suppress its scroll-to-tail. Deliberately local, not a global flag: a stuck
+//     gesture here must not be able to freeze anything else.
 function pinchZoom(container, el, st, snapHome, selectable) {
-  st = st || { scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) };
+  const fresh = () => ({ scale: 1, tx: 0, ty: Math.min(0, container.clientHeight - el.offsetHeight) });
+  st = st || fresh();
   let start = null; // {dist, cx, cy} for pinch, or {x,y} for pan
   const apply = () => { el.style.transform = `translate(${st.tx}px,${st.ty}px) scale(${st.scale})`; };
   el.style.transformOrigin = "0 0";
@@ -2863,7 +3166,6 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     // targetTouches counts only the fingers that started on this container.
     const t = e.targetTouches;
     if (selectable && t.length === 1) return;
-    busyGesture = true; // freeze poll re-renders mid-gesture
     if (t.length === 2) { const m = mid(t); start = { dist: dist(t), s: st.scale, tx: st.tx, ty: st.ty, cx: m.x, cy: m.y }; }
     else if (t.length === 1) start = { pan: true, x: t[0].clientX - st.tx, y: t[0].clientY - st.ty };
   }, { passive: false });
@@ -2884,17 +3186,6 @@ function pinchZoom(container, el, st, snapHome, selectable) {
     apply();
   }, { passive: false });
   const release = (e) => {
-    // ALWAYS release the poll freeze, even while fingers remain down. This used to be
-    // gated behind the `touches.length !== 0` early-return below, which leaked the freeze
-    // FOREVER whenever a gesture ended without a clean zero-touch touchend — a second
-    // finger lifting, a touch that starts here and ends elsewhere, an OS interruption.
-    // A leaked freeze stops the poll loop permanently: the deck stops updating, and the
-    // composer/Send paths that coordinate through it wedge, so the app looks dead (can't
-    // send, can't even focus the input) until a reload. Reproduced by dispatching
-    // touchstart then a touchend still reporting one touch: zero dock rebuilds in 5s.
-    // This unconditional clear is why the freeze is two booleans and not a refcount —
-    // "release no matter what" cannot be expressed in a count without leaking it.
-    busyGesture = false;
     if (e.targetTouches.length !== 0) {
       // Fingers still down, so the gesture continues — but it is a DIFFERENT gesture now.
       // Lifting one finger of a pinch leaves `start` describing two, and touchmove would
@@ -2936,11 +3227,13 @@ function pinchZoom(container, el, st, snapHome, selectable) {
   };
   container.addEventListener("touchend", release);
   container.addEventListener("touchcancel", release);
-  // The backgrounded-mid-gesture unwedge lives in onResume, NOT here: pinchZoom runs on the
-  // per-poll card/peek rebuild, so a `document` listener per call leaked one every ~2s (the
-  // `container` ones die with the detached DOM; a document one never does). Only `busy`
-  // needs the global reset — `start` is per-instance and a stale instance's container is
-  // already detached, so its gesture can neither continue nor be re-entered.
+  // No document-level listener and nothing global to unwedge: `start` is per-instance. A
+  // gesture interrupted by the OS just leaves `start` set on an instance nobody is
+  // touching, which the next touchstart overwrites.
+  return {
+    retarget(next) { st = next || fresh(); start = null; apply(); },
+    panning() { return start !== null; },
+  };
 }
 
 function esc(s) {
@@ -3026,7 +3319,7 @@ if (window.visualViewport && barEl) {
 // Live session and streams back voice audio, both transcripts, and a "typed" event for
 // every keystroke the model puts into a pane. Nothing overlays the app: the pulsing 🎙
 // header pill is the status, and the rolling conversation renders in the active card's
-// summary slot (see card() and lmConvoView). Design: docs/design/live-mode.md.
+// summary slot (see applyCard's `lmOwns`). Design: docs/design/live-mode.md.
 const lm = { btn: document.getElementById("lm-btn") };
 // The static buttons get their icons here (their HTML ships empty): mic without the
 // word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
@@ -3060,30 +3353,27 @@ function lmAdd(role, text) {
   lmPaint();
 }
 
+// Keyed by position+role, so a GROWING transcript entry (fragments append to the last
+// entry of the same role) keeps its node and only its text changes — fragments arrive
+// several times a second, and rebuilding would fight text selection in the transcript.
 function lmPaintInto(box) {
-  box.replaceChildren(...lmLog.map((e) => {
-    const d = document.createElement("div");
-    d.className = "lm-" + e.role;
-    d.textContent = (e.role === "user" ? "🗣 " : "") + e.text;
-    return d;
-  }));
-  box.scrollTop = box.scrollHeight;
+  const atBottom = atBottomOf(box);
+  keyedList(box, lmLog, (e, i) => i + ":" + e.role, () => document.createElement("div"),
+    (d, e) => {
+      setAttr(d, "class", "lm-" + e.role);
+      setText(d, (e.role === "user" ? "🗣 " : "") + e.text);
+    });
+  // Follow the tail only when already there, so reading back through the transcript isn't
+  // yanked down by the next incoming fragment.
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-// Repaint in place between renders; card() re-inserts the box on every full render.
+// Repaint between renders, straight onto the card's PERMANENT .lm-convo node — the card
+// is retargeted rather than rebuilt, so the box a transcript fragment paints into is the
+// same one applyCard writes, and there is no re-inserted copy to go looking for.
 function lmPaint() {
-  const box = document.querySelector(".card.active .lm-convo");
+  const box = cardUI && cardUI.lm;
   if (box) lmPaintInto(box);
-}
-
-function lmConvoView() {
-  const box = document.createElement("div");
-  box.className = "lm-convo";
-  // No aria-live: we repaint the whole box (replaceChildren) on every transcript
-  // fragment, which a live region would re-announce in full — deafeningly noisy while
-  // streaming. The transcript is a visible running log, not an announce-on-change alert.
-  lmPaintInto(box);
-  return box;
 }
 
 // The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
