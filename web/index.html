@@ -246,9 +246,19 @@
   #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
     font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
   #theme-btn:hover { color: var(--accent); }
-  /* overflow-x hidden: swipe gestures park the neighbor card off-screen with
-     transforms — without this the page itself grows a horizontal scrollbar. */
-  body { overflow-x: hidden; }
+  /* overflow-x hidden: swipe gestures park the neighbour card off-screen with transforms,
+     and the ghost card sits a full viewport away — without clipping, that overhang becomes
+     scrollable width and the WHOLE PAGE slides sideways mid-swipe (dock, card, terminal,
+     composer and status chips all shifted and clipped together, reported on mobile).
+     It must be on BOTH html and body. On body alone the value is propagated to the viewport
+     instead of clipping, because body is the scrolling element — so the overflow still
+     scrolls. Naming html makes the clip real.
+     overscroll-behavior-x stops the same gesture from being handed to the browser as a
+     back/forward navigation once nothing can scroll — and it needs the same both-elements
+     treatment as the clip: some browsers don't propagate overscroll-behavior from body to
+     the viewport, so body alone leaves the root scroller free to chain the gesture. */
+  html { overflow-x: hidden; overscroll-behavior-x: none; }
+  body { overflow-x: hidden; overscroll-behavior-x: none; }
   /* --bar-h / --top-h are MEASURED by JS (ResizeObserver) — the layout math below
      uses them instead of eyeballed constants that drift per device/content. */
   /* The bottom padding keeps LIST-mode rows clear of the fixed input bar. It must not
