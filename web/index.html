@@ -516,7 +516,11 @@
      the mobile minimum, whatever the glyph box measures. Measured, not derived: a tap 8px
      outside the glyph box lands on the caret. The user confirmed zooming in made the caret
      work, which is what isolated size from every other theory. */
-  .card-caret::before { content: ""; position: absolute; inset: -12px; }
+  /* Right side stops at -9px, not -12: the header row's flex gap is 10px, and a full
+     -12 halo crossed 2px into the neighboring control — a tap on the seam toggled the
+     caret instead of the pane title. Left/top/bottom keep the full reach; the halo still
+     clears 44px in both axes. */
+  .card-caret::before { content: ""; position: absolute; inset: -12px -9px -12px -12px; }
   .card-caret:hover { color: var(--fg); }
   /* Collapsed: one-line header only (the return in card() drops the body), and the
      status headline clamps to a single line so it reads like the list-row form. */
