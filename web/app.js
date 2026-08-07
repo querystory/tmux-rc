@@ -101,8 +101,9 @@ function setHtml(node, html) {
 // Line nodes are <span class="tl"> with display:block, not <div>: a block child inside
 // `white-space: pre` lays out as exactly one line either way, and keeping the child inline
 // by default means the CSS decides the line-box, matching the previous text-node layout.
-// The <pre>'s own textContent still reads back as the frame with newlines between lines
-// (block children serialize that way for tuckChrome's seam scan) — see termText.
+// One thing block children DON'T preserve: the <pre>'s textContent no longer reliably
+// reads back with newlines between lines — which is why tuckChrome's seam scan reads
+// pre._tlines per line instead of splitting textContent (see there).
 function paintTerm(pre, lines) {
   if (!pre) return;
   const kids = pre._tlines || (pre._tlines = []);
