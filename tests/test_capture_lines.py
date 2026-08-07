@@ -59,7 +59,13 @@ CASES = {
 
 # Runs in node: renders each capture BOTH ways and reports the facts to assert on.
 _PROBE = r"""
-const { renderCapture, renderCaptureLines } = await import(process.argv[2]);
+// data: URL import: web/terminal.js is ESM but has no package.json to say so, and
+// node versions without module-syntax detection would parse a .js file as CJS and
+// throw on `export`. A data: URL is unconditionally a module, on every node.
+const { readFile } = await import("node:fs/promises");
+const src = await readFile(process.argv[2], "utf8");
+const { renderCapture, renderCaptureLines } =
+  await import("data:text/javascript;base64," + Buffer.from(src).toString("base64"));
 const cases = JSON.parse(process.argv[3]);
 const strip = (h) => h.replace(/<[^>]*>/g, "");
 // Balanced AND well-nested? Our own output is generated, so a plain stack check is exact.
@@ -101,7 +107,7 @@ def rendered(tmp_path_factory):
     probe = tmp_path_factory.mktemp("probe") / "probe.mjs"
     probe.write_text(_PROBE)
     res = subprocess.run(
-        ["node", str(probe), TERMINAL_JS.as_uri(), json.dumps(CASES)],
+        ["node", str(probe), str(TERMINAL_JS), json.dumps(CASES)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -157,12 +163,16 @@ def test_wrapped_url_anchors_every_fragment_to_the_same_href(rendered):
 def test_markdown_link_shows_label_only():
     """The label-only rendering must survive the split (OSC 8 arrives as markdown)."""
     probe_src = (
-        "const { renderCaptureLines } = await import(process.argv[1]);"
+        # same data: URL import as the main probe, for the same portability reason
+        'const src = await (await import("node:fs/promises"))'
+        '.readFile(process.argv[1], "utf8");'
+        'const { renderCaptureLines } = await import('
+        '"data:text/javascript;base64," + Buffer.from(src).toString("base64"));'
         "process.stdout.write(JSON.stringify("
         'renderCaptureLines("see [PR #7](https://x.io/pr/7) done\\ntail", {})));'
     )
     res = subprocess.run(
-        ["node", "--input-type=module", "-e", probe_src, TERMINAL_JS.as_uri()],
+        ["node", "--input-type=module", "-e", probe_src, str(TERMINAL_JS)],
         capture_output=True,
         text=True,
         timeout=60,
