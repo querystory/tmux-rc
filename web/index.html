@@ -254,8 +254,10 @@
      instead of clipping, because body is the scrolling element — so the overflow still
      scrolls. Naming html makes the clip real.
      overscroll-behavior-x stops the same gesture from being handed to the browser as a
-     back/forward navigation once nothing can scroll. */
-  html { overflow-x: hidden; }
+     back/forward navigation once nothing can scroll — and it needs the same both-elements
+     treatment as the clip: some browsers don't propagate overscroll-behavior from body to
+     the viewport, so body alone leaves the root scroller free to chain the gesture. */
+  html { overflow-x: hidden; overscroll-behavior-x: none; }
   body { overflow-x: hidden; overscroll-behavior-x: none; }
   /* --bar-h / --top-h are MEASURED by JS (ResizeObserver) — the layout math below
      uses them instead of eyeballed constants that drift per device/content. */
