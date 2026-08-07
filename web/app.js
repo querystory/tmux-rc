@@ -733,7 +733,6 @@ async function poll() {
       // Uppercase the key in the LABEL only (Ctrl-A, matching the other key buttons);
       // dataset.k keeps tmux's exact name (C-a).
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
-    }
       // The literal Ctrl-B button exists because a remapped prefix (this host uses C-a)
       // leaves no way to send a real Ctrl-B, which nested tmux and apps that bind it
       // themselves need. On a STOCK tmux the prefix already IS C-b, so the two buttons
