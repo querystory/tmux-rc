@@ -630,22 +630,20 @@ async function poll() {
       // Uppercase the key in the LABEL only (Ctrl-A, matching the other key buttons);
       // dataset.k keeps tmux's exact name (C-a).
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
+      // The literal Ctrl-B button exists because a remapped prefix (this host uses C-a)
+      // leaves no way to send a real Ctrl-B, which nested tmux and apps that bind it
+      // themselves need. On a STOCK tmux the prefix already IS C-b, so the two buttons
+      // would be the same keystroke under two labels — hide the literal one there rather
+      // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
+      // config change without a reload.
     }
-    // The literal Ctrl-B button exists because a remapped prefix (this host uses C-a)
-    // leaves no way to send a real Ctrl-B, which nested tmux and apps that bind it
-    // themselves need. On a STOCK tmux the prefix already IS C-b, so the two buttons
-    // would be the same keystroke under two labels — hide the literal one there rather
-    // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
-    // config change without a reload.
-    //
-    // OUTSIDE the `if (data.prefix)` guard, and the button starts `hidden` in the HTML.
-    // Inside the guard, a response that omitted `prefix` never ran this line, so the
-    // button kept whatever visibility it had — and since it shipped VISIBLE, a stock-C-b
-    // host that then served one prefix-less response showed a permanent duplicate of the
-    // Prefix button. Starting hidden and assigning unconditionally makes the state a pure
-    // function of the last response instead of a latch.
+    // OUTSIDE the `data.prefix` guard on purpose. The button starts hidden in the HTML so a
+    // stock-tmux user never sees it flash as a duplicate of Prefix — which means the reveal
+    // is the only thing that can ever show it. Gated on a truthy prefix, a legacy or partial
+    // /api/state that omits the field would hide Ctrl-B FOREVER, turning a cosmetic flicker
+    // fix into a missing key. Absent prefix ⇒ we cannot know it is C-b ⇒ show it.
     const cb = document.getElementById("bar-ctrl-b");
-    if (cb) cb.hidden = !data.prefix || data.prefix === "C-b";
+    if (cb) cb.hidden = data.prefix === "C-b";
     // Legacy daemons omit `booted`; treat its absence as booted so old servers keep
     // their previous behavior (empty ⇒ "no panes") rather than spinning forever.
     _booted = data.booted !== false;
@@ -911,9 +909,13 @@ function render(states) {
   // left the sampled LENGTHS unchanged). Here those same changes flow through setText,
   // which compares the actual value and writes it. There is no field to remember.
   const act = activeId();
-  // List mode (a dock tally badge or "all" was tapped): just those panes as one-liners;
-  // the dock stays up (tap an icon or a row to open that pane's card).
-  const subset = listFilter && states.filter((s) => listFilter === "all" || actOf(s) === listFilter);
+  // List mode (a dock tally badge or "all" was tapped): just those panes as
+  // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
+  // "recent" is not an activity — it deliberately spans them (see isRecent: anything not
+  // idle counts however old, plus idle panes younger than PARKED_IDLE_SECS). So it gets its
+  // own arm rather than being compared against actOf().
+  const subset = listFilter && states.filter((s) =>
+    listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
     setCls(ui.deck, "hid", true);
@@ -1118,9 +1120,38 @@ const _joinRO = new ResizeObserver(() => {
 // session/window/pane order, matching the window numbers in tmux's status bar.
 // (%id creation order scrambles as windows come and go; don't sort by it.)
 
-// List filter: null = card view; "all"/"waiting"/"running"/"idle" = one-liner list
-// of just those panes (tapped via the dock's tally badges / "all").
+// List filter: null = card view. Otherwise a one-liner list of matching panes, tapped from
+// the header tallies: an ACTIVITY ("waiting"/"running"/"compacting"/"unknown"), "recent"
+// (spans activities — see isRecent), or "all". No "idle": on a real deck most panes are
+// idle, so that tally was the largest and least actionable number on the strip.
 let listFilter = null;
+
+// How long a pane must sit IDLE before the dock folds it away as parked.
+//
+// 10 minutes, chosen against how the deck is actually used: a pane you stepped away
+// from mid-thought is back inside a couple of minutes, and the daemon's own activity
+// classification settles within seconds — so anything past ten minutes is a pane you
+// left, not a pane you're using. Long enough that a coffee break doesn't fold your
+// work away; short enough that a 21-pane deck (measured: 16 of them idle for over an
+// hour) collapses to the handful in play. Deliberately NOT tuned to the strip width:
+// the fold means "you are done with this", and that shouldn't change with the viewport.
+const PARKED_IDLE_SECS = 600;
+
+// Is this pane still in play? Anything the agent is DOING (running/compacting) or that
+// is WAITING on the user counts as recent no matter how old — a question that has gone
+// unanswered for an hour is the most important thing on the deck, not the stalest.
+// Only genuinely idle panes age out, so "recent" is really "not parked".
+function isRecent(s) {
+  return actOf(s) !== "idle" || stateDur(s) < PARKED_IDLE_SECS;
+}
+
+// Sessions whose parked panes the user expanded by tapping the fold chip. Module state
+// so the expansion survives the rebuild every poll triggers (same reason as subsOpen).
+// Keyed by session name: the fold is per-session, so expanding one leaves the rest folded.
+const foldOpen = new Set();
+// Panes whose list-row sub-agent box is expanded — module state, so the expansion
+// survives the re-render every poll triggers (rows are rebuilt from scratch each time).
+const subsOpen = new Set();
 const dockEl = document.getElementById("dock");
 const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 // One dock icon, built once per pane. The handler closes over the pane_id STRING
@@ -1179,38 +1210,168 @@ function dock(states, act) {
   // Chrome-tab-group-style session trays: each session's run of icons shares one
   // .dock-group span; the tray CSS paints a colored rail + session name above it. The
   // array is already in tmux session order, so a group is just "same session as the
-  // previous icon".
+  // previous icon". All tray chrome keys off the .grouped class toggled below — single-
+  // session decks never get it, so nothing changes until sessions multiply.
   //
   // CRITICAL: .dock-group:nth-of-type(4n+1..4n) sets each tray's hue from its DOM
   // POSITION, so the groups must be reconciled IN ORDER — keyedList's forward pass
   // guarantees that, and keying by session name means a session keeps its own node
   // (and therefore its icons' handlers) across polls.
+  //
+  // Parked panes (idle past PARKED_IDLE_SECS) fold to the END of their own session's
+  // tray behind one "+N" chip, so the panes actually in play stay on screen. Why the
+  // tray's tail and not in place: a session's parked panes are INTERLEAVED with its
+  // live ones (measured on a real 21-pane deck: stale,stale,live,stale,live,live,live,
+  // stale,stale,stale in one session), so folding each contiguous run in place yields
+  // five chips scattered through the strip — 544px of content, still overflowing a
+  // 364px phone strip, and the chip positions encode nothing the user thinks in (they
+  // are an artifact of tmux window numbering). One chip per session reads as a fact —
+  // "6 parked here" — and measured 412px, which fits all three sessions on screen at
+  // 390px. See the PR for the reordering trade-off this accepts.
+  //
+  // Folding is a DOCK-ONLY view concern: `states` is never reordered or filtered, so the
+  // list, the swipe carousel (which walks panesById's server order) and the tally badges
+  // all still see tmux's own session/window/pane order. The dock trades strict order
+  // WITHIN a session tray for density; nothing else does.
+  //
+  // The fold decides WHICH panes go in a tray, so it is computed HERE, while building the
+  // `groups` array — the inner keyedList is then handed only the visible panes and stays a
+  // plain reconcile. Folding a pane away removes its icon node (keyedList's leftover pass);
+  // unfolding builds it again. That is the one thing in the dock that is not a persistent
+  // node, and it cannot be otherwise: a hidden icon would still occupy tray width.
+  //
+  // A tray must never fold to NOTHING. Measured on the real deck: one session had all four
+  // of its panes parked, leaving a bare "+4" chip under a labelled rail — a session you can
+  // see no state for at all, which is worse than one stale icon. So each session keeps its
+  // freshest pane visible as a floor. Computed from the same duration the fold uses, so the
+  // kept pane is genuinely the most recently active one.
+  const freshest = new Map(); // session -> { id, d } of its least-idle pane
+  for (const s of states) {
+    // ONE stateDur() call: it reads the clock, so calling it twice in the comparison both
+    // doubles the work on a per-poll path and lets the compared value differ from the
+    // stored one if the two reads straddle a second boundary.
+    const k = s.session ?? "", cur = freshest.get(k), d = stateDur(s);
+    if (!cur || d < cur.d) freshest.set(k, { id: s.pane_id, d });
+  }
+  // `unfolded` is a parameter, not a read of foldOpen, so a caller can ask the SAME question
+  // about a hypothetically-closed tray without mutating shared state during render (the
+  // chevron below needs exactly that). Defaults to the real state.
+  const folded = (s, unfolded = foldOpen.has(s.session ?? "")) =>
+    !isRecent(s) && !unfolded &&
+    // The session's floor: keep its freshest pane on screen even when everything is parked.
+    freshest.get(s.session ?? "")?.id !== s.pane_id &&
+    // Never fold the SELECTED pane: in card view its icon IS the tab joined to the card
+    // below, so folding it away would leave the card joined to nothing. This is also what
+    // keeps the fold coherent with swiping: swipeNav walks the full server order (folded
+    // panes included), so a swipe can land on a parked pane — and because `act` comes from
+    // the one activeId() that dock() is handed, that pane is always un-folded back into
+    // its tray. You can swipe into the parked set; the dock follows you there.
+    s.pane_id !== act;
+  // Pass unfolded=false to ask "would this pane fold if the tray were closed?" — no
+  // delete/add on foldOpen, so render stays free of side effects and Set insertion order
+  // is untouched.
+  const wouldFold = (sess) =>
+    states.some((s) => (s.session ?? "") === sess && folded(s, false));
+  // One group per session run: `panes` are the VISIBLE ones, `parked` the count folded
+  // away, `open` whether the user expanded this tray.
   const groups = [];
   for (const s of states) {
     const sess = s.session ?? "";
-    if (!groups.length || groups[groups.length - 1].sess !== sess) groups.push({ sess, panes: [] });
-    groups[groups.length - 1].panes.push(s);
+    if (!groups.length || groups[groups.length - 1].sess !== sess)
+      groups.push({ sess, panes: [], parked: 0, open: foldOpen.has(sess) });
+    const g = groups[groups.length - 1];
+    if (folded(s)) g.parked++;
+    else g.panes.push(s);
   }
+  // The fold control is keyed INSIDE the tray's own list under a synthetic key, so it is a
+  // PERSISTENT node like every icon beside it: built once, its handler wired once, and
+  // never replaced by a poll. That is what makes a plain `click` correct here (see the
+  // render invariant at the top of the file) — the deferred onTap this used to need existed
+  // only because the node died between press and release, and the browser already withholds
+  // `click` after a scroll, which is the behaviour the deferral was emulating.
+  //
+  // A synthetic key is safe because pane ids are tmux "%N" strings and can never collide
+  // with "__fold"/"__unfold". Two DISTINCT keys, not one node re-labelled: the chip and the
+  // chevron are different controls (different class, size, text and action), and a shared
+  // node would have to be mutated into the other on every toggle.
+  //
+  // A <button> among the tray's icon <button>s, so it can't disturb the group hue cycling
+  // (.dock-group:nth-of-type counts <span>s) nor the strip's height (same 36px box as an
+  // icon — the join's geometry contract requires the tray add zero height).
+  const FOLD_KEY = "__fold", UNFOLD_KEY = "__unfold";
+  const buildFold = (sess, key) => {
+    const c = document.createElement("button");
+    c.className = "dock-fold" + (key === UNFOLD_KEY ? " open" : "");
+    // No captureIconRects() to prime a list FLIP: folding is a DOCK-only concern — the
+    // list's rows are identical before and after.
+    c.onclick = () => {
+      if (key === UNFOLD_KEY) foldOpen.delete(sess); else foldOpen.add(sess);
+      render(Object.values(panesById));
+    };
+    return c;
+  };
   keyedList(el, groups, (g) => g.sess, (g) => {
     const sp = document.createElement("span");
     sp.className = "dock-group";
     sp.dataset.sess = g.sess;
     return sp;
   }, (sp, g) => {
-    keyedList(sp, g.panes, (s) => s.pane_id,
-      (s) => buildDockIcon(s.pane_id),
-      (b, s) => applyDockIcon(b, s, act));
+    // The tray's children, in DOM order: its visible icons, then at most one fold control.
+    // "+N" when panes are hidden; "‹" (U+2039) to re-fold an expanded tray — rendered as a
+    // small chevron, NOT a second full-size chip, because a same-size button showing a bare
+    // glyph gave no clue what it did. The chevron appears only when re-folding would
+    // actually hide something: asked via folded() itself with the unfold discounted, so the
+    // control and the fold can never disagree (a hand-written check omitted the freshest-
+    // pane FLOOR, and a session whose only parked pane was also its freshest got a chevron
+    // that would hide nothing when tapped).
+    const items = g.panes.map((s) => ({ key: s.pane_id, pane: s }));
+    if (g.parked > 0)
+      items.push({ key: FOLD_KEY,
+        text: "+" + g.parked,
+        label: `Show ${g.parked} parked pane${g.parked === 1 ? "" : "s"} in ${g.sess || "this session"}`,
+        open: false });
+    else if (g.open && wouldFold(g.sess))
+      items.push({ key: UNFOLD_KEY,
+        text: "‹",
+        label: `Hide parked panes in ${g.sess || "this session"}`,
+        open: true });
+    keyedList(sp, items, (it) => it.key,
+      (it) => (it.pane ? buildDockIcon(it.pane.pane_id) : buildFold(g.sess, it.key)),
+      (node, it) => {
+        if (it.pane) return applyDockIcon(node, it.pane, act);
+        setText(node, it.text);
+        setAttr(node, "title", it.label);
+        setAttr(node, "aria-label", it.label);
+        setAttr(node, "aria-expanded", String(it.open));
+      });
   });
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
   // actually spans sessions — the CSS keys off this class, not group count.
   setCls(el, "grouped", groups.length > 1);
+  // Drop unfold state for sessions that no longer exist, so killing and recreating a
+  // session under the same name doesn't come back pre-expanded (and the set can't grow
+  // without bound over a long-lived page) — same discipline as render()'s cache pruning.
+  const live = new Set(groups.map((g) => g.sess));
+  for (const sess of foldOpen) if (!live.has(sess)) foldOpen.delete(sess);
   // Density + navigation: per-activity tallies homed in the header title bar
   // (#filters) — always visible no matter how many dock icons crowd the strip. Each
   // one FILTERS the list view to those panes; "all" lists everything.
   const n = {};
   states.forEach((s) => (n[actOf(s)] = (n[actOf(s)] || 0) + 1));
-  const tallies = ["waiting", "running", "compacting", "idle", "unknown"]
+  // "idle" is deliberately absent: on a real deck most panes are idle, so the number is
+  // both the largest and the least actionable on the strip, and "N recent" below now
+  // carries the half that matters. The idle panes are still reachable — "all" lists
+  // everything, and a session's parked ones sit behind its "+N" chip.
+  const tallies = ["waiting", "running", "compacting", "unknown"]
     .filter((a) => n[a]).map((a) => ({ key: a, label: `${n[a]} ${a}` }));
+  // "N recent" — the count the user actually wants at a glance: how much of the fleet is
+  // live right now, which no single activity badge answers (a waiting pane and a running
+  // pane are both recent). Same predicate the dock folds on, so the number and the strip
+  // can never disagree. Shown only when it is informative: if every pane is recent it just
+  // restates the deck size, and if none are the whole fleet is parked and "0 recent" adds
+  // nothing an empty strip hasn't said.
+  const nRecent = states.filter(isRecent).length;
+  if (nRecent && nRecent < states.length) tallies.push({ key: "recent", label: `${nRecent} recent` });
   tallies.push({ key: "all", label: "all" });
   // #filters:empty { display: none } — keyedList removes emptied children outright, so
   // that rule keeps working. Badges are keyed by activity, so the "3 running" badge is
