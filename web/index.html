@@ -950,8 +950,8 @@
   </div>
   <!-- #panes is the SCROLLER (see its CSS). The dock is its first child so the tab strip
        scrolls up and behind the ribbon with the card it is joined to, instead of staying
-       frozen while the card slides out from under its tab. render() re-inserts it as the
-       leading child on every rebuild (see panesEl.replaceChildren calls). -->
+       frozen while the card slides out from under its tab. panesUI() inserts it as the
+       leading child once, when it builds the skeleton; renders reconcile it in place. -->
   <div id="panes"><div id="dock" class="prow dock"></div><div class="empty">Connecting…</div></div>
   <!-- Single persistent input bar, fixed at the bottom. Targets the active card. -->
   <div id="bar">
