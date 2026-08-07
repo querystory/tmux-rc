@@ -1058,7 +1058,8 @@ function joinTab(deck) {
     const s = sel.getBoundingClientRect(),
       d = deck.getBoundingClientRect(), t = host.getBoundingClientRect(),
       dock = dockEl.getBoundingClientRect();
-    // The fillets/notch live in #top (outside the dock's overflow clip), so when the
+    // The fillets live on #panes (outside the dock's overflow clip, and in the
+    // SCROLLER's coordinate space so they travel with the strip), so when the
     // selected icon scrolls out of the dock's visible strip nothing clips them — they'd
     // orphan as a stray blue arc at the clip edge. Self-hide when the icon (with its 7px
     // flare) leaves the dock's horizontal bounds; the next in-view pin() re-shows them.
@@ -1132,18 +1133,15 @@ function joinTab(deck) {
 // The current joinTab's pin() closure, so the shared card-resize observer below can
 // re-run the latest one (each joinTab reassigns it). null before the first join.
 let _joinPin = null;
-let _joinRAF = 0; // pending rAF handle, so bursts of resize callbacks coalesce to one pin
 // Reused across renders so we never leak observers; joinTab disconnects + re-observes
 // the current active card each time. rAF: ResizeObserver fires mid-layout, so defer the
-// measure a frame; coalesce multiple callbacks in one frame into a single pin(); guard on
-// a still-present fillet in case a re-render swept it.
+// pin() COALESCES for us now (one rAF per frame, see joinTab), so the callback calls it
+// directly — wrapping it in a second rAF here made the join lag the card's growth by two
+// frames, visibly detaching the notch during a live stream. Guard on a still-present
+// fillet in case a re-render swept it.
 const _joinRO = new ResizeObserver(() => {
-  if (_joinRAF) return; // a pin is already queued for the next frame
-  _joinRAF = requestAnimationFrame(() => {
-    _joinRAF = 0;
-    const fl = document.querySelector("#panes > .tab-fillet");
-    if (fl && fl.isConnected && _joinPin) _joinPin();
-  });
+  const fl = document.querySelector("#panes > .tab-fillet");
+  if (fl && fl.isConnected && _joinPin) _joinPin();
 });
 
 // The pane dock: one icon per pane in tmux window order — active highlighted, a
