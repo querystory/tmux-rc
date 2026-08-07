@@ -313,7 +313,10 @@
        for the same drag. Fitting the deck achieves what the margin was for (the deck does
        not extend the page) while leaving the card as the ONE vertical scroller, and the
        peek gains the pixels the deck used to spend running under the bar. */
-    height: calc(100dvh - var(--top-h, 122px) - var(--bar-h, 150px));
+    /* The safe-area inset is part of the 100dvh the chrome vars never see — the body
+       pads it above #top, so on a notched phone omitting it here pushes the deck's
+       bottom exactly that far back under the bar. Zero everywhere else. */
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - var(--top-h, 122px) - var(--bar-h, 150px));
     overflow: hidden; display: flex; flex-direction: column; }
   /* The card COVERS the terminal — it is a sheet lying on top of it, not a panel butted
      against it. Two things make that read:
