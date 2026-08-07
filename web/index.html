@@ -354,6 +354,14 @@
   .bg-wrap { background: #0d1117; }
   .bg-term { margin: 0; padding: 4px 12px; font: 10px/1.2 var(--mono-term);
     color: #8b949e; white-space: pre; background: #0d1117; }
+  /* One .tl per screen line — the terminal is painted per line so a streamed frame
+     rewrites only the rows that changed (see paintTerm in app.js). display:block makes
+     each span its own line box, which is exactly the layout the single text blob had
+     under white-space:pre; the newline BETWEEN lines is now structural, so the lines
+     themselves must not add one of their own. min-height keeps a blank line occupying
+     a full row (an empty block would otherwise collapse to zero height and the frame
+     would lose its vertical spacing). */
+  .tl { display: block; min-height: 1.2em; }
   /* appearance/padding reset: mobile browsers pad native buttons and ignore the
      fixed box, squishing the glyph off-center. Flex centers it exactly.
      Literal dark values (not theme vars): it floats over the always-dark terminal. */

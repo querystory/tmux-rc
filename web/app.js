@@ -26,16 +26,29 @@
 //   1. ONE-TIME skeleton construction. panesUI() and the build* half of each build/apply
 //      pair may replaceChildren/append freely; they are memoized and run once per node's
 //      lifetime, not per render.
-//   2. The TERMINAL paint (bgTerm's peek and openScreen's overlay) still swaps innerHTML
-//      wholesale, because renderCapture emits a whole colored frame. It is guarded by a
-//      selection check and _caretGrace instead; a TODO in bgTerm points at line-diffing it,
-//      which is what would let those guards go. This is the last rendering workaround left.
-//   3. One-shot innerHTML for STATIC inline SVG/icon markup (the ⤢ button, Lucide icons,
+//   2. One-shot innerHTML for STATIC inline SVG/icon markup (the ⤢ button, Lucide icons,
 //      the fullscreen overlay's chrome). Written once at build time from string literals,
 //      never per poll, and never from server data.
+//
+// THE TERMINAL IS NO LONGER AN EXCEPTION. bgTerm's peek and openScreen's overlay used to
+// swap the whole frame's innerHTML on every streamed frame — the last full teardown on the
+// hot path, and the reason the rest of the UI went unusable on a streaming pane. Both now
+// paint through paintTerm: one persistent node per screen line, and a frame writes only the
+// lines whose markup actually differs. Measured on 13 consecutive real frames from a
+// working Claude pane: 9 of them changed exactly ONE line (the spinner row), and the
+// per-frame node churn fell from ~773 destroyed+recreated to ~132 (to 28 on a one-line
+// frame). So the invariant now holds for EVERY surface: a node once built is never replaced.
+//
+// What that did NOT license us to delete: the composer's selection guard and _caretGrace
+// (see the peek's onFrame). bar.input is a contenteditable OUTSIDE the terminal subtree, so
+// the paint never could collapse its caret by containment — the scroll-to-tail in the same
+// block is the real suspect, and confirming that needs a real device with a visible tab and
+// a soft keyboard. The terminal's OWN selection guard did get narrowed, from "any selection
+// anywhere" to "a selection this frame would actually disturb" (selDirty), which is what
+// makes copying out of a busy pane work instead of freezing the view.
 // Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
-import { renderCapture, linkifyText } from "./terminal.js";
+import { renderCaptureLines, linkifyText } from "./terminal.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -70,6 +83,110 @@ function setHtml(node, html) {
   if (node.innerHTML !== v) node.innerHTML = v;
 }
 
+// ── paintTerm: the terminal paint, one node per screen line ───────────────────
+// THE hot path. A streaming pane (Claude working) pushes a frame every few hundred ms,
+// and the old paint assigned the whole frame's HTML to <pre>.innerHTML — which destroys
+// and rebuilds EVERY line's subtree on every frame, for a frame where typically only the
+// bottom few output rows and the agent's spinner/status rows actually changed. That
+// wholesale teardown is what made the rest of the UI unusable on a busy pane: it
+// collapsed the composer's Selection (hence _caretGrace), and it churned hundreds of
+// nodes per second through layout and the GC.
+//
+// Now each screen line is a persistent block child, and a frame writes only the lines
+// whose markup actually differs. Same in-place discipline as setText/setAttr/setHtml,
+// applied per line: `_h` caches what we last wrote so an unchanged line is not touched
+// at all (the identical-write no-op is SEMANTIC here too — rewriting a line's innerHTML
+// would collapse a Selection inside THAT line even if the bytes match).
+//
+// Line nodes are <span class="tl"> with display:block, not <div>: a block child inside
+// `white-space: pre` lays out as exactly one line either way, and keeping the child inline
+// by default means the CSS decides the line-box, matching the previous text-node layout.
+// One thing block children DON'T preserve: the <pre>'s textContent no longer reliably
+// reads back with newlines between lines — which is why tuckChrome's seam scan reads
+// pre._tlines per line instead of splitting textContent (see there).
+function paintTerm(pre, lines) {
+  if (!pre) return;
+  const kids = pre._tlines || (pre._tlines = []);
+  // Fresh box (or one previously written by innerHTML/setText — the cached seed, the
+  // "(connecting…)" placeholder): drop whatever is there and rebuild the line list once.
+  if (!kids.length && pre.firstChild) pre.textContent = "";
+  for (let i = 0; i < lines.length; i++) {
+    let n = kids[i];
+    if (!n) {
+      n = document.createElement("span");
+      n.className = "tl";
+      kids[i] = n;
+      pre.appendChild(n); // append-only growth: lines[] order IS document order
+    }
+    if (n._h !== lines[i]) { n._h = lines[i]; n.innerHTML = lines[i]; }
+  }
+  // Frame got shorter — remove the surplus tail nodes (never hide: the <pre>'s
+  // textContent is read by tuckChrome, so a hidden line would still count as a row).
+  for (let i = lines.length; i < kids.length; i++) kids[i].remove();
+  if (kids.length > lines.length) kids.length = lines.length;
+}
+// Would this frame disturb the user's selection? Only if a line whose markup CHANGES is
+// part of the selection. That is the whole payoff of line-diffing for selections: the old
+// whole-subtree swap had to hold the paint for ANY selection anywhere in the terminal
+// (copying a URL out of a busy pane froze the view), whereas now a selection over lines
+// the frame leaves alone is genuinely unaffected — those nodes are never written.
+//
+// Conservative in both failure directions: a selection we cannot localize (anchor/focus
+// outside this box, no line cache yet) reports DIRTY, so the guard still holds rather than
+// risk eating a selection we failed to understand.
+function selDirty(pre, sel, lines) {
+  const range = sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!range) return true;
+  // Does the selection touch this terminal at all? Ask the RANGE, not the endpoints: a
+  // cross-surface selection can start above the box and end below it, spanning straight
+  // through — both endpoints outside, every line inside selected. The endpoint check is
+  // only the fallback for engines without intersectsNode.
+  //
+  // Asked FIRST, before the line-cache guard below: a fresh box (openScreen's overlay,
+  // a pane switch) has no _tlines yet, and holding ITS first paint for a selection that
+  // lives on some other surface entirely would freeze the new view until the user
+  // happened to tap their selection away.
+  if (range.intersectsNode
+    ? !range.intersectsNode(pre)
+    : !pre.contains(sel.anchorNode) && !pre.contains(sel.focusNode)) return false;
+  const kids = pre._tlines;
+  if (!kids || !kids.length) return true; // touched + not line-painted yet ⇒ can't reason; hold
+  // Which line nodes does the selection touch? Walk the cached line nodes and ask the
+  // Range — cheaper and more robust than climbing parentNode from the anchor, which can
+  // land on a text node inside a nested span.
+  let lo = Infinity, hi = -Infinity;
+  if (range.intersectsNode) {
+    for (let i = 0; i < kids.length; i++)
+      if (range.intersectsNode(kids[i])) {
+        if (i < lo) lo = i;
+        if (i > hi) hi = i;
+      }
+  } else {
+    // No intersectsNode: localize from the endpoints' own line nodes instead of
+    // pessimistically claiming every line — that held the paint for ANY changed line
+    // and defeated the whole point of line-diffing on such engines. An endpoint that
+    // doesn't resolve to a line (selection edge outside the box) clamps to that end.
+    const lineOf = (node) => {
+      while (node && node !== pre) {
+        const i = kids.indexOf(node);
+        if (i !== -1) return i;
+        node = node.parentNode;
+      }
+      return -1;
+    };
+    const a = lineOf(sel.anchorNode), f = lineOf(sel.focusNode);
+    if (a === -1 && f === -1) return true; // spans through with no resolvable edge: hold
+    lo = Math.min(a === -1 ? 0 : a, f === -1 ? 0 : f);
+    hi = Math.max(a === -1 ? kids.length - 1 : a, f === -1 ? kids.length - 1 : f);
+  }
+  if (lo === Infinity) return false; // selection is in the box but touches no line node
+  // A frame that changes the LINE COUNT reflows everything from the tail onwards.
+  if (lines.length !== kids.length) return true;
+  for (let i = lo; i <= hi; i++) if (kids[i]._h !== lines[i]) return true;
+  return false;
+}
+// (tuckChrome reads pre._tlines directly for its per-line seam scan — see there.)
+
 // ── keyedList: the one reconciler ────────────────────────────────────────────
 // `build(item, key)` makes a node the FIRST time a key is seen; `apply(node, item, i)`
 // updates it every time. Nodes are cached on the parent, which is what makes handlers
@@ -103,10 +220,6 @@ function keyedList(parentEl, items, keyFn, build, apply) {
   return next;
 }
 
-// Real brand marks per tool (served from web/). One img template so every icon renders
-// identically; unidentified panes fall back to the tmux logomark. `tool` comes from
-// parser JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor"
-// would otherwise resolve up the prototype chain and render garbage) and escape its alt.
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg",
   shell: "/bash.png" }; // official Bash logo (MIT — see bash-logo.LICENSE)
@@ -367,7 +480,31 @@ function setActive(id) {
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
   pending = { id, ts: Date.now() };
-  render(Object.values(panesById));
+  // MOVE THE HIGHLIGHT FIRST, in this same task, before the full reconcile. A tap used to
+  // show nothing until render() had walked the dock, the card, the peek and the event feed
+  // — so tapping a tab felt dead while SWIPING felt instant, purely because a swipe paints
+  // a compositor-only transform up front and only calls setActive 150ms later. This gives
+  // a tap the same immediate acknowledgement: one class move per icon, which is cheap and
+  // needs no layout, then the rest of the render can take as long as it takes.
+  for (const b of dockEl.querySelectorAll(".dock-icon"))
+    setCls(b, "sel", b.dataset.pane === id);
+  // Let that highlight actually REACH THE SCREEN before the reconcile runs. Same task means
+  // same frame, so the browser would paint the class move and the full render together and
+  // the user would still wait for both. Deferring puts the reconcile in the next frame,
+  // after this one has been presented.
+  //
+  // rAF ONLY when the page is visible: a hidden or backgrounded tab never fires it, so the
+  // reconcile would never run and the deck would freeze on the old content until the next
+  // poll. (That suspension is real — it produced a whole set of phantom "stalls" while
+  // debugging this.) setTimeout still fires when hidden, so it is the safe fallback.
+  // TWO rAF hops, not one: a callback queued now runs before THIS frame's paint, so a
+  // single hop still bundles the highlight and the reconcile into the same present. The
+  // first hop rides this frame (highlight paints at its end); the second runs the
+  // reconcile in the next. The hidden-tab fallback stays one hop — nothing paints there.
+  const soon = document.visibilityState === "visible"
+    ? (fn) => requestAnimationFrame(() => requestAnimationFrame(fn))
+    : (fn) => setTimeout(fn, 0);
+  soon(() => render(Object.values(panesById)));
 }
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded
@@ -909,8 +1046,8 @@ function render(states) {
   // left the sampled LENGTHS unchanged). Here those same changes flow through setText,
   // which compares the actual value and writes it. There is no field to remember.
   const act = activeId();
-  // List mode (a dock tally badge or "all" was tapped): just those panes as
-  // one-liners; the dock stays up (tap an icon or a row to open that pane's card).
+  // List mode (a dock tally badge or "all" was tapped): just those panes as one-liners;
+  // the dock stays up (tap an icon or a row to open that pane's card).
   // "recent" is not an activity — it deliberately spans them (see isRecent: anything not
   // idle counts however old, plus idle panes younger than PARKED_IDLE_SECS). So it gets its
   // own arm rather than being compared against actOf().
@@ -1145,13 +1282,12 @@ function isRecent(s) {
   return actOf(s) !== "idle" || stateDur(s) < PARKED_IDLE_SECS;
 }
 
-// Sessions whose parked panes the user expanded by tapping the fold chip. Module state
-// so the expansion survives the rebuild every poll triggers (same reason as subsOpen).
-// Keyed by session name: the fold is per-session, so expanding one leaves the rest folded.
+// Sessions whose parked panes the user expanded by tapping the fold chip. MODULE state,
+// not per-node like the list row's _subsOpen: the fold is a property of the SESSION, and a
+// session's tray node can be removed and rebuilt (kill the session, recreate it) while the
+// panes it holds persist, so the state cannot live on the tray. Keyed by session name, so
+// expanding one session leaves the rest folded. Pruned below against the live trays.
 const foldOpen = new Set();
-// Panes whose list-row sub-agent box is expanded — module state, so the expansion
-// survives the re-render every poll triggers (rows are rebuilt from scratch each time).
-const subsOpen = new Set();
 const dockEl = document.getElementById("dock");
 const filtersEl = document.getElementById("filters"); // pane filters, homed in the header
 // One dock icon, built once per pane. The handler closes over the pane_id STRING
@@ -1706,7 +1842,7 @@ function swipeNav(el, ui) {
 // content — a parser field could size that per tool later). The card floats over the
 // top; the live tail pokes out below it, pan/zoomable in place.
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
-const peekCache = {}; // pane_id -> {html} — last live frame, shown gray on remount
+const peekCache = {}; // pane_id -> {lines} — last live frame (per-line HTML), gray on remount
 let peekStop = null;        // stop() for the active peek's live stream (one at a time)
 let peekStreamPane = null;  // which pane that stream is for (don't restart per render)
 let peekBox = null, peekWrap = null; // current peek elements the stream paints into
@@ -1732,7 +1868,13 @@ const zHome = (id) => {
 // tuck math can't drift if .bg-term's font ever changes.
 function tuckChrome(wrap, box) {
   if (wrap.classList.contains("shell")) return; // shells: the prompt IS the content
-  const lines = (box.textContent || "").split("\n");
+  // Lines come from paintTerm's cache once the box is line-painted — the seam scan is
+  // per-LINE, and textContent across block children does not reliably reinsert the
+  // newlines it used to when the box held one big text node. Falls back to textContent
+  // for a box that hasn't been line-painted yet (the "(connecting…)" placeholder).
+  const lines = box._tlines
+    ? box._tlines.map((n) => n.textContent)
+    : (box.textContent || "").split("\n");
   let rows = 0;
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--)
     if (/^[╭┌]─/.test(lines[i])) { rows = lines.length - i; break; }
@@ -1914,11 +2056,16 @@ function bgTerm(s) {
     // has no cache — "(connecting…)" until the first frame.
     const c = peekCache[s.pane_id];
     if (c) {
-      box.innerHTML = c.html;
+      paintTerm(box, c.lines);
       tuckChrome(wrap, box);
       setCls(wrap, "stale", !peekLive);
     } else {
-      setText(box, "(connecting…)");
+      // Through paintTerm, NOT setText: setText would replace the box's children with one
+      // text node while box._tlines still held the PREVIOUS pane's (now detached) line
+      // nodes, so the next frame's paintTerm would see a non-empty cache, skip its reset,
+      // and write into orphans — leaving "(connecting…)" frozen on screen. paintTerm owns
+      // that cache, so every write to this box has to go through it.
+      paintTerm(box, ["(connecting…)"]);
       setCls(wrap, "stale", false);
     }
     // ALWAYS pin to the tail on a switch — this is the coordinate BASELINE the persisted
@@ -1946,26 +2093,37 @@ function bgTerm(s) {
         // that resolves just after a pane switch would paint the OLD pane's screen into
         // the NEW pane's window (and cache it there) without this guard.
         if (streamPane !== peekStreamPane) return;
-        const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
-        peekCache[streamPane] = { html }; // cache for the next stale-on-switch
-        // NEVER repaint while the user is typing or selecting. This paint is a whole
-        // innerHTML swap, which collapses the document Selection — and on a busy pane the
-        // frames arrive continuously, so the caret gets wiped within milliseconds of being
-        // placed. Skipping is safe: frames keep coming, so it self-corrects on the next one.
+        const lines = renderCaptureLines(txt.replace(/\s+$/, ""), { color: true });
+        peekCache[streamPane] = { lines }; // cache for the next stale-on-switch
+        if (!peekBox) return;
+        // Hold the paint while the user has a selection INSIDE THE TERMINAL. Line-diffing
+        // shrinks this from "any selection anywhere" to "a selection this frame would
+        // actually disturb": only the lines that changed get written, so a selection whose
+        // lines are all untouched survives the paint by construction. selDirty checks that
+        // — it holds only when a line the frame rewrites is part of the selection's range.
         //
-        // TODO: this guard and _caretGrace are the last rendering workarounds left. Diffing
-        // renderCapture's output into persistent per-line nodes would let both go.
+        // The COMPOSER's selection (bar.input) and _caretGrace are a different story and
+        // are deliberately KEPT: bar.input is a contenteditable OUTSIDE this subtree, so
+        // the paint itself cannot collapse its caret — but the scroll-to-tail below moves
+        // the peek's scroll container in the same breath, and on a phone a programmatic
+        // scroll next to an opening soft keyboard is its own caret/focus disruptor. That
+        // was the reported bug ("on a busy pane I cannot even tap into the input box"), and
+        // proving the caret survives without them needs a real device with a visible tab
+        // and a soft keyboard. Until that measurement exists these stay.
         const sel = document.getSelection();
-        const selecting = sel && !sel.isCollapsed
-          && (peekBox?.contains(sel.anchorNode) || bar.input?.contains(sel.anchorNode));
-        if (selecting || Date.now() - _caretGrace < 1200) return;
-        if (peekBox && peekBox.innerHTML !== html) {
-          peekBox.innerHTML = html;
-          tuckChrome(peekWrap, peekBox);
-          // Suppress the scroll-to-tail only while the user's own finger is panning this
-          // surface — that is the one thing a re-pin fights.
-          if (!zoom.panning() && zHome(streamPane)) peekWrap.scrollTop = peekWrap.scrollHeight;
-        }
+        const live = sel && !sel.isCollapsed;
+        if (live && bar.input?.contains(sel.anchorNode)) return;
+        if (Date.now() - _caretGrace < 1200) return;
+        if (live && selDirty(peekBox, sel, lines)) return;
+        const before = peekBox._tlines ? peekBox._tlines.length : -1;
+        paintTerm(peekBox, lines);
+        tuckChrome(peekWrap, peekBox);
+        // Re-pin to the tail only when the content's LENGTH changed (new output) — a frame
+        // that merely rewrites the spinner row in place leaves the geometry alone, so
+        // re-pinning would be a pointless scroll write every few hundred ms. Suppressed
+        // entirely while the user's own finger is panning this surface.
+        if (before !== lines.length && !zoom.panning() && zHome(streamPane))
+          peekWrap.scrollTop = peekWrap.scrollHeight;
       },
       onLive: () => { if (streamPane === peekStreamPane) { peekLive = true; peekWrap && peekWrap.classList.remove("stale"); } },
       onQuiet: () => { if (streamPane === peekStreamPane) { peekLive = false; peekWrap && peekWrap.classList.add("stale"); } },
@@ -3098,7 +3256,7 @@ function openScreen(paneId, label) {
   // Seed with the pane's last-known frame (gray) so the view isn't blank while the
   // stream connects — same instant-stale trick as the peek.
   const cached = peekCache[paneId];
-  if (cached) { pre.innerHTML = cached.html; pre.classList.add("stale"); }
+  if (cached) { paintTerm(pre, cached.lines); pre.classList.add("stale"); }
   document.body.appendChild(ov);
   // Selection containment flag — a class, not :has() (unsupported on older iOS
   // Safari, which this codebase otherwise accounts for).
@@ -3115,14 +3273,15 @@ function openScreen(paneId, label) {
   if (peekStop) { peekStop(); peekStop = null; peekStreamPane = null; peekLive = false; }
   const stop = liveStream(paneId, {
     onFrame: (txt) => {
-      const html = renderCapture(txt.replace(/\s+$/, ""), { color: true });
-      peekCache[paneId] = { html }; // shared cache with the peek
-      // A live frame swap would destroy the selection the user is building — hold
-      // updates while one exists in the terminal; the next frame after it's dismissed
-      // catches up (frames keep coming).
+      const lines = renderCaptureLines(txt.replace(/\s+$/, ""), { color: true });
+      peekCache[paneId] = { lines }; // shared cache with the peek
+      // Same rule as the peek, and deliberately the same shape (the two paint paths must
+      // not drift): hold only for a selection this frame would actually disturb. Copying
+      // out of the fullscreen terminal is a core use case, so a selection over lines the
+      // frame leaves alone must keep painting around it rather than freezing the view.
       const sel = document.getSelection();
-      if (sel && !sel.isCollapsed && pre.contains(sel.anchorNode)) return;
-      if (pre.innerHTML !== html) pre.innerHTML = html; // no-op swap = flicker; skip it
+      if (sel && !sel.isCollapsed && selDirty(pre, sel, lines)) return;
+      paintTerm(pre, lines); // per-line; unchanged lines are not touched at all
     },
     onLive: () => pre.classList.remove("stale"),
     onQuiet: () => pre.classList.add("stale"),
