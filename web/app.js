@@ -191,6 +191,72 @@ function keyedList(parentEl, items, keyFn, build, apply) {
   return next;
 }
 
+// ── In-place write primitives ────────────────────────────────────────────────
+// Each no-ops when the value is already current. The no-op is the POINT (see the invariant
+// above); a redundant attribute write also restarts a CSS animation or transition.
+function setText(node, s) {
+  if (!node) return;
+  const v = s == null ? "" : String(s);
+  if (node.textContent !== v) node.textContent = v;
+}
+function setAttr(node, k, v) {
+  if (!node) return;
+  if (v == null || v === false) { if (node.hasAttribute(k)) node.removeAttribute(k); return; }
+  const s = String(v);
+  if (node.getAttribute(k) !== s) node.setAttribute(k, s);
+}
+function setCls(node, name, on) {
+  if (!node) return;
+  if (node.classList.contains(name) !== !!on) node.classList.toggle(name, !!on);
+}
+// setHtml is the ONE sanctioned in-place innerHTML write, for the three surfaces whose
+// content is linkified prose (headline, session summary, event text): linkifyText returns
+// MARKUP, so textContent would show the tags. It is safe only because linkifyText escapes
+// everything it does not itself turn into an anchor — never hand this raw server text.
+//
+// The unchanged-guard is as load-bearing here as in setText, and more so: assigning an
+// identical innerHTML tears down and rebuilds the whole subtree, which collapses any
+// Selection inside it — the user copying a URL out of the summary would lose it on every
+// poll. Comparing against the live innerHTML is exact for our own serialized output.
+function setHtml(node, html) {
+  if (!node) return;
+  const v = html == null ? "" : String(html);
+  if (node.innerHTML !== v) node.innerHTML = v;
+}
+
+// ── keyedList: the one reconciler ────────────────────────────────────────────
+// `build(item, key)` makes a node the FIRST time a key is seen; `apply(node, item, i)`
+// updates it every time. Nodes are cached on the parent, which is what makes handlers
+// wired inside build() permanent.
+//
+// SERVER ARRAY ORDER IS THE ORDER. tmux's own session/window/pane order is load-bearing
+// (it drives the dock, the list and swipe navigation), so a single forward pass is exact —
+// no LIS, no move-minimization heuristics. insertBefore is called ONLY when a node is not
+// already in position, so a stable list performs zero DOM moves.
+function keyedList(parentEl, items, keyFn, build, apply) {
+  let cache = parentEl._klCache;
+  if (!cache) cache = parentEl._klCache = new Map();
+  const next = new Map();
+  let cursor = parentEl.firstChild;
+  items.forEach((item, i) => {
+    const key = String(keyFn(item, i));
+    let node = cache.get(key);
+    if (!node) node = build(item, key);
+    if (!node) return;
+    next.set(key, node);
+    if (apply) apply(node, item, i);
+    // Already in the right slot? Then advance past it and touch nothing.
+    if (cursor === node) { cursor = node.nextSibling; return; }
+    parentEl.insertBefore(node, cursor);
+  });
+  // Remove leftovers. Actually REMOVE them (never hide): CSS structural selectors
+  // (#top .dock:empty, #filters:empty, .metarow:empty, .lm-convo:empty) depend on an
+  // emptied list having no children at all.
+  for (const [key, node] of cache) if (!next.has(key)) node.remove();
+  parentEl._klCache = next;
+  return next;
+}
+
 // Real brand marks per tool (served from web/). One img template so every icon renders
 // identically; unidentified panes fall back to the tmux logomark. `tool` comes from
 // parser JSON, so look it up with hasOwnProperty (a value like "toString"/"constructor"
@@ -1709,7 +1775,7 @@ function applyCard(ui, s) {
   setHtml(ui.sum, body && s.session_summary ? linkifyText(s.session_summary) : "");
   applyRewind(ui.rewind, body ? s : null);
   applyTables(ui.tables, body && Array.isArray(s.tables) ? s.tables : []);
-  applyQuestion(ui.q, body && s.question ? s : null);
+  applyQuestion(ui.q, body && s.question ? s : null, ui);
   applyTasks(ui.tasks, body && Array.isArray(s.tasks) ? s.tasks : []);
   applySubagents(ui.subs, body ? realSubs(s.subagents) : []);
   applyLinks(ui.links, body && Array.isArray(s.links) ? s.links : []);
@@ -3078,7 +3144,13 @@ function buildQuestion(cardUi) {
   return { root, prompt, promptText, spin, opts, cardUi };
 }
 
-function applyQuestion(ui, s) {
+// `card` is the enclosing card's handle set, and is what the option handlers read the
+// target pane from (card.pane) at CALL time. It cannot be captured from `s` at build time:
+// options are keyed by index+text, so two panes asking the same thing at the same index
+// (a plain Yes/No is the common case) REUSE the button, and a build-time pane_id would
+// then answer whichever pane the card showed when the node was first created. That is the
+// invariant at the top of buildCard — every handler closes over the card, never a state.
+function applyQuestion(ui, s, card) {
   setCls(ui.root, "hid", !s);
   if (!s) { keyedList(ui.opts, [], (x) => x, () => null); setText(ui.promptText, ""); return; }
   const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
@@ -3086,14 +3158,15 @@ function applyQuestion(ui, s) {
   setCls(ui.spin, "on", spinning);
   // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
   const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
-  const paneId = s.pane_id;
   keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
     b.onclick = () => {
-      // Read the live state at CALL time: the node persists across polls, so closing over
-      // `s` would answer with whatever question was on screen when the button was built.
-      const cur = panesById[paneId];
+      // Read BOTH the pane and its state at CALL time. The node persists across polls AND
+      // across pane switches (see the note above applyQuestion), so a captured pane_id or
+      // `s` would answer the pane that happened to be on screen when it was built.
+      const paneId = card ? card.pane : undefined;
+      const cur = paneId && panesById[paneId];
       if (!cur || !cur.question) return;
       const i = b._optIndex;
       setActive(paneId);
