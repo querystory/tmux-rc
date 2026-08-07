@@ -135,17 +135,22 @@ function paintTerm(pre, lines) {
 // outside this box, no line cache yet) reports DIRTY, so the guard still holds rather than
 // risk eating a selection we failed to understand.
 function selDirty(pre, sel, lines) {
-  const kids = pre._tlines;
-  if (!kids || !kids.length) return true; // not line-painted yet ⇒ can't reason; hold
   const range = sel.rangeCount ? sel.getRangeAt(0) : null;
   if (!range) return true;
   // Does the selection touch this terminal at all? Ask the RANGE, not the endpoints: a
   // cross-surface selection can start above the box and end below it, spanning straight
   // through — both endpoints outside, every line inside selected. The endpoint check is
   // only the fallback for engines without intersectsNode.
+  //
+  // Asked FIRST, before the line-cache guard below: a fresh box (openScreen's overlay,
+  // a pane switch) has no _tlines yet, and holding ITS first paint for a selection that
+  // lives on some other surface entirely would freeze the new view until the user
+  // happened to tap their selection away.
   if (range.intersectsNode
     ? !range.intersectsNode(pre)
     : !pre.contains(sel.anchorNode) && !pre.contains(sel.focusNode)) return false;
+  const kids = pre._tlines;
+  if (!kids || !kids.length) return true; // touched + not line-painted yet ⇒ can't reason; hold
   // Which line nodes does the selection touch? Walk the cached line nodes and ask the
   // Range — cheaper and more robust than climbing parentNode from the anchor, which can
   // land on a text node inside a nested span.
