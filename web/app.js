@@ -734,21 +734,20 @@ async function poll() {
       // dataset.k keeps tmux's exact name (C-a).
       pfx.textContent = data.prefix.replace(/^C-(.)/, (_, k) => "Ctrl-" + k.toUpperCase());
     }
-    // The literal Ctrl-B button exists because a remapped prefix (this host uses C-a)
-    // leaves no way to send a real Ctrl-B, which nested tmux and apps that bind it
-    // themselves need. On a STOCK tmux the prefix already IS C-b, so the two buttons
-    // would be the same keystroke under two labels — hide the literal one there rather
-    // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
-    // config change without a reload.
-    //
-    // OUTSIDE the `if (data.prefix)` guard, and the button starts `hidden` in the HTML.
-    // Inside the guard, a response that omitted `prefix` never ran this line, so the
-    // button kept whatever visibility it had — and since it shipped VISIBLE, a stock-C-b
-    // host that then served one prefix-less response showed a permanent duplicate of the
-    // Prefix button. Starting hidden and assigning unconditionally makes the state a pure
-    // function of the last response instead of a latch.
+      // The literal Ctrl-B button exists because a remapped prefix (this host uses C-a)
+      // leaves no way to send a real Ctrl-B, which nested tmux and apps that bind it
+      // themselves need. On a STOCK tmux the prefix already IS C-b, so the two buttons
+      // would be the same keystroke under two labels — hide the literal one there rather
+      // than ship a duplicate. Keyed off the server's detected prefix, so it follows a
+      // config change without a reload.
+    }
+    // OUTSIDE the `data.prefix` guard on purpose. The button starts hidden in the HTML so a
+    // stock-tmux user never sees it flash as a duplicate of Prefix — which means the reveal
+    // is the only thing that can ever show it. Gated on a truthy prefix, a legacy or partial
+    // /api/state that omits the field would hide Ctrl-B FOREVER, turning a cosmetic flicker
+    // fix into a missing key. Absent prefix ⇒ we cannot know it is C-b ⇒ show it.
     const cb = document.getElementById("bar-ctrl-b");
-    if (cb) cb.hidden = !data.prefix || data.prefix === "C-b";
+    if (cb) cb.hidden = data.prefix === "C-b";
     // Legacy daemons omit `booted`; treat its absence as booted so old servers keep
     // their previous behavior (empty ⇒ "no panes") rather than spinning forever.
     _booted = data.booted !== false;
