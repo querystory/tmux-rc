@@ -160,9 +160,12 @@ export function renderCaptureLines(text, opts) {
   while ((m = TAG_RE.exec(html))) {
     flushText(html.slice(pos, m.index));
     pos = m.index + m[0].length;
-    if (m[1]) { // closing tag: unwind to it (our own output is well-nested)
+    if (m[1]) { // closing tag: UNWIND to it — pop everything above the match too. Our own
+      // output is well-nested (the tests assert balance), so the popped tail is normally
+      // empty; actually unwinding keeps the reopen list a truthful mirror of the parser
+      // state if renderCapture ever emits nesting this code didn't anticipate.
       for (let i = open.length - 1; i >= 0; i--)
-        if (open[i].name.toLowerCase() === m[2].toLowerCase()) { open.splice(i, 1); break; }
+        if (open[i].name.toLowerCase() === m[2].toLowerCase()) { open.length = i; break; }
     } else {
       open.push({ name: m[2], full: m[0] });
     }

@@ -155,11 +155,29 @@ function selDirty(pre, sel, lines) {
   // Range — cheaper and more robust than climbing parentNode from the anchor, which can
   // land on a text node inside a nested span.
   let lo = Infinity, hi = -Infinity;
-  for (let i = 0; i < kids.length; i++) {
-    if (range.intersectsNode ? range.intersectsNode(kids[i]) : true) {
-      if (i < lo) lo = i;
-      if (i > hi) hi = i;
-    }
+  if (range.intersectsNode) {
+    for (let i = 0; i < kids.length; i++)
+      if (range.intersectsNode(kids[i])) {
+        if (i < lo) lo = i;
+        if (i > hi) hi = i;
+      }
+  } else {
+    // No intersectsNode: localize from the endpoints' own line nodes instead of
+    // pessimistically claiming every line — that held the paint for ANY changed line
+    // and defeated the whole point of line-diffing on such engines. An endpoint that
+    // doesn't resolve to a line (selection edge outside the box) clamps to that end.
+    const lineOf = (node) => {
+      while (node && node !== pre) {
+        const i = kids.indexOf(node);
+        if (i !== -1) return i;
+        node = node.parentNode;
+      }
+      return -1;
+    };
+    const a = lineOf(sel.anchorNode), f = lineOf(sel.focusNode);
+    if (a === -1 && f === -1) return true; // spans through with no resolvable edge: hold
+    lo = Math.min(a === -1 ? 0 : a, f === -1 ? 0 : f);
+    hi = Math.max(a === -1 ? kids.length - 1 : a, f === -1 ? kids.length - 1 : f);
   }
   if (lo === Infinity) return false; // selection is in the box but touches no line node
   // A frame that changes the LINE COUNT reflows everything from the tail onwards.
