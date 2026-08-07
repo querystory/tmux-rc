@@ -262,16 +262,13 @@
      the phones this app targets. */
   #panes { padding: 8px 12px calc(var(--bar-h, 150px) + 8px); display: flex; flex-direction: column; gap: 10px; overflow-x: hidden; }
   #panes.cardmode { padding-bottom: 0; }
-  /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
-     The pane's capture is its background (bottom-anchored, so the agent's status/input
-     chrome lines hide behind the bar); the card floats over the top, content-sized,
-     with the live terminal tail poking out BELOW it — pan/zoomable in place. The
-     negative margin pulls the deck's bottom back up under the fixed bar, so the deck's
-     full-viewport height does not extend the page. It no longer "cancels #panes' bar
-     padding": that padding is now switched OFF in card mode (see #panes.cardmode
-     above), because having both was double-counting the bar height and scrolling the
-     whole document behind the card. The two mechanisms are independent — this margin
-     positions the deck, that rule keeps list-mode rows clear of the bar. */
+  /* The deck fills the space below the dock and STOPS at the bar's top edge. The pane's
+     capture is its background (bottom-anchored; the agent's status/input chrome lines are
+     clipped away inside the deck — see tuckChrome); the card floats over the top,
+     content-sized, with the live terminal tail poking out BELOW it — pan/zoomable in
+     place. #panes' own bar padding is switched OFF in card mode (see #panes.cardmode
+     above): the deck already accounts for the bar in its height, so adding the padding
+     back would double-count it and scroll the whole document behind the card. */
   .deck { position: relative;
     /* Sized to the space that ACTUALLY remains below the chrome and above the bar, so the
        deck does not overflow #panes at all. It used to be 100dvh - --top-h with a negative
@@ -321,9 +318,10 @@
   /* The card is scrollable, so its shadow must not be clipped by its own overflow box —
      it isn't (box-shadow paints outside), but the DECK clips overflow, and the bottom
      shadow now falls inside the deck rather than past its edge, so it survives. */
-  /* The capture's window: right below the card down to the bar. Agent panes overlap
-     the bar a little (their tail is status/input chrome); shells stop above it so a
-     trailing prompt stays visible. Long captures are scrolled to their tail. */
+  /* The capture's window: right below the card down to the deck's bottom edge (which
+     sits at the bar's top). An agent pane's tail is status/input chrome, so tuckChrome
+     clips it away WITHIN the deck via this margin; shells keep a small gap so a trailing
+     prompt stays visible. Long captures are scrolled to their tail. */
   /* These margins used to reserve the bar's height because the DECK ran underneath it; the
      deck now stops at the bar's top edge, so re-subtracting --bar-h here would cut a whole
      bar out of the visible peek. What remains is the agent-vs-shell distinction only:

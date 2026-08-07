@@ -1625,8 +1625,8 @@ function card(s) {
   return el;
 }
 
-// The deck's background terminal layer: the pane's latest capture, bottom-anchored so
-// its last lines tuck BEHIND the fixed input bar (agent status-line/input chrome, not
+// The deck's background terminal layer: the pane's latest capture, bottom-anchored with
+// its last lines clipped away inside the deck (agent status-line/input chrome, not
 // content — a parser field could size that per tool later). The card floats over the
 // top; the live tail pokes out below it, pan/zoomable in place.
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
@@ -1648,10 +1648,11 @@ const zHome = (id) => {
   return !z || (Math.abs(z.scale - 1) < 0.01 && Math.abs(z.tx) < 2 && Math.abs(z.ty) < 2);
 };
 
-// Tuck the agent's OWN bottom chrome (input box + status rows) behind the bar, sized
-// per frame: the input box's top border (╭─/┌─) is the seam — everything from it down
-// is chrome, and its height varies with activity (spinner/interrupt/queue rows), so a
-// fixed overlap either leaks footer or hides content. Falls back to the old fixed
+// Tuck the agent's OWN bottom chrome (input box + status rows) out of view — a negative
+// bottom margin slides it past the deck's edge, where the deck's overflow clip eats it —
+// sized per frame: the input box's top border (╭─/┌─) is the seam — everything from it
+// down is chrome, and its height varies with activity (spinner/interrupt/queue rows), so
+// a fixed overlap either leaks footer or hides content. Falls back to the old fixed
 // 60px when no border is found. Line height is read from the live style so the
 // tuck math can't drift if .bg-term's font ever changes.
 function tuckChrome(wrap, box) {
