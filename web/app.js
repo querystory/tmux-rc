@@ -137,13 +137,19 @@ function paintTerm(pre, lines) {
 function selDirty(pre, sel, lines) {
   const kids = pre._tlines;
   if (!kids || !kids.length) return true; // not line-painted yet ⇒ can't reason; hold
-  if (!pre.contains(sel.anchorNode) && !pre.contains(sel.focusNode)) return false;
+  const range = sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!range) return true;
+  // Does the selection touch this terminal at all? Ask the RANGE, not the endpoints: a
+  // cross-surface selection can start above the box and end below it, spanning straight
+  // through — both endpoints outside, every line inside selected. The endpoint check is
+  // only the fallback for engines without intersectsNode.
+  if (range.intersectsNode
+    ? !range.intersectsNode(pre)
+    : !pre.contains(sel.anchorNode) && !pre.contains(sel.focusNode)) return false;
   // Which line nodes does the selection touch? Walk the cached line nodes and ask the
   // Range — cheaper and more robust than climbing parentNode from the anchor, which can
   // land on a text node inside a nested span.
   let lo = Infinity, hi = -Infinity;
-  const range = sel.rangeCount ? sel.getRangeAt(0) : null;
-  if (!range) return true;
   for (let i = 0; i < kids.length; i++) {
     if (range.intersectsNode ? range.intersectsNode(kids[i]) : true) {
       if (i < lo) lo = i;
@@ -468,8 +474,13 @@ function setActive(id) {
   // reconcile would never run and the deck would freeze on the old content until the next
   // poll. (That suspension is real — it produced a whole set of phantom "stalls" while
   // debugging this.) setTimeout still fires when hidden, so it is the safe fallback.
+  // TWO rAF hops, not one: a callback queued now runs before THIS frame's paint, so a
+  // single hop still bundles the highlight and the reconcile into the same present. The
+  // first hop rides this frame (highlight paints at its end); the second runs the
+  // reconcile in the next. The hidden-tab fallback stays one hop — nothing paints there.
   const soon = document.visibilityState === "visible"
-    ? requestAnimationFrame : (fn) => setTimeout(fn, 0);
+    ? (fn) => requestAnimationFrame(() => requestAnimationFrame(fn))
+    : (fn) => setTimeout(fn, 0);
   soon(() => render(Object.values(panesById)));
 }
 
