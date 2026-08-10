@@ -75,12 +75,16 @@ if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
 
 logger = logging.getLogger(__name__)
 
+_PKG_DIR = Path(__file__).resolve().parent  # .../daemon (checkout or site-packages)
+_REPO_ROOT = _PKG_DIR.parent
+# True when running from a source checkout rather than an installed wheel. Gates both the
+# web/ lookup below and reload in main() — reload only makes sense against editable source.
+_FROM_CHECKOUT = (_REPO_ROOT / "pyproject.toml").is_file()
+
 # Prefer the repo-root web/ (dev/run-from-checkout, so edits are served live); fall back
 # to the copy bundled inside the package at daemon/web/ (wheel install, e.g. uvx from git).
 # Same checkout-vs-installed resolution as .env above.
-_repo_web = Path(__file__).resolve().parent.parent / "web"
-_pkg_web = Path(__file__).resolve().parent / "web"
-WEB_DIR = _repo_web if _repo_web.is_dir() else _pkg_web
+WEB_DIR = (_REPO_ROOT / "web") if _FROM_CHECKOUT else (_PKG_DIR / "web")
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
 IMG_MAX_BYTES = (
@@ -717,8 +721,10 @@ def main() -> None:
 
     # Reload watches the package source and restarts the process on edits (resetting
     # the watcher's in-memory cache — safe, tmux is the source of truth and state
-    # rebuilds within a couple ticks). ON by default; set TMUXRC_RELOAD=0 to disable.
-    reload = os.environ.get("TMUXRC_RELOAD", "1") != "0"
+    # rebuilds within a couple ticks). Defaults ON from a source checkout, OFF when
+    # installed as a wheel (no editable source to watch — and a relative reload dir there
+    # made uvicorn fall back to watching all of $HOME). TMUXRC_RELOAD=0/1 forces it.
+    reload = os.environ.get("TMUXRC_RELOAD", "1" if _FROM_CHECKOUT else "0") != "0"
     # proxy_headers=False: uvicorn's default rewrites request.client from
     # X-Forwarded-For on loopback connections — and the tunnel relay forwards Cloud
     # Run's XFF, so legit tunnel requests LOOKED like they came from the relay's IP and
@@ -733,7 +739,7 @@ def main() -> None:
         host=os.environ.get("TMUXRC_HOST", "0.0.0.0"),
         port=int(os.environ.get("TMUXRC_PORT", "8080")),
         reload=reload,
-        reload_dirs=["daemon"] if reload else None,
+        reload_dirs=[str(_PKG_DIR)] if reload else None,
     )
 
 
