@@ -40,6 +40,22 @@ Open `http://<machine-lan-ip>:8080` on your phone and add it to your home screen
 For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
 `tailscale`) — the PoC has **no auth**, so never expose it on an untrusted network.
 
+### Run without cloning
+
+`uv` installs straight from the (private) git repo — no manual clone or checkout to
+manage. The wheel bundles the phone UI, so this is fully self-contained; you still need
+`tmux`, a running agent, and the Vertex env vars (pass them inline or via a `.env` in
+the working directory):
+
+```bash
+uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+# or pin a branch/tag/commit:
+uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git@main" tmux-rc
+```
+
+Requires SSH access to the `querystory` org. The `docs/` site is checkout-only (not
+bundled); the phone dashboard and API work without it.
+
 ### Config (env)
 
 Loaded from `.env` at startup (real shell env vars still override). See `.env.example`.

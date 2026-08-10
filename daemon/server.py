@@ -75,7 +75,12 @@ if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
 
 logger = logging.getLogger(__name__)
 
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+# Prefer the repo-root web/ (dev/run-from-checkout, so edits are served live); fall back
+# to the copy bundled inside the package at daemon/web/ (wheel install, e.g. uvx from git).
+# Same checkout-vs-installed resolution as .env above.
+_repo_web = Path(__file__).resolve().parent.parent / "web"
+_pkg_web = Path(__file__).resolve().parent / "web"
+WEB_DIR = _repo_web if _repo_web.is_dir() else _pkg_web
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
 IMG_MAX_BYTES = (
