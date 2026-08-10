@@ -47,9 +47,19 @@ LIVE_REGION = os.environ.get("TMUXRC_LIVE_REGION", "us-central1")
 # watcher's state_version moved (the same change signal /api/state long-polls on).
 UPDATE_MIN_SECONDS = 2.5
 # Screen tail sent per pane in the connect snapshot and in post-type refreshes. Enough
-# to answer "what's it doing / asking", small enough that N panes stay cheap.
+# to answer "what's it doing / asking"; SCREEN_BUDGET_CHARS below is what keeps N of
+# these cheap — the per-pane cap alone is not.
 SCREEN_TAIL_LINES = 60
 SCREEN_TAIL_CHARS = 4000
+# Fleet-wide ceiling on screen text in the connect snapshot. The per-pane tail is
+# bounded but the fleet is not: a real 24-pane deck put ~36k tokens of screen text in
+# the system instruction, and Gemini Live closes the session outright over its setup
+# limit (a 1007 naming the token count) — the voice session died the moment audio
+# flowed, on every reconnect, forever. Spent on the active pane first, then the panes
+# most recently at work; a pane past the budget keeps its digest block (headline,
+# summary, pending question) and loses only its screen text. ~24k chars ≈ 7k tokens
+# leaves the rest of the window for the conversation itself.
+SCREEN_BUDGET_CHARS = 24_000
 # After typing, wait this long before sending the acted-on pane's fresh screen — the
 # pane's app needs a beat to react before a capture shows anything new.
 POST_TYPE_REFRESH_SECONDS = 1.5
@@ -263,13 +273,31 @@ def _pane_context(watcher, screens: str) -> str:
     of state the watcher keeps current anyway."""
     if screens not in ("all", "active", "none"):
         raise ValueError(f"bad screens mode: {screens!r}")
-
-    def tail(d):
-        if screens == "all" or (screens == "active" and d.get("tmux_active")):
-            return _screen_tail(watcher, d["pane_id"])
-        return None
-
-    blocks = [_pane_block(d, tail(d)) for d in watcher.digest()]
+    digest = watcher.digest()
+    tails: dict[str, str] = {}
+    if screens == "active":
+        for d in digest:
+            if d.get("tmux_active"):
+                tails[d["pane_id"]] = _screen_tail(watcher, d["pane_id"])
+    elif screens == "all":
+        # Allocate SCREEN_BUDGET_CHARS priority-first — the active pane, then panes at
+        # work, then the least-idle — but RENDER in digest order, which is tmux's own
+        # session/window order: the model's pane map must not reshuffle by activity.
+        # The last pane granted may overshoot the budget by at most one tail; that
+        # slack is bounded (SCREEN_TAIL_CHARS) and simpler than truncating mid-screen.
+        def prio(d):
+            return (not d.get("tmux_active"),
+                    d.get("activity") == "idle",
+                    d.get("idle_seconds") or 0)
+        budget = SCREEN_BUDGET_CHARS
+        for d in sorted(digest, key=prio):
+            if budget <= 0:
+                break
+            t = _screen_tail(watcher, d["pane_id"])
+            if t:
+                tails[d["pane_id"]] = t
+                budget -= len(t)
+    blocks = [_pane_block(d, tails.get(d["pane_id"])) for d in digest]
     return "\n\n".join(blocks) if blocks else "(no panes)"
 
 

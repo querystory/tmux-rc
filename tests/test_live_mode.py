@@ -290,3 +290,36 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     assert emitted[-1]["cost"] == m.usage.cost()
     # Session cost is folded into the status-bar totals exactly once, at finish().
     assert folded == {"in_tokens": 200, "out_tokens": 80, "cost": m.usage.cost()}
+
+
+def test_connect_snapshot_screen_budget():
+    """A big fleet must not blow the session's setup limit: the connect snapshot's
+    screen text is bounded fleet-wide (the real 24-pane deck hit ~36k tokens and
+    Gemini 1007-closed every session at first audio). Digests always survive."""
+    w = _Watcher()
+    big = ("x" * 79 + "\n") * (L.SCREEN_TAIL_LINES - 1)  # ~4k chars, under the per-pane caps
+    w.snapshots = {f"%{i}": [{"id": "s", "text": big, "ts": 1.0}] for i in range(30)}
+
+    def digest():
+        return [{"pane_id": f"%{i}", "label": f"p{i}", "window_index": str(i),
+                 "tool": "claude", "activity": "idle" if i else "running",
+                 "tmux_active": i == 29,  # active pane sorted LAST in digest order
+                 "idle_seconds": i * 100,
+                 "headline": f"headline-{i}", "summary": None, "question": None,
+                 "history": []} for i in range(30)]
+    w.digest = digest
+
+    ctx = L._pane_context(w, screens="all")
+    # Every pane keeps its digest block, budget or not.
+    for i in range(30):
+        assert f"headline-{i}" in ctx
+    # Total screen payload is bounded: budget plus at most one tail of overshoot.
+    screens = ctx.count("screen:\n")
+    assert screens < 30, "budget did not drop any screens"
+    assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400
+    # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
+    # order; the longest-idle pane is the first to lose its own.
+    active_block = ctx.split("## window 29")[1]
+    assert "screen:" in active_block.split("##")[0]
+    idlest_block = ctx.split("## window 28")[1]  # idle_seconds=2800, the stalest
+    assert "screen:" not in idlest_block.split("##")[0]
