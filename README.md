@@ -43,9 +43,10 @@ For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
 ### Run without cloning
 
 `uv` installs straight from the (private) git repo — no manual clone or checkout to
-manage. The wheel bundles the phone UI, so this is fully self-contained; you still need
-`tmux`, a running agent, and the Vertex env vars (pass them inline or via a `.env` in
-the working directory):
+manage. The wheel bundles the phone UI, so this is fully self-contained (`tmux-rc` is a
+console script; reload defaults off when installed). You still need `tmux`, a running
+agent, a Vertex service-account key file **on the machine**, and the env vars pointing at
+it — `uvx` fetches the code, not your credentials.
 
 ```bash
 uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
@@ -55,6 +56,32 @@ uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git@main" tmux-rc
 
 Requires SSH access to the `querystory` org. The `docs/` site is checkout-only (not
 bundled); the phone dashboard and API work without it.
+
+**Setting the env vars.** There's no repo-root `.env` here, so use one of (real shell env
+vars always win — `.env` never overrides them):
+
+```bash
+# 1. Exported shell env vars (simplest, persists across runs in the shell):
+export GOOGLE_CLOUD_PROJECT=your-gcp-project
+export GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/sa-key.json   # absolute — no ~
+uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+
+# 2. Inline, for a one-off run:
+GOOGLE_CLOUD_PROJECT=your-gcp-project \
+GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/sa-key.json \
+  uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+
+# 3. A .env in (or above) the directory you launch from — the daemon searches upward
+#    from the cwd when there's no repo-root .env:
+mkdir -p ~/tmux-rc && cd ~/tmux-rc
+# create .env with GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS (see the table
+# below and `.env.example` in the repo)
+uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+```
+
+> `GOOGLE_APPLICATION_CREDENTIALS` **must be an absolute path** — google-auth does not
+> expand `~`. To run heuristics-only with no Vertex creds at all, set `TMUXRC_NO_LLM=1`
+> (see the table below). All other `TMUXRC_*` vars work the same way.
 
 ### Config (env)
 
