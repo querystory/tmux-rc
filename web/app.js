@@ -3558,11 +3558,11 @@ function lmPlayChunk(b64) {
 // tap; if the context won't run at 16kHz (Safari ignores the request), we resample
 // before sending — the wire format is always 16kHz.
 async function lmCapture(ws) {
-  lmStream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-  });
-  try { lmCtx = new AudioContext({ sampleRate: 16000 }); }
-  catch { lmCtx = new AudioContext(); }
+  // lmStream and lmCtx were acquired in lmStart, INSIDE the tap's user activation —
+  // see there for why. This runs later (ws.onopen) and only builds the graph.
+  // Belt-and-braces: iOS suspends a context the moment it thinks no gesture backs it;
+  // a suspended context runs the worklet never and captures nothing, silently.
+  if (lmCtx.state === "suspended") await lmCtx.resume();
   const src = lmCtx.createMediaStreamSource(lmStream);
   const rate = lmCtx.sampleRate;
   let pend = new Float32Array(0);
@@ -3611,11 +3611,47 @@ function lmStatus(s) {
   lm.btn.classList.toggle("listening", lmListening);
 }
 
+let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
+
 async function lmStart() {
+  if (lmStarting) return; // re-tap while the permission prompt is up: not a stop request
+  lmStarting = true;
   lm.btn.classList.add("on");
   lmLog = [];
   lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe
   lmPlayAt = 0;
+  // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
+  // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit
+  // rejects getUserMedia with NotAllowedError once the activation has expired, which
+  // it has by the time a websocket opens. Desktop Chrome masked this by persisting
+  // mic grants across visits, so no live gesture was ever needed there.
+  // The capture AudioContext is created in the same breath for the same reason:
+  // created later, iOS starts it suspended and the worklet never runs.
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const e = new Error("this browser does not expose microphone capture");
+      e.name = "NotSupportedError";
+      throw e;
+    }
+    lmStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+    });
+    try { lmCtx = new AudioContext({ sampleRate: 16000 }); }
+    catch { lmCtx = new AudioContext(); }
+  } catch (e) {
+    // Surface the real reason PERSISTENTLY (lmStop re-renders, so a feed line would
+    // flash and vanish); name+message distinguish NotAllowedError (denied) from
+    // NotFoundError (no mic) etc. Also to telemetry so the rate is queryable (#57).
+    reportError("mic", e);
+    lmStarting = false;
+    lmStop();
+    alert(`Live Mode mic error:\n${e.name || "Error"}: ${e.message}\n\n`
+      + "If this is a permission issue: allow microphone for this site in the "
+      + "browser, and on iPhone/Android also check the browser app's own "
+      + "microphone permission in system Settings, then try again.");
+    return;
+  }
+  lmStarting = false;
   // Same page-load session id as the live-view stream, so voice cost and screen
   // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
   const q = SESSION_ID ? `?session=${encodeURIComponent(SESSION_ID)}` : "";
@@ -3643,18 +3679,14 @@ async function lmStart() {
   };
   ws.onopen = async () => {
     if (lmWs !== ws) return; // stopped while connecting — don't touch the mic
+    // Mic permission was settled in lmStart (inside the gesture); this can still fail
+    // on worklet/graph construction, which is a platform bug worth showing, not a
+    // permission issue — so no settings advice here.
     try { await lmCapture(ws); }
     catch (e) {
-      // Surface the real reason PERSISTENTLY: lmStop() re-renders and wipes the card
-      // feed, so a mere lmAdd flashes and vanishes (invisible on mobile). alert() so the
-      // operator can actually read why the mic failed — name+message distinguish a
-      // permission denial (NotAllowedError) from no-device (NotFoundError) etc. Also
-      // report to telemetry so the failure rate is queryable by platform (#57).
       reportError("mic", e);
       lmStop();
-      alert(`Live Mode mic error:\n${e.name || "Error"}: ${e.message}\n\n`
-        + "If this is a permission issue: grant microphone access to this site/app "
-        + "in your browser or Android app settings, then try again.");
+      alert(`Live Mode audio error:\n${e.name || "Error"}: ${e.message}`);
     }
   };
   lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
