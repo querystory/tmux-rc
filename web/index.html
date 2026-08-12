@@ -124,8 +124,11 @@
   /* Non-active panes: one compact row each (icon · title · badge), stacked above the
      active pane's full card — whole-fleet status at a glance, tap to switch. */
   .prow { display: flex; align-items: center; gap: 10px; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer;
-    flex-wrap: wrap; } /* the adopted expansion card wraps to its own full-width line */
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+  /* Scoped to LIST rows: the tab strip is a .prow too (class="prow dock"), and letting it
+     wrap stacks the session trays into a broken multi-row strip. Only rows in .plist ever
+     host the expansion drawer, which wraps to its own full-width line. */
+  .plist .prow { flex-wrap: wrap; }
   /* The expanded row's drawer: the SINGLETON card reparented under the row (see listOpen
      in app.js). Restyled to read as the row's own drawer, not a floating sheet: full row
      width via negative margins into .prow's padding, squared top corners butted against
