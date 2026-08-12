@@ -15,6 +15,9 @@ dependencies = [
     "python-dotenv>=1.2.2",
 ]
 
+[project.scripts]
+tmux-rc = "daemon.server:main"
+
 [dependency-groups]
 dev = ["pytest>=8"]
 
@@ -29,3 +32,8 @@ packages = ["daemon"]
 "daemon/parser_prompt.txt" = "daemon/parser_prompt.txt"
 "daemon/live_prompt.txt" = "daemon/live_prompt.txt"
 "daemon/bootstrap_prompt.txt" = "daemon/bootstrap_prompt.txt"
+# The phone UI lives at the repo root (web/) so the dev flow serves it in place, but the
+# server also needs it when tmux-rc is installed as a wheel (e.g. `uvx --from git+ssh://…
+# tmux-rc`). Bundle it inside the package as daemon/web/; server.py prefers the repo-root
+# copy when present and falls back to this one — same checkout-vs-installed dance as .env.
+"web" = "daemon/web"
