@@ -1055,6 +1055,14 @@ function render(states) {
     listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
+    // Expansion housekeeping BEFORE the rows reconcile: a filtered-out or vanished pane
+    // can't stay expanded, and when nothing is expanded the card must be back in the
+    // deck — keyedList removing a row would otherwise take the adopted card with it.
+    if (listOpen && !subset.some((s) => s.pane_id === listOpen)) listOpen = null;
+    if (!listOpen && cardUI.root.parentNode !== ui.deck) {
+      cardUI.root.classList.remove("in-list");
+      ui.deck.insertBefore(cardUI.root, ui.deck.firstChild);
+    }
     setCls(ui.deck, "hid", true);
     setCls(ui.list, "hid", false);
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
@@ -1083,6 +1091,12 @@ function render(states) {
   setCls(panesEl, "cardmode", !!a);
   setCls(ui.deck, "hid", !a);
   if (a) {
+    // Reclaim the card from any list-row drawer — card view owns it again (joinTab's
+    // .card.active lookup and the deck's child order both assume it is the first child).
+    if (cardUI.root.parentNode !== ui.deck) {
+      cardUI.root.classList.remove("in-list");
+      ui.deck.insertBefore(cardUI.root, ui.deck.firstChild);
+    }
     applyCard(cardUI, a);
     bgTerm(a);
     ui.fs._pane = a.pane_id;
@@ -1556,7 +1570,20 @@ function buildRow(paneId) {
   el.className = "prow";
   el.dataset.pane = paneId;
   const goCard = () => { listFilter = null; setActive(paneId); };
-  el.onclick = goCard;
+  // Ignore clicks that originate inside the embedded expansion card: its own handlers
+  // (option buttons, links, copy chips) act in place — bubbling into the row must not
+  // yank the user out of list view.
+  el.onclick = (e) => { if (e.target.closest(".card")) return; goCard(); };
+  // The expand caret, mirroring the card's ▾/▸: expands THIS row in place to the full
+  // card (see listOpen). A sibling of .row-open, not a child — no nested buttons.
+  const caret = document.createElement("button");
+  caret.className = "card-caret";
+  caret.onclick = (e) => {
+    e.stopPropagation(); // expanding must not also navigate to card view
+    listOpen = listOpen === paneId ? null : paneId;
+    render(Object.values(panesById));
+  };
+  el.appendChild(caret);
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
   // stopPropagation so an activation on the button doesn't also bubble to the row and
@@ -1583,6 +1610,7 @@ function buildRow(paneId) {
   hdr.right.appendChild(toggle);
   el.appendChild(subsBox.root);
   el._hdr = hdr; el._toggle = toggle; el._subs = subsBox; el._subsOpen = false;
+  el._caret = caret;
   return el;
 }
 
@@ -1604,6 +1632,20 @@ function applyRowSubs(el, subs) {
 function applyRow(el, s, act) {
   setCls(el, "waiting", actOf(s) === "waiting");
   setCls(el, "sel", s.pane_id === act);
+  const open = listOpen === s.pane_id;
+  setText(el._caret, open ? "▾" : "▸");
+  setAttr(el._caret, "aria-expanded", String(open));
+  setAttr(el._caret, "aria-label", (open ? "Collapse" : "Expand") + " pane details");
+  setCls(el, "expanded", open);
+  if (open) {
+    // Adopt the singleton card as this row's drawer. appendChild MOVES the node, so
+    // switching the accordion to another row is one relocation, never a rebuild — and
+    // collapsed=false explicitly: in list view the ROW is the collapsed form, so the
+    // drawer always shows the body regardless of card view's collapse toggle.
+    if (cardUI.root.parentNode !== el) el.appendChild(cardUI.root);
+    cardUI.root.classList.add("in-list");
+    applyCard(cardUI, s, false);
+  }
   applyPaneHeader(el._hdr, s, false);
   // Renderable entries only — the same filter the box uses, so the chip's count can never
   // disagree with it.
@@ -1644,6 +1686,11 @@ function applyList(host, states, subset, act) {
 }
 
 
+
+// Which pane's row is expanded in LIST view (accordion: at most one). The expansion IS
+// the singleton card below, reparented under the row — same node, same handlers, so the
+// question options, copyables and event feed need no second wiring. null = none open.
+let listOpen = null;
 
 // ONE persistent card, retargeted to whichever pane is active — NOT one card per pane.
 // `cardUI` holds its handles; `cardUI.pane` is the pane_id it currently shows.
@@ -1712,10 +1759,9 @@ function buildCard() {
 // Point the one card at `s` and write its current state. Subviews that don't apply are
 // hidden AND emptied (keyedList with an empty list removes their children), so the CSS
 // :empty rules keep working and no stale content lurks behind a hidden class.
-function applyCard(ui, s) {
+function applyCard(ui, s, collapsed = cardsCollapsed) {
   const el = ui.root;
   ui.pane = s.pane_id;
-  const collapsed = cardsCollapsed;
   setCls(el, "waiting", actOf(s) === "waiting");
   setCls(el, "active", s.pane_id === activeId());
   setCls(el, "collapsed", collapsed);

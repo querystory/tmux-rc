@@ -124,7 +124,18 @@
   /* Non-active panes: one compact row each (icon · title · badge), stacked above the
      active pane's full card — whole-fleet status at a glance, tap to switch. */
   .prow { display: flex; align-items: center; gap: 10px; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer;
+    flex-wrap: wrap; } /* the adopted expansion card wraps to its own full-width line */
+  /* The expanded row's drawer: the SINGLETON card reparented under the row (see listOpen
+     in app.js). Restyled to read as the row's own drawer, not a floating sheet: full row
+     width via negative margins into .prow's padding, squared top corners butted against
+     the row content, and no lift shadow — it isn't covering anything here. The card's own
+     header row is hidden: the ROW is this card's header (same pane identity twice reads
+     as a glitch), which also parks the card-view collapse caret it contains. */
+  .card.in-list { flex: 1 1 100%; margin: 8px -12px -8px; max-height: 60dvh;
+    box-shadow: none; border: 0; border-top: 1px solid var(--border);
+    border-radius: 0 0 9px 9px; }
+  .card.in-list > .row:first-child { display: none; }
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a
@@ -641,8 +652,9 @@
   .tables, .task-list, .rw-list { display: contents; }
   /* .plist is a REAL box, not a pass-through: it is the list-mode scroll container that
      holds the session headers and pane rows as siblings (so .sess-hdr:first-child still
-     matches). */
-  .plist { display: block; }
+     matches). Flex column purely for the gap — rows sat flush against each other and the
+     borders fused into one undifferentiated slab (user-reported). */
+  .plist { display: flex; flex-direction: column; gap: 6px; }
   /* Structured tables: scroll horizontally AND vertically, capped so a big one doesn't
      dominate the card. */
   .tablewrap { margin-top: 12px; }
