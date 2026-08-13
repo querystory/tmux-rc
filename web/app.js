@@ -654,11 +654,12 @@ function buildPaneHeader(parent, { caret = false, icon = false, link = false } =
 
 function applyPaneHeader(h, s, collapsed) {
   const a = actOf(s);
-  if (h.caret) {
-    setAttr(h.caret, "aria-label", collapsed ? "expand" : "collapse");
-    setAttr(h.caret, "aria-expanded", String(!collapsed));
-    setText(h.caret, collapsed ? "▸" : "▾");
-  }
+  // The caret's open/aria state is NOT set here: `collapsed` means the card's collapse
+  // for this caller, but a list row passes false unconditionally (its sub line never
+  // clamps) while its chevron tracks rowOpen — so each SURFACE (applyCard, applyRow)
+  // sets its own chevron state. The old glyph write here (setText "▾") also destroyed
+  // the chevron's SVG child, leaving a text node a line-height:0 button renders as
+  // nothing — caught headless as an invisible, unclickable control.
   if (h.icon) {
     setAttr(h.iconImg, "src", logoFor(s.tool));
     setAttr(h.iconImg, "alt", s.tool || "pane");
