@@ -129,16 +129,28 @@
      wrap stacks the session trays into a broken multi-row strip. Only rows in .plist ever
      host the expansion drawer, which wraps to its own full-width line. */
   .plist .prow { flex-wrap: wrap; }
-  /* The expanded row's drawer: the SINGLETON card reparented under the row (see listOpen
-     in app.js). Restyled to read as the row's own drawer, not a floating sheet: full row
-     width via negative margins into .prow's padding, squared top corners butted against
-     the row content, and no lift shadow — it isn't covering anything here. The card's own
-     header row is hidden: the ROW is this card's header (same pane identity twice reads
-     as a glitch), which also parks the card-view collapse caret it contains. */
-  .card.in-list { flex: 1 1 100%; margin: 8px -12px -8px; max-height: 60dvh;
-    box-shadow: none; border: 0; border-top: 1px solid var(--border);
-    border-radius: 0 0 9px 9px; }
-  .card.in-list > .row:first-child { display: none; }
+  /* The description line: [small expand chevron][description text]. The chevron lives IN
+     the line — a full-height caret column pushed the whole row sideways and read as
+     chrome. Same affordance on the card and on a list row (one expand UI everywhere). */
+  .ph-subrow { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+  .ph-caret { flex: none; background: transparent; border: 0; padding: 0; margin-top: 1px;
+    color: var(--fg-dim); cursor: pointer; line-height: 0; position: relative; }
+  /* HIT AREA only — the halo grows the target to finger size without moving the line. */
+  .ph-caret::before { content: ""; position: absolute; inset: -12px -8px; }
+  .ph-caret svg { transition: transform .15s; }
+  .ph-caret.open svg { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) { .ph-caret svg { transition: none; } }
+  /* A row's description line sits OUTSIDE .row-open (no nested buttons — see buildRow),
+     as the row's own full-width second line, indented to align under the name. */
+  .prow > .ph-subrow { flex: 1 1 100%; padding-left: 44px; margin-top: 2px; }
+  /* The row's drawer: its own pane body, full row width, reading as part of the row. */
+  .prow .pbody.drawer { flex: 1 1 100%; margin: 8px -12px -8px; padding: 2px 12px 10px;
+    max-height: 60dvh; overflow-y: auto; border-top: 1px solid var(--border); }
+  /* Expand/collapse-all: a quiet icon button, right-aligned above the rows. */
+  .list-ctl { display: flex; justify-content: flex-end; }
+  .list-ctl button { background: transparent; border: 0; padding: 4px; margin: -4px 0;
+    color: var(--fg-faint); cursor: pointer; line-height: 0; }
+  .list-ctl button:hover { color: var(--accent); }
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a

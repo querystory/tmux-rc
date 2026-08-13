@@ -258,6 +258,8 @@ const LUCIDE = {
   check: '<path d="M20 6 9 17l-5-5"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  expandall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 8 3-3 3 3"/><path d="m15 16 3 3 3-3"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -589,12 +591,6 @@ function nsubOf(s) {
 // which never changes for a given node — the invariant's whole point.
 function buildPaneHeader(parent, { caret = false, icon = false, link = false } = {}, onCaret) {
   const h = { link };
-  if (caret) {
-    h.caret = document.createElement("button");
-    h.caret.className = "card-caret";
-    if (onCaret) h.caret.onclick = onCaret;
-    parent.appendChild(h.caret);
-  }
   if (icon) {
     h.icon = document.createElement("span");
     h.icon.className = "icon";
@@ -624,7 +620,22 @@ function buildPaneHeader(parent, { caret = false, icon = false, link = false } =
   h.name.appendChild(h.nameText);
   h.sub = document.createElement("div");
   h.sub.className = "ph-sub";
-  meta.append(h.name, h.sub);
+  // The description LINE: an optional small expand chevron, then the description text.
+  // In the line, not a full-height column — a tall caret column pushed the whole row
+  // right and read as chrome (user screenshot). One affordance for both surfaces: the
+  // card's collapse and a list row's drawer toggle are the same glyph in the same spot
+  // (the row RELOCATES this subrow out of its .row-open button — no nested buttons).
+  h.subrow = document.createElement("div");
+  h.subrow.className = "ph-subrow";
+  if (caret) {
+    h.caret = document.createElement("button");
+    h.caret.className = "ph-caret";
+    h.caret.innerHTML = licon("chevron", 14);
+    if (onCaret) h.caret.onclick = onCaret;
+    h.subrow.appendChild(h.caret);
+  }
+  h.subrow.appendChild(h.sub);
+  meta.append(h.name, h.subrow);
   h.right = document.createElement("div");
   h.right.className = "ph-right";
   h.work = document.createElement("span");
@@ -988,7 +999,7 @@ function render(states) {
   states.forEach(syncEvents);
   // Prune per-pane caches when panes vanish — otherwise pane churn grows them
   // without bound over a long-running session.
-  for (const m of [eventLog, peekCache, bgZoom, cardUI ? cardUI.events.openByPane : {}])
+  for (const m of [eventLog, peekCache, bgZoom, cardUI ? cardUI.body.events.openByPane : {}])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   setFavicon(states.some((s) => actOf(s) === "waiting"));
   // No card visible (empty / list mode) ⇒ no peek stream should be running. bgTerm
@@ -1055,14 +1066,6 @@ function render(states) {
     listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
-    // Expansion housekeeping BEFORE the rows reconcile: a filtered-out or vanished pane
-    // can't stay expanded, and when nothing is expanded the card must be back in the
-    // deck — keyedList removing a row would otherwise take the adopted card with it.
-    if (listOpen && !subset.some((s) => s.pane_id === listOpen)) listOpen = null;
-    if (!listOpen && cardUI.root.parentNode !== ui.deck) {
-      cardUI.root.classList.remove("in-list");
-      ui.deck.insertBefore(cardUI.root, ui.deck.firstChild);
-    }
     setCls(ui.deck, "hid", true);
     setCls(ui.list, "hid", false);
     dock(states, act); // dock stays up in list mode — icon tap jumps to that card
@@ -1091,12 +1094,6 @@ function render(states) {
   setCls(panesEl, "cardmode", !!a);
   setCls(ui.deck, "hid", !a);
   if (a) {
-    // Reclaim the card from any list-row drawer — card view owns it again (joinTab's
-    // .card.active lookup and the deck's child order both assume it is the first child).
-    if (cardUI.root.parentNode !== ui.deck) {
-      cardUI.root.classList.remove("in-list");
-      ui.deck.insertBefore(cardUI.root, ui.deck.firstChild);
-    }
     applyCard(cardUI, a);
     bgTerm(a);
     ui.fs._pane = a.pane_id;
@@ -1570,20 +1567,14 @@ function buildRow(paneId) {
   el.className = "prow";
   el.dataset.pane = paneId;
   const goCard = () => { listFilter = null; setActive(paneId); };
-  // Ignore clicks that originate inside the embedded expansion card: its own handlers
-  // (option buttons, links, copy chips) act in place — bubbling into the row must not
-  // yank the user out of list view.
-  el.onclick = (e) => { if (e.target.closest(".card")) return; goCard(); };
-  // The expand caret, mirroring the card's ▾/▸: expands THIS row in place to the full
-  // card (see listOpen). A sibling of .row-open, not a child — no nested buttons.
-  const caret = document.createElement("button");
-  caret.className = "card-caret";
-  caret.onclick = (e) => {
+  // Ignore clicks originating inside the drawer: its handlers (option buttons, links,
+  // copy chips) act in place — bubbling into the row must not yank the user to card view.
+  el.onclick = (e) => { if (e.target.closest(".pbody")) return; goCard(); };
+  const toggleOpen = (e) => {
     e.stopPropagation(); // expanding must not also navigate to card view
-    listOpen = listOpen === paneId ? null : paneId;
+    if (rowOpen.has(paneId)) rowOpen.delete(paneId); else rowOpen.add(paneId);
     render(Object.values(panesById));
   };
-  el.appendChild(caret);
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
   // stopPropagation so an activation on the button doesn't also bubble to the row and
@@ -1591,65 +1582,48 @@ function buildRow(paneId) {
   openBtn.onclick = (e) => { e.stopPropagation(); goCard(); };
   el.appendChild(openBtn);
   // link:false — this header goes INSIDE .row-open, a <button>. See buildPaneHeader.
-  const hdr = buildPaneHeader(openBtn, { icon: true, link: false });
+  // The caret's subrow is RELOCATED to the row element below, so the chevron (a real
+  // <button>) is never nested inside .row-open — same ARIA discipline as .ph-right.
+  const hdr = buildPaneHeader(openBtn, { icon: true, link: false, caret: true }, toggleOpen);
+  el.appendChild(hdr.subrow);
   // .ph-right belongs to the ROW, beside .row-open — not inside it (see the ARIA note).
   el.appendChild(hdr.right);
-  // A pane with sub-agents gets a labeled chip under the activity badge (reusing the card
-  // meta's .chip.agents look) that toggles the SAME sub-agents box the card shows — one
-  // component, two surfaces. The open flag lives ON THE ROW NODE rather than in a
-  // module-level Set, since the row persists. Toggling repaints just this row.
+  // A pane with sub-agents gets a labeled chip under the activity badge. It is a SHORTCUT
+  // to the row's one expansion — the drawer, whose body includes the sub-agents box. It
+  // used to toggle a second, row-owned copy of that box, and an expanded row then showed
+  // the same sub-agents twice (user screenshot).
   const toggle = document.createElement("button");
   toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
-  const subsBox = buildTasks("Sub-agents", "tasks subagents");
-  toggle.onclick = (e) => {
-    e.stopPropagation(); // a toggle tap expands the box — it must not open the card
-    el._subsOpen = !el._subsOpen;
-    const cur = panesById[paneId];
-    if (cur) applyRowSubs(el, realSubs(cur.subagents));
-  };
+  toggle.onclick = toggleOpen;
   hdr.right.appendChild(toggle);
-  el.appendChild(subsBox.root);
-  el._hdr = hdr; el._toggle = toggle; el._subs = subsBox; el._subsOpen = false;
-  el._caret = caret;
+  el._hdr = hdr; el._toggle = toggle; el._body = null; // drawer built lazily on first open
   return el;
-}
-
-// The row's sub-agent chip + expandable box. Split out so the toggle handler can repaint
-// just this row without a full render.
-function applyRowSubs(el, subs) {
-  const n = subs.length;
-  setCls(el._toggle, "hid", !n);
-  const open = !!el._subsOpen && n > 0;
-  if (n) {
-    // ◂ when closed (at the row's right edge a ▸ reads as "navigate", not "expand")
-    setText(el._toggle, `${n} sub-agent${n === 1 ? "" : "s"} ${open ? "▾" : "◂"}`);
-    setAttr(el._toggle, "aria-expanded", String(open));
-  }
-  setCls(el, "subs-open", open);
-  applySubagents(el._subs, open ? subs : []);
 }
 
 function applyRow(el, s, act) {
   setCls(el, "waiting", actOf(s) === "waiting");
   setCls(el, "sel", s.pane_id === act);
-  const open = listOpen === s.pane_id;
-  setText(el._caret, open ? "▾" : "▸");
-  setAttr(el._caret, "aria-expanded", String(open));
-  setAttr(el._caret, "aria-label", (open ? "Collapse" : "Expand") + " pane details");
+  const open = rowOpen.has(s.pane_id);
+  setCls(el._hdr.caret, "open", open);
+  setAttr(el._hdr.caret, "aria-expanded", String(open));
+  setAttr(el._hdr.caret, "aria-label", (open ? "Collapse" : "Expand") + " pane details");
   setCls(el, "expanded", open);
-  if (open) {
-    // Adopt the singleton card as this row's drawer. appendChild MOVES the node, so
-    // switching the accordion to another row is one relocation, never a rebuild — and
-    // collapsed=false explicitly: in list view the ROW is the collapsed form, so the
-    // drawer always shows the body regardless of card view's collapse toggle.
-    if (cardUI.root.parentNode !== el) el.appendChild(cardUI.root);
-    cardUI.root.classList.add("in-list");
-    applyCard(cardUI, s, false);
+  // The drawer: this row's own pane body, built on first expand and kept (the row is a
+  // persistent keyed node). Applied with show=false when closed, so a closed drawer is
+  // EMPTIED, never merely hidden — the stale-content discipline every subview follows.
+  if (open && !el._body) {
+    el._body = buildPaneBody();
+    el._body.root.classList.add("drawer");
+    el.appendChild(el._body.root);
+  }
+  if (el._body) {
+    setCls(el._body.root, "hid", !open);
+    applyPaneBody(el._body, s, open, false);
   }
   applyPaneHeader(el._hdr, s, false);
-  // Renderable entries only — the same filter the box uses, so the chip's count can never
-  // disagree with it.
-  applyRowSubs(el, realSubs(s.subagents));
+  const n = realSubs(s.subagents).length;
+  setCls(el._toggle, "hid", !n);
+  if (n) setText(el._toggle, `${n} sub-agent${n === 1 ? "" : "s"}`);
 }
 
 // Rows in server order — same as the dock. That order is tmux's own session/window/pane
@@ -1666,17 +1640,47 @@ function applyList(host, states, subset, act) {
   states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
   // Headers only when the deck actually spans sessions — a lone header over every row
   // would be noise for the single-session common case.
+  // Drop expansion state for panes that no longer exist (same discipline as foldOpen).
+  for (const id of rowOpen) if (!panesById[id]) rowOpen.delete(id);
   const items = [];
+  // Expand/collapse-all, keyed into the same list as a persistent control row (synthetic
+  // key — pane ids are "%N", headers are prefixed, no collisions). If anything visible is
+  // still collapsed the button expands everything; only when all are open does it flip.
+  const allOpen = subset.length > 0 && subset.every((s) => rowOpen.has(s.pane_id));
+  if (subset.length > 1) items.push({ ctl: true, allOpen });
   subset.forEach((s, i) => {
     if (ord.size > 1 && (!i || subset[i - 1].session !== s.session))
       items.push({ hdr: true, session: s.session, c: (ord.get(s.session) % 4) + 1 });
     items.push({ hdr: false, s });
   });
   keyedList(host, items,
-    (it) => (it.hdr ? "h:" + it.session : "r:" + it.s.pane_id),
-    (it) => (it.hdr ? document.createElement("div") : buildRow(it.s.pane_id)),
+    (it) => (it.ctl ? "__ctl" : it.hdr ? "h:" + it.session : "r:" + it.s.pane_id),
+    (it) => {
+      if (it.ctl) {
+        const div = document.createElement("div");
+        div.className = "list-ctl";
+        const b = document.createElement("button");
+        b.innerHTML = licon("expandall", 16);
+        b.onclick = () => {
+          const subset2 = Array.from(host.querySelectorAll(".prow[data-pane]"))
+            .map((r) => r.dataset.pane);
+          const everyOpen = subset2.every((id) => rowOpen.has(id));
+          if (everyOpen) subset2.forEach((id) => rowOpen.delete(id));
+          else subset2.forEach((id) => rowOpen.add(id));
+          render(Object.values(panesById));
+        };
+        div.appendChild(b);
+        div._btn = b;
+        return div;
+      }
+      return it.hdr ? document.createElement("div") : buildRow(it.s.pane_id);
+    },
     (node, it) => {
-      if (it.hdr) {
+      if (it.ctl) {
+        setAttr(node._btn, "title", it.allOpen ? "Collapse all" : "Expand all");
+        setAttr(node._btn, "aria-label", it.allOpen ? "Collapse all" : "Expand all");
+        setAttr(node._btn, "aria-expanded", String(it.allOpen));
+      } else if (it.hdr) {
         setAttr(node, "class", "sess-hdr c" + it.c);
         setText(node, it.session);
       } else {
@@ -1687,10 +1691,60 @@ function applyList(host, states, subset, act) {
 
 
 
-// Which pane's row is expanded in LIST view (accordion: at most one). The expansion IS
-// the singleton card below, reparented under the row — same node, same handlers, so the
-// question options, copyables and event feed need no second wiring. null = none open.
-let listOpen = null;
+// The pane BODY — summary, rewind, tables, question, tasks, sub-agents, links,
+// copyables, events — extracted from the card so a list row can own one too. Handlers
+// read ui.pane at call time (applyPaneBody keeps it current), same contract as the card.
+function buildPaneBody() {
+  const root = document.createElement("div");
+  root.className = "pbody";
+  const ui = { root, pane: null };
+  ui.sum = document.createElement("div");
+  ui.sum.className = "sess-sum";
+  ui.sum.onclick = (e) => {
+    e.stopPropagation();
+    // The summary is linkified, so it can hold anchors. A tap on one must NAVIGATE only:
+    // toggling as well would collapse the text out from under the user as the link opens.
+    if (e.target.closest("a")) return;
+    ui.sum.classList.toggle("open");
+  };
+  ui.rewind = buildRewind();
+  ui.tables = document.createElement("div");
+  ui.tables.className = "tables";
+  ui.q = buildQuestion(ui);
+  ui.tasks = buildTasks("Tasks", "tasks");
+  ui.subs = buildTasks("Sub-agents", "tasks subagents");
+  ui.links = document.createElement("div");
+  ui.links.className = "links";
+  ui.copy = document.createElement("div");
+  ui.copy.className = "copyables";
+  ui.events = buildEvents();
+  root.append(ui.sum, ui.rewind.root, ui.tables, ui.q.root, ui.tasks.root,
+    ui.subs.root, ui.links, ui.copy, ui.events.root);
+  return ui;
+}
+
+// `show` false empties every subview (stale-content discipline: keyedList with [] really
+// removes children, so the :empty CSS rules keep working). `rewindable` is card-only —
+// rewind controls stay off row drawers.
+function applyPaneBody(ui, s, show, rewindable) {
+  ui.pane = s.pane_id;
+  setHtml(ui.sum, show && s.session_summary ? linkifyText(s.session_summary) : "");
+  applyRewind(ui.rewind, show && rewindable ? s : null);
+  applyTables(ui.tables, show && Array.isArray(s.tables) ? s.tables : []);
+  applyQuestion(ui.q, show && s.question ? s : null, ui);
+  applyTasks(ui.tasks, show && Array.isArray(s.tasks) ? s.tasks : []);
+  applySubagents(ui.subs, show ? realSubs(s.subagents) : []);
+  applyLinks(ui.links, show && Array.isArray(s.links) ? s.links : []);
+  applyCopy(ui.copy, show && Array.isArray(s.copyables) ? s.copyables : []);
+  const log = (eventLog[s.pane_id] || {}).events || [];
+  applyEvents(ui.events, show ? log : [], s.pane_id, show ? s.summary : null);
+}
+
+// Panes whose list row is EXPANDED (drawer showing the pane body). A module Set keyed by
+// pane_id — same persistence idiom as foldOpen — so the state survives filter switches
+// and re-renders. No accordion limit: expand-all is a real feature now that each row
+// owns its own body.
+const rowOpen = new Set();
 
 // ONE persistent card, retargeted to whichever pane is active — NOT one card per pane.
 // `cardUI` holds its handles; `cardUI.pane` is the pane_id it currently shows.
@@ -1726,30 +1780,8 @@ function buildCard() {
   // BEFORE the question so they act as context above the options.
   ui.lm = document.createElement("div");
   ui.lm.className = "lm-convo";
-  ui.sum = document.createElement("div");
-  ui.sum.className = "sess-sum";
-  ui.sum.onclick = (e) => {
-    e.stopPropagation();
-    // The summary is linkified, so it can hold anchors. A tap on one must NAVIGATE only:
-    // toggling as well would collapse the text out from under the user as the link opens,
-    // and on an element that is simultaneously the content AND the expand affordance that
-    // reads as a glitch rather than two intended actions.
-    if (e.target.closest("a")) return;
-    ui.sum.classList.toggle("open");
-  };
-  ui.rewind = buildRewind();
-  ui.tables = document.createElement("div");
-  ui.tables.className = "tables";
-  ui.q = buildQuestion(ui);
-  ui.tasks = buildTasks("Tasks", "tasks");
-  ui.subs = buildTasks("Sub-agents", "tasks subagents");
-  ui.links = document.createElement("div");
-  ui.links.className = "links";
-  ui.copy = document.createElement("div");
-  ui.copy.className = "copyables";
-  ui.events = buildEvents();
-  el.append(ui.lm, ui.sum, ui.rewind.root, ui.tables, ui.q.root, ui.tasks.root,
-    ui.subs.root, ui.links, ui.copy, ui.events.root);
+  ui.body = buildPaneBody(); // the shared pane body — the same component a list row's drawer uses
+  el.append(ui.lm, ui.body.root);
   // The swipe listens on the card for the life of the page; it reads the pane it acts on
   // from cardUI.pane at gesture time.
   swipeNav(el, ui);
@@ -1774,22 +1806,12 @@ function applyCard(ui, s, collapsed = cardsCollapsed) {
   const body = !collapsed && !lmOwns;
   setCls(ui.lm, "hid", !lmOwns);
   if (lmOwns) lmPaintInto(ui.lm); else keyedList(ui.lm, [], (x) => x, () => null);
-  // The bootstrap "story so far" — orientation when picking a session up cold. Clamped
-  // to a few lines; tap toggles the full text.
-  // linkifyText, not textContent: a summary that mentions a PR or a URL should be tappable
-  // here exactly as it is in the terminal below. It escapes everything it does not turn
-  // into an anchor, so it is safe on this untrusted model text. setHtml's unchanged-guard
-  // is what keeps a poll from rebuilding the subtree under a selection.
-  setHtml(ui.sum, body && s.session_summary ? linkifyText(s.session_summary) : "");
-  applyRewind(ui.rewind, body ? s : null);
-  applyTables(ui.tables, body && Array.isArray(s.tables) ? s.tables : []);
-  applyQuestion(ui.q, body && s.question ? s : null, ui);
-  applyTasks(ui.tasks, body && Array.isArray(s.tasks) ? s.tasks : []);
-  applySubagents(ui.subs, body ? realSubs(s.subagents) : []);
-  applyLinks(ui.links, body && Array.isArray(s.links) ? s.links : []);
-  applyCopy(ui.copy, body && Array.isArray(s.copyables) ? s.copyables : []);
-  const log = (eventLog[s.pane_id] || {}).events || [];
-  applyEvents(ui.events, body ? log : [], s.pane_id, body ? s.summary : null);
+  if (ui.hdr.caret) {
+    setCls(ui.hdr.caret, "open", !collapsed);
+    setAttr(ui.hdr.caret, "aria-expanded", String(!collapsed));
+    setAttr(ui.hdr.caret, "aria-label", (collapsed ? "Expand" : "Collapse") + " card");
+  }
+  applyPaneBody(ui.body, s, body, true);
   // No per-card input — one persistent bar at the bottom of the page handles
   // text/keys/images for whichever card is active (see the #bar element).
 }
