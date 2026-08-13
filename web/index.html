@@ -128,7 +128,10 @@
   /* Scoped to LIST rows: the tab strip is a .prow too (class="prow dock"), and letting it
      wrap stacks the session trays into a broken multi-row strip. Only rows in .plist ever
      host the expansion drawer, which wraps to its own full-width line. */
-  .plist .prow { flex-wrap: wrap; }
+  /* gap 0 10px: the 10px COLUMN gap stays, but wrap made it a ROW gap too, opening a
+     10px void between the name line and the description line (user: "eww"). The subrow's
+     own small margin is the only vertical separation. */
+  .plist .prow { flex-wrap: wrap; gap: 0 10px; }
   /* The description line: [small expand chevron][description text]. The chevron lives IN
      the line — a full-height caret column pushed the whole row sideways and read as
      chrome. Same affordance on the card and on a list row (one expand UI everywhere). */
@@ -142,7 +145,7 @@
   @media (prefers-reduced-motion: reduce) { .ph-caret svg { transition: none; } }
   /* A row's description line sits OUTSIDE .row-open (no nested buttons — see buildRow),
      as the row's own full-width second line, indented to align under the name. */
-  .prow > .ph-subrow { flex: 1 1 100%; padding-left: 44px; margin-top: 2px; }
+  .prow > .ph-subrow { flex: 1 1 100%; padding-left: 44px; }
   /* The row's drawer: its own pane body, full row width, reading as part of the row. */
   .prow .pbody.drawer { flex: 1 1 100%; margin: 8px -12px -8px; padding: 2px 12px 10px;
     max-height: 60dvh; overflow-y: auto; border-top: 1px solid var(--border); }
