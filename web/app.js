@@ -1586,9 +1586,11 @@ function buildRow(paneId) {
   // The caret's subrow is RELOCATED to the row element below, so the chevron (a real
   // <button>) is never nested inside .row-open — same ARIA discipline as .ph-right.
   const hdr = buildPaneHeader(openBtn, { icon: true, link: false, caret: true }, toggleOpen);
-  el.appendChild(hdr.subrow);
   // .ph-right belongs to the ROW, beside .row-open — not inside it (see the ARIA note).
+  // The relocated subrow comes AFTER it: it is a full-width flex line, and placed between
+  // .row-open and .ph-right it forced the badges onto a third line below the description.
   el.appendChild(hdr.right);
+  el.appendChild(hdr.subrow);
   // A pane with sub-agents gets a labeled chip under the activity badge. It is a SHORTCUT
   // to the row's one expansion — the drawer, whose body includes the sub-agents box. It
   // used to toggle a second, row-owned copy of that box, and an expanded row then showed
