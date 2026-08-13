@@ -407,14 +407,28 @@ def capture_pane(
     return _ANSI.sub("", out).rstrip("\n")
 
 
+# tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
+# single send-keys with a big literal — a pasted meeting transcript — fails outright
+# (user hit it: 30KB paste, CalledProcessError, 500 to the phone). Send literals in
+# chunks comfortably under the cap; tmux delivers back-to-back send-keys in order, so
+# the pane's app sees one continuous paste. Chunks are CHARACTERS: python slices can't
+# split a code point, and _run passes argv (no shell), so bytes-level care isn't needed.
+_SEND_CHUNK_CHARS = 4000
+
+
 def send_keys(
     pane_id: str, keys: str, enter: bool = True, literal: bool = True
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
-    isn't interpreted as tmux key names — for typed answers. When not literal, `keys`
-    is a tmux key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends
-    a Return (only meaningful for literal text)."""
-    _run(["send-keys", "-t", pane_id, *(["-l"] if literal else []), keys])
+    isn't interpreted as tmux key names — for typed answers, chunked under tmux's
+    message-size cap (see _SEND_CHUNK_CHARS). When not literal, `keys` is a tmux
+    key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
+    Return (only meaningful for literal text)."""
+    if literal:
+        for i in range(0, max(len(keys), 1), _SEND_CHUNK_CHARS):
+            _run(["send-keys", "-t", pane_id, "-l", keys[i:i + _SEND_CHUNK_CHARS]])
+    else:
+        _run(["send-keys", "-t", pane_id, keys])
     if enter and literal:
         _run(["send-keys", "-t", pane_id, "Enter"])
 
