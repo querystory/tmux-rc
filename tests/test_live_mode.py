@@ -313,10 +313,13 @@ def test_connect_snapshot_screen_budget():
     # Every pane keeps its digest block, budget or not.
     for i in range(30):
         assert f"headline-{i}" in ctx
-    # Total screen payload is bounded: budget plus at most one tail of overshoot.
+    # Total screen payload is bounded: budget, plus at most one tail of overshoot,
+    # plus a marker token per tail — tail_marked() may prefix ⟪dim⟫/⟪placeholder⟫ to
+    # reopen a marked run, so a tail can exceed SCREEN_TAIL_CHARS by a token's width.
     screens = ctx.count("screen:\n")
     assert screens < 30, "budget did not drop any screens"
-    assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400
+    MARKER_SLACK = 32 * 30  # generous per-pane allowance for reopen tokens
+    assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400 + MARKER_SLACK
     # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
     # order; the longest-idle pane is the first to lose its own.
     active_block = ctx.split("## window 29")[1]

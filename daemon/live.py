@@ -283,8 +283,11 @@ def _pane_context(watcher, screens: str) -> str:
         # Allocate SCREEN_BUDGET_CHARS priority-first — the active pane, then panes at
         # work, then the least-idle — but RENDER in digest order, which is tmux's own
         # session/window order: the model's pane map must not reshuffle by activity.
-        # The last pane granted may overshoot the budget by at most one tail; that
-        # slack is bounded (SCREEN_TAIL_CHARS) and simpler than truncating mid-screen.
+        # The last pane granted may overshoot the budget by at most one tail. A tail
+        # itself can run a few chars past SCREEN_TAIL_CHARS — tail_marked() prefixes a
+        # marker token (⟪dim⟫/⟪placeholder⟫) when the kept text starts inside a marked
+        # run — so the slack is "one tail plus a marker", still bounded and still
+        # simpler than truncating mid-screen.
         def prio(d):
             return (not d.get("tmux_active"),
                     d.get("activity") == "idle",
