@@ -1609,7 +1609,7 @@ function buildRow(paneId) {
   const goCard = () => { listFilter = null; setActive(paneId); };
   // Ignore clicks originating inside the drawer: its handlers (option buttons, links,
   // copy chips) act in place — bubbling into the row must not yank the user to card view.
-  el.onclick = (e) => { if (e.target.closest(".pbody")) return; goCard(); };
+  el.onclick = (e) => { if (elOf(e)?.closest(".pbody")) return; goCard(); };
   const toggleOpen = (e) => {
     e.stopPropagation(); // expanding must not also navigate to card view
     if (rowOpen.has(paneId)) rowOpen.delete(paneId); else rowOpen.add(paneId);
@@ -1715,6 +1715,10 @@ function applyList(host, states, subset, act) {
 // The pane BODY — summary, rewind, tables, question, tasks, sub-agents, links,
 // copyables, events — extracted from the card so a list row can own one too. Handlers
 // read ui.pane at call time (applyPaneBody keeps it current), same contract as the card.
+// A click's target can be a TEXT NODE (Safari does this on text-heavy elements), and
+// Node has no .closest — normalize to the owning Element before asking.
+const elOf = (e) => (e.target instanceof Element ? e.target : e.target?.parentElement);
+
 function buildPaneBody() {
   const root = document.createElement("div");
   root.className = "pbody";
@@ -1725,7 +1729,7 @@ function buildPaneBody() {
     e.stopPropagation();
     // The summary is linkified, so it can hold anchors. A tap on one must NAVIGATE only:
     // toggling as well would collapse the text out from under the user as the link opens.
-    if (e.target.closest("a")) return;
+    if (elOf(e)?.closest("a")) return;
     ui.sum.classList.toggle("open");
   };
   ui.rewind = buildRewind();
