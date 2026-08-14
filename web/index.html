@@ -156,6 +156,31 @@
      active pane's full card — whole-fleet status at a glance, tap to switch. */
   .prow { display: flex; align-items: center; gap: 10px; background: var(--surface);
     border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+  /* Scoped to LIST rows: the tab strip is a .prow too (class="prow dock"), and letting it
+     wrap stacks the session trays into a broken multi-row strip. Only rows in .plist ever
+     host the expansion drawer, which wraps to its own full-width line. */
+  /* gap 0 10px: the 10px COLUMN gap stays, but wrap made it a ROW gap too, opening a
+     10px void between the name line and the description line (user: "eww"). The subrow's
+     own small margin is the only vertical separation. */
+  .plist .prow { flex-wrap: wrap; gap: 0 10px; }
+  /* The description line: [small expand chevron][description text]. The chevron lives IN
+     the line — a full-height caret column pushed the whole row sideways and read as
+     chrome. Same affordance on the card and on a list row (one expand UI everywhere). */
+  .ph-subrow { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+  .ph-caret { flex: none; background: transparent; border: 0; padding: 0; margin-top: 1px;
+    color: var(--fg-dim); cursor: pointer; line-height: 0; position: relative; }
+  /* HIT AREA only — the halo grows the target to finger size without moving the line. */
+  .ph-caret::before { content: ""; position: absolute; inset: -12px -8px; }
+  .ph-caret svg { transition: transform .15s; }
+  .ph-caret.open svg { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) { .ph-caret svg { transition: none; } }
+  /* A row's description line sits OUTSIDE .row-open (no nested buttons — see buildRow),
+     as the row's own full-width second line, indented to align under the name. */
+  .prow > .ph-subrow { flex: 1 1 100%; padding-left: 44px; }
+  /* The row's drawer: its own pane body, full row width, reading as part of the row. */
+  .prow .pbody.drawer { flex: 1 1 100%; margin: 8px -12px -8px; padding: 2px 12px 10px;
+    max-height: 60dvh; overflow-y: auto; border-top: 1px solid var(--border); }
+
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a
@@ -299,9 +324,9 @@
      mode a tap switches TO (app.js keeps glyph + aria-pressed in sync). Padding grows
      the TAP TARGET to finger size; the negative margin cancels it visually so the
      header layout doesn't shift. */
-  #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
+  #expand-btn, #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
     font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
-  #theme-btn:hover { color: var(--accent); }
+  #expand-btn:hover, #theme-btn:hover { color: var(--accent); }
   /* overflow-x hidden: swipe gestures park the neighbour card off-screen with transforms,
      and the ghost card sits a full viewport away — without clipping, that overhang becomes
      scrollable width and the WHOLE PAGE slides sideways mid-swipe (dock, card, terminal,
@@ -720,8 +745,9 @@
   .tables, .task-list, .rw-list { display: contents; }
   /* .plist is a REAL box, not a pass-through: it is the list-mode scroll container that
      holds the session headers and pane rows as siblings (so .sess-hdr:first-child still
-     matches). */
-  .plist { display: block; }
+     matches). Flex column purely for the gap — rows sat flush against each other and the
+     borders fused into one undifferentiated slab (user-reported). */
+  .plist { display: flex; flex-direction: column; gap: 6px; }
   /* Structured tables: scroll horizontally AND vertically, capped so a big one doesn't
      dominate the card. */
   .tablewrap { margin-top: 12px; }
@@ -868,7 +894,7 @@
     border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
     cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
   /* Inline-SVG icon buttons (licon): block display centers the glyph in its button. */
-  .inputwrap .attach svg, #theme-btn svg, .screen-sun svg { display: block; margin: auto; }
+  .inputwrap .attach svg, #expand-btn svg, #theme-btn svg, .screen-sun svg { display: block; margin: auto; }
   /* "beta" tag: Live Mode is experimental/opt-in — a quiet superscript, not a shout. */
   .lm-exp { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--purple);
     margin-left: 3px; vertical-align: super; letter-spacing: .04em; }
@@ -974,6 +1000,7 @@
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)"></button>
+        <button id="expand-btn" title="Expand card" aria-label="Expand card"></button>
         <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false"></button>
         <!-- docs link lives INSIDE the status-dot popover (see showUsage) — the top
              bar is too tight on phones to spend on a rarely-tapped link. -->
