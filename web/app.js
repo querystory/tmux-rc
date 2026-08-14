@@ -3618,8 +3618,6 @@ async function lmStart() {
   lmStarting = true;
   lm.btn.classList.add("on");
   lmLog = [];
-  lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe
-  lmPlayAt = 0;
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
   // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit
   // rejects getUserMedia with NotAllowedError once the activation has expired, which
@@ -3628,6 +3626,8 @@ async function lmStart() {
   // The capture AudioContext is created in the same breath for the same reason:
   // created later, iOS starts it suspended and the worklet never runs.
   try {
+    lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe. INSIDE the
+    lmPlayAt = 0;                // guard: thrown here, lmStarting must not stick true.
     if (!navigator.mediaDevices?.getUserMedia) {
       const e = new Error("this browser does not expose microphone capture");
       e.name = "NotSupportedError";
@@ -3655,7 +3655,18 @@ async function lmStart() {
   // Same page-load session id as the live-view stream, so voice cost and screen
   // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
   const q = SESSION_ID ? `?session=${encodeURIComponent(SESSION_ID)}` : "";
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${q}`);
+  let ws;
+  try {
+    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${q}`);
+  } catch (e) {
+    // A sync constructor throw (bad URL, environment restriction) lands AFTER the mic
+    // was acquired — without this, the stream and both contexts leak and the pill
+    // sticks "on" with no session behind it.
+    reportError("ws", e);
+    lmStop();
+    alert(`Live Mode connection error:\n${e.name || "Error"}: ${e.message}`);
+    return;
+  }
   lmWs = ws;
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
