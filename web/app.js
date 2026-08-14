@@ -992,6 +992,13 @@ function showUsage(u, err) {
 // markup template, the fullscreen overlay's static chrome.
 
 
+// The list-mode subset for the current filter — ONE definition, because the ribbon's
+// expand-all control and the list itself must agree on which panes "all" means.
+function listSubset(states) {
+  return listFilter && states.filter((s) =>
+    listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
+}
+
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
@@ -1063,8 +1070,7 @@ function render(states) {
   // "recent" is not an activity — it deliberately spans them (see isRecent: anything not
   // idle counts however old, plus idle panes younger than PARKED_IDLE_SECS). So it gets its
   // own arm rather than being compared against actOf().
-  const subset = listFilter && states.filter((s) =>
-    listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
+  const subset = listSubset(states);
   if (subset && subset.length) {
     stopPeek(); // list mode: no card, no peek stream
     setCls(ui.deck, "hid", true);
@@ -1521,15 +1527,40 @@ function dock(states, act) {
   const nRecent = states.filter(isRecent).length;
   if (nRecent && nRecent < states.length) tallies.push({ key: "recent", label: `${nRecent} recent` });
   tallies.push({ key: "all", label: "all" });
+  // Expand/collapse-all rides WITH the filter pills — the controls that produce the
+  // list — instead of floating on its own row above it (user: "eww"). List mode only:
+  // in card view there is nothing to expand and a dangling icon would only confuse.
+  const lp = listSubset(states) || [];
+  if (lp.length > 1)
+    tallies.push({ key: "__expand", allOpen: lp.every((p) => rowOpen.has(p.pane_id)) });
   // #filters:empty { display: none } — keyedList removes emptied children outright, so
   // that rule keeps working. Badges are keyed by activity, so the "3 running" badge is
   // ONE node whose text changes as the count moves, not a new node per poll.
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
+    if (t.key === "__expand") {
+      b.className = "badge b-expand";
+      b.innerHTML = licon("expandall", 14); // svg child — never setText this button
+      b.onclick = () => {
+        const lp = listSubset(Object.values(panesById)) || [];
+        if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
+        else lp.forEach((p) => rowOpen.add(p.pane_id));
+        render(Object.values(panesById));
+      };
+      return b;
+    }
     b.className = "badge b-" + t.key;
     b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
     return b;
-  }, (b, t) => setText(b, t.label));
+  }, (b, t) => {
+    if (t.key === "__expand") {
+      setAttr(b, "title", t.allOpen ? "Collapse all" : "Expand all");
+      setAttr(b, "aria-label", t.allOpen ? "Collapse all" : "Expand all");
+      setAttr(b, "aria-expanded", String(t.allOpen));
+      return; // setText would replace the svg with nothing (see applyPaneHeader's scar)
+    }
+    setText(b, t.label);
+  });
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center
@@ -1646,44 +1677,16 @@ function applyList(host, states, subset, act) {
   // Drop expansion state for panes that no longer exist (same discipline as foldOpen).
   for (const id of rowOpen) if (!panesById[id]) rowOpen.delete(id);
   const items = [];
-  // Expand/collapse-all, keyed into the same list as a persistent control row (synthetic
-  // key — pane ids are "%N", headers are prefixed, no collisions). If anything visible is
-  // still collapsed the button expands everything; only when all are open does it flip.
-  const allOpen = subset.length > 0 && subset.every((s) => rowOpen.has(s.pane_id));
-  if (subset.length > 1) items.push({ ctl: true, allOpen });
   subset.forEach((s, i) => {
     if (ord.size > 1 && (!i || subset[i - 1].session !== s.session))
       items.push({ hdr: true, session: s.session, c: (ord.get(s.session) % 4) + 1 });
     items.push({ hdr: false, s });
   });
   keyedList(host, items,
-    (it) => (it.ctl ? "__ctl" : it.hdr ? "h:" + it.session : "r:" + it.s.pane_id),
-    (it) => {
-      if (it.ctl) {
-        const div = document.createElement("div");
-        div.className = "list-ctl";
-        const b = document.createElement("button");
-        b.innerHTML = licon("expandall", 16);
-        b.onclick = () => {
-          const subset2 = Array.from(host.querySelectorAll(".prow[data-pane]"))
-            .map((r) => r.dataset.pane);
-          const everyOpen = subset2.every((id) => rowOpen.has(id));
-          if (everyOpen) subset2.forEach((id) => rowOpen.delete(id));
-          else subset2.forEach((id) => rowOpen.add(id));
-          render(Object.values(panesById));
-        };
-        div.appendChild(b);
-        div._btn = b;
-        return div;
-      }
-      return it.hdr ? document.createElement("div") : buildRow(it.s.pane_id);
-    },
+    (it) => (it.hdr ? "h:" + it.session : "r:" + it.s.pane_id),
+    (it) => (it.hdr ? document.createElement("div") : buildRow(it.s.pane_id)),
     (node, it) => {
-      if (it.ctl) {
-        setAttr(node._btn, "title", it.allOpen ? "Collapse all" : "Expand all");
-        setAttr(node._btn, "aria-label", it.allOpen ? "Collapse all" : "Expand all");
-        setAttr(node._btn, "aria-expanded", String(it.allOpen));
-      } else if (it.hdr) {
+      if (it.hdr) {
         setAttr(node, "class", "sess-hdr c" + it.c);
         setText(node, it.session);
       } else {
