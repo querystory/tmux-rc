@@ -149,12 +149,7 @@
   /* The row's drawer: its own pane body, full row width, reading as part of the row. */
   .prow .pbody.drawer { flex: 1 1 100%; margin: 8px -12px -8px; padding: 2px 12px 10px;
     max-height: 60dvh; overflow-y: auto; border-top: 1px solid var(--border); }
-  /* Expand/collapse: a BARE icon among the filter pills — pill chrome made it taller
-     than its neighbors and it read as a broken badge. Flex-centered to the pill row's
-     height; the padding is tap target only. */
-  .b-expand { display: flex; align-items: center; background: transparent; border: 0;
-    padding: 2px 4px; color: var(--fg-dim); cursor: pointer; line-height: 0; }
-  .b-expand:hover { color: var(--accent); }
+
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a
@@ -298,9 +293,9 @@
      mode a tap switches TO (app.js keeps glyph + aria-pressed in sync). Padding grows
      the TAP TARGET to finger size; the negative margin cancels it visually so the
      header layout doesn't shift. */
-  #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
+  #expand-btn, #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
     font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
-  #theme-btn:hover { color: var(--accent); }
+  #expand-btn:hover, #theme-btn:hover { color: var(--accent); }
   /* overflow-x hidden: swipe gestures park the neighbour card off-screen with transforms,
      and the ghost card sits a full viewport away — without clipping, that overhang becomes
      scrollable width and the WHOLE PAGE slides sideways mid-swipe (dock, card, terminal,
@@ -820,7 +815,7 @@
     border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
     cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
   /* Inline-SVG icon buttons (licon): block display centers the glyph in its button. */
-  .inputwrap .attach svg, #theme-btn svg, .screen-sun svg { display: block; margin: auto; }
+  .inputwrap .attach svg, #expand-btn svg, #theme-btn svg, .screen-sun svg { display: block; margin: auto; }
   /* "beta" tag: Live Mode is experimental/opt-in — a quiet superscript, not a shout. */
   .lm-exp { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--purple);
     margin-left: 3px; vertical-align: super; letter-spacing: .04em; }
@@ -926,6 +921,7 @@
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)"></button>
+        <button id="expand-btn" title="Expand card" aria-label="Expand card"></button>
         <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false"></button>
         <!-- docs link lives INSIDE the status-dot popover (see showUsage) — the top
              bar is too tight on phones to spend on a rarely-tapped link. -->

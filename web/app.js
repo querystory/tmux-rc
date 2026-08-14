@@ -994,6 +994,37 @@ function showUsage(u, err) {
 
 // The list-mode subset for the current filter — ONE definition, because the ribbon's
 // expand-all control and the list itself must agree on which panes "all" means.
+// The global expand/collapse, living with the OTHER global controls (theme toggle):
+// list mode expands/collapses every listed row; card view collapses/expands the card.
+// One glyph, one meaning — more or less detail for what you're looking at.
+const expandBtn = document.getElementById("expand-btn");
+if (expandBtn) {
+  expandBtn.innerHTML = licon("expandall", 14); // svg child — never setText this button
+  expandBtn.onclick = () => {
+    if (listFilter) {
+      const lp = listSubset(Object.values(panesById)) || [];
+      if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
+      else lp.forEach((p) => rowOpen.add(p.pane_id));
+    } else {
+      cardsCollapsed = !cardsCollapsed;
+    }
+    render(Object.values(panesById));
+  };
+}
+
+// Called from BOTH render branches (the list branch returns early): keeps the global
+// button's tooltip/state truthful for whichever surface is showing.
+function applyExpandBtn(states) {
+  if (!expandBtn) return;
+  const open = listFilter
+    ? (listSubset(states) || []).every((p) => rowOpen.has(p.pane_id))
+    : !cardsCollapsed;
+  const what = listFilter ? "all" : "card";
+  setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + what);
+  setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + what);
+  setAttr(expandBtn, "aria-expanded", String(open));
+}
+
 function listSubset(states) {
   return listFilter && states.filter((s) =>
     listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
@@ -1081,6 +1112,7 @@ function render(states) {
     // rows into one list so a session boundary appearing/disappearing inserts or removes
     // exactly that header, instead of re-keying the rows after it.
     applyList(ui.list, states, subset, act);
+    applyExpandBtn(states);
     updateBar(panesById[act]);
     return;
   }
@@ -1107,6 +1139,7 @@ function render(states) {
     ui.fs._label = a.title || a.label;
     joinTab(ui.deck);
   }
+  applyExpandBtn(states);
   updateBar(panesById[act]);
 }
 
@@ -1527,47 +1560,15 @@ function dock(states, act) {
   const nRecent = states.filter(isRecent).length;
   if (nRecent && nRecent < states.length) tallies.push({ key: "recent", label: `${nRecent} recent` });
   tallies.push({ key: "all", label: "all" });
-  // Expand/collapse rides WITH the filter pills — and it ALWAYS functions (user ask):
-  // in list mode it expands/collapses every listed row; in card view the same icon
-  // collapses/expands the current card (cardsCollapsed). One glyph, one meaning —
-  // "more/less detail for what you're looking at" — whatever the view.
-  const lp = listSubset(states) || [];
-  if (states.length)
-    tallies.push({ key: "__expand",
-      open: listFilter ? lp.every((p) => rowOpen.has(p.pane_id)) : !cardsCollapsed });
   // #filters:empty { display: none } — keyedList removes emptied children outright, so
   // that rule keeps working. Badges are keyed by activity, so the "3 running" badge is
   // ONE node whose text changes as the count moves, not a new node per poll.
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
-    if (t.key === "__expand") {
-      b.className = "b-expand"; // bare icon, not a pill — it read as a too-tall badge
-      b.innerHTML = licon("expandall", 14); // svg child — never setText this button
-      b.onclick = () => {
-        if (listFilter) {
-          const lp = listSubset(Object.values(panesById)) || [];
-          if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
-          else lp.forEach((p) => rowOpen.add(p.pane_id));
-        } else {
-          cardsCollapsed = !cardsCollapsed;
-        }
-        render(Object.values(panesById));
-      };
-      return b;
-    }
     b.className = "badge b-" + t.key;
     b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
     return b;
-  }, (b, t) => {
-    if (t.key === "__expand") {
-      const what = listFilter ? "all" : "card";
-      setAttr(b, "title", (t.open ? "Collapse " : "Expand ") + what);
-      setAttr(b, "aria-label", (t.open ? "Collapse " : "Expand ") + what);
-      setAttr(b, "aria-expanded", String(t.open));
-      return; // setText would replace the svg with nothing (see applyPaneHeader's scar)
-    }
-    setText(b, t.label);
-  });
+  }, (b, t) => setText(b, t.label));
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center
