@@ -3563,6 +3563,11 @@ async function lmCapture(ws) {
   // Belt-and-braces: iOS suspends a context the moment it thinks no gesture backs it;
   // a suspended context runs the worklet never and captures nothing, silently.
   if (lmCtx.state === "suspended") await lmCtx.resume();
+  // The user can tap STOP while we're awaiting (resume above, addModule below):
+  // lmStop() nulls lmCtx/lmStream mid-flight, and touching them then would throw a
+  // TypeError and alert over an intentional stop. Same abort key as onopen: this ws
+  // is no longer the live one (or the resources are gone) ⇒ silent no-op.
+  if (lmWs !== ws || !lmCtx || !lmStream) return;
   const src = lmCtx.createMediaStreamSource(lmStream);
   const rate = lmCtx.sampleRate;
   let pend = new Float32Array(0);
@@ -3597,6 +3602,7 @@ async function lmCapture(ws) {
   ], { type: "application/javascript" }));
   await lmCtx.audioWorklet.addModule(mod);
   URL.revokeObjectURL(mod);
+  if (lmWs !== ws || !lmCtx) return; // stopped during the await — see above
   const tap = new AudioWorkletNode(lmCtx, "lm-tap");
   tap.port.onmessage = (e) => push(e.data);
   const mute = lmCtx.createGain(); // keep the graph alive without echoing the mic
