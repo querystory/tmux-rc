@@ -513,16 +513,22 @@
   .row { display: flex; align-items: center; gap: 10px; }
   /* Collapse caret: shrinks the card to just this header row, giving the live terminal
      the screen. Muted, rotates with state; the whole header stays tappable to select. */
-  /* A real control, not a speck: 16px glyph, mid-tier color, and an invisible ::before
+  /* A real control, not a speck: 22px glyph, mid-tier color, and an invisible ::before
      halo growing the tap target to finger size without shifting the header layout. */
   .card-caret { flex: none; background: transparent; border: 0; color: var(--fg-dim);
-    font-size: 16px; line-height: 1; padding: 2px 6px; cursor: pointer; align-self: flex-start;
+    font-size: 22px; line-height: 1; padding: 2px 6px; cursor: pointer; align-self: flex-start;
     position: relative; }
-  /* HIT AREA only — the glyph box stays 20x20 so the header layout does not move. -12 on
-     every side makes the tappable region 44x44, the mobile minimum. It was -10 (40x40),
-     which is marginal enough that a thumb misses it; the user confirmed zooming in makes
-     the caret work, which isolates size from every other theory. */
-  .card-caret::before { content: ""; position: absolute; inset: -12px; }
+  /* HIT AREA only — the ::before overflows the button rather than resizing it, so the header
+     layout does not move. The button has no fixed width or height — it sizes to the glyph
+     and its padding — so the -12px halo is what carries the tappable region past 44x44,
+     the mobile minimum, whatever the glyph box measures. Measured, not derived: a tap 8px
+     outside the glyph box lands on the caret. The user confirmed zooming in made the caret
+     work, which is what isolated size from every other theory. */
+  /* Right side stops at -9px, not -12: the header row's flex gap is 10px, and a full
+     -12 halo crossed 2px into the neighboring control — a tap on the seam toggled the
+     caret instead of the pane title. Left/top/bottom keep the full reach; the halo still
+     clears 44px in both axes. */
+  .card-caret::before { content: ""; position: absolute; inset: -12px -9px -12px -12px; }
   .card-caret:hover { color: var(--fg); }
   /* Collapsed: one-line header only (the return in card() drops the body), and the
      status headline clamps to a single line so it reads like the list-row form. */
