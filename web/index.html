@@ -343,18 +343,26 @@
     display: flex; flex-direction: column; gap: 10px; overflow-x: hidden;
     position: relative; z-index: 5; }
   #panes.cardmode { padding-bottom: 0; }
-  /* The deck fills the viewport below the dock, running UNDER the fixed input bar.
-     The pane's capture is its background (bottom-anchored, so the agent's status/input
-     chrome lines hide behind the bar); the card floats over the top, content-sized,
-     with the live terminal tail poking out BELOW it — pan/zoomable in place. The
-     negative margin pulls the deck's bottom back up under the fixed bar, so the deck's
-     full-viewport height does not extend the page. It no longer "cancels #panes' bar
-     padding": that padding is now switched OFF in card mode (see #panes.cardmode
-     above), because having both was double-counting the bar height and scrolling the
-     whole document behind the card. The two mechanisms are independent — this margin
-     positions the deck, that rule keeps list-mode rows clear of the bar. */
-  .deck { position: relative; height: calc(100dvh - var(--top-h, 122px)); /* top pad cancelled by the join margin below */
-    margin-bottom: calc(-1 * (var(--bar-h, 150px) + 8px));
+  /* The deck fills the space below the dock and STOPS at the bar's top edge. The pane's
+     capture is its background (bottom-anchored; the agent's status/input chrome lines are
+     clipped away inside the deck — see tuckChrome); the card floats over the top,
+     content-sized, with the live terminal tail poking out BELOW it — pan/zoomable in
+     place. #panes' own bar padding is switched OFF in card mode (see #panes.cardmode
+     above): the deck already accounts for the bar in its height, so adding the padding
+     back would double-count it and scroll the whole document behind the card. */
+  .deck { position: relative;
+    /* Sized to the space that ACTUALLY remains below the chrome and above the bar, so the
+       deck does not overflow #panes at all. It used to be 100dvh - --top-h with a negative
+       bottom margin pulling it back under the fixed bar; Chrome does not let a negative
+       bottom margin shrink scrollHeight, so that margin leaked out as ~113px of #panes
+       scroll range stacked on top of the card's own — a second vertical scroller competing
+       for the same drag. Fitting the deck achieves what the margin was for (the deck does
+       not extend the page) while leaving the card as the ONE vertical scroller, and the
+       peek gains the pixels the deck used to spend running under the bar. */
+    /* The safe-area inset is part of the 100dvh the chrome vars never see — the body
+       pads it above #top, so on a notched phone omitting it here pushes the deck's
+       bottom exactly that far back under the bar. Zero everywhere else. */
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - var(--top-h, 122px) - var(--bar-h, 150px));
     overflow: hidden; display: flex; flex-direction: column; }
   /* The card COVERS the terminal — it is a sheet lying on top of it, not a panel butted
      against it. Two things make that read:
@@ -374,7 +382,14 @@
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--card-radius);
     padding: 12px 14px; overflow-y: auto; position: relative; z-index: 2; flex: none;
-    max-height: calc(100% - var(--bar-h, 150px) - 80px); /* ≥~5 terminal lines stay visible */
+    /* The card is the deck's ONLY vertical scroller and the deck now fits inside #panes, so
+       nothing above it can scroll: `contain` states that contract instead of leaving it to
+       whether an ancestor happens to have range. (-x is untouched — the swipe and body's
+       overscroll-behavior-x own that axis.) */
+    overscroll-behavior-y: contain;
+    max-height: calc(100% - 80px); /* ≥~5 terminal lines stay visible. --bar-h is NOT
+       subtracted any more: the deck's height already excludes the bar, so counting it here
+       too shrank the card by a bar's worth for nothing. */
     margin-bottom: calc(-1 * var(--card-radius)); /* the corner arcs land ON the terminal */
     box-shadow: var(--card-lift);
   }
@@ -387,12 +402,18 @@
   /* The card is scrollable, so its shadow must not be clipped by its own overflow box —
      it isn't (box-shadow paints outside), but the DECK clips overflow, and the bottom
      shadow now falls inside the deck rather than past its edge, so it survives. */
-  /* The capture's window: right below the card down to the bar. Agent panes overlap
-     the bar a little (their tail is status/input chrome); shells stop above it so a
-     trailing prompt stays visible. Long captures are scrolled to their tail. */
+  /* The capture's window: right below the card down to the deck's bottom edge (which
+     sits at the bar's top). An agent pane's tail is status/input chrome, so tuckChrome
+     clips it away WITHIN the deck via this margin; shells keep a small gap so a trailing
+     prompt stays visible. Long captures are scrolled to their tail. */
+  /* These margins used to reserve the bar's height because the DECK ran underneath it; the
+     deck now stops at the bar's top edge, so re-subtracting --bar-h here would cut a whole
+     bar out of the visible peek. What remains is the agent-vs-shell distinction only:
+     tuckChrome overwrites the agent value per paint (hence the fallback here), shells keep
+     a small gap so a trailing prompt stays clear of the bar. */
   .bg-wrap { flex: 1; min-height: 0; overflow: hidden; touch-action: none;
-    margin-bottom: calc(var(--bar-h, 150px) - 60px); }
-  .bg-wrap.shell { margin-bottom: calc(var(--bar-h, 150px) + 6px); }
+    margin-bottom: 0; }
+  .bg-wrap.shell { margin-bottom: 6px; }
   /* Terminal-dark background on the SURFACE (not just per-span): subpixel line-box
      rounding leaves hairline gaps between colored rows, and on a fractional-DPR
      display those gaps showed the page black (the "black lines on one screen only").
@@ -411,7 +432,9 @@
   /* appearance/padding reset: mobile browsers pad native buttons and ignore the
      fixed box, squishing the glyph off-center. Flex centers it exactly.
      Literal dark values (not theme vars): it floats over the always-dark terminal. */
-  .fsbtn { position: absolute; right: 10px; bottom: calc(var(--bar-h, 150px) + 14px);
+  /* 14px from the DECK's bottom, which is now the bar's top edge — it used to add --bar-h
+     because the deck ran under the bar. */
+  .fsbtn { position: absolute; right: 10px; bottom: 14px;
     z-index: 2; width: 38px; height: 38px; appearance: none; -webkit-appearance: none;
     padding: 0; line-height: 1; display: flex; align-items: center; justify-content: center;
     background: #21262dcc; border: 1px solid #30363d; color: #adbac7; border-radius: 8px;

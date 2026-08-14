@@ -1869,8 +1869,8 @@ function swipeNav(el, ui) {
   });
 }
 
-// The deck's background terminal layer: the pane's latest capture, bottom-anchored so
-// its last lines tuck BEHIND the fixed input bar (agent status-line/input chrome, not
+// The deck's background terminal layer: the pane's latest capture, bottom-anchored with
+// its last lines clipped away inside the deck (agent status-line/input chrome, not
 // content — a parser field could size that per tool later). The card floats over the
 // top; the live tail pokes out below it, pan/zoomable in place.
 // Fetched only when the snapshot id changes; pinch/pan state persists per pane.
@@ -1892,10 +1892,11 @@ const zHome = (id) => {
   return !z || (Math.abs(z.scale - 1) < 0.01 && Math.abs(z.tx) < 2 && Math.abs(z.ty) < 2);
 };
 
-// Tuck the agent's OWN bottom chrome (input box + status rows) behind the bar, sized
-// per frame: the input box's top border (╭─/┌─) is the seam — everything from it down
-// is chrome, and its height varies with activity (spinner/interrupt/queue rows), so a
-// fixed overlap either leaks footer or hides content. Falls back to the old fixed
+// Tuck the agent's OWN bottom chrome (input box + status rows) out of view — a negative
+// bottom margin slides it past the deck's edge, where the deck's overflow clip eats it —
+// sized per frame: the input box's top border (╭─/┌─) is the seam — everything from it
+// down is chrome, and its height varies with activity (spinner/interrupt/queue rows), so
+// a fixed overlap either leaks footer or hides content. Falls back to the old fixed
 // 60px when no border is found. Line height is read from the live style so the
 // tuck math can't drift if .bg-term's font ever changes.
 function tuckChrome(wrap, box) {
@@ -1911,8 +1912,11 @@ function tuckChrome(wrap, box) {
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 12); i--)
     if (/^[╭┌]─/.test(lines[i])) { rows = lines.length - i; break; }
   const lineH = parseFloat(getComputedStyle(box).lineHeight) || 13.5;
-  wrap.style.marginBottom =
-    `calc(var(--bar-h, 150px) - ${rows ? Math.round(rows * lineH) + 6 : 60}px)`;
+  // NEGATIVE, and no longer containing --bar-h: that term was cancelling the deck's own
+  // overhang past the bar, not tucking anything. The deck now ends AT the bar, so keeping
+  // --bar-h here cut a whole bar's height out of the visible peek. What's left is the real
+  // job — pull the wrap's bottom up by exactly the chrome rows we want hidden.
+  wrap.style.marginBottom = `${-(rows ? Math.round(rows * lineH) + 6 : 60)}px`;
 }
 // One long-poll live stream (docs/design/live-view.md). Holds /live?frame=<hash> open;
 // the daemon answers the moment the pane's screen differs (checked server-side every
