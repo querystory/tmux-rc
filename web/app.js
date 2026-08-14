@@ -1665,7 +1665,14 @@ function applyRow(el, s, act) {
   applyPaneHeader(el._hdr, s, false);
   const n = realSubs(s.subagents).length;
   setCls(el._toggle, "hid", !n);
-  if (n) setText(el._toggle, `${n} sub-agent${n === 1 ? "" : "s"}`);
+  if (n) {
+    setText(el._toggle, `${n} sub-agent${n === 1 ? "" : "s"}`);
+    // The chip is an expand/collapse CONTROL (a shortcut to the drawer), so AT must
+    // hear its action and state, not just the count the sighted user reads.
+    setAttr(el._toggle, "aria-expanded", String(open));
+    setAttr(el._toggle, "aria-label",
+      `${open ? "Collapse" : "Expand"} pane details (${n} sub-agent${n === 1 ? "" : "s"})`);
+  }
 }
 
 // Rows in server order — same as the dock. That order is tmux's own session/window/pane
