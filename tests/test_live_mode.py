@@ -297,7 +297,9 @@ def test_connect_snapshot_screen_budget():
     screen text is bounded fleet-wide (the real 24-pane deck hit ~36k tokens and
     Gemini 1007-closed every session at first audio). Digests always survive."""
     w = _Watcher()
-    big = ("x" * 79 + "\n") * (L.SCREEN_TAIL_LINES - 1)  # ~4k chars, under the per-pane caps
+    # ~4.7k raw chars — deliberately OVER SCREEN_TAIL_CHARS, so _screen_tail's own cap
+    # is exercised too: each pane contributes exactly one capped tail to the budget.
+    big = ("x" * 79 + "\n") * (L.SCREEN_TAIL_LINES - 1)
     w.snapshots = {f"%{i}": [{"id": "s", "text": big, "ts": 1.0}] for i in range(30)}
 
     def digest():
