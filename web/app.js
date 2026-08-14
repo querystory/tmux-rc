@@ -3562,12 +3562,14 @@ async function lmCapture(ws) {
   // see there for why. This runs later (ws.onopen) and only builds the graph.
   // Belt-and-braces: iOS suspends a context the moment it thinks no gesture backs it;
   // a suspended context runs the worklet never and captures nothing, silently.
-  if (lmCtx.state === "suspended") await lmCtx.resume();
-  // The user can tap STOP while we're awaiting (resume above, addModule below):
-  // lmStop() nulls lmCtx/lmStream mid-flight, and touching them then would throw a
-  // TypeError and alert over an intentional stop. Same abort key as onopen: this ws
+  // The user can tap STOP at any point around the awaits here (between onopen's guard
+  // and this call, during resume, during addModule): lmStop() nulls lmCtx/lmStream,
+  // and touching them then would throw a TypeError and alert over an INTENTIONAL
+  // stop. Guard on entry and after every await, keyed the same way as onopen: this ws
   // is no longer the live one (or the resources are gone) ⇒ silent no-op.
   if (lmWs !== ws || !lmCtx || !lmStream) return;
+  if (lmCtx.state === "suspended") await lmCtx.resume();
+  if (lmWs !== ws || !lmCtx || !lmStream) return; // stopped during resume()
   const src = lmCtx.createMediaStreamSource(lmStream);
   const rate = lmCtx.sampleRate;
   let pend = new Float32Array(0);
