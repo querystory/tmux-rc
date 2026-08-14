@@ -149,9 +149,12 @@
   /* The row's drawer: its own pane body, full row width, reading as part of the row. */
   .prow .pbody.drawer { flex: 1 1 100%; margin: 8px -12px -8px; padding: 2px 12px 10px;
     max-height: 60dvh; overflow-y: auto; border-top: 1px solid var(--border); }
-  /* Expand/collapse-all: an icon pill among the filter pills (list mode only). */
-  .badge.b-expand { line-height: 0; padding: 4px 7px; color: var(--fg-dim); }
-  .badge.b-expand:hover { color: var(--accent); }
+  /* Expand/collapse: a BARE icon among the filter pills — pill chrome made it taller
+     than its neighbors and it read as a broken badge. Flex-centered to the pill row's
+     height; the padding is tap target only. */
+  .b-expand { display: flex; align-items: center; background: transparent; border: 0;
+    padding: 2px 4px; color: var(--fg-dim); cursor: pointer; line-height: 0; }
+  .b-expand:hover { color: var(--accent); }
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a

@@ -1527,24 +1527,30 @@ function dock(states, act) {
   const nRecent = states.filter(isRecent).length;
   if (nRecent && nRecent < states.length) tallies.push({ key: "recent", label: `${nRecent} recent` });
   tallies.push({ key: "all", label: "all" });
-  // Expand/collapse-all rides WITH the filter pills — the controls that produce the
-  // list — instead of floating on its own row above it (user: "eww"). List mode only:
-  // in card view there is nothing to expand and a dangling icon would only confuse.
+  // Expand/collapse rides WITH the filter pills — and it ALWAYS functions (user ask):
+  // in list mode it expands/collapses every listed row; in card view the same icon
+  // collapses/expands the current card (cardsCollapsed). One glyph, one meaning —
+  // "more/less detail for what you're looking at" — whatever the view.
   const lp = listSubset(states) || [];
-  if (lp.length > 1)
-    tallies.push({ key: "__expand", allOpen: lp.every((p) => rowOpen.has(p.pane_id)) });
+  if (states.length)
+    tallies.push({ key: "__expand",
+      open: listFilter ? lp.every((p) => rowOpen.has(p.pane_id)) : !cardsCollapsed });
   // #filters:empty { display: none } — keyedList removes emptied children outright, so
   // that rule keeps working. Badges are keyed by activity, so the "3 running" badge is
   // ONE node whose text changes as the count moves, not a new node per poll.
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
     if (t.key === "__expand") {
-      b.className = "badge b-expand";
+      b.className = "b-expand"; // bare icon, not a pill — it read as a too-tall badge
       b.innerHTML = licon("expandall", 14); // svg child — never setText this button
       b.onclick = () => {
-        const lp = listSubset(Object.values(panesById)) || [];
-        if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
-        else lp.forEach((p) => rowOpen.add(p.pane_id));
+        if (listFilter) {
+          const lp = listSubset(Object.values(panesById)) || [];
+          if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
+          else lp.forEach((p) => rowOpen.add(p.pane_id));
+        } else {
+          cardsCollapsed = !cardsCollapsed;
+        }
         render(Object.values(panesById));
       };
       return b;
@@ -1554,9 +1560,10 @@ function dock(states, act) {
     return b;
   }, (b, t) => {
     if (t.key === "__expand") {
-      setAttr(b, "title", t.allOpen ? "Collapse all" : "Expand all");
-      setAttr(b, "aria-label", t.allOpen ? "Collapse all" : "Expand all");
-      setAttr(b, "aria-expanded", String(t.allOpen));
+      const what = listFilter ? "all" : "card";
+      setAttr(b, "title", (t.open ? "Collapse " : "Expand ") + what);
+      setAttr(b, "aria-label", (t.open ? "Collapse " : "Expand ") + what);
+      setAttr(b, "aria-expanded", String(t.open));
       return; // setText would replace the svg with nothing (see applyPaneHeader's scar)
     }
     setText(b, t.label);
