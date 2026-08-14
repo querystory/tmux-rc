@@ -3602,8 +3602,11 @@ async function lmCapture(ws) {
     'registerProcessor("lm-tap", class extends AudioWorkletProcessor {',
     ' process(inputs) { const c = inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } });',
   ], { type: "application/javascript" }));
-  await lmCtx.audioWorklet.addModule(mod);
-  URL.revokeObjectURL(mod);
+  try {
+    await lmCtx.audioWorklet.addModule(mod);
+  } finally {
+    URL.revokeObjectURL(mod); // a rejected addModule must not leak the blob URL
+  }
   if (lmWs !== ws || !lmCtx) return; // stopped during the await — see above
   const tap = new AudioWorkletNode(lmCtx, "lm-tap");
   tap.port.onmessage = (e) => push(e.data);
