@@ -12,7 +12,7 @@ Every classify call re-sends the same ~6k-token parser prompt, and we earn **zer
 cache discount for it**. Probes replaying the byte-exact production system prompt with
 fresh pane content — the daemon's exact shape — hit Vertex's implicit cache **0 times
 in 14 attempts**, even while the live fleet was hammering that prefix. The sister
-project's caching experiments (qs-app `gemini-caching.md`) found the same thing:
+project's caching experiments (the qs-app repo's `docs/design/docs/architecture/llm-integration/gemini-caching.md`) found the same thing:
 Gemini's "prefix caching" does not, in practice, match a shared prefix followed by
 divergent content. It matches *request extension* — the new request must begin with the
 previous request, byte for byte.
