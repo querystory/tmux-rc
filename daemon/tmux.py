@@ -36,6 +36,7 @@ _PANE_FMT = "\t".join(
         "#{pane_pid}",
         "#{window_active}",
         "#{pane_active}",
+        "#{window_activity}",
     ]
 )
 
@@ -207,7 +208,7 @@ def list_panes() -> list[Pane]:
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) != 11:
+        if len(parts) != _PANE_FMT.count("\t") + 1:
             continue
         panes.append(Pane(*parts))
     return panes
