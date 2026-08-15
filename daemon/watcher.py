@@ -113,6 +113,16 @@ def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
     del log[:-EVENTS_LOG_MAX]
 
 
+def _activity_ts(pane) -> float | None:
+    """tmux's #{window_activity} as a float epoch, or None when absent/garbage.
+    getattr, not attribute access: test fixtures and any Pane-shaped stub without the
+    field must keep working (they just don't get restart seeding)."""
+    try:
+        return float(getattr(pane, "window_activity", "") or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
 
@@ -662,7 +672,9 @@ class Watcher:
         self._summary[pane_id] = span
         return span
 
-    def _state_since_for(self, pane_id: str, state: dict, now: float) -> float:
+    def _state_since_for(
+        self, pane_id: str, state: dict, now: float, activity_ts: float | None = None
+    ) -> float:
         """Timestamp the pane ENTERED its current state, for the client's live duration
         clock. Resets only when the activity value changes (idle→running, running→waiting,
         …) or the pending question's identity changes — a NEW question restarts the
@@ -672,8 +684,19 @@ class Watcher:
         unchanged re-parse leaves it put and the clock keeps climbing."""
         key = (state.get("activity"), self._question_prompt(state))
         if self._state_key.get(pane_id) != key:
+            # Restart amnesia (#129): these clocks live in daemon memory, so a restart
+            # used to stamp every long-parked pane "went idle just now" — the whole
+            # fleet flashed recent and the dock unfolded for PARKED_IDLE_SECS after
+            # every deploy. tmux never forgot: on the FIRST sighting of a pane that is
+            # already idle, seed from #{window_activity}. Only first sighting, only
+            # idle — a transition this process actually observed genuinely is "now".
+            first = pane_id not in self._state_key
             self._state_key[pane_id] = key
-            self._state_since[pane_id] = now
+            self._state_since[pane_id] = (
+                min(activity_ts, now)
+                if first and state.get("activity") == "idle" and activity_ts
+                else now
+            )
         return self._state_since[pane_id]
 
     def _tick_pane(self, pane) -> dict:
@@ -710,7 +733,7 @@ class Watcher:
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
-            cached["state_since"] = self._state_since_for(pane.id, cached, now)
+            cached["state_since"] = self._state_since_for(pane.id, cached, now, _activity_ts(pane))
             cached["updated_at"] = now
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
@@ -846,7 +869,7 @@ class Watcher:
         state["idle_seconds"] = idle
         # When this pane entered its current activity/question state — the client ticks
         # `now - state_since` live so idle/waiting durations stay honest between parses.
-        state["state_since"] = self._state_since_for(pane.id, state, now)
+        state["state_since"] = self._state_since_for(pane.id, state, now, _activity_ts(pane))
         state["updated_at"] = now
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced

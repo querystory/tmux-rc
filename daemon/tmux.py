@@ -36,6 +36,7 @@ _PANE_FMT = "\t".join(
         "#{pane_pid}",
         "#{window_active}",
         "#{pane_active}",
+        "#{window_activity}",
     ]
 )
 
@@ -62,6 +63,11 @@ class Pane:
     # these stay meaningful with several sessions attached at once.
     window_active: str = "0"
     pane_active: str = "0"
+    # Epoch (str) of the window's last activity, per tmux. WINDOW-level — a busy sibling
+    # pane refreshes it — but for seeding a just-started daemon's idle clocks that bias
+    # is the safe one: it can only make a pane look MORE recently active, never park
+    # something the user is working in.
+    window_activity: str = ""
 
     @property
     def display_title(self) -> str | None:
@@ -202,7 +208,7 @@ def list_panes() -> list[Pane]:
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) != 11:
+        if len(parts) != _PANE_FMT.count("\t") + 1:
             continue
         panes.append(Pane(*parts))
     return panes
