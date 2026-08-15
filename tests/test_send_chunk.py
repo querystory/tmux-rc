@@ -3,6 +3,9 @@
 A 30KB pasted transcript in ONE send-keys made tmux refuse the command
 (CalledProcessError -> 500 to the phone). Chunks must cover the text exactly,
 in order, each under the cap, with the Enter still last."""
+import threading
+import time
+
 import daemon.tmux as T
 
 
@@ -46,6 +49,25 @@ def test_empty_literal_still_sends(monkeypatch):
     monkeypatch.setattr(T, "_run", lambda argv: calls.append(argv))
     T.send_keys("%1", "", enter=True)
     assert calls[-1] == ["send-keys", "-t", "%1", "Enter"]
+
+
+def test_concurrent_sends_do_not_interleave(monkeypatch):
+    # one logical send is now several tmux commands (chunks + Enter); concurrent callers
+    # (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste
+    calls = []
+    monkeypatch.setattr(
+        T, "_run", lambda argv: (time.sleep(0.002), calls.append(argv)) and None
+    )
+    ts = [
+        threading.Thread(target=T.send_keys, args=("%1", ch * (T._SEND_CHUNK_BYTES * 3)))
+        for ch in "ab"
+    ]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert len(calls) == 8  # 2 sends x (3 chunks + Enter)
+    for block in (calls[:4], calls[4:]):  # each send's calls must be contiguous
+        assert len({c[-1][0] for c in block[:3]}) == 1  # all chunks from the same send
+        assert block[3] == ["send-keys", "-t", "%1", "Enter"]
 
 
 def test_key_names_never_chunk(monkeypatch):

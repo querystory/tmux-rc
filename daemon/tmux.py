@@ -415,6 +415,9 @@ def capture_pane(
 # chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
 # must never land inside a multi-byte code point.
 _SEND_CHUNK_BYTES = 4000
+# One logical send now spans several tmux commands (chunks + Enter); concurrent callers
+# (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste.
+_send_lock = threading.Lock()
 
 
 def send_keys(
@@ -425,20 +428,21 @@ def send_keys(
     message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
     key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
     Return (only meaningful for literal text)."""
-    if literal:
-        b, i = keys.encode(), 0
-        while True:
-            j = min(i + _SEND_CHUNK_BYTES, len(b))
-            while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
-                j -= 1
-            _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
-            i = j
-            if i >= len(b):
-                break
-    else:
-        _run(["send-keys", "-t", pane_id, keys])
-    if enter and literal:
-        _run(["send-keys", "-t", pane_id, "Enter"])
+    with _send_lock:
+        if literal:
+            b, i = keys.encode(), 0
+            while True:
+                j = min(i + _SEND_CHUNK_BYTES, len(b))
+                while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
+                    j -= 1
+                _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                i = j
+                if i >= len(b):
+                    break
+        else:
+            _run(["send-keys", "-t", pane_id, keys])
+        if enter and literal:
+            _run(["send-keys", "-t", pane_id, "Enter"])
 
 
 _clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping
