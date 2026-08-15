@@ -411,9 +411,10 @@ def capture_pane(
 # single send-keys with a big literal — a pasted meeting transcript — fails outright
 # (user hit it: 30KB paste, CalledProcessError, 500 to the phone). Send literals in
 # chunks comfortably under the cap; tmux delivers back-to-back send-keys in order, so
-# the pane's app sees one continuous paste. Chunks are CHARACTERS: python slices can't
-# split a code point, and _run passes argv (no shell), so bytes-level care isn't needed.
-_SEND_CHUNK_CHARS = 4000
+# the pane's app sees one continuous paste. The cap is in BYTES (framing included), so
+# chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
+# must never land inside a multi-byte code point.
+_SEND_CHUNK_BYTES = 4000
 
 
 def send_keys(
@@ -421,12 +422,19 @@ def send_keys(
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
-    message-size cap (see _SEND_CHUNK_CHARS). When not literal, `keys` is a tmux
+    message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
     key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
     Return (only meaningful for literal text)."""
     if literal:
-        for i in range(0, max(len(keys), 1), _SEND_CHUNK_CHARS):
-            _run(["send-keys", "-t", pane_id, "-l", keys[i:i + _SEND_CHUNK_CHARS]])
+        b, i = keys.encode(), 0
+        while True:
+            j = min(i + _SEND_CHUNK_BYTES, len(b))
+            while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
+                j -= 1
+            _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+            i = j
+            if i >= len(b):
+                break
     else:
         _run(["send-keys", "-t", pane_id, keys])
     if enter and literal:
