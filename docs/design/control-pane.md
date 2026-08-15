@@ -84,16 +84,21 @@ The control pane doesn't just relay; it operates the fleet. Its verbs:
   landed — the report-back duty from the live prompt, executed with
   `capture-pane` instead of pushed digests.
 - **Retire**: close a finished window / kill a wedged process — destructive, so
-  it rides the confirm loop (below), never fires on inference.
+  it rides the intent→confirm→execute loop of `agentic-control-plane.md` (see
+  "Blast radius" under Risks), never fires on inference.
 
-These land as **Claude Code skills** versioned in this repo (the same mechanism
-as any `.claude/skills` package): a `fleet` skill that teaches the resident
-session the spawn/dispatch/watch/retire recipes — the exact tmux incantations,
-the naming conventions the daemon expects (window titles the parser reads), and
-the guardrails. Designating a control pane is then just launching a normal
-Claude session with the skill available and the charter as its opening prompt —
-no forked agent, no custom binary; any capable session can take the job, and
-the skill's evolution is reviewed like any other code.
+These land as a **`fleet` skill versioned in this repo** — "skill" here meaning
+a plain instruction document the resident session loads, not any vendor's
+feature. It teaches the spawn/dispatch/watch/retire recipes — the exact tmux
+incantations, the naming conventions the daemon expects (window titles the
+parser reads), and the guardrails. The verbs are plain tmux, so the skill is
+prose plus shell, not an integration: any agent that can read a file and drive
+tmux can take the charter (a Claude Code session would load it from
+`.claude/skills`; a codex or gemini session via its own mechanism — a packaging
+detail, not the design). Designating a control pane is then just launching a
+normal agent session with the skill available and the charter as its opening
+prompt — no forked agent, no custom binary; any capable session can take the
+job, and the skill's evolution is reviewed like any other code.
 
 ## Model economics
 
