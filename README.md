@@ -112,7 +112,7 @@ across 3 hosts, agents running most of the day), at Gemini 3.1 Flash Lite list p
   classifier (a few dollars per month of daily use).
 - A lightly used single-pane setup runs pennies per day. `GET /api/state` reports
   running totals, and the OTLP telemetry (above) records per-call tokens/cost if you
-  want the real query-able ledger.
+  want the real queryable ledger.
 
 ## API
 
