@@ -127,3 +127,16 @@ def test_restart_seeds_idle_clock_from_tmux_activity(monkeypatch):
     state[0] = {"activity": "running"}
     frame[0] = "now busy"
     assert w._tick_pane(p)["state_since"] == 11_000.0
+
+
+def test_list_panes_populates_window_activity(monkeypatch):
+    """The seeding above is inert unless #{window_activity} actually rides in
+    _PANE_FMT: a missing column would leave Pane.window_activity at its "" default
+    (and an 11-field line would be dropped by the length guard entirely)."""
+    tmux = W.tmux
+    fields = ["work", "0", "work", "0", "%1", "bash", "title", "/home/u", "42",
+              "1", "1", "4000"]
+    monkeypatch.setattr(tmux, "_run", lambda args: "\t".join(fields) + "\n")
+    (pane,) = tmux.list_panes()
+    assert pane.window_activity == "4000"
+    assert (pane.id, pane.pane_active) == ("%1", "1")  # order intact around the new column
