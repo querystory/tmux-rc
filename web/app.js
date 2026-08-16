@@ -260,6 +260,9 @@ const LUCIDE = {
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
   expandall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 8 3-3 3 3"/><path d="m15 16 3 3 3-3"/>',
+  // expandall's mirror (chevrons point inward) — same lines, so the toggle reads as
+  // one control changing direction, not two different buttons.
+  collapseall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 5 3 3 3-3"/><path d="m15 19 3-3 3 3"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1000,6 +1003,7 @@ function showUsage(u, err) {
 const expandBtn = document.getElementById("expand-btn");
 if (expandBtn) {
   expandBtn.innerHTML = licon("expandall", 14); // svg child — never setText this button
+  expandBtn.dataset.glyph = "expandall"; // applyExpandBtn swaps it with the open state
   expandBtn.onclick = () => {
     if (listFilter) {
       const lp = listSubset(Object.values(panesById)) || [];
@@ -1023,6 +1027,14 @@ function applyExpandBtn(states) {
   setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + what);
   setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + what);
   setAttr(expandBtn, "aria-expanded", String(open));
+  // The glyph must tell the same story as the tooltip: inward chevrons while open
+  // (tapping collapses), outward while collapsed. Guarded — innerHTML on every
+  // render would churn the SVG node for nothing.
+  const glyph = open ? "collapseall" : "expandall";
+  if (expandBtn.dataset.glyph !== glyph) {
+    expandBtn.dataset.glyph = glyph;
+    expandBtn.innerHTML = licon(glyph, 14);
+  }
 }
 
 function listSubset(states) {
