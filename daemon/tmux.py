@@ -235,6 +235,16 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
+def new_window(session: str, name: str, command: str) -> str:
+    """Open a new window in `session` running `command`, and return its pane id.
+    The trailing ':' pins the target to the session (a bare name could match a window).
+    -d: the phone asked, so the phone decides focus — the daemon must not yank the
+    host user's tmux client to the new window."""
+    return _run(
+        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"{session}:", "-n", name, command]
+    ).strip()
+
+
 # OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show
 # only LABEL; a plain capture (no -e) drops the URL entirely.
 _OSC8 = re.compile(r"\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)(.*?)\x1b\]8;;(?:\x07|\x1b\\)", re.S)

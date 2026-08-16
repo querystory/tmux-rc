@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import socket
@@ -116,6 +117,46 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+
+
+class NewWindowBody(BaseModel):
+    session: str
+    launcher: str  # label of a configured launcher — never a raw command
+
+
+# Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
+# model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
+# back only the LABEL and the daemon looks the command up here, so the HTTP surface
+# can't be asked to run arbitrary strings. `icon` names one of the web app's built-in
+# tool logos (claude/codex/gemini/shell) or any image URL it serves.
+# TMUXRC_LAUNCHERS: inline JSON list, or a path to a JSON file containing one.
+_DEFAULT_LAUNCHERS = [
+    {"label": "Claude", "command": "claude", "icon": "claude"},
+    {"label": "Codex", "command": "codex", "icon": "codex"},
+    {"label": "Gemini", "command": "gemini", "icon": "gemini"},
+]
+
+
+def _launchers() -> list[dict]:
+    raw = os.environ.get("TMUXRC_LAUNCHERS", "").strip()
+    if not raw:
+        return _DEFAULT_LAUNCHERS
+    try:
+        if not raw.startswith("["):
+            raw = Path(raw).read_text()
+        entries = json.loads(raw)
+        good = [
+            {"label": str(e["label"]), "command": str(e["command"]),
+             "icon": str(e.get("icon", ""))}
+            for e in entries
+            if isinstance(e, dict) and e.get("label") and e.get("command")
+        ]
+        if good:
+            return good
+        raise ValueError("no valid entries")
+    except Exception:  # noqa: BLE001 - a broken config must not brick the menu
+        logger.warning("TMUXRC_LAUNCHERS invalid; using defaults", exc_info=True)
+        return _DEFAULT_LAUNCHERS
 
 
 class ClientErrorBody(BaseModel):
@@ -525,6 +566,35 @@ def send(pane_id: str, body: SendBody, request: Request):
     # closed menu reflects on the card within a capture, not a poll interval later.
     app.state.watcher.request_reparse(pane_id)
     return {"ok": True}
+
+
+@app.get("/api/launchers")
+def launchers():
+    """The dock '+' menu's entries — labels/icons only. Commands never leave the daemon:
+    the phone posts a label back and the lookup happens server-side (see new_window)."""
+    return {"launchers": [{"label": e["label"], "icon": e["icon"]} for e in _launchers()]}
+
+
+@app.post("/api/windows")
+def new_window(body: NewWindowBody, request: Request):
+    """Open a new window in `session` running a CONFIGURED launcher. The label→command
+    mapping lives in the daemon so this endpoint can't be handed arbitrary strings —
+    anything not in the config is refused (and audited)."""
+    entry = next((e for e in _launchers() if e["label"] == body.launcher), None)
+    detail = f"session={body.session} launcher={body.launcher}"
+    if entry is None:
+        _audit(request, "new_window", "-", detail, outcome="rejected: unknown launcher")
+        raise HTTPException(404, "unknown launcher")
+    if not any(p.session == body.session for p in tmux.list_panes()):
+        _audit(request, "new_window", "-", detail, outcome="rejected: session not found")
+        raise HTTPException(404, "session not found")
+    try:
+        pane_id = tmux.new_window(body.session, entry["label"], entry["command"])
+    except Exception as e:
+        _audit(request, "new_window", "-", detail, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "new_window", pane_id, detail)
+    return {"ok": True, "pane_id": pane_id}
 
 
 @app.post("/api/panes/{pane_id}/select")

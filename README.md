@@ -95,6 +95,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `0.0.0.0` / `8080` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |
