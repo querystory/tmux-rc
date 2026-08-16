@@ -253,7 +253,10 @@
     min-width: 40px; height: 36px; padding: 0 6px; box-sizing: border-box;
     border: 1px dashed var(--border); border-radius: 8px; background: var(--chrome);
     color: var(--fg-faint); font-family: inherit; font-size: 11px; font-weight: 600;
-    line-height: 1; font-variant-numeric: tabular-nums; cursor: pointer; }
+    line-height: 1; font-variant-numeric: tabular-nums; cursor: pointer;
+    /* Long-press opens the launcher menu — WebKit must not ALSO select the chip's
+       text (blue grab handles) or pop the callout while the finger holds. */
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   /* The RE-FOLD chevron reads as a quiet affordance, not a peer of the "+8" chip: narrow,
      no border, no fill, tucked at the tray's edge. The 40px min-width floor is
      dropped here because the parent tray's own padding keeps the touch area honest —
