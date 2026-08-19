@@ -2,6 +2,16 @@
 Description=tmux-rc tunnel client (<slug>.tun.qs.dev -> the local daemon)
 PartOf=tmux-rc.target
 After=network-online.target
+# The tunnel is optional: with no env file there is nothing to configure the client with,
+# so skip the unit cleanly (inactive, not failed) instead of crash-looping. Copy
+# deploy/tunnel.env.example there, then `systemctl --user start tmux-rc-tunnel`.
+ConditionPathExists=%h/.config/tmux-rc/tunnel.env
+# The relay caps a connection at ~1h and the client reconnects itself; systemd is the
+# backstop for the failure the client cannot see — process alive, no longer registered.
+# Tolerate slow flapping, still fail a real crash-loop. (StartLimit*/Condition* are
+# [Unit] keys — systemd silently ignores them under [Service].)
+StartLimitIntervalSec=1h
+StartLimitBurst=20
 # Deliberately NOT ordered after tmux-rc.service: the client retries its dial with
 # backoff, so starting first is harmless, and coupling the two would mean a daemon
 # restart bounced the tunnel for no reason.
@@ -18,11 +28,6 @@ ExecStart=%h/.local/bin/tunnel-client
 EnvironmentFile=%h/.config/tmux-rc/tunnel.env
 Restart=always
 RestartSec=5
-# The relay caps a connection at ~1h and the client reconnects itself; systemd is the
-# backstop for the failure the client cannot see — process alive, no longer registered.
-# Same reasoning as the daemon's: tolerate slow flapping, still fail a real crash-loop.
-StartLimitIntervalSec=1h
-StartLimitBurst=20
 
 [Install]
 WantedBy=tmux-rc.target

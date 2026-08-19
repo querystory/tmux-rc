@@ -49,10 +49,18 @@ survive reboots and restart itself if it dies. `systemd --user` units for the da
 the tunnel client ship in [`deploy/systemd/`](deploy/systemd/):
 
 ```bash
-make install-units     # copy units, enable + start them, enable-linger
-journalctl --user -fu tmux-rc            # logs (replaces watching a pane)
-systemctl --user restart tmux-rc         # after a git pull or a .env change
+make install-units                        # copy units, enable + start them, enable-linger
+journalctl --user -fu tmux-rc             # daemon logs (replaces watching a pane)
+systemctl --user restart tmux-rc          # after a git pull or a .env change
+systemctl --user restart tmux-rc.target   # both halves (daemon + tunnel)
 ```
+
+The tunnel client is a second unit (`tmux-rc-tunnel`), grouped with the daemon under
+`tmux-rc.target`. It stays inactive until you configure it: copy
+[`deploy/tunnel.env.example`](deploy/tunnel.env.example) to `~/.config/tmux-rc/tunnel.env`,
+put the client binary at `~/.local/bin/tunnel-client`, then
+`systemctl --user start tmux-rc-tunnel`. On a host with an encrypted `$HOME`, install with
+`make install-units LINGER=0` — lingering units would crash-loop before you log in.
 
 The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
 upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit
