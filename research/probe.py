@@ -25,7 +25,9 @@ import sys
 from pathlib import Path
 
 from daemon import tmux
-from daemon.llm import _MODEL, _client
+# Prices come from the daemon (not a copy here): this file used to hardcode
+# 2.5-flash-lite's $0.10/$0.40 long after the move to 3.1, quoting costs ~2.5x low.
+from daemon.llm import _IN_PER_M, _MODEL, _OUT_PER_M, _client, _parse_json
 from daemon.render import render_png
 
 SAMPLES = Path(__file__).parent / "samples"
@@ -42,11 +44,6 @@ def _capture_ansi(pane_id: str) -> str:
         ["tmux", "capture-pane", "-p", "-e", "-J", "-t", pane_id, "-S", "-50"],
         capture_output=True, text=True,
     ).stdout
-
-
-# Gemini 3.x Flash Lite pricing (USD per 1M tokens). Update if it changes; used only
-# for a rough per-call cost estimate in this research harness.
-_IN_PER_M, _OUT_PER_M = 0.10, 0.40
 
 
 def _parse(parts, model: str = _MODEL) -> dict:
@@ -71,8 +68,11 @@ def _parse(parts, model: str = _MODEL) -> dict:
     latency = time.time() - t0
     out_tokens = getattr(resp.usage_metadata, "candidates_token_count", 0) or 0
     cost = in_tokens / 1e6 * _IN_PER_M + out_tokens / 1e6 * _OUT_PER_M
+    # The daemon's own salvage, not a private one: llm._parse_json tolerates the trailing
+    # garbage flash-lite sometimes emits. Re-implementing "did it parse?" here would score
+    # a model as failing on output production accepts.
     try:
-        result = json.loads(resp.text)
+        result = _parse_json(resp.text)
     except Exception:
         result = {"_raw": resp.text}
     return {"json": result, "in": in_tokens, "out": out_tokens, "latency": latency, "cost": cost}
@@ -156,6 +156,12 @@ def main() -> None:
             sys.exit("--models is empty")
         _bench_models(Path(sample), model_ids, repeat)
         return
+
+    # Live capture mode ignores these, and _take already removed them from argv — so
+    # without this they'd vanish silently and the run would look like it honored them.
+    for flag, val in (("--models", models), ("--repeat", raw_repeat)):
+        if val is not None:
+            sys.exit(f"{flag} only applies with --sample (live capture mode ignores it)")
 
     save_name = _take("--save")
     target = argv[0] if argv else None
