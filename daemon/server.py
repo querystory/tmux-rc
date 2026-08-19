@@ -143,7 +143,7 @@ def _launchers() -> list[dict]:
         return _DEFAULT_LAUNCHERS
     try:
         if not raw.startswith("["):
-            raw = Path(raw).read_text()
+            raw = Path(raw).read_text(encoding="utf-8")
         entries = json.loads(raw)
         good = [
             {"label": str(e["label"]), "command": str(e["command"]),
@@ -581,7 +581,9 @@ def new_window(body: NewWindowBody, request: Request):
     mapping lives in the daemon so this endpoint can't be handed arbitrary strings —
     anything not in the config is refused (and audited)."""
     entry = next((e for e in _launchers() if e["label"] == body.launcher), None)
-    detail = f"session={body.session} launcher={body.launcher}"
+    # !r + a cap: both fields are client-supplied, and an audit line is one line. A
+    # newline in `session` would otherwise forge a second record in the log.
+    detail = f"session={body.session[:80]!r} launcher={body.launcher[:80]!r}"
     if entry is None:
         _audit(request, "new_window", "-", detail, outcome="rejected: unknown launcher")
         raise HTTPException(404, "unknown launcher")
