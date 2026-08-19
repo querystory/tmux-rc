@@ -1,0 +1,28 @@
+[Unit]
+Description=tmux-rc tunnel client (<slug>.tun.qs.dev -> the local daemon)
+PartOf=tmux-rc.target
+After=network-online.target
+# Deliberately NOT ordered after tmux-rc.service: the client retries its dial with
+# backoff, so starting first is harmless, and coupling the two would mean a daemon
+# restart bounced the tunnel for no reason.
+
+[Service]
+# A real installed binary, never /tmp (which a reboot erases — that cost us a dead
+# phone once already). Build from qsi-automation/tunnel: `go build -o
+# ~/.local/bin/tunnel-client ./client`.
+ExecStart=%h/.local/bin/tunnel-client
+# NO command-line flags: the EnvironmentFile carries TUNNEL_SLUG/PORT/OWNER and
+# GOOGLE_APPLICATION_CREDENTIALS (a service-account key — self-refreshing, no human
+# reauth). Passing bare flags instead silently falls back to user ADC, which the org
+# reauth policy kills daily.
+EnvironmentFile=%h/.config/tmux-rc/tunnel.env
+Restart=always
+RestartSec=5
+# The relay caps a connection at ~1h and the client reconnects itself; systemd is the
+# backstop for the failure the client cannot see — process alive, no longer registered.
+# Same reasoning as the daemon's: tolerate slow flapping, still fail a real crash-loop.
+StartLimitIntervalSec=1h
+StartLimitBurst=20
+
+[Install]
+WantedBy=tmux-rc.target

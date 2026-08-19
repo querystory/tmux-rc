@@ -1,0 +1,8 @@
+[Unit]
+Description=tmux-rc (daemon + tunnel client)
+# One handle for both halves: `systemctl --user restart tmux-rc.target` bounces the
+# pair, and `stop` takes both down (PartOf= in each unit) — without implying either
+# depends on the other at start.
+
+[Install]
+WantedBy=default.target

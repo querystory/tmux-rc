@@ -1,0 +1,33 @@
+[Unit]
+Description=tmux-rc daemon (phone control plane for tmux panes)
+PartOf=tmux-rc.target
+After=network-online.target
+# No ordering against the tunnel: the two are loosely coupled on purpose (the client
+# retries its dial; the daemon serves fine with nobody tunnelling to it).
+
+[Service]
+# The checkout IS the deploy: `git pull` + `systemctl --user restart tmux-rc`. The
+# daemon loads this directory's .env itself, so the unit stays thin — no second copy
+# of the config to drift out of sync.
+WorkingDirectory=%h/src/qs/tmux-rc
+ExecStart=%h/.local/bin/uv run python -m daemon.server
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Reload is a dev-loop convenience; under a unit it would restart the daemon (dropping
+# live websockets) whenever a branch checkout touched the tree.
+Environment=TMUXRC_RELOAD=0
+# Localhost only. The API is unauthenticated and /send injects keystrokes, so a 24/7
+# LAN-reachable bind is not acceptable; the phone arrives via the IAP-authenticated
+# tunnel, whose client connects locally. LAN exposure is an explicit opt-in: set
+# TMUXRC_HOST=0.0.0.0 in .env (this default lives here AND in the code).
+Environment=TMUXRC_HOST=127.0.0.1
+Restart=always
+RestartSec=5
+# systemd's default start limit (5 starts / 10s) turns a fast crash-loop into a
+# permanently failed unit. That IS right for a broken deploy — visible in `systemctl
+# status`, fixed by rolling back the checkout — but it must not trip on slow flapping
+# (an hourly restart is not a crash-loop), so the window is widened rather than removed.
+StartLimitIntervalSec=1h
+StartLimitBurst=20
+
+[Install]
+WantedBy=tmux-rc.target

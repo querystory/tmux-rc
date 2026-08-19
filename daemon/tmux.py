@@ -14,7 +14,6 @@ import socket
 import subprocess
 import threading
 from dataclasses import dataclass
-from functools import cache
 
 _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
@@ -139,17 +138,24 @@ def _run(args: list[str]) -> str:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
 
 
-@cache
+_server_uid: str | None = None
+
+
 def server_uid() -> str:
     """Stable identity of the tmux SERVER: '<boot_id>:<server_pid>'.
 
     boot_id (a fresh kernel UUID per boot, from /proc) plus the server's pid uniquely
     pins one tmux server instance: pid can't be reused by two live processes within a
     boot, and boot_id changes on reboot (so a reused pid across reboots can't collide).
-    No hostname — boot_id already avoids cross-machine collisions. Cached: constant for
-    the life of this daemon (and re-derived identically if the daemon restarts, so a
-    pane's uid survives a tmux-rc restart). Falls back to just the pid if either read
-    fails, so telemetry degrades rather than breaking."""
+    No hostname — boot_id already avoids cross-machine collisions. Falls back to just the
+    pid if either read fails, so telemetry degrades rather than breaking.
+
+    SUCCESS is cached, failure is not: started at boot by a systemd unit, the daemon can
+    outlive several tmux servers and — the case that bit us — start before any exists.
+    Caching the failed read froze every pane_uid at ':0' for the process's life, silently
+    fusing telemetry from unrelated tmux servers together. A pid CHANGE also re-derives:
+    same reason the watcher re-keys panes on pid, one tmux server is one identity."""
+    global _server_uid
     try:
         boot = open("/proc/sys/kernel/random/boot_id").read().strip()
     except OSError:
@@ -157,8 +163,11 @@ def server_uid() -> str:
     try:
         pid = _run(["display-message", "-p", "#{pid}"]).strip()
     except subprocess.CalledProcessError:
-        pid = "0"
-    return f"{boot}:{pid}"
+        # No server (yet). Serve the last good identity if we have one rather than
+        # inventing a ':0' that would look like a different server to the backend.
+        return _server_uid or f"{boot}:0"
+    _server_uid = f"{boot}:{pid}"
+    return _server_uid
 
 
 def pane_uid(pane: Pane) -> str:
