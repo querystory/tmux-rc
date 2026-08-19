@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
 # Gemini 3.1 Flash Lite — cheap/fast, strong at reading terminal text & screenshots.
 # Override with TMUXRC_GEMINI_MODEL if a newer flash-lite ships.
 _MODEL = os.environ.get("TMUXRC_GEMINI_MODEL", "gemini-3.1-flash-lite")
-# Flash-Lite pricing (USD per 1M tokens); override if it changes.
-_IN_PER_M = float(os.environ.get("TMUXRC_IN_PER_M", "0.10"))
-_OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "0.40"))
+# Flash-Lite pricing (USD per 1M tokens); override if it changes. These defaults were
+# 2.5-flash-lite's prices ($0.10/$0.40) long after the model moved to 3.1 — every cost
+# this daemon ever reported was ~2.5x under reality. Cached input bills at 10% of list.
+_IN_PER_M = float(os.environ.get("TMUXRC_IN_PER_M", "0.25"))
+_OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "1.50"))
 
 # Durable per-call metrics log (JSONL): one line per LLM call with tokens/cost/latency,
 # so "add it all up / averages" is a real query (and the seed for QueryStory
@@ -281,20 +283,24 @@ def summarize_events(event_texts: list[str]) -> str | None:
         return None
 
 
-def _tokens_cost(resp) -> tuple[int, int, float]:
-    """(in_tokens, out_tokens, cost) off a Gemini response — one source of truth for how
-    usage comes off the wire, shared by _record (running totals) and _emit (telemetry)."""
+def _tokens_cost(resp) -> tuple[int, int, int, float]:
+    """(in_tokens, cached_tokens, out_tokens, cost) off a Gemini response — one source of
+    truth for how usage comes off the wire, shared by _record (running totals) and _emit
+    (telemetry). prompt_token_count INCLUDES cached tokens, which bill at 10% of list —
+    cost must subtract them or a cache hit looks as expensive as a miss."""
     u = getattr(resp, "usage_metadata", None)
     in_tok = getattr(u, "prompt_token_count", 0) or 0
+    cached = getattr(u, "cached_content_token_count", 0) or 0
     out_tok = getattr(u, "candidates_token_count", 0) or 0
-    return in_tok, out_tok, in_tok / 1e6 * _IN_PER_M + out_tok / 1e6 * _OUT_PER_M
+    cost = ((in_tok - cached) + cached * 0.1) / 1e6 * _IN_PER_M + out_tok / 1e6 * _OUT_PER_M
+    return in_tok, cached, out_tok, cost
 
 
 def _record(resp) -> None:
     """Update running totals and append a metrics line. Best-effort — metering must
     never break a parse."""
     try:
-        in_tok, out_tok, cost = _tokens_cost(resp)
+        in_tok, cached, out_tok, cost = _tokens_cost(resp)
         _totals["calls"] += 1
         _totals["in_tokens"] += in_tok
         _totals["out_tokens"] += out_tok
@@ -304,6 +310,7 @@ def _record(resp) -> None:
                 {
                     "ts": time.time(),
                     "in": in_tok,
+                    "cached": cached,
                     "out": out_tok,
                     "cost": round(cost, 6),
                 }
@@ -330,7 +337,9 @@ def _emit(
     try:
         from .telemetry import emit_parse
 
-        in_tok, out_tok, cost = _tokens_cost(resp) if resp is not None else (0, 0, 0.0)
+        in_tok, cached, out_tok, cost = (
+            _tokens_cost(resp) if resp is not None else (0, 0, 0, 0.0)
+        )
         emit_parse(
             model=_MODEL,
             provider="vertex",
@@ -341,6 +350,7 @@ def _emit(
             latency=latency,
             ttft=None,
             in_tokens=in_tok,
+            cached_tokens=cached,
             out_tokens=out_tok,
             cost=cost,
             activity=(result or {}).get("activity"),
