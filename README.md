@@ -36,9 +36,29 @@ tmux new -s work
 uv run python -m daemon.server
 ```
 
-Open `http://<machine-lan-ip>:8080` on your phone and add it to your home screen.
-For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
-`tailscale`) — the PoC has **no auth**, so never expose it on an untrusted network.
+The daemon binds `127.0.0.1:18030` by default. To browse it from a phone on the same
+network, set `TMUXRC_HOST=0.0.0.0` and open `http://<machine-lan-ip>:18030` — but note
+the API is **unauthenticated** and `/send` injects keystrokes into your terminals, so
+never do that on an untrusted network. For access off your LAN, front it with a tunnel
+you control (e.g. `cloudflared`, `tailscale`).
+
+### Run it as a service
+
+Long term you don't want the daemon living in a terminal that might close — it should
+survive reboots and restart itself if it dies. `systemd --user` units for the daemon and
+the tunnel client ship in [`deploy/systemd/`](deploy/systemd/):
+
+```bash
+make install-units     # copy units, enable + start them, enable-linger
+journalctl --user -fu tmux-rc            # logs (replaces watching a pane)
+systemctl --user restart tmux-rc         # after a git pull or a .env change
+```
+
+The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
+upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit
+and run `make dev` in a pane as usual; the two modes share the same command and config.
+See [docs/design/deployment.md](docs/design/deployment.md) for why user units + linger
+(and not containers, system units, or a supervising parent).
 
 ### Run without cloning
 
@@ -93,7 +113,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
 | `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
-| `TMUXRC_HOST` / `TMUXRC_PORT` | `0.0.0.0` / `8080` | HTTP bind |
+| `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
@@ -101,7 +121,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 
 ## API
 
-The daemon serves the phone's PWA and a small HTTP API on `:8080` — usable by anything
+The daemon serves the phone's PWA and a small HTTP API on `:18030` — usable by anything
 (curl, scripts, agents), not just the phone:
 
 | Endpoint | What it gives you |

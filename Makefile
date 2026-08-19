@@ -1,4 +1,4 @@
-.PHONY: dev run test fmt docs docs-dev docs-check docs-clean
+.PHONY: dev run test fmt docs docs-dev docs-check docs-clean install-units
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -9,6 +9,18 @@ dev:
 # Plain run, no reload.
 run:
 	uv run python -m daemon.server
+
+# Install/refresh the systemd --user units (see docs/design/deployment.md). Idempotent:
+# safe to re-run after editing a unit. enable-linger is what moves the units' start from
+# "first login" to "boot", so an unattended reboot brings the phone back by itself.
+# Skip linger on an encrypted $HOME — nothing under it exists pre-login.
+install-units:
+	install -Dm644 -t $(HOME)/.config/systemd/user deploy/systemd/tmux-rc.service \
+		deploy/systemd/tmux-rc-tunnel.service deploy/systemd/tmux-rc.target
+	systemctl --user daemon-reload
+	systemctl --user enable --now tmux-rc.target tmux-rc.service tmux-rc-tunnel.service
+	loginctl enable-linger $(USER)
+	systemctl --user --no-pager status tmux-rc.service tmux-rc-tunnel.service | head -20
 
 test:
 	uv run pytest -q tests/

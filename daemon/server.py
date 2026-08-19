@@ -751,8 +751,8 @@ def main() -> None:
         "daemon.server:app" if reload else app,
         proxy_headers=False,
         log_config=None,
-        host=os.environ.get("TMUXRC_HOST", "0.0.0.0"),
-        port=int(os.environ.get("TMUXRC_PORT", "8080")),
+        host=os.environ.get("TMUXRC_HOST", "127.0.0.1"),
+        port=int(os.environ.get("TMUXRC_PORT", "18030")),
         reload=reload,
         reload_dirs=[str(_PKG_DIR)] if reload else None,
     )

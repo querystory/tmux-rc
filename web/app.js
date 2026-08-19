@@ -2339,7 +2339,7 @@ function applyLinks(box, links) {
 // Put text on the clipboard, resolving true/false so the caller can show the outcome
 // (a silent no-op reads as "the button is broken"). navigator.clipboard needs a secure
 // context: the PWA is served over HTTPS through the tunnel, but a plain-HTTP LAN visit
-// (http://host:8080) has no Clipboard API at all — fall back to the legacy
+// (http://host:18030) has no Clipboard API at all — fall back to the legacy
 // execCommand path so copy still works there.
 async function copyText(text) {
   try {
