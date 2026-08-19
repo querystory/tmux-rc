@@ -12,14 +12,17 @@ run:
 
 # Install/refresh the systemd --user units (see docs/design/deployment.md). Idempotent:
 # safe to re-run after editing a unit. enable-linger is what moves the units' start from
-# "first login" to "boot", so an unattended reboot brings the phone back by itself.
-# Skip linger on an encrypted $HOME — nothing under it exists pre-login.
+# "first login" to "boot", so an unattended reboot brings the phone back by itself; set
+# LINGER=0 to skip it on a host with an encrypted $HOME, where nothing under it exists
+# pre-login and lingering units would crash-loop until someone logs in.
+LINGER ?= 1
 install-units:
 	install -Dm644 -t $(HOME)/.config/systemd/user deploy/systemd/tmux-rc.service \
 		deploy/systemd/tmux-rc-tunnel.service deploy/systemd/tmux-rc.target
 	systemctl --user daemon-reload
 	systemctl --user enable --now tmux-rc.target tmux-rc.service tmux-rc-tunnel.service
-	loginctl enable-linger $(USER)
+	[ "$(LINGER)" = "1" ] && loginctl enable-linger $(USER) || \
+		echo "LINGER=0: skipping enable-linger (units start at first login)"
 	systemctl --user --no-pager status tmux-rc.service tmux-rc-tunnel.service | head -20
 
 test:

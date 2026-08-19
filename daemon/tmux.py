@@ -147,8 +147,9 @@ def server_uid() -> str:
     boot_id (a fresh kernel UUID per boot, from /proc) plus the server's pid uniquely
     pins one tmux server instance: pid can't be reused by two live processes within a
     boot, and boot_id changes on reboot (so a reused pid across reboots can't collide).
-    No hostname — boot_id already avoids cross-machine collisions. Falls back to just the
-    pid if either read fails, so telemetry degrades rather than breaking.
+    No hostname — boot_id already avoids cross-machine collisions. Degrades rather than
+    breaking if a read fails: an unreadable boot_id becomes the literal 'nobootid', and
+    an unreachable tmux yields the last good uid (or '<boot>:0' if we never had one).
 
     SUCCESS is cached, failure is not: started at boot by a systemd unit, the daemon can
     outlive several tmux servers and — the case that bit us — start before any exists.
