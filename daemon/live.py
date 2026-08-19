@@ -47,9 +47,19 @@ LIVE_REGION = os.environ.get("TMUXRC_LIVE_REGION", "us-central1")
 # watcher's state_version moved (the same change signal /api/state long-polls on).
 UPDATE_MIN_SECONDS = 2.5
 # Screen tail sent per pane in the connect snapshot and in post-type refreshes. Enough
-# to answer "what's it doing / asking", small enough that N panes stay cheap.
+# to answer "what's it doing / asking"; SCREEN_BUDGET_CHARS below is what keeps N of
+# these cheap — the per-pane cap alone is not.
 SCREEN_TAIL_LINES = 60
 SCREEN_TAIL_CHARS = 4000
+# Fleet-wide ceiling on screen text in the connect snapshot. The per-pane tail is
+# bounded but the fleet is not: a real 24-pane deck put ~36k tokens of screen text in
+# the system instruction, and Gemini Live closes the session outright over its setup
+# limit (a 1007 naming the token count) — the voice session died the moment audio
+# flowed, on every reconnect, forever. Spent on the active pane first, then the panes
+# most recently at work; a pane past the budget keeps its digest block (headline,
+# summary, pending question) and loses only its screen text. ~24k chars ≈ 7k tokens
+# leaves the rest of the window for the conversation itself.
+SCREEN_BUDGET_CHARS = 24_000
 # After typing, wait this long before sending the acted-on pane's fresh screen — the
 # pane's app needs a beat to react before a capture shows anything new.
 POST_TYPE_REFRESH_SECONDS = 1.5
@@ -210,6 +220,15 @@ def _screen_tail(watcher, pane_id: str) -> str:
     return tmux.tail_marked("\n".join(lines), SCREEN_TAIL_CHARS)
 
 
+def _fmt_age(sec: float) -> str:
+    """Human idle age at the coarsest useful unit: '40s', '12m', '3h', '2d'."""
+    sec = int(sec)
+    if sec < 60: return f"{sec}s"
+    if sec < 3600: return f"{sec // 60}m"
+    if sec < 86400: return f"{sec // 3600}h"
+    return f"{sec // 86400}d"
+
+
 def _pane_block(d: dict, screen: str | None) -> str:
     """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
     leads with the user-facing identity (window number + title) and gives the internal
@@ -226,6 +245,12 @@ def _pane_block(d: dict, screen: str | None) -> str:
         head += f' "{name}"'
     head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
+    # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
+    # candidates — the prompt tells the model a long-idle pane is rarely where a new
+    # instruction is destined (see live_prompt's targeting ladder).
+    idle = d.get("idle_seconds")
+    if d.get("activity") == "idle" and isinstance(idle, (int, float)) and idle >= 0:
+        head += f" for {_fmt_age(idle)}"
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
@@ -248,13 +273,34 @@ def _pane_context(watcher, screens: str) -> str:
     of state the watcher keeps current anyway."""
     if screens not in ("all", "active", "none"):
         raise ValueError(f"bad screens mode: {screens!r}")
-
-    def tail(d):
-        if screens == "all" or (screens == "active" and d.get("tmux_active")):
-            return _screen_tail(watcher, d["pane_id"])
-        return None
-
-    blocks = [_pane_block(d, tail(d)) for d in watcher.digest()]
+    digest = watcher.digest()
+    tails: dict[str, str] = {}
+    if screens == "active":
+        for d in digest:
+            if d.get("tmux_active"):
+                tails[d["pane_id"]] = _screen_tail(watcher, d["pane_id"])
+    elif screens == "all":
+        # Allocate SCREEN_BUDGET_CHARS priority-first — the active pane, then panes at
+        # work, then the least-idle — but RENDER in digest order, which is tmux's own
+        # session/window order: the model's pane map must not reshuffle by activity.
+        # The last pane granted may overshoot the budget by at most one tail. A tail
+        # itself can run a few chars past SCREEN_TAIL_CHARS — tail_marked() prefixes a
+        # marker token (⟪dim⟫/⟪placeholder⟫) when the kept text starts inside a marked
+        # run — so the slack is "one tail plus a marker", still bounded and still
+        # simpler than truncating mid-screen.
+        def prio(d):
+            return (not d.get("tmux_active"),
+                    d.get("activity") == "idle",
+                    d.get("idle_seconds") or 0)
+        budget = SCREEN_BUDGET_CHARS
+        for d in sorted(digest, key=prio):
+            if budget <= 0:
+                break
+            t = _screen_tail(watcher, d["pane_id"])
+            if t:
+                tails[d["pane_id"]] = t
+                budget -= len(t)
+    blocks = [_pane_block(d, tails.get(d["pane_id"])) for d in digest]
     return "\n\n".join(blocks) if blocks else "(no panes)"
 
 

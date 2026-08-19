@@ -1,0 +1,10 @@
+{
+  "description": "Claude Code actively working (whimsical gerund + elapsed + tokens, live spinner at the bottom). Real tmux-rc dogfooding capture — the agent is editing research/probe.py. activity=running, tool=claude, no question/rewind.",
+  "current_command": "node",
+  "capture": "● Pane %0 exists and list_panes() finds it, so find_pane(None) should return it. The \"no pane found\" must be a stale error. Let me re-run directly.\n\n  Ran 1 shell command\n\n● Update(~/src/qs/termiphone/research/probe.py)\n  ⎿  Added 7 lines, removed 3 lines\n     116 -    args = [a for a in sys.argv[1:] if not a.startswith(\"--\")]\n     117 +    save_name = None\n     118 +    argv = sys.argv[1:]\n     119 +    if \"--save\" in argv:\n\n✢ Wrangling… (2m 19s · ↓ 5.9k tokens)\n  ⎿  Tip: Say \"fan out subagents\" and Claude sends a team.\n\n──────────────────────────────────────────────────────────────── termiphone-dev ──\n❯\n────────────────────────────────────────────────────────────────────────────────────\n  ~/src/qs/termiphone on feat/probe | Opus 4.8 (1M context)   |  telemetry: •stats\n  session: +571/-423 lines · 47% ctx · 22m · $17.70\n  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "running",
+    "headline": "Fixing the --save argument parsing in probe.py"
+  }
+}

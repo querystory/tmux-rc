@@ -95,6 +95,27 @@ def test_pane_block_names_window_prefers_title_hides_id_role():
     assert 'window 2 "shell" (id=%2)' in untitled
 
 
+def test_pane_block_idle_age_suffix():
+    # Idle panes carry their AGE ("idle for 2d") — the prompt's targeting ladder says a
+    # long-idle pane is rarely where a new instruction is destined, so the model needs
+    # the number. Non-idle panes and idle panes without a reading stay unsuffixed.
+    aged = L._pane_block(
+        {"pane_id": "%3", "window_index": "3", "title": "old", "tool": "claude",
+         "activity": "idle", "idle_seconds": 2 * 86400}, None)
+    assert "— idle for 2d" in aged.splitlines()[0]
+    fresh = L._pane_block(
+        {"pane_id": "%4", "window_index": "4", "title": "busy", "tool": "claude",
+         "activity": "running", "idle_seconds": 999}, None)
+    assert "for" not in fresh.splitlines()[0]
+    unknown = L._pane_block(
+        {"pane_id": "%5", "window_index": "5", "title": "n/a", "tool": "claude",
+         "activity": "idle"}, None)
+    assert unknown.splitlines()[0].endswith("— idle")
+    # unit ladder: coarsest useful unit at each scale
+    assert L._fmt_age(40) == "40s" and L._fmt_age(720) == "12m"
+    assert L._fmt_age(3 * 3600 + 5) == "3h" and L._fmt_age(86400 * 2 + 30) == "2d"
+
+
 def test_pane_block_sanitizes_name_quotes_and_newlines():
     # A title with quotes/newlines must not unbalance the heading's quoting or split it.
     b = L._pane_block(
@@ -269,3 +290,41 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     assert emitted[-1]["cost"] == m.usage.cost()
     # Session cost is folded into the status-bar totals exactly once, at finish().
     assert folded == {"in_tokens": 200, "out_tokens": 80, "cost": m.usage.cost()}
+
+
+def test_connect_snapshot_screen_budget():
+    """A big fleet must not blow the session's setup limit: the connect snapshot's
+    screen text is bounded fleet-wide (the real 24-pane deck hit ~36k tokens and
+    Gemini 1007-closed every session at first audio). Digests always survive."""
+    w = _Watcher()
+    # ~4.7k raw chars — deliberately OVER SCREEN_TAIL_CHARS, so _screen_tail's own cap
+    # is exercised too: each pane contributes exactly one capped tail to the budget.
+    big = ("x" * 79 + "\n") * (L.SCREEN_TAIL_LINES - 1)
+    w.snapshots = {f"%{i}": [{"id": "s", "text": big, "ts": 1.0}] for i in range(30)}
+
+    def digest():
+        return [{"pane_id": f"%{i}", "label": f"p{i}", "window_index": str(i),
+                 "tool": "claude", "activity": "idle" if i else "running",
+                 "tmux_active": i == 29,  # active pane sorted LAST in digest order
+                 "idle_seconds": i * 100,
+                 "headline": f"headline-{i}", "summary": None, "question": None,
+                 "history": []} for i in range(30)]
+    w.digest = digest
+
+    ctx = L._pane_context(w, screens="all")
+    # Every pane keeps its digest block, budget or not.
+    for i in range(30):
+        assert f"headline-{i}" in ctx
+    # Total screen payload is bounded: budget, plus at most one tail of overshoot,
+    # plus a marker token per tail — tail_marked() may prefix ⟪dim⟫/⟪placeholder⟫ to
+    # reopen a marked run, so a tail can exceed SCREEN_TAIL_CHARS by a token's width.
+    screens = ctx.count("screen:\n")
+    assert screens < 30, "budget did not drop any screens"
+    MARKER_SLACK = 32 * 30  # generous per-pane allowance for reopen tokens
+    assert len(ctx) <= L.SCREEN_BUDGET_CHARS + L.SCREEN_TAIL_CHARS + 30 * 400 + MARKER_SLACK
+    # Priority: the ACTIVE pane always keeps its screen, however it sorts in digest
+    # order; the longest-idle pane is the first to lose its own.
+    active_block = ctx.split("## window 29")[1]
+    assert "screen:" in active_block.split("##")[0]
+    idlest_block = ctx.split("## window 28")[1]  # idle_seconds=2800, the stalest
+    assert "screen:" not in idlest_block.split("##")[0]

@@ -11,6 +11,7 @@ design notes, and the running progress log.
 {{< cards >}}
   {{< card link="design/background-and-motivation/" title="Background & motivation" subtitle="New here? What tmux is, and why tmux-rc exists." >}}
   {{< card link="design/architecture/" title="How it all works" subtitle="An end-to-end tour of the running system, with diagrams." >}}
+  {{< card link="design/thin-llm-ui-layer/" title="The thin LLM UI layer" subtitle="Affordances that can't be built generically, decided per screen by a cheap model." >}}
   {{< card link="prd/" title="Product Requirements" subtitle="What we're building and why." >}}
   {{< card link="requirements/" title="Requirements" subtitle="Source-of-truth checklist of what was asked for." >}}
   {{< card link="design/" title="Design Notes" subtitle="Architecture and design decisions, with the why behind them." >}}

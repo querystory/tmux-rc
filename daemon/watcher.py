@@ -87,11 +87,40 @@ def _fingerprint(text: str) -> str:
     return _VOLATILE_RE.sub("", text)
 
 
+def _stamp_identity(s: dict, p: tmux.Pane) -> None:
+    """Copy the pane's NAMES, NUMBERS and per-session focus onto a state dict. These
+    live outside the captured text — an agent renames the title, tmux rename-window/
+    -session changes the label, moving or closing windows renumbers the index, focus
+    shifts — all while the screen sits still, so every state path (parse, cached,
+    error stub) must restamp them or the phone shows stale identity. `label` resets
+    only on a tmux-side RENAME (tmux_label tracks what tmux last said): the parse
+    path may have refined it to the agent's own session name (classify.py), and an
+    unchanged-screen tick must not revert that refinement."""
+    s["title"] = p.display_title
+    if s.get("tmux_label") != p.label:
+        s["label"] = p.label
+    s["tmux_label"] = p.label
+    s["session"] = p.session
+    s["window_index"] = p.window_index
+    s["window_name"] = p.window_name
+    s["session_active"] = p.session_active
+
+
 def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
     """Append events (stamped with `ts`) to a pane's activity-log cache, in place,
     holding it to EVENTS_LOG_MAX by dropping the oldest. See docs/design/activity-log.md."""
     log.extend({**e, "ts": ts} for e in events)
     del log[:-EVENTS_LOG_MAX]
+
+
+def _activity_ts(pane) -> float | None:
+    """tmux's #{window_activity} as a float epoch, or None when absent/garbage.
+    getattr, not attribute access: test fixtures and any Pane-shaped stub without the
+    field must keep working (they just don't get restart seeding)."""
+    try:
+        return float(getattr(pane, "window_activity", "") or 0) or None
+    except (TypeError, ValueError):
+        return None
 
 
 class Watcher:
@@ -110,6 +139,12 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
+        # When the pane ENTERED its current state — reset only when the activity value or
+        # the pending-question identity changes, NOT on cosmetic content churn. The client
+        # ticks `now - state_since` live, so idle/waiting durations stay honest even while
+        # the pane doesn't re-parse (unlike idle_seconds, a frozen parse-time snapshot).
+        self._state_since: dict[str, float] = {}  # pane_id -> ts state was entered
+        self._state_key: dict[str, tuple] = {}  # pane_id -> (activity, question) at entry
         self._tool: dict[
             str, tuple[str, float]
         ] = {}  # pane_id -> (agent tool, last-seen ts)
@@ -235,6 +270,7 @@ class Watcher:
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
                     "idle_seconds": s.get("idle_seconds"),
+                    "state_since": s.get("state_since"),  # ts state entered; client ticks it
                     "headline": s.get("headline"),
                     "question": self._question_prompt(s),
                     # LLM one-liner for the last activity burst (present once the pane
@@ -381,13 +417,11 @@ class Watcher:
             if not isinstance(s, dict):
                 s = {
                     "pane_id": p.id,
-                    "label": p.label,
-                    "title": p.display_title,
-                    "window_index": p.window_index,
                     "tool": "unknown",
                     "activity": "unknown",
                     "updated_at": time.time(),
                 }
+                _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
             states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
@@ -442,7 +476,11 @@ class Watcher:
         # ("'None'").
         parts = [
             repr((
-                s.get("pane_id"), s.get("tmux_active"), s.get("label"), s.get("title"),
+                s.get("pane_id"), s.get("tmux_active"), s.get("session_active"),
+                # The structural identity the phone RENDERS (headers, window numbers):
+                # a renumber/rename with unchanged content must still bump the version.
+                s.get("session"), s.get("window_index"), s.get("window_name"),
+                s.get("label"), s.get("title"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
             ))
@@ -546,6 +584,8 @@ class Watcher:
         return (
             self._prev_fp,
             self._unchanged_since,
+            self._state_since,
+            self._state_key,
             self._tool,
             self._live_seen,
             self._state,
@@ -632,6 +672,33 @@ class Watcher:
         self._summary[pane_id] = span
         return span
 
+    def _state_since_for(
+        self, pane_id: str, state: dict, now: float, activity_ts: float | None = None
+    ) -> float:
+        """Timestamp the pane ENTERED its current state, for the client's live duration
+        clock. Resets only when the activity value changes (idle→running, running→waiting,
+        …) or the pending question's identity changes — a NEW question restarts the
+        waiting clock, the SAME question persisting keeps it counting. Cosmetic screen
+        churn (a spinner/clock that trips the fingerprint) does NOT reset it, so
+        time-in-state stays honest even across re-parses. Persisted per pane so an
+        unchanged re-parse leaves it put and the clock keeps climbing."""
+        key = (state.get("activity"), self._question_prompt(state))
+        if self._state_key.get(pane_id) != key:
+            # Restart amnesia (#129): these clocks live in daemon memory, so a restart
+            # used to stamp every long-parked pane "went idle just now" — the whole
+            # fleet flashed recent and the dock unfolded for PARKED_IDLE_SECS after
+            # every deploy. tmux never forgot: on the FIRST sighting of a pane that is
+            # already idle, seed from #{window_activity}. Only first sighting, only
+            # idle — a transition this process actually observed genuinely is "now".
+            first = pane_id not in self._state_key
+            self._state_key[pane_id] = key
+            self._state_since[pane_id] = (
+                min(activity_ts, now)
+                if first and state.get("activity") == "idle" and activity_ts
+                else now
+            )
+        return self._state_since[pane_id]
+
     def _tick_pane(self, pane) -> dict:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
@@ -663,14 +730,15 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            # Same activity/question as the last parse (nothing re-classified), so this
+            # returns the persisted entry time unchanged — the client's clock keeps
+            # climbing while the pane sits still.
+            cached["state_since"] = self._state_since_for(pane.id, cached, now, _activity_ts(pane))
             cached["updated_at"] = now
-            # A pane's NAMES and NUMBER live outside the captured text — an agent renames
-            # the title, tmux rename-window/-session changes the label, moving or closing
-            # windows renumbers the index — all while the screen sits still. Refresh them
-            # even when nothing re-parses, or a titleless pane keeps a stale spoken name.
-            cached["title"] = pane.display_title
-            cached["label"] = pane.label
-            cached["window_index"] = pane.window_index
+            # Names/numbers/focus change while the screen sits still (see
+            # _stamp_identity) — refresh even when nothing re-parses, or a titleless
+            # pane keeps a stale spoken name and focus reads stale.
+            _stamp_identity(cached, pane)
             # Idle a while with unsummarized activity → summarize the burst once, so the
             # UI can collapse those events under a {from,to,text} span.
             cached["summary"] = self._maybe_summarize(pane.id, idle)
@@ -792,16 +860,16 @@ class Watcher:
             else:
                 self._tool.pop(pane.id, None)  # agent is genuinely gone; forget it
 
-        # The pane's self-published title (see Pane.display_title) — the agent's own
-        # words for what it's doing, better than anything we could parse off the screen.
-        state["title"] = pane.display_title
-        # The tmux WINDOW number shown in the status bar (0,1,2…) — the identity a user
-        # reads off their own screen, so voice/UI can name a pane by it instead of the
-        # internal %id.
-        state["window_index"] = pane.window_index
+        # The pane's names (its self-published title beats anything parsed off the
+        # screen), window number as the user reads it in tmux's status bar, and
+        # per-session focus — see _stamp_identity.
+        _stamp_identity(state, pane)
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
+        # When this pane entered its current activity/question state — the client ticks
+        # `now - state_since` live so idle/waiting durations stay honest between parses.
+        state["state_since"] = self._state_since_for(pane.id, state, now, _activity_ts(pane))
         state["updated_at"] = now
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced

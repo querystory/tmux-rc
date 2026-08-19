@@ -27,10 +27,17 @@ from pathlib import Path
 # and every parse fails. Real environment vars still win over .env (override=False).
 from dotenv import find_dotenv, load_dotenv
 
+# One spelling of the package dir and the dir above it, reused for .env / web/ / docs
+# resolution below. In a source checkout the parent is the repo root; in an installed
+# wheel it's site-packages. Which one we're in is decided by asset existence, not this
+# path alone (see WEB_DIR).
+_PKG_DIR = Path(__file__).resolve().parent  # .../daemon (checkout or site-packages)
+_REPO_ROOT = _PKG_DIR.parent
+
 # Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
 # doesn't exist (e.g. installed as a wheel and launched elsewhere), fall back to the
 # usual upward search from cwd. Either way, real env vars still win (override=False).
-_repo_env = Path(__file__).resolve().parent.parent / ".env"
+_repo_env = _REPO_ROOT / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
 
 # Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
@@ -75,7 +82,19 @@ if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
 
 logger = logging.getLogger(__name__)
 
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+# Key on the actual asset, not a marker file: the repo-root web/ exists only in a source
+# checkout, since the wheel carries the UI bundled at daemon/web/ instead. Its presence is
+# therefore an unambiguous "running from a checkout" signal — a stray pyproject.toml beside
+# the package in a shared venv (or a `pip install --target` into such a dir) can't fake it.
+# Prefer the checkout copy so edits are served live (and /api/version's hash changes, so the
+# client self-reloads); fall back to the bundled copy when installed. Same asset-existence
+# predicate as the .env lookup above. Caveat: a *non-editable* `pip install .` from a
+# checkout has no daemon/-adjacent web/ and serves the bundled install-time snapshot, so
+# later edits to that checkout's web/ won't show — use an editable install or uvx for live
+# edits. _FROM_CHECKOUT reuses this predicate to gate reload in main().
+_repo_web = _REPO_ROOT / "web"
+_FROM_CHECKOUT = _repo_web.is_dir()
+WEB_DIR = _repo_web if _FROM_CHECKOUT else _PKG_DIR / "web"
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
 IMG_MAX_BYTES = (
@@ -687,7 +706,7 @@ def _to_png(data: bytes) -> bytes:
 # lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
 # server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
 _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
-    Path(__file__).resolve().parent.parent / "docs-site" / "serve"
+    _REPO_ROOT / "docs-site" / "serve"
 )
 if Path(_docs_dir).is_dir():
     # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
@@ -712,8 +731,15 @@ def main() -> None:
 
     # Reload watches the package source and restarts the process on edits (resetting
     # the watcher's in-memory cache — safe, tmux is the source of truth and state
-    # rebuilds within a couple ticks). ON by default; set TMUXRC_RELOAD=0 to disable.
-    reload = os.environ.get("TMUXRC_RELOAD", "1") != "0"
+    # rebuilds within a couple ticks). Defaults ON from a source checkout, OFF when
+    # installed as a wheel (no editable source to watch — and a relative reload dir there
+    # made uvicorn fall back to watching all of $HOME). TMUXRC_RELOAD forces it either way.
+    # Parse it as a real boolean — a bare `!= "0"` would read TMUXRC_RELOAD=false (or an
+    # empty value from a `.env` line) as truthy and force a reloader onto immutable
+    # site-packages on a wheel install.
+    reload = os.environ.get(
+        "TMUXRC_RELOAD", "1" if _FROM_CHECKOUT else "0"
+    ).strip().lower() in ("1", "true", "yes", "on")
     # proxy_headers=False: uvicorn's default rewrites request.client from
     # X-Forwarded-For on loopback connections — and the tunnel relay forwards Cloud
     # Run's XFF, so legit tunnel requests LOOKED like they came from the relay's IP and
@@ -728,7 +754,7 @@ def main() -> None:
         host=os.environ.get("TMUXRC_HOST", "0.0.0.0"),
         port=int(os.environ.get("TMUXRC_PORT", "8080")),
         reload=reload,
-        reload_dirs=["daemon"] if reload else None,
+        reload_dirs=[str(_PKG_DIR)] if reload else None,
     )
 
 

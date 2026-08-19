@@ -1,0 +1,11 @@
+{
+  "description": "External-wait on CI / PR checks — agent polling for the PR checks to go green, nothing for the human to do. Expected waiting_on=external. Distinguishes 'waiting for the machine' from 'waiting for you'. Synthetic tmux-rc PR flow.",
+  "current_command": "node",
+  "capture": "● Opened PR #61 and requested Copilot review. Now polling the checks until they finish.\n\n● Waiting for the PR #61 checks to complete before merging… (polling every 20s)\n\n──────────────────────────────────────────────────────────────── termiphone-dev ──\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ ❯                                                                              │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/qs/termiphone on feat/eval | Opus 4.8 (1M context)   ·  35% ctx · 26m · $9.10",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "headline": "Waiting for the PR #61 checks to finish"
+  }
+}

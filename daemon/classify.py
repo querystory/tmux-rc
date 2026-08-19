@@ -15,6 +15,7 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import re
+from itertools import islice
 from pathlib import Path
 
 from .tmux import Pane
@@ -148,11 +149,73 @@ def classify(
             result["waiting_on"] = "user"
     else:
         result.pop("waiting_on", None)
+    # Derive the running-subagent count from subagents[] so the UI (dock badge) has one
+    # number to read and the model never has to keep a separate count in sync. ALWAYS
+    # set it (default 0) — never let a legacy/non-numeric `agents` the model might emit
+    # leak through to the UI. "Running" == the UI's rule: anything not "done" is running
+    # (subagentsView pulses on state !== "done"), so both read one definition.
+    subs = result.get("subagents")
+    result["agents"] = (
+        sum(1 for a in subs if isinstance(a, dict) and a.get("state") != "done")
+        if isinstance(subs, list)
+        else 0
+    )
+    # Copyables carry a whole payload each (a commit message, a code block), and they
+    # ride EVERY /api/state poll for as long as the screen shows them. Cap count and
+    # size here — a wall-of-text screen (or a hostile pane) must not inflate the deck
+    # for every client. 4000 chars is far past any realistic paste; drop rather than
+    # truncate, since a silently clipped paste is worse than none (the prompt says the
+    # same). Malformed entries are dropped, not repaired.
+    #
+    # Three details that all have to hold at once: re-emit a minimal {label, text} rather
+    # than pass the model's dict through (an invented extra key would ride the wire for
+    # free, and a giant label is payload too — the client's 60 is a display cap, not this
+    # one); validate BEFORE the 3-item cap, since the prompt asks for the most-pasteable
+    # entries first and slicing raw would let a malformed early entry burn a slot and drop
+    # a good one; and when nothing survives, drop the field entirely instead of shipping
+    # `copyables: []` — the prompt says omit when there's nothing, and the UI keys off
+    # presence.
+    #
+    # And a copyable that is JUST a URL already in `links` is a DUPLICATE affordance: the
+    # card renders that link as a tap-to-open chip, so a second row offering the same
+    # string is noise stacked under it. The prompt says a URL belongs in "links", but
+    # prose can't enforce it — here the two fields are side by side and comparable, so
+    # drop the overlap in code. Only whole-URL copyables go: text that CONTAINS a link
+    # (a command with a --scopes=https://… flag, a config block) is still worth copying.
+    hrefs = {
+        str(link["href"]).strip()
+        for link in (result.get("links") or [])
+        if isinstance(link, dict) and link.get("href")
+    }
+    cps = result.get("copyables")
+
+    def _valid(cps):
+        """Validated entries, lazily — islice below stops us at 3 without validating the
+        rest of a long model response on the hot /api/state path."""
+        for c in cps:
+            if not isinstance(c, dict) or not isinstance(c.get("text"), str):
+                continue
+            # strip() not len(): whitespace-only text is nothing to paste, and the client
+            # discards it anyway — dropping here keeps it off every poll for every client.
+            stripped = c["text"].strip()
+            if not stripped or len(c["text"]) > 4000 or stripped in hrefs:
+                continue
+            yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
+
+    good = list(islice(_valid(cps), 3)) if isinstance(cps, list) else []
+    if good:
+        result["copyables"] = good
+    else:
+        result.pop("copyables", None)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.
+    # tmux_label records what tmux said at refinement time, so the watcher's identity
+    # stamp (which must reflect tmux RENAMES on idle ticks) can tell "unchanged —
+    # keep the refinement" from "renamed — tmux wins" (watcher._stamp_identity).
     sess = result.get("session")
     result["label"] = (
         str(sess)[:40] if isinstance(sess, str) and sess.strip() else pane.label
     )
+    result["tmux_label"] = pane.label
     return result

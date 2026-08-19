@@ -136,6 +136,27 @@ def test_stray_waiting_on_dropped_when_not_waiting():
     assert "waiting_on" not in r
 
 
+def test_agents_count_matches_ui_not_done_rule():
+    # The dock badge count must agree with subagentsView, which pulses on state != "done".
+    # So any non-"done" state (running, missing, paused, a stray uppercase) counts as one
+    # running agent; only exactly "done" is excluded.
+    subs = [
+        {"state": "running"},
+        {"state": "done"},
+        {},  # missing state → running
+        {"state": "paused"},  # not "done" → still counted (matches the pulse)
+        {"state": "Running"},  # stray case → not "done" → counted
+    ]
+    r = classify(_pane(), "…", _llm({"activity": "running", "subagents": subs}))
+    assert r["agents"] == 4
+
+
+def test_agents_count_defaults_zero_without_subagents():
+    assert classify(_pane(), "…", _llm({"activity": "running"}))["agents"] == 0
+    # A non-list subagents (model glitch) must not leak through as a count.
+    assert classify(_pane(), "…", _llm({"subagents": "oops"}))["agents"] == 0
+
+
 def test_no_llm_fallback_idle_shell():
     r = classify(_pane("bash"), "shapor@host:~/proj$ ", llm_fn=None)
     assert r["tool"] == "shell" and r["activity"] == "idle"
@@ -144,3 +165,115 @@ def test_no_llm_fallback_idle_shell():
 def test_no_llm_fallback_running():
     r = classify(_pane("node"), "streaming output...\nmore", llm_fn=None)
     assert r["activity"] == "running"
+
+
+def test_copyables_capped_and_malformed_dropped():
+    # copyables ride EVERY state poll, so classify caps count/size and drops junk
+    # rather than repairing it — a clipped paste is worse than no paste.
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "copyables": [
+                    {"label": "Commit message", "text": "fix: unwrap the thing"},
+                    {"label": "no text field"},
+                    {"label": "too long", "text": "x" * 4001},
+                    {"label": "empty", "text": ""},
+                    {"label": "blank", "text": "   \n  "},
+                    "not a dict",
+                    {"label": "fourth", "text": "past the malformed ones"},
+                ],
+            }
+        ),
+    )
+    # Only the two well-formed entries survive. The trailing one is KEPT: validation runs
+    # before the 3-item cap, so the malformed entries above it don't consume slots.
+    assert r["copyables"] == [
+        {"label": "Commit message", "text": "fix: unwrap the thing"},
+        {"label": "fourth", "text": "past the malformed ones"},
+    ]
+
+
+def test_copyables_reemitted_minimally():
+    # The model's dict is not passed through: an invented key would ride every poll for
+    # free, and an enormous label is payload too (the client's 60 cap is only display).
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "copyables": [
+                    {"label": "L" * 500, "text": "paste me", "junk": "x" * 9000},
+                    {"text": "no label at all"},
+                ],
+            }
+        ),
+    )
+    assert r["copyables"] == [
+        {"label": "L" * 200, "text": "paste me"},
+        {"label": "", "text": "no label at all"},
+    ]
+
+
+def test_copyables_validated_before_capping():
+    # Malformed entries must not burn one of the 3 slots: the prompt orders copyables
+    # most-pasteable-first, so capping the raw list would drop a good trailing entry.
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "copyables": [
+                    "junk",
+                    {"label": "no text"},
+                    {"label": "a", "text": "first"},
+                    {"label": "b", "text": "second"},
+                    {"label": "c", "text": "third"},
+                ],
+            }
+        ),
+    )
+    assert [c["text"] for c in r["copyables"]] == ["first", "second", "third"]
+
+
+def test_copyables_all_malformed_omits_field():
+    # Nothing survived — omit the field rather than shipping an empty list (the prompt
+    # says omit when there's nothing, and the UI keys off presence).
+    r = classify(
+        _pane(),
+        "…",
+        _llm({"activity": "idle", "copyables": [{"label": "x"}, "junk"]}),
+    )
+    assert "copyables" not in r
+
+
+def test_copyables_non_list_dropped():
+    r = classify(_pane(), "…", _llm({"activity": "idle", "copyables": "nope"}))
+    assert "copyables" not in r
+
+
+def test_copyable_duplicating_a_link_is_dropped():
+    # A copy row holding a URL the card already renders as a tap-to-open link chip is a
+    # duplicate affordance. Text that merely CONTAINS a URL still copies.
+    r = classify(
+        _pane(),
+        "…",
+        _llm(
+            {
+                "activity": "idle",
+                "links": [{"href": "https://github.com/o/r/pull/5", "text": "PR #5"}],
+                "copyables": [
+                    {"label": "PR URL", "text": "https://github.com/o/r/pull/5"},
+                    {"label": "PR URL padded", "text": "  https://github.com/o/r/pull/5  "},
+                    {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"},
+                ],
+            }
+        ),
+    )
+    assert r["copyables"] == [
+        {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"}
+    ]

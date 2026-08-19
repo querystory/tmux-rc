@@ -50,7 +50,11 @@ const LINK_RE = new RegExp(
 const anchor = (href, shown) =>
   `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(shown)}</a>`;
 
-function linkify(text) {
+// `join` (default on) enables cross-line URL rejoining. It is a TERMINAL-GRID heuristic and
+// must be off for prose — see linkifyText: prose lines are broken by the author, not by a
+// fixed width, so "these two lines are the same length" carries no meaning there and the
+// heuristic mistakes coincidence for wrapping.
+function linkify(text, join = true) {
   // Cross-line URL joining: a URL that reaches a full-width line's end continues on the
   // next line (that's wrapping). Only join when the frame shows real wrapping — a
   // plausible width (>=40) and >=2 full-width lines — so a lone long line ending in a
@@ -59,7 +63,7 @@ function linkify(text) {
   const lines = text.split("\n");
   const maxLen = Math.max(0, ...lines.map((l) => l.length));
   const fullLines = lines.filter((l) => l.length >= maxLen - 1).length;
-  const canJoin = maxLen >= 40 && fullLines >= 2 && fullLines < lines.length;
+  const canJoin = join && maxLen >= 40 && fullLines >= 2 && fullLines < lines.length;
   const joinWidth = maxLen - 1;
   const lineEndLen = new Map(); // offset of each \n -> length of the line it ends
   let off = 0;
@@ -98,6 +102,79 @@ function linkify(text) {
 //   tmux already composed the screen, so nothing else is load-bearing.
 const SGR_SPLIT = /(\x1b\[[0-9;]*m)/;
 const SGR_ONE = /^\x1b\[([0-9;]*)m$/;
+
+// Linkify PROSE (card text: events, headlines, summaries). Same anchor treatment the
+// terminal gets — markdown [label](url) and bare URLs — but with wrap-joining OFF, because
+// that heuristic reads equal line lengths as evidence of a fixed-width grid. In prose the
+// line breaks are the author's, so two coincidentally similar lines were enough to glue the
+// following words onto the href: a summary line ending in a URL produced an anchor pointing
+// at "https://ex.com/abc" + the next line's text, and swallowed that text into the link.
+// Escapes everything it doesn't anchor, so it is a drop-in replacement for esc() on
+// untrusted model text.
+export function linkifyText(text) {
+  return linkify(String(text ?? ""), false);
+}
+
+// renderCaptureLines(text, {color}) — the SAME render, delivered as one HTML string per
+// screen line, so a caller can diff a streaming frame line-by-line instead of swapping the
+// whole subtree (web/app.js's terminal paint; see THE RENDER INVARIANT there).
+//
+// It is deliberately a thin wrapper around renderCapture rather than a second renderer:
+// renderCapture stays the ONE authority on what a line's markup looks like, and — crucially
+// — the parse stays WHOLE-CAPTURE. linkify's cross-line URL joining is a grid heuristic that
+// reads every line's length (maxLen / fullLines) and joins a URL across a full-width line
+// break; rendering line-at-a-time would destroy that (each line would be its own "capture"
+// of one line, so maxLen==that line and fullLines==1 ⇒ never joins). So we render the frame
+// once and split the RESULT.
+//
+// Splitting HTML on "\n" is not a plain String.split: renderCapture emits spans and anchors
+// that STRADDLE newlines (a color run spanning three rows is one <span>; a wrap-joined URL is
+// one <a> whose shown text keeps the breaks). Cutting mid-element would hand each line
+// unbalanced markup. So we walk the string, keep a stack of open tags, and at every newline
+// close the stack (innermost first) and re-open it verbatim on the next line. Rendered under
+// `white-space: pre` with one block child per line, the result is visually identical to the
+// single-string form: same spans, same styles, same hrefs. A wrap-joined URL becomes one
+// <a> per visual fragment instead of one straddling <a> — same href on each, which is exactly
+// the clickability contract linkify already documents ("every visual fragment is clickable").
+const TAG_RE = /<(\/?)([a-z]+)([^>]*)>/gi;
+export function renderCaptureLines(text, opts) {
+  const html = renderCapture(text, opts);
+  const lines = [];
+  const open = []; // [{name, full}] — innermost last
+  let cur = "", pos = 0, m;
+  const reopen = () => open.map((o) => o.full).join("");
+  const closeAll = () => open.map((o) => `</${o.name}>`).reverse().join("");
+  TAG_RE.lastIndex = 0;
+  // Walk tag boundaries; between them, text may contain newlines to break on.
+  const flushText = (s) => {
+    let i = 0;
+    for (;;) {
+      const nl = s.indexOf("\n", i);
+      if (nl === -1) { cur += s.slice(i); return; }
+      cur += s.slice(i, nl) + closeAll();
+      lines.push(cur);
+      cur = reopen();
+      i = nl + 1;
+    }
+  };
+  while ((m = TAG_RE.exec(html))) {
+    flushText(html.slice(pos, m.index));
+    pos = m.index + m[0].length;
+    if (m[1]) { // closing tag: UNWIND to it — pop everything above the match too. Our own
+      // output is well-nested (the tests assert balance), so the popped tail is normally
+      // empty; actually unwinding keeps the reopen list a truthful mirror of the parser
+      // state if renderCapture ever emits nesting this code didn't anticipate.
+      for (let i = open.length - 1; i >= 0; i--)
+        if (open[i].name.toLowerCase() === m[2].toLowerCase()) { open.length = i; break; }
+    } else {
+      open.push({ name: m[2], full: m[0] });
+    }
+    cur += m[0];
+  }
+  flushText(html.slice(pos));
+  lines.push(cur);
+  return lines;
+}
 
 export function renderCapture(text, { color = false } = {}) {
   text = text.replace(/\r/g, ""); // normalize CR for BOTH paths — progress bars etc.

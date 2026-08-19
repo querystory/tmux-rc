@@ -1,0 +1,10 @@
+{
+  "description": "#85 regression (%53-style): agent's own multi-clause offer ending in a rhetorical/optional '?' (\"Want me to write that up… Or if you've seen enough…?\") above an empty box. Still conversational — no tool-held affordance. Must NOT fire question; expected idle.",
+  "current_command": "node",
+  "capture": "● The benchmark run is done: 3.5-flash-lite is ~0.2s faster but drops a live user-question on the hard samples, so I'd keep 3.1-lite for now.\n\n  Want me to write that fusion of the two comparison tables into a single summary doc? Or if you've seen enough, we can just ship the harness as-is and revisit the model swap later?\n\n╭──────────────────────────────────────────────────────────────────────────────╮\n│ ❯                                                                              │\n╰──────────────────────────────────────────────────────────────────────────────╯\n  ~/src/qs/termiphone on research/bench | Opus 4.8 (1M context)\n  session: +40/-8 lines · 52% ctx · 33m · $11.10\n  ⏵⏵ accept edits on (shift+tab to cycle)",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "headline": "Benchmark done; suggests keeping 3.1-lite and offers a summary doc"
+  }
+}
