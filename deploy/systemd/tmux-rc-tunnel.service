@@ -1,5 +1,5 @@
 [Unit]
-Description=tmux-rc tunnel client (<slug>.tun.qs.dev -> the local daemon)
+Description=tmux-rc tunnel client (public endpoint -> the local daemon)
 PartOf=tmux-rc.target
 After=network-online.target
 # The tunnel is optional: with no env file there is nothing to configure the client with,
@@ -17,9 +17,11 @@ StartLimitBurst=20
 # restart bounced the tunnel for no reason.
 
 [Service]
-# A real installed binary, never /tmp (which a reboot erases — that cost us a dead
-# phone once already). Build from qsi-automation/tunnel: `go build -o
-# ~/.local/bin/tunnel-client ./client`.
+# OPTIONAL, and specific to how you expose the daemon: this repo doesn't ship a tunnel.
+# Point ExecStart at whatever reverse-tunnel client you use (cloudflared, tailscale
+# funnel, frp, an in-house relay client...). The only rules that generalise: install the
+# binary to a real path — never /tmp, which a reboot erases — and keep its config in the
+# env file rather than in flags, so credentials aren't in the unit or in `ps`.
 ExecStart=%h/.local/bin/tunnel-client
 # NO command-line flags: the EnvironmentFile carries TUNNEL_SLUG/PORT/OWNER and
 # GOOGLE_APPLICATION_CREDENTIALS (a service-account key — self-refreshing, no human
