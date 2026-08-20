@@ -1716,8 +1716,12 @@ function dock(states, act) {
     if (!sel.isConnected) return;
     const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
     if (i.left < c.left || i.right > c.right)
-      sel.scrollIntoView({
-        inline: "center", block: "nearest",
+      // Nudge ONLY the strip's own scrollLeft to center the icon. scrollIntoView walks up
+      // and scrolls EVERY scrollable ancestor — since the strip now scrolls inside a pinned
+      // ribbon, it dragged the ribbon/page sideways too, so a swipe left the whole strip
+      // offset (and never came back). Centering `el` by hand can't move any ancestor.
+      el.scrollBy({
+        left: (i.left + i.right) / 2 - (c.left + c.right) / 2,
         // Respect reduced-motion: jump instead of glide.
         behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
