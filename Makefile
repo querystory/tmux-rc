@@ -1,4 +1,4 @@
-.PHONY: dev run test fmt docs docs-dev docs-check docs-clean
+.PHONY: dev run test fmt docs docs-dev docs-check docs-clean install-units
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -9,6 +9,26 @@ dev:
 # Plain run, no reload.
 run:
 	uv run python -m daemon.server
+
+# Install/refresh the systemd --user units (see docs/design/deployment.md). Idempotent:
+# safe to re-run after editing a unit. enable-linger is what moves the units' start from
+# "first login" to "boot", so an unattended reboot brings the phone back by itself; set
+# LINGER=0 to skip it on a host with an encrypted $HOME, where nothing under it exists
+# pre-login and lingering units would crash-loop until someone logs in.
+LINGER ?= 1
+install-units:
+	install -Dm644 -t $(HOME)/.config/systemd/user deploy/systemd/tmux-rc-tunnel.service \
+		deploy/systemd/tmux-rc.target  # -D also creates the dir the sed below writes into
+	# The daemon unit is the one file that can't be host-agnostic: it has to name THIS
+	# checkout. Stamp the real path in at install time rather than making every user
+	# hand-edit it (and rather than guessing a layout that's wrong on most hosts).
+	sed 's|^WorkingDirectory=.*|WorkingDirectory=$(CURDIR)|' deploy/systemd/tmux-rc.service \
+		> $(HOME)/.config/systemd/user/tmux-rc.service
+	systemctl --user daemon-reload
+	systemctl --user enable --now tmux-rc.target tmux-rc.service tmux-rc-tunnel.service
+	[ "$(LINGER)" = "1" ] && loginctl enable-linger $(USER) || \
+		echo "LINGER=0: skipping enable-linger (units start at first login)"
+	systemctl --user --no-pager status tmux-rc.service tmux-rc-tunnel.service | head -20
 
 test:
 	uv run pytest -q tests/

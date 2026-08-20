@@ -1,6 +1,6 @@
 # Deployment: always-on tmux-rc
 
-Status: **proposed**. Companion to [durable-vertex-auth.md](durable-vertex-auth.md) (which
+Status: **implemented** (`deploy/systemd/`, `make install-units`). Companion to [durable-vertex-auth.md](durable-vertex-auth.md) (which
 closed the credential half of "runs unattended"); this closes the process half.
 
 ## Problem
@@ -56,11 +56,12 @@ itself. Two latent bugs block this today and are prerequisites:
 2. **Binaries in `/tmp`.** The tunnel-client currently runs from `/tmp/tunnel-client`,
    erased on reboot. Anything a unit starts must live in a real path (`~/.local/bin`).
 3. **Bind localhost.** The API is unauthenticated and `/send` injects keystrokes into
-   terminals; today it binds `0.0.0.0:8080`. Tolerable for a process someone is actively
+   terminals; it used to bind `0.0.0.0:8080`. Tolerable for a process someone is actively
    watching; unacceptable as a 24/7 LAN-reachable endpoint. The phone now reaches the
-   daemon exclusively through the IAP-authenticated tunnel — whose client connects to
-   `localhost:8080` — so always-on operation must flip the default bind to `127.0.0.1`
-   (LAN exposure becomes an explicit opt-in, not a side effect).
+   daemon exclusively through the IAP-authenticated tunnel — whose client connects
+   locally — so the default is now `127.0.0.1:18030` (LAN exposure is an explicit opt-in
+   via `TMUXRC_HOST`, not a side effect). The port moved off 8080 in the same change:
+   it collides with everything on a dev box, and 1803X is this project's block.
 
 ## Deployment shape
 
