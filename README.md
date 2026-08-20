@@ -55,8 +55,8 @@ systemctl --user restart tmux-rc          # after a git pull or a .env change
 systemctl --user restart tmux-rc.target   # both halves (daemon + tunnel)
 ```
 
-`WorkingDirectory=` in `deploy/systemd/tmux-rc.service` assumes `~/src/tmux-rc` — edit it
-if you cloned elsewhere. On a host with an encrypted `$HOME`, install with
+`make install-units` stamps the unit's `WorkingDirectory` with the checkout you run it
+from, so it works wherever you cloned. On a host with an encrypted `$HOME`, install with
 `make install-units LINGER=0`: lingering units would crash-loop before you log in.
 
 **Exposing it off-LAN** is optional and yours to choose — this repo doesn't ship a tunnel.
