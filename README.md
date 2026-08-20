@@ -36,9 +36,43 @@ tmux new -s work
 uv run python -m daemon.server
 ```
 
-Open `http://<machine-lan-ip>:8080` on your phone and add it to your home screen.
-For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
-`tailscale`) — the PoC has **no auth**, so never expose it on an untrusted network.
+The daemon binds `127.0.0.1:18030` by default. To browse it from a phone on the same
+network, set `TMUXRC_HOST=0.0.0.0` and open `http://<machine-lan-ip>:18030` — but note
+the API is **unauthenticated** and `/send` injects keystrokes into your terminals, so
+never do that on an untrusted network. For access off your LAN, front it with a tunnel
+you control (e.g. `cloudflared`, `tailscale`).
+
+### Run it as a service
+
+Long term you don't want the daemon living in a terminal that might close — it should
+survive reboots and restart itself if it dies. `systemd --user` units for the daemon and
+the tunnel client ship in [`deploy/systemd/`](deploy/systemd/):
+
+```bash
+make install-units                        # copy units, enable + start them, enable-linger
+journalctl --user -fu tmux-rc             # daemon logs (replaces watching a pane)
+systemctl --user restart tmux-rc          # after a git pull or a .env change
+systemctl --user restart tmux-rc.target   # both halves (daemon + tunnel)
+```
+
+`make install-units` stamps the unit's `WorkingDirectory` with the checkout you run it
+from, so it works wherever you cloned. On a host with an encrypted `$HOME`, install with
+`make install-units LINGER=0`: lingering units would crash-loop before you log in.
+
+**Exposing it off-LAN** is optional and yours to choose — this repo doesn't ship a tunnel.
+`tmux-rc-tunnel.service` is a slot for whichever reverse-tunnel client you use
+(cloudflared, tailscale funnel, frp, something in-house): point its `ExecStart` at the
+binary, put the client's config in `~/.config/tmux-rc/tunnel.env` (see
+[`deploy/tunnel.env.example`](deploy/tunnel.env.example)), then
+`systemctl --user start tmux-rc-tunnel`. The unit stays inactive until that file exists,
+so you can ignore it entirely on a LAN-only setup. Whatever you pick should
+**authenticate** — the daemon itself has no auth.
+
+The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
+upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit
+and run `make dev` in a pane as usual; the two modes share the same command and config.
+See [docs/design/deployment.md](docs/design/deployment.md) for why user units + linger
+(and not containers, system units, or a supervising parent).
 
 ### Run without cloning
 
@@ -93,8 +127,9 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
 | `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
-| `TMUXRC_HOST` / `TMUXRC_PORT` | `0.0.0.0` / `8080` | HTTP bind |
+| `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |
@@ -116,7 +151,7 @@ across 3 hosts, agents running most of the day), at Gemini 3.1 Flash Lite list p
 
 ## API
 
-The daemon serves the phone's PWA and a small HTTP API on `:8080` — usable by anything
+The daemon serves the phone's PWA and a small HTTP API on `:18030` — usable by anything
 (curl, scripts, agents), not just the phone:
 
 | Endpoint | What it gives you |

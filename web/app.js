@@ -260,6 +260,9 @@ const LUCIDE = {
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
   expandall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 8 3-3 3 3"/><path d="m15 16 3 3 3-3"/>',
+  // expandall's mirror (chevrons point inward) — same lines, so the toggle reads as
+  // one control changing direction, not two different buttons.
+  collapseall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 5 3 3 3-3"/><path d="m15 19 3-3 3 3"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1000,6 +1003,7 @@ function showUsage(u, err) {
 const expandBtn = document.getElementById("expand-btn");
 if (expandBtn) {
   expandBtn.innerHTML = licon("expandall", 14); // svg child — never setText this button
+  expandBtn.dataset.glyph = "expandall"; // applyExpandBtn swaps it with the open state
   expandBtn.onclick = () => {
     if (listFilter) {
       const lp = listSubset(Object.values(panesById)) || [];
@@ -1023,6 +1027,14 @@ function applyExpandBtn(states) {
   setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + what);
   setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + what);
   setAttr(expandBtn, "aria-expanded", String(open));
+  // The glyph must tell the same story as the tooltip: inward chevrons while open
+  // (tapping collapses), outward while collapsed. Guarded — innerHTML on every
+  // render would churn the SVG node for nothing.
+  const glyph = open ? "collapseall" : "expandall";
+  if (expandBtn.dataset.glyph !== glyph) {
+    expandBtn.dataset.glyph = glyph;
+    expandBtn.innerHTML = licon(glyph, 14);
+  }
 }
 
 function listSubset(states) {
@@ -1375,6 +1387,65 @@ const filtersEl = document.getElementById("filters"); // pane filters, homed in 
 // One dock icon, built once per pane. The handler closes over the pane_id STRING
 // (never over `s`), so it stays correct for the life of the node no matter how many
 // polls rewrite the icon around it.
+// ---- Launcher menu: a new agent window in a session, from the dock's "+"/"+N" ----
+// Entries come from the daemon (GET /api/launchers) so the label→command mapping stays
+// server-side: the phone posts back only the label, never a command string. Fetched
+// once — the config is env-set, so it can't change under a running page.
+let launchers = [];
+fetch("/api/launchers")
+  .then((r) => r.json())
+  .then((d) => { launchers = d.launchers || []; })
+  .catch(() => {});
+let launchMenuEl = null;
+function closeLaunchMenu() {
+  if (!launchMenuEl) return;
+  launchMenuEl.remove();
+  launchMenuEl = null;
+  document.removeEventListener("pointerdown", launchMenuAway, true);
+}
+function launchMenuAway(e) {
+  if (!launchMenuEl.contains(e.target)) closeLaunchMenu();
+}
+function openLaunchMenu(sess, anchor) {
+  closeLaunchMenu();
+  if (!launchers.length) return; // fetch failed or config empty — nothing to offer
+  const m = document.createElement("div");
+  m.className = "launch-menu";
+  m.setAttribute("role", "menu");
+  for (const l of launchers) {
+    const b = document.createElement("button");
+    b.setAttribute("role", "menuitem");
+    const im = document.createElement("img");
+    im.width = im.height = 18;
+    // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
+    // config entry can ship its own glyph without the app changing.
+    setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
+    setAttr(im, "alt", "");
+    b.append(im, document.createTextNode(l.label));
+    b.onclick = () => {
+      closeLaunchMenu();
+      fetch("/api/windows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sess, launcher: l.label }),
+      })
+        .then((r) => r.json())
+        // Jump to the new window's card: the pane exists in tmux the moment the POST
+        // returns, so setActive's select lands; the card fills in on the next poll.
+        .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
+        .catch(() => {});
+    };
+    m.appendChild(b);
+  }
+  document.body.appendChild(m);
+  // Under the anchor, clamped into the viewport (a tray's "+" can sit at the right edge).
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8)) + "px";
+  m.style.top = r.bottom + 6 + "px";
+  launchMenuEl = m;
+  document.addEventListener("pointerdown", launchMenuAway, true);
+}
+
 function buildDockIcon(paneId) {
   const b = document.createElement("button");
   b.className = "dock-icon";
@@ -1517,13 +1588,36 @@ function dock(states, act) {
   // A <button> among the tray's icon <button>s, so it can't disturb the group hue cycling
   // (.dock-group:nth-of-type counts <span>s) nor the strip's height (same 36px box as an
   // icon — the join's geometry contract requires the tray add zero height).
-  const FOLD_KEY = "__fold", UNFOLD_KEY = "__unfold";
+  const FOLD_KEY = "__fold", UNFOLD_KEY = "__unfold", LAUNCH_KEY = "__launch";
   const buildFold = (sess, key) => {
     const c = document.createElement("button");
+    if (key === LAUNCH_KEY) {
+      // Bare "+": no parked panes are hiding behind it, so a plain tap goes straight
+      // to the launcher menu — no long-press gymnastics for the common case.
+      c.className = "dock-fold plus";
+      c.setAttribute("aria-haspopup", "menu");
+      c.onclick = () => openLaunchMenu(sess, c);
+      return c;
+    }
     c.className = "dock-fold" + (key === UNFOLD_KEY ? " open" : "");
+    let lpFired = false;
+    if (key === FOLD_KEY) {
+      // "+N" already means "show parked" on tap, so the launcher hides behind a
+      // long-press. pointerdown starts the clock; any release/exit before it fires is
+      // a tap. The fired flag swallows the click that follows a completed long-press.
+      c.setAttribute("aria-haspopup", "menu");
+      let t = 0;
+      c.onpointerdown = () => {
+        lpFired = false;
+        t = setTimeout(() => { lpFired = true; openLaunchMenu(sess, c); }, 500);
+      };
+      c.onpointerup = c.onpointerleave = c.onpointercancel = () => clearTimeout(t);
+      c.oncontextmenu = (e) => e.preventDefault(); // iOS long-press callout
+    }
     // No captureIconRects() to prime a list FLIP: folding is a DOCK-only concern — the
     // list's rows are identical before and after.
     c.onclick = () => {
+      if (lpFired) { lpFired = false; return; }
       if (key === UNFOLD_KEY) foldOpen.delete(sess); else foldOpen.add(sess);
       render(Object.values(panesById));
     };
@@ -1547,13 +1641,21 @@ function dock(states, act) {
     if (g.parked > 0)
       items.push({ key: FOLD_KEY,
         text: "+" + g.parked,
-        label: `Show ${g.parked} parked pane${g.parked === 1 ? "" : "s"} in ${g.sess || "this session"}`,
+        label: `Show ${g.parked} parked pane${g.parked === 1 ? "" : "s"} in ${g.sess || "this session"} — hold for a new agent window`,
         open: false });
-    else if (g.open && wouldFold(g.sess))
-      items.push({ key: UNFOLD_KEY,
-        text: "‹",
-        label: `Hide parked panes in ${g.sess || "this session"}`,
-        open: true });
+    else {
+      // Nothing parked (or the tray is expanded): the slot the "+N" chip would occupy
+      // becomes a bare "+" that opens the launcher directly — no long-press needed
+      // when there's no fold action to disambiguate from.
+      if (g.open && wouldFold(g.sess))
+        items.push({ key: UNFOLD_KEY,
+          text: "‹",
+          label: `Hide parked panes in ${g.sess || "this session"}`,
+          open: true });
+      items.push({ key: LAUNCH_KEY,
+        text: "+",
+        label: `New agent window in ${g.sess || "this session"}` });
+    }
     keyedList(sp, items, (it) => it.key,
       (it) => (it.pane ? buildDockIcon(it.pane.pane_id) : buildFold(g.sess, it.key)),
       (node, it) => {
@@ -1561,7 +1663,7 @@ function dock(states, act) {
         setText(node, it.text);
         setAttr(node, "title", it.label);
         setAttr(node, "aria-label", it.label);
-        setAttr(node, "aria-expanded", String(it.open));
+        if (it.open !== undefined) setAttr(node, "aria-expanded", String(it.open));
       });
   });
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
@@ -1614,8 +1716,12 @@ function dock(states, act) {
     if (!sel.isConnected) return;
     const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
     if (i.left < c.left || i.right > c.right)
-      sel.scrollIntoView({
-        inline: "center", block: "nearest",
+      // Nudge ONLY the strip's own scrollLeft to center the icon. scrollIntoView walks up
+      // and scrolls EVERY scrollable ancestor — since the strip now scrolls inside a pinned
+      // ribbon, it dragged the ribbon/page sideways too, so a swipe left the whole strip
+      // offset (and never came back). Centering `el` by hand can't move any ancestor.
+      el.scrollBy({
+        left: (i.left + i.right) / 2 - (c.left + c.right) / 2,
         // Respect reduced-motion: jump instead of glide.
         behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
@@ -2327,7 +2433,7 @@ function applyLinks(box, links) {
 // Put text on the clipboard, resolving true/false so the caller can show the outcome
 // (a silent no-op reads as "the button is broken"). navigator.clipboard needs a secure
 // context: the PWA is served over HTTPS through the tunnel, but a plain-HTTP LAN visit
-// (http://host:8080) has no Clipboard API at all — fall back to the legacy
+// (http://host:18030) has no Clipboard API at all — fall back to the legacy
 // execCommand path so copy still works there.
 async function copyText(text) {
   try {

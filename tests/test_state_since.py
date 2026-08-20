@@ -101,3 +101,42 @@ def test_state_since_resets_on_new_question_but_persists_on_same(monkeypatch):
                 "events": [], "tool": "claude"}
     w._forced_this_tick = set()
     assert w._tick_pane(pane)["state_since"] == 1100.0, "a new question restarts the clock"
+
+
+def test_restart_seeds_idle_clock_from_tmux_activity(monkeypatch):
+    """A fresh daemon seeing an already-idle pane must seed state_since from tmux's
+    #{window_activity}, not 'now' — restart used to flash the whole fleet as recent
+    for PARKED_IDLE_SECS (#129). A pane first seen BUSY still stamps now, and a real
+    transition observed later still resets to now."""
+    frame, state, clock = ["idle screen"], [{"activity": "idle"}], [10_000.0]
+    w = _harness(monkeypatch, frame, state, clock)
+    p = _Pane()
+    p.window_activity = "4000"  # tmux: last activity 6000s ago
+    first = w._tick_pane(p)
+    assert first["state_since"] == 4000.0
+
+    # busy pane, same fresh daemon: its state genuinely starts now
+    state[0] = {"activity": "running"}
+    frame[0] = "busy screen"
+    q = _Pane(pid="%2")
+    q.window_activity = "4000"
+    assert w._tick_pane(q)["state_since"] == 10_000.0
+
+    # observed transition later: reset to now, tmux's stale stamp must NOT win
+    clock[0] = 11_000.0
+    state[0] = {"activity": "running"}
+    frame[0] = "now busy"
+    assert w._tick_pane(p)["state_since"] == 11_000.0
+
+
+def test_list_panes_populates_window_activity(monkeypatch):
+    """The seeding above is inert unless #{window_activity} actually rides in
+    _PANE_FMT: a missing column would leave Pane.window_activity at its "" default
+    (and an 11-field line would be dropped by the length guard entirely)."""
+    tmux = W.tmux
+    fields = ["work", "0", "work", "0", "%1", "bash", "title", "/home/u", "42",
+              "1", "1", "4000"]
+    monkeypatch.setattr(tmux, "_run", lambda args: "\t".join(fields) + "\n")
+    (pane,) = tmux.list_panes()
+    assert pane.window_activity == "4000"
+    assert (pane.id, pane.pane_active) == ("%1", "1")  # order intact around the new column
