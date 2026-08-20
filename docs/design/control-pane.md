@@ -1,8 +1,9 @@
 # Design: the control pane — a resident agent that manages the fleet
 
-Status: **draft / thinking** — no code yet.
+Status: **draft / thinking** — no code yet. Proposes a future architecture; nothing here
+describes how the system works today.
 
-## Problem: the voice model is doing two jobs, and paying audio prices for both
+## Problem: the voice model is doing two jobs at once
 
 Live Mode's prompt keeps absorbing orchestration duties. It now carries the
 targeting ladder (name > conversation > active > offered redirects > idle-age
@@ -17,10 +18,13 @@ That coupling has three costs:
    the work land, and knowing when to speak requires the most capable live model
    available — the judgment and the voice are welded together, so we can never
    use a cheaper model for the easy half.
-2. **Audio-rate context.** Every pane digest and every `[tmux update]` streams
-   into the voice session as text-in at Live-API prices, and the model's
-   reasoning about them shares a context with the conversation itself. The
-   orchestration workload inflates exactly the session that bills highest.
+2. **Context pressure in the wrong place.** Every pane digest and every
+   `[tmux update]` streams into the voice session, where the model's reasoning
+   about them shares one context — and one hard limit — with the conversation
+   itself. This is a capacity problem, not a cost one: the connect snapshot
+   already had to be budgeted fleet-wide (#123) after a 24-pane deck's screens
+   blew the session's setup limit and killed voice outright. Orchestration state
+   competes for the scarcest context in the system.
 3. **Prompt fragility.** The tuning history is a whack-a-mole record: placeholder
    text read as instructions, prompts typed into the wrong pane, instructions
    arriving summarized, the session going silent on dispatched work. Each fix
@@ -65,7 +69,7 @@ high; the voice session keeps only the conversation.
 - **Control pane** (charter prompt, versioned in-repo): the targeting ladder,
   verbatim onward delivery, watch-and-report, holding notes, destructive-command
   confirmation. It reads fleet state itself — it lives inside tmux — rather than
-  having digests pushed at audio prices.
+  having digests pushed into the voice session's limited context.
 - **Daemon**: the pipe. Knows which pane is the control pane, types into it,
   streams its replies back to the voice session. No new orchestration logic.
 
@@ -100,21 +104,26 @@ normal agent session with the skill available and the charter as its opening
 prompt — no forked agent, no custom binary; any capable session can take the
 job, and the skill's evolution is reviewed like any other code.
 
-## Model economics
+## What this buys (and what it doesn't)
 
-The voice session sheds its largest cost driver: pane context. Today every
-`[tmux update]` bills as Live-API text-in and competes with speech for the
-model's attention; under this design the voice context is conversation-only.
-With judgment gone, a less capable live model becomes plausible — and the door
-opens to half-duplex STT → text-model → TTS stacks, where the "voice model"
-disappears entirely. The control pane runs continuously but idles free: an agent
+The voice session sheds pane context entirely: conversation only. That relieves the
+constraint that actually bites — the Live session's context ceiling, which already
+forced a fleet-wide screen budget — and frees the prompt from carrying orchestration
+policy. With judgment gone, a less capable live model becomes plausible, and the door
+opens to half-duplex STT → text-model → TTS stacks where the "voice model" disappears.
+
+**Not a cost argument.** Measured over 28 days, Live Mode totals a few dollars while the
+always-on classifier runs ~$5/day — voice is the cheap part of this system, and moving
+work off it saves little. Judge this design on capability, context headroom, and prompt
+maintainability; the caching and cadence work (llm-caching.md, parse-cadence.md) is where
+the money actually is. The control pane runs continuously but idles free: an agent
 session with no prompt in flight costs nothing but memory.
 
 ## Alternatives considered
 
 1. **Keep tuning the live prompt** (status quo). Every behavior costs prompt
-   space the voice model must honor mid-speech, at audio prices; the tuning
-   record shows the marginal fix getting harder. Rejected as a ceiling, though
+   space the voice model must honor mid-speech; the tuning record shows the
+   marginal fix getting harder. Rejected as a ceiling, though
    it remains the fallback if the hop latency below proves unacceptable.
 2. **Daemon-internal text-model orchestrator** (no pane). Same economics,
    lower latency than an agent turn — but it's invisible (no scrollback to
