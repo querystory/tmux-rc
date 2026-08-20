@@ -26,9 +26,11 @@ fmt:
 docs:
 	cd docs-site && hugo --gc --minify --baseURL /docs/ --destination serve
 
-# Docs authoring server with hot reload on http://localhost:18034 (1803X = R,C — "rc" is the durable half of the name — the 1719X
-# block is Q,S: reserved for qs-app; this repo must stay out of it). Uses Hugo's default
-# in-memory/public workspace at root baseURL — independent of the daemon's serve/ dir.
+# Docs authoring server with hot reload on http://localhost:18034. Ports here spell R,C
+# (1803X) — "rc" being the half of the name that survives if the project is ever renamed
+# off tmux — and the block keeps this project's ports clear of its neighbours'. Uses
+# Hugo's default in-memory/public workspace at root baseURL — independent of the daemon's
+# serve/ dir.
 docs-dev:
 	cd docs-site && hugo server --port 18034
 
