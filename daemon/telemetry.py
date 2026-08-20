@@ -169,6 +169,7 @@ def emit_parse(
     latency: float,
     ttft: float | None,
     in_tokens: int,
+    cached_tokens: int,
     out_tokens: int,
     cost: float,
     activity: str | None,
@@ -210,6 +211,9 @@ def emit_parse(
         # aggregates with zeros.
         if error is None:
             attrs["in_tokens"] = in_tokens
+            # in_tokens INCLUDES these; they bill at 10% of list. Kept as its own
+            # column so cache-hit rate is a query, not an inference.
+            attrs["cached_tokens"] = cached_tokens
             attrs["out_tokens"] = out_tokens
             attrs["cost_usd"] = round(cost, 6)
         else:

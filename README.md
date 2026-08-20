@@ -134,6 +134,21 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |
 
+### What it costs
+
+Measured, not estimated — from a month of per-call telemetry on a real fleet (45 panes
+across 3 hosts, agents running most of the day), at Gemini 3.1 Flash Lite list prices
+($0.25/M input, $1.50/M output):
+
+- **~$5/day for the whole fleet** (~$33/week). A classify call is ~10.5k tokens in /
+  ~200 out (≈$0.003); calls fire only when a pane's content actually changes, so cost
+  scales with how busy your agents are, not with pane count — idle panes are free.
+- Voice (Live Mode) is billed per session and has been immaterial next to the
+  classifier (a few dollars per month of daily use).
+- A lightly used single-pane setup runs pennies per day. `GET /api/state` reports
+  running totals, and the OTLP telemetry (above) records per-call tokens/cost if you
+  want the real queryable ledger.
+
 ## API
 
 The daemon serves the phone's PWA and a small HTTP API on `:18030` — usable by anything
