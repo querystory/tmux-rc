@@ -139,12 +139,12 @@ Why this shape:
 
 ### The tunnel-client half
 
-The client binary is built from `qsi-automation/tunnel` but *deployed here*, on the
+The client binary is built from a separate private repo but *deployed here*, on the
 workstation. Division of responsibility:
 
 - **This repo** owns the unit file and documents the install path
   (`~/.local/bin/tunnel-client`) and flags (`--slug`, `--port`, `--owner`).
-- **qsi-automation** owns the relay (Cloud Run) and the client's code, including two
+- **The tunnel repo** owns the relay (Cloud Run) and the client's code, including two
   relay/client-side improvements: forwarding the IAP identity for the audit log (its
   PR #525, merged on the `feat/tunnel-relay` train), and optionally make-before-break
   reconnects to hide the hourly Cloud Run WS timeout (today: a ~2s blip per hour, which
@@ -160,7 +160,7 @@ The third process solves itself: the daemon can already emit to the durable Clou
 receiver (the current live process does, via shell env overriding the `.env`, which
 still names the local receiver — the unit should bake the Cloud Run endpoint in). The local bench
 receiver (and its SA key) should be shut down once the per-source prefix routing lands
-in qsi-automation — no unit needed for a process that shouldn't exist.
+in the tunnel repo — no unit needed for a process that shouldn't exist.
 
 ## Failure modes after this change
 
@@ -177,7 +177,7 @@ in qsi-automation — no unit needed for a process that shouldn't exist.
 1. Fix `server_uid()` caching (cache success only; re-derive on tmux server pid change).
 2. Flip the default bind to `127.0.0.1` (prerequisite 3) and set it in the unit's env;
    LAN exposure becomes explicit opt-in.
-3. Install the tunnel-client binary to `~/.local/bin` (built from qsi-automation).
+3. Install the tunnel-client binary to `~/.local/bin` (built from the tunnel repo).
 4. Add `deploy/systemd/tmux-rc.service`, `tmux-rc-tunnel.service`, `tmux-rc.target` to
    this repo + a short `make install-units` (copy to `~/.config/systemd/user/`,
    `daemon-reload`, `enable --now`, `loginctl enable-linger`).

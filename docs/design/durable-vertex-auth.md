@@ -2,7 +2,7 @@
 
 Status: **implemented** (option A). Tracks GitHub issue: daemon Vertex auth wedge.
 
-Implemented as: SA `tmux-rc-classifier@qs-backend-dev` (role `roles/aiplatform.user`), key at
+Implemented as: SA `tmux-rc-classifier` (role `roles/aiplatform.user`), key at
 `~/.config/tmux-rc/vertex-sa.json` (chmod 600), wired via `GOOGLE_APPLICATION_CREDENTIALS` in
 `.env` (documented in `.env.example`). Verified: the daemon classifies via the key with
 developer ADC forced unavailable. Remaining follow-up: systemd unit (step 6) so the launch is
@@ -31,7 +31,7 @@ This is not hypothetical — it caused **two production incidents in one session
 2. **Receiver GCS ADC (`invalid_rapt`).** Separately, the local otel bench receiver used
    developer ADC for its GCS uploads; the RAPT expired and every flush 401'd
    (`invalid_grant` / `reauth related error`). Fixed durably by giving the receiver a
-   **long-lived service-account key** (`otel-receiver-service@qsi-automation`, which
+   **long-lived service-account key** (the telemetry receiver's own SA, which
    already had `roles/storage.objectCreator` on the bucket) via
    `GOOGLE_APPLICATION_CREDENTIALS`. That closed the receiver side.
 
@@ -44,14 +44,14 @@ ADC is designed for interactive developer use and short-lived tokens with period
 The daemon is a **long-running unattended service** — exactly the workload ADC is not for.
 A credential that requires a human to periodically re-run a browser login is structurally
 incompatible with "runs for days classifying panes." The tunnel service
-(`qsi-automation/tunnel`) already learned this and moved to long-lived SA credentials for
+(a separate private repo) already learned this and moved to long-lived SA credentials for
 the same reason.
 
 ## Options
 
 ### A. Long-lived service-account key (recommended)
 
-Create a dedicated SA (e.g. `tmux-rc-classifier@qs-backend-dev`), grant it the minimal
+Create a dedicated SA (e.g. `tmux-rc-classifier`), grant it the minimal
 Vertex role (`roles/aiplatform.user`), mint a JSON key, and point the daemon at it via
 `GOOGLE_APPLICATION_CREDENTIALS` in `.env`. google-genai/google-auth honors that env var
 with **zero daemon code change** (it's the first entry in the credential resolution chain).
@@ -63,9 +63,14 @@ with **zero daemon code change** (it's the first entry in the credential resolut
 - **Cons:** a long-lived key file on disk (mitigate: `chmod 600`, outside the repo under
   `~/.config/tmux-rc/`, gitignored path in `.env`). Key rotation is a manual/periodic
   chore.
-- **Note:** Vertex/Gemini runs in **`qs-backend-dev`** (that's `GOOGLE_CLOUD_PROJECT`), so
-  the SA + role binding + key are in that project — distinct from the receiver's SA, which
-  is in `qsi-automation` (where the bucket lives).
+- **Note:** the SA's project and `GOOGLE_CLOUD_PROJECT` need not match, and often can't.
+  An org policy (`constraints/iam.disableServiceAccountKeyCreation`) commonly blocks key
+  creation on exactly the project you want to run inference in. Mint the key in a project
+  that permits keys, then grant that SA `roles/aiplatform.user` **on** the inference
+  project; Vertex bills and quotas against `GOOGLE_CLOUD_PROJECT`, not the SA's home. The
+  telemetry receiver's SA is separate again (it lives with its bucket). Expect a minute or
+  two of IAM propagation before the cross-project grant takes effect — a fresh binding
+  returns `403 PERMISSION_DENIED` on `aiplatform.endpoints.predict` until it lands.
 
 ### B. SA impersonation via developer ADC
 
@@ -101,8 +106,8 @@ residual failure is loud and obvious rather than a silent stale-card freeze.
 
 ## Implementation sketch (option A)
 
-1. `gcloud iam service-accounts create tmux-rc-classifier --project=qs-backend-dev …`
-2. `gcloud projects add-iam-policy-binding qs-backend-dev --member=serviceAccount:… --role=roles/aiplatform.user`
+1. `gcloud iam service-accounts create tmux-rc-classifier --project=$KEY_PROJECT …`
+2. `gcloud projects add-iam-policy-binding $INFERENCE_PROJECT --member=serviceAccount:… --role=roles/aiplatform.user`
 3. `gcloud iam service-accounts keys create ~/.config/tmux-rc/vertex-sa.json --iam-account=…` ; `chmod 600`
 4. Add `GOOGLE_APPLICATION_CREDENTIALS=/home/YOU/.config/tmux-rc/vertex-sa.json` to `.env`
    — an **absolute** path, since google-auth does not expand `~` in the env var (the `~` in
@@ -115,7 +120,7 @@ residual failure is loud and obvious rather than a silent stale-card freeze.
 
 ## Related
 
-- **Receiver side already done:** SA-key GCS auth on `otel-receiver-service@qsi-automation`.
+- **Receiver side already done:** SA-key object-storage auth on the receiver's own SA.
 - **Timeout mitigation already merged** (PR #1): the 20s client timeout turns a hung refresh
   into a recoverable error — necessary but not sufficient; this SA plan is the real fix.
 - **Durability (separate follow-up):** daemon + receiver are currently `setsid` background

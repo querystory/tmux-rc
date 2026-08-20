@@ -29,8 +29,8 @@
       125      if pane is None:                                                                                                                                                                         
                                                                                                                                                                                                      
 ● Running 1 shell command…                                                                                                                                                                            
-  ⎿  $ cd /home/shapor/src/qs/termiphone                                                                                                                                                                
-     GOOGLE_CLOUD_PROJECT=qs-backend-dev .venv/bin/python -m research.probe --save working 2>&1 | grep -vE 'Traceback|File "|raise|resp =|self\.|return await|^\s+\^|warnings\.warn|UserWarning|for that 
+  ⎿  $ cd ~/src/tmux-rc                                                                                                                                                                
+     GOOGLE_CLOUD_PROJECT=example-project .venv/bin/python -m research.probe --save working 2>&1 | grep -vE 'Traceback|File "|raise|resp =|self\.|return await|^\s+\^|warnings\.warn|UserWarning|for that 
      reason' | tail -80                                                                                                                                                                                     
                                                                                                                                                                                                             
 ✢ Wrangling… (2m 19s · ↓ 5.9k tokens)                                                 

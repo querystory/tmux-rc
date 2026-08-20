@@ -6,7 +6,7 @@ captures repo-specific workflow that isn't obvious from the code.
 
 ## Testing changes on the live dev instance
 
-**The dev daemon always runs `make dev` from the REPO ROOT (`~/src/qs/termiphone`), in
+**The dev daemon always runs `make dev` from the REPO ROOT, in
 tmux pane `%8`. To test a branch on the live phone instance, `git checkout <branch>` in
 the root and restart the daemon — never `cd` the daemon into a worktree.**
 
@@ -19,7 +19,7 @@ the root and restart the daemon — never `cd` the daemon into a worktree.**
   changes just reload the page (assets are served no-store).
 - A branch checked out in a `.claude/worktrees/*` worktree can't also be checked out in
   root — `git worktree remove` it first (after pushing), then checkout in root.
-- The live instance is at `shapor-tmux.tun.qs.dev` (via the tunnel client in the
+- The live instance is at `<slug>.<your-tunnel-domain>` (via the tunnel client in the
   `2:tunnel` window). A momentary "no tunnel connected" is the relay's ~1h connection
   cap; the client auto-reconnects within ~1min.
 

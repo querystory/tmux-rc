@@ -17,7 +17,7 @@ flowchart LR
   phone["phone PWA"]
   subgraph gcp["Google Cloud"]
     iap["IAP<br/>(identity-aware proxy:<br/>Google SSO gate)"]
-    relay["tun.qs.dev relay<br/>(Cloud Run)"]
+    relay["tunnel relay<br/>(Cloud Run)"]
     iap --> relay
   end
   subgraph host["dev box (as the user)"]
@@ -38,7 +38,7 @@ flowchart LR
 **Why the traffic flows this way.** The daemon has **no inbound port** — nothing to
 port-forward, nothing exposed. Instead the `tunnel-client` process (running on the dev
 box, as the user) dials *outbound* to the Cloud Run relay and holds a WebSocket open.
-The phone hits `https://<slug>.tun.qs.dev`; **IAP** (Google's identity-aware proxy) gates
+The phone hits `https://<slug>.<tunnel-domain>`; **IAP** (Google's identity-aware proxy) gates
 that with Google SSO *before* any request reaches the relay, and an owner-gate check
 confirms the logged-in identity owns the slug. Authorized requests are then serialized
 and forwarded *down* the held WebSocket to the tunnel-client, which replays them against
@@ -67,7 +67,7 @@ stay attached to the same session at the same time.
   at a time with a dock of the others; the raw terminal streams live behind the card.
 - **The tunnel** — the daemon has no inbound port. A tunnel-client process dials *out* to
   a Cloud Run relay over a WebSocket; the relay forwards phone HTTP requests down that
-  socket and pipes responses back. The phone reaches `https://<slug>.tun.qs.dev`; IAP +
+  socket and pipes responses back. The phone reaches `https://<slug>.<tunnel-domain>`; IAP +
   an owner-gate authorize it. Detailed below.
 
 ## The tunnel & IAP: how a phone request reaches localhost
