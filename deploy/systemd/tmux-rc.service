@@ -16,7 +16,8 @@ After=network-online.target
 # The checkout IS the deploy: `git pull` + `systemctl --user restart tmux-rc`. The
 # daemon loads this directory's .env itself, so the unit stays thin — no second copy
 # of the config to drift out of sync.
-WorkingDirectory=%h/src/qs/tmux-rc
+# EDIT THIS to wherever you cloned the repo (`make install-units` does not rewrite it).
+WorkingDirectory=%h/src/tmux-rc
 ExecStart=%h/.local/bin/uv run python -m daemon.server
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Reload is a dev-loop convenience; under a unit it would restart the daemon (dropping
