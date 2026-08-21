@@ -194,9 +194,12 @@ first use; it must stay stable, since subscriptions bind to the public key), the
 tunnel owner or a `.env` value), and the subscription list. Clients still re-POST their subscription at boot as self-healing;
 the store prunes endpoints on `410 Gone`.
 
-`POST /api/push/subscribe` is guarded and audited like `/send`. It's single-user,
-multi-device: every stored subscription gets every push (per-device mute can come
-later if it ever matters).
+`POST /api/push/subscribe` is guarded and audited like `/send`, and paired with an
+unsubscribe (the client calls it when the user flips the bell off or permission is
+revoked) plus a revoke-all — a lost or replaced device must not keep receiving pane
+content until the platform happens to return `410`. It's single-user, multi-device:
+every stored subscription gets every push (per-device mute can come later if it
+ever matters).
 
 ### Egress
 
@@ -208,7 +211,11 @@ stalls, though: the sender is a synchronous `requests` call, so it runs **off th
 watcher and request hot paths** (its own worker thread, fed by a queue) with
 explicit connect/read timeouts. An FCM/APNs outage must degrade to dropped or late
 pushes — never to stalled parsing or presence updates (blocked-event-loop slowness
-is already a known failure class in this daemon). Blocking pushes go with `Urgency: high` and a short TTL
+is already a known failure class in this daemon). The queue is small and bounded
+(drop-oldest on overflow, no retry beyond what `requests` does in one call): a
+notification that couldn't send for minutes is *stale*, and the right failure mode
+for this feature is silence, not a burst of old buzzes when the outage clears —
+the push-service TTLs bound staleness on their side for the ones that did leave. Blocking pushes go with `Urgency: high` and a short TTL
 (~10 min — a stale question has probably been answered from another surface);
 milestones with normal urgency and ~1h TTL. Tags are **namespaced by kind**:
 `block:<pane_id>` (a newer question on the same pane replaces the older one) and a
@@ -247,7 +254,12 @@ than `/send`: the SW posts `{nonce, option_index}` to a dedicated
 - **The fingerprint must still match.** The nonce binds to the full answer-contract
   fingerprint above; if the pane's current question has changed in prompt, options,
   order, or style — or the pane id was recycled to a new pane — the tap is rejected
-  rather than typed into whatever is there now.
+  rather than typed into whatever is there now. Validation checks the pane's live
+  pid (not just the cached parse) before injecting; what remains is the sub-second
+  window between the last parse and the keystroke, which the card's own option taps
+  share — a forced re-parse-then-send would still race the screen, so we accept the
+  same residual window the existing answer path already has rather than pretend a
+  second read closes it.
 - **The daemon owns the option→keystroke mapping.** `answer_style` matters:
   `"menu"` options are on-screen widgets answered with a keystroke (digit, y/n),
   not their label text — typing the label into a numbered menu selects nothing or
