@@ -203,7 +203,12 @@ later if it ever matters).
 Push endpoints (`fcm.googleapis.com`, `web.push.apple.com`) would hit the same
 broken-IPv6 serial-connect hang the Gemini websocket did — but the daemon's
 `socket.getaddrinfo` IPv4-first sort is process-wide, so `pywebpush`/`requests`
-inherit it for free. Blocking pushes go with `Urgency: high` and a short TTL
+inherit it for free. That sort doesn't bound a request that connects and then
+stalls, though: the sender is a synchronous `requests` call, so it runs **off the
+watcher and request hot paths** (its own worker thread, fed by a queue) with
+explicit connect/read timeouts. An FCM/APNs outage must degrade to dropped or late
+pushes — never to stalled parsing or presence updates (blocked-event-loop slowness
+is already a known failure class in this daemon). Blocking pushes go with `Urgency: high` and a short TTL
 (~10 min — a stale question has probably been answered from another surface);
 milestones with normal urgency and ~1h TTL. Tags are **namespaced by kind**:
 `block:<pane_id>` (a newer question on the same pane replaces the older one) and a
@@ -213,10 +218,15 @@ blocking notification).
 
 ## Replying from the notification
 
-- **Options** (`question.options` present): the first two become action buttons
-  (Web Push caps actions at two on most platforms; tapping the body opens the card
-  for the rest). **iOS does not render action buttons at all** — there, every tap
-  deep-links into the app. Accept the asymmetry rather than fighting it.
+- **Options** (`question.options` present): the first two **renderable** options
+  become action buttons (Web Push caps actions at two on most platforms; tapping the
+  body opens the card for the rest). "Renderable" means the same pseudo-option
+  filtering the card already applies ("Other", "type something…") — the push must
+  never offer an action the card wouldn't, and indices are minted against that same
+  filtered list, which is also what the answer-contract fingerprint hashes, so
+  filtering can't skew index→keystroke mapping. **iOS does not render action buttons
+  at all** — there, every tap deep-links into the app. Accept the asymmetry rather
+  than fighting it.
 - **Free text**: deep link with the composer focused — on every platform. (The Web
   Notifications API has no inline text-input field; Android's RemoteInput is a
   native-notification feature that `showNotification` cannot express, so there is
