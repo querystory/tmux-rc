@@ -189,8 +189,9 @@ This is a narrow, justified exception to the no-persistence rule (see the
 activity-log design): a subscription is a **client credential**, config-like (peer of
 `.env`), not observed pane state — losing it doesn't thin out history, it severs the
 channel. One small JSON file next to `.env` holds the VAPID keypair (generated on
-first use; it must stay stable, since subscriptions bind to the public key) and the
-subscription list. Clients still re-POST their subscription at boot as self-healing;
+first use; it must stay stable, since subscriptions bind to the public key), the
+`sub` contact claim VAPID authentication requires (a `mailto:` — default it from the
+tunnel owner or a `.env` value), and the subscription list. Clients still re-POST their subscription at boot as self-healing;
 the store prunes endpoints on `410 Gone`.
 
 `POST /api/push/subscribe` is guarded and audited like `/send`. It's single-user,
