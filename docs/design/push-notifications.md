@@ -75,8 +75,12 @@ the source (the model sees what it already reported), already written as standal
 notification-feed lines, and already timestamped in the burst ring. The notification
 body *is* the event text — single-sourced, no drift.
 
-The dedup interaction is deliberate: the notifier consumes events **at append time**,
-so the flag only matters on the parse that first reports the event. If the model
+The dedup interaction is deliberate: the notifier consumes events **at append time
+from live parses only** — bootstrap-seeded events are excluded. Session bootstrap
+reconstructs *history* from scrollback and prepends it to the log (it already flags
+these entries); a daemon restart must repopulate the feed, not buzz the phone about
+milestones that happened an hour ago. The flag therefore only matters on the live
+parse that first reports the event. If the model
 re-emits the same text later *with* the flag, the text-keyed duplicate guard drops it
 before the notifier sees it — there is no "upgrade to milestone" path. Marking
 happens when the event is written or not at all, which is also the only behavior the
@@ -192,8 +196,9 @@ channel. One small JSON file next to `.env` — owner-only (0600) and written at
 (temp file + rename), since it holds credentials, not observations — holds the VAPID keypair (generated on
 first use; it must stay stable, since subscriptions bind to the public key), the
 `sub` contact claim VAPID authentication requires (a `mailto:` — default it from the
-tunnel owner or a `.env` value), and the subscription list. Clients still re-POST their subscription at boot as self-healing;
-the store prunes endpoints on `410 Gone`.
+tunnel owner or a `.env` value), and the subscription list. Clients still re-POST their subscription at boot as self-healing —
+the store upserts keyed by endpoint, so a re-register is idempotent, never a
+duplicate delivery — and prunes endpoints on `410 Gone`.
 
 `POST /api/push/subscribe` is guarded and audited like `/send`, and paired with an
 unsubscribe (the client calls it when the user flips the bell off or permission is
@@ -251,7 +256,10 @@ than `/send`: the SW posts `{nonce, option_index}` to a dedicated
   which option indices that push offered. Answering consumes the nonce atomically,
   and an index outside the minted set is rejected: the SW is not a trust boundary,
   so a valid nonce must not be able to select an option the notification never
-  showed. Fingerprint
+  showed. Nonce lifetime is tied to the question *occurrence*, not the contract:
+  when the wait clears (the notified-set forgets the fingerprint), its nonces are
+  invalidated too — otherwise an unconsumed nonce from an old push could answer a
+  later re-occurrence of the byte-identical question it wasn't minted for. Fingerprint
   validation alone can't prevent a double-tap or replayed push from injecting the
   option twice — both taps can arrive before the forced re-parse clears the
   question. (The card UI has the same hazard and disables its option buttons once
