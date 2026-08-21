@@ -188,7 +188,8 @@ client is open to re-register, so "re-POST on next app load" can't be the only c
 This is a narrow, justified exception to the no-persistence rule (see the
 activity-log design): a subscription is a **client credential**, config-like (peer of
 `.env`), not observed pane state — losing it doesn't thin out history, it severs the
-channel. One small JSON file next to `.env` holds the VAPID keypair (generated on
+channel. One small JSON file next to `.env` — owner-only (0600) and written atomically
+(temp file + rename), since it holds credentials, not observations — holds the VAPID keypair (generated on
 first use; it must stay stable, since subscriptions bind to the public key), the
 `sub` contact claim VAPID authentication requires (a `mailto:` — default it from the
 tunnel owner or a `.env` value), and the subscription list. Clients still re-POST their subscription at boot as self-healing;
@@ -245,8 +246,12 @@ An action tap is **send-keys from the lock screen**, so the reply path is narrow
 than `/send`: the SW posts `{nonce, option_index}` to a dedicated
 `/api/push/answer`. Three server-side gates before anything is typed:
 
-- **The nonce is one-shot.** Each action-bearing push carries a random nonce the
-  daemon minted and remembers; answering consumes it atomically. Fingerprint
+- **The nonce is one-shot, and it binds the offered actions.** Each action-bearing
+  push carries a random nonce the daemon minted and remembers — along with exactly
+  which option indices that push offered. Answering consumes the nonce atomically,
+  and an index outside the minted set is rejected: the SW is not a trust boundary,
+  so a valid nonce must not be able to select an option the notification never
+  showed. Fingerprint
   validation alone can't prevent a double-tap or replayed push from injecting the
   option twice — both taps can arrive before the forced re-parse clears the
   question. (The card UI has the same hazard and disables its option buttons once
