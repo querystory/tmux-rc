@@ -92,15 +92,21 @@ service worker (by the time a push arrives, the decision must already be made).
 the app is the notification surface (the dock badges the waiting pane). Two presence
 inputs:
 
-- A **short-TTL presence lease** (~15s), refreshed by `/api/state` polls that carry a
-  visibility flag and by a `sendBeacon` fired on `visibilitychange`. A lease, not a
-  latch, because the raw poll signal goes stale in both directions: the poll loop
-  never pauses when hidden (a hidden desktop tab keeps polling), and one long-poll
-  can be in flight — or the mobile OS can suspend the page outright — right as the
-  user backgrounds the app, leaving the server believing "visible" for the rest of
-  the hold. The beacon delivers the hide transition promptly; the TTL bounds how long
-  a missed one can suppress. Expiry fails in the safe direction: no fresh visible
-  signal ⇒ notify.
+- A **per-client presence lease**, refreshed by `/api/state` polls that carry a
+  visibility flag and by a `sendBeacon` fired on `visibilitychange`. Per-client
+  (keyed by a client id, one TTL entry each — suppress while *any* visible lease is
+  live), because a hidden tab's hide-beacon must not clear a different device's
+  visible lease. And a lease, not a latch, because the raw poll signal goes stale in
+  both directions: the poll loop never pauses when hidden (a hidden desktop tab
+  keeps polling), and one long-poll can be in flight — or the mobile OS can suspend
+  the page outright — right as the user backgrounds the app, leaving the server
+  believing "visible" for the rest of the hold. The TTL must exceed the ~25s
+  long-poll hold with margin (~40s): a foregrounded client's next visible signal can
+  legitimately be a full hold away, and a shorter TTL would read ordinary
+  foreground use as absence and push at a watching user. The hide-beacon delivers
+  the background transition promptly, so the longer TTL costs nothing in the common
+  case; it only bounds how long a *missed* beacon (suspended page) can keep
+  suppressing. Expiry fails in the safe direction: no fresh visible signal ⇒ notify.
 - tmux itself knows when the user is at the desk: `client_activity` from
   `list-clients`. Keystrokes in any attached tmux client within the last ~30s mean
   the user is *at the terminal*, likely mid-answer — pushing to their phone then is
