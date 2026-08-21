@@ -80,7 +80,11 @@ from live parses only** — bootstrap-seeded events are excluded. Session bootst
 reconstructs *history* from scrollback and prepends it to the log (it already flags
 these entries); a daemon restart must repopulate the feed, not buzz the phone about
 milestones that happened an hour ago. The flag therefore only matters on the live
-parse that first reports the event. If the model
+parse that first reports the event. One accepted edge: bootstrap also feeds its
+texts into the model's already-reported list, so a genuine live re-run of a
+bootstrap-seen event inside `RECENT_EVENT_TTL` won't re-emit and can miss a
+milestone — the same TTL-bounded suppression the activity feed already accepts,
+and not worth a special case. If the model
 re-emits the same text later *with* the flag, the text-keyed duplicate guard drops it
 before the notifier sees it — there is no "upgrade to milestone" path. Marking
 happens when the event is written or not at all, which is also the only behavior the
@@ -192,8 +196,11 @@ client is open to re-register, so "re-POST on next app load" can't be the only c
 This is a narrow, justified exception to the no-persistence rule (see the
 activity-log design): a subscription is a **client credential**, config-like (peer of
 `.env`), not observed pane state — losing it doesn't thin out history, it severs the
-channel. One small JSON file next to `.env` — owner-only (0600) and written atomically
-(temp file + rename), since it holds credentials, not observations — holds the VAPID keypair (generated on
+channel. One small JSON file in the XDG state dir (`~/.local/state/tmux-rc/push.json` —
+*not* in the checkout, where a credential-bearing file sits one `git add` from a
+commit, and which doesn't exist when running installed as a wheel) — owner-only
+(0600) and written atomically (temp file + rename), since it holds credentials,
+not observations — holds the VAPID keypair (generated on
 first use; it must stay stable, since subscriptions bind to the public key), the
 `sub` contact claim VAPID authentication requires (a `mailto:` — default it from the
 tunnel owner or a `.env` value), and the subscription list. Clients still re-POST their subscription at boot as self-healing —
@@ -288,8 +295,11 @@ The endpoint audits with a distinguishable actor (`push-action`) through the sam
 
 1. **Signal only.** Add the `milestone` flag to the prompt; log every would-be
    notification decision (blocking derivations included) into the digest/telemetry.
-   Send nothing. Live with it for a day or two and read the log against what you'd
-   actually have wanted buzzing your pocket — this is the only honest way to
+   Send nothing. Decision logs carry pane-derived text (headline, question, event
+   text), so they ride the existing `TMUXRC_QSDEBUG` content gate in telemetry —
+   the decision *fields* (kind, pane, suppression reason) export always; the prose
+   only when content export is already enabled. Live with it for a day or two and
+   read the log against what you'd actually have wanted buzzing your pocket — this is the only honest way to
    calibrate the fuzzy bucket, and it's free. The prompt change ships with eval
    cases: milestone-positive and milestone-negative samples in the existing
    prompt-eval corpus (`research/eval/samples/`), and a full eval run green — that's
