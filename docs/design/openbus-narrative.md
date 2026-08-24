@@ -140,10 +140,11 @@ addressable participant is a thin shim.
 The unclaimed piece is the one only the substrate can build. Every existing tool
 indexes *messages*; none can answer "what did we decide about this" by reconciling a
 Claude session with the Codex review of the same branch and the commit that came out
-of it — because none of them know those three things are related. openbus knows: it
-watched the work happen; it knows which pane ran in which worktree on which branch.
-**Provenance is a byproduct of being the substrate.** That's what turns transcripts
-into institutional memory.
+of it — because none of them know those three things are related. openbus is the only
+thing positioned to know: it watches the work happen and already sees each pane's
+working directory. Recording branch and transcript identity alongside (build item 3)
+makes **provenance a byproduct of being the substrate** — and that's what turns
+transcripts into institutional memory.
 
 ## Why this wins
 
