@@ -6,21 +6,21 @@ captures repo-specific workflow that isn't obvious from the code.
 
 ## Testing changes on the live dev instance
 
-**The dev daemon always runs `make dev` from the REPO ROOT, in
-tmux pane `%8`. To test a branch on the live phone instance, `git checkout <branch>` in
+**The dev daemon always runs `make dev` from the REPO ROOT, in a
+dedicated tmux pane. To test a branch on the live phone instance, `git checkout <branch>` in
 the root and restart the daemon — never `cd` the daemon into a worktree.**
 
 - The daemon loads `web/`, prompts, etc. relative to its cwd. Running from the stable root
   means a later `git worktree remove` can never delete the cwd out from under it (that
   strands the process → `FileNotFoundError` on `parser_prompt.txt`, site returns
   `{"detail":"Not Found"}`, and even `cd`/`make` fail with "getcwd: No such file").
-- **To make branch X live:** from root, `git checkout X`, then in pane %8:
+- **To make branch X live:** from root, `git checkout X`, then in that pane:
   `C-c`, then `make dev > out.log 2>&1`. StatReload restarts on `.py` edits; for `web/`
   changes just reload the page (assets are served no-store).
 - A branch checked out in a `.claude/worktrees/*` worktree can't also be checked out in
   root — `git worktree remove` it first (after pushing), then checkout in root.
-- The live instance is at `<slug>.<your-tunnel-domain>` (via the tunnel client in the
-  `2:tunnel` window). A momentary "no tunnel connected" is the relay's ~1h connection
+- The live instance is at `<slug>.<your-tunnel-domain>` (via the tunnel client, run in its
+  own window). A momentary "no tunnel connected" is the relay's ~1h connection
   cap; the client auto-reconnects within ~1min.
 
 ## Develop in worktrees, off main

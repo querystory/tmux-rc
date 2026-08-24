@@ -121,9 +121,11 @@ The relay needs, in whatever form your cloud provides it:
 - **DNS** — a wildcard record per mode (`*.<tunnel-domain>`, `*.<hosted-domain>`)
   pointing at the load balancer, plus the DNS-01 records its certs authorize against.
 - **Certificates** — a wildcard cert per subdomain, wired into the LB's cert map.
-- **Backend** — the Cloud Run service with `ingress=INTERNAL_LOAD_BALANCER` (so IAP is
-  the only way in), `timeout=3600s` (WS lifetime), `min=1` (see above), its own service
-  account, and a serverless NEG fronted by a backend service with IAP enabled.
+- **Backend** — the Cloud Run service with `ingress=INTERNAL_LOAD_BALANCER` (so no request
+  from the public internet reaches it except through the IAP-gated load balancer; qualifying
+  internal traffic can still invoke it, so keep `run.invoker` least-privilege too),
+  `timeout=3600s` (WS lifetime), `min=1` (see above), its own service account, and a
+  serverless NEG fronted by a backend service with IAP enabled.
 - **URL map** — a host rule routing both wildcard hosts to the relay's path matcher.
 - **Access** — grant IAP access to the group that should reach it, and
   `roles/run.invoker` to the IAP service agent.
