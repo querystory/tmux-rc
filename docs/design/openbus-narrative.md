@@ -92,9 +92,10 @@ So openbus carries both kinds of traffic and has no opinion about which you use:
 
 **Top-down (C2).** You state intent; openbus plans concrete keystrokes against the
 live parse of the screen, confirms at a risk-appropriate tier (auto-advance known-safe
-steps, one-tap for real effects, typed confirm for destructive — per the
-control-plane design), and executes. One person commanding ten agents without typing
-ten times.
+steps, one-tap for real effects, typed confirm for destructive), and executes. That
+flow is specified in the control-plane design and not yet coded — today the phone
+client relays taps and answers; the planner is the distance between that and one
+person commanding ten agents without typing ten times.
 
 **Peer-to-peer (A2A).** Any agent on the bus addresses any other directly, without
 you in the path. The session that changed the auth module asks the session reviewing
@@ -156,8 +157,10 @@ Three properties compound, and each is hard to copy without the others:
 2. **Perception before action.** The screen is parsed into structured state first;
    actions are planned against that state, not fired blind. A system that only sends
    keystrokes is a macro recorder; one that sees is a control plane.
-3. **The graph is free.** Who works on what, where, on which branch, and what they
-   concluded — the ambient consequence of being where the work happens.
+3. **The graph is free — to the substrate.** Who works on what, where, on which
+   branch, and what they concluded: nobody has to instrument anything, because the
+   substrate already watches it all. Recording it is build item 3, not a moat someone
+   else can build first.
 
 ## What to build
 
