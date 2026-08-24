@@ -176,7 +176,8 @@ The distance between today's prompt-driven bus and the first-class one, in order
 3. **Memory on the bus.** The cass shim as an addressable participant, plus the
    provenance layer (pane ↔ worktree ↔ branch ↔ transcript) only openbus can record.
 4. **Attention economics.** Ten agents emit more than a person can read. Live Mode
-   must summarize and escalate, never stream, or the bottleneck returns as a
+   must summarize and escalate rather than relay every pane event (its audio/transcript
+   streaming is transport, not the problem), or the bottleneck returns as a
    notification feed. (#64, #83)
 5. **Cost and cadence.** A perception pass per pane per interval, times many panes,
    is a real bill; throttling and parallel parses (#46, #55) become load-bearing at

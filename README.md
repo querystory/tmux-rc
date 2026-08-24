@@ -10,9 +10,9 @@ API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *termi
 so it's vendor-agnostic on both axes — any agent, any model provider for the
 summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
-> **Status: proof of concept.** Milestone 1 (single pane) works end to end:
-> watch → classify → phone card → detect a waiting prompt → tap → answer round-trips
-> into the pane. Milestone 2 (all panes) and the non-goals in the PRD are next.
+> **Status: proof of concept.** Milestones 1–2 (all panes on the tmux server) work
+> end to end: watch → classify → phone card → detect a waiting prompt → tap → answer
+> round-trips into the pane. The non-goals in the PRD are next.
 
 ## Run
 
