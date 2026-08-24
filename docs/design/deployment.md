@@ -145,9 +145,9 @@ workstation. Division of responsibility:
 - **This repo** owns the unit file and documents the install path
   (`~/.local/bin/tunnel-client`) and flags (`--slug`, `--port`, `--owner`).
 - **The tunnel repo** owns the relay (Cloud Run) and the client's code, including two
-  relay/client-side improvements: forwarding the IAP identity for the audit log (its
-  PR #525, merged on the `feat/tunnel-relay` train), and optionally make-before-break
-  reconnects to hide the hourly Cloud Run WS timeout (today: a ~2s blip per hour, which
+  relay/client-side improvements: forwarding the IAP identity for the audit log (already
+  merged there), and optionally make-before-break reconnects to hide the hourly Cloud Run
+  WS timeout (today: a ~2s blip per hour, which
   the UI can dampen client-side by tolerating a couple of failed polls before declaring
   the backend down).
 - **Ordering between the two units: none required.** The client retries its dial with
