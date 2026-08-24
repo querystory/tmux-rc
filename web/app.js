@@ -747,6 +747,12 @@ async function poll() {
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
     // misattribute to a stale app.js. Report the real condition instead.
     if (!r.ok) {
+      // Recovery must paint IMMEDIATELY: with _stateVersion still set, the first poll
+      // after the backend returns matches its `?v=` and gets held (~25s) if the deck
+      // didn't change — leaving the reconnecting dot/notice up long after the outage
+      // ended. Null it so the next poll is "give me current state now" (same move as
+      // onResume), at the cost of one unheld response per outage.
+      _stateVersion = null;
       // The relay's routine reconnects (hourly connection cap; ~1s relay deploys)
       // surface HERE — as a short burst of 502s, not as fetch errors, because the
       // relay itself answers while the tunnel re-registers. showNotice() hides the
