@@ -1418,6 +1418,10 @@ function openLaunchMenu(sess, anchor) {
   // in the wrong session, and the phone following it there).
   const head = document.createElement("div");
   head.className = "launch-head";
+  // A menu's children must be menuitem/separator/group per ARIA — mark the header
+  // as presentation so AT reads a clean menu; the target session is announced via
+  // the opening control's aria-label instead.
+  head.setAttribute("role", "presentation");
   setText(head, `New window in ${sess || "this session"}`);
   m.appendChild(head);
   for (const l of launchers) {
