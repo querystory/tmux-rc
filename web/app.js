@@ -758,6 +758,9 @@ async function poll() {
       if (++_pollFails < 3) {
         liveEl.className = "dot off rc";
         liveEl.title = "reconnecting…";
+        // Unlike the notice path below, this return never reads the body — cancel it
+        // so the keep-alive connection is reusable instead of parked on unread bytes.
+        try { r.body?.cancel(); } catch { /* locked/absent body — nothing to release */ }
         return false; // back off — success resets the counter
       }
       const body = (await r.text()).trim().slice(0, 200);
