@@ -1436,6 +1436,18 @@ function openLaunchMenu(sess, anchor) {
   const m = document.createElement("div");
   m.className = "launch-menu";
   m.setAttribute("role", "menu");
+  // Name the target session. The "+" lives in a per-session tray, but the trays look
+  // alike on a crowded dock — without this the only way to know where a new window
+  // lands is to launch one and see where you end up (observed: a Claude window created
+  // in the wrong session, and the phone following it there).
+  const head = document.createElement("div");
+  head.className = "launch-head";
+  // A menu's children must be menuitem/separator/group per ARIA — mark the header
+  // as presentation so AT reads a clean menu; the target session is announced via
+  // the opening control's aria-label instead.
+  head.setAttribute("role", "presentation");
+  setText(head, `New window in ${sess || "this session"}`);
+  m.appendChild(head);
   for (const l of launchers) {
     const b = document.createElement("button");
     b.setAttribute("role", "menuitem");
