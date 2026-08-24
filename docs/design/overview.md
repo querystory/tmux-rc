@@ -88,7 +88,7 @@ also where a model's fuzziness-tolerance actually earns its keep.
   and more variable at structured extraction for no PoC benefit when Vertex is a free
   API call away.
 
-Crucially we **reimplement** the ~30-line Vertex call rather than importing qs-app's
+Crucially we **reimplement** the ~30-line Vertex call rather than importing the main app's
 `backend.genai.llm`. That library is excellent but pulls in FastAPI/SQLAlchemy/WorkOS
 and a config-loading lifecycle we don't want in a standalone tool. Copying the small,
 stable slice (client construction, inline image parts, `response_mime_type=json`) keeps
