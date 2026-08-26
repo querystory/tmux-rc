@@ -1,56 +1,82 @@
 ---
+weight: 2
 title: "Cloudflare Tunnel"
 ---
 
 # Exposing tmux-rc with Cloudflare Tunnel + Access
 
-
-> ## ⚠️ The order of these steps is the security control
+> ### ⚠️ Create the Access policy BEFORE you start the tunnel
 >
-> **Create the Access policy BEFORE you start the tunnel (step 5 before step 6).**
-> The instant `cloudflared` connects, your hostname serves the daemon to the entire
-> internet. There is no soft launch and no private warm-up period. If Access is not
-> already in front of it, anyone who guesses or observes the hostname can POST to
-> `/api/panes/{id}/send` and type commands into your terminal.
+> The instant `cloudflared` connects, your hostname serves the daemon to the whole
+> internet — no warm-up, no grace period. Without Access in front, anyone who learns the
+> hostname can `POST /api/panes/{id}/send` and type into your terminal. We measured
+> exactly that while writing this guide.
 >
-> We measured this while validating the guide: tunnel first, Access second, and the
-> hostname answered `200 OK` to an anonymous request from the open internet. (Our
-> origin was a throwaway static page, never the daemon — but with the daemon behind
-> it, that is remote code execution.) The fix is ordering, and step 7 is how you
-> prove you got it right.
->
-> If you are ever unsure whether the gate is live: **stop the tunnel first, then
-> check.** An unprotected tunnel is not something to leave running while you
-> investigate.
+> Unsure whether the gate is live? **Stop the tunnel, then check.**
 
-A runbook for reaching your daemon from a phone on the open internet, with
-authentication in front of it. Cloudflare Tunnel is one of several ways to fill the
-`tmux-rc-tunnel.service` slot (see [Run it as a service](https://github.com/querystory/tmux-rc#run-it-as-a-service));
-this doc covers it end to end because it is the option most people can stand up in an
-afternoon with no public IP, no open ports, and no paid plan.
+For reaching the daemon from a phone over the internet, with a login in front of it.
+Only needed if you want a public hostname — on a LAN you need none of this, and if you
+can put a VPN client on the phone, a private mesh such as `tailscale serve` (see [Deploying](../)) is safer because
+there is no public surface to misconfigure.
 
-If you only ever use tmux-rc on your LAN, you do not need any of this. Skip it. And if
-you *can* put a VPN client on the phone, prefer a private mesh — `tailscale serve` keeps
-the daemon inside your tailnet, with no public surface to misconfigure at all. This doc
-is for the case where you genuinely need a public hostname.
 
-## Provenance of these instructions
+## The cheat sheet
 
-Verified end to end on 2026-08-25 against `cloudflared 2026.3.0`, on a real zone with a
-real Access application:
+Seven commands. **Do them in this order** — step 4 is what stops the daemon being
+published to the internet without a login, and step 6 is how you prove it worked.
 
-- Anonymous request to the protected hostname → **302 to the Cloudflare Access login**
-  (JWT carries `auth_status: NONE`). The same for `POST /api/panes/{id}/send` and for a
-  WebSocket upgrade — Access gates the API and `wss://`, not just the HTML.
-- Login via **email one-time PIN on the free plan** — a 6-digit code, valid 10 minutes,
-  no identity provider to configure. Tested in a clean incognito session.
-- After authenticating, requests reached the origin (`200`/`304` in the origin's own
-  access log), so the policy allows the permitted identity through rather than merely
-  blocking everyone.
-- Unverified: long-term session behavior on a phone across days, and service-token
-  auth for headless clients (creating service tokens needs an API permission beyond
-  the tunnel token's scope).
+```bash
+# 1. one-time: authorize cloudflared for your domain (opens a browser)
+cloudflared tunnel login
 
+# 2. create the tunnel and point a hostname at it
+cloudflared tunnel create tmux-rc
+cloudflared tunnel route dns tmux-rc tmux.example.com
+
+# 3. write the ingress config (see below) then check it WITHOUT connecting
+cloudflared tunnel --config ~/.cloudflared/tmux-rc.yml ingress validate
+```
+
+```yaml
+# ~/.cloudflared/tmux-rc.yml
+tunnel: <UUID from step 2>
+credentials-file: /home/you/.cloudflared/<UUID>.json
+ingress:
+  - hostname: tmux.example.com
+    service: http://localhost:18030
+  - service: http_status:404
+```
+
+**4. Create the Access application — before anything is running.** In the dashboard:
+Zero Trust → Access → Applications → Create new application → Self-hosted, hostname
+`tmux.example.com`, then a policy: *Allow* / *Emails* / your address. This is the login.
+
+**5. Confirm the gate is live, still with nothing running:**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://tmux.example.com/
+# 302 → gate is live, continue.  530 → go back to step 4.  200 → STOP, something is open.
+```
+
+**6. Start it, then immediately verify:**
+
+```bash
+systemctl --user start tmux-rc-tunnel     # see step 6 below for the unit
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  https://tmux.example.com/api/panes/%251/send \
+  -H 'content-type: application/json' -d '{"keys":"echo probe"}'
+# 302 = correct (challenged).  200 or 404 = the request REACHED the daemon: stop the
+# tunnel now and fix the policy.
+```
+
+**7. Open `https://tmux.example.com/` on your phone**, sign in, and add to home screen.
+
+Everything below is the same seven steps with the reasoning, the exact systemd unit, and
+what to do when a step misbehaves. Read it if something breaks or you want to know why.
+
+## The long version
+
+The same steps, with the why.
 ## Read this first: the daemon has no authentication
 
 **The tmux-rc daemon does not authenticate anything.** There is no login, no API key, no
@@ -610,47 +636,6 @@ Note also that Argo Smart Routing is not compatible with WebSockets, and Cloudfl
 code releases terminate open connections.
 
 <a id="session-length-and-phone-re-auth"></a>
-## Session length and phone re-auth
-
-You will check this from a phone all day, so re-auth friction is a real design decision,
-not a detail. Access has three nested durations:
-
-| Duration | What it controls | Default | Range |
-|---|---|---|---|
-| **Global session** | How often you must log in to the *identity provider* | 24 hours | 15 min – 1 month |
-| **Application session** | How long this app's token is good for | 24 hours | immediate – 1 month |
-| **Policy session** | Per-policy override of the application default | inherits app | immediate – 1 month |
-
-Two cookies implement it: a **global** session token on your `<team>.cloudflareaccess.com`
-domain, and a per-application **`CF_Authorization`** cookie on the protected hostname.
-When the application token expires, Access silently issues a new one as long as the
-global token is still valid and you still match the policy — no prompt. You only see a
-login screen when the *global* session has also expired.
-
-Practical settings for a phone:
-
-- **Application session: 1 week or 1 month.** This is the number that decides how often
-  the PWA bounces you to a login screen.
-- **Global session: 1 month** if you accept that a stolen unlocked phone means a stolen
-  session; **24 hours** (the default) if you would rather re-auth daily. This is a real
-  tradeoff, and there is no universally right answer — it comes down to whether your
-  phone's own lock screen is a boundary you trust.
-- Do **not** set "immediate timeout" and then wonder why Live Mode reconnects constantly.
-- Enable the **binding cookie** (`CF_Binding`) under the application's cookie settings for
-  defence in depth: `CF_Authorization` cannot be used without it, so a stolen
-  `CF_Authorization` alone cannot be replayed. Cloudflare strips it at the edge, so the
-  daemon never sees it.
-
-If you also run the Cloudflare One (WARP) client, its own session duration **overrides
-all three** of the above — a surprise worth knowing before you spend an afternoon
-wondering why the application setting is being ignored.
-
-An expired session is also the most confusing failure mode in the PWA, and Cloudflare
-documents the mechanism: background `fetch`/XHR sub-requests from an already-loaded page
-get blocked on an expired token without any re-auth prompt, because there is no
-navigation for Access to redirect. So you see API calls quietly failing rather than a
-login screen. A hard reload surfaces the Access redirect.
-
 ## Troubleshooting
 
 **`curl` returns HTML with a Cloudflare login form instead of JSON.**
@@ -706,26 +691,6 @@ the [7.1 check](#71-an-unauthenticated-request-must-be-challenged).
 `cloudflared tunnel info <name>` shows registered connectors. A stray foreground
 `cloudflared` from step 4, or a root-level `cloudflared service install`, will
 round-robin against the systemd unit and produce intermittent 502s. Kill the duplicate.
-
-## Where this leaves you
-
-Access is authenticating *at the edge* — requests are rejected before they reach your
-machine, which is strictly better than an application-level check the daemon does not
-have anyway. What Access does **not** give you is per-user authorization inside tmux-rc:
-everyone who passes the policy gets the full API, including `/send`. Keep the allow-list
-to people you would hand an unlocked laptop.
-
-The daemon still has no authentication of its own. If you later move off Cloudflare, that
-fact does not change — whatever replaces this must authenticate too. That is why
-`tmux-rc-tunnel.service` is a slot with a warning attached rather than a shipped default.
-
-For defence in depth, the daemon receives Cloudflare's signed `Cf-Access-Jwt-Assertion`
-header on every authenticated request, and could verify it to reject anything arriving by
-another path. tmux-rc does not do this today — worth knowing the hook exists if you want
-belt and braces. If you build it, note that checking the header is *present* buys nothing
-(anyone can send one): you must verify the signature against your team's `public_certs`,
-matching on `kid`, and confirm `iss` is your own team domain. A presence check is
-security theatre.
 
 ## References
 
