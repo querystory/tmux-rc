@@ -1,3 +1,7 @@
+---
+title: "Cloudflare Tunnel"
+---
+
 # Exposing tmux-rc with Cloudflare Tunnel + Access
 
 
@@ -21,11 +25,14 @@
 
 A runbook for reaching your daemon from a phone on the open internet, with
 authentication in front of it. Cloudflare Tunnel is one of several ways to fill the
-`tmux-rc-tunnel.service` slot (see [Run it as a service](../../README.md#run-it-as-a-service));
+`tmux-rc-tunnel.service` slot (see [Run it as a service](https://github.com/querystory/tmux-rc#run-it-as-a-service));
 this doc covers it end to end because it is the option most people can stand up in an
 afternoon with no public IP, no open ports, and no paid plan.
 
-If you only ever use tmux-rc on your LAN, you do not need any of this. Skip it.
+If you only ever use tmux-rc on your LAN, you do not need any of this. Skip it. And if
+you *can* put a VPN client on the phone, prefer a private mesh — `tailscale serve` keeps
+the daemon inside your tailnet, with no public surface to misconfigure at all. This doc
+is for the case where you genuinely need a public hostname.
 
 ## Provenance of these instructions
 
@@ -59,8 +66,10 @@ POST /api/panes/{id}/send      # injects keystrokes into one of your terminals
 
 Anyone who can reach that endpoint can type into your shells — as you, on your machine,
 with your credentials and your SSH agent. `GET /api/panes/{id}/snapshots/{snap_id}`
-hands them the scrollback (secrets, tokens, whatever was on screen) on the way.
-The WebSocket at `/api/live-mode` streams your terminals live.
+hands them the scrollback (secrets, tokens, whatever was on screen) on the way, and
+`GET /api/panes/{id}/live` long-polls a live view of the screen. If voice Live Mode is
+enabled (`TMUXRC_LIVE_MODE=1`, off by default), the `/api/live-mode` WebSocket lets a
+voice session drive panes too.
 
 So: **a tunnel without an authentication layer publishes a remote-code-execution API to
 the internet.** Not "a risk"; the literal function of the endpoint. Obscure hostnames do
@@ -72,12 +81,14 @@ exists to put Access in front of the tunnel, and the [verification](#7-verify-th
 section exists so you can prove it is really there before you trust it.
 
 > **Quick tunnels (`--url`, `*.trycloudflare.com`) cannot be protected by Access.**
-> Access applications are defined against a hostname in a Cloudflare zone you control;
-> `trycloudflare.com` is not your zone, so there is nowhere to attach a policy. Cloudflare
-> documents quick tunnels as "intended for testing and development only," with no
-> authentication, a 200 in-flight request cap, and no Server-Sent Events. **Never point a
-> quick tunnel at tmux-rc.** Every step below uses a *named* tunnel on your own domain,
-> which is the only shape Access can protect.
+> A self-hosted Access application can only be created for a domain that "must belong to
+> an active zone in your Cloudflare account" — and `trycloudflare.com` is Cloudflare's
+> zone, not yours. There is simply nowhere to attach a policy, which is *why* a quick
+> tunnel is unauthenticated: it is a consequence of the zone rule, not a setting you
+> forgot. Cloudflare documents quick tunnels as "intended for testing and development
+> only," with a 200 in-flight request cap (`429` beyond it), no Server-Sent Events, and no
+> uptime guarantee. **Never point a quick tunnel at tmux-rc.** Every step below uses a
+> *named* tunnel on your own domain, which is the only shape Access can protect.
 
 ## What you need
 
@@ -106,6 +117,11 @@ echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudf
 sudo apt update && sudo apt install cloudflared
 cloudflared --version
 ```
+
+Cloudflare rotated the signing key for this repository on 2025-10-30. If you set the
+keyring up before then, re-run the `curl … | sudo tee` line above — otherwise `apt update`
+stops seeing new versions, quietly. The canonical instructions live at
+[pkg.cloudflare.com](https://pkg.cloudflare.com/).
 
 Whatever you do, **install to a real path** — `/usr/local/bin` or `~/.local/bin`, never
 `/tmp`, which a reboot erases. That failure has already bitten this project once, which
@@ -145,9 +161,22 @@ This creates a proxied CNAME (`<UUID>.cfargotunnel.com`) in your zone. The recor
 **must stay proxied** (orange cloud). A grey-cloud/DNS-only record bypasses Cloudflare
 entirely — which means it bypasses Access, which means the daemon is naked on the
 internet. If you ever "fix" a problem by unproxying this record, you have removed all
-authentication. Use `--overwrite-dns` only if you know an old record is in the way.
+authentication.
 
-Confirm what exists (both are read-only):
+**Then check the CNAME actually points at the tunnel you just created.** We have seen
+`route dns` bind the hostname to a *different*, pre-existing tunnel in the same account,
+and `--overwrite-dns` decline to correct it afterwards. That failure is quiet and it
+matters: your Access application would be guarding a hostname whose traffic is served by
+somebody else's connector, and your own tunnel would look mysteriously dead.
+
+```bash
+cloudflared tunnel list                 # note the UUID of `tmux-rc`
+dig +short CNAME tmux.example.com       # must be <that UUID>.cfargotunnel.com
+```
+
+If the UUID does not match, fix the record **in the Cloudflare dashboard** (DNS → the
+CNAME → point it at `<your-UUID>.cfargotunnel.com`, proxied) rather than re-running
+`route dns`. Confirm the tunnel's own view too — both of these are read-only:
 
 ```bash
 cloudflared tunnel list
@@ -182,15 +211,20 @@ Notes that are easy to get wrong:
 - **You do not need `originRequest: websocket: true`.** WebSockets are proxied by default;
   that setting exists for other purposes. See [WebSockets](#websockets-live-mode) below.
 
-Smoke-test it in the foreground before wiring up systemd:
+**Do not start the tunnel yet.** The obvious next move — run it in the foreground to
+"see if the config works" — is the exact mistake this doc is ordered to prevent: it
+publishes the daemon with no authentication in front of it. Validate the file without
+serving any traffic instead:
 
 ```bash
-cloudflared tunnel --config ~/.cloudflared/tmux-rc.yml run tmux-rc
+cloudflared tunnel --config ~/.cloudflared/tmux-rc.yml ingress validate
+cloudflared tunnel --config ~/.cloudflared/tmux-rc.yml ingress rule https://tmux.example.com/api/state
 ```
 
-Load `https://tmux.example.com` — you should get the PWA. **At this moment the daemon is
-publicly reachable with no authentication.** Do not walk away from this step; go
-straight to section 6, or Ctrl-C until you are ready to.
+`ingress validate` parses the rules and reports errors; `ingress rule` shows which rule a
+given URL would match. Neither connects to Cloudflare and neither serves anything. That
+is all the confidence you need before step 5 — the end-to-end test happens in step 7,
+*after* Access is in place.
 
 ## 5. Put Cloudflare Access in front of it — BEFORE you run the tunnel
 
@@ -199,14 +233,14 @@ terminals reachable.
 
 ### Enable an identity method
 
-In the Cloudflare dashboard: **Zero Trust → Settings → Authentication → Login methods**.
+In the Cloudflare dashboard: **Zero Trust → Integrations → Identity providers**.
 
 New Zero Trust organizations get the **Cloudflare identity provider** as the default
 login method. For a personal single-user install, **One-time PIN** is the simplest
 option: no external IdP, no app registration. Access emails a code to the address the
 visitor types; the PIN expires 10 minutes after it is requested and is single-use.
-OTP is no longer added automatically to new organizations, so add it explicitly under
-**Login methods → Add new → One-time PIN** if you want it.
+OTP is no longer added automatically to new organizations, so add it explicitly:
+**Add new identity provider → One-time PIN**.
 
 Google, GitHub, Microsoft Entra, Okta, and the rest of the OIDC/SAML catalogue are also
 available on the free plan. Social/OIDC login (e.g. GitHub) is worth the extra five
@@ -215,7 +249,7 @@ which is the difference between pleasant and irritating on a phone.
 
 ### Create the application
 
-**Zero Trust → Access controls → Applications → Add an application → Self-hosted and
+**Zero Trust → Access controls → Applications → Create new application → Self-hosted and
 private → Add public hostname.**
 
 - **Application name**: `tmux-rc`
@@ -248,6 +282,11 @@ The action **must** be `Service Auth`. On an `Allow` policy Access ignores the t
 headers and redirects to the IdP login page — the single most common reason "my curl
 still gets an HTML login page." Service Auth exists precisely for flows with no browser.
 
+The application also has a **"401 Response for Service Auth policies"** option. Turn it
+on if scripts talk to this hostname: a non-browser client handles a clean `401` far
+better than a `302` into an HTML login page, and it makes a failed check unmistakable
+rather than something that merely "returned some HTML".
+
 ### Create a service token
 
 **Zero Trust → Access controls → Service credentials → Service Tokens → Create Service
@@ -271,16 +310,18 @@ CF-Access-Client-Secret: <CLIENT_SECRET>
 The gating question for this whole document — *does basic authentication cost money?* —
 answers cleanly: **no.**
 
-- **Cloudflare Zero Trust free plan: up to 50 users, no credit card, no time limit.**
-  Access applications, policies, One-time PIN, and the standard OIDC/SAML identity
-  providers are all included.
-- **Pay-as-you-go is $7/user/month**, which removes the 50-seat cap and adds an uptime
-  SLA and 30-day log retention (free is 24-hour retention).
-- The relevant cliff is the **50-seat limit**: past 50 active seats, additional users are
-  blocked from authenticating until you upgrade. For a personal or small-team tmux-rc
-  install this is not a constraint you will ever touch.
+- **Cloudflare Zero Trust is free for up to 50 users.** Access applications, policies,
+  One-time PIN, and the standard OIDC/SAML identity providers are all included.
+- Paid tiers (around **$7/user/month** last time Cloudflare published a figure) remove the
+  50-seat cap and lengthen log retention. Cloudflare's live pricing page renders its plan
+  table in JavaScript, so this number is harder to cite than it used to be — treat it as
+  indicative and check before budgeting.
+- The relevant cliff is the **50-seat limit**: once the seats are consumed, *additional*
+  users who try to log in are blocked until you upgrade (already-authenticated users are
+  unaffected). For a personal or small-team tmux-rc install you will never touch this.
 - Cloudflare's Service-Specific Terms also set an average of 150,000 DNS queries per seat
-  per month; likewise irrelevant at this scale, but it exists.
+  per month — but that applies to **Gateway DNS**, which an Access-plus-Tunnel setup like
+  this one does not use. Mentioned only so you recognise it as irrelevant here.
 
 So the honest summary: **there is no paywall in front of the authentication you need
 here.** If a guide tells you otherwise, it is out of date. Pricing does change — confirm
@@ -306,19 +347,28 @@ before you build a budget on it.
 the hostname should already be answering with an Access challenge, because the DNS
 record and the Access application both exist by now:
 
+Test the API path, not just `/` — a path-scoped application protects `/` and leaves
+`/api` open, and that is the failure you most need to catch *before* the daemon is
+behind it:
+
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://tmux.example.com/
+for p in / /api/state; do
+  printf '%s -> ' "$p"
+  curl -s -o /dev/null -w '%{http_code}\n' "https://tmux.example.com$p"
+done
 ```
 
-- **302** — the gate is live. Cloudflare is challenging anonymous requests even with
-  no origin behind them. Safe to proceed.
+- **302 for both** — the gate is live. Cloudflare is challenging anonymous requests even
+  with no origin behind them. Safe to proceed.
 - **530 / 1033** — DNS points at a tunnel that isn't running, and Access is NOT
   confirmed. Go back to step 5; do not start the tunnel to "see if it works".
-- **200 or anything else** — stop. Something is answering without authentication.
+- **302 for `/` but not for `/api/state`** — your application has a path scope. Remove it
+  so it covers the whole hostname, then re-run this.
+- **200, or anything else** — stop. Something is answering without authentication.
   Find out what before you connect a daemon to it.
 
 
-This repo ships [`deploy/systemd/tmux-rc-tunnel.service`](../../deploy/systemd/tmux-rc-tunnel.service)
+This repo ships [`deploy/systemd/tmux-rc-tunnel.service`](https://github.com/querystory/tmux-rc/blob/main/deploy/systemd/tmux-rc-tunnel.service)
 as a deliberately vendor-neutral slot:
 
 ```ini
@@ -428,8 +478,15 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 clients and proxies. Use a pane id that exists on your machine; `tmux list-panes -a`
 prints them.)
 
-A 302/401/403 is correct. A 200 means an unauthenticated stranger just ran a command on
-your machine — and you should tear the DNS record down before debugging.
+A 302/401/403 is correct — the request never reached the daemon.
+
+**A `404` is not a pass.** It means Access let the request through and the *daemon*
+answered, rejecting it only because that pane id does not exist. Your terminals are
+exposed; a valid pane id would have run the command. Treat 404 exactly like 200: tear the
+DNS record down, then debug. This is precisely why you should run the test with a pane id
+that really exists — a 404 from a typo'd id looks reassuring and is the opposite.
+
+A `200` means an unauthenticated stranger just ran a command on your machine.
 
 ### 7.2 A service token must succeed
 
@@ -442,13 +499,20 @@ curl -sS https://tmux.example.com/api/version \
 Expect the daemon's JSON. If you get the login HTML instead, your policy action is
 `Allow` rather than `Service Auth`, or the token is not selected in that policy.
 
-A useful negative control — a *wrong* secret must fail:
+**This test alone proves nothing.** JSON also comes back when Access is missing entirely —
+a wide-open hostname passes it perfectly. It is only meaningful next to 7.1 (no
+credentials → challenged) and the negative control below. Run all three, or you have
+learned nothing about whether the token is what let you in:
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' https://tmux.example.com/api/version \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
   -H "CF-Access-Client-Secret: definitely-not-the-secret"
 ```
+
+A *wrong* secret must be rejected (302/401/403). If a deliberately bogus secret still
+returns the daemon's JSON, Access is not in the path at all — treat that exactly like a
+200 in 7.1 and take the DNS record down.
 
 ### 7.3 Browser / phone
 
@@ -467,8 +531,15 @@ cloudflared access token -app=https://tmux.example.com  # print the JWT
 
 ### 7.4 WebSocket
 
-The Live Mode socket is the piece most likely to be silently broken, so test it
-explicitly rather than assuming. With a service token:
+Only relevant if you run voice Live Mode: `/api/live-mode` exists **only when the daemon
+was started with `TMUXRC_LIVE_MODE=1`** (it is off by default). With Live Mode off the
+route is absent, so this test returns 404 *through* a correctly configured Access — which
+is a pass for Access and a non-answer about WebSockets. Check `curl -s
+localhost:18030/api/version` on the host: `live_enabled` tells you which case you are in.
+The everyday screen view uses `GET /api/panes/{id}/live`, an ordinary HTTP long-poll that
+needs no WebSocket support at all.
+
+If Live Mode is on, test the socket explicitly rather than assuming. With a service token:
 
 ```bash
 python3 - <<'EOF'
@@ -494,8 +565,10 @@ show status **101 Switching Protocols**.
 <a id="websockets-live-mode"></a>
 ## WebSockets (Live Mode)
 
-tmux-rc's Live Mode and terminal streaming need `wss://` to survive the tunnel *and*
-Access. It does, on the free plan, and the reason is worth understanding:
+Only voice Live Mode (`/api/live-mode`, opt-in via `TMUXRC_LIVE_MODE=1`) uses a
+WebSocket; the screen views are HTTP long-polls. If you enable it, `wss://` has to
+survive the tunnel *and* Access. It does, on the free plan, and the reason is worth
+understanding:
 
 - **WebSockets are supported on all Cloudflare plans, free included.** Verify the
   zone-level toggle is on under **Network → WebSockets** in the dashboard.
@@ -514,9 +587,12 @@ WebSocket from `curl`/Python/Go, but **never from the browser**. The browser pat
 cookie-based, always. If you find yourself trying to feed `CF-Access-Client-Id` to a
 browser socket, the design is wrong: log in normally and let the cookie do it.
 
-Cloudflare closes WebSockets that are idle in both directions. tmux-rc's live stream is
-chatty enough that this rarely bites, but a pane that produces no output for a long
-stretch can drop; the client reconnects.
+Cloudflare closes a WebSocket when no data moves in *either* direction for a while. The
+duration is not documented (only Enterprise can configure it), so do not design against a
+specific number — Cloudflare's own advice is a client-side ping/pong heartbeat. A voice
+session that goes quiet for a long stretch can therefore drop; the client reconnects.
+Note also that Argo Smart Routing is not compatible with WebSockets, and Cloudflare's own
+code releases terminate open connections.
 
 <a id="session-length-and-phone-re-auth"></a>
 ## Session length and phone re-auth
@@ -545,13 +621,20 @@ Practical settings for a phone:
   tradeoff, and there is no universally right answer — it comes down to whether your
   phone's own lock screen is a boundary you trust.
 - Do **not** set "immediate timeout" and then wonder why Live Mode reconnects constantly.
-- Enable **binding cookie** (`CF_Binding`) under the application's cookie settings for
-  defence in depth: it ties `CF_Authorization` to that application so a stolen cookie
-  alone cannot be replayed.
+- Enable the **binding cookie** (`CF_Binding`) under the application's cookie settings for
+  defence in depth: `CF_Authorization` cannot be used without it, so a stolen
+  `CF_Authorization` alone cannot be replayed. Cloudflare strips it at the edge, so the
+  daemon never sees it.
 
-An expired session is also the most confusing failure mode in the PWA: the page is
-already loaded, so instead of a visible login screen you see API calls quietly failing
-and Live Mode refusing to connect. A hard reload surfaces the Access redirect.
+If you also run the Cloudflare One (WARP) client, its own session duration **overrides
+all three** of the above — a surprise worth knowing before you spend an afternoon
+wondering why the application setting is being ignored.
+
+An expired session is also the most confusing failure mode in the PWA, and Cloudflare
+documents the mechanism: background `fetch`/XHR sub-requests from an already-loaded page
+get blocked on an expired token without any re-auth prompt, because there is no
+navigation for Access to redirect. So you see API calls quietly failing rather than a
+login screen. A hard reload surfaces the Access redirect.
 
 ## Troubleshooting
 
@@ -624,14 +707,17 @@ fact does not change — whatever replaces this must authenticate too. That is w
 For defence in depth, the daemon receives Cloudflare's signed `Cf-Access-Jwt-Assertion`
 header on every authenticated request, and could verify it to reject anything arriving by
 another path. tmux-rc does not do this today — worth knowing the hook exists if you want
-belt and braces.
+belt and braces. If you build it, note that checking the header is *present* buys nothing
+(anyone can send one): you must verify the signature against your team's `public_certs`,
+matching on `kid`, and confirm `iss` is your own team domain. A presence check is
+security theatre.
 
 ## References
 
-- [Cloudflare Tunnel — create a locally-managed tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-local-tunnel/)
-- [Tunnel ingress rules](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/local-management/ingress/)
+- [Cloudflare Tunnel — create a locally-managed tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)
+- [Tunnel ingress rules](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/)
 - [TryCloudflare (quick tunnel) limitations](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
-- [Add a self-hosted public application](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/)
+- [Add a self-hosted public application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)
 - [Access policies and actions](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)
 - [Service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
 - [One-time PIN](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
