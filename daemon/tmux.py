@@ -225,17 +225,26 @@ def list_panes() -> list[Pane]:
 
 
 def find_pane(target: str | None) -> Pane | None:
-    """Resolve a target pane. `target` may be a pane id ("%3"), a tmux address using
-    NUMERIC indices ("session:window_index[.pane_index]", e.g. "work:0.0"), or the
-    `Pane.label` — the tmux window/session name — optionally ".pane_index"; None picks
-    the first pane. Returns None if nothing matches. A window *name* is only accepted as
-    the label, not after the colon. NOTE the UI renders `title || label`, and classify.py
-    may refine `label` to the agent's own session name, so what a card displays is not
-    always resolvable here.
+    """Resolve a target pane. None picks the first pane; returns None if nothing matches.
 
-    The label prefers a user-named window over the session name, so the canonical
-    address has to be matched separately — otherwise "work:0.0" resolves to nothing
-    on exactly the sessions people name.
+    Always resolvable:
+      - a pane id ("%3")
+      - a tmux address using NUMERIC indices ("session:window_index[.pane_index]",
+        e.g. "work:0.0"). A window *name* is never accepted after the colon.
+
+    Also matched, but derived: `Pane.label`, optionally ".pane_index". The label is a
+    precedence chain, not "the window/session name" — it is the window name if that is
+    meaningful (non-empty, not a generic command name, not purely numeric), else the
+    session name under the same test, else the cwd basename, else "session:window_index".
+    So the session name does NOT match on a user-named window, and callers should not
+    have to reason about which rung won: prefer a pane id or numeric address.
+
+    The label preferring a user-named window over the session name is exactly why the
+    canonical address is matched separately here — otherwise "work:0.0" resolves to
+    nothing on exactly the sessions people name.
+
+    NOTE the UI renders `title || label`, and classify.py may refine `label` to the
+    agent's own session name, so what a card displays is not always resolvable here.
     """
     panes = list_panes()
     if not panes:
