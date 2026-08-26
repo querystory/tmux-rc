@@ -1,5 +1,24 @@
 # Exposing tmux-rc with Cloudflare Tunnel + Access
 
+
+> ## ⚠️ The order of these steps is the security control
+>
+> **Create the Access policy BEFORE you start the tunnel (step 5 before step 6).**
+> The instant `cloudflared` connects, your hostname serves the daemon to the entire
+> internet. There is no soft launch and no private warm-up period. If Access is not
+> already in front of it, anyone who guesses or observes the hostname can POST to
+> `/api/panes/{id}/send` and type commands into your terminal.
+>
+> We measured this while validating the guide: tunnel first, Access second, and the
+> hostname answered `200 OK` to an anonymous request from the open internet. (Our
+> origin was a throwaway static page, never the daemon — but with the daemon behind
+> it, that is remote code execution.) The fix is ordering, and step 7 is how you
+> prove you got it right.
+>
+> If you are ever unsure whether the gate is live: **stop the tunnel first, then
+> check.** An unprotected tunnel is not something to leave running while you
+> investigate.
+
 A runbook for reaching your daemon from a phone on the open internet, with
 authentication in front of it. Cloudflare Tunnel is one of several ways to fill the
 `tmux-rc-tunnel.service` slot (see [Run it as a service](../../README.md#run-it-as-a-service));
@@ -7,6 +26,23 @@ this doc covers it end to end because it is the option most people can stand up 
 afternoon with no public IP, no open ports, and no paid plan.
 
 If you only ever use tmux-rc on your LAN, you do not need any of this. Skip it.
+
+## Provenance of these instructions
+
+Verified end to end on 2026-08-25 against `cloudflared 2026.3.0`, on a real zone with a
+real Access application:
+
+- Anonymous request to the protected hostname → **302 to the Cloudflare Access login**
+  (JWT carries `auth_status: NONE`). The same for `POST /api/panes/{id}/send` and for a
+  WebSocket upgrade — Access gates the API and `wss://`, not just the HTML.
+- Login via **email one-time PIN on the free plan** — a 6-digit code, valid 10 minutes,
+  no identity provider to configure. Tested in a clean incognito session.
+- After authenticating, requests reached the origin (`200`/`304` in the origin's own
+  access log), so the policy allows the permitted identity through rather than merely
+  blocking everyone.
+- Unverified: long-term session behavior on a phone across days, and service-token
+  auth for headless clients (creating service tokens needs an API permission beyond
+  the tunnel token's scope).
 
 ## Read this first: the daemon has no authentication
 
@@ -156,90 +192,7 @@ Load `https://tmux.example.com` — you should get the PWA. **At this moment the
 publicly reachable with no authentication.** Do not walk away from this step; go
 straight to section 6, or Ctrl-C until you are ready to.
 
-## 5. Run it from the repo's systemd unit
-
-This repo ships [`deploy/systemd/tmux-rc-tunnel.service`](../../deploy/systemd/tmux-rc-tunnel.service)
-as a deliberately vendor-neutral slot:
-
-```ini
-ExecStart=%h/.local/bin/tunnel-client
-EnvironmentFile=%h/.config/tmux-rc/tunnel.env
-ConditionPathExists=%h/.config/tmux-rc/tunnel.env
-```
-
-The unit stays *inactive* (not failed) until that env file exists, so a LAN-only install
-ignores it entirely. Fitting cloudflared into that shape — rather than inventing a
-parallel unit — keeps `systemctl --user restart tmux-rc.target` working as documented.
-
-### Option A: make the slot point at cloudflared (recommended)
-
-Keep the unit untouched and make `~/.local/bin/tunnel-client` a two-line wrapper. This is
-what the slot is for, it survives `git pull`, and there is nothing to reconcile:
-
-```bash
-mkdir -p ~/.local/bin ~/.config/tmux-rc
-cat > ~/.local/bin/tunnel-client <<'EOF'
-#!/bin/sh
-exec "$(command -v cloudflared)" --no-autoupdate \
-  tunnel --config "$HOME/.cloudflared/tmux-rc.yml" run
-EOF
-chmod +x ~/.local/bin/tunnel-client
-```
-
-`--no-autoupdate` matters under systemd: cloudflared's self-updater restarts the process
-on its own, which fights `Restart=always` and makes the version running unpredictable.
-Let your package manager own upgrades. The tunnel name comes from the config's `tunnel:`
-key, so `run` needs no argument.
-
-The env file is what arms `ConditionPathExists`. cloudflared takes its config from the
-YAML, so this file is mostly a marker — but it is the right place for anything secret,
-since the unit is in git and flags are visible in `ps`:
-
-```bash
-cat > ~/.config/tmux-rc/tunnel.env <<'EOF'
-# Marker file: arms tmux-rc-tunnel.service (ConditionPathExists).
-# cloudflared reads ~/.cloudflared/tmux-rc.yml; put secrets here, not in flags.
-TUNNEL_METRICS=localhost:20241
-EOF
-chmod 600 ~/.config/tmux-rc/tunnel.env
-```
-
-### Option B: a drop-in override
-
-If you would rather not have a wrapper script, override `ExecStart` with a drop-in
-(`systemctl --user edit tmux-rc-tunnel`), which writes
-`~/.config/systemd/user/tmux-rc-tunnel.service.d/override.conf`:
-
-```ini
-[Service]
-ExecStart=
-# The .deb installs to /usr/bin, the static binary usually to /usr/local/bin —
-# `command -v cloudflared` to check yours, and set the absolute path here.
-ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --config %h/.cloudflared/tmux-rc.yml run
-```
-
-The empty `ExecStart=` is required — without it systemd appends a second command instead
-of replacing the first. The tradeoff versus Option A: the drop-in lives outside the repo
-and outside `~/.local/bin`, so it is one more place to remember. Both work; pick one.
-
-### Start and verify
-
-```bash
-systemctl --user daemon-reload
-systemctl --user start tmux-rc-tunnel
-systemctl --user status tmux-rc-tunnel
-journalctl --user -fu tmux-rc-tunnel
-```
-
-Healthy startup logs four `Registered tunnel connection` lines (Cloudflare establishes
-redundant edge connections). If the unit reports `condition failed` and stays inactive,
-`~/.config/tmux-rc/tunnel.env` is missing — that is the unit working as designed.
-
-Do **not** use `cloudflared service install`: it installs a *system* service under root,
-which double-runs the tunnel alongside the user unit and takes it outside
-`tmux-rc.target`.
-
-## 6. Put Cloudflare Access in front of it
+## 5. Put Cloudflare Access in front of it — BEFORE you run the tunnel
 
 This is the step that makes the whole thing safe. Everything before it just made your
 terminals reachable.
@@ -333,6 +286,118 @@ So the honest summary: **there is no paywall in front of the authentication you 
 here.** If a guide tells you otherwise, it is out of date. Pricing does change — confirm
 against [Cloudflare's plans page](https://www.cloudflare.com/plans/zero-trust-services/)
 before you build a budget on it.
+
+## 6. Run it from the repo's systemd unit
+
+> **Do not start the tunnel until step 5's Access policy exists and you have
+> confirmed it in the dashboard.** The moment `cloudflared` connects, the hostname
+> serves your daemon to anyone who knows it. There is no grace period and no
+> "it's only up for a minute" — a request that arrives in that window reaches
+> `/api/panes/{id}/send`, which types into your terminal. Access must be in place
+> first, and step 7 exists to prove it is.
+>
+> This is not hypothetical: while validating this guide we started the tunnel
+> before creating the Access application and measured a plain `200 OK` with the
+> origin's content served to the open internet. The origin was a throwaway static
+> page, not the daemon — deliberately — but the sequencing mistake is easy to make
+> and the consequence with a real daemon behind it is remote code execution.
+
+**Pre-flight — run this before you start anything.** With the tunnel still stopped,
+the hostname should already be answering with an Access challenge, because the DNS
+record and the Access application both exist by now:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://tmux.example.com/
+```
+
+- **302** — the gate is live. Cloudflare is challenging anonymous requests even with
+  no origin behind them. Safe to proceed.
+- **530 / 1033** — DNS points at a tunnel that isn't running, and Access is NOT
+  confirmed. Go back to step 5; do not start the tunnel to "see if it works".
+- **200 or anything else** — stop. Something is answering without authentication.
+  Find out what before you connect a daemon to it.
+
+
+This repo ships [`deploy/systemd/tmux-rc-tunnel.service`](../../deploy/systemd/tmux-rc-tunnel.service)
+as a deliberately vendor-neutral slot:
+
+```ini
+ExecStart=%h/.local/bin/tunnel-client
+EnvironmentFile=%h/.config/tmux-rc/tunnel.env
+ConditionPathExists=%h/.config/tmux-rc/tunnel.env
+```
+
+The unit stays *inactive* (not failed) until that env file exists, so a LAN-only install
+ignores it entirely. Fitting cloudflared into that shape — rather than inventing a
+parallel unit — keeps `systemctl --user restart tmux-rc.target` working as documented.
+
+### Option A: make the slot point at cloudflared (recommended)
+
+Keep the unit untouched and make `~/.local/bin/tunnel-client` a two-line wrapper. This is
+what the slot is for, it survives `git pull`, and there is nothing to reconcile:
+
+```bash
+mkdir -p ~/.local/bin ~/.config/tmux-rc
+cat > ~/.local/bin/tunnel-client <<'EOF'
+#!/bin/sh
+exec "$(command -v cloudflared)" --no-autoupdate \
+  tunnel --config "$HOME/.cloudflared/tmux-rc.yml" run
+EOF
+chmod +x ~/.local/bin/tunnel-client
+```
+
+`--no-autoupdate` matters under systemd: cloudflared's self-updater restarts the process
+on its own, which fights `Restart=always` and makes the version running unpredictable.
+Let your package manager own upgrades. The tunnel name comes from the config's `tunnel:`
+key, so `run` needs no argument.
+
+The env file is what arms `ConditionPathExists`. cloudflared takes its config from the
+YAML, so this file is mostly a marker — but it is the right place for anything secret,
+since the unit is in git and flags are visible in `ps`:
+
+```bash
+cat > ~/.config/tmux-rc/tunnel.env <<'EOF'
+# Marker file: arms tmux-rc-tunnel.service (ConditionPathExists).
+# cloudflared reads ~/.cloudflared/tmux-rc.yml; put secrets here, not in flags.
+TUNNEL_METRICS=localhost:20241
+EOF
+chmod 600 ~/.config/tmux-rc/tunnel.env
+```
+
+### Option B: a drop-in override
+
+If you would rather not have a wrapper script, override `ExecStart` with a drop-in
+(`systemctl --user edit tmux-rc-tunnel`), which writes
+`~/.config/systemd/user/tmux-rc-tunnel.service.d/override.conf`:
+
+```ini
+[Service]
+ExecStart=
+# The .deb installs to /usr/bin, the static binary usually to /usr/local/bin —
+# `command -v cloudflared` to check yours, and set the absolute path here.
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --config %h/.cloudflared/tmux-rc.yml run
+```
+
+The empty `ExecStart=` is required — without it systemd appends a second command instead
+of replacing the first. The tradeoff versus Option A: the drop-in lives outside the repo
+and outside `~/.local/bin`, so it is one more place to remember. Both work; pick one.
+
+### Start and verify
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start tmux-rc-tunnel
+systemctl --user status tmux-rc-tunnel
+journalctl --user -fu tmux-rc-tunnel
+```
+
+Healthy startup logs four `Registered tunnel connection` lines (Cloudflare establishes
+redundant edge connections). If the unit reports `condition failed` and stays inactive,
+`~/.config/tmux-rc/tunnel.env` is missing — that is the unit working as designed.
+
+Do **not** use `cloudflared service install`: it installs a *system* service under root,
+which double-runs the tunnel alongside the user unit and takes it outside
+`tmux-rc.target`.
 
 ## 7. Verify that auth actually works
 
