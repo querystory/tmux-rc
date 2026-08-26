@@ -179,3 +179,7 @@ The daemon serves the phone's PWA and a small HTTP API on `:18030` — usable by
 - **`watcher.py`** — polls every 1.5s, tracks idle time, keeps a snapshot ring buffer.
 - **`server.py`** — FastAPI: `/api/state`, snapshot endpoints, `/api/panes/{id}/send`.
 - **`web/`** — installable vanilla-JS PWA.
+
+## License
+
+[MIT](LICENSE) © QueryStory, Inc.
