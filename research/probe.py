@@ -25,9 +25,10 @@ import sys
 from pathlib import Path
 
 from daemon import tmux
-# Prices come from the daemon (not a copy here): this file used to hardcode
-# 2.5-flash-lite's $0.10/$0.40 long after the move to 3.1, quoting costs ~2.5x low.
-from daemon.llm import _IN_PER_M, _MODEL, _OUT_PER_M, _client, _parse_json
+# Prices AND the tokens→cost arithmetic come from the daemon (not a copy here): this file
+# used to hardcode 2.5-flash-lite's $0.10/$0.40 long after the move to 3.1, quoting costs
+# ~2.5x low. `_tokens_cost` is the daemon's single source of truth for both.
+from daemon.llm import _MODEL, _client, _parse_json, _tokens_cost
 from daemon.render import render_png
 
 SAMPLES = Path(__file__).parent / "samples"
@@ -57,7 +58,6 @@ def _parse(parts, model: str = _MODEL) -> dict:
     from google.genai import types
 
     client = _client()
-    in_tokens = client.models.count_tokens(model=model, contents=parts).total_tokens
     t0 = time.time()
     resp = client.models.generate_content(
         model=model, contents=parts,
@@ -66,8 +66,14 @@ def _parse(parts, model: str = _MODEL) -> dict:
         ),
     )
     latency = time.time() - t0
-    out_tokens = getattr(resp.usage_metadata, "candidates_token_count", 0) or 0
-    cost = in_tokens / 1e6 * _IN_PER_M + out_tokens / 1e6 * _OUT_PER_M
+    # Tokens/cost off the response's own usage_metadata via the daemon's `_tokens_cost` —
+    # i.e. billed exactly as production bills. A `count_tokens(contents=parts)` call here
+    # would count ONLY the pane text and silently omit PROMPT, which rides along as
+    # `system_instruction` and is comparable in size to the pane itself — that undercounted
+    # input (and cost) roughly 2x on every call.
+    # `cached` is broken out because prompt_token_count INCLUDES it and it bills at 10% of
+    # list — _tokens_cost already discounts it, so cost here is cache-aware like production's.
+    in_tokens, cached, out_tokens, cost = _tokens_cost(resp)
     # The daemon's own salvage, not a private one: llm._parse_json tolerates the trailing
     # garbage flash-lite sometimes emits. Re-implementing "did it parse?" here would score
     # a model as failing on output production accepts.
@@ -75,7 +81,8 @@ def _parse(parts, model: str = _MODEL) -> dict:
         result = _parse_json(resp.text)
     except Exception:
         result = {"_raw": resp.text}
-    return {"json": result, "in": in_tokens, "out": out_tokens, "latency": latency, "cost": cost}
+    return {"json": result, "in": in_tokens, "cached": cached, "out": out_tokens,
+            "latency": latency, "cost": cost}
 
 
 def _load_sample_text(path: Path) -> str:

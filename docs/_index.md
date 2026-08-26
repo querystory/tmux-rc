@@ -16,7 +16,7 @@ design notes, and the running progress log.
   {{< card link="prd/" title="Product Requirements" subtitle="What we're building and why." >}}
   {{< card link="requirements/" title="Requirements" subtitle="Source-of-truth checklist of what was asked for." >}}
   {{< card link="design/" title="Design Notes" subtitle="Architecture and design decisions, with the why behind them." >}}
-  {{< card link="benchmarks/" title="Benchmarks" subtitle="Hot-path classifier latency measurements." >}}
+  {{< card link="benchmarks/" title="Benchmarks" subtitle="Hot-path classifier latency, cost, and model head-to-heads." >}}
   {{< card link="hint/" title="Telemetry Hints" subtitle="Guidance for querying tmux-rc telemetry." >}}
   {{< card link="progress/" title="Progress Log" subtitle="What changed, newest first." >}}
   {{< card link="/apidocs" title="API Reference" subtitle="Live Swagger UI for the daemon's HTTP API." >}}

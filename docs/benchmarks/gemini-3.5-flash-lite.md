@@ -1,12 +1,16 @@
+---
+title: "gemini-3.5-flash-lite vs 3.1-flash-lite"
+---
+
 # Benchmark: `gemini-3.5-flash-lite` vs deployed `gemini-3.1-flash-lite` (pane classifier)
 
 **Question this answers:** should we switch the pane classifier from the currently
 deployed `gemini-3.1-flash-lite` to `gemini-3.5-flash-lite`? Both sides are **Flash
-*Lite***. This is NOT the non-Lite `gemini-3.5-flash` (a separate model a sibling session
-smoke-tested — see the note at the end).
+*Lite***. This is NOT the non-Lite `gemini-3.5-flash`, a separate model that was only
+smoke-tested — see the note at the end.
 
 **TL;DR — DON'T switch yet. Needs more data / a prompt fix first.** `gemini-3.5-flash-lite`
-is reachable, ~0.2–0.3s faster per parse, and cost-neutral under our pricing. But on real
+is reachable, ~0.2–0.3s faster per parse, and cost-neutral (+0.8%) under current pricing. But on real
 samples it is **less reliable at the one thing this classifier exists to get right: not
 missing a pane that needs the human.** On 24 diverse real screens it disagreed with 3.1-lite
 on `activity` 6 times, and in the ambiguous/hard cases it drifted toward *under*-reporting —
@@ -17,8 +21,8 @@ loss of an amber "tap me, I need you" badge.
 
 ## How this was run (apples-to-apples with production)
 
-- **Model call path:** the daemon's real one. `research/probe.py`'s `_parse()` (extended in
-  this PR to take a `model` arg) sends the pane text with the **production
+- **Model call path:** the daemon's real one. `research/probe.py`'s `_parse()` (which takes
+  a `model` arg for this comparison) sends the pane text with the **production
   `daemon/parser_prompt.txt`** as `system_instruction`, `temperature=0.0`,
   `response_mime_type=application/json`, via the same Vertex client
   (`daemon.llm._client`). No hand-rolled prompt, no raw call that skips our prompting.
@@ -30,16 +34,16 @@ loss of an amber "tap me, I need you" badge.
   payload, not the live multi-frame trajectory the daemon accumulates across ticks (see the
   caveat below). Text-only, matching the shipped hot path (research showed text beats image;
   the image switch is off).
-- **Auth/env:** Vertex on `qs-backend-dev`, region `global`, the daemon's service-account
-  key. Both model ids returned valid JSON on every call — **`gemini-3.5-flash-lite` IS a
-  valid, reachable model id on our setup** (this was the first thing checked; it is not a
-  substitution).
+- **Auth/env:** Vertex on the inference project, region `global`, the daemon's
+  service-account key. Both model ids returned valid JSON on every call —
+  **`gemini-3.5-flash-lite` IS a valid, reachable model id on this setup** (this was the
+  first thing checked; it is not a substitution).
 - **Repeats:** 3 runs/model/sample; latency reported as the per-sample median.
 
 ## Sample source: real OTel telemetry (not the 3 `research/samples/` fixtures)
 
-Pulled from `gs://qsi-otel-data/tmux/events/2026-07-2{1,2}/*.jsonl.gz` — the
-`tmux-rc.classify` parse records, which under QSDEBUG carry `pane_text` + `output_json`.
+Pulled from production OTel telemetry — two days of archived `tmux-rc.classify` parse
+records, which under `TMUXRC_QSDEBUG=1` carry `pane_text` + `output_json`.
 **158,703** parse records → **33,092 distinct screens**. Production-observed activity mix
 across those distinct screens: idle 15,896 / running 15,266 / waiting 1,710 / compacting 220;
 tools claude 16,569 / shell 15,834 / codex 490 / gemini 199.
@@ -62,16 +66,42 @@ it was produced with real prior-frame continuity these single-frame replays don'
 | latency range | 0.80–2.45s | 0.76–2.03s |
 | faster on … | — | **17 / 24 samples** |
 | median paired Δlatency (3.5 − 3.1) | — | **−0.22s** |
-| in-tokens (identical input/tokenizer) | 111,050 total | 111,050 total |
+| pane-text in-tokens (identical input/tokenizer) | 111,050 total | 111,050 total |
 | out-tokens | 3,800 total (median 133) | 3,969 total (median 140) |
-| cost / 1k calls (mean, our $0.10/$0.40 per-M) | $0.526 | $0.529 |
+| cost / 1k calls (mean, $0.25/$1.50 per-M) | $1.394 | $1.405 |
 
 Latency edge is consistent across input sizes (small `<1500` in-tok: −0.29s; mid: −0.25s;
 large: −0.38s). 3.5-lite writes ~5% more output tokens on average, so cost is a hair higher
-but **effectively identical** (+$0.003 / 1k calls) under the flash-lite pricing both models
-share in `daemon/llm.py`. *(Assumption: 3.5-lite bills at the same Vertex list price as
-3.1-lite. Confirm real list price before switching — if 3.5-lite costs more, the case gets
-weaker still, since it's not winning on quality.)*
+but **effectively identical** — **+$0.011 / 1k calls, +0.8%** — under the flash-lite pricing
+both models share in `daemon/llm.py`. *(Assumption: 3.5-lite bills at the same Vertex list
+price as 3.1-lite. Confirm real list price before switching — if 3.5-lite costs more, the
+case gets weaker still, since it's not winning on quality.)*
+
+### Two corrections to the originally published figures
+
+This report first ran on 2026-07-22 and its cost section has been regenerated twice over.
+Both fixes move the absolute numbers and neither moves the conclusion — stated here rather
+than silently restated, since the original figures circulated.
+
+1. **Stale prices.** The original quoted `$0.526` / `$0.529` per 1k calls using
+   **$0.10/$0.40** per M tokens. Those were `2.5-flash-lite`'s prices, still hardcoded long
+   after the move to 3.1. `daemon/llm.py` now carries the current
+   **$0.25 in / $1.50 out** (`_IN_PER_M` / `_OUT_PER_M`, overridable via
+   `TMUXRC_IN_PER_M` / `TMUXRC_OUT_PER_M`) — the source of the prices quoted above, and the
+   reason `research/probe.py` imports them rather than keeping a copy. Output being 3.75x
+   dearer is what widens the paired gap from `+$0.003` to `+$0.011`.
+2. **Input was undercounted ~2x.** The 111,050 figure came from a `count_tokens` call over
+   the pane text **only**. Every request also sends the ~20KB production parser prompt as
+   `system_instruction`, which billing counts and that helper did not — roughly **+5,000
+   tokens per call**, against a mean of 4,627 pane-text tokens. Full production accounting
+   (what `usage_metadata.prompt_token_count` reports, now what `probe.py` records) puts real
+   input near **9,700 tokens/call**, and the true per-1k cost near **$2.66 for both models**.
+
+The cost *comparison* survives both corrections intact: input tokens are identical between
+the two models, so they cancel out of the difference entirely. The gap is set solely by
+3.5-lite's 169 extra output tokens across 24 calls — **+$0.011 / 1k calls whichever input
+baseline you use.** Cost was never the deciding variable here, and still isn't; the quality
+findings below are.
 
 ## Quality — where they diverge (the part that decides it)
 
@@ -131,9 +161,9 @@ Concretely:
    an unrecognized `activity` to a safe default rather than passing it through — cheap
    insurance against any model (3.1 included, on some unseen screen) inventing a value.
 
-## Context: the sibling session's non-Lite finding
+## Context: the non-Lite finding, separately
 
-A sibling session smoke-tested the **non-Lite** `gemini-3.5-flash` and found it passes a
+The **non-Lite** `gemini-3.5-flash` was smoke-tested separately and passes a
 basic smoke test at ~identical cost to 3.1-lite. That's a *different* model (bigger, not the
 Lite tier) and only a smoke test, not a real-sample head-to-head — noted here so the two
 results aren't conflated. This report is the Lite-vs-Lite, real-sample comparison, and its
@@ -142,4 +172,6 @@ conclusion (don't switch on current evidence) is specific to `gemini-3.5-flash-l
 ---
 *Harness: `research/probe.py --sample <SAMPLE.json> --models a,b --repeat N` (text-only,
 production prompt, matches the daemon call). 24 real OTel samples, 3 repeats each, run
-2026-07-22 on Vertex `qs-backend-dev`/`global`.*
+2026-07-22 on Vertex, region `global`. Latency and token counts are from that run; the cost
+figures were recomputed from those token totals at current prices (see the corrections
+above) rather than re-billed against the API.*
