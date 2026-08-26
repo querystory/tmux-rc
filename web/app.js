@@ -1914,7 +1914,10 @@ function reorderPane(src, target, after) {
   // move is WINDOW-level (move-window), so every pane sharing src's window travels
   // together and lands as a contiguous run. Moving the single dragged id would visibly
   // tear a multi-pane window apart until the poll stitched it back.
-  const key = (s) => `${s.session} ${s.window_index}`;
+  // "\n" as the delimiter: a tmux session name can contain spaces and colons, so a
+  // printable separator could let two different (session, window) pairs collide into
+  // one key. A newline cannot appear in either field.
+  const key = (s) => `${s.session}\n${s.window_index}`;
   const s0 = panesById[src], t0 = panesById[target];
   if (!s0 || !t0) return;
   const srcWin = key(s0), dstWin = key(t0);
