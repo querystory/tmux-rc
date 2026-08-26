@@ -10,9 +10,11 @@ API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *termi
 so it's vendor-agnostic on both axes — any agent, any model provider for the
 summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
-> **Status: proof of concept.** Milestone 1 (single pane) works end to end:
-> watch → classify → phone card → detect a waiting prompt → tap → answer round-trips
-> into the pane. Milestone 2 (all panes) and the non-goals in the PRD are next.
+> **Status: proof of concept.** The all-pane watch/control slice works end to end,
+> across every pane on the tmux server: watch → classify → phone card → detect a
+> waiting prompt → tap → answer round-trips into the pane. Remaining PRD milestone-2
+> items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
+> scope.
 
 ## Run
 
@@ -36,11 +38,18 @@ tmux new -s work
 uv run python -m daemon.server
 ```
 
-The daemon binds `127.0.0.1:18030` by default. To browse it from a phone on the same
-network, set `TMUXRC_HOST=0.0.0.0` and open `http://<machine-lan-ip>:18030` — but note
-the API is **unauthenticated** and `/send` injects keystrokes into your terminals, so
-never do that on an untrusted network. For access off your LAN, front it with a tunnel
-you control (e.g. `cloudflared`, `tailscale`).
+> **The daemon has no authentication, so run it only on a single-user machine.** There is
+> no login, no API key, no token — any client that can reach the port can call the API, and
+> `POST /api/panes/{id}/send` types into a real terminal. It binds `127.0.0.1:18030`, but
+> a loopback bind is not a permission check: anyone who can reach that port can control
+> your terminal, which on a shared host means every other account on it.
+
+To browse it from a phone on the same network, set `TMUXRC_HOST=0.0.0.0` and open
+`http://<machine-lan-ip>:18030` — that hands the same control to everyone on the LAN, so
+only do it on a network you trust. For access from anywhere else, put something
+authenticating in front of it: see [docs/deploy/](docs/deploy/) — Tailscale keeps it off
+the public internet entirely, and there's a step-by-step Cloudflare Tunnel + Access
+runbook if you need a public hostname.
 
 ### Run it as a service
 
@@ -126,7 +135,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
+| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane: a pane id (`%3`) or its tmux-derived label — named window, else session, else cwd basename (`label` / `label.N`); UI titles may differ |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
