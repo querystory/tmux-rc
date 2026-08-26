@@ -121,7 +121,7 @@ residual failure is loud and obvious rather than a silent stale-card freeze.
 ## Related
 
 - **Receiver side already done:** SA-key object-storage auth on the receiver's own SA.
-- **Timeout mitigation already merged** (PR #1): the 20s client timeout turns a hung refresh
+- **Timeout mitigation already merged:** the 20s client timeout turns a hung refresh
   into a recoverable error — necessary but not sufficient; this SA plan is the real fix.
 - **Durability (separate follow-up):** daemon + receiver are currently `setsid` background
   procs; they should be systemd units (survive reboot, auto-restart, env baked in). The SA
