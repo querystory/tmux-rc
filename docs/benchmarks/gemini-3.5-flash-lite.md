@@ -10,7 +10,8 @@ deployed `gemini-3.1-flash-lite` to `gemini-3.5-flash-lite`? Both sides are **Fl
 smoke-tested — see the note at the end.
 
 **TL;DR — DON'T switch yet. Needs more data / a prompt fix first.** `gemini-3.5-flash-lite`
-is reachable, ~0.2–0.3s faster per parse, and cost-neutral (+0.8%) under current pricing. But on real
+is reachable, ~0.2–0.3s faster per parse, and cost-neutral (+$0.011 per 1k calls) under
+current pricing. But on real
 samples it is **less reliable at the one thing this classifier exists to get right: not
 missing a pane that needs the human.** On 24 diverse real screens it disagreed with 3.1-lite
 on `activity` 6 times, and in the ambiguous/hard cases it drifted toward *under*-reporting —
@@ -72,7 +73,9 @@ it was produced with real prior-frame continuity these single-frame replays don'
 
 Latency edge is consistent across input sizes (small `<1500` in-tok: −0.29s; mid: −0.25s;
 large: −0.38s). 3.5-lite writes ~5% more output tokens on average, so cost is a hair higher
-but **effectively identical** — **+$0.011 / 1k calls, +0.8%** — under the flash-lite pricing
+but **effectively identical** — **+$0.011 / 1k calls** (+0.8% of the $1.394 pane-text-only
+baseline in this table; +0.4% of the fully-accounted $2.66 — see the corrections below) —
+under the flash-lite pricing
 both models share in `daemon/llm.py`. *(Assumption: 3.5-lite bills at the same Vertex list
 price as 3.1-lite. Confirm real list price before switching — if 3.5-lite costs more, the
 case gets weaker still, since it's not winning on quality.)*
@@ -100,8 +103,10 @@ than silently restated, since the original figures circulated.
 The cost *comparison* survives both corrections intact: input tokens are identical between
 the two models, so they cancel out of the difference entirely. The gap is set solely by
 3.5-lite's 169 extra output tokens across 24 calls — **+$0.011 / 1k calls whichever input
-baseline you use.** Cost was never the deciding variable here, and still isn't; the quality
-findings below are.
+baseline you use.** Only the *absolute* delta is baseline-invariant; expressed as a percent
+it shrinks as the input baseline grows (0.8% of $1.394, 0.4% of $2.66), which is why the
+absolute figure is the one to quote. Cost was never the deciding variable here, and still
+isn't; the quality findings below are.
 
 ## Quality — where they diverge (the part that decides it)
 
