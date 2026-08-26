@@ -54,8 +54,7 @@ Zero Trust → Access → Applications → Create new application → Self-hoste
 **5. Confirm the gate is live, still with nothing running:**
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}
-' https://tmux.example.com/
+curl -s -o /dev/null -w '%{http_code}\n' https://tmux.example.com/
 # 302 → gate is live, continue.  530 → go back to step 4.  200 → STOP, something is open.
 ```
 
@@ -63,8 +62,9 @@ curl -s -o /dev/null -w '%{http_code}
 
 ```bash
 systemctl --user start tmux-rc-tunnel     # see step 6 below for the unit
-curl -s -o /dev/null -w '%{http_code}
-' -X POST   https://tmux.example.com/api/panes/%251/send   -H 'content-type: application/json' -d '{"keys":"echo probe"}'
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  https://tmux.example.com/api/panes/%251/send \
+  -H 'content-type: application/json' -d '{"keys":"echo probe"}'
 # 302 = correct (challenged).  200 or 404 = the request REACHED the daemon: stop the
 # tunnel now and fix the policy.
 ```

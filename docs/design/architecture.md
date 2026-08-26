@@ -79,8 +79,8 @@ stay attached to the same session at the same time.
 > one: outbound-only connection, authentication strictly in front of the daemon, and a
 > pipe that carries whole request/response pairs.
 >
-> You are not expected to reproduce it. Tailscale, a Cloudflare Tunnel with Access, or
-> any other authenticating front end fills the same role — see
+> You are not expected to reproduce it. Tailscale, a Cloudflare Tunnel with Access, and
+> any other authenticating front end all fill the same role — see
 > [Reaching the daemon from outside localhost](../../deploy/). Read the properties in
 > "Consequences worth internalizing" below as the bar any alternative should clear.
 
