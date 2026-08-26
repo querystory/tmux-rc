@@ -225,9 +225,11 @@ def list_panes() -> list[Pane]:
 
 
 def find_pane(target: str | None) -> Pane | None:
-    """Resolve a target pane. `target` may be a pane id ("%3"), the canonical tmux
-    "session:window[.pane]" address, or the display label (optionally ".pane");
-    None picks the first pane. Returns None if nothing matches.
+    """Resolve a target pane. `target` may be a pane id ("%3"), a tmux address using
+    NUMERIC indices ("session:window_index[.pane_index]", e.g. "work:0.0"), or the
+    display label (optionally ".pane_index"); None picks the first pane. Returns None
+    if nothing matches. A window *name* is only accepted via the label, not after the
+    colon.
 
     The label prefers a user-named window over the session name, so the canonical
     address has to be matched separately — otherwise "work:0.0" resolves to nothing

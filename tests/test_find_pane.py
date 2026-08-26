@@ -1,7 +1,8 @@
 """find_pane() target resolution.
 
-The display label prefers a user-named window over the session, so the canonical tmux
-address ("work:0.0") has to be matched on its own — see issue #146.
+The display label prefers a user-named window over the session, so the numeric tmux
+address ("work:0.0" — window/pane INDEX, not the window name) has to be matched on its
+own — see issue #146.
 """
 
 import daemon.tmux as tmux
@@ -17,8 +18,8 @@ def _panes(monkeypatch, panes):
 
 
 def test_canonical_address_matches_named_window(monkeypatch):
-    """The regression: a named window makes label != session, so "work:0" only
-    resolves if the address is matched separately."""
+    """The regression: a named window makes label != session:index, so "work:0" only
+    resolves if the numeric address is matched separately."""
     _panes(monkeypatch, [NAMED])
     assert NAMED.label == "Resolve PR 38"  # label is NOT session:window
     assert find_pane("work:0") is NAMED

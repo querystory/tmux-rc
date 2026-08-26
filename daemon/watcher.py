@@ -379,7 +379,8 @@ class Watcher:
                 self._warned_no_target = True
                 logger.warning(
                     "TMUXRC_TARGET=%r matches no pane — watching nothing. Use a pane id "
-                    "(%%3), a tmux address (session:window[.pane]), or a display label.",
+                    "(%%3), a numeric tmux address (session:window_index[.pane_index], "
+                    "e.g. work:0.0), or the display label shown in the UI.",
                     self.target,
                 )
             panes = [p] if p else []
