@@ -1,4 +1,4 @@
-module github.com/shapor/tmux-rc/docs-site
+module github.com/querystory/tmux-rc/docs-site
 
 go 1.21
 

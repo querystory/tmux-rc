@@ -10,9 +10,11 @@ API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *termi
 so it's vendor-agnostic on both axes — any agent, any model provider for the
 summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
-> **Status: proof of concept.** Milestone 1 (single pane) works end to end:
-> watch → classify → phone card → detect a waiting prompt → tap → answer round-trips
-> into the pane. Milestone 2 (all panes) and the non-goals in the PRD are next.
+> **Status: proof of concept.** The all-pane watch/control slice works end to end,
+> across every pane on the tmux server: watch → classify → phone card → detect a
+> waiting prompt → tap → answer round-trips into the pane. Remaining PRD milestone-2
+> items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
+> scope.
 
 ## Run
 
@@ -36,11 +38,18 @@ tmux new -s work
 uv run python -m daemon.server
 ```
 
-The daemon binds `127.0.0.1:18030` by default. To browse it from a phone on the same
-network, set `TMUXRC_HOST=0.0.0.0` and open `http://<machine-lan-ip>:18030` — but note
-the API is **unauthenticated** and `/send` injects keystrokes into your terminals, so
-never do that on an untrusted network. For access off your LAN, front it with a tunnel
-you control (e.g. `cloudflared`, `tailscale`).
+> **The daemon has no authentication, so run it only on a single-user machine.** There is
+> no login, no API key, no token — any client that can reach the port can call the API, and
+> `POST /api/panes/{id}/send` types into a real terminal. It binds `127.0.0.1:18030`, but
+> a loopback bind is not a permission check: anyone who can reach that port can control
+> your terminal, which on a shared host means every other account on it.
+
+To browse it from a phone on the same network, set `TMUXRC_HOST=0.0.0.0` and open
+`http://<machine-lan-ip>:18030` — that hands the same control to everyone on the LAN, so
+only do it on a network you trust. For access from anywhere else, put something
+authenticating in front of it: see [docs/deploy/](docs/deploy/) — Tailscale keeps it off
+the public internet entirely, and there's a step-by-step Cloudflare Tunnel + Access
+runbook if you need a public hostname.
 
 ### Run it as a service
 
@@ -76,20 +85,20 @@ See [docs/design/deployment.md](docs/design/deployment.md) for why user units + 
 
 ### Run without cloning
 
-`uv` installs straight from the (private) git repo — no manual clone or checkout to
+`uv` installs straight from the git repo — no manual clone or checkout to
 manage. The wheel bundles the phone UI, so this is fully self-contained (`tmux-rc` is a
 console script; reload defaults off when installed). You still need `tmux`, a running
 agent, a Vertex service-account key file **on the machine**, and the env vars pointing at
 it — `uvx` fetches the code, not your credentials.
 
 ```bash
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 # or pin a branch/tag/commit:
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git@main" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git@main" tmux-rc
 ```
 
-Requires SSH access to the `querystory` org. The `docs/` site is checkout-only (not
-bundled); the phone dashboard and API work without it.
+The `docs/` site is checkout-only (not bundled); the phone dashboard and API work
+without it.
 
 **Setting the env vars.** There's no repo-root `.env` here, so use one of (real shell env
 vars always win — `.env` never overrides them):
@@ -98,19 +107,19 @@ vars always win — `.env` never overrides them):
 # 1. Exported shell env vars (simplest, persists across runs in the shell):
 export GOOGLE_CLOUD_PROJECT=your-gcp-project
 export GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/sa-key.json   # absolute — no ~
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 
 # 2. Inline, for a one-off run:
 GOOGLE_CLOUD_PROJECT=your-gcp-project \
 GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/sa-key.json \
-  uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+  uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 
 # 3. A .env in (or above) the directory you launch from — the daemon searches upward
 #    from the cwd when there's no repo-root .env:
 mkdir -p ~/tmux-rc && cd ~/tmux-rc
 # create .env with GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS (see the table
 # below and `.env.example` in the repo)
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 ```
 
 > `GOOGLE_APPLICATION_CREDENTIALS` **must be an absolute path** — google-auth does not
@@ -126,7 +135,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
+| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`) — the window name if you named the window, else the session name, else the cwd basename — so on a named window the session name does *not* match. The card title in the UI is not a valid target either; use a pane id when in doubt |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
@@ -170,3 +179,7 @@ The daemon serves the phone's PWA and a small HTTP API on `:18030` — usable by
 - **`watcher.py`** — polls every 1.5s, tracks idle time, keeps a snapshot ring buffer.
 - **`server.py`** — FastAPI: `/api/state`, snapshot endpoints, `/api/panes/{id}/send`.
 - **`web/`** — installable vanilla-JS PWA.
+
+## License
+
+[MIT](LICENSE) © QueryStory, Inc.
