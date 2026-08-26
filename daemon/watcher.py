@@ -135,6 +135,7 @@ class Watcher:
     def __init__(self, target: str | None, use_llm: bool = True):
         self.target = target
         self.use_llm = use_llm
+        self._warned_no_target = False  # warn once, not every poll
         self.states: list[dict] = []  # raw LLM JSON dicts, piped straight to the UI
         self.events_log: dict[
             str, list[dict]
@@ -374,6 +375,13 @@ class Watcher:
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
         if self.target:
             p = tmux.find_pane(self.target)
+            if p is None and not self._warned_no_target:
+                self._warned_no_target = True
+                logger.warning(
+                    "TMUXRC_TARGET=%r matches no pane — watching nothing. Use a pane id "
+                    "(%%3), a tmux address (session:window[.pane]), or a display label.",
+                    self.target,
+                )
             panes = [p] if p else []
         else:
             panes = tmux.list_panes()

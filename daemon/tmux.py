@@ -225,15 +225,28 @@ def list_panes() -> list[Pane]:
 
 
 def find_pane(target: str | None) -> Pane | None:
-    """Resolve a target pane. `target` may be a pane id ("%3") or "session:window"
-    label; None picks the first pane. Returns None if nothing matches."""
+    """Resolve a target pane. `target` may be a pane id ("%3"), the canonical tmux
+    "session:window[.pane]" address, or the display label (optionally ".pane");
+    None picks the first pane. Returns None if nothing matches.
+
+    The label prefers a user-named window over the session name, so the canonical
+    address has to be matched separately — otherwise "work:0.0" resolves to nothing
+    on exactly the sessions people name.
+    """
     panes = list_panes()
     if not panes:
         return None
     if target is None:
         return panes[0]
     for p in panes:
-        if target in (p.id, p.label, f"{p.label}.{p.pane_index}"):
+        addr = f"{p.session}:{p.window_index}"
+        if target in (
+            p.id,
+            addr,
+            f"{addr}.{p.pane_index}",
+            p.label,
+            f"{p.label}.{p.pane_index}",
+        ):
             return p
     return None
 
