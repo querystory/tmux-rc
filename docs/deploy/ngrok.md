@@ -164,7 +164,7 @@ exactly one file, not in the unit (which is committed to git) and not in `ps` ou
 
 Unlike Tailscale, ngrok **does** need the tunnel unit: the agent is a foreground process
 that must be started, restarted on crash, and brought up at boot. That is precisely what
-[`deploy/systemd/tmux-rc-tunnel.service`](https://github.com/querystory/tmux-rc/blob/main/deploy/systemd/tmux-rc-tunnel.service)
+`deploy/systemd/tmux-rc-tunnel.service`
 is a slot for. The unit already reads `EnvironmentFile=%h/.config/tmux-rc/tunnel.env`,
 already has `Restart=always`, and stays inactive until that file exists — so step 3
 activated it.
@@ -213,7 +213,7 @@ is covered. Test the dangerous route directly, unauthenticated:
 
 ```bash
 curl -sS -i --max-time 10 -X POST \
-  https://your-name.ngrok-free.app/api/panes/%1/send \
+  https://your-name.ngrok-free.app/api/panes/%251/send \
   -H 'content-type: application/json' -d '{"keys":"echo probe"}'
 ```
 

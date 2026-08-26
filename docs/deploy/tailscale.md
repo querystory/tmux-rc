@@ -95,7 +95,7 @@ tailscale serve reset               # remove every serve mapping on this device
 
 ### Does it need the repo's systemd tunnel slot? No.
 
-This repo ships [`deploy/systemd/tmux-rc-tunnel.service`](https://github.com/querystory/tmux-rc/blob/main/deploy/systemd/tmux-rc-tunnel.service)
+This repo ships `deploy/systemd/tmux-rc-tunnel.service`
 as a vendor-neutral slot for a long-running tunnel *client* process. Tailscale doesn't
 need it: `tailscaled` is already its own system service with its own restart semantics,
 and the serve mapping lives in that daemon's state rather than in a foreground process
@@ -154,7 +154,7 @@ Serve injects `Tailscale-User-Login`, `Tailscale-User-Name`, and
 copies of those headers arriving from the client**, so they can't be spoofed.
 
 tmux-rc doesn't read those headers today; its audit trail keys off `X-Tunnel-User`,
-which it honors [only from a loopback peer](https://github.com/querystory/tmux-rc/blob/main/daemon/server.py)
+which it honors only from a loopback peer (see `daemon/server.py`)
 (see `_trusted_user`). Since Serve *does* connect from loopback, the audit log will
 attribute actions to `local:127.0.0.1` rather than to a person. That's honest — it isn't
 claiming an identity it can't prove — and it's fine for a single-user tailnet. If you
@@ -185,7 +185,7 @@ the write path is protected; test the write path directly. With Tailscale off:
 
 ```bash
 curl -sS --max-time 5 -X POST \
-  https://<device>.<tailnet>.ts.net/api/panes/%1/send \
+  https://<device>.<tailnet>.ts.net/api/panes/%251/send \
   -H 'content-type: application/json' -d '{"keys":"echo probe"}'
 ```
 
