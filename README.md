@@ -37,7 +37,7 @@ uv run python -m daemon.server
 ```
 
 > **The daemon has no authentication, so run it only on a single-user machine.** There is
-> no login, no API key, no token — every request it receives is honored, and
+> no login, no API key, no token — any client that can reach the port can call the API, and
 > `POST /api/panes/{id}/send` types into a real terminal. It binds `127.0.0.1:18030`, but
 > a loopback bind is not a permission check: anyone who can reach that port can control
 > your terminal, which on a shared host means every other account on it.
