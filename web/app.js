@@ -1809,7 +1809,13 @@ function dragReorder(icon) {
   // for free. The drop therefore lands relative to the pane the user can actually see,
   // which is the one they aimed at — a parked pane hidden between two visible icons
   // keeps its own place in tmux's order and is not jumped over.
-  const overIcon = (x) => {
+  // Takes BOTH axes, and both call sites pass both, so the dashed ring and the drop can
+  // never disagree. Under pointer capture the pointer keeps reporting to this icon even
+  // when it has left the strip entirely, so an X-only test would ring a target the drop
+  // would then refuse — the highlight would promise a move that never happened.
+  const overIcon = (x, y) => {
+    const dr = el.getBoundingClientRect();
+    if (y < dr.top || y > dr.bottom) return null; // finger left the strip vertically
     const sess = panesById[icon.dataset.pane]?.session;
     for (const n of el.querySelectorAll(".dock-icon")) {
       if (n === icon) continue;
@@ -1855,7 +1861,7 @@ function dragReorder(icon) {
     e.preventDefault();
     dragging = true;
     icon.style.transform = `translateX(${e.clientX - sx}px)`;
-    const over = overIcon(e.clientX);
+    const over = overIcon(e.clientX, e.clientY);
     el.querySelectorAll(".drop-into").forEach((n) => n.classList.remove("drop-into"));
     if (over) over.classList.add("drop-into");
   });
@@ -1874,12 +1880,12 @@ function dragReorder(icon) {
       const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
       el.addEventListener("click", swallow, { capture: true, once: true });
       setTimeout(() => el.removeEventListener("click", swallow, { capture: true }), 400);
-      // Only reorder if the release is actually over the strip vertically — under pointer
-      // capture the up can fire far above/below the dock (finger left the strip), and an X
-      // that happens to line up with an icon there shouldn't trigger a surprise reorder.
-      const dr = el.getBoundingClientRect();
-      const inStrip = e.clientY >= dr.top && e.clientY <= dr.bottom;
-      const over = inStrip ? overIcon(e.clientX) : null;
+      // overIcon itself rejects a release that is not over the strip vertically — under
+      // pointer capture the up can fire far above/below the dock (finger left the strip),
+      // and an X that happens to line up with an icon there must not trigger a surprise
+      // reorder. Sharing that rule with the highlight above is what keeps the dashed ring
+      // and the actual drop in agreement.
+      const over = overIcon(e.clientX, e.clientY);
       if (over && over.dataset.pane !== icon.dataset.pane) {
         // after: dropped on the RIGHT half of the target ⇒ place src after it.
         const r = over.getBoundingClientRect();

@@ -630,7 +630,11 @@ def reorder(pane_id: str, body: ReorderBody, request: Request):
     mutation. The next watcher tick re-lists panes in the new tmux order and the dock
     updates via the normal poll (tmux is the source of truth — no server-side array
     hand-reorder). Missing SOURCE is 404; cross-session / missing target is 400."""
-    detail = f"target={body.target} after={body.after}"
+    # !r + a cap, exactly as new_window does: `target` is a client-supplied string and an
+    # audit line is ONE line. Unescaped, a newline in `target` would forge a second record
+    # in the trail — the audit log is a security surface, so untrusted text never reaches
+    # it raw. `after` is a bool, parsed by pydantic, so it needs no such treatment.
+    detail = f"target={body.target[:80]!r} after={body.after}"
     if tmux.find_pane(pane_id) is None:
         _audit(request, "reorder_pane", pane_id, detail, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")

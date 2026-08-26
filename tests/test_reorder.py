@@ -5,6 +5,7 @@ after the target's window, which is what tmux's own window-index order (and thus
 dock's flattened order) keys off. tmux is MOCKED — we assert the exact move-window command
 issued for a drop, and that cross-session / unknown targets are rejected without a move."""
 
+import logging
 import subprocess
 from urllib.parse import quote
 
@@ -197,3 +198,30 @@ def test_endpoint_tmux_error_propagates(monkeypatch):
     c = TestClient(server.app, raise_server_exceptions=False)
     r = c.post(_path("%1"), json={"target": "%2", "after": False})
     assert r.status_code == 500
+
+
+def test_audit_detail_escapes_client_supplied_target(monkeypatch, caplog):
+    """`target` is client-supplied and the audit trail is a security surface, so it must
+    reach the log escaped and capped — one request must never be able to forge a second
+    audit record. Mirrors the !r + [:80] treatment new_window already applies."""
+    _patch(monkeypatch, [_pane("%1")])
+    c = TestClient(server.app)
+    forged = "%2\nreorder_pane pane=%9 outcome=ok BOGUS"
+    with caplog.at_level(logging.INFO, logger="daemon.server.audit"):
+        c.post(_path("%1"), json={"target": forged, "after": False})
+    lines = [r.getMessage() for r in caplog.records]
+    assert lines, "the reorder attempt must be audited at all"
+    # The raw newline never reaches the log: it survives only as the escaped \n that !r
+    # produces, so the forged text cannot become a record of its own.
+    assert not any("\n" in ln for ln in lines)
+    assert any("\\n" in ln for ln in lines)
+
+
+def test_audit_detail_caps_an_overlong_target(monkeypatch, caplog):
+    """A megabyte of target text must not become a megabyte of audit log."""
+    _patch(monkeypatch, [_pane("%1")])
+    c = TestClient(server.app)
+    with caplog.at_level(logging.INFO, logger="daemon.server.audit"):
+        c.post(_path("%1"), json={"target": "%" + "A" * 5000, "after": False})
+    for ln in (r.getMessage() for r in caplog.records):
+        assert "A" * 200 not in ln
