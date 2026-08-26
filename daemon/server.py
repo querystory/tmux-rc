@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import socket
@@ -27,10 +28,17 @@ from pathlib import Path
 # and every parse fails. Real environment vars still win over .env (override=False).
 from dotenv import find_dotenv, load_dotenv
 
+# One spelling of the package dir and the dir above it, reused for .env / web/ / docs
+# resolution below. In a source checkout the parent is the repo root; in an installed
+# wheel it's site-packages. Which one we're in is decided by asset existence, not this
+# path alone (see WEB_DIR).
+_PKG_DIR = Path(__file__).resolve().parent  # .../daemon (checkout or site-packages)
+_REPO_ROOT = _PKG_DIR.parent
+
 # Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
 # doesn't exist (e.g. installed as a wheel and launched elsewhere), fall back to the
 # usual upward search from cwd. Either way, real env vars still win (override=False).
-_repo_env = Path(__file__).resolve().parent.parent / ".env"
+_repo_env = _REPO_ROOT / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
 
 # Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
@@ -75,7 +83,19 @@ if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
 
 logger = logging.getLogger(__name__)
 
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+# Key on the actual asset, not a marker file: the repo-root web/ exists only in a source
+# checkout, since the wheel carries the UI bundled at daemon/web/ instead. Its presence is
+# therefore an unambiguous "running from a checkout" signal — a stray pyproject.toml beside
+# the package in a shared venv (or a `pip install --target` into such a dir) can't fake it.
+# Prefer the checkout copy so edits are served live (and /api/version's hash changes, so the
+# client self-reloads); fall back to the bundled copy when installed. Same asset-existence
+# predicate as the .env lookup above. Caveat: a *non-editable* `pip install .` from a
+# checkout has no daemon/-adjacent web/ and serves the bundled install-time snapshot, so
+# later edits to that checkout's web/ won't show — use an editable install or uvx for live
+# edits. _FROM_CHECKOUT reuses this predicate to gate reload in main().
+_repo_web = _REPO_ROOT / "web"
+_FROM_CHECKOUT = _repo_web.is_dir()
+WEB_DIR = _repo_web if _FROM_CHECKOUT else _PKG_DIR / "web"
 # Uploaded images land here so the agent can read them by path. Kept out of the repo.
 IMG_DIR = Path(tempfile.gettempdir()) / "tmux-rc-images"
 IMG_MAX_BYTES = (
@@ -106,6 +126,46 @@ class ReorderBody(BaseModel):
 
     target: str  # pane id ("%N") the dragged pane is placed relative to
     after: bool = False  # True ⇒ place src AFTER target; False ⇒ before
+
+
+class NewWindowBody(BaseModel):
+    session: str
+    launcher: str  # label of a configured launcher — never a raw command
+
+
+# Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
+# model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
+# back only the LABEL and the daemon looks the command up here, so the HTTP surface
+# can't be asked to run arbitrary strings. `icon` names one of the web app's built-in
+# tool logos (claude/codex/gemini/shell) or any image URL it serves.
+# TMUXRC_LAUNCHERS: inline JSON list, or a path to a JSON file containing one.
+_DEFAULT_LAUNCHERS = [
+    {"label": "Claude", "command": "claude", "icon": "claude"},
+    {"label": "Codex", "command": "codex", "icon": "codex"},
+    {"label": "Gemini", "command": "gemini", "icon": "gemini"},
+]
+
+
+def _launchers() -> list[dict]:
+    raw = os.environ.get("TMUXRC_LAUNCHERS", "").strip()
+    if not raw:
+        return _DEFAULT_LAUNCHERS
+    try:
+        if not raw.startswith("["):
+            raw = Path(raw).read_text(encoding="utf-8")
+        entries = json.loads(raw)
+        good = [
+            {"label": str(e["label"]), "command": str(e["command"]),
+             "icon": str(e.get("icon", ""))}
+            for e in entries
+            if isinstance(e, dict) and e.get("label") and e.get("command")
+        ]
+        if good:
+            return good
+        raise ValueError("no valid entries")
+    except Exception:  # noqa: BLE001 - a broken config must not brick the menu
+        logger.warning("TMUXRC_LAUNCHERS invalid; using defaults", exc_info=True)
+        return _DEFAULT_LAUNCHERS
 
 
 class ClientErrorBody(BaseModel):
@@ -182,7 +242,7 @@ def _audit(
 
     Trust model for WHO: X-Tunnel-User is honored only from loopback peers — the
     tunnel-client connects from localhost, and the relay validated the identity via IAP
-    and strips spoofed inbound copies (qsi-automation#525). From any OTHER peer the
+    and strips spoofed inbound copies. From any OTHER peer the
     header is an unauthenticated LAN client's claim, so it is logged as a claim rather
     than as the actor — which makes spoof attempts themselves visible in the trail.
 
@@ -517,6 +577,37 @@ def send(pane_id: str, body: SendBody, request: Request):
     return {"ok": True}
 
 
+@app.get("/api/launchers")
+def launchers():
+    """The dock '+' menu's entries — labels/icons only. Commands never leave the daemon:
+    the phone posts a label back and the lookup happens server-side (see new_window)."""
+    return {"launchers": [{"label": e["label"], "icon": e["icon"]} for e in _launchers()]}
+
+
+@app.post("/api/windows")
+def new_window(body: NewWindowBody, request: Request):
+    """Open a new window in `session` running a CONFIGURED launcher. The label→command
+    mapping lives in the daemon so this endpoint can't be handed arbitrary strings —
+    anything not in the config is refused (and audited)."""
+    entry = next((e for e in _launchers() if e["label"] == body.launcher), None)
+    # !r + a cap: both fields are client-supplied, and an audit line is one line. A
+    # newline in `session` would otherwise forge a second record in the log.
+    detail = f"session={body.session[:80]!r} launcher={body.launcher[:80]!r}"
+    if entry is None:
+        _audit(request, "new_window", "-", detail, outcome="rejected: unknown launcher")
+        raise HTTPException(404, "unknown launcher")
+    if not any(p.session == body.session for p in tmux.list_panes()):
+        _audit(request, "new_window", "-", detail, outcome="rejected: session not found")
+        raise HTTPException(404, "session not found")
+    try:
+        pane_id = tmux.new_window(body.session, entry["label"], entry["command"])
+    except Exception as e:
+        _audit(request, "new_window", "-", detail, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "new_window", pane_id, detail)
+    return {"ok": True, "pane_id": pane_id}
+
+
 @app.post("/api/panes/{pane_id}/select")
 def select(pane_id: str, request: Request):
     """Focus this pane in tmux itself — tapping a card on the phone follows on host."""
@@ -725,7 +816,7 @@ def _to_png(data: bytes) -> bytes:
 # lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
 # server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
 _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
-    Path(__file__).resolve().parent.parent / "docs-site" / "serve"
+    _REPO_ROOT / "docs-site" / "serve"
 )
 if Path(_docs_dir).is_dir():
     # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
@@ -750,8 +841,15 @@ def main() -> None:
 
     # Reload watches the package source and restarts the process on edits (resetting
     # the watcher's in-memory cache — safe, tmux is the source of truth and state
-    # rebuilds within a couple ticks). ON by default; set TMUXRC_RELOAD=0 to disable.
-    reload = os.environ.get("TMUXRC_RELOAD", "1") != "0"
+    # rebuilds within a couple ticks). Defaults ON from a source checkout, OFF when
+    # installed as a wheel (no editable source to watch — and a relative reload dir there
+    # made uvicorn fall back to watching all of $HOME). TMUXRC_RELOAD forces it either way.
+    # Parse it as a real boolean — a bare `!= "0"` would read TMUXRC_RELOAD=false (or an
+    # empty value from a `.env` line) as truthy and force a reloader onto immutable
+    # site-packages on a wheel install.
+    reload = os.environ.get(
+        "TMUXRC_RELOAD", "1" if _FROM_CHECKOUT else "0"
+    ).strip().lower() in ("1", "true", "yes", "on")
     # proxy_headers=False: uvicorn's default rewrites request.client from
     # X-Forwarded-For on loopback connections — and the tunnel relay forwards Cloud
     # Run's XFF, so legit tunnel requests LOOKED like they came from the relay's IP and
@@ -763,10 +861,10 @@ def main() -> None:
         "daemon.server:app" if reload else app,
         proxy_headers=False,
         log_config=None,
-        host=os.environ.get("TMUXRC_HOST", "0.0.0.0"),
-        port=int(os.environ.get("TMUXRC_PORT", "8080")),
+        host=os.environ.get("TMUXRC_HOST", "127.0.0.1"),
+        port=int(os.environ.get("TMUXRC_PORT", "18030")),
         reload=reload,
-        reload_dirs=["daemon"] if reload else None,
+        reload_dirs=[str(_PKG_DIR)] if reload else None,
     )
 
 

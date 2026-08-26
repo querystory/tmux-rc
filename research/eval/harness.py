@@ -129,7 +129,11 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     cq, eq = _shape(candidate.get("question")), _shape(expected.get("question"))
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
-    for k in ("rewind", "tasks"):
+    # Presence-only fields. `copyables` is here rather than compared by content: the
+    # LABEL is free prose and the TEXT is a verbatim payload whose exact whitespace we
+    # don't want to bless brittlely — what must not regress is "the model noticed there
+    # was something paste-worthy on this screen (or correctly noticed there wasn't)".
+    for k in ("rewind", "tasks", "copyables"):
         c, e = bool(candidate.get(k)), bool(expected.get(k))
         if c != e:
             diffs.append(f"{k} present: got {c} want {e}")

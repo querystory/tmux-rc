@@ -1,6 +1,6 @@
 # tmux-rc — Requirements
 
-Source of truth for what Shapor asked for. `[x]` done+verified, `[ ]` open, `[~]` partial/unverified.
+Source of truth for what the project owner asked for. `[x]` done+verified, `[ ]` open, `[~]` partial/unverified.
 
 ## Dev experience
 - [x] `make dev` runs uvicorn with auto-reload (reload ON by default). Verified: edits take effect ~1s.

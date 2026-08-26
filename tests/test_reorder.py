@@ -54,6 +54,19 @@ def test_move_after_issues_move_window_a(monkeypatch):
     assert calls == [["move-window", "-a", "-s", "main:0", "-t", "main:3"]]
 
 
+def test_sibling_pane_drags_its_whole_window(monkeypatch):
+    """Dragging ANY pane of a multi-pane window moves the WINDOW — the same single
+    move-window either sibling would produce. This is the documented "panes sharing a
+    window travel together" contract, and it is what the client's optimistic shuffle
+    mirrors (it relocates the whole window's run, not the one dragged icon)."""
+    panes = [_pane("%1", window_index="0"), _pane("%2", window_index="0"),
+             _pane("%3", window_index="5")]
+    for dragged in ("%1", "%2"):  # either sibling ⇒ identical command
+        calls = _patch(monkeypatch, panes)
+        tmux.reorder_pane(dragged, "%3", after=True)
+        assert calls == [["move-window", "-a", "-s", "main:0", "-t", "main:5"]]
+
+
 def test_same_window_is_noop(monkeypatch):
     # Two panes sharing a window (same index) — the drop can't reorder them at the window
     # level, so it's a harmless no-op, NOT a move that would renumber the session.
@@ -124,7 +137,12 @@ def test_endpoint_source_vanishes_mid_call_is_404(monkeypatch):
     monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or "")
     c = TestClient(server.app)
     r = c.post(_path("%1"), json={"target": "%2", "after": False})
-    assert r.status_code == 404 and calls == []
+    # No MOVE was issued. Not `calls == []`: going through the endpoint also runs the
+    # audit path, which reads the tmux server pid (`display-message -p #{pid}`) for the
+    # telemetry uid. That call is unrelated to the reorder — what matters here is that a
+    # vanished source never reached move-window.
+    assert r.status_code == 404
+    assert [c for c in calls if c[0] == "move-window"] == []
 
 
 def test_endpoint_tmux_error_propagates(monkeypatch):

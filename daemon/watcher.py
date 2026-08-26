@@ -47,6 +47,12 @@ SNAPSHOT_HISTORY = 200
 BOOTSTRAP_LINES = 800
 BOOTSTRAP_ATTEMPTS = 3
 BOOTSTRAP_RETRY_SECONDS = 60
+# The bootstrap summary narrates "the story so far" — but a busy pane keeps writing
+# story, and nothing else ever recomputes session_summary, so it froze at daemon start
+# while headline/events stayed current (#127). Re-run the deep read on this cadence,
+# gated on NEW events since the last read (an idle pane never re-reads). Refreshes take
+# only summary/name — events seed once, a re-seed would duplicate the log.
+SUMMARY_REFRESH_SECONDS = 300
 EVENTS_LOG_MAX = 300  # per-pane activity-log cache served to the UI (~45KB/pane worst case)
 PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continuity
 # When a pane has been idle this long with accumulated events, summarize the recent
@@ -113,12 +119,23 @@ def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
     del log[:-EVENTS_LOG_MAX]
 
 
+def _activity_ts(pane) -> float | None:
+    """tmux's #{window_activity} as a float epoch, or None when absent/garbage.
+    getattr, not attribute access: test fixtures and any Pane-shaped stub without the
+    field must keep working (they just don't get restart seeding)."""
+    try:
+        return float(getattr(pane, "window_activity", "") or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
 
     def __init__(self, target: str | None, use_llm: bool = True):
         self.target = target
         self.use_llm = use_llm
+        self._warned_no_target = False  # warn once, not every poll
         self.states: list[dict] = []  # raw LLM JSON dicts, piped straight to the UI
         self.events_log: dict[
             str, list[dict]
@@ -129,6 +146,12 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._unchanged_since: dict[str, float] = {}
+        # When the pane ENTERED its current state — reset only when the activity value or
+        # the pending-question identity changes, NOT on cosmetic content churn. The client
+        # ticks `now - state_since` live, so idle/waiting durations stay honest even while
+        # the pane doesn't re-parse (unlike idle_seconds, a frozen parse-time snapshot).
+        self._state_since: dict[str, float] = {}  # pane_id -> ts state was entered
+        self._state_key: dict[str, tuple] = {}  # pane_id -> (activity, question) at entry
         self._tool: dict[
             str, tuple[str, float]
         ] = {}  # pane_id -> (agent tool, last-seen ts)
@@ -153,7 +176,7 @@ class Watcher:
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
         self._boot: dict[
             str, dict
-        ] = {}  # pane_id -> bootstrap {summary, name, events} + seeded flag once served
+        ] = {}  # pane_id -> bootstrap {summary, name, events, ts, seq}; ts/seq gate refreshes
         self._boot_tries: dict[
             str, tuple[int, float]
         ] = {}  # pane_id -> (attempts, last attempt ts)
@@ -254,6 +277,7 @@ class Watcher:
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
                     "idle_seconds": s.get("idle_seconds"),
+                    "state_since": s.get("state_since"),  # ts state entered; client ticks it
                     "headline": s.get("headline"),
                     "question": self._question_prompt(s),
                     # LLM one-liner for the last activity burst (present once the pane
@@ -351,6 +375,16 @@ class Watcher:
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
         if self.target:
             p = tmux.find_pane(self.target)
+            if p is None and not self._warned_no_target:
+                self._warned_no_target = True
+                logger.warning(
+                    "TMUXRC_TARGET=%r matches no pane — watching nothing. Use a pane id "
+                    "(%%3) or a numeric tmux address (session:window_index[.pane_index], "
+                    "e.g. work:0.0); those always work. Names match only the pane's "
+                    "derived label (named window, else session, else cwd basename), and "
+                    "the title shown on a card is not necessarily a valid target.",
+                    self.target,
+                )
             panes = [p] if p else []
         else:
             panes = tmux.list_panes()
@@ -465,6 +499,9 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                # The card renders it, and a refresh can land with no other deck
+                # change (idle pane, cadence elapsed) — the hold must still return.
+                s.get("session_summary"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
             ))
             for s in states
@@ -489,19 +526,30 @@ class Watcher:
                 pass  # loop closed (shutdown) — no waiters to notify
 
     def _maybe_bootstrap(self, panes) -> None:
-        """Deep-read ONE not-yet-bootstrapped pane's scrollback per tick (staggers the
-        fat LLM calls behind live parses) and stash {summary, name, events}. Failures
-        retry a few times with spacing — a 429 at boot shouldn't be permanent."""
+        """Deep-read ONE pane's scrollback per tick (staggers the fat LLM calls behind
+        live parses) and stash {summary, name, events}. First read per pane seeds
+        everything; later reads REFRESH summary/name on SUMMARY_REFRESH_SECONDS once
+        new events have landed, so session_summary tracks a busy session (#127).
+        Failures retry a few times with spacing — a 429 at boot shouldn't be permanent."""
         if backing_off():
             return  # rate-limited: a call now would be refused — don't burn attempts
         now = time.time()
         for p in panes:
-            if p.id in self._boot:
-                continue
-            tries, last = self._boot_tries.get(p.id, (0, 0.0))
-            if tries >= BOOTSTRAP_ATTEMPTS or (tries and now - last < BOOTSTRAP_RETRY_SECONDS):
-                continue
-            self._boot_tries[p.id] = (tries + 1, now)
+            boot = self._boot.get(p.id)
+            if boot is not None:
+                if (
+                    now - boot["ts"] < SUMMARY_REFRESH_SECONDS
+                    or self._events_seq.get(p.id, 0) == boot["seq"]
+                ):
+                    continue
+                # Stamp the ATTEMPT, so a failed refresh waits out a full cadence
+                # instead of retrying every tick (the stale summary just lingers).
+                boot["ts"] = now
+            else:
+                tries, last = self._boot_tries.get(p.id, (0, 0.0))
+                if tries >= BOOTSTRAP_ATTEMPTS or (tries and now - last < BOOTSTRAP_RETRY_SECONDS):
+                    continue
+                self._boot_tries[p.id] = (tries + 1, now)
             try:
                 llm_fn = partial(
                     classify_text,
@@ -517,8 +565,14 @@ class Watcher:
             except Exception:  # noqa: BLE001 - one pane must never wedge the watcher
                 logger.warning("bootstrap failed for %s", p.id, exc_info=True)
                 result = None
-            if result:
-                self._boot[p.id] = result
+            if result and boot is not None:
+                # Refresh takes only the narration; keep the old name if the model
+                # dropped it this round.
+                boot["summary"] = result["summary"]
+                boot["name"] = result["name"] or boot["name"]
+                boot["seq"] = self._events_seq.get(p.id, 0)
+                logger.info("%s: summary refreshed", p.id)
+            elif result:
                 # Reconstructed history seeds the FRONT of the log cache (it predates
                 # anything observed live), and the parser's already-reported list so
                 # the next live parse doesn't restate it as new events.
@@ -530,6 +584,9 @@ class Watcher:
                 )
                 recent = self._recent_events.setdefault(p.id, [])
                 recent.extend((e["text"], now) for e in result["events"])
+                # seq snapshots AFTER seeding: the seeded events themselves must not
+                # count as "new activity" and trigger an immediate refresh.
+                self._boot[p.id] = {**result, "ts": now, "seq": self._events_seq[p.id]}
                 logger.info("%s: bootstrapped (%d events)", p.id, len(result["events"]))
             return  # at most one bootstrap attempt per tick
 
@@ -567,6 +624,8 @@ class Watcher:
         return (
             self._prev_fp,
             self._unchanged_since,
+            self._state_since,
+            self._state_key,
             self._tool,
             self._live_seen,
             self._state,
@@ -653,6 +712,33 @@ class Watcher:
         self._summary[pane_id] = span
         return span
 
+    def _state_since_for(
+        self, pane_id: str, state: dict, now: float, activity_ts: float | None = None
+    ) -> float:
+        """Timestamp the pane ENTERED its current state, for the client's live duration
+        clock. Resets only when the activity value changes (idle→running, running→waiting,
+        …) or the pending question's identity changes — a NEW question restarts the
+        waiting clock, the SAME question persisting keeps it counting. Cosmetic screen
+        churn (a spinner/clock that trips the fingerprint) does NOT reset it, so
+        time-in-state stays honest even across re-parses. Persisted per pane so an
+        unchanged re-parse leaves it put and the clock keeps climbing."""
+        key = (state.get("activity"), self._question_prompt(state))
+        if self._state_key.get(pane_id) != key:
+            # Restart amnesia (#129): these clocks live in daemon memory, so a restart
+            # used to stamp every long-parked pane "went idle just now" — the whole
+            # fleet flashed recent and the dock unfolded for PARKED_IDLE_SECS after
+            # every deploy. tmux never forgot: on the FIRST sighting of a pane that is
+            # already idle, seed from #{window_activity}. Only first sighting, only
+            # idle — a transition this process actually observed genuinely is "now".
+            first = pane_id not in self._state_key
+            self._state_key[pane_id] = key
+            self._state_since[pane_id] = (
+                min(activity_ts, now)
+                if first and state.get("activity") == "idle" and activity_ts
+                else now
+            )
+        return self._state_since[pane_id]
+
     def _tick_pane(self, pane) -> dict:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
@@ -684,6 +770,10 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            # Same activity/question as the last parse (nothing re-classified), so this
+            # returns the persisted entry time unchanged — the client's clock keeps
+            # climbing while the pane sits still.
+            cached["state_since"] = self._state_since_for(pane.id, cached, now, _activity_ts(pane))
             cached["updated_at"] = now
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
@@ -817,6 +907,9 @@ class Watcher:
         hist = self.snapshots.get(pane.id, [])
         state["snapshot_id"] = hist[-1]["id"] if hist else None
         state["idle_seconds"] = idle
+        # When this pane entered its current activity/question state — the client ticks
+        # `now - state_since` live so idle/waiting durations stay honest between parses.
+        state["state_since"] = self._state_since_for(pane.id, state, now, _activity_ts(pane))
         state["updated_at"] = now
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced

@@ -62,7 +62,7 @@ but have distinct signatures. Decide by the evidence on screen:
   start with X  3. No, and tell Codex what to do differently (esc)"; it refers to itself
   as "Codex". If its OWN chrome (status line, permission prompts, its own responses)
   names Codex or a GPT/o-series model, it is "codex", NOT "claude". Its bottom line reads "<model> <effort> <mode> · <cwd>", e.g.
-  "gpt-5.5 xhigh fast · ~/src/qs/qs-app" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
+  "gpt-5.5 xhigh fast · ~/src/example-app" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
   a MODE word, NOT a session name. Do NOT put "fast" (or the cwd) in "session". Codex
   names its session/thread only when it explicitly says so (e.g. a line like "Thread
   renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,
@@ -142,6 +142,9 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "tasks": [{"text": "...", "done": true|false}],
   "subagents": [{"label": "...", "state": "running"|"done", "elapsed": "...", "tokens": "..."}],
   "links": [{"href": "https://...", "text": "short meaningful label"}],
+  "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
+                 "or 'The 3 failing test names'",
+                 "text": "the EXACT text to put on the clipboard, verbatim"}],
   "events": [
     {"text": "WHAT happened, human phrase — e.g. 'Reworked the file list into an activity view'",
      "file": {"path": "...", "added": <int>, "removed": <int>},   // OPTIONAL: if this event was a file edit
@@ -157,6 +160,51 @@ telemetry/config/docs links, often markdown [label](url)) — chrome, not conten
 user is being asked to open. Terminal wrapping splits long URLs across lines —
 REASSEMBLE the full URL (join the wrapped fragments, no spaces). "text" is a short
 human label ("Google OAuth approval", "PR #18"), never the URL itself. At most 3.
+
+"copyables": text the user will plausibly want to PASTE SOMEWHERE ELSE, lifted off the
+screen for one-tap copying. Selecting text out of a terminal on a phone is genuinely
+hard — the grid wraps long lines, box-drawing borders and gutter characters sit inside
+the selection, and a fixed-width column can't be swiped cleanly — so anything worth
+pasting should arrive here as clean text instead. Include it when the screen presents
+text whose PURPOSE is to be reused elsewhere: a command the user is told to run in
+another terminal, a commit message or PR body the agent drafted, a generated
+token/URL/id/password, a config or env snippet to drop in a file, a code block or diff
+the agent produced for review, an error/stack trace worth pasting into a search or an
+issue, a list (failing test names, file paths, PR numbers) the user will feed to another
+tool.
+- "text" must be the text ITSELF, verbatim and paste-ready — RECONSTRUCTED from the grid:
+  join lines the terminal WRAPPED (no inserted spaces or newlines), but KEEP newlines
+  that are real (separate commands, code lines, list entries). Strip everything that
+  belongs to the display and not the content: box-drawing borders (│ ╭ ─ ╰), leading
+  gutter/quote characters, line numbers, diff +/- markers when the user wants the code
+  rather than the patch, the agent's own bullet glyphs, and any ⟪dim⟫/⟪placeholder⟫
+  markers. Never truncate mid-content or add an ellipsis — a partial paste is worse than
+  none; if the text is cut off by the top of the screen, skip it rather than emit a
+  fragment.
+- "label" is a ONE-LINE summary of what the text IS, so the card can show it without
+  showing the text: "Commit message", "gcloud auth command", "The 3 failing test names",
+  "Device login code". Name the content, not the action ("Commit message", not "Copy
+  this"). Keep it under ~40 characters.
+- The test is DESTINATION, not "is this text technically copyable": would the user carry
+  it OUT of this pane and paste it somewhere else? A command the AGENT ITSELF is asking
+  permission to run — the command shown inside a permission/approval box, a "Would you
+  like to run …?" confirmation, a y/n gate — is NOT a copyable: the user's job is to
+  approve or deny it right here, and the answer affordance is the point. Only offer a
+  command when the screen is telling the USER to run it themselves somewhere else
+  ("run this in the other repo", setup/install instructions, a command to paste into a
+  different terminal).
+- A BARE URL is never a copyable. Links already render as tap-to-open chips from
+  "links", so a copy row holding the same URL is a duplicate of an affordance the card
+  already shows — put the URL in "links" and nothing else. (Text that merely CONTAINS a
+  URL is fine: a command with a --scopes=https://… flag, or a config block with an
+  endpoint in it, is still one paste-worthy blob.)
+- Do NOT include: anything already carried by another field (a URL belongs in "links",
+  tabular data in "tables", a question's options in "question"), commands the agent is
+  seeking approval to execute (above), the agent's conversational prose, its status line
+  / chrome, or text the user typed themselves (input-box drafts, dim/unsent material).
+  At most 3 — pick the ones most likely to be pasted, newest/most relevant first. Omit
+  entirely when nothing on screen is meant to be reused — most screens have nothing, and
+  an empty list is the correct answer far more often than not.
 
 "events" is the activity feed — a list of NEW things that happened since the last
 report. If a list of already-reported events is provided, do NOT repeat them or restate

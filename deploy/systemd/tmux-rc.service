@@ -1,0 +1,35 @@
+[Unit]
+Description=tmux-rc daemon (phone control plane for tmux panes)
+PartOf=tmux-rc.target
+# systemd's default start limit (5 starts / 10s) turns a fast crash-loop into a
+# permanently failed unit. That IS right for a broken deploy — visible in `systemctl
+# status`, fixed by rolling back the checkout — but it must not trip on slow flapping
+# (an hourly restart is not a crash-loop), so the window is widened rather than removed.
+# NOTE: StartLimit* live in [Unit]; systemd silently ignores them under [Service].
+StartLimitIntervalSec=1h
+StartLimitBurst=20
+After=network-online.target
+# No ordering against the tunnel: the two are loosely coupled on purpose (the client
+# retries its dial; the daemon serves fine with nobody tunnelling to it).
+
+[Service]
+# The checkout IS the deploy: `git pull` + `systemctl --user restart tmux-rc`. The
+# daemon loads this directory's .env itself, so the unit stays thin — no second copy
+# of the config to drift out of sync.
+# `make install-units` REWRITES this line to the checkout it runs from, so the installed
+# copy always points at the real clone. The value here is only a placeholder for anyone
+# installing the unit by hand.
+WorkingDirectory=%h/src/tmux-rc
+ExecStart=%h/.local/bin/uv run python -m daemon.server
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Reload is a dev-loop convenience; under a unit it would restart the daemon (dropping
+# live websockets) whenever a branch checkout touched the tree.
+Environment=TMUXRC_RELOAD=0
+# TMUXRC_HOST is deliberately NOT set here. The code already defaults to 127.0.0.1, and
+# a real env var beats .env (the daemon loads it with override=False) — so setting it in
+# the unit would make `TMUXRC_HOST=0.0.0.0` in .env silently do nothing.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=tmux-rc.target

@@ -14,7 +14,6 @@ import socket
 import subprocess
 import threading
 from dataclasses import dataclass
-from functools import cache
 
 _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
@@ -36,6 +35,7 @@ _PANE_FMT = "\t".join(
         "#{pane_pid}",
         "#{window_active}",
         "#{pane_active}",
+        "#{window_activity}",
     ]
 )
 
@@ -62,6 +62,11 @@ class Pane:
     # these stay meaningful with several sessions attached at once.
     window_active: str = "0"
     pane_active: str = "0"
+    # Epoch (str) of the window's last activity, per tmux. WINDOW-level — a busy sibling
+    # pane refreshes it — but for seeding a just-started daemon's idle clocks that bias
+    # is the safe one: it can only make a pane look MORE recently active, never park
+    # something the user is working in.
+    window_activity: str = ""
 
     @property
     def display_title(self) -> str | None:
@@ -133,17 +138,25 @@ def _run(args: list[str]) -> str:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
 
 
-@cache
+_server_uid: str | None = None
+
+
 def server_uid() -> str:
     """Stable identity of the tmux SERVER: '<boot_id>:<server_pid>'.
 
     boot_id (a fresh kernel UUID per boot, from /proc) plus the server's pid uniquely
     pins one tmux server instance: pid can't be reused by two live processes within a
     boot, and boot_id changes on reboot (so a reused pid across reboots can't collide).
-    No hostname — boot_id already avoids cross-machine collisions. Cached: constant for
-    the life of this daemon (and re-derived identically if the daemon restarts, so a
-    pane's uid survives a tmux-rc restart). Falls back to just the pid if either read
-    fails, so telemetry degrades rather than breaking."""
+    No hostname — boot_id already avoids cross-machine collisions. Degrades rather than
+    breaking if a read fails: an unreadable boot_id becomes the literal 'nobootid', and
+    an unreachable tmux yields the last good uid (or '<boot>:0' if we never had one).
+
+    SUCCESS is cached, failure is not: started at boot by a systemd unit, the daemon can
+    outlive several tmux servers and — the case that bit us — start before any exists.
+    Caching the failed read froze every pane_uid at ':0' for the process's life, silently
+    fusing telemetry from unrelated tmux servers together. A pid CHANGE also re-derives:
+    same reason the watcher re-keys panes on pid, one tmux server is one identity."""
+    global _server_uid
     try:
         boot = open("/proc/sys/kernel/random/boot_id").read().strip()
     except OSError:
@@ -151,8 +164,11 @@ def server_uid() -> str:
     try:
         pid = _run(["display-message", "-p", "#{pid}"]).strip()
     except subprocess.CalledProcessError:
-        pid = "0"
-    return f"{boot}:{pid}"
+        # No server (yet). Serve the last good identity if we have one rather than
+        # inventing a ':0' that would look like a different server to the backend.
+        return _server_uid or f"{boot}:0"
+    _server_uid = f"{boot}:{pid}"
+    return _server_uid
 
 
 def pane_uid(pane: Pane) -> str:
@@ -202,22 +218,48 @@ def list_panes() -> list[Pane]:
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) != 11:
+        if len(parts) != _PANE_FMT.count("\t") + 1:
             continue
         panes.append(Pane(*parts))
     return panes
 
 
 def find_pane(target: str | None) -> Pane | None:
-    """Resolve a target pane. `target` may be a pane id ("%3") or "session:window"
-    label; None picks the first pane. Returns None if nothing matches."""
+    """Resolve a target pane. None picks the first pane; returns None if nothing matches.
+
+    Always resolvable:
+      - a pane id ("%3")
+      - a tmux address using NUMERIC indices ("session:window_index[.pane_index]",
+        e.g. "work:0.0"). A window *name* is never accepted after the colon.
+
+    Also matched, but derived: `Pane.label`, optionally ".pane_index". The label is a
+    precedence chain, not "the window/session name" — it is the window name if that is
+    meaningful (non-empty, not a generic command name, not purely numeric), else the
+    session name under the same test, else the cwd basename, else "session:window_index".
+    So the session name does NOT match on a user-named window, and callers should not
+    have to reason about which rung won: prefer a pane id or numeric address.
+
+    The label preferring a user-named window over the session name is exactly why the
+    canonical address is matched separately here — otherwise "work:0.0" resolves to
+    nothing on exactly the sessions people name.
+
+    NOTE the UI renders `title || label`, and classify.py may refine `label` to the
+    agent's own session name, so what a card displays is not always resolvable here.
+    """
     panes = list_panes()
     if not panes:
         return None
     if target is None:
         return panes[0]
     for p in panes:
-        if target in (p.id, p.label, f"{p.label}.{p.pane_index}"):
+        addr = f"{p.session}:{p.window_index}"
+        if target in (
+            p.id,
+            addr,
+            f"{addr}.{p.pane_index}",
+            p.label,
+            f"{p.label}.{p.pane_index}",
+        ):
             return p
     return None
 
@@ -261,6 +303,16 @@ def reorder_pane(src_id: str, dst_id: str, after: bool) -> None:
     if src.window_index == dst.window_index:
         return  # same window — nothing to move (renumbering it in place is a no-op)
     _run(["move-window", "-a" if after else "-b", "-s", src_win, "-t", dst_win])
+
+
+def new_window(session: str, name: str, command: str) -> str:
+    """Open a new window in `session` running `command`, and return its pane id.
+    The trailing ':' pins the target to the session (a bare name could match a window).
+    -d: the phone asked, so the phone decides focus — the daemon must not yank the
+    host user's tmux client to the new window."""
+    return _run(
+        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"{session}:", "-n", name, command]
+    ).strip()
 
 
 # OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show
@@ -441,16 +493,42 @@ def capture_pane(
     return _ANSI.sub("", out).rstrip("\n")
 
 
+# tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
+# single send-keys with a big literal — a pasted meeting transcript — fails outright
+# (user hit it: 30KB paste, CalledProcessError, 500 to the phone). Send literals in
+# chunks comfortably under the cap; tmux delivers back-to-back send-keys in order, so
+# the pane's app sees one continuous paste. The cap is in BYTES (framing included), so
+# chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
+# must never land inside a multi-byte code point.
+_SEND_CHUNK_BYTES = 4000
+# One logical send now spans several tmux commands (chunks + Enter); concurrent callers
+# (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste.
+_send_lock = threading.Lock()
+
+
 def send_keys(
     pane_id: str, keys: str, enter: bool = True, literal: bool = True
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
-    isn't interpreted as tmux key names — for typed answers. When not literal, `keys`
-    is a tmux key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends
-    a Return (only meaningful for literal text)."""
-    _run(["send-keys", "-t", pane_id, *(["-l"] if literal else []), keys])
-    if enter and literal:
-        _run(["send-keys", "-t", pane_id, "Enter"])
+    isn't interpreted as tmux key names — for typed answers, chunked under tmux's
+    message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
+    key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
+    Return (only meaningful for literal text)."""
+    with _send_lock:
+        if literal:
+            b, i = keys.encode(), 0
+            while True:
+                j = min(i + _SEND_CHUNK_BYTES, len(b))
+                while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
+                    j -= 1
+                _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                i = j
+                if i >= len(b):
+                    break
+        else:
+            _run(["send-keys", "-t", pane_id, keys])
+        if enter and literal:
+            _run(["send-keys", "-t", pane_id, "Enter"])
 
 
 _clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping

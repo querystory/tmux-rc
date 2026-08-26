@@ -1,0 +1,20 @@
+{
+ "description": "Claude Code has drafted a commit message inside a box-drawn quote block and printed a line-continued gcloud command to run elsewhere — both exist to be PASTED, so both must surface as copyables (borders stripped, wrapped lines rejoined). Pane itself is idle at an empty input box.",
+ "current_command": "node",
+ "capture": "● I've drafted the commit message for you:\n\n  ╭───────────────────────────────────────────────────────╮\n  │ fix(auth): stop refreshing the token on every request      │\n  │                                                            │\n  │ The middleware called refresh() unconditionally, so a      │\n  │ valid token was traded for a new one on each call.         │\n  ╰───────────────────────────────────────────────────────╯\n\n  You'll need to run this in the example-app repo first:\n\n    gcloud auth application-default login --project example-project \\\n      --scopes=https://www.googleapis.com/auth/cloud-platform\n\n❯ \n────────────────────────────────────────────────────────────\n  ~/src/example-app (main)  Sonnet 5  38% ctx  12m  $2.10\n",
+ "expected": {
+  "tool": "claude",
+  "activity": "idle",
+  "headline": "Drafted a commit message and an auth command to run in example-app",
+  "copyables": [
+   {
+    "label": "Commit message",
+    "text": "fix(auth): stop refreshing the token on every request\n\nThe middleware called refresh() unconditionally, so a valid token was traded for a new one on each call."
+   },
+   {
+    "label": "gcloud auth command",
+    "text": "gcloud auth application-default login --project example-project --scopes=https://www.googleapis.com/auth/cloud-platform"
+   }
+  ]
+ }
+}
