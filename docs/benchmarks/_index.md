@@ -1,8 +1,18 @@
+---
+title: "Benchmarks"
+---
+
 # LLM Benchmarks
 
 Ad-hoc measurements of the hot-path classifier (`daemon/classify.py`'s `PARSER_PROMPT`)
-across models/providers. The question that started this: *can a faster-inference provider
-(Cerebras/Groq) beat Gemini Flash Lite's latency?*
+across models/providers.
+
+{{< cards >}}
+  {{< card link="gemini-3.5-flash-lite/" title="gemini-3.5-flash-lite vs 3.1-flash-lite" subtitle="Real-sample head-to-head on the pane classifier. Faster, but less reliable where it counts." >}}
+{{< /cards >}}
+
+The rest of this page covers the provider comparison. The question that started it: *can a
+faster-inference provider (Cerebras/Groq) beat Gemini Flash Lite's latency?*
 
 **Short answer: no — not for this workload.** The premise was that specialty-silicon
 providers stream output 10–20× faster, so a parse would be 3–4× quicker. Measured live,
