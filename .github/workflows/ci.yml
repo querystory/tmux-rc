@@ -16,6 +16,9 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          # Pin the interpreter so a new runner image can't silently change it.
+          # pyproject requires >=3.12; uv fetches this itself, no setup-python needed.
+          python-version: "3.12"
       - run: uv sync --locked
       # The suite shells out to tmux (find_pane, capture, send-keys).
       - run: sudo apt-get update && sudo apt-get install -y tmux
