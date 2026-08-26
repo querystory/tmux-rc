@@ -390,11 +390,21 @@ what the slot is for, it survives `git pull`, and there is nothing to reconcile:
 mkdir -p ~/.local/bin ~/.config/tmux-rc
 cat > ~/.local/bin/tunnel-client <<'EOF'
 #!/bin/sh
-exec "$(command -v cloudflared)" --no-autoupdate \
+set -e
+CF=$(command -v cloudflared) || {
+  echo "tunnel-client: cloudflared not found on PATH ($PATH)" >&2
+  exit 127
+}
+exec "$CF" --no-autoupdate \
   tunnel --config "$HOME/.cloudflared/tmux-rc.yml" run
 EOF
 chmod +x ~/.local/bin/tunnel-client
 ```
+
+The `command -v` guard is worth the three lines: a systemd user unit gets a minimal PATH,
+not your login shell's, so a `cloudflared` you installed to `~/.local/bin` may be invisible
+here. Failing with a named error beats `exec ""`. If it does trip, either hard-code the
+absolute path or add `Environment=PATH=...` to the unit.
 
 `--no-autoupdate` matters under systemd: cloudflared's self-updater restarts the process
 on its own, which fights `Restart=always` and makes the version running unpredictable.
