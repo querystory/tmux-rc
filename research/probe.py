@@ -8,17 +8,27 @@ committing the architecture.
 Usage (from repo root, venv active, GOOGLE_CLOUD_PROJECT set):
     python -m research.probe [pane_target]     # e.g. %0  or  session:win
     python -m research.probe --save NAME        # also save the capture+png to research/samples/
+
+Model head-to-head (text-only, matching the daemon hot path) over a saved sample's
+already-assembled pane text — the same `_parse` call, just parameterized on model id and
+repeated for a median. Used by docs/benchmarks/. `SAMPLE` is either a research/samples
+`.txt` or a JSON with a top-level "pane_text" (an OTel-captured payload):
+    python -m research.probe --sample SAMPLE --models gemini-3.1-flash-lite,gemini-3.5-flash-lite --repeat 3
 """
 
 from __future__ import annotations
 
 import json
+import statistics
 import subprocess
 import sys
 from pathlib import Path
 
 from daemon import tmux
-from daemon.llm import _MODEL, _client
+# Prices AND the tokens→cost arithmetic come from the daemon (not a copy here): this file
+# used to hardcode 2.5-flash-lite's $0.10/$0.40 long after the move to 3.1, quoting costs
+# ~2.5x low. `_tokens_cost` is the daemon's single source of truth for both.
+from daemon.llm import _MODEL, _client, _parse_json, _tokens_cost
 from daemon.render import render_png
 
 SAMPLES = Path(__file__).parent / "samples"
@@ -37,45 +47,130 @@ def _capture_ansi(pane_id: str) -> str:
     ).stdout
 
 
-# Gemini 3.x Flash Lite pricing (USD per 1M tokens). Update if it changes; used only
-# for a rough per-call cost estimate in this research harness.
-_IN_PER_M, _OUT_PER_M = 0.10, 0.40
+def _parse(parts, model: str = _MODEL) -> dict:
+    """Run one parse and return quality + tokens + latency + cost estimate.
 
-
-def _parse(parts) -> dict:
-    """Run one parse and return quality + tokens + latency + cost estimate."""
+    `model` defaults to the daemon's configured model; the head-to-head mode passes each
+    id under test. Everything else (prompt, temp 0, JSON mime, out-token cost) matches
+    the daemon's classify_text call so results are apples-to-apples with production."""
     import time
 
     from google.genai import types
 
     client = _client()
-    in_tokens = client.models.count_tokens(model=_MODEL, contents=parts).total_tokens
     t0 = time.time()
     resp = client.models.generate_content(
-        model=_MODEL, contents=parts,
+        model=model, contents=parts,
         config=types.GenerateContentConfig(
             system_instruction=PROMPT, response_mime_type="application/json", temperature=0.0
         ),
     )
     latency = time.time() - t0
-    out_tokens = getattr(resp.usage_metadata, "candidates_token_count", 0) or 0
-    cost = in_tokens / 1e6 * _IN_PER_M + out_tokens / 1e6 * _OUT_PER_M
+    # Tokens/cost off the response's own usage_metadata via the daemon's `_tokens_cost` —
+    # i.e. billed exactly as production bills. A `count_tokens(contents=parts)` call here
+    # would count ONLY the pane text and silently omit PROMPT, which rides along as
+    # `system_instruction` and is comparable in size to the pane itself — that undercounted
+    # input (and cost) roughly 2x on every call.
+    # `cached` is broken out because prompt_token_count INCLUDES it and it bills at 10% of
+    # list — _tokens_cost already discounts it, so cost here is cache-aware like production's.
+    in_tokens, cached, out_tokens, cost = _tokens_cost(resp)
+    # The daemon's own salvage, not a private one: llm._parse_json tolerates the trailing
+    # garbage flash-lite sometimes emits. Re-implementing "did it parse?" here would score
+    # a model as failing on output production accepts.
     try:
-        result = json.loads(resp.text)
+        result = _parse_json(resp.text)
     except Exception:
         result = {"_raw": resp.text}
-    return {"json": result, "in": in_tokens, "out": out_tokens, "latency": latency, "cost": cost}
+    return {"json": result, "in": in_tokens, "cached": cached, "out": out_tokens,
+            "latency": latency, "cost": cost}
+
+
+def _load_sample_text(path: Path) -> str:
+    """Pull the pane text from a saved sample: a plain `.txt` capture, or a JSON with a
+    top-level "pane_text" (an OTel-captured, already-assembled payload). Exits with a
+    one-line message on the common CLI mistakes (missing file, bad JSON, no pane_text)
+    instead of dumping a traceback."""
+    try:
+        raw = path.read_text(encoding="utf-8")  # pane captures carry non-ASCII (❯, box chars, ⟪…⟫)
+    except OSError as e:
+        sys.exit(f"can't read sample {path}: {e}")
+    if path.suffix != ".json":
+        return raw
+    try:
+        return json.loads(raw)["pane_text"]
+    except json.JSONDecodeError as e:
+        sys.exit(f"sample {path} is not valid JSON: {e}")
+    except KeyError:
+        sys.exit(f"sample {path} has no top-level \"pane_text\"")
+
+
+def _bench_models(sample: Path, models: list[str], repeat: int) -> None:
+    """Text-only head-to-head: run one sample through each model `repeat` times, print the
+    JSON once per model plus median latency / tokens / cost. Matches the daemon hot path
+    (text-only, production prompt) so it's directly comparable to what ships."""
+    text = _load_sample_text(sample)
+    print(f"sample {sample.name}  —  {len(text)} chars text-only, {repeat}x each\n")
+    summary = []
+    for model in models:
+        runs = [_parse([text], model=model) for _ in range(repeat)]
+        # Median every metric over the repeats — the point of --repeat is to smooth
+        # run-to-run variance, so tokens/cost are aggregated like latency (not the last
+        # run, which would skew the summary if responses vary even at temp=0).
+        med = lambda k: statistics.median(r[k] for r in runs)
+        med_lat, cost = med("latency"), med("cost")
+        itok, otok = round(med("in")), round(med("out"))
+        summary.append((model, itok, otok, med_lat, cost))
+        print(f"===== {model}  ({itok} in / {otok} out tok · "
+              f"median {med_lat:.2f}s over {repeat} · ${cost * 1000:.3f}/1k) =====")
+        print(json.dumps(runs[-1]["json"], indent=2, ensure_ascii=False))
+        print()
+    print("===== SUMMARY =====")
+    print(f"{'model':28} {'in':>6} {'out':>5} {'med lat':>8} {'$/1k':>8}")
+    for model, itok, otok, lat, cost in summary:
+        print(f"{model:28} {itok:>6} {otok:>5} {lat:>7.2f}s {cost * 1000:>7.3f}")
 
 
 def main() -> None:
     from google.genai import types
 
-    save_name = None
     argv = sys.argv[1:]
-    if "--save" in argv:
-        i = argv.index("--save")
-        save_name = argv[i + 1]
-        argv = argv[:i] + argv[i + 2:]  # drop --save and its value
+
+    def _take(flag):  # pull "--flag VALUE" out of argv, returning VALUE or None
+        nonlocal argv
+        if flag in argv:
+            i = argv.index(flag)
+            if i + 1 >= len(argv):
+                sys.exit(f"{flag} needs a value")
+            val = argv[i + 1]
+            argv = argv[:i] + argv[i + 2:]
+            return val
+        return None
+
+    sample = _take("--sample")
+    models = _take("--models")
+    raw_repeat = _take("--repeat")
+    try:
+        repeat = int(raw_repeat) if raw_repeat else 3
+    except ValueError:
+        sys.exit(f"--repeat must be an integer, got {raw_repeat!r}")
+    if sample:  # model head-to-head over a saved sample — no tmux/live capture
+        if repeat < 1:
+            sys.exit("--repeat must be >= 1")
+        # Tolerate "a, b" / trailing commas; reject an all-empty list rather than send a
+        # blank model id downstream to a confusing Vertex error.
+        model_ids = [m.strip() for m in (models or _MODEL).split(",") if m.strip()]
+        if not model_ids:
+            sys.exit("--models is empty")
+        _bench_models(Path(sample), model_ids, repeat)
+        return
+
+    # Live capture mode ignores these, and _take already removed them from argv — so
+    # without this they'd vanish silently and the run would look like it honored them.
+    for flag, val in (("--models", models), ("--repeat", raw_repeat)):
+        if val is not None:
+            sys.exit(f"{flag} only applies with --sample (live capture mode ignores it)")
+
+    save_name = _take("--save")
     target = argv[0] if argv else None
 
     pane = tmux.find_pane(target)
