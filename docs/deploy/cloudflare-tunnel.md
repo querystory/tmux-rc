@@ -57,6 +57,11 @@ real Access application:
 session. It binds `127.0.0.1:18030` precisely because localhost is the only access
 control it has.
 
+> **Corollary: run tmux-rc only on a single-user machine.** A loopback bind is not a
+> permission check — every account on a shared host can reach `127.0.0.1:18030`, and so
+> can any process you run, including a compromised dependency. There is no per-user
+> isolation to fall back on. Get that right before you think about tunnels at all.
+
 That matters more than the usual "don't expose your dev server" advice, because of what
 the API does:
 
