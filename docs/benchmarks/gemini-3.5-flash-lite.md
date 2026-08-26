@@ -113,7 +113,7 @@ needs the human, which is worse than an over-shown busy pane**"):
 | # | screen | 3.1-lite | 3.5-lite | verdict |
 |---|---|---|---|---|
 | 06 | Claude blocked on a preview build, spinner "1 shell still running" | `waiting`/**external** ✓ | **`idle`, no wait** | **3.5 WORSE** — silently drops an active external-wait |
-| 08 | Claude "Waiting for 1 background agent to finish (9m40s)" | `waiting`/external ✓ | **`activity:"working"`** (invalid enum) | **3.5 WORSE + broken** — out-of-schema value; `classify()` would treat it as non-waiting and strip `waiting_on` |
+| 08 | Claude "Waiting for 1 background agent to finish (9m40s)" | `waiting`/external ✓ | **`activity:"working"`** (invalid enum) | **3.5 WORSE + broken** — out-of-schema value; no question/rewind on this screen to trigger `classify()`'s waiting override, so it stays non-waiting and `waiting_on` is stripped |
 | 02 | scrolled-back frame, question still pending | `waiting`/user + `question` ✓ | **`idle`, question dropped** | **3.5 WORSE** — loses a live user-question (the amber badge) |
 | 20 | Gemini CLI auto-updating itself | `running` + update event ✓ | **`idle`, event dropped** | **3.5 WORSE** — reports a busy pane as idle |
 | 12 | 50k server-log tail, no shell prompt | `idle` (matches prod) | `running` | 3.5 arguably worse — a log tail with no prompt is idle; borderline |
@@ -132,10 +132,13 @@ claude and codex. It never once caught a wait that 3.1-lite missed.
 
 The invalid-enum result (08) is the most concrete red flag: `"working"` is not in the schema
 (`running|waiting|idle|compacting`). The daemon doesn't validate the enum, so it would pass
-straight through — the `question`/`rewind` override wouldn't fire, `waiting_on` would be
-stripped by `classify()`'s cleanup, and the card would render as neither waiting nor a known
-busy state. A model that invents enum values on a temp-0 structured call is a reliability
-regression regardless of the average-quality wash.
+straight through. On this screen — a background-agent wait with no on-screen question or
+rewind picker — nothing rescues it: `classify()`'s `question`/`rewind` override only forces
+`activity: "waiting"` when the model reports one of those affordances, and here it reported
+neither. The value stays `"working"`, `waiting_on` is stripped by the cleanup that keeps it
+only on `waiting` panes, and the card renders as neither waiting nor a known busy state. A
+model that invents enum values on a temp-0 structured call is a reliability regression
+regardless of the average-quality wash.
 
 ## Recommendation: DON'T switch (needs-more-data + a prompt pass first)
 
