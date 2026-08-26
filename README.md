@@ -85,20 +85,20 @@ See [docs/design/deployment.md](docs/design/deployment.md) for why user units + 
 
 ### Run without cloning
 
-`uv` installs straight from the (private) git repo — no manual clone or checkout to
+`uv` installs straight from the git repo — no manual clone or checkout to
 manage. The wheel bundles the phone UI, so this is fully self-contained (`tmux-rc` is a
 console script; reload defaults off when installed). You still need `tmux`, a running
 agent, a Vertex service-account key file **on the machine**, and the env vars pointing at
 it — `uvx` fetches the code, not your credentials.
 
 ```bash
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 # or pin a branch/tag/commit:
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git@main" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git@main" tmux-rc
 ```
 
-Requires SSH access to the `querystory` org. The `docs/` site is checkout-only (not
-bundled); the phone dashboard and API work without it.
+The `docs/` site is checkout-only (not bundled); the phone dashboard and API work
+without it.
 
 **Setting the env vars.** There's no repo-root `.env` here, so use one of (real shell env
 vars always win — `.env` never overrides them):
@@ -107,19 +107,19 @@ vars always win — `.env` never overrides them):
 # 1. Exported shell env vars (simplest, persists across runs in the shell):
 export GOOGLE_CLOUD_PROJECT=your-gcp-project
 export GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/sa-key.json   # absolute — no ~
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 
 # 2. Inline, for a one-off run:
 GOOGLE_CLOUD_PROJECT=your-gcp-project \
 GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/sa-key.json \
-  uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+  uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 
 # 3. A .env in (or above) the directory you launch from — the daemon searches upward
 #    from the cwd when there's no repo-root .env:
 mkdir -p ~/tmux-rc && cd ~/tmux-rc
 # create .env with GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS (see the table
 # below and `.env.example` in the repo)
-uvx --from "git+ssh://git@github.com/querystory/tmux-rc.git" tmux-rc
+uvx --from "git+https://github.com/querystory/tmux-rc.git" tmux-rc
 ```
 
 > `GOOGLE_APPLICATION_CREDENTIALS` **must be an absolute path** — google-auth does not
@@ -135,7 +135,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane: a pane id (`%3`) or its tmux-derived label — named window, else session, else cwd basename (`label` / `label.N`); UI titles may differ |
+| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`) — the window name if you named the window, else the session name, else the cwd basename — so on a named window the session name does *not* match. The card title in the UI is not a valid target either; use a pane id when in doubt |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
