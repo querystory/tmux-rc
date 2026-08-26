@@ -16,7 +16,7 @@ title: "Cloudflare Tunnel"
 
 For reaching the daemon from a phone over the internet, with a login in front of it.
 Only needed if you want a public hostname — on a LAN you need none of this, and if you
-can put a VPN client on the phone, [`tailscale serve`](other-tunnels/) is safer because
+can put a VPN client on the phone, a private mesh such as `tailscale serve` (see [Deploying](../)) is safer because
 there is no public surface to misconfigure.
 
 
