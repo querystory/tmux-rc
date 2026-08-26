@@ -38,11 +38,18 @@ tmux new -s work
 uv run python -m daemon.server
 ```
 
-The daemon binds `127.0.0.1:18030` by default. To browse it from a phone on the same
-network, set `TMUXRC_HOST=0.0.0.0` and open `http://<machine-lan-ip>:18030` — but note
-the API is **unauthenticated** and `/send` injects keystrokes into your terminals, so
-never do that on an untrusted network. For access off your LAN, front it with a tunnel
-you control (e.g. `cloudflared`, `tailscale`).
+> **The daemon has no authentication, so run it only on a single-user machine.** There is
+> no login, no API key, no token — any client that can reach the port can call the API, and
+> `POST /api/panes/{id}/send` types into a real terminal. It binds `127.0.0.1:18030`, but
+> a loopback bind is not a permission check: anyone who can reach that port can control
+> your terminal, which on a shared host means every other account on it.
+
+To browse it from a phone on the same network, set `TMUXRC_HOST=0.0.0.0` and open
+`http://<machine-lan-ip>:18030` — that hands the same control to everyone on the LAN, so
+only do it on a network you trust. For access from anywhere else, put something
+authenticating in front of it: see [docs/deploy/](docs/deploy/) — Tailscale keeps it off
+the public internet entirely, and there's a step-by-step Cloudflare Tunnel + Access
+runbook if you need a public hostname.
 
 ### Run it as a service
 

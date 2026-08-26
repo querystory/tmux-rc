@@ -725,6 +725,7 @@ function syncBadgeTick() {
 document.addEventListener("visibilitychange", syncBadgeTick);
 window.addEventListener("pageshow", syncBadgeTick); // bfcache restore may skip visibilitychange
 
+let _pollFails = 0;        // consecutive non-OK polls — blips get grace, outages get the notice
 let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
                            // null until the first reply so cold load asks for state outright
 let _booted = false;       // server has completed its first tick — an empty deck is only
@@ -746,6 +747,28 @@ async function poll() {
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
     // misattribute to a stale app.js. Report the real condition instead.
     if (!r.ok) {
+      // Recovery must paint IMMEDIATELY: with _stateVersion still set, the first poll
+      // after the backend returns matches its `?v=` and gets held (~25s) if the deck
+      // didn't change — leaving the reconnecting dot/notice up long after the outage
+      // ended. Null it so the next poll is "give me current state now" (same move as
+      // onResume), at the cost of one unheld response per outage.
+      _stateVersion = null;
+      // The relay's routine reconnects (hourly connection cap; ~1s relay deploys)
+      // surface HERE — as a short burst of 502s, not as fetch errors, because the
+      // relay itself answers while the tunnel re-registers. showNotice() hides the
+      // whole deck, so reacting on the FIRST bad poll flashes "backend down" at the
+      // user several times a day for a non-event. The first two failures get the
+      // same soft treatment as a network blip (pulsing dot, deck stays); only a
+      // failure that PERSISTS earns the notice — with the 1s backoff below, a real
+      // outage still surfaces within ~3 seconds.
+      if (++_pollFails < 3) {
+        liveEl.className = "dot off rc";
+        liveEl.title = "reconnecting…";
+        // Unlike the notice path below, this return never reads the body — cancel it
+        // so the keep-alive connection is reusable instead of parked on unread bytes.
+        try { await r.body?.cancel(); } catch { /* locked/absent body — nothing to release */ }
+        return false; // back off — success resets the counter
+      }
       const body = (await r.text()).trim().slice(0, 200);
       liveEl.className = "dot off";
       liveEl.title = "backend unavailable";
@@ -759,6 +782,7 @@ async function poll() {
         + (hint ? ` — ${hint}` : ""));
       return false;  // back off — without a gap pollLoop would re-request instantly and hammer
     }
+    _pollFails = 0; // an OK response ends the outage-candidate streak
     const data = await r.json();
     // Applied unconditionally, even mid-gesture: a render only writes text onto nodes the
     // gesture is animating, so there is no reason to drop a response (and dropping one
@@ -1412,6 +1436,18 @@ function openLaunchMenu(sess, anchor) {
   const m = document.createElement("div");
   m.className = "launch-menu";
   m.setAttribute("role", "menu");
+  // Name the target session. The "+" lives in a per-session tray, but the trays look
+  // alike on a crowded dock — without this the only way to know where a new window
+  // lands is to launch one and see where you end up (observed: a Claude window created
+  // in the wrong session, and the phone following it there).
+  const head = document.createElement("div");
+  head.className = "launch-head";
+  // A menu's children must be menuitem/separator/group per ARIA — mark the header
+  // as presentation so AT reads a clean menu; the target session is announced via
+  // the opening control's aria-label instead.
+  head.setAttribute("role", "presentation");
+  setText(head, `New window in ${sess || "this session"}`);
+  m.appendChild(head);
   for (const l of launchers) {
     const b = document.createElement("button");
     b.setAttribute("role", "menuitem");

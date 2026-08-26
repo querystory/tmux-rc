@@ -8,7 +8,7 @@ reachable over the internet — but not by just anyone.
 
 ## Two Modes
 
-### Tunnel (`*.tun.qs.dev`) — open source
+### Tunnel (`*.<tunnel-domain>`) — open source
 
 A stateless relay on Cloud Run behind IAP. The local tmux-rc process
 connects OUT to the relay via WebSocket; the phone connects IN via HTTPS.
@@ -19,7 +19,7 @@ back. No persistence, no database. If the agent disconnects, the phone sees
 This is the open-source offering: anyone can deploy a tunnel relay (on Cloud
 Run, fly.io, or any WS-capable host) and point their local agent at it.
 
-### Hosted (`*.tmux.qs.dev`) — commercial
+### Hosted (`*.<hosted-domain>`) — commercial
 
 State is persisted in Postgres. The phone can browse historical timelines,
 view past sessions, query cost/usage via QueryStory. The agent pushes state
@@ -36,7 +36,7 @@ flowchart LR
     D["tmux · watcher.py<br/>classify.py · uplink.py"]
   end
   subgraph cloud["CLOUD RUN — behind IAP"]
-    R["Go relay service<br/>*.tun.qs.dev (pipe)<br/>*.tmux.qs.dev (DB)"]
+    R["Go relay service<br/>tunnel host (pipe)<br/>hosted host (DB)"]
   end
   subgraph phone["PHONE"]
     P["PWA polls"]
@@ -52,8 +52,8 @@ Host header — the same binary, same deploy, same IAP client.
 ## Key Design Decisions
 
 **Agent connects OUT via WebSocket.** No port forwarding needed on the dev
-machine. The agent initiates a WebSocket to `wss://shapor.tun.qs.dev/_ws/agent`.
-Cloud Run supports WS with 3600s timeout (same pattern as preview-controller).
+machine. The agent initiates a WebSocket to `wss://<slug>.<tunnel-domain>/_ws/agent`.
+Cloud Run supports WS with a 3600s timeout.
 
 **OAuth2 access token for agent auth.** The agent already has ADC credentials
 for Gemini. The same token authenticates the WS upgrade request. The relay
@@ -90,7 +90,7 @@ Bearer token.
 ### Agent → Cloud (upstream)
 
 ```json
-{"type": "hello", "version": 1, "user": "shapor@querystory.ai"}
+{"type": "hello", "version": 1, "user": "you@example.com"}
 {"type": "state", "panes": [...], "stale": false, "usage": {...}}
 {"type": "snapshot", "pane_id": "%3", "snap_id": "...", "text": "..."}
 {"type": "command_result", "req_id": "abc123", "ok": true}
@@ -107,38 +107,28 @@ Bearer token.
 
 ## Per-User Isolation
 
-- `shapor.tun.qs.dev` → only Shapor's agent can register here (OAuth email
-  must match slug), only Shapor's phone can poll here (IAP email verified)
-- IAP provides the outer auth boundary (only `@querystory.ai`)
+- `<slug>.<tunnel-domain>` → only that user's agent can register there (OAuth email
+  must match slug), only that user's phone can poll there (IAP email verified)
+- IAP provides the outer auth boundary (your org's domain only)
 - Subdomain slug + email matching provides inner per-user isolation
 - One active agent per slug (last-connect wins; multi-machine: use
-  `shapor-dev1.tun.qs.dev` if needed later)
+  `<slug>-dev1.<tunnel-domain>` if needed later)
 
 ## Infrastructure
 
-Follows the existing qs-dev GCLB pattern exactly. New resources:
+The relay needs, in whatever form your cloud provides it:
 
-**DNS** (`qs-infra/terraform/cloudflare/dns/qs_dev.tf`):
-- `*.tun.qs.dev` A → 35.190.54.42 (proxied=false)
-- `*.tmux.qs.dev` A → 35.190.54.42 (proxied=false)
-- `_acme-challenge.tun.qs.dev` CNAME (cert DNS-01)
-- `_acme-challenge.tmux.qs.dev` CNAME (cert DNS-01)
-
-**Certificates** (`qs-infra/terraform/gcp/projects/qsi-automation/tmux-rc.tf`):
-- DNS authorization + wildcard cert + cert-map-entry for each subdomain
-- Added to existing `qs-dev-cert-map`
-
-**Backend** (same Terraform file):
-- Cloud Run service (ingress=INTERNAL_LOAD_BALANCER, timeout=3600s, min=1)
-- Dedicated service account
-- Serverless NEG → backend service with `iap {}` block
-- IAP client against existing `google_iap_brand.default`
-- `roles/run.invoker` for IAP service agent
-
-**URL Map** (addition to existing `google_compute_url_map.qs_dev`):
-- `host_rule { hosts = ["*.tun.qs.dev", "*.tmux.qs.dev"]; path_matcher = "tmux-rc" }`
-
-IAP access is already granted project-wide to `internal-tools@querystory.ai`.
+- **DNS** — a wildcard record per mode (`*.<tunnel-domain>`, `*.<hosted-domain>`)
+  pointing at the load balancer, plus the DNS-01 records its certs authorize against.
+- **Certificates** — a wildcard cert per subdomain, wired into the LB's cert map.
+- **Backend** — the Cloud Run service with `ingress=INTERNAL_LOAD_BALANCER` (so no request
+  from the public internet reaches it except through the IAP-gated load balancer; qualifying
+  internal traffic can still invoke it, so keep `run.invoker` least-privilege too),
+  `timeout=3600s` (WS lifetime), `min=1` (see above), its own service account, and a
+  serverless NEG fronted by a backend service with IAP enabled.
+- **URL map** — a host rule routing both wildcard hosts to the relay's path matcher.
+- **Access** — grant IAP access to the group that should reach it, and
+  `roles/run.invoker` to the IAP service agent.
 
 ## Open Source vs Commercial Boundary
 
@@ -148,7 +138,7 @@ IAP access is already granted project-wide to `internal-tools@querystory.ai`.
 - Protocol spec
 - Reference tunnel relay (standalone Go binary, or simplified Python relay)
 
-**Commercial** (qsi-automation/tmux-rc/ + qs-infra):
+**Commercial** (private repos):
 - Hosted mode (Postgres persistence)
 - Timeline/history/analytics endpoints
 - QueryStory integration
@@ -179,7 +169,7 @@ Exposed as a QueryStory data source for self-introspection.
 ## Phased Implementation
 
 1. **Python uplink client** (1-2 days) — `uplink.py`, opt-in via env var
-2. **Go tunnel relay** (2-3 days) — in qsi-automation, test locally
+2. **Go tunnel relay** (2-3 days) — in a private repo, test locally
 3. **Infrastructure deploy** (1-2 days) — Terraform, wait for certs
 4. **Hosted mode + Postgres** (3-5 days) — persistence, timeline API, QueryStory
 5. **Open-source packaging** (2-3 days) — standalone relay binary, README
@@ -190,8 +180,8 @@ Exposed as a QueryStory data source for self-introspection.
 code generation. The protocol is trivially JSON messages — gRPC's typing
 benefits don't justify the toolchain cost here.
 
-**Cloudflare Tunnel instead of Cloud Run.** We already have two Cloudflare
-tunnels (a2a-test, mcp-dev). These work for point-to-point but don't give us
+**Cloudflare Tunnel instead of Cloud Run.** We already run a couple of Cloudflare
+tunnels elsewhere. These work for point-to-point but don't give us
 the relay semantics (phone → cloud → agent). A cf tunnel would still need a
 relay process somewhere.
 
