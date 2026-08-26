@@ -45,13 +45,49 @@ def _patch(monkeypatch, panes):
 def test_move_before_issues_move_window_b(monkeypatch):
     calls = _patch(monkeypatch, [_pane("%1", window_index="0"), _pane("%2", window_index="3")])
     tmux.reorder_pane("%2", "%1", after=False)
-    assert calls == [["move-window", "-b", "-s", "main:3", "-t", "main:0"]]
+    assert calls == [
+        ["move-window", "-b", "-s", "main:3", "-t", "main:0"],
+        ["move-window", "-r", "-t", "main:"],
+    ]
 
 
 def test_move_after_issues_move_window_a(monkeypatch):
     calls = _patch(monkeypatch, [_pane("%1", window_index="0"), _pane("%2", window_index="3")])
     tmux.reorder_pane("%1", "%2", after=True)
-    assert calls == [["move-window", "-a", "-s", "main:0", "-t", "main:3"]]
+    assert calls == [
+        ["move-window", "-a", "-s", "main:0", "-t", "main:3"],
+        ["move-window", "-r", "-t", "main:"],
+    ]
+
+
+def test_renumber_is_a_separate_command(monkeypatch):
+    """-r must NEVER ride along on the move itself. tmux (verified on 3.4) treats
+    `move-window -r -s X -t Y` as a renumber and IGNORES the move, exiting 0 having done
+    nothing — folding the two together would silently turn every drag into a no-op. So
+    the move command must carry no -r, and the renumber must carry no -s."""
+    calls = _patch(monkeypatch, [_pane("%1", window_index="0"), _pane("%2", window_index="3")])
+    tmux.reorder_pane("%1", "%2", after=True)
+    move, renumber = calls
+    assert "-r" not in move          # the move must actually move
+    assert "-s" not in renumber      # the renumber must not pretend to move
+    assert renumber == ["move-window", "-r", "-t", "main:"]
+
+
+def test_renumber_failure_does_not_fail_the_reorder(monkeypatch):
+    """The move landed; a failed cosmetic renumber must not report it as an error."""
+    calls = []
+
+    def run(args):
+        calls.append(args)
+        if "-r" in args:
+            raise subprocess.CalledProcessError(returncode=1, cmd=["tmux", *args])
+        return ""
+
+    by_id = {p.id: p for p in [_pane("%1", window_index="0"), _pane("%2", window_index="3")]}
+    monkeypatch.setattr(tmux, "find_pane", lambda t: by_id.get(t))
+    monkeypatch.setattr(tmux, "_run", run)
+    tmux.reorder_pane("%1", "%2", after=True)  # must NOT raise
+    assert len(calls) == 2  # it still attempted the renumber
 
 
 def test_sibling_pane_drags_its_whole_window(monkeypatch):
@@ -64,7 +100,10 @@ def test_sibling_pane_drags_its_whole_window(monkeypatch):
     for dragged in ("%1", "%2"):  # either sibling ⇒ identical command
         calls = _patch(monkeypatch, panes)
         tmux.reorder_pane(dragged, "%3", after=True)
-        assert calls == [["move-window", "-a", "-s", "main:0", "-t", "main:5"]]
+        assert calls == [
+            ["move-window", "-a", "-s", "main:0", "-t", "main:5"],
+            ["move-window", "-r", "-t", "main:"],
+        ]
 
 
 def test_same_window_is_noop(monkeypatch):
