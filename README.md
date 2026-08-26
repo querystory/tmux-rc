@@ -135,7 +135,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane: a pane id (`%3`), a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name), or the display label (`label` / `label.N`) |
+| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane: a pane id (`%3`), a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name), or the tmux window/session name (`name` / `name.N`). The card title in the UI is not a valid target — it can be the agent's own title or an LLM-refined name; use a pane id when in doubt |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |

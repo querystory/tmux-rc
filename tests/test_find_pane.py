@@ -55,3 +55,22 @@ def test_empty_server(monkeypatch):
     _panes(monkeypatch, [])
     assert find_pane(None) is None
     assert find_pane("work:0") is None
+
+
+def test_missing_target_warns_once(monkeypatch, caplog):
+    """A target that matches nothing used to serve an empty deck silently. Warn — but
+    only on the first tick, not once per poll for the life of the daemon."""
+    import daemon.watcher as watcher
+
+    monkeypatch.setattr(watcher.tmux, "server_running", lambda: True)
+    monkeypatch.setattr(watcher.tmux, "find_pane", lambda t: None)
+    monkeypatch.setattr(watcher.tmux, "list_panes", lambda: [])
+
+    w = watcher.Watcher(target="nope:9", use_llm=False)
+    with caplog.at_level("WARNING", logger="daemon.watcher"):
+        w._tick()
+        w._tick()
+
+    hits = [r for r in caplog.records if "matches no pane" in r.getMessage()]
+    assert len(hits) == 1, f"expected exactly one warning, got {len(hits)}"
+    assert "nope:9" in hits[0].getMessage()
