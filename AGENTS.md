@@ -59,7 +59,7 @@ verified by hand against real DOM shapes and by live testing on the phone.
 
 ## Classifier / prompt changes
 
-Any change to `daemon/parser_prompt.txt` or the classifier logic (`daemon/classify.py`)
+Any change to `openbus/parser_prompt.txt` or the classifier logic (`openbus/classify.py`)
 MUST be validated with the prompt-eval harness and MUST add or update a case in
 `research/eval/samples/` covering the behavior being fixed or changed — a prompt/classifier
 fix without a matching eval case is incomplete. Run `python -m research.eval` (all samples

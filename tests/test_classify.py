@@ -1,8 +1,8 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
-from daemon.classify import bootstrap, classify
-from daemon.tmux import Pane
+from openbus.classify import bootstrap, classify
+from openbus.tmux import Pane
 
 
 def _pane(cmd="bash"):

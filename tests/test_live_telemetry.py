@@ -4,8 +4,8 @@ frame text and must be a no-op when disabled; presence must age out on its own."
 
 import time
 
-from daemon import telemetry
-from daemon.watcher import Watcher
+from openbus import telemetry
+from openbus.watcher import Watcher
 
 
 def _capture(monkeypatch):

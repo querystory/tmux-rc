@@ -4,11 +4,11 @@
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
 # since tmux is the source of truth). Requires GOOGLE_CLOUD_PROJECT for the LLM pass.
 dev:
-	TMUXRC_RELOAD=1 uv run python -m daemon.server
+	TMUXRC_RELOAD=1 uv run python -m openbus.server
 
 # Plain run, no reload.
 run:
-	uv run python -m daemon.server
+	uv run python -m openbus.server
 
 # Install/refresh the systemd --user units (see docs/design/deployment.md). Idempotent:
 # safe to re-run after editing a unit. enable-linger is what moves the units' start from

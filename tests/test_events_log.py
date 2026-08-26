@@ -2,7 +2,7 @@
 In-memory only; tmux is the state. This pins the bounded-append invariant the watcher
 and the bootstrap seed both rely on."""
 
-from daemon.watcher import EVENTS_LOG_MAX, _append_events
+from openbus.watcher import EVENTS_LOG_MAX, _append_events
 
 
 def test_append_stamps_ts_and_preserves_order():

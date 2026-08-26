@@ -39,9 +39,9 @@ standing pass/fail harness they were each reaching toward.
 
 ## What it runs — the REAL production path
 
-Each sample goes through `daemon.classify.classify(pane, text, llm_fn)` — the exact
+Each sample goes through `openbus.classify.classify(pane, text, llm_fn)` — the exact
 function the daemon calls — with `llm_fn` hitting the real Vertex model under
-`daemon/parser_prompt.txt` (temperature 0, JSON mime, same as `daemon.llm.classify_text`).
+`openbus/parser_prompt.txt` (temperature 0, JSON mime, same as `openbus.llm.classify_text`).
 That matters: `classify()` applies the `waiting_on` / `activity` overrides
 (question/rewind → `waiting`/`user`; drop stray `waiting_on` off non-waiting panes) that
 actually drive the phone UI. We score the **post-override** output — what the UI sees —
