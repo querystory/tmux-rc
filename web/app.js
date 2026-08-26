@@ -1803,6 +1803,12 @@ function dragReorder(icon) {
   // rejects cross-session moves as 400), so an icon in another session's dock group
   // must never light up as a drop target — the dashed ring would promise a move
   // that bounces back on the next poll.
+  //
+  // Deliberately a DOM query, not a walk of panesById: a session's PARKED panes are
+  // folded behind its "+N" chip and have no icon, so they are excluded as drop targets
+  // for free. The drop therefore lands relative to the pane the user can actually see,
+  // which is the one they aimed at — a parked pane hidden between two visible icons
+  // keeps its own place in tmux's order and is not jumped over.
   const overIcon = (x) => {
     const sess = panesById[icon.dataset.pane]?.session;
     for (const n of el.querySelectorAll(".dock-icon")) {
