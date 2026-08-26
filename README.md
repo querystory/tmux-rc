@@ -5,6 +5,12 @@ program) from your phone. A small local service reads a `tmux` pane, figures out
 what's happening, and shows a phone-native dashboard: status at a glance, alerts when
 an agent is blocked on a question, tappable answers, and a snapshot timeline.
 
+<p align="center">
+  <img src="docs/img/dashboard.png" alt="tmux-rc on a phone: a dock of running agents across two tmux sessions, the focused agent's live summary card, and the launcher menu for starting a new agent" width="420">
+</p>
+
+<p align="center"><em>Every pane on the tmux server, on your phone — here mid-session on this repo, with the launcher open.</em></p>
+
 **Why not `/remote-control`?** Claude Code's remote control is locked to the Anthropic
 API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *terminal*,
 so it's vendor-agnostic on both axes — any agent, any model provider for the
