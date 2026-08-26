@@ -10,9 +10,11 @@ API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *termi
 so it's vendor-agnostic on both axes — any agent, any model provider for the
 summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
-> **Status: proof of concept.** Milestone 1 (single pane) works end to end:
-> watch → classify → phone card → detect a waiting prompt → tap → answer round-trips
-> into the pane. Milestone 2 (all panes) and the non-goals in the PRD are next.
+> **Status: proof of concept.** The all-pane watch/control slice works end to end,
+> across every pane on the tmux server: watch → classify → phone card → detect a
+> waiting prompt → tap → answer round-trips into the pane. Remaining PRD milestone-2
+> items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
+> scope.
 
 ## Run
 
@@ -133,7 +135,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
+| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane: a pane id (`%3`) or its tmux-derived label — named window, else session, else cwd basename (`label` / `label.N`); UI titles may differ |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
