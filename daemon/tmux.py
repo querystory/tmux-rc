@@ -312,9 +312,10 @@ def reorder_pane(src_id: str, dst_id: str, after: bool) -> None:
     target so the caller returns a clear error rather than issuing a surprising move."""
     src = find_pane(src_id)
     dst = find_pane(dst_id)
-    # Distinct messages: the server already 404s a missing SOURCE before we get here, so
-    # this source guard is defensive; a missing TARGET is a client-supplied body value and
-    # its own 400 — keep the two apart for a clear API error and audit line.
+    # Distinct messages, because the caller maps them to DIFFERENT statuses. The reorder
+    # endpoint has no preflight lookup — it relies on this function to detect a missing
+    # source — so "source pane not found" is the live 404 path, not a defensive one. A
+    # missing TARGET is a client-supplied body value and gets its own 400.
     if src is None:
         raise RuntimeError("source pane not found")
     if dst is None:

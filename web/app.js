@@ -1887,11 +1887,18 @@ function dragReorder(icon) {
     // strip re-renders between this pointerup and the synthetic click, and dockEl is the
     // node guaranteed to still be listening either way.
     if (wasDrag) {
-      // once:true self-removes on the synthetic click; the timeout removes it if no click
-      // follows (drop landed off any icon), so it can never eat a later legitimate tap.
-      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-      el.addEventListener("click", swallow, { capture: true, once: true });
-      setTimeout(() => el.removeEventListener("click", swallow, { capture: true }), 400);
+      // BOOLEAN capture arg + manual self-removal, not { capture, once }. This file
+      // targets older iOS Safari elsewhere (see the MediaQueryList and AbortSignal notes),
+      // and an engine that predates the options-object treats the third argument as a
+      // truthy `capture` and IGNORES `once` — leaving a capture-phase swallow attached
+      // forever, eating every later tap on the dock. The boolean form behaves identically
+      // everywhere; `off` is idempotent, so the click path and the timeout can both call
+      // it. The timeout is the backstop for a drop that lands off any icon and so is
+      // never followed by a click.
+      const off = () => el.removeEventListener("click", swallow, true);
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); off(); };
+      el.addEventListener("click", swallow, true);
+      setTimeout(off, 400);
       // overIcon itself rejects a release that is not over the strip vertically — under
       // pointer capture the up can fire far above/below the dock (finger left the strip),
       // and an X that happens to line up with an icon there must not trigger a surprise
