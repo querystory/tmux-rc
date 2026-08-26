@@ -1,15 +1,27 @@
 ---
+weight: 1
 title: "Other tunnels"
 ---
 
 # Other ways to reach the daemon: Tailscale and ngrok
 
-**The daemon authenticates nobody.** It binds `127.0.0.1:18030` because loopback is the
-only access control it has. `POST /api/panes/{id}/send` types characters into a real
-terminal on your machine, and `GET /api/panes/{id}/snapshots/{snap_id}` hands over the
-scrollback. So whatever you put in front of the daemon **is** the entire access-control
-system — the question is not "how do I get a URL for my phone", it is "who is allowed to
-type into my shell".
+**The daemon has no authentication.** No login, no API key, no token — every request it
+receives is honored. `POST /api/panes/{id}/send` types characters into a real terminal on
+your machine, and `GET /api/panes/{id}/snapshots/{snap_id}` hands over the scrollback.
+
+It binds `127.0.0.1:18030`, so today the boundary is your machine: **anyone who can reach
+that port can control your terminal** — which means any other user account on the box, and
+any process you run, including a compromised dependency or a browser page that can reach
+localhost. That is the baseline before you expose anything.
+
+> **Run tmux-rc only on a single-user machine.** A loopback bind is not a permission
+> check: on a shared host, every other account can reach `127.0.0.1:18030` and type into
+> your terminals. There is no per-user isolation to fall back on, so a multi-user box is
+> out of scope for this project as it stands.
+
+Putting the daemon on a network moves that boundary outward, so whatever you put in front
+of it **is** the entire access-control system. The question is not "how do I get a URL for
+my phone", it is "who is allowed to type into my shell".
 
 This page is a pointer, not a runbook: each vendor's own docs are the current truth, and
 neither tool below is verified against this host. If you need a public hostname with a
