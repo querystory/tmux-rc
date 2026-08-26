@@ -6,7 +6,7 @@ what's happening, and shows a phone-native dashboard: status at a glance, alerts
 an agent is blocked on a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
-  <img src="docs/img/card.png" alt="tmux-rc on a phone: a dock of agents across two tmux sessions, and the focused agent's card showing a running state, a summary of the session, and a list of what it has done" width="420">
+  <img src="docs/img/card.png" alt="The tmux-rc dashboard on a phone, showing the agent dock and the focused agent's card" width="420">
 </p>
 
 <p align="center"><em>Every pane on the tmux server, on your phone. The card summarizes what the agent is doing — here, mid-session on this repo.</em></p>
@@ -14,7 +14,7 @@ an agent is blocked on a question, tappable answers, and a snapshot timeline.
 Tap <strong>+</strong> to start a new agent in a new window, without touching the machine:
 
 <p align="center">
-  <img src="docs/img/launcher.png" alt="the launcher menu open over the dashboard, offering Claude, Claude (Sonnet), Claude (Bedrock), Codex and Gemini as agents to start in a new tmux window" width="420">
+  <img src="docs/img/launcher.png" alt="The launcher menu open over the dashboard, listing the agents available to start" width="420">
 </p>
 
 **Why not `/remote-control`?** Claude Code's remote control is locked to the Anthropic
