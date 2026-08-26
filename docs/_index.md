@@ -5,8 +5,8 @@ toc: false
 
 Vendor-agnostic phone control plane for terminal AI agents running in tmux.
 
-These are the internal engineering docs — product requirements, architecture and
-design notes, and the running progress log.
+The engineering docs — product requirements, architecture and design notes, how to
+reach the daemon safely from outside localhost, and the running progress log.
 
 {{< cards >}}
   {{< card link="design/background-and-motivation/" title="Background & motivation" subtitle="New here? What tmux is, and why tmux-rc exists." >}}
