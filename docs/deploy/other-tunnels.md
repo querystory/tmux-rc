@@ -25,10 +25,9 @@ my phone", it is "who is allowed to type into my shell".
 
 This page is a pointer, not a runbook: each vendor's own docs are the current truth, and
 neither tool below is verified against this host. If you need a public hostname with a
-real login in front of it, a separately-reviewed Cloudflare Tunnel + Access runbook
-lands in `docs/deploy/cloudflare-tunnel.md` (querystory/tmux-rc#148); until that merges,
-use [Cloudflare's own Tunnel docs](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
-and put an Access policy in front of the hostname *before* you start the tunnel.
+real login in front of it, follow the [Cloudflare Tunnel + Access runbook](../cloudflare-tunnel/) —
+it is verified end to end, and it puts an Access policy in front of the hostname *before*
+the tunnel starts.
 
 ## Tailscale — prefer this
 
@@ -73,9 +72,8 @@ unless you claim your account's static domain. Check
 
 ## Need a public hostname with a real login?
 
-Cloudflare Tunnel + Access is the option this repo has actually verified end to end; its
-runbook is in flight as querystory/tmux-rc#148 and lands at
-`docs/deploy/cloudflare-tunnel.md`. The one thing to carry over even if you follow
+Cloudflare Tunnel + Access is the option this repo has actually verified end to end — see
+[the runbook](../cloudflare-tunnel/). The one thing to carry over even if you follow
 Cloudflare's docs instead: **create the Access policy before you start the tunnel.** The
 moment `cloudflared` connects, the hostname serves the daemon to anyone who finds it, and
 there is no grace period.
