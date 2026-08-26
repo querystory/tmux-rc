@@ -159,7 +159,7 @@ single pane may be able to buzz a pocket continuously, whatever the model does.
 
 ## Transport: Web Push, sent by the daemon
 
-The app is already a proper installable PWA behind IAP (`manifest` fetched with
+The app is already a proper installable PWA (`manifest` fetched with
 `use-credentials`, apple metas) — the precondition for iOS Web Push (16.4+, installed
 to home screen) is cleared. The daemon sends via `pywebpush` with a VAPID keypair.
 No third-party service holds content beyond the platform push relays themselves
@@ -202,14 +202,19 @@ commit, and which doesn't exist when running installed as a wheel) — owner-onl
 (0600) and written atomically (temp file + rename), since it holds credentials,
 not observations — holds the VAPID keypair (generated on
 first use; it must stay stable, since subscriptions bind to the public key), the
-`sub` contact claim VAPID authentication requires (a `mailto:` — default it from the
-tunnel owner or a `.env` value), and the subscription list. Clients still re-POST their subscription at boot as self-healing —
-the store upserts keyed by endpoint, so a re-register is idempotent, never a
-duplicate delivery — and prunes endpoints on `410 Gone`.
+`sub` contact claim VAPID authentication requires (a `mailto:` — read from a `.env`
+value, since the daemon has no notion of a logged-in identity to derive it from), and
+the subscription list. Clients still re-POST their subscription at boot as
+self-healing — the store upserts keyed by endpoint, so a re-register is idempotent,
+never a duplicate delivery — and prunes endpoints on `410 Gone`.
 
-`POST /api/push/subscribe` is guarded and audited like `/send`, and paired with an
-unsubscribe (the client calls it when the user flips the bell off or permission is
-revoked) plus a revoke-all — a lost or replaced device must not keep receiving pane
+`POST /api/push/subscribe` is audited like `/send` — and, like `/send`, it inherits
+whatever front end the operator put in front of the daemon rather than authenticating
+anything itself (see [Deploying](../../deploy/)). Registering a subscription is
+therefore exactly as reachable as typing into a pane already is: it adds no new
+exposure, but it is not a permission check either. It is paired with an unsubscribe
+(the client calls it when the user flips the bell off or permission is revoked) plus
+a revoke-all — a lost or replaced device must not keep receiving pane
 content until the platform happens to return `410`. It's single-user, multi-device:
 every stored subscription gets every push (per-device mute can come later if it
 ever matters).
@@ -228,9 +233,10 @@ is already a known failure class in this daemon). The queue is small and bounded
 (drop-oldest on overflow, no retry beyond what `requests` does in one call): a
 notification that couldn't send for minutes is *stale*, and the right failure mode
 for this feature is silence, not a burst of old buzzes when the outage clears —
-the push-service TTLs bound staleness on their side for the ones that did leave. Blocking pushes go with `Urgency: high` and a short TTL
-(~10 min — a stale question has probably been answered from another surface);
-milestones with normal urgency and ~1h TTL. Tags are **namespaced by kind**:
+the push-service TTLs bound staleness on their side for the ones that did leave.
+Blocking pushes go with `Urgency: high` and a short TTL (~10 min — a stale question
+has probably been answered from another surface); milestones with normal urgency and
+~1h TTL. Tags are **namespaced by kind**:
 `block:<pane_id>` (a newer question on the same pane replaces the older one) and a
 single rolling `milestones` tag (a coalesced push spans panes, so it has no single
 pane to tag — and it must never be able to replace an unanswered, action-bearing
@@ -299,11 +305,11 @@ The endpoint audits with a distinguishable actor (`push-action`) through the sam
    text), so they ride the existing `TMUXRC_QSDEBUG` content gate in telemetry —
    the decision *fields* (kind, pane, suppression reason) export always; the prose
    only when content export is already enabled. Live with it for a day or two and
-   read the log against what you'd actually have wanted buzzing your pocket — this is the only honest way to
-   calibrate the fuzzy bucket, and it's free. The prompt change ships with eval
-   cases: milestone-positive and milestone-negative samples in the existing
-   prompt-eval corpus (`research/eval/samples/`), and a full eval run green — that's
-   a requirement of this step, not a someday-before-step-4.
+   read the log against what you'd actually have wanted buzzing your pocket — this is
+   the only honest way to calibrate the fuzzy bucket, and it's free. The prompt
+   change ships with eval cases: milestone-positive and milestone-negative samples
+   in the existing prompt-eval corpus (`research/eval/samples/`), and a full eval
+   run green — that's a requirement of this step, not a someday-before-step-4.
 2. **Blocking pushes.** Real SW, subscribe endpoint, VAPID sender, presence +
    fingerprint + settle suppression. If only this ships, most of the value is
    captured: "an agent is waiting on *you*" is the high-signal, low-noise case.
@@ -315,9 +321,11 @@ The endpoint audits with a distinguishable actor (`push-action`) through the sam
 
 - **iOS Web Push is the fragile leg.** Permission is only grantable inside the
   installed PWA from a user gesture; the subscription silently dies if the user
-  removes/reinstalls the app icon; SW registration behind IAP can fail in obscure
-  ways. Time-box it: if step 2 fights for more than a day, switch the sender to the
-  ntfy/Pushover fallback and revisit. Steps 1's decision layer carries over
+  removes/reinstalls the app icon; SW registration behind an authenticating front end
+  can fail in obscure ways (the manifest already needs `use-credentials` for exactly
+  this reason, and each tunnel in [Deploying](../../deploy/) gets there differently).
+  Time-box it: if step 2 fights for more than a day, switch the sender to the
+  ntfy/Pushover fallback and revisit. Step 1's decision layer carries over
   unchanged either way.
 - **Calibration is the whole game.** Step 1 exists so the milestone bucket is tuned
   on real data, not vibes. Don't skip it.
