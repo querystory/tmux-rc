@@ -32,7 +32,7 @@ not help — `*.trycloudflare.com` names and Certificate Transparency logs for y
 domain are both crawled continuously, and an unauthenticated hit is all it takes.
 
 The tunnel is not the security boundary. **Cloudflare Access is.** Everything below
-exists to put Access in front of the tunnel, and the [verification](#5-verify-that-auth-actually-works)
+exists to put Access in front of the tunnel, and the [verification](#7-verify-that-auth-actually-works)
 section exists so you can prove it is really there before you trust it.
 
 > **Quick tunnels (`--url`, `*.trycloudflare.com`) cannot be protected by Access.**
@@ -73,7 +73,7 @@ cloudflared --version
 
 Whatever you do, **install to a real path** — `/usr/local/bin` or `~/.local/bin`, never
 `/tmp`, which a reboot erases. That failure has already bitten this project once, which
-is why `tunnel.env.example` calls it out.
+is why `deploy/systemd/tmux-rc-tunnel.service` calls it out.
 
 ## 2. Authenticate cloudflared to your zone
 
@@ -180,7 +180,7 @@ what the slot is for, it survives `git pull`, and there is nothing to reconcile:
 mkdir -p ~/.local/bin ~/.config/tmux-rc
 cat > ~/.local/bin/tunnel-client <<'EOF'
 #!/bin/sh
-exec /usr/local/bin/cloudflared --no-autoupdate \
+exec "$(command -v cloudflared)" --no-autoupdate \
   tunnel --config "$HOME/.cloudflared/tmux-rc.yml" run
 EOF
 chmod +x ~/.local/bin/tunnel-client
@@ -213,7 +213,9 @@ If you would rather not have a wrapper script, override `ExecStart` with a drop-
 ```ini
 [Service]
 ExecStart=
-ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel --config %h/.cloudflared/tmux-rc.yml run
+# The .deb installs to /usr/bin, the static binary usually to /usr/local/bin —
+# `command -v cloudflared` to check yours, and set the absolute path here.
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --config %h/.cloudflared/tmux-rc.yml run
 ```
 
 The empty `ExecStart=` is required — without it systemd appends a second command instead
@@ -353,9 +355,13 @@ Test the dangerous endpoint by name, not just a read-only one:
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' \
-  -X POST https://tmux.example.com/api/panes/%1/send \
-  -H 'content-type: application/json' -d '{"text":"echo access-check"}'
+  -X POST https://tmux.example.com/api/panes/%251/send \
+  -H 'content-type: application/json' -d '{"keys":"echo access-check"}'
 ```
+
+(`%251` is the pane id `%1` URL-encoded — a literal `%` in a path confuses many
+clients and proxies. Use a pane id that exists on your machine; `tmux list-panes -a`
+prints them.)
 
 A 302/401/403 is correct. A 200 means an unauthenticated stranger just ran a command on
 your machine — and you should tear the DNS record down before debugging.
