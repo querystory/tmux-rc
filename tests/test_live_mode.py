@@ -280,7 +280,7 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     folded = {}
     monkeypatch.setattr(llm, "record_live_usage", lambda **k: folded.update(k))
-    m = L._Meter("sess-abc", "shapor@querystory.ai")
+    m = L._Meter("sess-abc", "user@example.com")
     m.usage.add(_Usage(prompt=200, resp=80, audio_in=150, audio_out=60))
     m.note("user: what's running")
     m.end_turn()
