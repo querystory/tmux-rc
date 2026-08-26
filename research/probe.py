@@ -11,7 +11,7 @@ Usage (from repo root, venv active, GOOGLE_CLOUD_PROJECT set):
 
 Model head-to-head (text-only, matching the daemon hot path) over a saved sample's
 already-assembled pane text — the same `_parse` call, just parameterized on model id and
-repeated for a median. Used by research/bench-*.md. `SAMPLE` is either a research/samples
+repeated for a median. Used by docs/benchmarks/. `SAMPLE` is either a research/samples
 `.txt` or a JSON with a top-level "pane_text" (an OTel-captured payload):
     python -m research.probe --sample SAMPLE --models gemini-3.1-flash-lite,gemini-3.5-flash-lite --repeat 3
 """
@@ -93,7 +93,7 @@ def _load_sample_text(path: Path) -> str:
     try:
         raw = path.read_text(encoding="utf-8")  # pane captures carry non-ASCII (❯, box chars, ⟪…⟫)
     except OSError as e:
-        sys.exit(f"can't read sample {path}: {e.strerror}")
+        sys.exit(f"can't read sample {path}: {e}")
     if path.suffix != ".json":
         return raw
     try:
