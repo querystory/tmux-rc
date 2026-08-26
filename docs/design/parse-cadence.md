@@ -111,3 +111,49 @@ space for the followup:
 The rate-cap is the likely MVP; the other two are refinements. Tracked as issue #46
 (followup to #44). Until then, a log-tailing pane parses on every change — correct, if
 not cheap, and bounded by how fast the pane actually changes.
+
+## The full call inventory
+
+The classify pass dominates the bill, but "when do we call the LLM" is a fleet-wide
+question, and answering it per-call in review threads (#128's 300s cadence being the
+latest) keeps re-deriving the same context. This is the complete inventory — every
+model call the daemon makes, what triggers it, and what bounds it.
+
+| Call | Model | Trigger | Bound | Typical size |
+|---|---|---|---|---|
+| Live parse (classify) | `gemini-3.1-flash-lite` | Content fingerprint changed, checked each 1.5s tick. No heartbeat. | One per pane per tick, worst case (log tail, above) | ~2.9k tok in / ~220 out, ~1.5s |
+| Bootstrap deep read | same | Pane first seen: reconstruct "story so far" from 800 lines of scrollback | Once per pane per daemon run; one pane per tick; ≤3 attempts, 60s apart | ~10-20k tok in |
+| Summary refresh (#128) | same | New events since last deep read **and** ≥300s since | One pane per tick (shares the bootstrap slot) | same as bootstrap |
+| Idle-burst summary | same | Pane idle ≥60s with an accumulated event burst | Once per work→idle transition (cached; new activity invalidates) | ≤60 event lines in / one sentence out |
+| Live Mode session | `gemini-live-2.5-flash-native-audio` | User opens a voice session | Session exists only while the user holds it | Connect snapshot (screen text budgeted fleet-wide, #123) + streaming audio + ambient updates |
+
+Within a live session, ambient `[tmux update]`s ride the open session on every real
+`state_version` advance, coalesced over 2.5s and carrying only the active pane's screen
+— they add context without firing a model turn, so their cost is input tokens, not
+round-trips. Every Vertex call above sits behind one shared 429 backoff: when the
+provider says stop, everything stops, and nothing burns retry budget.
+
+## Strategy: what earns a call
+
+The inventory is four variations on one rule — **pay only at information-gain moments,
+at the freshness the consumer actually needs**:
+
+- **Things the user acts on** (headline, activity, pending question) refresh on every
+  content change. This is the hot path; its latency is the phone's perceived
+  responsiveness, which is why it stays on the smallest capable model and why nothing
+  else is allowed to fatten it.
+- **Narrative context** (session summary) tolerates lag — a story-so-far that's minutes
+  behind reads the same as a current one. It refreshes on a cadence gated by new
+  events, not on change, because on a busy pane "changed" is true every tick and a
+  change-triggered deep read would multiply the fleet's dominant cost by the scrollback
+  size.
+- **Recaps** (idle burst) fire exactly once, at the transition that makes them useful.
+- **Live Mode** spends nothing until a human is actually listening.
+
+The known imperfection in that rule: a fixed cadence spends summary refreshes mid-grind
+and can be ~5 minutes stale at the moment that matters — when a pane *transitions* to
+waiting/idle and the user glances at it to catch up. The better trigger is probably the
+transition itself (the same moment the idle-burst summary already fires), with the
+cadence kept as a floor for long grinds. Deliberately not in #128 — it's a trigger
+redesign, not a staleness bugfix — but it's the natural next step if 300s-stale
+summaries bother anyone in practice.

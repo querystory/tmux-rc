@@ -2,6 +2,8 @@
 name = "tmux-rc"
 version = "0.1.0"
 description = "Vendor-agnostic phone control plane for terminal AI agents running in tmux"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

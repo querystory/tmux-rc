@@ -725,6 +725,7 @@ function syncBadgeTick() {
 document.addEventListener("visibilitychange", syncBadgeTick);
 window.addEventListener("pageshow", syncBadgeTick); // bfcache restore may skip visibilitychange
 
+let _pollFails = 0;        // consecutive non-OK polls — blips get grace, outages get the notice
 let _stateVersion = null;  // last deck version the server gave us — sent back to long-poll;
                            // null until the first reply so cold load asks for state outright
 let _booted = false;       // server has completed its first tick — an empty deck is only
@@ -746,6 +747,28 @@ async function poll() {
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
     // misattribute to a stale app.js. Report the real condition instead.
     if (!r.ok) {
+      // Recovery must paint IMMEDIATELY: with _stateVersion still set, the first poll
+      // after the backend returns matches its `?v=` and gets held (~25s) if the deck
+      // didn't change — leaving the reconnecting dot/notice up long after the outage
+      // ended. Null it so the next poll is "give me current state now" (same move as
+      // onResume), at the cost of one unheld response per outage.
+      _stateVersion = null;
+      // The relay's routine reconnects (hourly connection cap; ~1s relay deploys)
+      // surface HERE — as a short burst of 502s, not as fetch errors, because the
+      // relay itself answers while the tunnel re-registers. showNotice() hides the
+      // whole deck, so reacting on the FIRST bad poll flashes "backend down" at the
+      // user several times a day for a non-event. The first two failures get the
+      // same soft treatment as a network blip (pulsing dot, deck stays); only a
+      // failure that PERSISTS earns the notice — with the 1s backoff below, a real
+      // outage still surfaces within ~3 seconds.
+      if (++_pollFails < 3) {
+        liveEl.className = "dot off rc";
+        liveEl.title = "reconnecting…";
+        // Unlike the notice path below, this return never reads the body — cancel it
+        // so the keep-alive connection is reusable instead of parked on unread bytes.
+        try { await r.body?.cancel(); } catch { /* locked/absent body — nothing to release */ }
+        return false; // back off — success resets the counter
+      }
       const body = (await r.text()).trim().slice(0, 200);
       liveEl.className = "dot off";
       liveEl.title = "backend unavailable";
@@ -759,6 +782,7 @@ async function poll() {
         + (hint ? ` — ${hint}` : ""));
       return false;  // back off — without a gap pollLoop would re-request instantly and hammer
     }
+    _pollFails = 0; // an OK response ends the outage-candidate streak
     const data = await r.json();
     // Applied unconditionally, even mid-gesture: a render only writes text onto nodes the
     // gesture is animating, so there is no reason to drop a response (and dropping one
@@ -1387,6 +1411,77 @@ const filtersEl = document.getElementById("filters"); // pane filters, homed in 
 // One dock icon, built once per pane. The handler closes over the pane_id STRING
 // (never over `s`), so it stays correct for the life of the node no matter how many
 // polls rewrite the icon around it.
+// ---- Launcher menu: a new agent window in a session, from the dock's "+"/"+N" ----
+// Entries come from the daemon (GET /api/launchers) so the label→command mapping stays
+// server-side: the phone posts back only the label, never a command string. Fetched
+// once — the config is env-set, so it can't change under a running page.
+let launchers = [];
+fetch("/api/launchers")
+  .then((r) => r.json())
+  .then((d) => { launchers = d.launchers || []; })
+  .catch(() => {});
+let launchMenuEl = null;
+function closeLaunchMenu() {
+  if (!launchMenuEl) return;
+  launchMenuEl.remove();
+  launchMenuEl = null;
+  document.removeEventListener("pointerdown", launchMenuAway, true);
+}
+function launchMenuAway(e) {
+  if (!launchMenuEl.contains(e.target)) closeLaunchMenu();
+}
+function openLaunchMenu(sess, anchor) {
+  closeLaunchMenu();
+  if (!launchers.length) return; // fetch failed or config empty — nothing to offer
+  const m = document.createElement("div");
+  m.className = "launch-menu";
+  m.setAttribute("role", "menu");
+  // Name the target session. The "+" lives in a per-session tray, but the trays look
+  // alike on a crowded dock — without this the only way to know where a new window
+  // lands is to launch one and see where you end up (observed: a Claude window created
+  // in the wrong session, and the phone following it there).
+  const head = document.createElement("div");
+  head.className = "launch-head";
+  // A menu's children must be menuitem/separator/group per ARIA — mark the header
+  // as presentation so AT reads a clean menu; the target session is announced via
+  // the opening control's aria-label instead.
+  head.setAttribute("role", "presentation");
+  setText(head, `New window in ${sess || "this session"}`);
+  m.appendChild(head);
+  for (const l of launchers) {
+    const b = document.createElement("button");
+    b.setAttribute("role", "menuitem");
+    const im = document.createElement("img");
+    im.width = im.height = 18;
+    // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
+    // config entry can ship its own glyph without the app changing.
+    setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
+    setAttr(im, "alt", "");
+    b.append(im, document.createTextNode(l.label));
+    b.onclick = () => {
+      closeLaunchMenu();
+      fetch("/api/windows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sess, launcher: l.label }),
+      })
+        .then((r) => r.json())
+        // Jump to the new window's card: the pane exists in tmux the moment the POST
+        // returns, so setActive's select lands; the card fills in on the next poll.
+        .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
+        .catch(() => {});
+    };
+    m.appendChild(b);
+  }
+  document.body.appendChild(m);
+  // Under the anchor, clamped into the viewport (a tray's "+" can sit at the right edge).
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8)) + "px";
+  m.style.top = r.bottom + 6 + "px";
+  launchMenuEl = m;
+  document.addEventListener("pointerdown", launchMenuAway, true);
+}
+
 function buildDockIcon(paneId) {
   const b = document.createElement("button");
   b.className = "dock-icon";
@@ -1529,13 +1624,36 @@ function dock(states, act) {
   // A <button> among the tray's icon <button>s, so it can't disturb the group hue cycling
   // (.dock-group:nth-of-type counts <span>s) nor the strip's height (same 36px box as an
   // icon — the join's geometry contract requires the tray add zero height).
-  const FOLD_KEY = "__fold", UNFOLD_KEY = "__unfold";
+  const FOLD_KEY = "__fold", UNFOLD_KEY = "__unfold", LAUNCH_KEY = "__launch";
   const buildFold = (sess, key) => {
     const c = document.createElement("button");
+    if (key === LAUNCH_KEY) {
+      // Bare "+": no parked panes are hiding behind it, so a plain tap goes straight
+      // to the launcher menu — no long-press gymnastics for the common case.
+      c.className = "dock-fold plus";
+      c.setAttribute("aria-haspopup", "menu");
+      c.onclick = () => openLaunchMenu(sess, c);
+      return c;
+    }
     c.className = "dock-fold" + (key === UNFOLD_KEY ? " open" : "");
+    let lpFired = false;
+    if (key === FOLD_KEY) {
+      // "+N" already means "show parked" on tap, so the launcher hides behind a
+      // long-press. pointerdown starts the clock; any release/exit before it fires is
+      // a tap. The fired flag swallows the click that follows a completed long-press.
+      c.setAttribute("aria-haspopup", "menu");
+      let t = 0;
+      c.onpointerdown = () => {
+        lpFired = false;
+        t = setTimeout(() => { lpFired = true; openLaunchMenu(sess, c); }, 500);
+      };
+      c.onpointerup = c.onpointerleave = c.onpointercancel = () => clearTimeout(t);
+      c.oncontextmenu = (e) => e.preventDefault(); // iOS long-press callout
+    }
     // No captureIconRects() to prime a list FLIP: folding is a DOCK-only concern — the
     // list's rows are identical before and after.
     c.onclick = () => {
+      if (lpFired) { lpFired = false; return; }
       if (key === UNFOLD_KEY) foldOpen.delete(sess); else foldOpen.add(sess);
       render(Object.values(panesById));
     };
@@ -1559,13 +1677,21 @@ function dock(states, act) {
     if (g.parked > 0)
       items.push({ key: FOLD_KEY,
         text: "+" + g.parked,
-        label: `Show ${g.parked} parked pane${g.parked === 1 ? "" : "s"} in ${g.sess || "this session"}`,
+        label: `Show ${g.parked} parked pane${g.parked === 1 ? "" : "s"} in ${g.sess || "this session"} — hold for a new agent window`,
         open: false });
-    else if (g.open && wouldFold(g.sess))
-      items.push({ key: UNFOLD_KEY,
-        text: "‹",
-        label: `Hide parked panes in ${g.sess || "this session"}`,
-        open: true });
+    else {
+      // Nothing parked (or the tray is expanded): the slot the "+N" chip would occupy
+      // becomes a bare "+" that opens the launcher directly — no long-press needed
+      // when there's no fold action to disambiguate from.
+      if (g.open && wouldFold(g.sess))
+        items.push({ key: UNFOLD_KEY,
+          text: "‹",
+          label: `Hide parked panes in ${g.sess || "this session"}`,
+          open: true });
+      items.push({ key: LAUNCH_KEY,
+        text: "+",
+        label: `New agent window in ${g.sess || "this session"}` });
+    }
     keyedList(sp, items, (it) => it.key,
       (it) => (it.pane ? buildDockIcon(it.pane.pane_id) : buildFold(g.sess, it.key)),
       (node, it) => {
@@ -1573,7 +1699,7 @@ function dock(states, act) {
         setText(node, it.text);
         setAttr(node, "title", it.label);
         setAttr(node, "aria-label", it.label);
-        setAttr(node, "aria-expanded", String(it.open));
+        if (it.open !== undefined) setAttr(node, "aria-expanded", String(it.open));
       });
   });
   // Tray chrome (rails + labels + the padding that hosts them) only when the deck
@@ -1626,8 +1752,12 @@ function dock(states, act) {
     if (!sel.isConnected) return;
     const i = sel.getBoundingClientRect(), c = el.getBoundingClientRect();
     if (i.left < c.left || i.right > c.right)
-      sel.scrollIntoView({
-        inline: "center", block: "nearest",
+      // Nudge ONLY the strip's own scrollLeft to center the icon. scrollIntoView walks up
+      // and scrolls EVERY scrollable ancestor — since the strip now scrolls inside a pinned
+      // ribbon, it dragged the ribbon/page sideways too, so a swipe left the whole strip
+      // offset (and never came back). Centering `el` by hand can't move any ancestor.
+      el.scrollBy({
+        left: (i.left + i.right) / 2 - (c.left + c.right) / 2,
         // Respect reduced-motion: jump instead of glide.
         behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
@@ -2339,7 +2469,7 @@ function applyLinks(box, links) {
 // Put text on the clipboard, resolving true/false so the caller can show the outcome
 // (a silent no-op reads as "the button is broken"). navigator.clipboard needs a secure
 // context: the PWA is served over HTTPS through the tunnel, but a plain-HTTP LAN visit
-// (http://host:8080) has no Clipboard API at all — fall back to the legacy
+// (http://host:18030) has no Clipboard API at all — fall back to the legacy
 // execCommand path so copy still works there.
 async function copyText(text) {
   try {

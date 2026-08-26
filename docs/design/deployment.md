@@ -1,6 +1,6 @@
 # Deployment: always-on tmux-rc
 
-Status: **proposed**. Companion to [durable-vertex-auth.md](durable-vertex-auth.md) (which
+Status: **implemented** (`deploy/systemd/`, `make install-units`). Companion to [durable-vertex-auth.md](durable-vertex-auth.md) (which
 closed the credential half of "runs unattended"); this closes the process half.
 
 ## Problem
@@ -56,11 +56,12 @@ itself. Two latent bugs block this today and are prerequisites:
 2. **Binaries in `/tmp`.** The tunnel-client currently runs from `/tmp/tunnel-client`,
    erased on reboot. Anything a unit starts must live in a real path (`~/.local/bin`).
 3. **Bind localhost.** The API is unauthenticated and `/send` injects keystrokes into
-   terminals; today it binds `0.0.0.0:8080`. Tolerable for a process someone is actively
+   terminals; it used to bind `0.0.0.0:8080`. Tolerable for a process someone is actively
    watching; unacceptable as a 24/7 LAN-reachable endpoint. The phone now reaches the
-   daemon exclusively through the IAP-authenticated tunnel — whose client connects to
-   `localhost:8080` — so always-on operation must flip the default bind to `127.0.0.1`
-   (LAN exposure becomes an explicit opt-in, not a side effect).
+   daemon exclusively through the IAP-authenticated tunnel — whose client connects
+   locally — so the default is now `127.0.0.1:18030` (LAN exposure is an explicit opt-in
+   via `TMUXRC_HOST`, not a side effect). The port moved off 8080 in the same change:
+   it collides with everything on a dev box, and 1803X is this project's block.
 
 ## Deployment shape
 
@@ -138,15 +139,15 @@ Why this shape:
 
 ### The tunnel-client half
 
-The client binary is built from `qsi-automation/tunnel` but *deployed here*, on the
+The client binary is built from a separate private repo but *deployed here*, on the
 workstation. Division of responsibility:
 
 - **This repo** owns the unit file and documents the install path
   (`~/.local/bin/tunnel-client`) and flags (`--slug`, `--port`, `--owner`).
-- **qsi-automation** owns the relay (Cloud Run) and the client's code, including two
-  relay/client-side improvements: forwarding the IAP identity for the audit log (its
-  PR #525, merged on the `feat/tunnel-relay` train), and optionally make-before-break
-  reconnects to hide the hourly Cloud Run WS timeout (today: a ~2s blip per hour, which
+- **The tunnel repo** owns the relay (Cloud Run) and the client's code, including two
+  relay/client-side improvements: forwarding the IAP identity for the audit log (already
+  merged there), and optionally make-before-break reconnects to hide the hourly Cloud Run
+  WS timeout (today: a ~2s blip per hour, which
   the UI can dampen client-side by tolerating a couple of failed polls before declaring
   the backend down).
 - **Ordering between the two units: none required.** The client retries its dial with
@@ -159,7 +160,7 @@ The third process solves itself: the daemon can already emit to the durable Clou
 receiver (the current live process does, via shell env overriding the `.env`, which
 still names the local receiver — the unit should bake the Cloud Run endpoint in). The local bench
 receiver (and its SA key) should be shut down once the per-source prefix routing lands
-in qsi-automation — no unit needed for a process that shouldn't exist.
+in the tunnel repo — no unit needed for a process that shouldn't exist.
 
 ## Failure modes after this change
 
@@ -176,7 +177,7 @@ in qsi-automation — no unit needed for a process that shouldn't exist.
 1. Fix `server_uid()` caching (cache success only; re-derive on tmux server pid change).
 2. Flip the default bind to `127.0.0.1` (prerequisite 3) and set it in the unit's env;
    LAN exposure becomes explicit opt-in.
-3. Install the tunnel-client binary to `~/.local/bin` (built from qsi-automation).
+3. Install the tunnel-client binary to `~/.local/bin` (built from the tunnel repo).
 4. Add `deploy/systemd/tmux-rc.service`, `tmux-rc-tunnel.service`, `tmux-rc.target` to
    this repo + a short `make install-units` (copy to `~/.config/systemd/user/`,
    `daemon-reload`, `enable --now`, `loginctl enable-linger`).

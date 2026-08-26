@@ -10,9 +10,11 @@ API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *termi
 so it's vendor-agnostic on both axes — any agent, any model provider for the
 summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
-> **Status: proof of concept.** Milestone 1 (single pane) works end to end:
-> watch → classify → phone card → detect a waiting prompt → tap → answer round-trips
-> into the pane. Milestone 2 (all panes) and the non-goals in the PRD are next.
+> **Status: proof of concept.** The all-pane watch/control slice works end to end,
+> across every pane on the tmux server: watch → classify → phone card → detect a
+> waiting prompt → tap → answer round-trips into the pane. Remaining PRD milestone-2
+> items (floating waiting panes to the top) are next; the PRD's non-goals stay out of
+> scope.
 
 ## Run
 
@@ -36,9 +38,50 @@ tmux new -s work
 uv run python -m daemon.server
 ```
 
-Open `http://<machine-lan-ip>:8080` on your phone and add it to your home screen.
-For access off your LAN, front it with a tunnel you control (e.g. `cloudflared`,
-`tailscale`) — the PoC has **no auth**, so never expose it on an untrusted network.
+> **The daemon has no authentication, so run it only on a single-user machine.** There is
+> no login, no API key, no token — any client that can reach the port can call the API, and
+> `POST /api/panes/{id}/send` types into a real terminal. It binds `127.0.0.1:18030`, but
+> a loopback bind is not a permission check: anyone who can reach that port can control
+> your terminal, which on a shared host means every other account on it.
+
+To browse it from a phone on the same network, set `TMUXRC_HOST=0.0.0.0` and open
+`http://<machine-lan-ip>:18030` — that hands the same control to everyone on the LAN, so
+only do it on a network you trust. For access from anywhere else, put something
+authenticating in front of it: see [docs/deploy/](docs/deploy/) — Tailscale keeps it off
+the public internet entirely, and there's a step-by-step Cloudflare Tunnel + Access
+runbook if you need a public hostname.
+
+### Run it as a service
+
+Long term you don't want the daemon living in a terminal that might close — it should
+survive reboots and restart itself if it dies. `systemd --user` units for the daemon and
+the tunnel client ship in [`deploy/systemd/`](deploy/systemd/):
+
+```bash
+make install-units                        # copy units, enable + start them, enable-linger
+journalctl --user -fu tmux-rc             # daemon logs (replaces watching a pane)
+systemctl --user restart tmux-rc          # after a git pull or a .env change
+systemctl --user restart tmux-rc.target   # both halves (daemon + tunnel)
+```
+
+`make install-units` stamps the unit's `WorkingDirectory` with the checkout you run it
+from, so it works wherever you cloned. On a host with an encrypted `$HOME`, install with
+`make install-units LINGER=0`: lingering units would crash-loop before you log in.
+
+**Exposing it off-LAN** is optional and yours to choose — this repo doesn't ship a tunnel.
+`tmux-rc-tunnel.service` is a slot for whichever reverse-tunnel client you use
+(cloudflared, tailscale funnel, frp, something in-house): point its `ExecStart` at the
+binary, put the client's config in `~/.config/tmux-rc/tunnel.env` (see
+[`deploy/tunnel.env.example`](deploy/tunnel.env.example)), then
+`systemctl --user start tmux-rc-tunnel`. The unit stays inactive until that file exists,
+so you can ignore it entirely on a LAN-only setup. Whatever you pick should
+**authenticate** — the daemon itself has no auth.
+
+The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
+upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit
+and run `make dev` in a pane as usual; the two modes share the same command and config.
+See [docs/design/deployment.md](docs/design/deployment.md) for why user units + linger
+(and not containers, system units, or a supervising parent).
 
 ### Run without cloning
 
@@ -92,16 +135,32 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | first pane | pane id (`%3`) or `session:window` to watch |
-| `TMUXRC_HOST` / `TMUXRC_PORT` | `0.0.0.0` / `8080` | HTTP bind |
+| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane: a pane id (`%3`) or its tmux-derived label — named window, else session, else cwd basename (`label` / `label.N`); UI titles may differ |
+| `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |
 
+### What it costs
+
+Measured, not estimated — from a month of per-call telemetry on a real fleet (45 panes
+across 3 hosts, agents running most of the day), at Gemini 3.1 Flash Lite list prices
+($0.25/M input, $1.50/M output):
+
+- **~$5/day for the whole fleet** (~$33/week). A classify call is ~10.5k tokens in /
+  ~200 out (≈$0.003); calls fire only when a pane's content actually changes, so cost
+  scales with how busy your agents are, not with pane count — idle panes are free.
+- Voice (Live Mode) is billed per session and has been immaterial next to the
+  classifier (a few dollars per month of daily use).
+- A lightly used single-pane setup runs pennies per day. `GET /api/state` reports
+  running totals, and the OTLP telemetry (above) records per-call tokens/cost if you
+  want the real queryable ledger.
+
 ## API
 
-The daemon serves the phone's PWA and a small HTTP API on `:8080` — usable by anything
+The daemon serves the phone's PWA and a small HTTP API on `:18030` — usable by anything
 (curl, scripts, agents), not just the phone:
 
 | Endpoint | What it gives you |
@@ -120,3 +179,7 @@ The daemon serves the phone's PWA and a small HTTP API on `:8080` — usable by 
 - **`watcher.py`** — polls every 1.5s, tracks idle time, keeps a snapshot ring buffer.
 - **`server.py`** — FastAPI: `/api/state`, snapshot endpoints, `/api/panes/{id}/send`.
 - **`web/`** — installable vanilla-JS PWA.
+
+## License
+
+[MIT](LICENSE) © QueryStory, Inc.
