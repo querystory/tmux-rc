@@ -261,10 +261,16 @@ def _audit(
     else:
         actor = f"local:{peer}"
     shown = f" keys={keys[:80]!r}" if keys is not None and _AUDIT_KEYS else ""
+    # pane_id is client-controlled on every audited route (it is a URL path segment, so a
+    # "%0A" arrives here as a real newline). An audit line is ONE line, so it is capped and
+    # !r-escaped like every other untrusted field — otherwise a crafted pane id could forge
+    # extra records in the trail. Hardened HERE rather than per-endpoint so the guarantee
+    # covers all of send/select/reorder/paste at once and cannot be forgotten by a new one.
+    safe_pane = repr(pane_id[:80])
     _audit_log.info(
         "AUDIT %s pane=%s by %s%s%s%s",
         action,
-        pane_id,
+        safe_pane,
         actor,
         f" {detail}" if detail else "",
         shown,
@@ -275,7 +281,9 @@ def _audit(
 
         telemetry.emit_action(
             action=action,
-            pane_uid=f"{tmux.server_uid()}:{pane_id}",
+            # Capped for the same reason as the log line above: an unbounded client string
+            # must not ride into telemetry as a uid.
+            pane_uid=f"{tmux.server_uid()}:{pane_id[:80]}",
             actor=actor[:200],
             detail=detail or None,
             keys=keys if _AUDIT_KEYS else None,

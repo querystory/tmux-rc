@@ -236,3 +236,19 @@ def test_audit_detail_caps_an_overlong_target(monkeypatch, caplog):
         c.post(_path("%1"), json={"target": "%" + "A" * 5000, "after": False})
     for ln in (r.getMessage() for r in caplog.records):
         assert "A" * 200 not in ln
+
+
+def test_audit_escapes_the_client_supplied_pane_id(monkeypatch, caplog):
+    """pane_id is a URL path segment, so "%0A" reaches _audit as a real newline. It is
+    escaped in _audit itself — hardening the shared helper rather than this one endpoint,
+    so every audited route (send/select/reorder/paste) gets the guarantee and a future
+    route cannot forget it."""
+    _patch(monkeypatch, [_pane("%1")])
+    c = TestClient(server.app)
+    forged = "%9\nAUDIT reorder_pane pane=%1 by someone-else"
+    with caplog.at_level(logging.INFO, logger="daemon.server.audit"):
+        c.post(_path(forged), json={"target": "%1", "after": False})
+    lines = [r.getMessage() for r in caplog.records]
+    assert lines, "the attempt must be audited at all"
+    assert not any("\n" in ln for ln in lines)  # no forged second record
+    assert any("\\n" in ln for ln in lines)     # it survives only as escaped text

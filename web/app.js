@@ -1838,7 +1838,11 @@ function dragReorder(icon) {
     // HOLD_MS never clears the timer and the icon arms on an already-dead pointer, left
     // mid-drag with no release coming. It also keeps move/up here once the icon
     // translates out from under the finger.
-    icon.setPointerCapture(pid);
+    // Best-effort, like the send-bar's capture below: setPointerCapture throws if the
+    // pointer is already gone or capture is unsupported, and an uncaught throw here
+    // would abort pointerdown and wedge the gesture. Without capture the drag still
+    // works while the finger stays over the icon.
+    try { icon.setPointerCapture(pid); } catch { /* capture is best-effort */ }
     // Arm the reorder after a hold IN PLACE.
     timer = setTimeout(() => {
       held = true;
@@ -1858,7 +1862,7 @@ function dragReorder(icon) {
       // reorder the user never asked for.
       if (Math.hypot(e.clientX - sx, e.clientY - sy) > SLOP) {
         clearTimeout(timer);
-        icon.releasePointerCapture(pid);
+        try { icon.releasePointerCapture(pid); } catch { /* already released */ }
         pid = null;
       }
       return;
