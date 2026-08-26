@@ -1901,10 +1901,38 @@ function dragReorder(icon) {
   });
 }
 
-// POST a reorder, then optimistically re-order the local strip so the drop feels
-// instant; the next /api/state poll reconciles to tmux's authoritative order.
+// Optimistically re-order the local strip so the drop feels instant, then POST it; the
+// next /api/state poll reconciles to tmux's authoritative order.
+//
+// The order of the two halves matters: every guard below decides BOTH that the local
+// shuffle is impossible AND that the server would no-op or reject the same request, so
+// they all run BEFORE the fetch. A same-window drop, or a drop the client's own state
+// can't even represent, therefore costs no request and forges no audit record for an
+// action that never happens.
 function reorderPane(src, target, after) {
-  // Fire-and-forget by design — the optimistic shuffle below is what the user sees, and
+  // Mirror what the SERVER actually does, or the optimistic view lies for a poll: the
+  // move is WINDOW-level (move-window), so every pane sharing src's window travels
+  // together and lands as a contiguous run. Moving the single dragged id would visibly
+  // tear a multi-pane window apart until the poll stitched it back.
+  // "\n" as the delimiter: a tmux session name can contain spaces and colons, so a
+  // printable separator could let two different (session, window) pairs collide into
+  // one key. A newline cannot appear in either field.
+  const key = (s) => `${s.session}\n${s.window_index}`;
+  const s0 = panesById[src], t0 = panesById[target];
+  if (!s0 || !t0) return;               // stale strip: a pane the client no longer knows
+  const srcWin = key(s0), dstWin = key(t0);
+  if (srcWin === dstWin) return;        // same window — the server would no-op this too
+  const ids = Object.keys(panesById);
+  const moving = ids.filter((id) => key(panesById[id]) === srcWin);
+  const rest = ids.filter((id) => key(panesById[id]) !== srcWin);
+  // Anchor on the TARGET WINDOW's run, not the single target pane: drop-before goes ahead
+  // of that window's first pane, drop-after lands past its last.
+  const first = rest.findIndex((id) => key(panesById[id]) === dstWin);
+  if (first < 0) return;
+  let last = first;
+  while (last + 1 < rest.length && key(panesById[rest[last + 1]]) === dstWin) last++;
+  rest.splice(after ? last + 1 : first, 0, ...moving);
+  // Fire-and-forget by design — the optimistic shuffle above is what the user sees, and
   // the next poll reconciles to tmux either way (a rejected move simply snaps back). But
   // a failure must not be SILENT: report it like every other mutation, so a reorder that
   // never lands is queryable in telemetry instead of looking like a flaky finger. A
@@ -1916,28 +1944,6 @@ function reorderPane(src, target, after) {
   }).then((r) => {
     if (!r.ok) reportError("reorder", { name: "http " + r.status, message: `${src}→${target}` });
   }).catch((e) => reportError("reorder", e));
-  // Mirror what the SERVER actually does, or the optimistic view lies for a poll: the
-  // move is WINDOW-level (move-window), so every pane sharing src's window travels
-  // together and lands as a contiguous run. Moving the single dragged id would visibly
-  // tear a multi-pane window apart until the poll stitched it back.
-  // "\n" as the delimiter: a tmux session name can contain spaces and colons, so a
-  // printable separator could let two different (session, window) pairs collide into
-  // one key. A newline cannot appear in either field.
-  const key = (s) => `${s.session}\n${s.window_index}`;
-  const s0 = panesById[src], t0 = panesById[target];
-  if (!s0 || !t0) return;
-  const srcWin = key(s0), dstWin = key(t0);
-  if (srcWin === dstWin) return; // same window — the server no-ops this too
-  const ids = Object.keys(panesById);
-  const moving = ids.filter((id) => key(panesById[id]) === srcWin);
-  const rest = ids.filter((id) => key(panesById[id]) !== srcWin);
-  // Anchor on the TARGET WINDOW's run, not the single target pane: drop-before goes ahead
-  // of that window's first pane, drop-after lands past its last.
-  const first = rest.findIndex((id) => key(panesById[id]) === dstWin);
-  if (first < 0) return;
-  let last = first;
-  while (last + 1 < rest.length && key(panesById[rest[last + 1]]) === dstWin) last++;
-  rest.splice(after ? last + 1 : first, 0, ...moving);
   // render() rebuilds panesById from the states array it's given, so just hand it the
   // states in the new order (= dock/list/swipe order) — no separate panesById rebuild.
   render(rest.map((id) => panesById[id]));
