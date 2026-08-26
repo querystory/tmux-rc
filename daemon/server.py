@@ -635,17 +635,19 @@ def reorder(pane_id: str, body: ReorderBody, request: Request):
     # in the trail — the audit log is a security surface, so untrusted text never reaches
     # it raw. `after` is a bool, parsed by pydantic, so it needs no such treatment.
     detail = f"target={body.target[:80]!r} after={body.after}"
-    if tmux.find_pane(pane_id) is None:
-        _audit(request, "reorder_pane", pane_id, detail, outcome="rejected: pane not found")
-        raise HTTPException(404, "pane not found")
+    # NO preflight find_pane here, deliberately. reorder_pane already resolves both panes
+    # and raises "source pane not found", which maps to the same 404 below — a preflight
+    # would only add a THIRD list-panes to a gesture-driven endpoint (reorder_pane does
+    # two) for an answer we are about to get anyway. Dropping it also removes the race the
+    # old guard had to reason about: with one lookup there is no window in which the pane
+    # can vanish between the check and the move.
     try:
         tmux.reorder_pane(pane_id, body.target, body.after)
     except RuntimeError as e:
         # A rejectable request — audited as rejected (probing shows in the trail), not a
-        # 500 crash. Keep the SOURCE-missing case a 404 even if it's raised inside
-        # reorder_pane: the source can vanish (pane closed) between the guard above and
-        # reorder_pane's own lookup — a race, not a bad request — so its status must match
-        # the guard's 404. Everything else (cross-session, missing target) is a 400.
+        # 500 crash. A missing SOURCE is a 404 (the pane in the URL does not exist);
+        # everything else (cross-session, missing target) is a 400, since those are the
+        # client's body talking about panes that do exist.
         status = 404 if str(e) == "source pane not found" else 400
         _audit(request, "reorder_pane", pane_id, detail, outcome=f"rejected: {e}")
         raise HTTPException(status, str(e)) from None

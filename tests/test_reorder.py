@@ -160,27 +160,38 @@ def test_endpoint_cross_session_is_400(monkeypatch):
     assert r.status_code == 400 and "session" in r.json()["detail"]
 
 
-def test_endpoint_source_vanishes_mid_call_is_404(monkeypatch):
-    # Race: the source pane exists at the endpoint's guard but is gone by the time
-    # reorder_pane does its own lookup (pane closed). That's a 404 (matching the guard),
-    # not a 400 — a vanished source is not a bad request.
-    calls = []
-    seen = {"n": 0}
+def test_endpoint_resolves_the_source_exactly_once(monkeypatch):
+    """The endpoint has NO preflight find_pane: reorder_pane resolves both panes itself,
+    so a reorder costs two lookups, not three, on a gesture-driven path. Resolving the
+    source once also means there is no window in which it can vanish between a check and
+    the move — the race an earlier preflight version had to reason about cannot arise."""
+    looked = []
 
     def find(t):
-        if t == "%2":
-            return _pane("%2", window_index="1")
-        seen["n"] += 1
-        return _pane("%1") if seen["n"] == 1 else None  # present at guard, gone after
+        looked.append(t)
+        return {"%1": _pane("%1", window_index="0"),
+                "%2": _pane("%2", window_index="1")}.get(t)
 
     monkeypatch.setattr(tmux, "find_pane", find)
+    monkeypatch.setattr(tmux, "_run", lambda args: "")
+    c = TestClient(server.app)
+    r = c.post(_path("%1"), json={"target": "%2", "after": False})
+    assert r.status_code == 200
+    assert looked == ["%1", "%2"]  # one lookup each, no preflight
+
+
+def test_endpoint_missing_source_is_404_without_a_move(monkeypatch):
+    """A source that does not exist is a 404 and never reaches move-window — the same
+    contract the old preflight guard provided, now served by reorder_pane's own lookup."""
+    calls = []
+    monkeypatch.setattr(tmux, "find_pane",
+                        lambda t: _pane("%2", window_index="1") if t == "%2" else None)
     monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or "")
     c = TestClient(server.app)
     r = c.post(_path("%1"), json={"target": "%2", "after": False})
-    # No MOVE was issued. Not `calls == []`: going through the endpoint also runs the
-    # audit path, which reads the tmux server pid (`display-message -p #{pid}`) for the
-    # telemetry uid. That call is unrelated to the reorder — what matters here is that a
-    # vanished source never reached move-window.
+    # Not `calls == []`: the audit path also reads the tmux server pid
+    # (`display-message -p #{pid}`) for the telemetry uid, which is unrelated to the
+    # reorder. What matters is that a missing source never reached move-window.
     assert r.status_code == 404
     assert [c for c in calls if c[0] == "move-window"] == []
 
