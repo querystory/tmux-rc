@@ -1779,9 +1779,13 @@ function dock(states, act) {
 // touch-action:none is what actually stops the strip from panning during the drag (a
 // stationary finger at arm time means no scroll is underway yet). Once held, the icon
 // follows the finger and the drop target is whichever icon the pointer is over.
-const HOLD_MS = 350, SLOP = 8; // hold to arm; movement over SLOP before it cancels
+// Hold to arm; movement further than SLOP px (in ANY direction) before the timer fires
+// cancels the arm and leaves the gesture as a native scroll or tap.
+const HOLD_MS = 350, SLOP = 8;
 function dragReorder(icon) {
-  let held = false, timer = 0, sx = 0, dragging = false, pid = null;
+  // sy is for the arm-cancel slop only; the drag itself translates on X alone (the dock
+  // is a horizontal strip), so sx doubles as the translation origin and sy does not.
+  let held = false, timer = 0, sx = 0, sy = 0, dragging = false, pid = null;
   const el = dockEl;
   // The long-press belongs to the reorder: without this, mobile browsers pop their
   // native image context menu (Copy/Share image — the icon is an <img>) at ~500ms and
@@ -1828,7 +1832,7 @@ function dragReorder(icon) {
   icon.addEventListener("pointerdown", (e) => {
     if (e.button != null && e.button !== 0) return; // left/touch only
     if (pid != null) return; // a drag/hold from another pointer already owns this icon
-    sx = e.clientX; pid = e.pointerId;
+    sx = e.clientX; sy = e.clientY; pid = e.pointerId;
     // Capture on DOWN (not at arm time) so pointerup/cancel always route back here even
     // when the finger lifts off the icon — otherwise a press-hold-release-off-icon before
     // HOLD_MS never clears the timer and the icon arms on an already-dead pointer, left
@@ -1848,7 +1852,11 @@ function dragReorder(icon) {
       // Moved before the hold armed ⇒ this is a scroll/tap, not a reorder: cancel the
       // arm, release the down-time capture (so the dock scrolls normally), and drop
       // ownership (pid) now — keeps the icon reusable immediately instead of wedged.
-      if (Math.abs(e.clientX - sx) > SLOP) {
+      // BOTH axes: the dock scrolls horizontally but the PAGE scrolls vertically, so a
+      // finger starting a vertical scroll over an icon — or just drifting down during the
+      // 350ms hold — must cancel the arm too. An |dx|-only test let that drift arm a
+      // reorder the user never asked for.
+      if (Math.hypot(e.clientX - sx, e.clientY - sy) > SLOP) {
         clearTimeout(timer);
         icon.releasePointerCapture(pid);
         pid = null;
