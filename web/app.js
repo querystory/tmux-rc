@@ -263,6 +263,9 @@ const LUCIDE = {
   // expandall's mirror (chevrons point inward) — same lines, so the toggle reads as
   // one control changing direction, not two different buttons.
   collapseall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 5 3 3 3-3"/><path d="m15 19 3-3 3 3"/>',
+  // Agent View (a terminal prompt) and Orchestrator View (a dashboard of panels).
+  terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  panels: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -350,10 +353,25 @@ const onSchemeChange = (e) => {
 if (prefersLight.addEventListener) prefersLight.addEventListener("change", onSchemeChange);
 else if (prefersLight.addListener) prefersLight.addListener(onSchemeChange);
 
-// Collapse is a VIEW-WIDE preference, not per-pane: collapse one card (caret ▸) and
-// every pane — including ones you swipe to — shows its one-line header, handing the
-// screen to the live terminal. Expanding anywhere expands them all.
-let cardsCollapsed = false;
+// Two named, view-wide modes (docs/design/agent-orchestrator-views.md). The mode is a
+// POSTURE, not a per-pane property — heads-down on one agent vs. scanning the fleet — so
+// it is view-wide and persisted, and swiping panes keeps it.
+//   'agent'        — terminal-first: the card collapses to its one-line header, the live
+//                    terminal fills the deck, fit-to-width so nothing is cut off, and the
+//                    agent's own input line is kept in view (tuck skipped).
+//   'orchestrator' — the expanded card: summary, pending choices, events, voice.
+// `cardsCollapsed` was the old boolean this replaces; the collapse machinery (applyCard,
+// applyPaneHeader, the caret) is untouched — it just reads isAgentView() now.
+let viewMode = "orchestrator";
+try { if (localStorage.getItem("tmuxrc-view") === "agent") viewMode = "agent"; } catch {}
+const isAgentView = () => viewMode === "agent";
+function setViewMode(mode) {
+  const next = mode === "agent" ? "agent" : "orchestrator";
+  if (next === viewMode) return;
+  viewMode = next;
+  try { localStorage.setItem("tmuxrc-view", next); } catch {}
+  render(Object.values(panesById));
+}
 // NO render-freeze flag here, deliberately. `busy` / `busySend` / `busyGesture` and their
 // 10s watchdog existed because a poll render REPLACED the DOM under a finger or mid-send.
 // Under the render invariant a render only rewrites text/attrs on the very nodes a gesture
@@ -1019,37 +1037,71 @@ function showUsage(u, err) {
 // markup template, the fullscreen overlay's static chrome.
 
 
+// The Agent | Orchestrator segmented control (top ribbon) and its thumb-reachable twin
+// next to the bottom keys bar. Both drive setViewMode. Icons are injected at boot (the
+// buttons ship empty in index.html) so they theme via currentColor — see AGENTS.md.
+const viewToggle = document.getElementById("view-toggle");
+if (viewToggle) {
+  viewToggle.querySelectorAll("button[data-view]").forEach((b) => {
+    b.innerHTML = licon(b.dataset.view === "agent" ? "terminal" : "panels", 15);
+    b.onclick = () => setViewMode(b.dataset.view);
+  });
+}
+const viewToggleBar = document.getElementById("view-toggle-bar");
+// A single toggle down here (not a segmented pair — the input row is tight): it shows the
+// icon of the mode a tap would switch TO, the way the theme button shows the target theme.
+if (viewToggleBar)
+  viewToggleBar.onclick = () => setViewMode(isAgentView() ? "orchestrator" : "agent");
+applyViewToggle(); // seed both controls' icons/pressed state before the first render lands
+
+// Keep both view controls truthful. `viewToggle` (segmented) owns the card-view surface;
+// `expandBtn` (expand/collapse-all) owns list mode — so they swap by which surface is up.
+function applyViewToggle() {
+  if (viewToggle)
+    viewToggle.querySelectorAll("button[data-view]").forEach((b) =>
+      setAttr(b, "aria-pressed", String(b.dataset.view === viewMode)));
+  if (viewToggleBar) {
+    const target = isAgentView() ? "orchestrator" : "agent";
+    const label = "Switch to " + (target === "agent" ? "Agent" : "Orchestrator") + " View";
+    setAttr(viewToggleBar, "title", label);
+    setAttr(viewToggleBar, "aria-label", label);
+    const glyph = target === "agent" ? "terminal" : "panels";
+    if (viewToggleBar.dataset.glyph !== glyph) {
+      viewToggleBar.dataset.glyph = glyph;
+      viewToggleBar.innerHTML = licon(glyph, 18);
+    }
+  }
+}
+
 // The list-mode subset for the current filter — ONE definition, because the ribbon's
 // expand-all control and the list itself must agree on which panes "all" means.
 // The global expand/collapse, living with the OTHER global controls (theme toggle):
-// list mode expands/collapses every listed row; card view collapses/expands the card.
-// One glyph, one meaning — more or less detail for what you're looking at.
+// list mode expands/collapses every listed row; card view uses the segmented view control.
 const expandBtn = document.getElementById("expand-btn");
 if (expandBtn) {
   expandBtn.innerHTML = licon("expandall", 14); // svg child — never setText this button
   expandBtn.dataset.glyph = "expandall"; // applyExpandBtn swaps it with the open state
   expandBtn.onclick = () => {
-    if (listFilter) {
-      const lp = listSubset(Object.values(panesById)) || [];
-      if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
-      else lp.forEach((p) => rowOpen.add(p.pane_id));
-    } else {
-      cardsCollapsed = !cardsCollapsed;
-    }
+    // Card view is owned by the segmented control now; this button only shows in list mode.
+    if (!listFilter) return;
+    const lp = listSubset(Object.values(panesById)) || [];
+    if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
+    else lp.forEach((p) => rowOpen.add(p.pane_id));
     render(Object.values(panesById));
   };
 }
 
-// Called from BOTH render branches (the list branch returns early): keeps the global
-// button's tooltip/state truthful for whichever surface is showing.
+// Called from BOTH render branches: swaps which control is visible (segmented view control
+// in card mode, expand-all in list mode) and keeps each one truthful.
 function applyExpandBtn(states) {
-  if (!expandBtn) return;
-  const open = listFilter
-    ? (listSubset(states) || []).every((p) => rowOpen.has(p.pane_id))
-    : !cardsCollapsed;
-  const what = listFilter ? "all" : "card";
-  setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + what);
-  setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + what);
+  const cardMode = !listFilter;
+  if (viewToggle) setCls(viewToggle, "hid", !cardMode);
+  if (expandBtn) setCls(expandBtn, "hid", cardMode);
+  applyViewToggle();
+  if (!expandBtn || cardMode) return; // card mode: the segmented control owns collapse
+  const open = (listSubset(states) || []).every((p) => rowOpen.has(p.pane_id));
+  setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + "all");
+  setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + "all");
   setAttr(expandBtn, "aria-expanded", String(open));
   // The glyph must tell the same story as the tooltip: inward chevrons while open
   // (tapping collapses), outward while collapsed. Guarded — innerHTML on every
@@ -1177,6 +1229,10 @@ function render(states) {
     bgTerm(a);
     ui.fs._pane = a.pane_id;
     ui.fs._label = a.title || a.label;
+    // Fullscreen (with its Sun-mode toggle) is now an Agent-View affordance — the true
+    // full-bleed, one-finger-selectable terminal. In Orchestrator View the terminal is a
+    // small peek under the card, so the ⤢ has nothing to enlarge; hide it there.
+    setCls(ui.fs, "hid", !isAgentView());
     joinTab(ui.deck);
   }
   applyExpandBtn(states);
@@ -1965,13 +2021,13 @@ function buildCard() {
   const row = document.createElement("div");
   row.className = "row";
   // Shared header (see buildPaneHeader). The card adds the collapse caret and omits the
-  // icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just this
-  // header row (still tab-joined), handing the live terminal the screen; collapse state
-  // is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
+  // icon — its dock tab above IS the icon. The ▾/▸ caret is a second way to cross the same
+  // divide the segmented control names: collapsing the card IS entering Agent View (the
+  // live terminal takes the screen), expanding it is Orchestrator View. View-wide, so
+  // swiping panes keeps the chosen height.
   ui.hdr = buildPaneHeader(row, { caret: true, link: true }, (e) => {
     e.stopPropagation(); // don't also re-select the pane
-    cardsCollapsed = !cardsCollapsed;
-    render(Object.values(panesById));
+    setViewMode(isAgentView() ? "orchestrator" : "agent"); // setViewMode re-renders
   });
   el.appendChild(row);
   // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order
@@ -1990,7 +2046,7 @@ function buildCard() {
 // Point the one card at `s` and write its current state. Subviews that don't apply are
 // hidden AND emptied (keyedList with an empty list removes their children), so the CSS
 // :empty rules keep working and no stale content lurks behind a hidden class.
-function applyCard(ui, s, collapsed = cardsCollapsed) {
+function applyCard(ui, s, collapsed = isAgentView()) {
   const el = ui.root;
   ui.pane = s.pane_id;
   setCls(el, "waiting", actOf(s) === "waiting");
@@ -2135,7 +2191,14 @@ const zHome = (id) => {
 // 60px when no border is found. Line height is read from the live style so the
 // tuck math can't drift if .bg-term's font ever changes.
 function tuckChrome(wrap, box) {
-  if (wrap.classList.contains("shell")) return; // shells: the prompt IS the content
+  // Agent View wants the agent's OWN input line (and its "❯ 1/2/3" prompt) in view — that
+  // is the whole point of the mode — so there is nothing to tuck. Reset any negative margin
+  // a prior Orchestrator-View paint left inline. fitTerm handles the width; tail-pinning
+  // keeps the newest rows (input line included) on screen.
+  if (isAgentView()) { if (wrap.style.marginBottom !== "0px") wrap.style.marginBottom = "0px"; return; }
+  // Leaving Agent View: a shell we set to 0px inline above would otherwise keep it and lose
+  // its CSS 6px gap, so clear the inline value back to the stylesheet before the early-out.
+  if (wrap.classList.contains("shell")) { if (wrap.style.marginBottom) wrap.style.marginBottom = ""; return; } // shells: the prompt IS the content
   // Lines come from paintTerm's cache once the box is line-painted — the seam scan is
   // per-LINE, and textContent across block children does not reliably reinsert the
   // newlines it used to when the box held one big text node. Falls back to textContent
@@ -2153,6 +2216,47 @@ function tuckChrome(wrap, box) {
   // job — pull the wrap's bottom up by exactly the chrome rows we want hidden.
   wrap.style.marginBottom = `${-(rows ? Math.round(rows * lineH) + 6 : 60)}px`;
 }
+
+// Fit-to-width for Agent View (docs/design/agent-orchestrator-views.md). A frame's width is
+// tmux's own column count — whatever the laptop client set — so a wide pane overflows the
+// phone and the right edge is cut off. Rather than resize tmux (that would shrink a
+// co-attached laptop — see the doc), shrink the FONT so every column fits: font-size is the
+// available width over the widest line's column count, clamped to a legible floor (below
+// which we stop shrinking and the residual overflow stays reachable by pinch/pan) and a
+// density ceiling. Outside Agent View the font returns to the stylesheet's 10px.
+const FIT_MIN = 7, FIT_MAX = 14; // px
+let _termCharW = 0; // width of one mono char at 1px font — measured once, font-agnostic
+function termCharW() {
+  if (_termCharW) return _termCharW;
+  const m = document.createElement("span");
+  m.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font:100px/1 var(--mono-term)";
+  m.textContent = "0".repeat(100);
+  document.body.appendChild(m);
+  const w = m.getBoundingClientRect().width;
+  m.remove();
+  _termCharW = w ? w / 100 / 100 : 0.6; // px-per-char per 1px font; 0.6 = safe mono fallback
+  return _termCharW;
+}
+function fitTerm(wrap, box) {
+  // Not Agent View ⇒ hand the size back to CSS (the peek is small under the card anyway).
+  if (!isAgentView()) { if (box.style.fontSize) { box.style.fontSize = ""; box._fit = ""; } return; }
+  const kids = box._tlines;
+  if (!kids || !kids.length) return; // nothing painted yet
+  let cols = 0;
+  for (const n of kids) { const l = n.textContent.length; if (l > cols) cols = l; }
+  if (!cols) return;
+  if (box._padX === undefined) {
+    const cs = getComputedStyle(box);
+    box._padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  }
+  const avail = wrap.clientWidth - box._padX;
+  if (avail <= 0) return; // laid out to zero (hidden deck) — try again on the next paint
+  const px = Math.max(FIT_MIN, Math.min(FIT_MAX, avail / (cols * termCharW())));
+  const val = px.toFixed(2) + "px";
+  // Guarded like every other write on this path: an unchanged font-size must not reflow.
+  if (box._fit !== val) { box._fit = val; box.style.fontSize = val; }
+}
+
 // One long-poll live stream (docs/design/live-view.md). Holds /live?frame=<hash> open;
 // the daemon answers the moment the pane's screen differs (checked server-side every
 // 250ms), or with just the hash after ~25s idle, and we immediately re-hold. Full
@@ -2328,6 +2432,7 @@ function bgTerm(s) {
     const c = peekCache[s.pane_id];
     if (c) {
       paintTerm(box, c.lines);
+      fitTerm(wrap, box); // size to width BEFORE the tail-pin below, so scrollHeight is right
       tuckChrome(wrap, box);
       setCls(wrap, "stale", !peekLive);
     } else {
@@ -2337,6 +2442,7 @@ function bgTerm(s) {
       // and write into orphans — leaving "(connecting…)" frozen on screen. paintTerm owns
       // that cache, so every write to this box has to go through it.
       paintTerm(box, ["(connecting…)"]);
+      fitTerm(wrap, box); // normalize the font (clears a prior pane's inline size)
       setCls(wrap, "stale", false);
     }
     // ALWAYS pin to the tail on a switch — this is the coordinate BASELINE the persisted
@@ -2388,6 +2494,7 @@ function bgTerm(s) {
         if (live && selDirty(peekBox, sel, lines)) return;
         const before = peekBox._tlines ? peekBox._tlines.length : -1;
         paintTerm(peekBox, lines);
+        fitTerm(peekWrap, peekBox); // re-fit before the tail-pin so scrollHeight is current
         tuckChrome(peekWrap, peekBox);
         // Re-pin to the tail only when the content's LENGTH changed (new output) — a frame
         // that merely rewrites the spinner row in place leaves the geometry alone, so
@@ -2408,6 +2515,9 @@ function bgTerm(s) {
 // slid the view off the tail and half-clipped the last line — so re-pin on resize.
 const peekRO = new ResizeObserver((entries) =>
   entries.forEach((e) => {
+    // Width changed (rotation, keyboard, card growth) ⇒ re-fit the font so the frame still
+    // fills the width in Agent View. A no-op outside it and when the fit is unchanged.
+    if (peekUI) fitTerm(e.target, peekUI.box);
     // The wrap's OWN pane, not activeId() — a pending selection can diverge from the
     // rendered wrap and re-pin a pane the user has deliberately panned.
     if (zHome(e.target.dataset.pane)) e.target.scrollTop = e.target.scrollHeight;

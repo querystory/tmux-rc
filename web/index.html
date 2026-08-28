@@ -347,6 +347,16 @@
   #expand-btn, #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
     font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
   #expand-btn:hover, #theme-btn:hover { color: var(--accent); }
+  /* Agent | Orchestrator segmented control: two icon-only buttons in one pill, the pressed
+     segment filled with the accent. Icon-only to match the rest of the ribbon chrome and
+     fit a phone width; the label lives in title/aria-label. */
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; background: var(--surface); }
+  .seg button { appearance: none; -webkit-appearance: none; background: transparent; border: 0;
+    padding: 5px 9px; color: var(--fg-dim); cursor: pointer; line-height: 0; }
+  .seg button svg { display: block; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
   /* overflow-x hidden: swipe gestures park the neighbour card off-screen with transforms,
      and the ghost card sits a full viewport away — without clipping, that overhang becomes
      scrollable width and the WHOLE PAGE slides sideways mid-swipe (dock, card, terminal,
@@ -1019,8 +1029,15 @@
            scroll off once enough panes fill the width. Built by dock(). -->
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
+        <!-- Agent | Orchestrator segmented control (card view). Icons injected at boot by
+             app.js so they theme via currentColor (AGENTS.md: no emoji chrome). It swaps
+             with #expand-btn, which owns list mode. -->
+        <div id="view-toggle" class="seg" role="group" aria-label="View mode">
+          <button type="button" data-view="agent" title="Agent View — hands-on terminal" aria-label="Agent View" aria-pressed="false"></button>
+          <button type="button" data-view="orchestrator" title="Orchestrator View — summary & voice" aria-label="Orchestrator View" aria-pressed="true"></button>
+        </div>
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)"></button>
-        <button id="expand-btn" title="Expand card" aria-label="Expand card"></button>
+        <button id="expand-btn" class="hid" title="Expand/collapse all" aria-label="Expand/collapse all"></button>
         <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false"></button>
         <!-- docs link lives INSIDE the status-dot popover (see showUsage) — the top
              bar is too tight on phones to spend on a rarely-tapped link. -->
@@ -1061,6 +1078,9 @@
     </div>
     <div class="freetext">
       <div class="inputwrap">
+        <!-- Thumb-reachable view swap (Agent is one-handed work; the top ribbon is a
+             stretch). Single toggle showing the icon of the mode a tap switches TO. -->
+        <button id="view-toggle-bar" class="attach" title="Switch view" aria-label="Switch view"></button>
         <button id="bar-keys-toggle" class="attach" title="Special keys" aria-label="Special keys" aria-pressed="false"></button>
         <button id="bar-attach" class="attach" title="Attach image" aria-label="Attach image"></button>
         <!-- Rich composer: contenteditable (not <input>) so image thumbnails can sit
