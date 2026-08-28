@@ -554,8 +554,9 @@ function syncEvents(s) {
     .then((events) => {
       if (Array.isArray(events)) {
         eventLog[id] = { seq: s.events_seq, events };
-        // Re-render only if this pane's feed is on screen (it's the active card).
-        if (id === activeId() && !listFilter) render(Object.values(panesById));
+        // Re-render only if this pane's feed is on screen: the Agent-View active card, or an
+        // expanded row drawer in the Orchestrator list.
+        if (id === activeId() || rowOpen.has(id)) render(Object.values(panesById));
       }
     })
     .catch(() => {})
@@ -1082,24 +1083,25 @@ if (expandBtn) {
   expandBtn.innerHTML = licon("expandall", 14); // svg child — never setText this button
   expandBtn.dataset.glyph = "expandall"; // applyExpandBtn swaps it with the open state
   expandBtn.onclick = () => {
-    // Card view is owned by the segmented control now; this button only shows in list mode.
-    if (!listFilter) return;
-    const lp = listSubset(Object.values(panesById)) || [];
+    // Expand/collapse-all applies to the Orchestrator list; the button is hidden in Agent View.
+    if (isAgentView()) return;
+    const lp = rankedList(Object.values(panesById));
     if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
     else lp.forEach((p) => rowOpen.add(p.pane_id));
     render(Object.values(panesById));
   };
 }
 
-// Called from BOTH render branches: swaps which control is visible (segmented view control
-// in card mode, expand-all in list mode) and keeps each one truthful.
+// Called from BOTH render branches. The segmented Agent|Orchestrator control is the app's
+// primary mode switch, so it is ALWAYS visible; the expand/collapse-all button only makes
+// sense over the Orchestrator list, so it shows there and hides in Agent View.
 function applyExpandBtn(states) {
-  const cardMode = !listFilter;
-  if (viewToggle) setCls(viewToggle, "hid", !cardMode);
-  if (expandBtn) setCls(expandBtn, "hid", cardMode);
+  if (viewToggle) setCls(viewToggle, "hid", false);
+  if (expandBtn) setCls(expandBtn, "hid", isAgentView());
   applyViewToggle();
-  if (!expandBtn || cardMode) return; // card mode: the segmented control owns collapse
-  const open = (listSubset(states) || []).every((p) => rowOpen.has(p.pane_id));
+  if (!expandBtn || isAgentView()) return; // Agent View: no list to expand
+  const shown = rankedList(states);
+  const open = shown.length > 0 && shown.every((p) => rowOpen.has(p.pane_id));
   setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + "all");
   setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + "all");
   setAttr(expandBtn, "aria-expanded", String(open));
@@ -1113,9 +1115,27 @@ function applyExpandBtn(states) {
   }
 }
 
-function listSubset(states) {
-  return listFilter && states.filter((s) =>
-    listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
+// Priority GROUP of a pane for the Orchestrator ranking (lower = higher priority):
+//   0 waiting on you (blocked on a prompt) · 1 idle & recent (just finished — awaiting your
+//   next instruction) · 2 running/compacting/unknown (working, no action needed) ·
+//   3 parked (idle and aged past PARKED_IDLE_SECS). Drives both the sort and the group headers.
+function prioGroup(s) {
+  const a = actOf(s);
+  if (a === "waiting") return 0;
+  if (a === "idle") return isRecent(s) ? 1 : 3;
+  return 2; // running / compacting / unknown
+}
+const GROUP_LABELS = ["Waiting on you", "Awaiting next", "Running", "Parked"];
+
+// The ranked fleet list Orchestrator View shows. The header tallies act as an optional
+// sub-filter (null or "all" ⇒ every pane); then order by priority group, ties broken by
+// longest time-in-state first (the pane you've been blocking longest floats up). Pure — it
+// never mutates the source (filter/slice both copy before the sort).
+function rankedList(states) {
+  const subset = !listFilter || listFilter === "all"
+    ? states.slice()
+    : states.filter((s) => (listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter));
+  return subset.sort((a, b) => prioGroup(a) - prioGroup(b) || stateDur(b) - stateDur(a));
 }
 
 // On-demand summary freshness (docs/design/agent-orchestrator-views.md): POST
@@ -1203,58 +1223,49 @@ function render(states) {
   // left the sampled LENGTHS unchanged). Here those same changes flow through setText,
   // which compares the actual value and writes it. There is no field to remember.
   const act = activeId();
-  // List mode (a dock tally badge or "all" was tapped): just those panes as one-liners;
-  // the dock stays up (tap an icon or a row to open that pane's card).
-  // "recent" is not an activity — it deliberately spans them (see isRecent: anything not
-  // idle counts however old, plus idle panes younger than PARKED_IDLE_SECS). So it gets its
-  // own arm rather than being compared against actOf().
-  const subset = listSubset(states);
-  if (subset && subset.length) {
-    stopPeek(); // list mode: no card, no peek stream
-    setCls(ui.deck, "hid", true);
-    setCls(ui.list, "hid", false);
-    dock(states, act); // dock stays up in list mode — icon tap jumps to that card
-    panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
-    // Session headers, ordinals and row order all live in applyList — it keys headers and
-    // rows into one list so a session boundary appearing/disappearing inserts or removes
-    // exactly that header, instead of re-keying the rows after it.
-    applyList(ui.list, states, subset, act);
+  // The SURFACE is chosen by viewMode (docs/design/agent-orchestrator-views.md), not by a
+  // filter: Agent View is the active pane's collapsed card + full live terminal; Orchestrator
+  // View is the ranked fleet list of ALL panes (no card, no peek). The header tallies are a
+  // sub-filter WITHIN Orchestrator, not a separate "list mode".
+  if (isAgentView()) {
+    // Filters/list belong to Orchestrator; clear any leftover filter and EMPTY the list so no
+    // stale rows linger behind the hidden container (the stale-content discipline).
+    listFilter = null;
+    setCls(ui.list, "hid", true);
+    applyList(ui.list, states, [], act);
+    dock(states, act); // the tab strip is the pane switcher here
+    const a = panesById[act];
+    // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
+    // remaining viewport AND runs under the bar via its own negative margin, so counting the
+    // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
+    // being SHOWN. (A class, not :has() — app.js deliberately avoids :has() for older iOS.)
+    setCls(panesEl, "cardmode", !!a);
+    setCls(ui.deck, "hid", !a);
+    if (a) {
+      applyCard(cardUI, a);
+      bgTerm(a);
+      ui.fs._pane = a.pane_id;
+      ui.fs._label = a.title || a.label;
+      setCls(ui.fs, "hid", false); // the ⤢ full-bleed terminal is an Agent-View affordance
+      joinTab(ui.deck);
+    }
     applyExpandBtn(states);
     updateBar(panesById[act]);
     return;
   }
-  listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
-  setCls(ui.list, "hid", true);
-  // Hiding the list must also EMPTY it: a .sess-hdr:first-child rule and the row nodes
-  // themselves would otherwise linger behind the hidden class, and stale rows holding
-  // pane state is exactly what this refactor is removing.
-  applyList(ui.list, states, [], act);
-  dock(states, act); // sticky top bar — constant height, content swaps below it
-  const a = panesById[act];
-  // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
-  // remaining viewport AND runs under the bar via its own negative margin, so counting the
-  // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
-  // being SHOWN, not merely to reaching this branch: with no active pane the deck is hidden
-  // and nothing is sized to the viewport, so the padding is what keeps content off the bar.
-  // (A class, not :has() — app.js deliberately avoids :has() for older iOS Safari.)
-  setCls(panesEl, "cardmode", !!a);
-  setCls(ui.deck, "hid", !a);
-  if (a) {
-    applyCard(cardUI, a);
-    // Opening a pane's card in Orchestrator View asks the daemon to freshen its summary
-    // (async catch-up wants the latest, not a snapshot from minutes ago). Debounced per
-    // pane — render runs on every poll and state change — and the daemon no-ops a pane
-    // with nothing new, so an over-eager ask is cheap.
-    if (!isAgentView()) askSummaryRefresh(a.pane_id);
-    bgTerm(a);
-    ui.fs._pane = a.pane_id;
-    ui.fs._label = a.title || a.label;
-    // Fullscreen (with its Sun-mode toggle) is now an Agent-View affordance — the true
-    // full-bleed, one-finger-selectable terminal. In Orchestrator View the terminal is a
-    // small peek under the card, so the ⤢ has nothing to enlarge; hide it there.
-    setCls(ui.fs, "hid", !isAgentView());
-    joinTab(ui.deck);
-  }
+  // Orchestrator View: the ranked fleet overview. No card ⇒ stop the peek stream and hide the
+  // deck; the dock stays up for its tallies (sub-filters) and the pane switcher.
+  stopPeek();
+  setCls(ui.deck, "hid", true);
+  setCls(ui.list, "hid", false);
+  dock(states, act);
+  panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
+  // A pane whose detail drawer is open wants a current summary for async catch-up; ask the
+  // daemon to freshen it (debounced per pane; a no-op when nothing new — see askSummaryRefresh).
+  for (const id of rowOpen) if (panesById[id]) askSummaryRefresh(id);
+  // Order + group headers all live in applyList, keyed so a group boundary appearing or
+  // disappearing inserts/removes exactly that header.
+  applyList(ui.list, states, rankedList(states), act);
   applyExpandBtn(states);
   updateBar(panesById[act]);
 }
@@ -1812,7 +1823,13 @@ function dock(states, act) {
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
     b.className = "badge b-" + t.key;
-    b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
+    // A tally is an Orchestrator action — it sub-filters the ranked fleet list. Tapping one
+    // from Agent View jumps to Orchestrator (setViewMode re-renders); already there, re-render.
+    b.onclick = () => {
+      listFilter = t.key;
+      if (isAgentView()) setViewMode("orchestrator");
+      else render(Object.values(panesById));
+    };
     return b;
   }, (b, t) => setText(b, t.label));
 
@@ -1856,20 +1873,19 @@ function buildRow(paneId) {
   const el = document.createElement("div");
   el.className = "prow";
   el.dataset.pane = paneId;
-  const goCard = () => { listFilter = null; setActive(paneId); };
-  // Ignore clicks originating inside the drawer: its handlers (option buttons, links,
-  // copy chips) act in place — bubbling into the row must not yank the user to card view.
-  el.onclick = (e) => { if (elOf(e)?.closest(".pbody")) return; goCard(); };
   const toggleOpen = (e) => {
-    e.stopPropagation(); // expanding must not also navigate to card view
+    if (e) e.stopPropagation();
     if (rowOpen.has(paneId)) rowOpen.delete(paneId); else rowOpen.add(paneId);
     render(Object.values(panesById));
   };
+  // Tapping the row (head or padding) EXPANDS its detail drawer in place — Orchestrator View
+  // keeps you in the overview. Ignore clicks originating inside the drawer or the inline
+  // choices: those act in place and must not toggle. Jumping to the live terminal is the
+  // dedicated Open control below, never an incidental row tap.
+  el.onclick = (e) => { if (elOf(e)?.closest(".pbody, .row-opts")) return; toggleOpen(); };
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
-  // stopPropagation so an activation on the button doesn't also bubble to the row and
-  // navigate twice.
-  openBtn.onclick = (e) => { e.stopPropagation(); goCard(); };
+  openBtn.onclick = (e) => { e.stopPropagation(); toggleOpen(); };
   el.appendChild(openBtn);
   // link:false — this header goes INSIDE .row-open, a <button>. See buildPaneHeader.
   // The caret's subrow is RELOCATED to the row element below, so the chevron (a real
@@ -1880,6 +1896,21 @@ function buildRow(paneId) {
   // .row-open and .ph-right it forced the badges onto a third line below the description.
   el.appendChild(hdr.right);
   el.appendChild(hdr.subrow);
+  // Inline pending choices for a waiting row: answer the prompt without opening the drawer
+  // or switching panes (this is what absorbed the Phase-2 in-card roll-up). Filled by
+  // applyRow only when the pane is waiting-with-question and the drawer is closed; empty ⇒
+  // hidden by the :empty rule. Not inside .row-open (no nested buttons).
+  const opts = document.createElement("div");
+  opts.className = "row-opts";
+  el.appendChild(opts);
+  // The ONE place a row leaves the overview for the full live terminal: Open in Agent View.
+  const openAgent = document.createElement("button");
+  openAgent.className = "row-agent";
+  openAgent.innerHTML = licon("terminal", 15);
+  setAttr(openAgent, "aria-label", "Open in Agent View");
+  setAttr(openAgent, "title", "Open in Agent View");
+  openAgent.onclick = (e) => { e.stopPropagation(); setActive(paneId); setViewMode("agent"); };
+  hdr.right.appendChild(openAgent);
   // A pane with sub-agents gets a labeled chip under the activity badge. It is a SHORTCUT
   // to the row's one expansion — the drawer, whose body includes the sub-agents box. It
   // used to toggle a second, row-owned copy of that box, and an expanded row then showed
@@ -1888,7 +1919,7 @@ function buildRow(paneId) {
   toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
   toggle.onclick = toggleOpen;
   hdr.right.appendChild(toggle);
-  el._hdr = hdr; el._toggle = toggle; el._body = null; // drawer built lazily on first open
+  el._hdr = hdr; el._toggle = toggle; el._opts = opts; el._body = null; // drawer built lazily
   return el;
 }
 
@@ -1900,6 +1931,26 @@ function applyRow(el, s, act) {
   setAttr(el._hdr.caret, "aria-expanded", String(open));
   setAttr(el._hdr.caret, "aria-label", (open ? "Collapse" : "Expand") + " pane details");
   setCls(el, "expanded", open);
+  // Inline choices: a waiting pane's tappable options, shown on the CLOSED row so a queue of
+  // prompts clears without expanding anything (when open, the drawer's own question view
+  // shows them — don't duplicate). Same treatment as applyQuestion/the old roll-up: drop the
+  // free-text pseudo-option, key by index+text so a stable menu keeps its nodes, and read the
+  // CURRENT pane/question at click time so a persisted node never answers a stale prompt.
+  const inlineQ = actOf(s) === "waiting" && s.question && !open;
+  const realOpts = inlineQ
+    ? (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()))
+    : [];
+  keyedList(el._opts, realOpts, (o, i) => i + " " + o, () => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.onclick = (e) => {
+      e.stopPropagation(); // answering must not also toggle the drawer
+      const cur = panesById[el.dataset.pane];
+      if (!cur || !cur.question) return;
+      answer(cur, keyFor(cur.question, b._optText, b._optIndex));
+    };
+    return b;
+  }, (b, opt, i) => { b._optText = opt; b._optIndex = i; setText(b, opt); });
   // The drawer: this row's own pane body, built on first expand and kept (the row is a
   // persistent keyed node). Applied with show=false when closed, so a closed drawer is
   // EMPTIED, never merely hidden — the stale-content discipline every subview follows.
@@ -1925,35 +1976,29 @@ function applyRow(el, s, act) {
   }
 }
 
-// Rows in server order — same as the dock. That order is tmux's own session/window/pane
-// order, so grouping windows under their session is just "insert a header where the
-// session changes": no sorting, no client-side restructure.
-//
-// Headers and rows share ONE keyed list, because .sess-hdr:first-child is a structural
-// selector — the header has to be a real sibling at the right index, not a wrapper.
-// Hue ordinals are JS-computed over the FULL deck (never nth-of-type, never the filtered
-// subset), so a header's hue matches that session's dock rail even when a filter hides
-// sessions.
+// The Orchestrator list is ranked by PRIORITY GROUP (see rankedList/prioGroup), so it is
+// grouped by "how much this pane needs you" rather than by tmux session. `subset` arrives
+// already sorted, so group values are monotonic and a header is just "insert one where the
+// group changes". Headers and rows share ONE keyed list, because .sess-hdr:first-child is a
+// structural selector — the header has to be a real sibling at the right index, not a
+// wrapper. An empty `subset` (Agent View clearing the list) yields no items ⇒ host emptied.
 function applyList(host, states, subset, act) {
-  const ord = new Map();
-  states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
-  // Headers only when the deck actually spans sessions — a lone header over every row
-  // would be noise for the single-session common case.
   // Drop expansion state for panes that no longer exist (same discipline as foldOpen).
   for (const id of rowOpen) if (!panesById[id]) rowOpen.delete(id);
   const items = [];
-  subset.forEach((s, i) => {
-    if (ord.size > 1 && (!i || subset[i - 1].session !== s.session))
-      items.push({ hdr: true, session: s.session, c: (ord.get(s.session) % 4) + 1 });
+  let lastGroup = -1;
+  subset.forEach((s) => {
+    const g = prioGroup(s);
+    if (g !== lastGroup) { items.push({ hdr: true, group: g }); lastGroup = g; }
     items.push({ hdr: false, s });
   });
   keyedList(host, items,
-    (it) => (it.hdr ? "h:" + it.session : "r:" + it.s.pane_id),
+    (it) => (it.hdr ? "g:" + it.group : "r:" + it.s.pane_id),
     (it) => (it.hdr ? document.createElement("div") : buildRow(it.s.pane_id)),
     (node, it) => {
       if (it.hdr) {
-        setAttr(node, "class", "sess-hdr c" + it.c);
-        setText(node, it.session);
+        setAttr(node, "class", "sess-hdr grp g" + it.group);
+        setText(node, GROUP_LABELS[it.group]);
       } else {
         applyRow(node, it.s, act);
       }
@@ -2050,14 +2095,6 @@ function buildCard() {
     setViewMode(isAgentView() ? "orchestrator" : "agent"); // setViewMode re-renders
   });
   el.appendChild(row);
-  // The fleet "Needs input" roll-up (docs/design/agent-orchestrator-views.md) sits directly
-  // under the header, ABOVE the pane body — so in Orchestrator View the pending choices for
-  // EVERY waiting pane are the first thing seen and answerable without switching panes.
-  // Orchestrator-View-only; emptied+hidden in Agent View (:empty rule). Built once, filled
-  // from panesById each render like the rest of the card.
-  ui.rollup = document.createElement("div");
-  ui.rollup.className = "needs-input";
-  el.appendChild(ui.rollup);
   // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order
   // matters and is encoded here rather than by append order per render: tables render
   // BEFORE the question so they act as context above the options.
@@ -2095,69 +2132,8 @@ function applyCard(ui, s, collapsed = isAgentView()) {
     setAttr(ui.hdr.caret, "aria-label", (collapsed ? "Expand" : "Collapse") + " card");
   }
   applyPaneBody(ui.body, s, body, true);
-  // Fleet roll-up: Orchestrator View only (empty ⇒ hidden). Reads every waiting pane from
-  // panesById, so it shows the active pane AND the rest — answer any of them from here.
-  applyRollup(ui.rollup, !collapsed);
   // No per-card input — one persistent bar at the bottom of the page handles
   // text/keys/images for whichever card is active (see the #bar element).
-}
-
-// The fleet "Needs input" roll-up: one entry per pane currently waiting on the user, each
-// with its own tappable choices. `show` is false in Agent View — then the list is emptied
-// (stale-content discipline: keyedList with [] removes children so the :empty rule hides
-// the block). Every waiting pane is included, the active one too: this is the "what needs
-// input right now?" view, the visual twin of the voice question.
-function applyRollup(host, show) {
-  const waiting = show
-    ? Object.values(panesById).filter((s) => actOf(s) === "waiting" && s.question)
-    : [];
-  keyedList(host, waiting, (s) => s.pane_id, buildNeedsItem, applyNeedsItem);
-}
-
-function buildNeedsItem() {
-  const item = document.createElement("div");
-  item.className = "ni-item";
-  const head = document.createElement("button");
-  head.type = "button";
-  head.className = "ni-head";
-  const ic = document.createElement("img");
-  ic.className = "ni-ic";
-  ic.alt = "";
-  const name = document.createElement("span");
-  name.className = "ni-name";
-  const q = document.createElement("span");
-  q.className = "ni-q";
-  head.append(ic, name, q);
-  // Tapping the head JUMPS to that pane (its full question/context is in the card below);
-  // tapping a choice answers WITHOUT switching, so you can clear a queue in place. The pane
-  // id is read off the node at call time — the node persists across polls and retargets.
-  head.onclick = () => { if (item._pane) setActive(item._pane); };
-  const opts = document.createElement("div");
-  opts.className = "opts";
-  item.append(head, opts);
-  Object.assign(item, { _ic: ic, _name: name, _q: q, _opts: opts });
-  return item;
-}
-
-function applyNeedsItem(item, s) {
-  item._pane = s.pane_id;
-  setAttr(item._ic, "src", logoFor(s.tool));
-  setText(item._name, s.title || s.label || s.pane_id);
-  setText(item._q, s.question.prompt || s.headline || "");
-  // Same option treatment as applyQuestion: drop the free-text pseudo-option (the bottom
-  // bar covers typing), key by index+text so a stable menu keeps its nodes, and read the
-  // CURRENT pane/question at click time so a persisted node never answers a stale prompt.
-  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
-  keyedList(item._opts, realOpts, (o, i) => i + " " + o, () => {
-    const b = document.createElement("button");
-    b.className = "opt";
-    b.onclick = () => {
-      const cur = item._pane && panesById[item._pane];
-      if (!cur || !cur.question) return;
-      answer(cur, keyFor(cur.question, b._optText, b._optIndex));
-    };
-    return b;
-  }, (b, opt, i) => { b._optText = opt; b._optIndex = i; setText(b, opt); });
 }
 
 // Horizontal swipe on the active card switches panes (tmux window order, wraps), as a

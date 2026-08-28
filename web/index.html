@@ -749,21 +749,24 @@
   }
   button.opt:active { background: var(--border); }
   button.opt:disabled { opacity: .5; cursor: default; }
-  /* Fleet "Needs input" roll-up (Orchestrator View): every waiting pane with its tappable
-     choices, pinned at the top of the card so a queue can be cleared without switching
-     panes. Reuses .opts/.opt for the choices. Empty ⇒ hidden (no pane is waiting). */
-  .needs-input { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 4px;
-    padding: 10px 12px; border: 1px solid var(--amber); border-radius: 10px;
-    background: var(--waiting-bg); }
-  .needs-input:empty { display: none; }
-  .ni-item { display: flex; flex-direction: column; gap: 6px; }
-  .ni-item + .ni-item { border-top: 1px solid var(--border); padding-top: 10px; }
-  .ni-head { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0;
-    appearance: none; background: transparent; border: 0; padding: 0; text-align: left;
-    cursor: pointer; color: var(--fg); font: inherit; }
-  .ni-ic { width: 16px; height: 16px; flex: none; border-radius: 3px; }
-  .ni-name { font-weight: 600; flex: none; }
-  .ni-q { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Inline pending choices on a WAITING Orchestrator row (they absorbed the old in-card
+     roll-up): answer the prompt without opening the drawer or switching panes. Full-width
+     line below the header (like .ph-subrow), wrapping the buttons in a row. Reuses button.opt
+     but overrides its column-list width:100% so the choices flow side by side. Empty ⇒ hidden. */
+  .prow > .row-opts { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px;
+    padding-left: 44px; }
+  .prow > .row-opts:empty { display: none; }
+  .row-opts button.opt { width: auto; flex: 0 1 auto; }
+  /* The one control that leaves the overview for the full live terminal (Open in Agent View),
+     sitting in the row's right column with the badge and sub-agents chip. */
+  .row-agent { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+    padding: 4px; line-height: 0; }
+  .row-agent:hover { color: var(--accent); }
+  /* Orchestrator priority-group headers (Waiting on you / Awaiting next / Running / Parked)
+     replace the session headers in this list. Reuse .sess-hdr; the waiting bucket gets the
+     amber emphasis so the thing needing you draws the eye. */
+  .sess-hdr.grp { text-transform: uppercase; letter-spacing: .04em; }
+  .sess-hdr.g0 { color: var(--amber-text); }
   /* Reparsing: an answer/keypress was sent and we're waiting for the forced LLM
      re-parse to land. Dim the card slightly and spin a ring next to the prompt so the
      submitted answer visibly WORKS instead of sitting stale. Cleared when the fresh
