@@ -614,6 +614,21 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/panes/{pane_id}/refresh-summary")
+def refresh_summary(pane_id: str, request: Request):
+    """Ask the watcher to re-read this pane's scrollback and refresh its session_summary on
+    the next tick — the phone fires this when a pane's card opens in Orchestrator View so the
+    narration is current for async catch-up. Returns immediately; the deep LLM read runs on
+    the watcher loop (staggered), never on this request, and no-ops when the pane has no new
+    events to narrate."""
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, "refresh_summary", pane_id, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    app.state.watcher.request_summary(pane_id)
+    _audit(request, "refresh_summary", pane_id)
+    return {"ok": True}
+
+
 @app.post("/api/client-error")
 async def client_error(request: Request):
     """Sink for browser-side failures invisible on mobile (no devtools) — mic denial, ws

@@ -749,6 +749,21 @@
   }
   button.opt:active { background: var(--border); }
   button.opt:disabled { opacity: .5; cursor: default; }
+  /* Fleet "Needs input" roll-up (Orchestrator View): every waiting pane with its tappable
+     choices, pinned at the top of the card so a queue can be cleared without switching
+     panes. Reuses .opts/.opt for the choices. Empty ⇒ hidden (no pane is waiting). */
+  .needs-input { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 4px;
+    padding: 10px 12px; border: 1px solid var(--amber); border-radius: 10px;
+    background: var(--waiting-bg); }
+  .needs-input:empty { display: none; }
+  .ni-item { display: flex; flex-direction: column; gap: 6px; }
+  .ni-item + .ni-item { border-top: 1px solid var(--border); padding-top: 10px; }
+  .ni-head { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0;
+    appearance: none; background: transparent; border: 0; padding: 0; text-align: left;
+    cursor: pointer; color: var(--fg); font: inherit; }
+  .ni-ic { width: 16px; height: 16px; flex: none; border-radius: 3px; }
+  .ni-name { font-weight: 600; flex: none; }
+  .ni-q { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Reparsing: an answer/keypress was sent and we're waiting for the forced LLM
      re-parse to land. Dim the card slightly and spin a ring next to the prompt so the
      submitted answer visibly WORKS instead of sitting stale. Cleared when the fresh

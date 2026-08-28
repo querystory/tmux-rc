@@ -1118,6 +1118,21 @@ function listSubset(states) {
     listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
 }
 
+// On-demand summary freshness (docs/design/agent-orchestrator-views.md): POST
+// /refresh-summary when a pane's card opens in Orchestrator View, debounced per pane so it
+// fires on ENTRY, not on every 2s poll / state change. The floor matches the daemon's own
+// SUMMARY_MIN_INTERVAL so a re-entry inside that window doesn't ask for a read the daemon
+// would rate-floor anyway. Fire-and-forget; the fresher summary arrives via the next
+// /api/state. `_summaryAsked` is pruned with the other per-pane caches at render start.
+const _summaryAsked = {}; // pane_id -> ts of last refresh-summary POST
+const SUMMARY_ASK_MS = 45000;
+function askSummaryRefresh(id) {
+  const now = Date.now();
+  if (now - (_summaryAsked[id] || 0) < SUMMARY_ASK_MS) return;
+  _summaryAsked[id] = now;
+  fetch(`/api/panes/${encodeURIComponent(id)}/refresh-summary`, { method: "POST" }).catch(() => {});
+}
+
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
@@ -1126,7 +1141,7 @@ function render(states) {
   states.forEach(syncEvents);
   // Prune per-pane caches when panes vanish — otherwise pane churn grows them
   // without bound over a long-running session.
-  for (const m of [eventLog, peekCache, bgZoom, cardUI ? cardUI.body.events.openByPane : {}])
+  for (const m of [eventLog, peekCache, bgZoom, _summaryAsked, cardUI ? cardUI.body.events.openByPane : {}])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   setFavicon(states.some((s) => actOf(s) === "waiting"));
   // No card visible (empty / list mode) ⇒ no peek stream should be running. bgTerm
@@ -1226,6 +1241,11 @@ function render(states) {
   setCls(ui.deck, "hid", !a);
   if (a) {
     applyCard(cardUI, a);
+    // Opening a pane's card in Orchestrator View asks the daemon to freshen its summary
+    // (async catch-up wants the latest, not a snapshot from minutes ago). Debounced per
+    // pane — render runs on every poll and state change — and the daemon no-ops a pane
+    // with nothing new, so an over-eager ask is cheap.
+    if (!isAgentView()) askSummaryRefresh(a.pane_id);
     bgTerm(a);
     ui.fs._pane = a.pane_id;
     ui.fs._label = a.title || a.label;
@@ -2030,6 +2050,14 @@ function buildCard() {
     setViewMode(isAgentView() ? "orchestrator" : "agent"); // setViewMode re-renders
   });
   el.appendChild(row);
+  // The fleet "Needs input" roll-up (docs/design/agent-orchestrator-views.md) sits directly
+  // under the header, ABOVE the pane body — so in Orchestrator View the pending choices for
+  // EVERY waiting pane are the first thing seen and answerable without switching panes.
+  // Orchestrator-View-only; emptied+hidden in Agent View (:empty rule). Built once, filled
+  // from panesById each render like the rest of the card.
+  ui.rollup = document.createElement("div");
+  ui.rollup.className = "needs-input";
+  el.appendChild(ui.rollup);
   // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order
   // matters and is encoded here rather than by append order per render: tables render
   // BEFORE the question so they act as context above the options.
@@ -2067,8 +2095,69 @@ function applyCard(ui, s, collapsed = isAgentView()) {
     setAttr(ui.hdr.caret, "aria-label", (collapsed ? "Expand" : "Collapse") + " card");
   }
   applyPaneBody(ui.body, s, body, true);
+  // Fleet roll-up: Orchestrator View only (empty ⇒ hidden). Reads every waiting pane from
+  // panesById, so it shows the active pane AND the rest — answer any of them from here.
+  applyRollup(ui.rollup, !collapsed);
   // No per-card input — one persistent bar at the bottom of the page handles
   // text/keys/images for whichever card is active (see the #bar element).
+}
+
+// The fleet "Needs input" roll-up: one entry per pane currently waiting on the user, each
+// with its own tappable choices. `show` is false in Agent View — then the list is emptied
+// (stale-content discipline: keyedList with [] removes children so the :empty rule hides
+// the block). Every waiting pane is included, the active one too: this is the "what needs
+// input right now?" view, the visual twin of the voice question.
+function applyRollup(host, show) {
+  const waiting = show
+    ? Object.values(panesById).filter((s) => actOf(s) === "waiting" && s.question)
+    : [];
+  keyedList(host, waiting, (s) => s.pane_id, buildNeedsItem, applyNeedsItem);
+}
+
+function buildNeedsItem() {
+  const item = document.createElement("div");
+  item.className = "ni-item";
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "ni-head";
+  const ic = document.createElement("img");
+  ic.className = "ni-ic";
+  ic.alt = "";
+  const name = document.createElement("span");
+  name.className = "ni-name";
+  const q = document.createElement("span");
+  q.className = "ni-q";
+  head.append(ic, name, q);
+  // Tapping the head JUMPS to that pane (its full question/context is in the card below);
+  // tapping a choice answers WITHOUT switching, so you can clear a queue in place. The pane
+  // id is read off the node at call time — the node persists across polls and retargets.
+  head.onclick = () => { if (item._pane) setActive(item._pane); };
+  const opts = document.createElement("div");
+  opts.className = "opts";
+  item.append(head, opts);
+  Object.assign(item, { _ic: ic, _name: name, _q: q, _opts: opts });
+  return item;
+}
+
+function applyNeedsItem(item, s) {
+  item._pane = s.pane_id;
+  setAttr(item._ic, "src", logoFor(s.tool));
+  setText(item._name, s.title || s.label || s.pane_id);
+  setText(item._q, s.question.prompt || s.headline || "");
+  // Same option treatment as applyQuestion: drop the free-text pseudo-option (the bottom
+  // bar covers typing), key by index+text so a stable menu keeps its nodes, and read the
+  // CURRENT pane/question at click time so a persisted node never answers a stale prompt.
+  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
+  keyedList(item._opts, realOpts, (o, i) => i + " " + o, () => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.onclick = () => {
+      const cur = item._pane && panesById[item._pane];
+      if (!cur || !cur.question) return;
+      answer(cur, keyFor(cur.question, b._optText, b._optIndex));
+    };
+    return b;
+  }, (b, opt, i) => { b._optText = opt; b._optIndex = i; setText(b, opt); });
 }
 
 // Horizontal swipe on the active card switches panes (tmux window order, wraps), as a
