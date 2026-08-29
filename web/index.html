@@ -624,9 +624,20 @@
   /* Inline image thumbnail: an <img> living INSIDE the contenteditable at the caret,
      interleaved with text (mirrors [Image #N] in Claude Code's composer) until the next
      Enter sends it. contenteditable=false (set in JS) makes the caret treat it as one
-     atomic character. vertical-align keeps it centred on the text baseline. */
+     atomic character. vertical-align keeps it centred on the text baseline.
+
+     The margin is asymmetric ON PURPOSE (it was `0 2px`, which put the caret 2px off).
+     After inserting a chip the caret sits immediately after it, and a caret anchored
+     after an inline-block draws at that box's MARGIN edge, not its border edge — so a
+     right margin renders the caret floating in the gap beside the thumbnail instead of
+     hugging it ("pasting an image moves the cursor to the right"). The gap tracked the
+     margin exactly: 0/2/10/30px of margin gave 0/2/10/30px of caret offset. Putting the
+     whole separation on the LEFT keeps the caret flush against the chip's painted edge
+     while leaving the layout identical — chips still sit 4px apart (was 2+2), and the
+     1px box-shadow ring still hugs the 24x24 thumbnail (padding would have stretched
+     that ring to wrap the padding box). */
   .attach-chip { display: inline-block; width: 24px; height: 24px; border-radius: 5px;
-    object-fit: cover; margin: 0 2px; vertical-align: middle;
+    object-fit: cover; margin: 0 0 0 4px; vertical-align: middle;
     cursor: pointer; box-shadow: 0 0 0 1px var(--border); }
   .row { display: flex; align-items: center; gap: 10px; }
   /* Collapse caret: shrinks the card to just this header row, giving the live terminal
