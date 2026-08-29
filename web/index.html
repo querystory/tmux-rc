@@ -626,28 +626,28 @@
      Enter sends it. contenteditable=false (set in JS) makes the caret treat it as one
      atomic character. vertical-align keeps it centred on the text baseline.
 
-     The margin is asymmetric ON PURPOSE (it was `0 2px`, which put the caret 2px off).
+     The margin is LEFT-ONLY on purpose (it was `0 2px`, which put the caret 2px off).
      After inserting a chip the caret sits immediately after it, and a caret anchored
      after an inline-block draws at that box's MARGIN edge, not its border edge — so a
      right margin renders the caret floating in the gap beside the thumbnail instead of
      hugging it ("pasting an image moves the cursor to the right"). The gap tracked the
-     margin exactly: 0/2/10/30px of margin gave 0/2/10/30px of caret offset. Putting the
-     whole separation on the LEFT keeps the caret flush against the chip's painted edge
-     while leaving the layout identical — chips still sit 4px apart (was 2+2), and the
-     1px box-shadow ring still hugs the 24x24 thumbnail (padding would have stretched
-     that ring to wrap the padding box).
+     margin exactly: 0/2/10/30px of right margin gave 0/2/10/30px of caret offset.
 
-     :first-child restores the ORIGINAL 2px when the chip OPENS the composer. The 4px is
-     there to separate a chip from what precedes it; with nothing before it, it is just a
-     leading indent, and 4px would indent a leading chip 2px further than `0 2px` did.
-     2px (not 0) is what matches: measured from the composer's content box, a leading chip
-     sat at +2px under the old rule, sits at +2px with this one, and would sit at 0 — 2px
-     too far LEFT — if the margin were simply dropped. So the leading edge stays exactly
-     where it has always been and the only thing this changes is where the caret draws. */
+     Dropping the right margin and keeping the left at its original 2px puts the caret
+     flush while leaving every spacing that faces TEXT untouched: a leading chip still
+     indents 2px, and text-to-chip is still 2px. The one difference is that two ADJACENT
+     chips now sit 2px apart instead of 4px (that 4px was only ever 2+2 meeting), which
+     is a fair trade for a caret that lands where the user is about to type. The 1px
+     box-shadow ring still hugs the 24x24 thumbnail — padding would have closed the gap
+     too, but it stretches that ring to wrap the padding box.
+
+     Note there is deliberately NO :first-child exception. CSS cannot see text nodes, so
+     `:first-child` also matches the chip in `"a" + <chip> + "b"` (a mid-text paste) and
+     would shrink that spacing too; keeping the left margin at the original 2px makes the
+     exception unnecessary rather than papering over it. */
   .attach-chip { display: inline-block; width: 24px; height: 24px; border-radius: 5px;
-    object-fit: cover; margin: 0 0 0 4px; vertical-align: middle;
+    object-fit: cover; margin: 0 0 0 2px; vertical-align: middle;
     cursor: pointer; box-shadow: 0 0 0 1px var(--border); }
-  .attach-chip:first-child { margin-left: 2px; }
   .row { display: flex; align-items: center; gap: 10px; }
   /* Collapse caret: shrinks the card to just this header row, giving the live terminal
      the screen. Muted, rotates with state; the whole header stays tappable to select. */
