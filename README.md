@@ -1,10 +1,10 @@
 # tmux-rc
 
-Watch and control terminal AI agents — any program in a tmux pane: Codex, Claude
-Code, Gemini CLI, OpenCode, or anything else that prints text — from your phone. A
-small local service reads a `tmux` pane, figures out what's happening, and shows a
-phone-native dashboard: status at a glance, alerts when an agent is blocked on a
-question, tappable answers, and a snapshot timeline.
+Watch and control whatever runs in a tmux pane — AI coding agents like Codex, Claude
+Code, Gemini CLI and OpenCode, or any other program that prints text — from your
+phone. A small local service reads a `tmux` pane, figures out what's happening, and
+shows a phone-native dashboard: status at a glance, alerts when an agent is blocked on
+a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
   <img src="docs/img/card.png" alt="The tmux-rc dashboard on a phone, showing the agent dock and the focused agent's card" width="420">

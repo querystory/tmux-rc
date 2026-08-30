@@ -21,8 +21,8 @@ tmux-rc build
 
 Each node carries: a name, start/end (duration), cost, tokens, LOC delta, a one-line
 summary of what was accomplished, and links to children and to the underlying raw
-captures (drill-down, per the viewing doc). It is **tool-agnostic** — a node might be
-an agent working, but also `make test`, a `psql` session, a manual git rebase,
+captures (drill-down, per the viewing doc). It is **tool-agnostic** — a node might
+represent an agent working, but also `make test`, a `psql` session, a manual git rebase,
 editing in vim. The tree describes the *work*, whatever produced it.
 
 This generalizes the timeline: a flat timeline is a tree of depth 1. The live card is
