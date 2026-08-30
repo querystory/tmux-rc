@@ -1477,8 +1477,13 @@ function applyHash(h) {
 // (dead pane id) is dead for good: drop to the default view and correct the URL in place,
 // rather than leaving the address bar pointing at a pane that isn't on screen.
 window.addEventListener("hashchange", () => {
-  if (!applyHash(location.hash)) { listFilter = null; syncUrl(true); }
-  render(Object.values(panesById));
+  const ok = applyHash(location.hash);
+  if (!ok) { listFilter = null; syncUrl(true); }
+  // setActive() already schedules its own render, deliberately deferred so the dock
+  // highlight paints before the heavier reconcile. Rendering here too would both
+  // discard that and run the reconcile twice, so only the paths that DIDN'T go
+  // through setActive — a list filter, or the dead-pane fallback — render.
+  if (!ok || parseHash(location.hash)?.kind !== "pane") render(Object.values(panesById));
 });
 // Load-time restore. The hash names a pane the FIRST poll hasn't delivered yet, so this
 // cannot run at DOMContentLoaded — it runs from render() (see _restorePending), the one
