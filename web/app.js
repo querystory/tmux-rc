@@ -1488,16 +1488,19 @@ function applyHash(h) {
 }
 // Back/Forward, and someone editing the hash by hand. Unlike the load path there is
 // nothing to wait for here — the deck is already populated — so an unhonourable hash
-// (dead pane id) is dead for good: drop to the default view and correct the URL in place,
-// rather than leaving the address bar pointing at a pane that isn't on screen.
+// (dead pane id, `#/garbage`, malformed escapes) is dead for good: drop to the default
+// view and correct the URL in place, rather than leaving the address bar pointing at
+// something that isn't on screen.
 window.addEventListener("hashchange", () => {
+  // Parse ONCE, before syncUrl below rewrites location.hash out from under a re-parse.
+  const v = parseHash(location.hash);
   const ok = applyHash(location.hash);
-  if (!ok) { listFilter = null; syncUrl(true); }
+  if (!ok || !v) { listFilter = null; syncUrl(true); }
   // setActive() already schedules its own render, deliberately deferred so the dock
   // highlight paints before the heavier reconcile. Rendering here too would both
   // discard that and run the reconcile twice, so only the paths that DIDN'T go
-  // through setActive — a list filter, or the dead-pane fallback — render.
-  if (!ok || parseHash(location.hash)?.kind !== "pane") render(Object.values(panesById));
+  // through setActive — a list filter, or either fallback — render.
+  if (!ok || v?.kind !== "pane") render(Object.values(panesById));
 });
 // Load-time restore. ANY non-empty hash is deferred, not just pane hashes: a pane hash
 // names a pane the FIRST poll hasn't delivered yet, so this cannot run at DOMContentLoaded
