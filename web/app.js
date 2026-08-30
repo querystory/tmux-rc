@@ -1499,6 +1499,11 @@ function buildDockIcon(paneId) {
   // Jump to that pane's CARD — including from list mode (a dock tap means "show me
   // this pane", not "re-highlight it inside the list").
   b.onclick = () => { listFilter = null; setActive(paneId); };
+  // Long-press-and-drag this icon to reorder panes in tmux. Wired HERE, in the BUILD
+  // half, because icons are now persistent keyed nodes (see keyedList in dock()): the
+  // listeners attach exactly once per pane, for the node's whole life. Attaching in the
+  // apply half would stack a fresh set of listeners on every poll.
+  dragReorder(b);
   return b;
 }
 
@@ -1762,6 +1767,205 @@ function dock(states, act) {
         behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
   });
+}
+
+// Drag a dock icon left/right to REORDER panes, persisted into tmux (POST reorder →
+// move-window server-side; the next poll re-renders the new tmux order — tmux is the
+// source of truth, the optimistic shuffle below is just for responsiveness). Pointer
+// events, not HTML5 dnd (poor on touch). The gesture must not fight the dock's own
+// horizontal SCROLL: a reorder starts only after a LONG-PRESS hold in place — a quick
+// horizontal drag before the hold fires stays a scroll (we bail the moment the finger
+// moves past a small slop before the timer). On arm we add .dragging, whose
+// touch-action:none is what actually stops the strip from panning during the drag (a
+// stationary finger at arm time means no scroll is underway yet). Once held, the icon
+// follows the finger and the drop target is whichever icon the pointer is over.
+// Hold to arm; movement further than SLOP px (in ANY direction) before the timer fires
+// cancels the arm and leaves the gesture as a native scroll or tap.
+const HOLD_MS = 350, SLOP = 8;
+function dragReorder(icon) {
+  // sy is for the arm-cancel slop only; the drag itself translates on X alone (the dock
+  // is a horizontal strip), so sx doubles as the translation origin and sy does not.
+  let held = false, timer = 0, sx = 0, sy = 0, dragging = false, pid = null;
+  const el = dockEl;
+  // The long-press belongs to the reorder: without this, mobile browsers pop their
+  // native image context menu (Copy/Share image — the icon is an <img>) at ~500ms and
+  // swallow the gesture before the hold ever arms. Scoped to dock icons only.
+  icon.addEventListener("contextmenu", (e) => e.preventDefault());
+  // NO poll-render freeze here (this used to take the old global `busy`). Under the
+  // render invariant at the top of the file a poll only rewrites text/attrs on the very
+  // icon node the drag is already translating — it never replaces it — so there is
+  // nothing a mid-drag render can pull out from under the finger, and nothing a missed
+  // release could leave wedged.
+  const clear = () => {
+    clearTimeout(timer); held = dragging = false; pid = null;
+    icon.classList.remove("dragging");
+    icon.style.transition = ""; icon.style.transform = ""; icon.style.zIndex = "";
+    el.querySelectorAll(".drop-into").forEach((n) => n.classList.remove("drop-into"));
+  };
+  // The icon the pointer is currently over (ignoring the dragged one), for the drop.
+  // SAME-SESSION only: a reorder is window order within one session (the server
+  // rejects cross-session moves as 400), so an icon in another session's dock group
+  // must never light up as a drop target — the dashed ring would promise a move
+  // that bounces back on the next poll.
+  //
+  // Deliberately a DOM query, not a walk of panesById: a session's PARKED panes are
+  // folded behind its "+N" chip and have no icon, so they are excluded as drop targets
+  // for free. The drop therefore lands relative to the pane the user can actually see,
+  // which is the one they aimed at — a parked pane hidden between two visible icons
+  // keeps its own place in tmux's order and is not jumped over.
+  // Takes BOTH axes, and both call sites pass both, so the dashed ring and the drop can
+  // never disagree. Under pointer capture the pointer keeps reporting to this icon even
+  // when it has left the strip entirely, so an X-only test would ring a target the drop
+  // would then refuse — the highlight would promise a move that never happened.
+  const overIcon = (x, y) => {
+    const dr = el.getBoundingClientRect();
+    if (y < dr.top || y > dr.bottom) return null; // finger left the strip vertically
+    const sess = panesById[icon.dataset.pane]?.session;
+    for (const n of el.querySelectorAll(".dock-icon")) {
+      if (n === icon) continue;
+      if (panesById[n.dataset.pane]?.session !== sess) continue;
+      const r = n.getBoundingClientRect();
+      if (x >= r.left && x <= r.right) return n;
+    }
+    return null;
+  };
+  icon.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return; // left/touch only
+    if (pid != null) return; // a drag/hold from another pointer already owns this icon
+    sx = e.clientX; sy = e.clientY; pid = e.pointerId;
+    // Capture on DOWN (not at arm time) so pointerup/cancel always route back here even
+    // when the finger lifts off the icon — otherwise a press-hold-release-off-icon before
+    // HOLD_MS never clears the timer and the icon arms on an already-dead pointer, left
+    // mid-drag with no release coming. It also keeps move/up here once the icon
+    // translates out from under the finger.
+    // Best-effort, like the send-bar's capture below: setPointerCapture throws if the
+    // pointer is already gone or capture is unsupported, and an uncaught throw here
+    // would abort pointerdown and wedge the gesture. Without capture the drag still
+    // works while the finger stays over the icon.
+    try { icon.setPointerCapture(pid); } catch { /* capture is best-effort */ }
+    // Arm the reorder after a hold IN PLACE.
+    timer = setTimeout(() => {
+      held = true;
+      icon.classList.add("dragging");
+      icon.style.transition = "none"; icon.style.zIndex = "40";
+    }, HOLD_MS);
+  });
+  icon.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== pid) return; // only the pointer that started this gesture drives it
+    if (!held) {
+      // Moved before the hold armed ⇒ this is a scroll/tap, not a reorder: cancel the
+      // arm, release the down-time capture (so the dock scrolls normally), and drop
+      // ownership (pid) now — keeps the icon reusable immediately instead of wedged.
+      // BOTH axes: the dock scrolls horizontally but the PAGE scrolls vertically, so a
+      // finger starting a vertical scroll over an icon — or just drifting down during the
+      // 350ms hold — must cancel the arm too. An |dx|-only test let that drift arm a
+      // reorder the user never asked for.
+      if (Math.hypot(e.clientX - sx, e.clientY - sy) > SLOP) {
+        clearTimeout(timer);
+        try { icon.releasePointerCapture(pid); } catch { /* already released */ }
+        pid = null;
+      }
+      return;
+    }
+    // Armed: this gesture is a reorder, not a scroll. The .dragging class set on arm
+    // gives the icon touch-action:none (the reliable scroll-suppressor on touch); this
+    // preventDefault additionally covers mouse/pen and pointer-capture-only browsers.
+    e.preventDefault();
+    dragging = true;
+    icon.style.transform = `translateX(${e.clientX - sx}px)`;
+    const over = overIcon(e.clientX, e.clientY);
+    el.querySelectorAll(".drop-into").forEach((n) => n.classList.remove("drop-into"));
+    if (over) over.classList.add("drop-into");
+  });
+  const drop = (e) => {
+    if (e.pointerId !== pid) return; // ignore an unrelated pointer's up/cancel
+    clearTimeout(timer);
+    const wasDrag = held && dragging;
+    // A completed drag must not ALSO fire an icon's onclick (which would setActive a
+    // pane). preventDefault on pointerup isn't enough — swallow the one synthetic click
+    // that follows, in the capture phase. Registered on dockEl rather than the icon: the
+    // strip re-renders between this pointerup and the synthetic click, and dockEl is the
+    // node guaranteed to still be listening either way.
+    if (wasDrag) {
+      // BOOLEAN capture arg + manual self-removal, not { capture, once }. This file
+      // targets older iOS Safari elsewhere (see the MediaQueryList and AbortSignal notes),
+      // and an engine that predates the options-object treats the third argument as a
+      // truthy `capture` and IGNORES `once` — leaving a capture-phase swallow attached
+      // forever, eating every later tap on the dock. The boolean form behaves identically
+      // everywhere; `off` is idempotent, so the click path and the timeout can both call
+      // it. The timeout is the backstop for a drop that lands off any icon and so is
+      // never followed by a click.
+      const off = () => el.removeEventListener("click", swallow, true);
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); off(); };
+      el.addEventListener("click", swallow, true);
+      setTimeout(off, 400);
+      // overIcon itself rejects a release that is not over the strip vertically — under
+      // pointer capture the up can fire far above/below the dock (finger left the strip),
+      // and an X that happens to line up with an icon there must not trigger a surprise
+      // reorder. Sharing that rule with the highlight above is what keeps the dashed ring
+      // and the actual drop in agreement.
+      const over = overIcon(e.clientX, e.clientY);
+      if (over && over.dataset.pane !== icon.dataset.pane) {
+        // after: dropped on the RIGHT half of the target ⇒ place src after it.
+        const r = over.getBoundingClientRect();
+        reorderPane(icon.dataset.pane, over.dataset.pane, e.clientX > (r.left + r.right) / 2);
+      }
+    }
+    clear();
+  };
+  icon.addEventListener("pointerup", drop);
+  icon.addEventListener("pointercancel", (e) => {
+    if (e.pointerId !== pid) return;
+    clearTimeout(timer); clear();
+  });
+}
+
+// Optimistically re-order the local strip so the drop feels instant, then POST it; the
+// next /api/state poll reconciles to tmux's authoritative order.
+//
+// The order of the two halves matters: every guard below decides BOTH that the local
+// shuffle is impossible AND that the server would no-op or reject the same request, so
+// they all run BEFORE the fetch. A same-window drop, or a drop the client's own state
+// can't even represent, therefore costs no request and forges no audit record for an
+// action that never happens.
+function reorderPane(src, target, after) {
+  // Mirror what the SERVER actually does, or the optimistic view lies for a poll: the
+  // move is WINDOW-level (move-window), so every pane sharing src's window travels
+  // together and lands as a contiguous run. Moving the single dragged id would visibly
+  // tear a multi-pane window apart until the poll stitched it back.
+  // "\n" as the delimiter: a tmux session name can contain spaces and colons, so a
+  // printable separator could let two different (session, window) pairs collide into
+  // one key. A newline cannot appear in either field.
+  const key = (s) => `${s.session}\n${s.window_index}`;
+  const s0 = panesById[src], t0 = panesById[target];
+  if (!s0 || !t0) return;               // stale strip: a pane the client no longer knows
+  const srcWin = key(s0), dstWin = key(t0);
+  if (srcWin === dstWin) return;        // same window — the server would no-op this too
+  const ids = Object.keys(panesById);
+  const moving = ids.filter((id) => key(panesById[id]) === srcWin);
+  const rest = ids.filter((id) => key(panesById[id]) !== srcWin);
+  // Anchor on the TARGET WINDOW's run, not the single target pane: drop-before goes ahead
+  // of that window's first pane, drop-after lands past its last.
+  const first = rest.findIndex((id) => key(panesById[id]) === dstWin);
+  if (first < 0) return;
+  let last = first;
+  while (last + 1 < rest.length && key(panesById[rest[last + 1]]) === dstWin) last++;
+  rest.splice(after ? last + 1 : first, 0, ...moving);
+  // Fire-and-forget by design — the optimistic shuffle above is what the user sees, and
+  // the next poll reconciles to tmux either way (a rejected move simply snaps back). But
+  // a failure must not be SILENT: report it like every other mutation, so a reorder that
+  // never lands is queryable in telemetry instead of looking like a flaky finger. A
+  // non-2xx is a failure too, not just a thrown fetch.
+  fetch(`/api/panes/${encodeURIComponent(src)}/reorder`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target, after }),
+    signal: timeoutSignal(10000),
+  }).then((r) => {
+    if (!r.ok) reportError("reorder", { name: "http " + r.status, message: `${src}→${target}` });
+  }).catch((e) => reportError("reorder", e));
+  // render() rebuilds panesById from the states array it's given, so just hand it the
+  // states in the new order (= dock/list/swipe order) — no separate panesById rebuild.
+  render(rest.map((id) => panesById[id]));
 }
 
 // One list row per pane, built once and keyed by pane_id, so the row the user is
