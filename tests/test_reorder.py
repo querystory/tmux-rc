@@ -12,7 +12,7 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-from daemon import server, tmux
+from openbus import server, tmux
 
 
 def _path(pane_id):
@@ -218,7 +218,7 @@ def test_audit_detail_escapes_client_supplied_target(monkeypatch, caplog):
     _patch(monkeypatch, [_pane("%1")])
     c = TestClient(server.app)
     forged = "%2\nreorder_pane pane=%9 outcome=ok BOGUS"
-    with caplog.at_level(logging.INFO, logger="daemon.server.audit"):
+    with caplog.at_level(logging.INFO, logger="openbus.server.audit"):
         c.post(_path("%1"), json={"target": forged, "after": False})
     lines = [r.getMessage() for r in caplog.records]
     assert lines, "the reorder attempt must be audited at all"
@@ -232,7 +232,7 @@ def test_audit_detail_caps_an_overlong_target(monkeypatch, caplog):
     """A megabyte of target text must not become a megabyte of audit log."""
     _patch(monkeypatch, [_pane("%1")])
     c = TestClient(server.app)
-    with caplog.at_level(logging.INFO, logger="daemon.server.audit"):
+    with caplog.at_level(logging.INFO, logger="openbus.server.audit"):
         c.post(_path("%1"), json={"target": "%" + "A" * 5000, "after": False})
     for ln in (r.getMessage() for r in caplog.records):
         assert "A" * 200 not in ln
@@ -246,7 +246,7 @@ def test_audit_escapes_the_client_supplied_pane_id(monkeypatch, caplog):
     _patch(monkeypatch, [_pane("%1")])
     c = TestClient(server.app)
     forged = "%9\nAUDIT reorder_pane pane=%1 by someone-else"
-    with caplog.at_level(logging.INFO, logger="daemon.server.audit"):
+    with caplog.at_level(logging.INFO, logger="openbus.server.audit"):
         c.post(_path(forged), json={"target": "%1", "after": False})
     lines = [r.getMessage() for r in caplog.records]
     assert lines, "the attempt must be audited at all"
