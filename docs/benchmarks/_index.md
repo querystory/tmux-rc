@@ -4,7 +4,7 @@ title: "Benchmarks"
 
 # LLM Benchmarks
 
-Ad-hoc measurements of the hot-path classifier (`daemon/classify.py`'s `PARSER_PROMPT`)
+Ad-hoc measurements of the hot-path classifier (`openbus/classify.py`'s `PARSER_PROMPT`)
 across models/providers.
 
 {{< cards >}}
@@ -61,7 +61,7 @@ Notes:
 
 If latency matters, the evidence says attack the **input**, not the provider:
 
-- Trim `PRIOR_FRAMES` (`daemon/watcher.py`) — fewer continuity frames = less prefill.
+- Trim `PRIOR_FRAMES` (`openbus/watcher.py`) — fewer continuity frames = less prefill.
 - Shrink the static `PARSER_PROMPT`. It's the bulk of the 2,900 tokens.
 - Output is already small; little to gain there.
 

@@ -4,8 +4,8 @@ pending-question identity changes — NOT on cosmetic screen churn — and it mu
 across unchanged re-parses so the clock keeps climbing (the frozen-idle_seconds bug in
 #88). Time and tmux are mocked; nothing touches the real daemon or an LLM."""
 
-import daemon.watcher as W
-from daemon.watcher import Watcher
+import openbus.watcher as W
+from openbus.watcher import Watcher
 
 
 class _Pane:

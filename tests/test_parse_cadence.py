@@ -1,10 +1,10 @@
 """Parse cadence: the LLM runs on a real content change (vs. the last PARSE) or on a
 forced reparse — never on a timer. An unchanged screen must cost zero classify/parse
 calls no matter how long it sits, and a slowly-drifting screen must still re-parse on content
-alone (the parse-cadence note atop daemon/watcher.py; the ~58%-duplicate finding)."""
+alone (the parse-cadence note atop openbus/watcher.py; the ~58%-duplicate finding)."""
 
-import daemon.watcher as W
-from daemon.watcher import Watcher
+import openbus.watcher as W
+from openbus.watcher import Watcher
 
 
 class _Pane:

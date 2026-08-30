@@ -9,8 +9,8 @@ import json
 
 from fastapi.testclient import TestClient
 
-import daemon.server as S
-import daemon.tmux as T
+import openbus.server as S
+import openbus.tmux as T
 
 
 def test_default_launchers(monkeypatch):

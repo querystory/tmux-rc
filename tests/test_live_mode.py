@@ -6,7 +6,7 @@ tool call may touch a real terminal — the context builder and the reject paths
 
 import asyncio
 
-import daemon.live as L
+import openbus.live as L
 
 
 def _run(coro):
@@ -275,7 +275,7 @@ def test_live_usage_is_cumulative_not_summed():
 
 
 def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
-    import daemon.llm as llm
+    import openbus.llm as llm
     emitted = []
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     folded = {}

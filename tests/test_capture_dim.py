@@ -5,7 +5,7 @@ colors, so the parser LLM can still see what was visually muted; strip_dim colla
 marked capture back to the plain text the phone renders. SGR patterns pinned here were
 observed in live Claude Code panes."""
 
-from daemon.tmux import (
+from openbus.tmux import (
     _ANSI,
     _mark_dim,
     _mark_placeholder,
@@ -145,7 +145,7 @@ def test_tail_marked_preserves_placeholder_markers():
     # tail_marked must keep ⟪placeholder⟫ tokens whole too, not just ⟪dim⟫ — a long
     # placeholder line char-sliced to the budget must not emit a token fragment or an
     # orphaned close, and a tail opening inside the run re-opens the matching open.
-    from daemon.tmux import (
+    from openbus.tmux import (
         PLACEHOLDER_CLOSE,
         PLACEHOLDER_OPEN,
         tail_marked,
@@ -160,7 +160,7 @@ def test_tail_marked_preserves_placeholder_markers():
 
 
 def test_tail_marked_never_splits_or_orphans_markers():
-    from daemon.tmux import DIM_CLOSE, DIM_OPEN, tail_marked
+    from openbus.tmux import DIM_CLOSE, DIM_OPEN, tail_marked
 
     # Under budget: unchanged.
     assert tail_marked(f"a{DIM_OPEN}b{DIM_CLOSE}", 999) == f"a{DIM_OPEN}b{DIM_CLOSE}"

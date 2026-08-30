@@ -4,7 +4,7 @@ instant a pane switch / add / activity change happens instead of on a fixed inte
 
 import asyncio
 
-from daemon.watcher import Watcher
+from openbus.watcher import Watcher
 
 
 def _run(coro):
@@ -78,7 +78,7 @@ def test_fast_active_check_ignores_none_focus(monkeypatch):
     # A transient tmux error makes active_pane_id() return None. The fast check must NOT
     # treat that as "no pane focused" and clear tmux_active on every card (which would
     # bump the version and drop the UI's active selection) — it should bail unchanged.
-    from daemon import watcher as watcher_mod
+    from openbus import watcher as watcher_mod
 
     w = Watcher(target=None)
     w.states = _states({**A, "tmux_active": True}, {**B, "tmux_active": False})
