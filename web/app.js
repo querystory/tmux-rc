@@ -1092,8 +1092,11 @@ function render(states) {
   // poll. A URL already naming a pane must follow it, or reload/copy-link points at the
   // pane the user left. Forced replace (no history spam, and syncUrl no-ops when the hash
   // already matches); guarded on an existing pane hash so a bare URL is never stamped and
-  // a list view is never overwritten.
-  else if (!listFilter && parseHash(location.hash)?.kind === "pane") syncUrl(true);
+  // a list view is never overwritten. The _restorePending guard matters: on a cold load
+  // whose first polls are EMPTY, the restore above hasn't run yet and activeId() is null —
+  // syncing here would blank the deep link before the pane it names ever arrives.
+  else if (_restorePending === null && !listFilter && parseHash(location.hash)?.kind === "pane")
+    syncUrl(true);
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
   // panesById is set, because syncEvents' async completion checks activeId() (which
   // reads panesById) to decide whether to re-render the visible feed.
