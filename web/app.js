@@ -1088,6 +1088,12 @@ function render(states) {
     // dead link is the entry we are ON, and pushing would leave Back pointing back at it.
     syncUrl(true);
   }
+  // Focus can also move WITHOUT a tap: activeId() follows tmux/session focus from the
+  // poll. A URL already naming a pane must follow it, or reload/copy-link points at the
+  // pane the user left. Forced replace (no history spam, and syncUrl no-ops when the hash
+  // already matches); guarded on an existing pane hash so a bare URL is never stamped and
+  // a list view is never overwritten.
+  else if (!listFilter && parseHash(location.hash)?.kind === "pane") syncUrl(true);
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
   // panesById is set, because syncEvents' async completion checks activeId() (which
   // reads panesById) to decide whether to re-render the visible feed.
@@ -1422,11 +1428,12 @@ function viewHash() {
   const id = activeId();
   return id ? "#/pane/" + encodeURIComponent(id) : "";
 }
-// Write the current view to the URL. Don't call from render()'s steady-state path —
-// render runs on every poll, so it would rewrite history a few times a second; call it
-// where the view actually changes (dock/list/badge taps, setActive, the launcher's jump).
-// render()'s two guarded one-shot calls (load-time restore cleanup, filter-emptied
-// fallback) are the deliberate exceptions: each fires once on a real view change.
+// Write the current view to the URL. Never call this unguarded from render() — render
+// runs on every poll, so an unconditional push would rewrite history a few times a
+// second. Call it where the view actually changes (dock/list/badge taps, setActive, the
+// launcher's jump); render()'s own calls are all replaces guarded to fire only on a real
+// view change (restore cleanup, filter-emptied fallback, focus following an existing
+// pane hash — the last is per-poll but no-ops via the `next === cur` check below).
 //
 // push vs replace is decided from the TRANSITION, not per call site: leaving a list for a
 // card pushes, so Back returns to the list you came from (the SPA complaint in #162).
@@ -1489,9 +1496,11 @@ window.addEventListener("hashchange", () => {
   // through setActive — a list filter, or the dead-pane fallback — render.
   if (!ok || parseHash(location.hash)?.kind !== "pane") render(Object.values(panesById));
 });
-// Load-time restore. The hash names a pane the FIRST poll hasn't delivered yet, so this
-// cannot run at DOMContentLoaded — it runs from render() (see _restorePending), the one
-// place that knows state has landed.
+// Load-time restore. ANY non-empty hash is deferred, not just pane hashes: a pane hash
+// names a pane the FIRST poll hasn't delivered yet, so this cannot run at DOMContentLoaded
+// — it runs from render() (see _restorePending), the one place that knows state has
+// landed. Unrecognised hashes ride along and get rewritten there to the view actually
+// shown, so a garbage URL doesn't survive the load pretending it meant something.
 let _restorePending = location.hash || null;
 
 // How long a pane must sit IDLE before the dock folds it away as parked.
