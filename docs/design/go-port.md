@@ -148,7 +148,7 @@ few lines. No dependency, no subtlety.
 
 ### `telemetry.py` (213 LOC) — OTLP export
 
-Builds an OTLP-logs pipeline (gRPC) to the qsi-automation receiver, emitting one record
+Builds an OTLP-logs pipeline (gRPC) to the telemetry receiver, emitting one record
 per parse / action / pane-lifecycle event, with a fail-closed privacy gate
 (`otel_opt_in`, `TMUXRC_QSDEBUG`).
 

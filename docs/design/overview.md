@@ -79,7 +79,7 @@ also where a model's fuzziness-tolerance actually earns its keep.
 - **Flash Lite** is cheap and fast, and Gemini models are strong at reading both
   terminal text and screenshots — which matters because the timeline gives us images
   essentially for free, and a multimodal model can read a rendered screen directly.
-- **Vertex** because a Google project (`qs-backend-dev`) is available and reaching it is
+- **Vertex** because a Google Cloud project is already available and reaching it is
   one client construction with `vertexai=True`. (Auth has since moved from developer ADC
   to a long-lived service-account key so the unattended daemon doesn't wedge on reauth —
   see [design/durable-vertex-auth.md](durable-vertex-auth.md).)
@@ -88,7 +88,7 @@ also where a model's fuzziness-tolerance actually earns its keep.
   and more variable at structured extraction for no PoC benefit when Vertex is a free
   API call away.
 
-Crucially we **reimplement** the ~30-line Vertex call rather than importing qs-app's
+Crucially we **reimplement** the ~30-line Vertex call rather than importing the main app's
 `backend.genai.llm`. That library is excellent but pulls in FastAPI/SQLAlchemy/WorkOS
 and a config-loading lifecycle we don't want in a standalone tool. Copying the small,
 stable slice (client construction, inline image parts, `response_mime_type=json`) keeps

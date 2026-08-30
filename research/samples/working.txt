@@ -9,7 +9,7 @@
 ● Still "no pane found" — but only inside the probe. The difference: --save working — my arg parsing. args = [a for a in sys.argv[1:] if not a.startswith("--")] → ["working"] (the value after --save      
   doesn't start with --, so it's treated as the pane target!). So target="working" → no pane matches. Bug in my arg parsing. Let me fix it.                                                             
                                                                                                                                                                                                      
-● Update(~/src/qs/termiphone/research/probe.py)                                                                                                                                                             
+● Update(~/src/tmux-rc/research/probe.py)                                                                                                                                                             
   ⎿  Added 7 lines, removed 3 lines                                                                                                                                                                  
       113  def main() -> None:
       114      from google.genai import types                                                                                                                                                        
@@ -29,16 +29,16 @@
       125      if pane is None:                                                                                                                                                                         
                                                                                                                                                                                                      
 ● Running 1 shell command…                                                                                                                                                                            
-  ⎿  $ cd /home/shapor/src/qs/termiphone                                                                                                                                                                
-     GOOGLE_CLOUD_PROJECT=qs-backend-dev .venv/bin/python -m research.probe --save working 2>&1 | grep -vE 'Traceback|File "|raise|resp =|self\.|return await|^\s+\^|warnings\.warn|UserWarning|for that 
+  ⎿  $ cd ~/src/tmux-rc                                                                                                                                                                
+     GOOGLE_CLOUD_PROJECT=example-project .venv/bin/python -m research.probe --save working 2>&1 | grep -vE 'Traceback|File "|raise|resp =|self\.|return await|^\s+\^|warnings\.warn|UserWarning|for that 
      reason' | tail -80                                                                                                                                                                                     
                                                                                                                                                                                                             
 ✢ Wrangling… (2m 19s · ↓ 5.9k tokens)                                                 
   ⎿  Tip: Say "fan out subagents" and Claude sends a team. Each one digs deep so nothing gets missed.                                                                                                      
                                                                                                                                                                                                            
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── termiphone-dev ──
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── tmux-rc-dev ──
 ❯                                                                                                                                                                                                          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ~/src/qs/qs-app on docs/query-result-metadata-design | Opus 4.8 (1M context)   |  telemetry: •stats •prompts •tools
+  ~/src/example-app on docs/query-result-metadata-design | Opus 4.8 (1M context)   |  telemetry: •stats •prompts •tools
   session: +571/-423 lines · 47% ctx · 22m · $17.70   |  history: 542 prompts · 449 tools · 12.6MB · 22 imgs                                                                                                
   -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents                                                                                                                               

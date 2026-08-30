@@ -158,7 +158,7 @@ def test_agents_count_defaults_zero_without_subagents():
 
 
 def test_no_llm_fallback_idle_shell():
-    r = classify(_pane("bash"), "shapor@host:~/proj$ ", llm_fn=None)
+    r = classify(_pane("bash"), "user@host:~/proj$ ", llm_fn=None)
     assert r["tool"] == "shell" and r["activity"] == "idle"
 
 

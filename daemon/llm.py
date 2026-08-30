@@ -1,6 +1,6 @@
 """Minimal Gemini-Flash-Lite-via-Vertex client for the lazy classification pass.
 
-This is a deliberate ~1-screen reimplementation of the small slice of qs-app's
+This is a deliberate ~1-screen reimplementation of the small slice of the main app's
 `backend.genai.llm` we need, so tmux-rc stays standalone (no FastAPI/SQLAlchemy/
 WorkOS pull-in). Credentials come from Google ADC; only GOOGLE_CLOUD_PROJECT and an
 optional region are read from the environment.

@@ -17,7 +17,7 @@ flowchart LR
   phone["phone PWA"]
   subgraph gcp["Google Cloud"]
     iap["IAP<br/>(identity-aware proxy:<br/>Google SSO gate)"]
-    relay["tun.qs.dev relay<br/>(Cloud Run)"]
+    relay["tunnel relay<br/>(Cloud Run)"]
     iap --> relay
   end
   subgraph host["dev box (as the user)"]
@@ -38,7 +38,7 @@ flowchart LR
 **Why the traffic flows this way.** The daemon has **no inbound port** — nothing to
 port-forward, nothing exposed. Instead the `tunnel-client` process (running on the dev
 box, as the user) dials *outbound* to the Cloud Run relay and holds a WebSocket open.
-The phone hits `https://<slug>.tun.qs.dev`; **IAP** (Google's identity-aware proxy) gates
+The phone hits `https://<slug>.<tunnel-domain>`; **IAP** (Google's identity-aware proxy) gates
 that with Google SSO *before* any request reaches the relay, and an owner-gate check
 confirms the logged-in identity owns the slug. Authorized requests are then serialized
 and forwarded *down* the held WebSocket to the tunnel-client, which replays them against
@@ -67,10 +67,22 @@ stay attached to the same session at the same time.
   at a time with a dock of the others; the raw terminal streams live behind the card.
 - **The tunnel** — the daemon has no inbound port. A tunnel-client process dials *out* to
   a Cloud Run relay over a WebSocket; the relay forwards phone HTTP requests down that
-  socket and pipes responses back. The phone reaches `https://<slug>.tun.qs.dev`; IAP +
+  socket and pipes responses back. The phone reaches `https://<slug>.<tunnel-domain>`; IAP +
   an owner-gate authorize it. Detailed below.
 
-## The tunnel & IAP: how a phone request reaches localhost
+## Worked example: how a phone request reaches localhost
+
+> **This section describes one deployment, not a requirement.** The daemon speaks plain
+> HTTP on loopback and does not know or care how you reach it. What follows is the
+> authors' own setup — a private relay fronted by Google IAP — written out end to end
+> because a concrete chain explains the *shape* of the problem better than an abstract
+> one: outbound-only connection, authentication strictly in front of the daemon, and a
+> pipe that carries whole request/response pairs.
+>
+> You are not expected to reproduce it. Tailscale, a Cloudflare Tunnel with Access, and
+> any other authenticating front end all fill the same role — see
+> [Reaching the daemon from outside localhost](../../deploy/). Read the properties in
+> "Consequences worth internalizing" below as the bar any alternative should clear.
 
 No inbound port on the dev box, and two auth layers in front. A single phone request
 makes this hop chain:
@@ -95,7 +107,8 @@ sequenceDiagram
   IAP-->>Ph: HTTPS response
 ```
 
-Consequences worth internalizing:
+Consequences worth internalizing — these are the properties to look for in *whatever*
+front end you choose, not artifacts of this particular one:
 
 - **The connection is outbound-only.** Nothing listens for the internet on the dev box;
   the tunnel-client initiates and keeps the socket. A reboot or network blip just means
@@ -107,6 +120,9 @@ Consequences worth internalizing:
 - **The relay is a dumb pipe.** It serializes whole HTTP request/response pairs over the
   WebSocket — it does not stream, which is exactly why [live mode](#live-mode) uses
   long-poll rather than a phone-originated stream.
+- **Nothing here is load-bearing for the daemon.** It has no notion of relays, slugs, or
+  identity headers beyond one loopback-only trust claim for the audit log. Swap this
+  whole chain for a Tailscale address and the daemon behaves identically.
 
 ## The observation loop
 

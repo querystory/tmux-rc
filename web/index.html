@@ -278,6 +278,10 @@
     font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
   .launch-menu button:active { background: var(--accent-glow); }
   .launch-menu img { border-radius: 4px; display: block; }
+  /* Which session the new window lands in — the one thing you can't undo by looking. */
+  .launch-head { padding: 8px 12px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--border);
+    color: var(--fg-dim); font-size: 11px; font-weight: 600; letter-spacing: .02em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--surface); }

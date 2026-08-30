@@ -1,8 +1,18 @@
+---
+title: "Benchmarks"
+---
+
 # LLM Benchmarks
 
 Ad-hoc measurements of the hot-path classifier (`daemon/classify.py`'s `PARSER_PROMPT`)
-across models/providers. The question that started this: *can a faster-inference provider
-(Cerebras/Groq) beat Gemini Flash Lite's latency?*
+across models/providers.
+
+{{< cards >}}
+  {{< card link="gemini-3.5-flash-lite/" title="gemini-3.5-flash-lite vs 3.1-flash-lite" subtitle="Real-sample head-to-head on the pane classifier. Faster, but less reliable where it counts." >}}
+{{< /cards >}}
+
+The rest of this page covers the provider comparison. The question that started it: *can a
+faster-inference provider (Cerebras/Groq) beat Gemini Flash Lite's latency?*
 
 **Short answer: no — not for this workload.** The premise was that specialty-silicon
 providers stream output 10–20× faster, so a parse would be 3–4× quicker. Measured live,
@@ -64,5 +74,5 @@ These were one-off `python` probes, not a committed harness (we deliberately dro
 synthetic-harness idea — see `docs/design/`). Real-world comparison is done by switching
 the daemon's model live and reading per-call OTLP telemetry in QueryStory (metrics by
 default; pane text + output JSON under `TMUXRC_QSDEBUG=1`). Cerebras is OpenAI-compatible
-(`base_url=https://api.cerebras.ai/v1`); Flash Lite runs via Vertex (`project=qs-backend-dev`,
+(`base_url=https://api.cerebras.ai/v1`); Flash Lite runs via Vertex (`project=<your-gcp-project>`,
 `location=global`). Both used the live `PARSER_PROMPT` and a saved sample.

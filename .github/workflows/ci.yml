@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to full commit SHAs: a retargeted or compromised
+      # upstream tag can't change what CI runs. Dependabot (github-actions)
+      # bumps these and rewrites the trailing version comment.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+          # Pin the interpreter so a new runner image can't silently change it.
+          # pyproject requires >=3.12; uv fetches this itself, no setup-python needed.
+          python-version: "3.12"
+      - run: uv sync --locked
+      # The suite shells out to tmux (find_pane, capture, send-keys).
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: uv run pytest -q tests/

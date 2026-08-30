@@ -12,4 +12,4 @@
 │   3. No, and tell Claude what to do differently (esc)                          │
 │                                                                                │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  ~/src/qs/qs-app  main    Opus 4.8   14% ctx   2h 3m   $4.21
+  ~/src/example-app  main    Opus 4.8   14% ctx   2h 3m   $4.21
