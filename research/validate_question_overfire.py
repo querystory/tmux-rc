@@ -4,16 +4,16 @@ Runs the affected + control pane captures, plus a genuine tool-held permission p
 through the REAL Vertex client under BASELINE vs PATCHED system prompt. Because
 Flash-Lite varies run-to-run even at temperature 0, it reports the RATE at which a
 `question` fires over N trials (default 5; pass an int arg to change). The `question`
-object is what daemon/classify.py force-promotes to activity=waiting/waiting_on=user, so
+object is what openbus/classify.py force-promotes to activity=waiting/waiting_on=user, so
 its fire-rate IS the amber-badge signal. Proves:
   - AFFECTED panes lose the spurious `question` (agent's own trailing "?").
   - CONTROL panes are unchanged.
   - a GENUINE permission prompt STILL fires its `question` under the patched prompt.
 
-A minimal DRY extension of research/probe.py — reuses the real daemon.llm client and
+A minimal DRY extension of research/probe.py — reuses the real openbus.llm client and
 runs against FROZEN pane captures under research/samples/ (so both the baseline and the
 patched call see the identical text — live panes drift between calls). Regenerate the
-captures with `daemon.tmux.capture_pane(pid, mark_dim=True)` if you want a fresh set.
+captures with `openbus.tmux.capture_pane(pid, mark_dim=True)` if you want a fresh set.
 Run from the worktree root with the three Vertex env vars set:
     python -m research.validate_question_overfire
 """
@@ -25,16 +25,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from daemon.llm import _MODEL, _client
+from openbus.llm import _MODEL, _client
 
 _HERE = Path(__file__).parent
 _SAMPLES = _HERE / "samples"
-_PROMPT = _HERE.parent / "daemon" / "parser_prompt.txt"
+_PROMPT = _HERE.parent / "openbus" / "parser_prompt.txt"
 # PATCHED = the working-tree prompt (what ships). BASELINE = the same file at origin/main,
 # read from git so there's no committed duplicate to drift — the A/B is prompt-vs-prompt.
 PATCHED = _PROMPT.read_text(encoding="utf-8").strip()
 _baseline_proc = subprocess.run(
-    ["git", "show", "origin/main:daemon/parser_prompt.txt"],
+    ["git", "show", "origin/main:openbus/parser_prompt.txt"],
     capture_output=True, text=True, cwd=_HERE.parent,
 )
 BASELINE = _baseline_proc.stdout.strip()
@@ -42,7 +42,7 @@ if _baseline_proc.returncode != 0 or not BASELINE:
     # An empty/failed baseline (no origin/main, unfetched, wrong cwd) would silently make
     # the A/B compare PATCHED against nothing — fail fast rather than report noise.
     raise SystemExit(
-        "could not load baseline prompt from origin/main:daemon/parser_prompt.txt "
+        "could not load baseline prompt from origin/main:openbus/parser_prompt.txt "
         f"(git rc={_baseline_proc.returncode}): {_baseline_proc.stderr.strip()[:200]}\n"
         "run `git fetch origin` from the worktree first."
     )
@@ -54,7 +54,7 @@ CONTROLS = ["%49", "%24", "%54", "%52", "%48", "%16"]
 def _capture(pid: str) -> str:
     """A pane's frozen capture, if saved locally. Real captures are NOT committed (they
     hold live pane content); regenerate them with
-    `daemon.tmux.capture_pane(pid, mark_dim=True)` before running against live panes."""
+    `openbus.tmux.capture_pane(pid, mark_dim=True)` before running against live panes."""
     return (_SAMPLES / f"pane_{pid.replace('%', 'pct')}.txt").read_text(encoding="utf-8")
 
 # A genuine tool-held Claude Code permission box — the model MUST still fire a question

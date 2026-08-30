@@ -24,9 +24,9 @@ loss of an amber "tap me, I need you" badge.
 
 - **Model call path:** the daemon's real one. `research/probe.py`'s `_parse()` (which takes
   a `model` arg for this comparison) sends the pane text with the **production
-  `daemon/parser_prompt.txt`** as `system_instruction`, `temperature=0.0`,
+  `openbus/parser_prompt.txt`** as `system_instruction`, `temperature=0.0`,
   `response_mime_type=application/json`, via the same Vertex client
-  (`daemon.llm._client`). No hand-rolled prompt, no raw call that skips our prompting.
+  (`openbus.llm._client`). No hand-rolled prompt, no raw call that skips our prompting.
 - **Input:** each sample's `pane_text` is the **already-assembled payload** captured from a
   single production call — it includes the `[tmux: foreground process is '…']` prefix and
   whatever prior-frame / already-reported-events context `classify()` had embedded *at that
@@ -76,7 +76,7 @@ large: −0.38s). 3.5-lite writes ~5% more output tokens on average, so cost is 
 but **effectively identical** — **+$0.011 / 1k calls** (+0.8% of the $1.394 pane-text-only
 baseline in this table; +0.4% of the fully-accounted $2.66 — see the corrections below) —
 under the flash-lite pricing
-both models share in `daemon/llm.py`. *(Assumption: 3.5-lite bills at the same Vertex list
+both models share in `openbus/llm.py`. *(Assumption: 3.5-lite bills at the same Vertex list
 price as 3.1-lite. Confirm real list price before switching — if 3.5-lite costs more, the
 case gets weaker still, since it's not winning on quality.)*
 
@@ -88,7 +88,7 @@ than silently restated, since the original figures circulated.
 
 1. **Stale prices.** The original quoted `$0.526` / `$0.529` per 1k calls using
    **$0.10/$0.40** per M tokens. Those were `2.5-flash-lite`'s prices, still hardcoded long
-   after the move to 3.1. `daemon/llm.py` now carries the current
+   after the move to 3.1. `openbus/llm.py` now carries the current
    **$0.25 in / $1.50 out** (`_IN_PER_M` / `_OUT_PER_M`, overridable via
    `TMUXRC_IN_PER_M` / `TMUXRC_OUT_PER_M`) — the source of the prices quoted above, and the
    reason `research/probe.py` imports them rather than keeping a copy. Output being 3.75x

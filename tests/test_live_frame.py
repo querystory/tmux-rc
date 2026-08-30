@@ -8,7 +8,7 @@ import subprocess
 
 import pytest
 
-from daemon import server
+from openbus import server
 
 
 def _run(coro):

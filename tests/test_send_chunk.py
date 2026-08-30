@@ -6,7 +6,7 @@ in order, each under the cap, with the Enter still last."""
 import threading
 import time
 
-import daemon.tmux as T
+import openbus.tmux as T
 
 
 def test_large_literal_is_chunked_in_order(monkeypatch):

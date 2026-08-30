@@ -18,8 +18,8 @@ import json
 import sys
 from pathlib import Path
 
-from daemon import llm
-from daemon.classify import parser_prompt
+from openbus import llm
+from openbus.classify import parser_prompt
 
 from .harness import evaluate, format_table, load_corpus
 
@@ -27,7 +27,7 @@ from .harness import evaluate, format_table, load_corpus
 def _vertex_caller(model: str):
     """A `llm_fn(system, text) -> dict|None` bound to `model`, using the daemon's real
     Vertex client with production call settings (temperature 0, JSON mime) — the SAME
-    path daemon.llm.classify_text uses, so results match production. Kept here (not in
+    path openbus.llm.classify_text uses, so results match production. Kept here (not in
     harness.py) so the harness core stays import-light and stub-testable."""
     from google.genai import types
 
@@ -45,7 +45,7 @@ def _vertex_caller(model: str):
             # Reuse production's tolerant parser (salvages the first object when the
             # model emits trailing garbage after valid JSON — happens even with
             # response_mime_type=application/json), so the harness sees exactly what
-            # daemon.llm.classify_text would parse, not a stricter subset.
+            # openbus.llm.classify_text would parse, not a stricter subset.
             return llm._parse_json(resp.text)
         except (json.JSONDecodeError, ValueError):
             return None
@@ -82,12 +82,12 @@ def main() -> int:
         # so the meaningful content is identical either way — but the harness must not
         # add normalization of its own on top of what ships.)
         prompt_text = args.prompt.read_text(encoding="utf-8")
-        import daemon.classify as C
+        import openbus.classify as C
 
         C.parser_prompt = lambda: prompt_text  # type: ignore[assignment]
         print(f"prompt:  {args.prompt} (candidate)")
     else:
-        print(f"prompt:  daemon/parser_prompt.txt (production, {len(parser_prompt())} chars)")
+        print(f"prompt:  openbus/parser_prompt.txt (production, {len(parser_prompt())} chars)")
     print(f"model:   {args.model}")
     print(f"judge:   {args.judge_model}")
     print(f"samples: {len(samples)}\n")

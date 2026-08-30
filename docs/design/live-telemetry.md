@@ -35,7 +35,7 @@ And one forward-looking want that shapes the design even though we won't fully b
 
 ## The load-bearing constraints
 
-Everything below is bounded by the existing telemetry contract (daemon/telemetry.py) —
+Everything below is bounded by the existing telemetry contract (openbus/telemetry.py) —
 we are extending it, not inventing a second one:
 
 1. **Wholly optional, fail-closed.** No `OTEL_EXPORTER_OTLP_ENDPOINT` ⇒ every emit is a
@@ -199,7 +199,7 @@ makes that follow-up a small, isolated change instead of a cross-cutting one.
 
 ## MVP scope
 
-- `emit_live(...)` in daemon/telemetry.py under a new `tmux-rc.live` scope, reusing
+- `emit_live(...)` in openbus/telemetry.py under a new `tmux-rc.live` scope, reusing
   `_emit_record` and the opt-in gate. Attrs: `session`, `pane_uid`, `pane_label`,
   `tool`, `hold_s`, `changed`; plus `raw_bytes` on change rounds (sent/ratio stay in the
   middleware log — see open questions); `actor` when the trusted header is present.
