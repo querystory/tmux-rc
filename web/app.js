@@ -486,9 +486,11 @@ function setActive(id) {
   // watcher's view of tmux focus lags a tick or two behind that).
   pending = { id, ts: Date.now() };
   // The single URL write for every pane change (#162) — dock tap, list row, swipe,
-  // launcher jump all land here, and every one of them clears listFilter first, so the
-  // hash syncUrl computes is already the card view. AFTER `pending` is set: viewHash
-  // reads activeId(), which only reports the new pane once pending exists.
+  // launcher jump all land here with listFilter already null: list rows clear it
+  // explicitly, the rest (card tap, swipe, answer keys) only fire in card view where it
+  // was never set. Nothing here enforces that, so a new call site reachable FROM a list
+  // must clear it itself. AFTER `pending` is set: viewHash reads activeId(), which only
+  // reports the new pane once pending exists.
   syncUrl();
   // MOVE THE HIGHLIGHT FIRST, in this same task, before the full reconcile. A tap used to
   // show nothing until render() had walked the dock, the card, the peek and the event feed
@@ -1420,9 +1422,11 @@ function viewHash() {
   const id = activeId();
   return id ? "#/pane/" + encodeURIComponent(id) : "";
 }
-// Write the current view to the URL. NEVER call from render() — render runs on every poll,
-// so it would rewrite history a few times a second; call it only where the view actually
-// changes (dock/list/badge taps, setActive, the launcher's jump).
+// Write the current view to the URL. Don't call from render()'s steady-state path —
+// render runs on every poll, so it would rewrite history a few times a second; call it
+// where the view actually changes (dock/list/badge taps, setActive, the launcher's jump).
+// render()'s two guarded one-shot calls (load-time restore cleanup, filter-emptied
+// fallback) are the deliberate exceptions: each fires once on a real view change.
 //
 // push vs replace is decided from the TRANSITION, not per call site: leaving a list for a
 // card pushes, so Back returns to the list you came from (the SPA complaint in #162).
