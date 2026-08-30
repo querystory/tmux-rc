@@ -134,7 +134,7 @@ This generalizes well past tmux-rc, and it's the concept most worth stealing fro
 
 Answering prompts from a phone is the visible feature. The deeper reason is **orchestration** —
 driving a whole fleet of sessions from an *outer-loop agent*, not only a human. Picture an
-orchestrator that spins up several Codex / Claude Code / Gemini sessions, hands each a slice of work,
+orchestrator that spins up several Codex / Claude Code / Gemini CLI sessions, hands each a slice of work,
 and coordinates: notices when one blocks, pipes one's output into another, decides what to launch
 next. To reason about the fleet it needs a clean, live, structured read of **what each session is
 doing right now** — the same thing the phone UI needs, just consumed by code instead of eyes.
