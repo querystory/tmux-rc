@@ -6,9 +6,9 @@ other design notes go deep on individual pieces.
 
 ## The one idea
 
-**Observe the terminal, not the agent.** tmux-rc never integrates with Claude Code,
-Codex, Gemini, or any specific tool. It watches what a tmux pane *renders* — the same
-pixels a human sees — and sends keystrokes back, exactly as a human would. Everything
+**Observe the terminal, not the agent.** tmux-rc never integrates with Codex, Claude
+Code, Gemini, OpenCode, or any specific tool. It watches what a tmux pane *renders* —
+the same pixels a human sees — and sends keystrokes back, exactly as a human would. Everything
 below follows from that: the daemon is an observer with a keyboard, tmux is the system
 of record, and the phone is a dumb remote. No tool ever knows tmux-rc exists.
 

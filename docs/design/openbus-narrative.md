@@ -17,13 +17,13 @@ openbus's wedge is the same shape: **remote control of any agent harness, withou
 vendor lock-in.**
 
 You run coding agents in terminals. You leave your desk and they keep working — then
-one blocks on a question and sits idle for an hour. The vendor answer to this is
-Claude Code's `/remote-control`, and it defines the problem by what it refuses to do:
-locked to the Anthropic API (no Bedrock, no Vertex), and it drives exactly one
-harness. Your Codex pane, your Gemini pane, your OpenCode pane — invisible. Your
-Claude-on-Bedrock pane — invisible. The vendors will each ship their own remote
-control, each locked to their own harness and their own billing, because that's what
-vendors do.
+one blocks on a question and sits idle for an hour. The vendor answer to this stops at
+the vendor's own walls, and today's clearest example is Claude Code's
+`/remote-control`: it defines the problem by what it refuses to do — locked to the
+Anthropic API (no Bedrock, no Vertex), and it drives exactly one harness. Your Codex
+pane, your Gemini pane, your OpenCode pane — invisible. Your Claude-on-Bedrock pane —
+invisible. The vendors will each ship their own remote control, each locked to their
+own harness and their own billing, because that's what vendors do.
 
 openbus works one layer down, where lock-in can't reach: it reads the *terminal*.
 Any program in a pane — any harness, any provider, anything that prints text — shows
@@ -65,7 +65,7 @@ themselves. It is a multiplexer for harnesses and the bus between them.
 
 ## This already works
 
-The bus is not hypothetical. Today, a pane-management Claude session sits on the tmux
+The bus is not hypothetical. Today, a pane-management agent session sits on the tmux
 server, and Live Mode directs it in natural language — *"create a new pane for X and
 tell window 4 to hand this off to it"* — and it does: opens the pane, starts the
 agent, types the handoff into the other window. Agents talk to each other over tmux
@@ -128,8 +128,8 @@ multiplexer.
 ## Memory: the fourth client on the bus
 
 Agents that can talk but can't remember repeat themselves forever. Every harness
-writes transcripts — Claude Code in `~/.claude/projects`, Codex in
-`~/.codex/sessions` — each in its own format, in its own hidden directory, indexed by
+writes transcripts — Codex in `~/.codex/sessions`, Claude Code in
+`~/.claude/projects` — each in its own format, in its own hidden directory, indexed by
 nobody. An enormous corpus of decisions and dead ends that no agent can consult,
 including the agent that produced it.
 

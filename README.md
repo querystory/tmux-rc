@@ -1,9 +1,10 @@
 # tmux-rc
 
-Watch and control terminal AI agents (Claude Code, Codex, Gemini CLI — or any
-program) from your phone. A small local service reads a `tmux` pane, figures out
-what's happening, and shows a phone-native dashboard: status at a glance, alerts when
-an agent is blocked on a question, tappable answers, and a snapshot timeline.
+Watch and control terminal AI agents — any program in a tmux pane: Codex, Claude
+Code, Gemini CLI, OpenCode, or anything else that prints text — from your phone. A
+small local service reads a `tmux` pane, figures out what's happening, and shows a
+phone-native dashboard: status at a glance, alerts when an agent is blocked on a
+question, tappable answers, and a snapshot timeline.
 
 <p align="center">
   <img src="docs/img/card.png" alt="The tmux-rc dashboard on a phone, showing the agent dock and the focused agent's card" width="420">
@@ -17,10 +18,11 @@ Tap <strong>+</strong> to start a new agent in a new window, without touching th
   <img src="docs/img/launcher.png" alt="The launcher menu open over the dashboard, listing the agents available to start" width="420">
 </p>
 
-**Why not `/remote-control`?** Claude Code's remote control is locked to the Anthropic
-API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *terminal*,
-so it's vendor-agnostic on both axes — any agent, any model provider for the
-summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
+**Why not `/remote-control`?** Every vendor's coordination story stops at its own
+walls, and Claude Code's remote control is the clearest example: it is locked to the
+Anthropic API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the
+*terminal*, so it's vendor-agnostic on both axes — any agent, any model provider for
+the summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
 > **Status: proof of concept.** The all-pane watch/control slice works end to end,
 > across every pane on the tmux server: watch → classify → phone card → detect a
@@ -44,7 +46,7 @@ cp .env.example .env          # then edit .env: GOOGLE_CLOUD_PROJECT + GOOGLE_AP
 
 # In another terminal, start a tmux session and run an agent in it:
 tmux new -s work
-#   ... run claude / codex / gemini / anything ...
+#   ... run codex / claude / gemini / opencode / anything ...
 
 # Start tmux-rc (config is loaded from .env automatically):
 uv run python -m daemon.server
@@ -150,7 +152,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`) — the window name if you named the window, else the session name, else the cwd basename — so on a named window the session name does *not* match. The card title in the UI is not a valid target either; use a pane id when in doubt |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
-| `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |

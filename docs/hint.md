@@ -6,7 +6,7 @@ hints in the QueryStory "tmux-rc" project.
 ## What tmux-rc is
 
 tmux-rc is a phone dashboard for watching and controlling terminal AI coding agents
-(Claude Code, Codex, etc.) running in tmux. A local daemon polls each tmux **pane**,
+(Codex, Claude Code, etc.) running in tmux. A local daemon polls each tmux **pane**,
 captures the **visible screen text**, and sends it to a small LLM (the "parser") that
 returns structured JSON describing what's on screen — is an agent working, waiting for
 input, or idle; what it's doing; any menu/question/table/rewind-picker visible. The phone

@@ -7,7 +7,7 @@ Status: **draft / thinking** — no code yet.
 So far tmux-rc lets you *type into* whatever's in a pane. The bigger idea: let you
 **direct the environment by intent**, and have tmux-rc figure out and perform the
 concrete terminal actions. tmux-rc stops being a keyboard and becomes an
-orchestrator that drives Claude Code *and* tmux itself.
+orchestrator that drives the agents in your panes *and* tmux itself.
 
 Examples of intent (what you say) → actions (what it does):
 - "open a shell and run the tests" → new tmux window/pane, type `make test`, Enter.
