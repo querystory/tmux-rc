@@ -643,9 +643,14 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                 finally:
                     for t in side:
                         t.cancel()
-                    for t in side:
-                        with contextlib.suppress(Exception):
-                            await t
+                    # gather(return_exceptions=True) collects each side task's result —
+                    # INCLUDING the CancelledError from the cancel above — without raising.
+                    # A plain `await t` re-raises that CancelledError, and since it's a
+                    # BaseException (not Exception) in 3.12, contextlib.suppress(Exception)
+                    # let it escape: it masked the real end-of-session cause (a clean stop,
+                    # a WebSocketDisconnect, or a Gemini drop that should reconnect) and
+                    # surfaced as a bare "Exception in ASGI application" every single time.
+                    await asyncio.gather(*side, return_exceptions=True)
         except WebSocketDisconnect:
             raise  # client gone — nothing to reconnect for
         except Exception:
