@@ -1044,7 +1044,7 @@ function showUsage(u, err) {
 const viewToggle = document.getElementById("view-toggle");
 if (viewToggle) {
   viewToggle.querySelectorAll("button[data-view]").forEach((b) => {
-    b.innerHTML = licon(b.dataset.view === "agent" ? "terminal" : "panels", 15);
+    b.innerHTML = licon(b.dataset.view === "agent" ? "terminal" : "panels", 22);
     b.onclick = () => setViewMode(b.dataset.view);
   });
 }
