@@ -512,11 +512,15 @@ async def _send_ambient(session, text: str) -> None:
     mechanism; the prompt additionally fences [tmux update] messages off from replies."""
     from google.genai import types
 
-    with contextlib.suppress(Exception):  # a dropped session is the reconnect loop's job
+    try:
         await session.send_client_content(
             turns=types.Content(role="user", parts=[types.Part(text=text)]),
             turn_complete=False,
         )
+    except Exception:
+        # A dropped session is the reconnect loop's job, but a PERSISTENT non-transport
+        # failure would otherwise freeze the model's pane view with no signal.
+        logger.warning("[live] ambient context update failed", exc_info=True)
 
 
 async def _context_updater(session, watcher) -> None:
@@ -565,43 +569,40 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
     """Gemini → client: voice audio, both transcripts, and tool calls. Also meters the
     session — folds each message's usage_metadata into `meter` and emits a per-turn OTel
     record at every turn boundary."""
-    try:
-        while True:
-            async for response in session.receive():
-                if response.usage_metadata:
-                    meter.usage.add(response.usage_metadata)
-                if response.tool_call and response.tool_call.function_calls:
-                    for fc in response.tool_call.function_calls:
-                        # Log the verb + target only, never the payload — typed text can
-                        # carry secrets, and logs aren't gated by TMUXRC_QSDEBUG the way
-                        # telemetry/meter content is.
-                        pane = (fc.args or {}).get("pane_id") if isinstance(fc.args, dict) else None
-                        logger.info("[live] tool call: %s -> %s", fc.name, pane)
-                        meter.note(f"[typed] {fc.args}")
-                        await _handle_tool_call(websocket, session, fc, watcher, actor)
-                if response.data:
+    while True:
+        async for response in session.receive():
+            if response.usage_metadata:
+                meter.usage.add(response.usage_metadata)
+            if response.tool_call and response.tool_call.function_calls:
+                for fc in response.tool_call.function_calls:
+                    # Log the verb + target only, never the payload — typed text can
+                    # carry secrets, and logs aren't gated by TMUXRC_QSDEBUG the way
+                    # telemetry/meter content is.
+                    pane = (fc.args or {}).get("pane_id") if isinstance(fc.args, dict) else None
+                    logger.info("[live] tool call: %s -> %s", fc.name, pane)
+                    meter.note(f"[typed] {fc.args}")
+                    await _handle_tool_call(websocket, session, fc, watcher, actor)
+            if response.data:
+                await websocket.send_json(
+                    {"type": "audio", "data": base64.b64encode(response.data).decode()}
+                )
+            sc = response.server_content
+            if sc:
+                if sc.input_transcription and sc.input_transcription.text:
+                    meter.note("user: " + sc.input_transcription.text)
                     await websocket.send_json(
-                        {"type": "audio", "data": base64.b64encode(response.data).decode()}
+                        {"type": "transcript", "role": "user",
+                         "text": sc.input_transcription.text}
                     )
-                sc = response.server_content
-                if sc:
-                    if sc.input_transcription and sc.input_transcription.text:
-                        meter.note("user: " + sc.input_transcription.text)
-                        await websocket.send_json(
-                            {"type": "transcript", "role": "user",
-                             "text": sc.input_transcription.text}
-                        )
-                    if sc.output_transcription and sc.output_transcription.text:
-                        meter.note("model: " + sc.output_transcription.text)
-                        await websocket.send_json(
-                            {"type": "transcript", "role": "model",
-                             "text": sc.output_transcription.text}
-                        )
-                    if sc.turn_complete:
-                        meter.end_turn()
-                        await websocket.send_json({"type": "turn_complete"})
-    except asyncio.CancelledError:
-        pass
+                if sc.output_transcription and sc.output_transcription.text:
+                    meter.note("model: " + sc.output_transcription.text)
+                    await websocket.send_json(
+                        {"type": "transcript", "role": "model",
+                         "text": sc.output_transcription.text}
+                    )
+                if sc.turn_complete:
+                    meter.end_turn()
+                    await websocket.send_json({"type": "turn_complete"})
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
@@ -634,8 +635,12 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                 logger.info("[live] session up (model=%s, actor=%s)", LIVE_MODEL, actor)
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [
-                    asyncio.create_task(_receiver(websocket, session, watcher, actor, meter)),
-                    asyncio.create_task(_context_updater(session, watcher)),
+                    asyncio.create_task(
+                        _receiver(websocket, session, watcher, actor, meter), name="live-receiver"
+                    ),
+                    asyncio.create_task(
+                        _context_updater(session, watcher), name="live-context-updater"
+                    ),
                 ]
                 try:
                     await _forward_audio(websocket, session)
@@ -643,9 +648,17 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                 finally:
                     for t in side:
                         t.cancel()
-                    for t in side:
-                        with contextlib.suppress(Exception):
-                            await t
+                    # Bounded drain: a side task stuck in an un-cancellable unwind (e.g. genai's
+                    # generator finally awaiting a close handshake on a half-open socket) must not
+                    # delay the reconnect / websocket-close this finally gates by an OS TCP timeout.
+                    # wait() never raises for task outcomes, so the CancelledError from the cancel
+                    # above is absorbed here rather than escaping as it did under suppress(Exception).
+                    done, pending = await asyncio.wait(side, timeout=2)
+                    for t in pending:
+                        logger.warning("[live] side task %s did not unwind within 2s; abandoning it", t.get_name())
+                    for t in done:
+                        if not t.cancelled() and (exc := t.exception()) is not None:
+                            logger.warning("[live] side task %s ended in error: %r", t.get_name(), exc)
         except WebSocketDisconnect:
             raise  # client gone — nothing to reconnect for
         except Exception:

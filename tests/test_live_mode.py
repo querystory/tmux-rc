@@ -238,6 +238,126 @@ def test_context_updater_skips_timeouts(monkeypatch):
     assert len(sent) == 1 and "[tmux update]" in sent[0]
 
 
+# --- _run_session teardown / reconnect ---------------------------------------
+#
+# The regression these guard: on a clean stop, _run_session's finally cancels the
+# receiver + context-updater side tasks, and that cancellation must be ABSORBED —
+# pre-fix the CancelledError escaped contextlib.suppress(Exception) (it's a
+# BaseException in 3.12) and surfaced as a bare "Exception in ASGI application".
+
+
+class _Connect:
+    """Fake `client.aio.live.connect(...)` context manager. `boom` (if set) is raised
+    on __aenter__ to simulate a connect that fails before the session is up."""
+    def __init__(self, session, boom=None):
+        self._session, self._boom = session, boom
+
+    async def __aenter__(self):
+        if self._boom is not None:
+            raise self._boom
+        return self._session
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeClient:
+    """Serves the `client.aio.live.connect(...)` chain and counts connect attempts.
+    `connects` is one _Connect (or callable returning one) per expected attempt."""
+    def __init__(self, connects):
+        self._connects = list(connects)
+        self.attempts = 0
+        self.aio = self
+        self.live = self
+
+    def connect(self, model, config):
+        self.attempts += 1
+        cm = self._connects.pop(0)
+        return cm() if callable(cm) else cm
+
+
+class _ScriptedWS(_WS):
+    """A _WS whose receive_json replays a script: a dict is returned, an Exception is
+    raised (to drive WebSocketDisconnect / EOF paths)."""
+    def __init__(self, script):
+        super().__init__()
+        self.script = list(script)
+
+    async def receive_json(self):
+        item = self.script.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+async def _park(*args, **kwargs):
+    # Stand in for the receiver/context-updater: run until cancelled, so the finally's
+    # cancel() actually produces a CancelledError for the drain to absorb.
+    await asyncio.Event().wait()
+
+
+async def _instant_sleep(*args, **kwargs):
+    # Collapse the reconnect backoff so the test doesn't actually wait seconds.
+    return None
+
+
+def _statuses(ws):
+    return [m["status"] for m in ws.sent if m.get("type") == "status"]
+
+
+def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
+    # THE regression: a client "stop" ends the session without _run_session raising —
+    # the side-task CancelledError is drained, not leaked.
+    monkeypatch.setattr(L, "_receiver", _park)
+    monkeypatch.setattr(L, "_context_updater", _park)
+    client = _FakeClient([_Connect(_Session())])
+    monkeypatch.setattr(L, "_live_client", lambda: client)
+
+    ws = _ScriptedWS([{"action": "stop"}])
+    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))  # must not raise
+
+    assert client.attempts == 1  # clean stop → no reconnect
+    assert _statuses(ws)[-1:] == ["listening"] or "listening" in _statuses(ws)
+
+
+def test_run_session_reconnects_once_after_a_drop(monkeypatch):
+    # A first connect that errors before the session is up reconnects exactly once,
+    # then the second connect runs to a clean stop.
+    monkeypatch.setattr(L, "_receiver", _park)
+    monkeypatch.setattr(L, "_context_updater", _park)
+    monkeypatch.setattr(L.asyncio, "sleep", _instant_sleep)  # collapse reconnect backoff
+    client = _FakeClient([
+        _Connect(_Session(), boom=RuntimeError("gemini drop")),
+        _Connect(_Session()),
+    ])
+    monkeypatch.setattr(L, "_live_client", lambda: client)
+
+    ws = _ScriptedWS([{"action": "stop"}])
+    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))
+
+    assert client.attempts == 2  # exactly one reconnect
+    assert _statuses(ws).count("reconnecting") == 1
+
+
+def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
+    # A gone client (WebSocketDisconnect from receive_json) propagates out — there is
+    # nothing to reconnect to, so no second connect attempt is made.
+    monkeypatch.setattr(L, "_receiver", _park)
+    monkeypatch.setattr(L, "_context_updater", _park)
+    client = _FakeClient([_Connect(_Session())])
+    monkeypatch.setattr(L, "_live_client", lambda: client)
+
+    ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
+    try:
+        _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))
+        raised = False
+    except L.WebSocketDisconnect:
+        raised = True
+
+    assert raised  # the disconnect surfaces, not swallowed as a reconnectable drop
+    assert client.attempts == 1
+
+
 class _Detail:
     def __init__(self, modality, n):
         self.modality, self.token_count = modality, n
