@@ -1137,7 +1137,12 @@ const GROUP_LABELS = ["Waiting on you", "Awaiting next", "Running", "Parked"];
 function rankedList(states) {
   const subset = !listFilter || listFilter === "all"
     ? states.slice()
-    : states.filter((s) => (listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter));
+    : states.filter((s) =>
+        listFilter === "recent" ? isRecent(s)
+        // "attention" is the one-tap "what needs me" focus. Today it is exactly group 0
+        // (actOf === "waiting"); Phase 2 folds PRs-awaiting-review into the same focus.
+        : listFilter === "attention" ? actOf(s) === "waiting"
+        : actOf(s) === listFilter);
   return subset.sort((a, b) => prioGroup(a) - prioGroup(b) || stateDur(b) - stateDur(a));
 }
 
@@ -1260,15 +1265,21 @@ function render(states) {
   // deck; the dock stays up for its tallies (sub-filters) and the pane switcher.
   stopPeek();
   setCls(ui.deck, "hid", true);
-  setCls(ui.list, "hid", false);
   dock(states, act);
   panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
   // A pane whose detail drawer is open wants a current summary for async catch-up; ask the
   // daemon to freshen it (debounced per pane; a no-op when nothing new — see askSummaryRefresh).
   for (const id of rowOpen) if (panesById[id]) askSummaryRefresh(id);
+  // "Needs you" focus with nothing waiting: an empty list reads as broken, so show a calm note
+  // instead (the highlighted pill stays up in #filters, so the toggle is still there to exit).
+  const ranked = rankedList(states);
+  const attnEmpty = listFilter === "attention" && ranked.length === 0;
+  setCls(ui.list, "hid", attnEmpty);
+  setCls(ui.empty, "hid", !attnEmpty);
+  if (attnEmpty) { setCls(ui.spinner, "hid", true); setText(ui.emptyText, "Nothing needs you right now."); }
   // Order + group headers all live in applyList, keyed so a group boundary appearing or
   // disappearing inserts/removes exactly that header.
-  applyList(ui.list, states, rankedList(states), act);
+  applyList(ui.list, states, attnEmpty ? [] : ranked, act);
   applyExpandBtn(states);
   updateBar(panesById[act]);
 }
@@ -1809,8 +1820,16 @@ function dock(states, act) {
   // both the largest and the least actionable on the strip, and "N recent" below now
   // carries the half that matters. The idle panes are still reachable — "all" lists
   // everything, and a session's parked ones sit behind its "+N" chip.
-  const tallies = ["waiting", "running", "compacting", "unknown"]
-    .filter((a) => n[a]).map((a) => ({ key: a, label: `${n[a]} ${a}` }));
+  // The one-tap "what needs me" focus, kept at the FRONT and styled distinctly (.badge.attn)
+  // — it is the headline action, not one tally among many, so it stands in for the plain
+  // "N waiting" pill (waiting IS what needs you). Shown whenever something needs you, or while
+  // its own filter is active so you can always toggle back out. Phase 2 adds PRs to the count.
+  const tallies = [];
+  const nAttn = n.waiting || 0;
+  if (nAttn || listFilter === "attention")
+    tallies.push({ key: "attention", label: `Needs you · ${nAttn}`, attn: true });
+  ["running", "compacting", "unknown"]
+    .filter((a) => n[a]).forEach((a) => tallies.push({ key: a, label: `${n[a]} ${a}` }));
   // "N recent" — the count the user actually wants at a glance: how much of the fleet is
   // live right now, which no single activity badge answers (a waiting pane and a running
   // pane are both recent). Same predicate the dock folds on, so the number and the strip
@@ -1825,16 +1844,17 @@ function dock(states, act) {
   // ONE node whose text changes as the count moves, not a new node per poll.
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
-    b.className = "badge b-" + t.key;
+    b.className = "badge b-" + t.key + (t.attn ? " attn" : "");
     // A tally is an Orchestrator action — it sub-filters the ranked fleet list. Tapping one
     // from Agent View jumps to Orchestrator (setViewMode re-renders); already there, re-render.
     b.onclick = () => {
-      listFilter = t.key;
+      // "Needs you" is a TOGGLE — tapping it again leaves the focus; the plain tallies just set.
+      listFilter = t.key === "attention" && listFilter === "attention" ? "all" : t.key;
       if (isAgentView()) setViewMode("orchestrator");
       else render(Object.values(panesById));
     };
     return b;
-  }, (b, t) => setText(b, t.label));
+  }, (b, t) => { setText(b, t.label); setCls(b, "active", t.key === listFilter); });
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center

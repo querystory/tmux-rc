@@ -323,6 +323,13 @@
   #filters:empty { display: none; }
   .dock-counts .badge { border: 0; cursor: pointer; font-family: inherit; }
   .badge.b-all { background: var(--chrome); color: var(--fg-mid); }
+  /* "Needs you" — the one-tap attention focus (Phase 1: waiting panes; later also PRs to
+     review). The headline action, pinned first in #filters, so it is a FILLED amber pill,
+     brighter than the muted .b-waiting tally it replaces. .active is its engaged state (the
+     focus is on); any engaged filter pill also gets a faint ring so the current filter reads. */
+  .badge.attn { background: var(--amber); color: #1f1600; }
+  .badge.active { box-shadow: inset 0 0 0 1px var(--fg-faint); }
+  .badge.attn.active { box-shadow: 0 0 0 2px var(--amber-text); }
   /* "N recent" spans activities, so it must not borrow any activity's colour (green would
      claim running, amber waiting). Accent-tinted: a navigational count, not a state. */
   .badge.b-recent { background: var(--sel-bg); color: var(--accent-text); }
