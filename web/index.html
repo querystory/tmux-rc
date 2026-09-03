@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- interactive-widget=resizes-content: when the soft keyboard opens, SHRINK the layout
+     viewport (not just the visual one) so 100dvh, #bar's bottom:0 and #panes' height all
+     recompute above the keyboard with no JS. Supported on Chrome/Android/Edge; iOS Safari
+     ignores it and falls back to the visualViewport lift in app.js (which also feeds --kb
+     back into the scroller heights). viewport-fit=cover keeps the notch insets. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <meta name="theme-color" content="#0b0f14" />
 <!-- Full screen on phones: launch from the home-screen icon (Add to Home Screen).
      The manifest's display:standalone covers Android/modern iOS; these metas cover
@@ -80,11 +85,12 @@
      those code points while ASCII still renders in the preferred ui-monospace. */
   :root { --mono-term: ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  /* Flex-column layout: header + scrolling panes + bar. The bar is a normal flex
-     child (NOT position:fixed), so when the mobile keyboard opens and shrinks the
-     visual viewport, the layout compresses and the bar stays right above the keyboard
-     — cards scroll within #panes instead of the whole page scrolling off. Uses dvh so
-     it tracks the keyboard-adjusted viewport. */
+  /* Header + scrolling #panes + bar. #top and #bar are position:fixed (see their rules);
+     #panes is the scroller between them, its top/bottom padding reserving their heights.
+     Keyboard handling: on Chrome/Android the viewport meta's interactive-widget shrinks the
+     layout viewport, so 100dvh and #bar's bottom:0 recompute above the keyboard for free; on
+     iOS Safari (which ignores it) app.js lifts #bar via visualViewport and publishes --kb,
+     which #panes/.deck subtract so their content clears the lifted bar. */
   body {
     margin: 0; font: 15px/1.4 -apple-system, system-ui, sans-serif;
     background: var(--bg); color: var(--fg);
@@ -404,7 +410,10 @@
      context strictly BELOW it, so the strip and its fillets pass BEHIND the ribbon rather
      than over it — the fillets' own z-index 6 is then local to #panes and can no longer
      out-paint the ribbon (both were 6, and #panes comes later in DOM order). */
-  #panes { padding: calc(var(--top-h, 122px) + 8px) 12px calc(var(--bar-h, 150px) + 8px);
+  /* --kb is the soft-keyboard height (app.js sets it from visualViewport on iOS, where the
+     layout viewport does NOT shrink; 0 elsewhere). Added to the bottom padding so list-mode
+     content clears the bar once it has ridden up above the keyboard. */
+  #panes { padding: calc(var(--top-h, 122px) + 8px) 12px calc(var(--bar-h, 150px) + 8px + var(--kb, 0px));
     display: flex; flex-direction: column; gap: 10px; overflow-x: hidden;
     position: relative; z-index: 5; }
   #panes.cardmode { padding-bottom: 0; }
@@ -427,7 +436,7 @@
     /* The safe-area inset is part of the 100dvh the chrome vars never see — the body
        pads it above #top, so on a notched phone omitting it here pushes the deck's
        bottom exactly that far back under the bar. Zero everywhere else. */
-    height: calc(100dvh - env(safe-area-inset-top, 0px) - var(--top-h, 122px) - var(--bar-h, 150px));
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - var(--top-h, 122px) - var(--bar-h, 150px) - var(--kb, 0px));
     overflow: hidden; display: flex; flex-direction: column; }
   /* The card COVERS the terminal — it is a sheet lying on top of it, not a panel butted
      against it. Two things make that read:

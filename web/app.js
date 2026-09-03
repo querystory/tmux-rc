@@ -3969,17 +3969,24 @@ const barEl = document.getElementById("bar");
 }
 if (window.visualViewport && barEl) {
   const vv = window.visualViewport;
-  // Keyboard height = how much the layout viewport exceeds the visible viewport. Lift
-  // the fixed bar (bottom:0) by that amount so it rides just above the keyboard. No
-  // offsetHeight reads (which mis-measured and pushed it off-screen) — just a bottom
-  // offset, clamped to >=0.
+  // Keyboard height = how much the layout viewport exceeds the visible viewport. This is
+  // nonzero only where the layout viewport does NOT shrink for the keyboard — i.e. iOS
+  // Safari (which ignores interactive-widget). On Chrome/Android the meta tag shrinks the
+  // layout viewport itself, so innerHeight already tracks the keyboard and kb ≈ 0.
+  // Lift the fixed bar (bottom:0) by kb so it rides just above the keyboard, and publish
+  // --kb so #panes/.deck shrink by the same amount (else their content sits behind the
+  // lifted bar). No offsetHeight reads (they mis-measured and pushed it off-screen).
   const fit = () => {
     const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     barEl.style.bottom = kb + "px";
+    document.documentElement.style.setProperty("--kb", kb + "px");
   };
   vv.addEventListener("resize", fit);
   vv.addEventListener("scroll", fit);
-  bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
+  // The keyboard animates open over ~300ms and visualViewport's resize can lag or, if the
+  // keyboard was already up, not fire at all on a focus change — so re-fit across the
+  // animation window rather than trusting a single early tick.
+  bar.input && bar.input.addEventListener("focus", () => [0, 150, 350].forEach((d) => setTimeout(fit, d)));
   fit();
 }
 
