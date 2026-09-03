@@ -14,13 +14,16 @@ import subprocess
 import time
 from functools import partial
 
-from . import tmux
+from . import github, tmux
 from .classify import bootstrap, classify
 from .llm import backing_off, classify_text, summarize_events
 
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
+# Review-requested PRs refresh on this cadence — far slower than the tmux tick: PR review is
+# async work, and a shorter interval just spends gh/GitHub calls for no benefit (see github.py).
+REVIEW_POLL_SECONDS = 90
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
 # no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop). 0.1s
 # is the perceived floor for "instant" switching; the cost is one local `display-message`
@@ -143,6 +146,10 @@ class Watcher:
         self.use_llm = use_llm
         self._warned_no_target = False  # warn once, not every poll
         self.states: list[dict] = []  # raw LLM JSON dicts, piped straight to the UI
+        # Review-requested PRs for the "Needs you" attention focus — a NON-tmux data source,
+        # refreshed on its own slow cadence by _reviews_loop and served alongside `states` in
+        # /api/state. Empty when the gh integration is disabled/unavailable (see daemon.github).
+        self.reviews: list[dict] = []
         self.events_log: dict[
             str, list[dict]
         ] = {}  # pane_id -> activity-log cache [{text, file?, meta?, ts, historical?}]
@@ -259,10 +266,31 @@ class Watcher:
     def start(self) -> None:
         self._evloop = asyncio.get_running_loop()  # for thread-safe _wake from handlers
         self._task = asyncio.create_task(self._loop())
+        # Reviews poll on their own task/cadence — a network call must never sit on the tmux
+        # tick. No-ops immediately when the gh integration is disabled/unavailable.
+        self._reviews_task = asyncio.create_task(self._reviews_loop())
 
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
+        if getattr(self, "_reviews_task", None):
+            self._reviews_task.cancel()
+
+    async def _reviews_loop(self) -> None:
+        """Refresh review-requested PRs on a slow cadence, off the tmux tick. Only bumps the
+        state version (waking the /api/state hold) when the review set actually changes, so a
+        quiet review queue costs one gh call per REVIEW_POLL_SECONDS and no client churn."""
+        if not github.enabled():
+            return  # gh missing or TMUXRC_GH_REVIEWS=0 — never poll
+        while True:
+            try:
+                revs = await asyncio.to_thread(github.fetch_review_requests)
+                if revs != self.reviews:
+                    self.reviews = revs
+                    self._bump_state_if_changed(self.states)  # fp folds in reviews
+            except Exception:  # noqa: BLE001 - a bad fetch must never kill the loop
+                logger.warning("reviews loop tick failed", exc_info=True)
+            await asyncio.sleep(REVIEW_POLL_SECONDS)
 
     def digest(self) -> list[dict]:
         """Per-pane current state PLUS recent history, for agent/programmatic consumers.
@@ -534,7 +562,12 @@ class Watcher:
         return "\n".join(parts)
 
     def _bump_state_if_changed(self, states: list[dict]) -> None:
-        fp = self._deck_fp(states)
+        # Fold the reviews into the fingerprint so a reviews-only change (the deck unchanged)
+        # still bumps the version and wakes the /api/state hold — repr keeps None distinct
+        # from the string "None", same reason as _deck_fp.
+        fp = self._deck_fp(states) + "\n@rev:" + repr(
+            [(r.get("id"), r.get("updated_at"), r.get("title")) for r in self.reviews]
+        )
         if fp == self._state_fp:
             return
         self._state_fp = fp

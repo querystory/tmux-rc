@@ -266,6 +266,8 @@ const LUCIDE = {
   // Agent View (a terminal prompt) and Orchestrator View (a dashboard of panels).
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   panels: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  // git-pull-request — marks a "Review requested" row.
+  pr: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -442,6 +444,9 @@ function isReparsing(s) {
 // tells tmux to focus that pane; the next poll renders the new truth. No client-side
 // selection state.
 let panesById = {}; // latest state per pane, for the bottom bar to act on
+// Review-requested PRs from /api/state (a non-pane "needs you" source). Module-level, like
+// panesById, so a re-render triggered by anything (not just a fresh poll) still sees them.
+let reviewItems = [];
 // A selection we've told tmux about but the watcher hasn't observed yet. Without this,
 // the poll right after a switch still carries the OLD tmux_active and flips the UI
 // back for a beat (then forward again) — the "ticky" double-switch. Held until the
@@ -567,6 +572,17 @@ function fmtIdle(s) {
   if (s < 60) return s + "s";
   if (s < 3600) return Math.floor(s / 60) + "m";
   return Math.floor(s / 3600) + "h";
+}
+
+// Compact age from an ISO timestamp (a PR's updated_at) — m/h/d. Reviews refresh only on the
+// daemon's slow cadence, so this need not tick live; "" for a missing/unparseable stamp.
+function fmtAge(iso) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 3600) return Math.max(1, Math.floor(s / 60)) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h";
+  return Math.floor(s / 86400) + "d";
 }
 
 // Seconds a pane has been in its current state, computed LIVE from state_since (epoch
@@ -842,6 +858,7 @@ async function poll() {
     // Legacy daemons omit `booted`; treat its absence as booted so old servers keep
     // their previous behavior (empty ⇒ "no panes") rather than spinning forever.
     _booted = data.booted !== false;
+    reviewItems = Array.isArray(data.reviews) ? data.reviews : [];
     render(data.panes || []);
     return ok; // ok=false (version 0 / legacy daemon) → pollLoop backs off
   } catch (e) {
@@ -1270,16 +1287,20 @@ function render(states) {
   // A pane whose detail drawer is open wants a current summary for async catch-up; ask the
   // daemon to freshen it (debounced per pane; a no-op when nothing new — see askSummaryRefresh).
   for (const id of rowOpen) if (panesById[id]) askSummaryRefresh(id);
-  // "Needs you" focus with nothing waiting: an empty list reads as broken, so show a calm note
-  // instead (the highlighted pill stays up in #filters, so the toggle is still there to exit).
+  // Reviews show in the full fleet, the "all" list, and the "Needs you" focus — but NOT when
+  // a specific activity filter is on (there you asked for those panes, not PRs).
+  const showReviews = !listFilter || listFilter === "all" || listFilter === "attention";
+  const revs = showReviews ? reviewItems : [];
+  // "Needs you" focus with nothing waiting AND no reviews: an empty list reads as broken, so
+  // show a calm note (the highlighted pill stays in #filters, so the toggle is still there).
   const ranked = rankedList(states);
-  const attnEmpty = listFilter === "attention" && ranked.length === 0;
+  const attnEmpty = listFilter === "attention" && ranked.length === 0 && revs.length === 0;
   setCls(ui.list, "hid", attnEmpty);
   setCls(ui.empty, "hid", !attnEmpty);
   if (attnEmpty) { setCls(ui.spinner, "hid", true); setText(ui.emptyText, "Nothing needs you right now."); }
   // Order + group headers all live in applyList, keyed so a group boundary appearing or
   // disappearing inserts/removes exactly that header.
-  applyList(ui.list, states, attnEmpty ? [] : ranked, act);
+  applyList(ui.list, states, attnEmpty ? [] : ranked, act, attnEmpty ? [] : revs);
   applyExpandBtn(states);
   updateBar(panesById[act]);
 }
@@ -1825,7 +1846,8 @@ function dock(states, act) {
   // "N waiting" pill (waiting IS what needs you). Shown whenever something needs you, or while
   // its own filter is active so you can always toggle back out. Phase 2 adds PRs to the count.
   const tallies = [];
-  const nAttn = n.waiting || 0;
+  // Attention = waiting panes + review-requested PRs (the same set the focus shows).
+  const nAttn = (n.waiting || 0) + reviewItems.length;
   if (nAttn || listFilter === "attention")
     tallies.push({ key: "attention", label: `Needs you · ${nAttn}`, attn: true });
   ["running", "compacting", "unknown"]
@@ -2110,29 +2132,83 @@ function applyRow(el, s, act) {
   }
 }
 
+// A "Review requested" row: a tappable PR that opens on GitHub in a new tab. It is a real
+// <a target="_blank"> (same safe pattern as applyLinks) — not a pane, so it has no drawer,
+// options or close button. Built once, kept, and re-pointed by applyReviewRow (the render
+// invariant), reading the current PR at apply time. Untrusted GitHub text goes through
+// safeText, and the repo/#number are always shown so a hostile title can't disguise the row.
+function buildReviewRow() {
+  const a = document.createElement("a");
+  a.className = "review-row";
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.onclick = (e) => e.stopPropagation(); // opening a PR must not toggle/select anything
+  const icon = document.createElement("span");
+  icon.className = "rv-icon";
+  icon.innerHTML = licon("pr", 15);
+  const body = document.createElement("span");
+  body.className = "rv-body";
+  a._top = document.createElement("span");
+  a._top.className = "rv-top";      // owner/repo #number — the identity, never model text
+  a._sub = document.createElement("span");
+  a._sub.className = "rv-sub";      // title · @author · age
+  body.append(a._top, a._sub);
+  a.append(icon, body);
+  return a;
+}
+
+function applyReviewRow(a, rv) {
+  setAttr(a, "href", /^https?:\/\//.test(rv.url || "") ? rv.url : "#");
+  const repo = safeText(rv.repo || "", 48);
+  setText(a._top, `${repo} #${rv.number}`);
+  const title = safeText(rv.title || "", 90) || "(untitled PR)";
+  const sub = [title, rv.author && "@" + safeText(rv.author, 32), fmtAge(rv.updated_at)]
+    .filter(Boolean).join(" · ");
+  setText(a._sub, sub);
+  setAttr(a, "aria-label", `Review requested: ${repo} #${rv.number} — ${title}. Opens on GitHub.`);
+}
+
 // The Orchestrator list is ranked by PRIORITY GROUP (see rankedList/prioGroup), so it is
 // grouped by "how much this pane needs you" rather than by tmux session. `subset` arrives
 // already sorted, so group values are monotonic and a header is just "insert one where the
 // group changes". Headers and rows share ONE keyed list, because .sess-hdr:first-child is a
 // structural selector — the header has to be a real sibling at the right index, not a
 // wrapper. An empty `subset` (Agent View clearing the list) yields no items ⇒ host emptied.
-function applyList(host, states, subset, act) {
+function applyList(host, states, subset, act, reviews = []) {
   // Drop expansion state for panes that no longer exist (same discipline as foldOpen).
   for (const id of rowOpen) if (!panesById[id]) rowOpen.delete(id);
   const items = [];
   let lastGroup = -1;
+  // The "Review requested" group sits right AFTER the "Waiting on you" panes (group 0) and
+  // before everything else — the two acute "needs you" categories together at the top. Placed
+  // the first time a pane of group ≥ 1 appears; if none do (all waiting, or no panes), the
+  // trailing placeReviews() drops it at the end of the block instead.
+  let reviewsPlaced = reviews.length === 0;
+  const placeReviews = () => {
+    if (reviewsPlaced) return;
+    items.push({ rvhdr: true });
+    reviews.forEach((rv) => items.push({ rv }));
+    reviewsPlaced = true;
+  };
   subset.forEach((s) => {
     const g = prioGroup(s);
+    if (g >= 1) placeReviews();
     if (g !== lastGroup) { items.push({ hdr: true, group: g }); lastGroup = g; }
     items.push({ hdr: false, s });
   });
+  placeReviews();
   keyedList(host, items,
-    (it) => (it.hdr ? "g:" + it.group : "r:" + it.s.pane_id),
-    (it) => (it.hdr ? document.createElement("div") : buildRow(it.s.pane_id)),
+    (it) => it.hdr ? "g:" + it.group : it.rvhdr ? "g:reviews" : it.rv ? "rv:" + it.rv.id : "r:" + it.s.pane_id,
+    (it) => it.hdr || it.rvhdr ? document.createElement("div") : it.rv ? buildReviewRow() : buildRow(it.s.pane_id),
     (node, it) => {
       if (it.hdr) {
         setAttr(node, "class", "sess-hdr grp g" + it.group);
         setText(node, GROUP_LABELS[it.group]);
+      } else if (it.rvhdr) {
+        setAttr(node, "class", "sess-hdr grp g-reviews");
+        setText(node, "Review requested");
+      } else if (it.rv) {
+        applyReviewRow(node, it.rv);
       } else {
         applyRow(node, it.s, act);
       }

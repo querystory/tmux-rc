@@ -211,6 +211,19 @@
   .sess-hdr:first-child { padding-top: 2px; }
   .sess-hdr.c1 { color: var(--sessc1); } .sess-hdr.c2 { color: var(--sessc2); }
   .sess-hdr.c3 { color: var(--sessc3); } .sess-hdr.c4 { color: var(--sessc4); }
+  /* "Review requested" group header — accent-tinted to read as its own kind of item (PRs),
+     distinct from the amber "Waiting on you" pane group above it. */
+  .sess-hdr.g-reviews { color: var(--accent-text); }
+  /* A review row is a tappable PR link (buildReviewRow), styled like a .prow card but with no
+     drawer/close chrome. Two lines: owner/repo #number, then title · @author · age. */
+  .review-row { display: flex; align-items: center; gap: 10px; text-decoration: none;
+    color: var(--fg); background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 12px; }
+  .review-row:active { background: var(--chrome); }
+  .rv-icon { flex: none; line-height: 0; color: var(--accent-text); }
+  .rv-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .rv-top { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rv-sub { font-size: 12px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* tmux window number leading a row's name — the number the user's own status bar
      shows. Faint and tabular so a column of rows aligns. */
   .wnum { color: var(--fg-faint); font-weight: 600; font-variant-numeric: tabular-nums;

@@ -371,6 +371,10 @@ async def get_state(v: int | None = None):
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
+    # Review-requested PRs — a non-tmux "needs you" source (empty when the gh integration is
+    # off). Shallow-copied for the same reason as panes. The phone renders these as the
+    # Orchestrator "Review requested" group.
+    reviews = [dict(r) for r in getattr(w, "reviews", [])]
     return {
         "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
@@ -383,6 +387,7 @@ async def get_state(v: int | None = None):
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "panes": panes,
+        "reviews": reviews,  # review-requested PRs for the "Needs you" focus (may be [])
     }
 
 
