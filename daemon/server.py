@@ -124,6 +124,10 @@ class NewWindowBody(BaseModel):
     launcher: str  # label of a configured launcher — never a raw command
 
 
+class RenameBody(BaseModel):
+    name: str  # new window name; sanitized (trim, strip control chars, cap) in the route
+
+
 # Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
 # model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
 # back only the LABEL and the daemon looks the command up here, so the HTTP surface
@@ -371,6 +375,10 @@ async def get_state(v: int | None = None):
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
+    # Review-requested PRs — a non-tmux "needs you" source (empty when the gh integration is
+    # off). Shallow-copied for the same reason as panes. The phone renders these as the
+    # Orchestrator "Review requested" group.
+    reviews = [dict(r) for r in getattr(w, "reviews", [])]
     return {
         "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
@@ -383,6 +391,7 @@ async def get_state(v: int | None = None):
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "panes": panes,
+        "reviews": reviews,  # review-requested PRs for the "Needs you" focus (may be [])
     }
 
 
@@ -611,6 +620,61 @@ def select(pane_id: str, request: Request):
         _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "select_pane", pane_id)
+    return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/close")
+def close_window(pane_id: str, request: Request):
+    """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
+    Destructive: any process in the window is killed. The watcher evicts the pane on its next
+    tick (emitting pane_removed), so the card disappears on the client's next poll with no
+    special cleanup — the same path as a window closed on the host."""
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, "kill_window", pane_id, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        tmux.kill_window(pane_id)
+    except Exception as e:
+        _audit(request, "kill_window", pane_id, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "kill_window", pane_id)
+    return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/rename")
+def rename_window(pane_id: str, body: RenameBody, request: Request):
+    """Rename the WINDOW that contains this pane. The new name is sanitized here — trimmed,
+    control characters (newlines/escape/etc.) removed so it can't corrupt the tmux status
+    line, and capped — before it reaches tmux (as a subprocess arg, never a shell string).
+    The renamed window flows back to the phone on the next watcher tick."""
+    name = "".join(ch for ch in body.name if ch.isprintable()).strip()[:120]
+    if not name:
+        _audit(request, "rename_window", pane_id, outcome="rejected: empty name")
+        raise HTTPException(422, "a non-empty name is required")
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, "rename_window", pane_id, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        tmux.rename_window(pane_id, name)
+    except Exception as e:
+        _audit(request, "rename_window", pane_id, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "rename_window", pane_id, detail=name[:40])
+    return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/refresh-summary")
+def refresh_summary(pane_id: str, request: Request):
+    """Ask the watcher to re-read this pane's scrollback and refresh its session_summary on
+    the next tick — the phone fires this when a pane's card opens in Orchestrator View so the
+    narration is current for async catch-up. Returns immediately; the deep LLM read runs on
+    the watcher loop (staggered), never on this request, and no-ops when the pane has no new
+    events to narrate."""
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, "refresh_summary", pane_id, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    app.state.watcher.request_summary(pane_id)
+    _audit(request, "refresh_summary", pane_id)
     return {"ok": True}
 
 

@@ -263,6 +263,13 @@ const LUCIDE = {
   // expandall's mirror (chevrons point inward) — same lines, so the toggle reads as
   // one control changing direction, not two different buttons.
   collapseall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 5 3 3 3-3"/><path d="m15 19 3-3 3 3"/>',
+  // Agent View (a terminal prompt) and Orchestrator View (a dashboard of panels).
+  terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  panels: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  // git-pull-request — marks a "Review requested" row.
+  pr: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>',
+  // pencil — the rename-window affordance.
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -350,10 +357,25 @@ const onSchemeChange = (e) => {
 if (prefersLight.addEventListener) prefersLight.addEventListener("change", onSchemeChange);
 else if (prefersLight.addListener) prefersLight.addListener(onSchemeChange);
 
-// Collapse is a VIEW-WIDE preference, not per-pane: collapse one card (caret ▸) and
-// every pane — including ones you swipe to — shows its one-line header, handing the
-// screen to the live terminal. Expanding anywhere expands them all.
-let cardsCollapsed = false;
+// Two named, view-wide modes (docs/design/agent-orchestrator-views.md). The mode is a
+// POSTURE, not a per-pane property — heads-down on one agent vs. scanning the fleet — so
+// it is view-wide and persisted, and swiping panes keeps it.
+//   'agent'        — terminal-first: the card collapses to its one-line header, the live
+//                    terminal fills the deck, fit-to-width so nothing is cut off, and the
+//                    agent's own input line is kept in view (tuck skipped).
+//   'orchestrator' — the expanded card: summary, pending choices, events, voice.
+// `cardsCollapsed` was the old boolean this replaces; the collapse machinery (applyCard,
+// applyPaneHeader, the caret) is untouched — it just reads isAgentView() now.
+let viewMode = "orchestrator";
+try { if (localStorage.getItem("tmuxrc-view") === "agent") viewMode = "agent"; } catch {}
+const isAgentView = () => viewMode === "agent";
+function setViewMode(mode) {
+  const next = mode === "agent" ? "agent" : "orchestrator";
+  if (next === viewMode) return;
+  viewMode = next;
+  try { localStorage.setItem("tmuxrc-view", next); } catch {}
+  render(Object.values(panesById));
+}
 // NO render-freeze flag here, deliberately. `busy` / `busySend` / `busyGesture` and their
 // 10s watchdog existed because a poll render REPLACED the DOM under a finger or mid-send.
 // Under the render invariant a render only rewrites text/attrs on the very nodes a gesture
@@ -424,6 +446,9 @@ function isReparsing(s) {
 // tells tmux to focus that pane; the next poll renders the new truth. No client-side
 // selection state.
 let panesById = {}; // latest state per pane, for the bottom bar to act on
+// Review-requested PRs from /api/state (a non-pane "needs you" source). Module-level, like
+// panesById, so a re-render triggered by anything (not just a fresh poll) still sees them.
+let reviewItems = [];
 // A selection we've told tmux about but the watcher hasn't observed yet. Without this,
 // the poll right after a switch still carries the OLD tmux_active and flips the UI
 // back for a beat (then forward again) — the "ticky" double-switch. Held until the
@@ -536,8 +561,9 @@ function syncEvents(s) {
     .then((events) => {
       if (Array.isArray(events)) {
         eventLog[id] = { seq: s.events_seq, events };
-        // Re-render only if this pane's feed is on screen (it's the active card).
-        if (id === activeId() && !listFilter) render(Object.values(panesById));
+        // Re-render only if this pane's feed is on screen: the Agent-View active card, or an
+        // expanded row drawer in the Orchestrator list.
+        if (id === activeId() || rowOpen.has(id)) render(Object.values(panesById));
       }
     })
     .catch(() => {})
@@ -548,6 +574,17 @@ function fmtIdle(s) {
   if (s < 60) return s + "s";
   if (s < 3600) return Math.floor(s / 60) + "m";
   return Math.floor(s / 3600) + "h";
+}
+
+// Compact age from an ISO timestamp (a PR's updated_at) — m/h/d. Reviews refresh only on the
+// daemon's slow cadence, so this need not tick live; "" for a missing/unparseable stamp.
+function fmtAge(iso) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 3600) return Math.max(1, Math.floor(s / 60)) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h";
+  return Math.floor(s / 86400) + "d";
 }
 
 // Seconds a pane has been in its current state, computed LIVE from state_since (epoch
@@ -823,6 +860,7 @@ async function poll() {
     // Legacy daemons omit `booted`; treat its absence as booted so old servers keep
     // their previous behavior (empty ⇒ "no panes") rather than spinning forever.
     _booted = data.booted !== false;
+    reviewItems = Array.isArray(data.reviews) ? data.reviews : [];
     render(data.panes || []);
     return ok; // ok=false (version 0 / legacy daemon) → pollLoop backs off
   } catch (e) {
@@ -1019,37 +1057,75 @@ function showUsage(u, err) {
 // markup template, the fullscreen overlay's static chrome.
 
 
+// The Agent | Orchestrator segmented control (top ribbon) and its thumb-reachable twin
+// next to the bottom keys bar. Both drive setViewMode. Icons are injected at boot (the
+// buttons ship empty in index.html) so they theme via currentColor — see AGENTS.md.
+const viewToggle = document.getElementById("view-toggle");
+if (viewToggle) {
+  viewToggle.querySelectorAll("button[data-view]").forEach((b) => {
+    b.innerHTML = licon(b.dataset.view === "agent" ? "terminal" : "panels", 22);
+    b.onclick = () => setViewMode(b.dataset.view);
+  });
+}
+const viewToggleBar = document.getElementById("view-toggle-bar");
+// A single toggle down here (not a segmented pair — the input row is tight): it shows the
+// icon of the mode a tap would switch TO, the way the theme button shows the target theme.
+if (viewToggleBar)
+  viewToggleBar.onclick = () => setViewMode(isAgentView() ? "orchestrator" : "agent");
+applyViewToggle(); // seed both controls' icons/pressed state before the first render lands
+
+// Keep both view controls truthful. `viewToggle` (segmented) owns the card-view surface;
+// `expandBtn` (expand/collapse-all) owns list mode — so they swap by which surface is up.
+function applyViewToggle() {
+  if (viewToggle)
+    viewToggle.querySelectorAll("button[data-view]").forEach((b) =>
+      setAttr(b, "aria-pressed", String(b.dataset.view === viewMode)));
+  if (viewToggleBar) {
+    const target = isAgentView() ? "orchestrator" : "agent";
+    const label = "Switch to " + (target === "agent" ? "Agent" : "Orchestrator") + " View";
+    setAttr(viewToggleBar, "title", label);
+    setAttr(viewToggleBar, "aria-label", label);
+    const glyph = target === "agent" ? "terminal" : "panels";
+    if (viewToggleBar.dataset.glyph !== glyph) {
+      viewToggleBar.dataset.glyph = glyph;
+      viewToggleBar.innerHTML = licon(glyph, 18);
+    }
+  }
+}
+
 // The list-mode subset for the current filter — ONE definition, because the ribbon's
 // expand-all control and the list itself must agree on which panes "all" means.
 // The global expand/collapse, living with the OTHER global controls (theme toggle):
-// list mode expands/collapses every listed row; card view collapses/expands the card.
-// One glyph, one meaning — more or less detail for what you're looking at.
+// list mode expands/collapses every listed row; card view uses the segmented view control.
 const expandBtn = document.getElementById("expand-btn");
 if (expandBtn) {
   expandBtn.innerHTML = licon("expandall", 14); // svg child — never setText this button
   expandBtn.dataset.glyph = "expandall"; // applyExpandBtn swaps it with the open state
   expandBtn.onclick = () => {
-    if (listFilter) {
-      const lp = listSubset(Object.values(panesById)) || [];
-      if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
-      else lp.forEach((p) => rowOpen.add(p.pane_id));
-    } else {
-      cardsCollapsed = !cardsCollapsed;
-    }
+    // Expand/collapse-all applies to the Orchestrator list; the button is hidden in Agent View.
+    if (isAgentView()) return;
+    // Only expandable rows have a drawer; flat rows (hasBody false) are dropped from rowOpen
+    // every render, so including them here would leave `every` perpetually false and turn
+    // collapse-all into a second expand-all.
+    const lp = rankedList(Object.values(panesById)).filter(hasBody);
+    if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
+    else lp.forEach((p) => rowOpen.add(p.pane_id));
     render(Object.values(panesById));
   };
 }
 
-// Called from BOTH render branches (the list branch returns early): keeps the global
-// button's tooltip/state truthful for whichever surface is showing.
+// Called from BOTH render branches. The segmented Agent|Orchestrator control is the app's
+// primary mode switch, so it is ALWAYS visible; the expand/collapse-all button only makes
+// sense over the Orchestrator list, so it shows there and hides in Agent View.
 function applyExpandBtn(states) {
-  if (!expandBtn) return;
-  const open = listFilter
-    ? (listSubset(states) || []).every((p) => rowOpen.has(p.pane_id))
-    : !cardsCollapsed;
-  const what = listFilter ? "all" : "card";
-  setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + what);
-  setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + what);
+  if (viewToggle) setCls(viewToggle, "hid", false);
+  if (expandBtn) setCls(expandBtn, "hid", isAgentView());
+  applyViewToggle();
+  if (!expandBtn || isAgentView()) return; // Agent View: no list to expand
+  const shown = rankedList(states);
+  const open = shown.length > 0 && shown.every((p) => rowOpen.has(p.pane_id));
+  setAttr(expandBtn, "title", (open ? "Collapse " : "Expand ") + "all");
+  setAttr(expandBtn, "aria-label", (open ? "Collapse " : "Expand ") + "all");
   setAttr(expandBtn, "aria-expanded", String(open));
   // The glyph must tell the same story as the tooltip: inward chevrons while open
   // (tapping collapses), outward while collapsed. Guarded — innerHTML on every
@@ -1061,9 +1137,47 @@ function applyExpandBtn(states) {
   }
 }
 
-function listSubset(states) {
-  return listFilter && states.filter((s) =>
-    listFilter === "all" ? true : listFilter === "recent" ? isRecent(s) : actOf(s) === listFilter);
+// Priority GROUP of a pane for the Orchestrator ranking (lower = higher priority):
+//   0 waiting on you (blocked on a prompt) · 1 idle & recent (just finished — awaiting your
+//   next instruction) · 2 running/compacting/unknown (working, no action needed) ·
+//   3 parked (idle and aged past PARKED_IDLE_SECS). Drives both the sort and the group headers.
+function prioGroup(s) {
+  const a = actOf(s);
+  if (a === "waiting") return 0;
+  if (a === "idle") return isRecent(s) ? 1 : 3;
+  return 2; // running / compacting / unknown
+}
+const GROUP_LABELS = ["Waiting on you", "Awaiting next", "Running", "Parked"];
+
+// The ranked fleet list Orchestrator View shows. The header tallies act as an optional
+// sub-filter (null or "all" ⇒ every pane); then order by priority group, ties broken by
+// longest time-in-state first (the pane you've been blocking longest floats up). Pure — it
+// never mutates the source (filter/slice both copy before the sort).
+function rankedList(states) {
+  const subset = !listFilter || listFilter === "all"
+    ? states.slice()
+    : states.filter((s) =>
+        listFilter === "recent" ? isRecent(s)
+        // "attention" is the one-tap "what needs me" focus. Today it is exactly group 0
+        // (actOf === "waiting"); Phase 2 folds PRs-awaiting-review into the same focus.
+        : listFilter === "attention" ? actOf(s) === "waiting"
+        : actOf(s) === listFilter);
+  return subset.sort((a, b) => prioGroup(a) - prioGroup(b) || stateDur(b) - stateDur(a));
+}
+
+// On-demand summary freshness (docs/design/agent-orchestrator-views.md): POST
+// /refresh-summary when a pane's card opens in Orchestrator View, debounced per pane so it
+// fires on ENTRY, not on every 2s poll / state change. The floor matches the daemon's own
+// SUMMARY_MIN_INTERVAL so a re-entry inside that window doesn't ask for a read the daemon
+// would rate-floor anyway. Fire-and-forget; the fresher summary arrives via the next
+// /api/state. `_summaryAsked` is pruned with the other per-pane caches at render start.
+const _summaryAsked = {}; // pane_id -> ts of last refresh-summary POST
+const SUMMARY_ASK_MS = 45000;
+function askSummaryRefresh(id) {
+  const now = Date.now();
+  if (now - (_summaryAsked[id] || 0) < SUMMARY_ASK_MS) return;
+  _summaryAsked[id] = now;
+  fetch(`/api/panes/${encodeURIComponent(id)}/refresh-summary`, { method: "POST" }).catch(() => {});
 }
 
 function render(states) {
@@ -1074,7 +1188,7 @@ function render(states) {
   states.forEach(syncEvents);
   // Prune per-pane caches when panes vanish — otherwise pane churn grows them
   // without bound over a long-running session.
-  for (const m of [eventLog, peekCache, bgZoom, cardUI ? cardUI.body.events.openByPane : {}])
+  for (const m of [eventLog, peekCache, bgZoom, _summaryAsked, cardUI ? cardUI.body.events.openByPane : {}])
     for (const k of Object.keys(m)) if (!has(panesById, k)) delete m[k];
   setFavicon(states.some((s) => actOf(s) === "waiting"));
   // No card visible (empty / list mode) ⇒ no peek stream should be running. bgTerm
@@ -1136,49 +1250,59 @@ function render(states) {
   // left the sampled LENGTHS unchanged). Here those same changes flow through setText,
   // which compares the actual value and writes it. There is no field to remember.
   const act = activeId();
-  // List mode (a dock tally badge or "all" was tapped): just those panes as one-liners;
-  // the dock stays up (tap an icon or a row to open that pane's card).
-  // "recent" is not an activity — it deliberately spans them (see isRecent: anything not
-  // idle counts however old, plus idle panes younger than PARKED_IDLE_SECS). So it gets its
-  // own arm rather than being compared against actOf().
-  const subset = listSubset(states);
-  if (subset && subset.length) {
-    stopPeek(); // list mode: no card, no peek stream
-    setCls(ui.deck, "hid", true);
-    setCls(ui.list, "hid", false);
-    dock(states, act); // dock stays up in list mode — icon tap jumps to that card
-    panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
-    // Session headers, ordinals and row order all live in applyList — it keys headers and
-    // rows into one list so a session boundary appearing/disappearing inserts or removes
-    // exactly that header, instead of re-keying the rows after it.
-    applyList(ui.list, states, subset, act);
+  // The SURFACE is chosen by viewMode (docs/design/agent-orchestrator-views.md), not by a
+  // filter: Agent View is the active pane's collapsed card + full live terminal; Orchestrator
+  // View is the ranked fleet list of ALL panes (no card, no peek). The header tallies are a
+  // sub-filter WITHIN Orchestrator, not a separate "list mode".
+  if (isAgentView()) {
+    // Filters/list belong to Orchestrator; clear any leftover filter and EMPTY the list so no
+    // stale rows linger behind the hidden container (the stale-content discipline).
+    listFilter = null;
+    setCls(ui.list, "hid", true);
+    applyList(ui.list, states, [], act);
+    dock(states, act); // the tab strip is the pane switcher here
+    const a = panesById[act];
+    // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
+    // remaining viewport AND runs under the bar via its own negative margin, so counting the
+    // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
+    // being SHOWN. (A class, not :has() — app.js deliberately avoids :has() for older iOS.)
+    setCls(panesEl, "cardmode", !!a);
+    setCls(ui.deck, "hid", !a);
+    if (a) {
+      applyCard(cardUI, a);
+      bgTerm(a);
+      ui.fs._pane = a.pane_id;
+      ui.fs._label = a.title || a.label;
+      setCls(ui.fs, "hid", false); // the ⤢ full-bleed terminal is an Agent-View affordance
+      joinTab(ui.deck);
+    }
     applyExpandBtn(states);
     updateBar(panesById[act]);
     return;
   }
-  listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
-  setCls(ui.list, "hid", true);
-  // Hiding the list must also EMPTY it: a .sess-hdr:first-child rule and the row nodes
-  // themselves would otherwise linger behind the hidden class, and stale rows holding
-  // pane state is exactly what this refactor is removing.
-  applyList(ui.list, states, [], act);
-  dock(states, act); // sticky top bar — constant height, content swaps below it
-  const a = panesById[act];
-  // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
-  // remaining viewport AND runs under the bar via its own negative margin, so counting the
-  // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
-  // being SHOWN, not merely to reaching this branch: with no active pane the deck is hidden
-  // and nothing is sized to the viewport, so the padding is what keeps content off the bar.
-  // (A class, not :has() — app.js deliberately avoids :has() for older iOS Safari.)
-  setCls(panesEl, "cardmode", !!a);
-  setCls(ui.deck, "hid", !a);
-  if (a) {
-    applyCard(cardUI, a);
-    bgTerm(a);
-    ui.fs._pane = a.pane_id;
-    ui.fs._label = a.title || a.label;
-    joinTab(ui.deck);
-  }
+  // Orchestrator View: the ranked fleet overview. No card ⇒ stop the peek stream and hide the
+  // deck; the dock stays up for its tallies (sub-filters) and the pane switcher.
+  stopPeek();
+  setCls(ui.deck, "hid", true);
+  dock(states, act);
+  panesEl.classList.remove("cardmode"); // list rows need the bar padding to clear the bar
+  // A pane whose detail drawer is open wants a current summary for async catch-up; ask the
+  // daemon to freshen it (debounced per pane; a no-op when nothing new — see askSummaryRefresh).
+  for (const id of rowOpen) if (panesById[id]) askSummaryRefresh(id);
+  // Reviews show in the full fleet, the "all" list, and the "Needs you" focus — but NOT when
+  // a specific activity filter is on (there you asked for those panes, not PRs).
+  const showReviews = !listFilter || listFilter === "all" || listFilter === "attention";
+  const revs = showReviews ? reviewItems : [];
+  // "Needs you" focus with nothing waiting AND no reviews: an empty list reads as broken, so
+  // show a calm note (the highlighted pill stays in #filters, so the toggle is still there).
+  const ranked = rankedList(states);
+  const attnEmpty = listFilter === "attention" && ranked.length === 0 && revs.length === 0;
+  setCls(ui.list, "hid", attnEmpty);
+  setCls(ui.empty, "hid", !attnEmpty);
+  if (attnEmpty) { setCls(ui.spinner, "hid", true); setText(ui.emptyText, "Nothing needs you right now."); }
+  // Order + group headers all live in applyList, keyed so a group boundary appearing or
+  // disappearing inserts/removes exactly that header.
+  applyList(ui.list, states, attnEmpty ? [] : ranked, act, attnEmpty ? [] : revs);
   applyExpandBtn(states);
   updateBar(panesById[act]);
 }
@@ -1482,6 +1606,72 @@ function openLaunchMenu(sess, anchor) {
   document.addEventListener("pointerdown", launchMenuAway, true);
 }
 
+// Rename a tmux WINDOW from the phone. A transient popover (same shape as openLaunchMenu) so
+// the render loop never clobbers an in-progress edit: it lives outside the reconciled header,
+// carries a prefilled input, and POSTs /rename on Enter/Rename. The new name flows back on the
+// next watcher tick (server truth — no local mutation). Closes on outside tap or Escape.
+let renameMenuEl = null;
+function renameMenuAway(e) { if (renameMenuEl && !renameMenuEl.contains(e.target)) closeRenameMenu(); }
+function closeRenameMenu() {
+  if (!renameMenuEl) return;
+  document.removeEventListener("pointerdown", renameMenuAway, true);
+  renameMenuEl.remove();
+  renameMenuEl = null;
+}
+function openRenameMenu(paneId, anchor) {
+  closeRenameMenu();
+  const s = panesById[paneId];
+  if (!s) return;
+  const m = document.createElement("div");
+  m.className = "rename-menu";
+  const head = document.createElement("div");
+  head.className = "launch-head"; // reuse the popover header style
+  head.setAttribute("role", "presentation");
+  setText(head, "Rename window");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "rename-input";
+  input.maxLength = 120;
+  input.value = s.window_name || s.title || s.label || "";
+  setAttr(input, "aria-label", "New window name");
+  const save = document.createElement("button");
+  save.className = "rename-save";
+  save.textContent = "Rename";
+  const submit = () => {
+    const name = input.value.trim();
+    closeRenameMenu();
+    if (name) renameWindow(paneId, name); // empty ⇒ just cancel (the daemon would reject it too)
+  };
+  save.onclick = submit;
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeRenameMenu(); }
+  };
+  m.append(head, input, save);
+  document.body.appendChild(m);
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8)) + "px";
+  m.style.top = r.bottom + 6 + "px";
+  renameMenuEl = m;
+  document.addEventListener("pointerdown", renameMenuAway, true);
+  input.focus();
+  input.select();
+}
+async function renameWindow(paneId, name) {
+  try {
+    const r = await fetch(`/api/panes/${encodeURIComponent(paneId)}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+      signal: timeoutSignal(8000),
+    });
+    if (!r.ok) throw new Error("rename failed: " + r.status);
+  } catch (e) {
+    barNote(`Couldn't rename the window — ${e.message}.`);
+    reportError("rename", e);
+  }
+}
+
 function buildDockIcon(paneId) {
   const b = document.createElement("button");
   b.className = "dock-icon";
@@ -1719,8 +1909,17 @@ function dock(states, act) {
   // both the largest and the least actionable on the strip, and "N recent" below now
   // carries the half that matters. The idle panes are still reachable — "all" lists
   // everything, and a session's parked ones sit behind its "+N" chip.
-  const tallies = ["waiting", "running", "compacting", "unknown"]
-    .filter((a) => n[a]).map((a) => ({ key: a, label: `${n[a]} ${a}` }));
+  // The one-tap "what needs me" focus, kept at the FRONT and styled distinctly (.badge.attn)
+  // — it is the headline action, not one tally among many, so it stands in for the plain
+  // "N waiting" pill (waiting IS what needs you). Shown whenever something needs you, or while
+  // its own filter is active so you can always toggle back out. Phase 2 adds PRs to the count.
+  const tallies = [];
+  // Attention = waiting panes + review-requested PRs (the same set the focus shows).
+  const nAttn = (n.waiting || 0) + reviewItems.length;
+  if (nAttn || listFilter === "attention")
+    tallies.push({ key: "attention", label: `Needs you · ${nAttn}`, attn: true });
+  ["running", "compacting", "unknown"]
+    .filter((a) => n[a]).forEach((a) => tallies.push({ key: a, label: `${n[a]} ${a}` }));
   // "N recent" — the count the user actually wants at a glance: how much of the fleet is
   // live right now, which no single activity badge answers (a waiting pane and a running
   // pane are both recent). Same predicate the dock folds on, so the number and the strip
@@ -1735,10 +1934,17 @@ function dock(states, act) {
   // ONE node whose text changes as the count moves, not a new node per poll.
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
-    b.className = "badge b-" + t.key;
-    b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
+    b.className = "badge b-" + t.key + (t.attn ? " attn" : "");
+    // A tally is an Orchestrator action — it sub-filters the ranked fleet list. Tapping one
+    // from Agent View jumps to Orchestrator (setViewMode re-renders); already there, re-render.
+    b.onclick = () => {
+      // "Needs you" is a TOGGLE — tapping it again leaves the focus; the plain tallies just set.
+      listFilter = t.key === "attention" && listFilter === "attention" ? "all" : t.key;
+      if (isAgentView()) setViewMode("orchestrator");
+      else render(Object.values(panesById));
+    };
     return b;
-  }, (b, t) => setText(b, t.label));
+  }, (b, t) => { setText(b, t.label); setCls(b, "active", t.key === listFilter); });
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center
@@ -1764,6 +1970,66 @@ function dock(states, act) {
   });
 }
 
+// Close the WINDOW behind a pane — the "I'm done with this" control. Destructive: the
+// daemon runs kill-window, taking any process in it. No local state mutation (panesById is
+// server truth): the watcher evicts the pane and the long-poll returns the change, so the
+// row/card disappears on its own within a beat. Only surfaces a note on FAILURE — success is
+// the card vanishing.
+async function closeWindow(paneId) {
+  try {
+    const r = await fetch(`/api/panes/${encodeURIComponent(paneId)}/close`,
+      { method: "POST", signal: timeoutSignal(8000) });
+    if (!r.ok) throw new Error("close failed: " + r.status);
+  } catch (e) {
+    barNote(`Couldn't close the window — ${e.message}. Tap again to retry.`);
+    reportError("close", e);
+  }
+}
+
+// Two-step "close window" button, shared by the Orchestrator row and the Agent card. It is
+// destructive, so a single stray tap must never fire it: the first tap ARMS (turns red,
+// reads "Close?"); a second tap within CLOSE_ARM_MS closes; a tap anywhere else, or the
+// timeout, disarms. `getId` reads the CURRENT pane at click time — the card reuses one node
+// across panes (see buildCard), so a captured id would close whichever pane it was built on.
+// Only one button is armed at a time: arming a second disarms the first.
+const CLOSE_ARM_MS = 2200;
+let _armedClose = null;
+function buildCloseBtn(getId) {
+  const b = document.createElement("button");
+  b.className = "row-close";
+  b.type = "button"; // never submit anything
+  const disarm = () => {
+    if (_armedClose === b) _armedClose = null;
+    clearTimeout(b._t);
+    b.classList.remove("armed");
+    b.innerHTML = licon("x", 15);
+    setAttr(b, "aria-label", "Close window");
+    setAttr(b, "title", "Close window");
+    if (b._outside) { document.removeEventListener("pointerdown", b._outside, true); b._outside = null; }
+  };
+  b._disarm = disarm;
+  const arm = () => {
+    if (_armedClose && _armedClose !== b) _armedClose._disarm();
+    _armedClose = b;
+    b.classList.add("armed");
+    b.textContent = "Close?";
+    setAttr(b, "aria-label", "Confirm close window");
+    setAttr(b, "title", "Tap again to close");
+    // Capture-phase so a tap on any other control disarms BEFORE that control acts on it.
+    b._outside = (e) => { if (!b.contains(e.target)) disarm(); };
+    document.addEventListener("pointerdown", b._outside, true);
+    clearTimeout(b._t);
+    b._t = setTimeout(disarm, CLOSE_ARM_MS);
+  };
+  b.onclick = (e) => {
+    e.stopPropagation(); // closing must not also re-select the pane or toggle the drawer
+    if (b.classList.contains("armed")) { const id = getId(); disarm(); if (id) closeWindow(id); }
+    else arm();
+  };
+  disarm(); // seed the resting icon/labels
+  return b;
+}
+
 // One list row per pane, built once and keyed by pane_id, so the row the user is
 // pressing is still there when their finger lifts.
 //
@@ -1780,20 +2046,20 @@ function buildRow(paneId) {
   const el = document.createElement("div");
   el.className = "prow";
   el.dataset.pane = paneId;
-  const goCard = () => { listFilter = null; setActive(paneId); };
-  // Ignore clicks originating inside the drawer: its handlers (option buttons, links,
-  // copy chips) act in place — bubbling into the row must not yank the user to card view.
-  el.onclick = (e) => { if (elOf(e)?.closest(".pbody")) return; goCard(); };
   const toggleOpen = (e) => {
-    e.stopPropagation(); // expanding must not also navigate to card view
+    if (!el._expandable) return; // flat row (empty drawer) — nothing to open (see applyRow)
+    if (e) e.stopPropagation();
     if (rowOpen.has(paneId)) rowOpen.delete(paneId); else rowOpen.add(paneId);
     render(Object.values(panesById));
   };
+  // Tapping the row (head or padding) EXPANDS its detail drawer in place — Orchestrator View
+  // keeps you in the overview. Ignore clicks originating inside the drawer or the inline
+  // choices: those act in place and must not toggle. Jumping to the live terminal is the
+  // dedicated Open control below, never an incidental row tap.
+  el.onclick = (e) => { if (elOf(e)?.closest(".pbody, .row-opts")) return; toggleOpen(); };
   const openBtn = document.createElement("button");
   openBtn.className = "row-open";
-  // stopPropagation so an activation on the button doesn't also bubble to the row and
-  // navigate twice.
-  openBtn.onclick = (e) => { e.stopPropagation(); goCard(); };
+  openBtn.onclick = (e) => { e.stopPropagation(); toggleOpen(); };
   el.appendChild(openBtn);
   // link:false — this header goes INSIDE .row-open, a <button>. See buildPaneHeader.
   // The caret's subrow is RELOCATED to the row element below, so the chevron (a real
@@ -1804,6 +2070,35 @@ function buildRow(paneId) {
   // .row-open and .ph-right it forced the badges onto a third line below the description.
   el.appendChild(hdr.right);
   el.appendChild(hdr.subrow);
+  // Inline pending choices for a waiting row: answer the prompt without opening the drawer
+  // or switching panes (this is what absorbed the Phase-2 in-card roll-up). Filled by
+  // applyRow only when the pane is waiting-with-question and the drawer is closed; empty ⇒
+  // hidden by the :empty rule. Not inside .row-open (no nested buttons).
+  const opts = document.createElement("div");
+  opts.className = "row-opts";
+  el.appendChild(opts);
+  // Answer-in-flight acknowledgement: replaces the inline choices (which vanish the instant
+  // one is tapped) with a "Sent — waiting…" line + spinner, so a row's prompt clears on tap
+  // instead of sitting there until the daemon re-reads the screen. Its spinner is a PERMANENT
+  // node (the row is keyed, never recreated), so its animation runs continuously. Shown by
+  // applyRow only while isReparsing; hidden otherwise via .hid.
+  const ack = document.createElement("div");
+  ack.className = "row-ack hid";
+  ack.setAttribute("role", "status");
+  const ackSpin = document.createElement("span");
+  ackSpin.className = "q-spin on";
+  const ackText = document.createElement("span");
+  ackText.textContent = SENT_ACK;
+  ack.append(ackSpin, ackText);
+  el.appendChild(ack);
+  // The ONE place a row leaves the overview for the full live terminal: Open in Agent View.
+  const openAgent = document.createElement("button");
+  openAgent.className = "row-agent";
+  openAgent.innerHTML = licon("terminal", 15);
+  setAttr(openAgent, "aria-label", "Open in Agent View");
+  setAttr(openAgent, "title", "Open in Agent View");
+  openAgent.onclick = (e) => { e.stopPropagation(); setActive(paneId); setViewMode("agent"); };
+  hdr.right.appendChild(openAgent);
   // A pane with sub-agents gets a labeled chip under the activity badge. It is a SHORTCUT
   // to the row's one expansion — the drawer, whose body includes the sub-agents box. It
   // used to toggle a second, row-owned copy of that box, and an expanded row then showed
@@ -1812,18 +2107,74 @@ function buildRow(paneId) {
   toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
   toggle.onclick = toggleOpen;
   hdr.right.appendChild(toggle);
-  el._hdr = hdr; el._toggle = toggle; el._body = null; // drawer built lazily on first open
+  // Close this window — rightmost in the row's action area, past Open-in-Agent-View. paneId
+  // is stable for the life of this keyed row, so capturing it is safe here (unlike the card).
+  hdr.right.appendChild(buildCloseBtn(() => paneId));
+  el._hdr = hdr; el._toggle = toggle; el._opts = opts; el._ack = ack; el._body = null; // drawer built lazily
   return el;
+}
+
+// Does this pane's drawer have anything to show? Mirrors what applyPaneBody renders for a
+// row (rewind is card-only, and applyEvents hides itself on an empty log, so s.summary
+// without events shows nothing). A pane with none of these is a dead end — nothing to
+// expand onto — so its row is neither tappable nor caret-bearing (see applyRow). Pure.
+function hasBody(s) {
+  const filled = (a) => Array.isArray(a) && a.length > 0;
+  return !!(s.session_summary || s.question
+    || filled(s.tables) || filled(s.tasks) || filled(s.links) || filled(s.copyables)
+    || realSubs(s.subagents).length
+    || ((eventLog[s.pane_id] || {}).events || []).length);
 }
 
 function applyRow(el, s, act) {
   setCls(el, "waiting", actOf(s) === "waiting");
   setCls(el, "sel", s.pane_id === act);
-  const open = rowOpen.has(s.pane_id);
+  // A parked pane (group 3 — idle and aged past PARKED_IDLE_SECS) has no fresh update to
+  // report, so its row collapses to a compact single line (CSS hides the description subrow
+  // and tightens the padding) — keeping a long tail of quiet windows from crowding the ones
+  // that need you. Waiting/running/just-finished panes all carry something to act on, so
+  // they never go quiet; expanding a quiet row (.expanded wins in CSS) restores the full row.
+  setCls(el, "quiet", prioGroup(s) === 3);
+  // Only expandable when the drawer would actually hold something (hasBody). A pane with an
+  // empty drawer — common for a quiet, never-active window — is a flat line: no caret, no
+  // tap-to-expand (toggleOpen reads el._expandable), so a tap never opens onto a blank body.
+  const expandable = hasBody(s);
+  el._expandable = expandable;
+  setCls(el, "flat", !expandable);
+  setCls(el._hdr.caret, "hid", !expandable);
+  if (!expandable) rowOpen.delete(s.pane_id); // drop stale expansion if its body drained
+  const open = expandable && rowOpen.has(s.pane_id);
   setCls(el._hdr.caret, "open", open);
   setAttr(el._hdr.caret, "aria-expanded", String(open));
   setAttr(el._hdr.caret, "aria-label", (open ? "Collapse" : "Expand") + " pane details");
   setCls(el, "expanded", open);
+  // Inline choices: a waiting pane's tappable options, shown on the CLOSED row so a queue of
+  // prompts clears without expanding anything (when open, the drawer's own question view
+  // shows them — don't duplicate). Same treatment as applyQuestion/the old roll-up: drop the
+  // free-text pseudo-option, key by index+text so a stable menu keeps its nodes, and read the
+  // CURRENT pane/question at click time so a persisted node never answers a stale prompt.
+  // An answer sent from this row is in flight: the choices vanish and a "Sent — waiting…"
+  // acknowledgement takes their place (same treatment as the card's question view), so the
+  // prompt CLEARS on tap rather than lingering until the daemon's forced reparse lands.
+  const spinning = isReparsing(s);
+  setCls(el, "reparsing", spinning);
+  const waitingQ = actOf(s) === "waiting" && s.question && !open;
+  setCls(el._ack, "hid", !(waitingQ && spinning));
+  const inlineQ = waitingQ && !spinning;
+  const realOpts = inlineQ
+    ? (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()))
+    : [];
+  keyedList(el._opts, realOpts, (o, i) => i + " " + o, () => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.onclick = (e) => {
+      e.stopPropagation(); // answering must not also toggle the drawer
+      const cur = panesById[el.dataset.pane];
+      if (!cur || !cur.question) return;
+      answer(cur, keyFor(cur.question, b._optText, b._optIndex));
+    };
+    return b;
+  }, (b, opt, i) => { b._optText = opt; b._optIndex = i; setText(b, opt); });
   // The drawer: this row's own pane body, built on first expand and kept (the row is a
   // persistent keyed node). Applied with show=false when closed, so a closed drawer is
   // EMPTIED, never merely hidden — the stale-content discipline every subview follows.
@@ -1849,35 +2200,83 @@ function applyRow(el, s, act) {
   }
 }
 
-// Rows in server order — same as the dock. That order is tmux's own session/window/pane
-// order, so grouping windows under their session is just "insert a header where the
-// session changes": no sorting, no client-side restructure.
-//
-// Headers and rows share ONE keyed list, because .sess-hdr:first-child is a structural
-// selector — the header has to be a real sibling at the right index, not a wrapper.
-// Hue ordinals are JS-computed over the FULL deck (never nth-of-type, never the filtered
-// subset), so a header's hue matches that session's dock rail even when a filter hides
-// sessions.
-function applyList(host, states, subset, act) {
-  const ord = new Map();
-  states.forEach((s) => { if (!ord.has(s.session)) ord.set(s.session, ord.size); });
-  // Headers only when the deck actually spans sessions — a lone header over every row
-  // would be noise for the single-session common case.
+// A "Review requested" row: a tappable PR that opens on GitHub in a new tab. It is a real
+// <a target="_blank"> (same safe pattern as applyLinks) — not a pane, so it has no drawer,
+// options or close button. Built once, kept, and re-pointed by applyReviewRow (the render
+// invariant), reading the current PR at apply time. Untrusted GitHub text goes through
+// safeText, and the repo/#number are always shown so a hostile title can't disguise the row.
+function buildReviewRow() {
+  const a = document.createElement("a");
+  a.className = "review-row";
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.onclick = (e) => e.stopPropagation(); // opening a PR must not toggle/select anything
+  const icon = document.createElement("span");
+  icon.className = "rv-icon";
+  icon.innerHTML = licon("pr", 15);
+  const body = document.createElement("span");
+  body.className = "rv-body";
+  a._top = document.createElement("span");
+  a._top.className = "rv-top";      // owner/repo #number — the identity, never model text
+  a._sub = document.createElement("span");
+  a._sub.className = "rv-sub";      // title · @author · age
+  body.append(a._top, a._sub);
+  a.append(icon, body);
+  return a;
+}
+
+function applyReviewRow(a, rv) {
+  setAttr(a, "href", /^https?:\/\//.test(rv.url || "") ? rv.url : "#");
+  const repo = safeText(rv.repo || "", 48);
+  setText(a._top, `${repo} #${rv.number}`);
+  const title = safeText(rv.title || "", 90) || "(untitled PR)";
+  const sub = [title, rv.author && "@" + safeText(rv.author, 32), fmtAge(rv.updated_at)]
+    .filter(Boolean).join(" · ");
+  setText(a._sub, sub);
+  setAttr(a, "aria-label", `Review requested: ${repo} #${rv.number} — ${title}. Opens on GitHub.`);
+}
+
+// The Orchestrator list is ranked by PRIORITY GROUP (see rankedList/prioGroup), so it is
+// grouped by "how much this pane needs you" rather than by tmux session. `subset` arrives
+// already sorted, so group values are monotonic and a header is just "insert one where the
+// group changes". Headers and rows share ONE keyed list, because .sess-hdr:first-child is a
+// structural selector — the header has to be a real sibling at the right index, not a
+// wrapper. An empty `subset` (Agent View clearing the list) yields no items ⇒ host emptied.
+function applyList(host, states, subset, act, reviews = []) {
   // Drop expansion state for panes that no longer exist (same discipline as foldOpen).
   for (const id of rowOpen) if (!panesById[id]) rowOpen.delete(id);
   const items = [];
-  subset.forEach((s, i) => {
-    if (ord.size > 1 && (!i || subset[i - 1].session !== s.session))
-      items.push({ hdr: true, session: s.session, c: (ord.get(s.session) % 4) + 1 });
+  let lastGroup = -1;
+  // The "Review requested" group sits right AFTER the "Waiting on you" panes (group 0) and
+  // before everything else — the two acute "needs you" categories together at the top. Placed
+  // the first time a pane of group ≥ 1 appears; if none do (all waiting, or no panes), the
+  // trailing placeReviews() drops it at the end of the block instead.
+  let reviewsPlaced = reviews.length === 0;
+  const placeReviews = () => {
+    if (reviewsPlaced) return;
+    items.push({ rvhdr: true });
+    reviews.forEach((rv) => items.push({ rv }));
+    reviewsPlaced = true;
+  };
+  subset.forEach((s) => {
+    const g = prioGroup(s);
+    if (g >= 1) placeReviews();
+    if (g !== lastGroup) { items.push({ hdr: true, group: g }); lastGroup = g; }
     items.push({ hdr: false, s });
   });
+  placeReviews();
   keyedList(host, items,
-    (it) => (it.hdr ? "h:" + it.session : "r:" + it.s.pane_id),
-    (it) => (it.hdr ? document.createElement("div") : buildRow(it.s.pane_id)),
+    (it) => it.hdr ? "g:" + it.group : it.rvhdr ? "g:reviews" : it.rv ? "rv:" + it.rv.id : "r:" + it.s.pane_id,
+    (it) => it.hdr || it.rvhdr ? document.createElement("div") : it.rv ? buildReviewRow() : buildRow(it.s.pane_id),
     (node, it) => {
       if (it.hdr) {
-        setAttr(node, "class", "sess-hdr c" + it.c);
-        setText(node, it.session);
+        setAttr(node, "class", "sess-hdr grp g" + it.group);
+        setText(node, GROUP_LABELS[it.group]);
+      } else if (it.rvhdr) {
+        setAttr(node, "class", "sess-hdr grp g-reviews");
+        setText(node, "Review requested");
+      } else if (it.rv) {
+        applyReviewRow(node, it.rv);
       } else {
         applyRow(node, it.s, act);
       }
@@ -1965,14 +2364,25 @@ function buildCard() {
   const row = document.createElement("div");
   row.className = "row";
   // Shared header (see buildPaneHeader). The card adds the collapse caret and omits the
-  // icon — its dock tab above IS the icon. The ▾/▸ caret collapses the card to just this
-  // header row (still tab-joined), handing the live terminal the screen; collapse state
-  // is view-wide (cardsCollapsed) so swiping panes keeps the chosen height.
+  // icon — its dock tab above IS the icon. The ▾/▸ caret is a second way to cross the same
+  // divide the segmented control names: collapsing the card IS entering Agent View (the
+  // live terminal takes the screen), expanding it is Orchestrator View. View-wide, so
+  // swiping panes keeps the chosen height.
   ui.hdr = buildPaneHeader(row, { caret: true, link: true }, (e) => {
     e.stopPropagation(); // don't also re-select the pane
-    cardsCollapsed = !cardsCollapsed;
-    render(Object.values(panesById));
+    setViewMode(isAgentView() ? "orchestrator" : "agent"); // setViewMode re-renders
   });
+  // Rename this window (pencil) then close it (✕), from the card header. Both read the
+  // CURRENT pane (ui.pane, set each applyCard) at click time — the card node is reused.
+  const renameBtn = document.createElement("button");
+  renameBtn.className = "row-rename";
+  renameBtn.type = "button";
+  renameBtn.innerHTML = licon("pencil", 15);
+  setAttr(renameBtn, "aria-label", "Rename window");
+  setAttr(renameBtn, "title", "Rename window");
+  renameBtn.onclick = (e) => { e.stopPropagation(); openRenameMenu(ui.pane, renameBtn); };
+  ui.hdr.right.appendChild(renameBtn);
+  ui.hdr.right.appendChild(buildCloseBtn(() => ui.pane));
   el.appendChild(row);
   // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order
   // matters and is encoded here rather than by append order per render: tables render
@@ -1990,7 +2400,7 @@ function buildCard() {
 // Point the one card at `s` and write its current state. Subviews that don't apply are
 // hidden AND emptied (keyedList with an empty list removes their children), so the CSS
 // :empty rules keep working and no stale content lurks behind a hidden class.
-function applyCard(ui, s, collapsed = cardsCollapsed) {
+function applyCard(ui, s, collapsed = isAgentView()) {
   const el = ui.root;
   ui.pane = s.pane_id;
   setCls(el, "waiting", actOf(s) === "waiting");
@@ -2135,7 +2545,14 @@ const zHome = (id) => {
 // 60px when no border is found. Line height is read from the live style so the
 // tuck math can't drift if .bg-term's font ever changes.
 function tuckChrome(wrap, box) {
-  if (wrap.classList.contains("shell")) return; // shells: the prompt IS the content
+  // Agent View wants the agent's OWN input line (and its "❯ 1/2/3" prompt) in view — that
+  // is the whole point of the mode — so there is nothing to tuck. Reset any negative margin
+  // a prior Orchestrator-View paint left inline. fitTerm handles the width; tail-pinning
+  // keeps the newest rows (input line included) on screen.
+  if (isAgentView()) { if (wrap.style.marginBottom !== "0px") wrap.style.marginBottom = "0px"; return; }
+  // Leaving Agent View: a shell we set to 0px inline above would otherwise keep it and lose
+  // its CSS 6px gap, so clear the inline value back to the stylesheet before the early-out.
+  if (wrap.classList.contains("shell")) { if (wrap.style.marginBottom) wrap.style.marginBottom = ""; return; } // shells: the prompt IS the content
   // Lines come from paintTerm's cache once the box is line-painted — the seam scan is
   // per-LINE, and textContent across block children does not reliably reinsert the
   // newlines it used to when the box held one big text node. Falls back to textContent
@@ -2153,6 +2570,47 @@ function tuckChrome(wrap, box) {
   // job — pull the wrap's bottom up by exactly the chrome rows we want hidden.
   wrap.style.marginBottom = `${-(rows ? Math.round(rows * lineH) + 6 : 60)}px`;
 }
+
+// Fit-to-width for Agent View (docs/design/agent-orchestrator-views.md). A frame's width is
+// tmux's own column count — whatever the laptop client set — so a wide pane overflows the
+// phone and the right edge is cut off. Rather than resize tmux (that would shrink a
+// co-attached laptop — see the doc), shrink the FONT so every column fits: font-size is the
+// available width over the widest line's column count, clamped to a legible floor (below
+// which we stop shrinking and the residual overflow stays reachable by pinch/pan) and a
+// density ceiling. Outside Agent View the font returns to the stylesheet's 10px.
+const FIT_MIN = 7, FIT_MAX = 14; // px
+let _termCharW = 0; // width of one mono char at 1px font — measured once, font-agnostic
+function termCharW() {
+  if (_termCharW) return _termCharW;
+  const m = document.createElement("span");
+  m.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font:100px/1 var(--mono-term)";
+  m.textContent = "0".repeat(100);
+  document.body.appendChild(m);
+  const w = m.getBoundingClientRect().width;
+  m.remove();
+  _termCharW = w ? w / 100 / 100 : 0.6; // px-per-char per 1px font; 0.6 = safe mono fallback
+  return _termCharW;
+}
+function fitTerm(wrap, box) {
+  // Not Agent View ⇒ hand the size back to CSS (the peek is small under the card anyway).
+  if (!isAgentView()) { if (box.style.fontSize) { box.style.fontSize = ""; box._fit = ""; } return; }
+  const kids = box._tlines;
+  if (!kids || !kids.length) return; // nothing painted yet
+  let cols = 0;
+  for (const n of kids) { const l = n.textContent.length; if (l > cols) cols = l; }
+  if (!cols) return;
+  if (box._padX === undefined) {
+    const cs = getComputedStyle(box);
+    box._padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  }
+  const avail = wrap.clientWidth - box._padX;
+  if (avail <= 0) return; // laid out to zero (hidden deck) — try again on the next paint
+  const px = Math.max(FIT_MIN, Math.min(FIT_MAX, avail / (cols * termCharW())));
+  const val = px.toFixed(2) + "px";
+  // Guarded like every other write on this path: an unchanged font-size must not reflow.
+  if (box._fit !== val) { box._fit = val; box.style.fontSize = val; }
+}
+
 // One long-poll live stream (docs/design/live-view.md). Holds /live?frame=<hash> open;
 // the daemon answers the moment the pane's screen differs (checked server-side every
 // 250ms), or with just the hash after ~25s idle, and we immediately re-hold. Full
@@ -2328,6 +2786,7 @@ function bgTerm(s) {
     const c = peekCache[s.pane_id];
     if (c) {
       paintTerm(box, c.lines);
+      fitTerm(wrap, box); // size to width BEFORE the tail-pin below, so scrollHeight is right
       tuckChrome(wrap, box);
       setCls(wrap, "stale", !peekLive);
     } else {
@@ -2337,6 +2796,7 @@ function bgTerm(s) {
       // and write into orphans — leaving "(connecting…)" frozen on screen. paintTerm owns
       // that cache, so every write to this box has to go through it.
       paintTerm(box, ["(connecting…)"]);
+      fitTerm(wrap, box); // normalize the font (clears a prior pane's inline size)
       setCls(wrap, "stale", false);
     }
     // ALWAYS pin to the tail on a switch — this is the coordinate BASELINE the persisted
@@ -2388,6 +2848,7 @@ function bgTerm(s) {
         if (live && selDirty(peekBox, sel, lines)) return;
         const before = peekBox._tlines ? peekBox._tlines.length : -1;
         paintTerm(peekBox, lines);
+        fitTerm(peekWrap, peekBox); // re-fit before the tail-pin so scrollHeight is current
         tuckChrome(peekWrap, peekBox);
         // Re-pin to the tail only when the content's LENGTH changed (new output) — a frame
         // that merely rewrites the spinner row in place leaves the geometry alone, so
@@ -2408,6 +2869,9 @@ function bgTerm(s) {
 // slid the view off the tail and half-clipped the last line — so re-pin on resize.
 const peekRO = new ResizeObserver((entries) =>
   entries.forEach((e) => {
+    // Width changed (rotation, keyboard, card growth) ⇒ re-fit the font so the frame still
+    // fills the width in Agent View. A no-op outside it and when the fit is unchanged.
+    if (peekUI) fitTerm(e.target, peekUI.box);
     // The wrap's OWN pane, not activeId() — a pending selection can diverge from the
     // rendered wrap and re-pin a pane the user has deliberately panned.
     if (zHome(e.target.dataset.pane)) e.target.scrollTop = e.target.scrollHeight;
@@ -3386,11 +3850,18 @@ function buildQuestion(cardUi) {
 function applyQuestion(ui, s, card) {
   setCls(ui.root, "hid", !s);
   if (!s) { keyedList(ui.opts, [], (x) => x, () => null); setText(ui.promptText, ""); return; }
-  const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
-  setText(ui.promptText, s.question.prompt);
+  // Answer in flight (isReparsing): the prompt CLEARS the instant a choice is tapped —
+  // options gone, prompt text swapped for a "sent, working" acknowledgement beside the
+  // spinner — instead of sitting greyed-out until the daemon re-reads the agent's screen.
+  // The reparsing key clears once the question actually changes/disappears (or on timeout),
+  // so a fresh prompt then renders normally.
+  const spinning = isReparsing(s);
+  setText(ui.promptText, spinning ? SENT_ACK : s.question.prompt);
   setCls(ui.spin, "on", spinning);
-  // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
-  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
+  // While spinning show NO options (empty list ⇒ every button node drops out); otherwise
+  // drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
+  const realOpts = spinning ? []
+    : (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
   keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
@@ -3406,17 +3877,14 @@ function applyQuestion(ui, s, card) {
       answer(cur, keyFor(cur.question, b._optText, i));
     };
     return b;
-  }, (b, opt, i) => {
-    b._optText = opt; b._optIndex = i;
-    setText(b, opt);
-    // Once an answer is in flight the options disable — a second tap would send a stray
-    // keystroke into the agent while the first is still being processed.
-    if (b.disabled !== spinning) b.disabled = spinning;
-  });
+  }, (b, opt, i) => { b._optText = opt; b._optIndex = i; setText(b, opt); });
   // Free-text reply goes through the single bottom bar (no per-card input anymore).
 }
 
 const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|write )/i;
+// Shown in place of the prompt+options the moment a choice is tapped, until the daemon's
+// forced reparse confirms the question is gone (see isReparsing). One string, both surfaces.
+const SENT_ACK = "Sent — waiting for the agent…";
 
 // Decide what keystroke represents the chosen option. y/n prompts want a letter;
 // numbered menus want the number; otherwise send the literal option text.
@@ -3739,17 +4207,24 @@ const barEl = document.getElementById("bar");
 }
 if (window.visualViewport && barEl) {
   const vv = window.visualViewport;
-  // Keyboard height = how much the layout viewport exceeds the visible viewport. Lift
-  // the fixed bar (bottom:0) by that amount so it rides just above the keyboard. No
-  // offsetHeight reads (which mis-measured and pushed it off-screen) — just a bottom
-  // offset, clamped to >=0.
+  // Keyboard height = how much the layout viewport exceeds the visible viewport. This is
+  // nonzero only where the layout viewport does NOT shrink for the keyboard — i.e. iOS
+  // Safari (which ignores interactive-widget). On Chrome/Android the meta tag shrinks the
+  // layout viewport itself, so innerHeight already tracks the keyboard and kb ≈ 0.
+  // Lift the fixed bar (bottom:0) by kb so it rides just above the keyboard, and publish
+  // --kb so #panes/.deck shrink by the same amount (else their content sits behind the
+  // lifted bar). No offsetHeight reads (they mis-measured and pushed it off-screen).
   const fit = () => {
     const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     barEl.style.bottom = kb + "px";
+    document.documentElement.style.setProperty("--kb", kb + "px");
   };
   vv.addEventListener("resize", fit);
   vv.addEventListener("scroll", fit);
-  bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
+  // The keyboard animates open over ~300ms and visualViewport's resize can lag or, if the
+  // keyboard was already up, not fire at all on a focus change — so re-fit across the
+  // animation window rather than trusting a single early tick.
+  bar.input && bar.input.addEventListener("focus", () => [0, 150, 350].forEach((d) => setTimeout(fit, d)));
   fit();
 }
 

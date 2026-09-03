@@ -271,6 +271,24 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
+def kill_window(pane_id: str) -> None:
+    """Close the WINDOW that contains this pane (kill-window targets the pane's window),
+    matching the phone's mental model: rows and cards are titled by window, and windows —
+    not bare panes — are what "+ New window" creates. Any split panes in the window go with
+    it, and whatever is running there is killed. The watcher's next tick sees the pane gone
+    and evicts it (watcher._gc), so no client-side cleanup is needed."""
+    _run(["kill-window", "-t", pane_id])
+
+
+def rename_window(pane_id: str, name: str) -> None:
+    """Rename the WINDOW that contains this pane. Turning automatic-rename OFF first pins the
+    new name: otherwise tmux would overwrite it with the running command's name on the next
+    change, and the phone's rename would silently revert. `name` is passed as a subprocess
+    argument (never a shell string), so no quoting/escaping is needed."""
+    _run(["set-window-option", "-t", pane_id, "automatic-rename", "off"])
+    _run(["rename-window", "-t", pane_id, name])
+
+
 def new_window(session: str, name: str, command: str) -> str:
     """Open a new window in `session` running `command`, and return its pane id.
     The trailing ':' pins the target to the session (a bare name could match a window).

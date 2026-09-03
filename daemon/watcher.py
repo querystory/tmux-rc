@@ -14,13 +14,16 @@ import subprocess
 import time
 from functools import partial
 
-from . import tmux
+from . import github, tmux
 from .classify import bootstrap, classify
 from .llm import backing_off, classify_text, summarize_events
 
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
+# Review-requested PRs refresh on this cadence — far slower than the tmux tick: PR review is
+# async work, and a shorter interval just spends gh/GitHub calls for no benefit (see github.py).
+REVIEW_POLL_SECONDS = 90
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
 # no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop). 0.1s
 # is the perceived floor for "instant" switching; the cost is one local `display-message`
@@ -49,10 +52,16 @@ BOOTSTRAP_ATTEMPTS = 3
 BOOTSTRAP_RETRY_SECONDS = 60
 # The bootstrap summary narrates "the story so far" — but a busy pane keeps writing
 # story, and nothing else ever recomputes session_summary, so it froze at daemon start
-# while headline/events stayed current (#127). Re-run the deep read on this cadence,
-# gated on NEW events since the last read (an idle pane never re-reads). Refreshes take
-# only summary/name — events seed once, a re-seed would duplicate the log.
-SUMMARY_REFRESH_SECONDS = 300
+# while headline/events stayed current (#127). Re-run the deep read whenever NEW events
+# have landed since the last read (an idle pane, with no new events, never re-reads),
+# subject only to a short rate FLOOR so a burst can't re-summarize every tick. This is
+# EVENT-TRIGGERED, not a fixed long cadence: the old 300s let the summary lag real work by
+# up to five minutes — painful in Orchestrator View, where you catch up after being away —
+# while a floor of seconds would let a chatty pane hammer Gemini. 45s tracks a live session
+# closely and still coalesces a burst into one call. An on-demand request (request_summary,
+# fired when a card opens in Orchestrator View) bypasses the floor for that pane. Refreshes
+# take only summary/name — events seed once, a re-seed would duplicate the log.
+SUMMARY_MIN_INTERVAL = 45
 EVENTS_LOG_MAX = 300  # per-pane activity-log cache served to the UI (~45KB/pane worst case)
 PRIOR_FRAMES = 2  # recent captures sent alongside the current one, for continuity
 # When a pane has been idle this long with accumulated events, summarize the recent
@@ -137,6 +146,10 @@ class Watcher:
         self.use_llm = use_llm
         self._warned_no_target = False  # warn once, not every poll
         self.states: list[dict] = []  # raw LLM JSON dicts, piped straight to the UI
+        # Review-requested PRs for the "Needs you" attention focus — a NON-tmux data source,
+        # refreshed on its own slow cadence by _reviews_loop and served alongside `states` in
+        # /api/state. Empty when the gh integration is disabled/unavailable (see daemon.github).
+        self.reviews: list[dict] = []
         self.events_log: dict[
             str, list[dict]
         ] = {}  # pane_id -> activity-log cache [{text, file?, meta?, ts, historical?}]
@@ -189,6 +202,11 @@ class Watcher:
         # so a submitted answer/keypress re-parses within a capture, not a poll interval.
         self._force_parse: set[str] = set()
         self._forced_this_tick: set[str] = set()  # drained from _force_parse per _tick
+        # On-demand summary refresh: request_summary() adds pane ids here; _maybe_bootstrap
+        # re-reads them next tick, bypassing the rate floor (but not the new-events gate —
+        # nothing to narrate ⇒ nothing to refresh). Consumed when the read is attempted, and
+        # discarded in _forget so a vanished pane can't linger.
+        self._force_summary: set[str] = set()
         self._wake = asyncio.Event()
         self._evloop: asyncio.AbstractEventLoop | None = None  # set in start()
         # State long-poll: a monotonic version bumped only when the DECK-relevant view
@@ -248,10 +266,31 @@ class Watcher:
     def start(self) -> None:
         self._evloop = asyncio.get_running_loop()  # for thread-safe _wake from handlers
         self._task = asyncio.create_task(self._loop())
+        # Reviews poll on their own task/cadence — a network call must never sit on the tmux
+        # tick. No-ops immediately when the gh integration is disabled/unavailable.
+        self._reviews_task = asyncio.create_task(self._reviews_loop())
 
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
+        if getattr(self, "_reviews_task", None):
+            self._reviews_task.cancel()
+
+    async def _reviews_loop(self) -> None:
+        """Refresh review-requested PRs on a slow cadence, off the tmux tick. Only bumps the
+        state version (waking the /api/state hold) when the review set actually changes, so a
+        quiet review queue costs one gh call per REVIEW_POLL_SECONDS and no client churn."""
+        if not github.enabled():
+            return  # gh missing or TMUXRC_GH_REVIEWS=0 — never poll
+        while True:
+            try:
+                revs = await asyncio.to_thread(github.fetch_review_requests)
+                if revs != self.reviews:
+                    self.reviews = revs
+                    self._bump_state_if_changed(self.states)  # fp folds in reviews
+            except Exception:  # noqa: BLE001 - a bad fetch must never kill the loop
+                logger.warning("reviews loop tick failed", exc_info=True)
+            await asyncio.sleep(REVIEW_POLL_SECONDS)
 
     def digest(self) -> list[dict]:
         """Per-pane current state PLUS recent history, for agent/programmatic consumers.
@@ -365,6 +404,20 @@ class Watcher:
                 # don't fail the request over a wake we no longer need — the pane id stays
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
+
+    def request_summary(self, pane_id: str) -> None:
+        """Force a session_summary re-read of `pane_id` on the next tick and wake the loop,
+        so opening its card in Orchestrator View (or a voice ask) gets a fresh narration
+        promptly instead of waiting out the rate floor. Same cross-thread wake as
+        request_reparse; the deep read still runs staggered (one per tick) behind the live
+        parses, and no-ops when the pane has no new events since its last summary."""
+        self._force_summary.add(pane_id)
+        loop = getattr(self, "_evloop", None)
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(self._wake.set)
+            except RuntimeError:
+                pass  # loop closed (shutdown) — the id stays queued for a running loop
 
     def _tick(self) -> None:
         if not tmux.server_running():
@@ -509,7 +562,12 @@ class Watcher:
         return "\n".join(parts)
 
     def _bump_state_if_changed(self, states: list[dict]) -> None:
-        fp = self._deck_fp(states)
+        # Fold the reviews into the fingerprint so a reviews-only change (the deck unchanged)
+        # still bumps the version and wakes the /api/state hold — repr keeps None distinct
+        # from the string "None", same reason as _deck_fp.
+        fp = self._deck_fp(states) + "\n@rev:" + repr(
+            [(r.get("id"), r.get("updated_at"), r.get("title")) for r in self.reviews]
+        )
         if fp == self._state_fp:
             return
         self._state_fp = fp
@@ -528,26 +586,39 @@ class Watcher:
     def _maybe_bootstrap(self, panes) -> None:
         """Deep-read ONE pane's scrollback per tick (staggers the fat LLM calls behind
         live parses) and stash {summary, name, events}. First read per pane seeds
-        everything; later reads REFRESH summary/name on SUMMARY_REFRESH_SECONDS once
-        new events have landed, so session_summary tracks a busy session (#127).
+        everything; later reads REFRESH summary/name once new events have landed (subject to
+        SUMMARY_MIN_INTERVAL, or immediately on an on-demand request_summary), so
+        session_summary tracks a busy session (#127).
         Failures retry a few times with spacing — a 429 at boot shouldn't be permanent."""
         if backing_off():
             return  # rate-limited: a call now would be refused — don't burn attempts
         now = time.time()
+        # Serve on-demand requests first: only ONE deep read happens per tick (the return
+        # below), so a forced pane must be reached before an unforced one would consume it.
+        if self._force_summary:
+            panes = sorted(panes, key=lambda p: p.id not in self._force_summary)
         for p in panes:
             boot = self._boot.get(p.id)
+            forced = p.id in self._force_summary
+            self._force_summary.discard(p.id)  # consume the on-demand request either way
             if boot is not None:
-                if (
-                    now - boot["ts"] < SUMMARY_REFRESH_SECONDS
-                    or self._events_seq.get(p.id, 0) == boot["seq"]
-                ):
+                no_new_events = self._events_seq.get(p.id, 0) == boot["seq"]
+                under_floor = now - boot["ts"] < SUMMARY_MIN_INTERVAL
+                # Nothing new to narrate ⇒ never re-read (even a forced request no-ops). New
+                # events ⇒ refresh once the rate floor has passed, or right away if forced.
+                if no_new_events or (under_floor and not forced):
                     continue
-                # Stamp the ATTEMPT, so a failed refresh waits out a full cadence
-                # instead of retrying every tick (the stale summary just lingers).
+                # Stamp the ATTEMPT, so a failed refresh waits out the floor instead of
+                # retrying every tick (the stale summary just lingers).
                 boot["ts"] = now
             else:
+                # Not yet bootstrapped: a forced request bypasses the retry spacing so the
+                # first summary can be pulled forward on demand.
                 tries, last = self._boot_tries.get(p.id, (0, 0.0))
-                if tries >= BOOTSTRAP_ATTEMPTS or (tries and now - last < BOOTSTRAP_RETRY_SECONDS):
+                if not forced and (
+                    tries >= BOOTSTRAP_ATTEMPTS
+                    or (tries and now - last < BOOTSTRAP_RETRY_SECONDS)
+                ):
                     continue
                 self._boot_tries[p.id] = (tries + 1, now)
             try:
@@ -671,6 +742,7 @@ class Watcher:
         )
         for store in self._stores():
             store.pop(pane_id, None)
+        self._force_summary.discard(pane_id)  # a set, not a per-pane dict store — clean here
 
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows

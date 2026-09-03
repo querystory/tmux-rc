@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- interactive-widget=resizes-content: when the soft keyboard opens, SHRINK the layout
+     viewport (not just the visual one) so 100dvh, #bar's bottom:0 and #panes' height all
+     recompute above the keyboard with no JS. Supported on Chrome/Android/Edge; iOS Safari
+     ignores it and falls back to the visualViewport lift in app.js (which also feeds --kb
+     back into the scroller heights). viewport-fit=cover keeps the notch insets. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <meta name="theme-color" content="#0b0f14" />
 <!-- Full screen on phones: launch from the home-screen icon (Add to Home Screen).
      The manifest's display:standalone covers Android/modern iOS; these metas cover
@@ -80,11 +85,12 @@
      those code points while ASCII still renders in the preferred ui-monospace. */
   :root { --mono-term: ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  /* Flex-column layout: header + scrolling panes + bar. The bar is a normal flex
-     child (NOT position:fixed), so when the mobile keyboard opens and shrinks the
-     visual viewport, the layout compresses and the bar stays right above the keyboard
-     — cards scroll within #panes instead of the whole page scrolling off. Uses dvh so
-     it tracks the keyboard-adjusted viewport. */
+  /* Header + scrolling #panes + bar. #top and #bar are position:fixed (see their rules);
+     #panes is the scroller between them, its top/bottom padding reserving their heights.
+     Keyboard handling: on Chrome/Android the viewport meta's interactive-widget shrinks the
+     layout viewport, so 100dvh and #bar's bottom:0 recompute above the keyboard for free; on
+     iOS Safari (which ignores it) app.js lifts #bar via visualViewport and publishes --kb,
+     which #panes/.deck subtract so their content clears the lifted bar. */
   body {
     margin: 0; font: 15px/1.4 -apple-system, system-ui, sans-serif;
     background: var(--bg); color: var(--fg);
@@ -183,6 +189,16 @@
 
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
+  /* A "quiet" row is a parked pane (group 3) with no fresh update — see applyRow. Collapse
+     it to one compact line: drop the full-width description second line and halve the row's
+     vertical padding, so the parked tail takes less height than an active pane. Only while
+     COLLAPSED — expanding restores the description and full padding so the drawer reads
+     as part of a normal row. */
+  .prow.quiet:not(.expanded) { padding-top: 4px; padding-bottom: 4px; }
+  .prow.quiet:not(.expanded) > .ph-subrow { display: none; }
+  /* A "flat" row has an empty drawer (see hasBody) — nothing to expand onto — so it drops
+     its caret and its tap-to-expand. Show it as static text, not a control. */
+  .prow.flat { cursor: default; }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a
      row — no surface/border, so the eye reads rows as members, headers as structure. */
   /* One hue per session ORDINAL (position in the deck, cycling by 4), shared by the
@@ -195,6 +211,19 @@
   .sess-hdr:first-child { padding-top: 2px; }
   .sess-hdr.c1 { color: var(--sessc1); } .sess-hdr.c2 { color: var(--sessc2); }
   .sess-hdr.c3 { color: var(--sessc3); } .sess-hdr.c4 { color: var(--sessc4); }
+  /* "Review requested" group header — accent-tinted to read as its own kind of item (PRs),
+     distinct from the amber "Waiting on you" pane group above it. */
+  .sess-hdr.g-reviews { color: var(--accent-text); }
+  /* A review row is a tappable PR link (buildReviewRow), styled like a .prow card but with no
+     drawer/close chrome. Two lines: owner/repo #number, then title · @author · age. */
+  .review-row { display: flex; align-items: center; gap: 10px; text-decoration: none;
+    color: var(--fg); background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 12px; }
+  .review-row:active { background: var(--chrome); }
+  .rv-icon { flex: none; line-height: 0; color: var(--accent-text); }
+  .rv-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .rv-top { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rv-sub { font-size: 12px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* tmux window number leading a row's name — the number the user's own status bar
      shows. Faint and tabular so a column of rows aligns. */
   .wnum { color: var(--fg-faint); font-weight: 600; font-variant-numeric: tabular-nums;
@@ -282,6 +311,17 @@
   .launch-head { padding: 8px 12px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--border);
     color: var(--fg-dim); font-size: 11px; font-weight: 600; letter-spacing: .02em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Rename-window popover — same floating card as .launch-menu, with a text field + button. */
+  .rename-menu { position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 6px;
+    min-width: 220px; padding: 6px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--card-lift); }
+  .rename-input { font: inherit; font-size: 15px; color: var(--fg); background: var(--chrome);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 0 6px;
+    -webkit-appearance: none; outline: none; }
+  .rename-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+  .rename-save { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; margin: 0 6px 2px; }
+  .rename-save:active { filter: brightness(.92); }
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--surface); }
@@ -307,6 +347,13 @@
   #filters:empty { display: none; }
   .dock-counts .badge { border: 0; cursor: pointer; font-family: inherit; }
   .badge.b-all { background: var(--chrome); color: var(--fg-mid); }
+  /* "Needs you" — the one-tap attention focus (Phase 1: waiting panes; later also PRs to
+     review). The headline action, pinned first in #filters, so it is a FILLED amber pill,
+     brighter than the muted .b-waiting tally it replaces. .active is its engaged state (the
+     focus is on); any engaged filter pill also gets a faint ring so the current filter reads. */
+  .badge.attn { background: var(--amber); color: #1f1600; }
+  .badge.active { box-shadow: inset 0 0 0 1px var(--fg-faint); }
+  .badge.attn.active { box-shadow: 0 0 0 2px var(--amber-text); }
   /* "N recent" spans activities, so it must not borrow any activity's colour (green would
      claim running, amber waiting). Accent-tinted: a navigational count, not a state. */
   .badge.b-recent { background: var(--sel-bg); color: var(--accent-text); }
@@ -347,6 +394,16 @@
   #expand-btn, #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
     font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
   #expand-btn:hover, #theme-btn:hover { color: var(--accent); }
+  /* Agent | Orchestrator segmented control: two icon-only buttons in one pill, the pressed
+     segment filled with the accent. Icon-only to match the rest of the ribbon chrome and
+     fit a phone width; the label lives in title/aria-label. */
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; background: var(--surface); }
+  .seg button { appearance: none; -webkit-appearance: none; background: transparent; border: 0;
+    padding: 7px 13px; color: var(--fg-dim); cursor: pointer; line-height: 0; }
+  .seg button svg { display: block; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
   /* overflow-x hidden: swipe gestures park the neighbour card off-screen with transforms,
      and the ghost card sits a full viewport away — without clipping, that overhang becomes
      scrollable width and the WHOLE PAGE slides sideways mid-swipe (dock, card, terminal,
@@ -384,7 +441,10 @@
      context strictly BELOW it, so the strip and its fillets pass BEHIND the ribbon rather
      than over it — the fillets' own z-index 6 is then local to #panes and can no longer
      out-paint the ribbon (both were 6, and #panes comes later in DOM order). */
-  #panes { padding: calc(var(--top-h, 122px) + 8px) 12px calc(var(--bar-h, 150px) + 8px);
+  /* --kb is the soft-keyboard height (app.js sets it from visualViewport on iOS, where the
+     layout viewport does NOT shrink; 0 elsewhere). Added to the bottom padding so list-mode
+     content clears the bar once it has ridden up above the keyboard. */
+  #panes { padding: calc(var(--top-h, 122px) + 8px) 12px calc(var(--bar-h, 150px) + 8px + var(--kb, 0px));
     display: flex; flex-direction: column; gap: 10px; overflow-x: hidden;
     position: relative; z-index: 5; }
   #panes.cardmode { padding-bottom: 0; }
@@ -407,7 +467,7 @@
     /* The safe-area inset is part of the 100dvh the chrome vars never see — the body
        pads it above #top, so on a notched phone omitting it here pushes the deck's
        bottom exactly that far back under the bar. Zero everywhere else. */
-    height: calc(100dvh - env(safe-area-inset-top, 0px) - var(--top-h, 122px) - var(--bar-h, 150px));
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - var(--top-h, 122px) - var(--bar-h, 150px) - var(--kb, 0px));
     overflow: hidden; display: flex; flex-direction: column; }
   /* The card COVERS the terminal — it is a sheet lying on top of it, not a panel butted
      against it. Two things make that read:
@@ -739,6 +799,46 @@
   }
   button.opt:active { background: var(--border); }
   button.opt:disabled { opacity: .5; cursor: default; }
+  /* Inline pending choices on a WAITING Orchestrator row (they absorbed the old in-card
+     roll-up): answer the prompt without opening the drawer or switching panes. Full-width
+     line below the header (like .ph-subrow), wrapping the buttons in a row. Reuses button.opt
+     but overrides its column-list width:100% so the choices flow side by side. Empty ⇒ hidden. */
+  .prow > .row-opts { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px;
+    padding-left: 44px; }
+  .prow > .row-opts:empty { display: none; }
+  .row-opts button.opt { width: auto; flex: 0 1 auto; }
+  /* Answer-in-flight acknowledgement: takes the inline choices' place (their full-width line,
+     same indent) while the daemon re-reads the screen, so a tapped row prompt clears at once
+     instead of lingering. Muted, with a small spinner reusing .q-spin. Hidden via .hid. */
+  .prow > .row-ack { flex: 1 1 100%; display: flex; align-items: center; gap: 8px;
+    padding-left: 44px; color: var(--fg-dim); font-size: 13px; }
+  .row-ack .q-spin { display: inline-block; width: 14px; height: 14px; border-width: 2px;
+    vertical-align: baseline; }
+  .prow.reparsing { opacity: .85; }
+  /* The one control that leaves the overview for the full live terminal (Open in Agent View),
+     sitting in the row's right column with the badge and sub-agents chip. */
+  .row-agent { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+    padding: 4px; line-height: 0; }
+  .row-agent:hover { color: var(--accent); }
+  /* Close-window button — the "I'm done with this" control, in the row's right column and the
+     card header. Destructive, so it is a TWO-STEP toggle (buildCloseBtn): resting it is a
+     muted ✕ icon (like .row-agent); once ARMED it becomes a red "Close?" pill, and a second
+     tap fires. Shared by row and card, hence the bare class (not scoped to .prow). */
+  .row-close { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+    padding: 4px; line-height: 0; border-radius: 6px; }
+  .row-close:hover { color: var(--red); }
+  .row-close.armed { line-height: 1; padding: 3px 8px; font-size: 12px; font-weight: 600;
+    color: #fff; background: var(--red); }
+  /* Rename-window (pencil) button — same icon-button shape as .row-close, but non-destructive,
+     so it tints toward the accent, not red. Opens the .rename-menu popover. */
+  .row-rename { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+    padding: 4px; line-height: 0; border-radius: 6px; }
+  .row-rename:hover { color: var(--accent-text); }
+  /* Orchestrator priority-group headers (Waiting on you / Awaiting next / Running / Parked)
+     replace the session headers in this list. Reuse .sess-hdr; the waiting bucket gets the
+     amber emphasis so the thing needing you draws the eye. */
+  .sess-hdr.grp { text-transform: uppercase; letter-spacing: .04em; }
+  .sess-hdr.g0 { color: var(--amber-text); }
   /* Reparsing: an answer/keypress was sent and we're waiting for the forced LLM
      re-parse to land. Dim the card slightly and spin a ring next to the prompt so the
      submitted answer visibly WORKS instead of sitting stale. Cleared when the fresh
@@ -1019,8 +1119,15 @@
            scroll off once enough panes fill the width. Built by dock(). -->
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
+        <!-- Agent | Orchestrator segmented control (card view). Icons injected at boot by
+             app.js so they theme via currentColor (AGENTS.md: no emoji chrome). It swaps
+             with #expand-btn, which owns list mode. -->
+        <div id="view-toggle" class="seg" role="group" aria-label="View mode">
+          <button type="button" data-view="agent" title="Agent View — hands-on terminal" aria-label="Agent View" aria-pressed="false"></button>
+          <button type="button" data-view="orchestrator" title="Orchestrator View — summary & voice" aria-label="Orchestrator View" aria-pressed="true"></button>
+        </div>
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)"></button>
-        <button id="expand-btn" title="Expand card" aria-label="Expand card"></button>
+        <button id="expand-btn" class="hid" title="Expand/collapse all" aria-label="Expand/collapse all"></button>
         <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false"></button>
         <!-- docs link lives INSIDE the status-dot popover (see showUsage) — the top
              bar is too tight on phones to spend on a rarely-tapped link. -->
@@ -1046,6 +1153,8 @@
       <button data-k="Escape">Esc</button>
       <button data-k="Up">↑</button>
       <button data-k="Down">↓</button>
+      <button data-k="Left">←</button>
+      <button data-k="Right">→</button>
       <button data-k="C-o">Ctrl-O</button>
       <button id="bar-prefix" data-k="C-b" title="tmux prefix">Prefix</button>
       <!-- Ctrl-B as a LITERAL key, distinct from the Prefix button above. Prefix sends
@@ -1061,6 +1170,9 @@
     </div>
     <div class="freetext">
       <div class="inputwrap">
+        <!-- Thumb-reachable view swap (Agent is one-handed work; the top ribbon is a
+             stretch). Single toggle showing the icon of the mode a tap switches TO. -->
+        <button id="view-toggle-bar" class="attach" title="Switch view" aria-label="Switch view"></button>
         <button id="bar-keys-toggle" class="attach" title="Special keys" aria-label="Special keys" aria-pressed="false"></button>
         <button id="bar-attach" class="attach" title="Attach image" aria-label="Attach image"></button>
         <!-- Rich composer: contenteditable (not <input>) so image thumbnails can sit
