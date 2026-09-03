@@ -1085,7 +1085,10 @@ if (expandBtn) {
   expandBtn.onclick = () => {
     // Expand/collapse-all applies to the Orchestrator list; the button is hidden in Agent View.
     if (isAgentView()) return;
-    const lp = rankedList(Object.values(panesById));
+    // Only expandable rows have a drawer; flat rows (hasBody false) are dropped from rowOpen
+    // every render, so including them here would leave `every` perpetually false and turn
+    // collapse-all into a second expand-all.
+    const lp = rankedList(Object.values(panesById)).filter(hasBody);
     if (lp.every((p) => rowOpen.has(p.pane_id))) lp.forEach((p) => rowOpen.delete(p.pane_id));
     else lp.forEach((p) => rowOpen.add(p.pane_id));
     render(Object.values(panesById));
@@ -1874,6 +1877,7 @@ function buildRow(paneId) {
   el.className = "prow";
   el.dataset.pane = paneId;
   const toggleOpen = (e) => {
+    if (!el._expandable) return; // flat row (empty drawer) — nothing to open (see applyRow)
     if (e) e.stopPropagation();
     if (rowOpen.has(paneId)) rowOpen.delete(paneId); else rowOpen.add(paneId);
     render(Object.values(panesById));
@@ -1923,10 +1927,36 @@ function buildRow(paneId) {
   return el;
 }
 
+// Does this pane's drawer have anything to show? Mirrors what applyPaneBody renders for a
+// row (rewind is card-only, and applyEvents hides itself on an empty log, so s.summary
+// without events shows nothing). A pane with none of these is a dead end — nothing to
+// expand onto — so its row is neither tappable nor caret-bearing (see applyRow). Pure.
+function hasBody(s) {
+  const filled = (a) => Array.isArray(a) && a.length > 0;
+  return !!(s.session_summary || s.question
+    || filled(s.tables) || filled(s.tasks) || filled(s.links) || filled(s.copyables)
+    || realSubs(s.subagents).length
+    || ((eventLog[s.pane_id] || {}).events || []).length);
+}
+
 function applyRow(el, s, act) {
   setCls(el, "waiting", actOf(s) === "waiting");
   setCls(el, "sel", s.pane_id === act);
-  const open = rowOpen.has(s.pane_id);
+  // A parked pane (group 3 — idle and aged past PARKED_IDLE_SECS) has no fresh update to
+  // report, so its row collapses to a compact single line (CSS hides the description subrow
+  // and tightens the padding) — keeping a long tail of quiet windows from crowding the ones
+  // that need you. Waiting/running/just-finished panes all carry something to act on, so
+  // they never go quiet; expanding a quiet row (.expanded wins in CSS) restores the full row.
+  setCls(el, "quiet", prioGroup(s) === 3);
+  // Only expandable when the drawer would actually hold something (hasBody). A pane with an
+  // empty drawer — common for a quiet, never-active window — is a flat line: no caret, no
+  // tap-to-expand (toggleOpen reads el._expandable), so a tap never opens onto a blank body.
+  const expandable = hasBody(s);
+  el._expandable = expandable;
+  setCls(el, "flat", !expandable);
+  setCls(el._hdr.caret, "hid", !expandable);
+  if (!expandable) rowOpen.delete(s.pane_id); // drop stale expansion if its body drained
+  const open = expandable && rowOpen.has(s.pane_id);
   setCls(el._hdr.caret, "open", open);
   setAttr(el._hdr.caret, "aria-expanded", String(open));
   setAttr(el._hdr.caret, "aria-label", (open ? "Collapse" : "Expand") + " pane details");

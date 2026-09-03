@@ -183,6 +183,16 @@
 
   .prow.waiting { border-color: var(--amber); background: var(--waiting-bg); }
   .prow.sel { border-color: var(--accent); }
+  /* A "quiet" row is a parked pane (group 3) with no fresh update — see applyRow. Collapse
+     it to one compact line: drop the full-width description second line and halve the row's
+     vertical padding, so the parked tail takes less height than an active pane. Only while
+     COLLAPSED — expanding restores the description and full padding so the drawer reads
+     as part of a normal row. */
+  .prow.quiet:not(.expanded) { padding-top: 4px; padding-bottom: 4px; }
+  .prow.quiet:not(.expanded) > .ph-subrow { display: none; }
+  /* A "flat" row has an empty drawer (see hasBody) — nothing to expand onto — so it drops
+     its caret and its tap-to-expand. Show it as static text, not a control. */
+  .prow.flat { cursor: default; }
   /* List-mode session divider (multi-session decks only): a quiet group label, not a
      row — no surface/border, so the eye reads rows as members, headers as structure. */
   /* One hue per session ORDINAL (position in the deck, cycling by 4), shared by the
