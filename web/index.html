@@ -715,6 +715,15 @@
   .sub-toggle { border: 0; font-family: inherit; cursor: pointer; position: relative;
     background: var(--agents-bg); color: var(--agents-fg); }
   .sub-toggle::before { content: ""; position: absolute; inset: -10px; }
+  /* Close-window button — the "I'm done with this" control, in the row's right column and the
+     card header. Destructive, so it is a TWO-STEP toggle (buildCloseBtn): resting it is a
+     muted ✕ icon; once ARMED it becomes a red "Close?" pill, and a second tap fires. Shared
+     by row and card, hence the bare class. */
+  .row-close { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+    padding: 4px; line-height: 0; border-radius: 6px; }
+  .row-close:hover { color: var(--red); }
+  .row-close.armed { line-height: 1; padding: 3px 8px; font-size: 12px; font-weight: 600;
+    color: #fff; background: var(--red); }
   .badge {
     font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600;
     white-space: nowrap;

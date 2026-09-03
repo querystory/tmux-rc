@@ -1767,6 +1767,66 @@ function dock(states, act) {
 // One list row per pane, built once and keyed by pane_id, so the row the user is
 // pressing is still there when their finger lifts.
 //
+// Close the WINDOW behind a pane — the "I'm done with this" control. Destructive: the
+// daemon runs kill-window, taking any process in it. No local state mutation (panesById is
+// server truth): the watcher evicts the pane and the long-poll returns the change, so the
+// row/card disappears on its own within a beat. Only surfaces a note on FAILURE — success is
+// the card vanishing.
+async function closeWindow(paneId) {
+  try {
+    const r = await fetch(`/api/panes/${encodeURIComponent(paneId)}/close`,
+      { method: "POST", signal: timeoutSignal(8000) });
+    if (!r.ok) throw new Error("close failed: " + r.status);
+  } catch (e) {
+    barNote(`Couldn't close the window — ${e.message}. Tap again to retry.`);
+    reportError("close", e);
+  }
+}
+
+// Two-step "close window" button, shared by the Orchestrator row and the Agent card. It is
+// destructive, so a single stray tap must never fire it: the first tap ARMS (turns red,
+// reads "Close?"); a second tap within CLOSE_ARM_MS closes; a tap anywhere else, or the
+// timeout, disarms. `getId` reads the CURRENT pane at click time — the card reuses one node
+// across panes (see buildCard), so a captured id would close whichever pane it was built on.
+// Only one button is armed at a time: arming a second disarms the first.
+const CLOSE_ARM_MS = 2200;
+let _armedClose = null;
+function buildCloseBtn(getId) {
+  const b = document.createElement("button");
+  b.className = "row-close";
+  b.type = "button"; // never submit anything
+  const disarm = () => {
+    if (_armedClose === b) _armedClose = null;
+    clearTimeout(b._t);
+    b.classList.remove("armed");
+    b.innerHTML = licon("x", 15);
+    setAttr(b, "aria-label", "Close window");
+    setAttr(b, "title", "Close window");
+    if (b._outside) { document.removeEventListener("pointerdown", b._outside, true); b._outside = null; }
+  };
+  b._disarm = disarm;
+  const arm = () => {
+    if (_armedClose && _armedClose !== b) _armedClose._disarm();
+    _armedClose = b;
+    b.classList.add("armed");
+    b.textContent = "Close?";
+    setAttr(b, "aria-label", "Confirm close window");
+    setAttr(b, "title", "Tap again to close");
+    // Capture-phase so a tap on any other control disarms BEFORE that control acts on it.
+    b._outside = (e) => { if (!b.contains(e.target)) disarm(); };
+    document.addEventListener("pointerdown", b._outside, true);
+    clearTimeout(b._t);
+    b._t = setTimeout(disarm, CLOSE_ARM_MS);
+  };
+  b.onclick = (e) => {
+    e.stopPropagation(); // closing must not also re-select the pane or toggle the drawer
+    if (b.classList.contains("armed")) { const id = getId(); disarm(); if (id) closeWindow(id); }
+    else arm();
+  };
+  disarm(); // seed the resting icon/labels
+  return b;
+}
+
 // The filter switch is INSTANT by design: the old flying-clone animation only existed
 // because rows were deleted before they could animate. Rows persist now, so a future
 // transition would be a genuine FLIP on the surviving nodes (measure, invert, play).
@@ -1812,6 +1872,9 @@ function buildRow(paneId) {
   toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
   toggle.onclick = toggleOpen;
   hdr.right.appendChild(toggle);
+  // Close this window — rightmost in the row's action area. paneId is stable for the life of
+  // this keyed row, so capturing it is safe here (unlike the card).
+  hdr.right.appendChild(buildCloseBtn(() => paneId));
   el._hdr = hdr; el._toggle = toggle; el._body = null; // drawer built lazily on first open
   return el;
 }
@@ -1973,6 +2036,9 @@ function buildCard() {
     cardsCollapsed = !cardsCollapsed;
     render(Object.values(panesById));
   });
+  // Close this window from the card header. The card node is reused across panes, so the
+  // button reads the CURRENT pane (ui.pane, set each applyCard) at click time.
+  ui.hdr.right.appendChild(buildCloseBtn(() => ui.pane));
   el.appendChild(row);
   // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order
   // matters and is encoded here rather than by append order per render: tables render
