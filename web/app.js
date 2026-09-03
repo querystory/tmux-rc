@@ -1907,6 +1907,20 @@ function buildRow(paneId) {
   const opts = document.createElement("div");
   opts.className = "row-opts";
   el.appendChild(opts);
+  // Answer-in-flight acknowledgement: replaces the inline choices (which vanish the instant
+  // one is tapped) with a "Sent — waiting…" line + spinner, so a row's prompt clears on tap
+  // instead of sitting there until the daemon re-reads the screen. Its spinner is a PERMANENT
+  // node (the row is keyed, never recreated), so its animation runs continuously. Shown by
+  // applyRow only while isReparsing; hidden otherwise via .hid.
+  const ack = document.createElement("div");
+  ack.className = "row-ack hid";
+  ack.setAttribute("role", "status");
+  const ackSpin = document.createElement("span");
+  ackSpin.className = "q-spin on";
+  const ackText = document.createElement("span");
+  ackText.textContent = SENT_ACK;
+  ack.append(ackSpin, ackText);
+  el.appendChild(ack);
   // The ONE place a row leaves the overview for the full live terminal: Open in Agent View.
   const openAgent = document.createElement("button");
   openAgent.className = "row-agent";
@@ -1923,7 +1937,7 @@ function buildRow(paneId) {
   toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
   toggle.onclick = toggleOpen;
   hdr.right.appendChild(toggle);
-  el._hdr = hdr; el._toggle = toggle; el._opts = opts; el._body = null; // drawer built lazily
+  el._hdr = hdr; el._toggle = toggle; el._opts = opts; el._ack = ack; el._body = null; // drawer built lazily
   return el;
 }
 
@@ -1966,7 +1980,14 @@ function applyRow(el, s, act) {
   // shows them — don't duplicate). Same treatment as applyQuestion/the old roll-up: drop the
   // free-text pseudo-option, key by index+text so a stable menu keeps its nodes, and read the
   // CURRENT pane/question at click time so a persisted node never answers a stale prompt.
-  const inlineQ = actOf(s) === "waiting" && s.question && !open;
+  // An answer sent from this row is in flight: the choices vanish and a "Sent — waiting…"
+  // acknowledgement takes their place (same treatment as the card's question view), so the
+  // prompt CLEARS on tap rather than lingering until the daemon's forced reparse lands.
+  const spinning = isReparsing(s);
+  setCls(el, "reparsing", spinning);
+  const waitingQ = actOf(s) === "waiting" && s.question && !open;
+  setCls(el._ack, "hid", !(waitingQ && spinning));
+  const inlineQ = waitingQ && !spinning;
   const realOpts = inlineQ
     ? (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()))
     : [];
@@ -3591,11 +3612,18 @@ function buildQuestion(cardUi) {
 function applyQuestion(ui, s, card) {
   setCls(ui.root, "hid", !s);
   if (!s) { keyedList(ui.opts, [], (x) => x, () => null); setText(ui.promptText, ""); return; }
-  const spinning = isReparsing(s); // answer submitted — options locked, spinner shown
-  setText(ui.promptText, s.question.prompt);
+  // Answer in flight (isReparsing): the prompt CLEARS the instant a choice is tapped —
+  // options gone, prompt text swapped for a "sent, working" acknowledgement beside the
+  // spinner — instead of sitting greyed-out until the daemon re-reads the agent's screen.
+  // The reparsing key clears once the question actually changes/disappears (or on timeout),
+  // so a fresh prompt then renders normally.
+  const spinning = isReparsing(s);
+  setText(ui.promptText, spinning ? SENT_ACK : s.question.prompt);
   setCls(ui.spin, "on", spinning);
-  // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
-  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
+  // While spinning show NO options (empty list ⇒ every button node drops out); otherwise
+  // drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
+  const realOpts = spinning ? []
+    : (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
   keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
@@ -3611,17 +3639,14 @@ function applyQuestion(ui, s, card) {
       answer(cur, keyFor(cur.question, b._optText, i));
     };
     return b;
-  }, (b, opt, i) => {
-    b._optText = opt; b._optIndex = i;
-    setText(b, opt);
-    // Once an answer is in flight the options disable — a second tap would send a stray
-    // keystroke into the agent while the first is still being processed.
-    if (b.disabled !== spinning) b.disabled = spinning;
-  });
+  }, (b, opt, i) => { b._optText = opt; b._optIndex = i; setText(b, opt); });
   // Free-text reply goes through the single bottom bar (no per-card input anymore).
 }
 
 const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|write )/i;
+// Shown in place of the prompt+options the moment a choice is tapped, until the daemon's
+// forced reparse confirms the question is gone (see isReparsing). One string, both surfaces.
+const SENT_ACK = "Sent — waiting for the agent…";
 
 // Decide what keystroke represents the chosen option. y/n prompts want a letter;
 // numbered menus want the number; otherwise send the literal option text.

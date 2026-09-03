@@ -767,6 +767,14 @@
     padding-left: 44px; }
   .prow > .row-opts:empty { display: none; }
   .row-opts button.opt { width: auto; flex: 0 1 auto; }
+  /* Answer-in-flight acknowledgement: takes the inline choices' place (their full-width line,
+     same indent) while the daemon re-reads the screen, so a tapped row prompt clears at once
+     instead of lingering. Muted, with a small spinner reusing .q-spin. Hidden via .hid. */
+  .prow > .row-ack { flex: 1 1 100%; display: flex; align-items: center; gap: 8px;
+    padding-left: 44px; color: var(--fg-dim); font-size: 13px; }
+  .row-ack .q-spin { display: inline-block; width: 14px; height: 14px; border-width: 2px;
+    vertical-align: baseline; }
+  .prow.reparsing { opacity: .85; }
   /* The one control that leaves the overview for the full live terminal (Open in Agent View),
      sitting in the row's right column with the badge and sub-agents chip. */
   .row-agent { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
