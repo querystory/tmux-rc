@@ -789,6 +789,15 @@
   .row-agent { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
     padding: 4px; line-height: 0; }
   .row-agent:hover { color: var(--accent); }
+  /* Close-window button — the "I'm done with this" control, in the row's right column and the
+     card header. Destructive, so it is a TWO-STEP toggle (buildCloseBtn): resting it is a
+     muted ✕ icon (like .row-agent); once ARMED it becomes a red "Close?" pill, and a second
+     tap fires. Shared by row and card, hence the bare class (not scoped to .prow). */
+  .row-close { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+    padding: 4px; line-height: 0; border-radius: 6px; }
+  .row-close:hover { color: var(--red); }
+  .row-close.armed { line-height: 1; padding: 3px 8px; font-size: 12px; font-weight: 600;
+    color: #fff; background: var(--red); }
   /* Orchestrator priority-group headers (Waiting on you / Awaiting next / Running / Parked)
      replace the session headers in this list. Reuse .sess-hdr; the waiting bucket gets the
      amber emphasis so the thing needing you draws the eye. */
