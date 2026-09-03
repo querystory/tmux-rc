@@ -449,6 +449,15 @@ let panesById = {}; // latest state per pane, for the bottom bar to act on
 // Review-requested PRs from /api/state (a non-pane "needs you" source). Module-level, like
 // panesById, so a re-render triggered by anything (not just a fresh poll) still sees them.
 let reviewItems = [];
+// Whether the "Review requested" group is shown at all — an opt-in toggle (the "N to review"
+// pill), persisted per phone. OFF by default so PRs don't clutter the fleet until asked for;
+// when off they also drop out of the "Needs you" count/focus (reviewItems is still fetched).
+let reviewsShown = false;
+try { reviewsShown = localStorage.getItem("tmuxrc-reviews") === "1"; } catch {}
+function setReviewsShown(on) {
+  reviewsShown = on;
+  try { localStorage.setItem("tmuxrc-reviews", on ? "1" : "0"); } catch {}
+}
 // A selection we've told tmux about but the watcher hasn't observed yet. Without this,
 // the poll right after a switch still carries the OLD tmux_active and flips the UI
 // back for a beat (then forward again) — the "ticky" double-switch. Held until the
@@ -1291,7 +1300,7 @@ function render(states) {
   for (const id of rowOpen) if (panesById[id]) askSummaryRefresh(id);
   // Reviews show in the full fleet, the "all" list, and the "Needs you" focus — but NOT when
   // a specific activity filter is on (there you asked for those panes, not PRs).
-  const showReviews = !listFilter || listFilter === "all" || listFilter === "attention";
+  const showReviews = reviewsShown && (!listFilter || listFilter === "all" || listFilter === "attention");
   const revs = showReviews ? reviewItems : [];
   // "Needs you" focus with nothing waiting AND no reviews: an empty list reads as broken, so
   // show a calm note (the highlighted pill stays in #filters, so the toggle is still there).
@@ -1914,10 +1923,16 @@ function dock(states, act) {
   // "N waiting" pill (waiting IS what needs you). Shown whenever something needs you, or while
   // its own filter is active so you can always toggle back out. Phase 2 adds PRs to the count.
   const tallies = [];
-  // Attention = waiting panes + review-requested PRs (the same set the focus shows).
-  const nAttn = (n.waiting || 0) + reviewItems.length;
+  // Attention = waiting panes + review-requested PRs, but PRs count only while shown (the
+  // reviews toggle is off by default, and "Needs you" then means blocked panes alone).
+  const nAttn = (n.waiting || 0) + (reviewsShown ? reviewItems.length : 0);
   if (nAttn || listFilter === "attention")
     tallies.push({ key: "attention", label: `Needs you · ${nAttn}`, attn: true });
+  // Opt-in "Review requested" toggle: shown whenever there are PRs to review, so you can
+  // reveal/hide the group without it living in the list all the time. Its own count, always
+  // visible as a hint even while the group is hidden.
+  if (reviewItems.length)
+    tallies.push({ key: "reviews", label: `${reviewItems.length} to review`, rev: true });
   ["running", "compacting", "unknown"]
     .filter((a) => n[a]).forEach((a) => tallies.push({ key: a, label: `${n[a]} ${a}` }));
   // "N recent" — the count the user actually wants at a glance: how much of the fleet is
@@ -1934,17 +1949,26 @@ function dock(states, act) {
   // ONE node whose text changes as the count moves, not a new node per poll.
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
-    b.className = "badge b-" + t.key + (t.attn ? " attn" : "");
+    b.className = "badge b-" + t.key + (t.attn ? " attn" : "") + (t.rev ? " rev" : "");
     // A tally is an Orchestrator action — it sub-filters the ranked fleet list. Tapping one
     // from Agent View jumps to Orchestrator (setViewMode re-renders); already there, re-render.
     b.onclick = () => {
+      // The "to review" pill is a VISIBILITY TOGGLE (a persisted preference), not a filter —
+      // it never touches listFilter, and toggling ON from Agent View jumps to Orchestrator so
+      // the newly-revealed group is actually in view.
+      if (t.rev) {
+        setReviewsShown(!reviewsShown);
+        if (reviewsShown && isAgentView()) setViewMode("orchestrator");
+        else render(Object.values(panesById));
+        return;
+      }
       // "Needs you" is a TOGGLE — tapping it again leaves the focus; the plain tallies just set.
       listFilter = t.key === "attention" && listFilter === "attention" ? "all" : t.key;
       if (isAgentView()) setViewMode("orchestrator");
       else render(Object.values(panesById));
     };
     return b;
-  }, (b, t) => { setText(b, t.label); setCls(b, "active", t.key === listFilter); });
+  }, (b, t) => { setText(b, t.label); setCls(b, "active", t.rev ? reviewsShown : t.key === listFilter); });
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center

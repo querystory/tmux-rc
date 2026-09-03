@@ -354,6 +354,11 @@
   .badge.attn { background: var(--amber); color: #1f1600; }
   .badge.active { box-shadow: inset 0 0 0 1px var(--fg-faint); }
   .badge.attn.active { box-shadow: 0 0 0 2px var(--amber-text); }
+  /* "N to review" — the opt-in toggle for the "Review requested" group (accent-tinted to
+     match that group's header). Muted when off (the group is hidden), a solid accent ring
+     when ON so the toggle state reads at a glance. */
+  .badge.rev { background: var(--sel-bg); color: var(--accent-text); }
+  .badge.rev.active { box-shadow: 0 0 0 2px var(--accent-text); }
   /* "N recent" spans activities, so it must not borrow any activity's colour (green would
      claim running, amber waiting). Accent-tinted: a navigational count, not a state. */
   .badge.b-recent { background: var(--sel-bg); color: var(--accent-text); }
