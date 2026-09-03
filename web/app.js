@@ -268,6 +268,8 @@ const LUCIDE = {
   panels: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   // git-pull-request — marks a "Review requested" row.
   pr: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>',
+  // pencil — the rename-window affordance.
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1604,6 +1606,72 @@ function openLaunchMenu(sess, anchor) {
   document.addEventListener("pointerdown", launchMenuAway, true);
 }
 
+// Rename a tmux WINDOW from the phone. A transient popover (same shape as openLaunchMenu) so
+// the render loop never clobbers an in-progress edit: it lives outside the reconciled header,
+// carries a prefilled input, and POSTs /rename on Enter/Rename. The new name flows back on the
+// next watcher tick (server truth — no local mutation). Closes on outside tap or Escape.
+let renameMenuEl = null;
+function renameMenuAway(e) { if (renameMenuEl && !renameMenuEl.contains(e.target)) closeRenameMenu(); }
+function closeRenameMenu() {
+  if (!renameMenuEl) return;
+  document.removeEventListener("pointerdown", renameMenuAway, true);
+  renameMenuEl.remove();
+  renameMenuEl = null;
+}
+function openRenameMenu(paneId, anchor) {
+  closeRenameMenu();
+  const s = panesById[paneId];
+  if (!s) return;
+  const m = document.createElement("div");
+  m.className = "rename-menu";
+  const head = document.createElement("div");
+  head.className = "launch-head"; // reuse the popover header style
+  head.setAttribute("role", "presentation");
+  setText(head, "Rename window");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "rename-input";
+  input.maxLength = 120;
+  input.value = s.window_name || s.title || s.label || "";
+  setAttr(input, "aria-label", "New window name");
+  const save = document.createElement("button");
+  save.className = "rename-save";
+  save.textContent = "Rename";
+  const submit = () => {
+    const name = input.value.trim();
+    closeRenameMenu();
+    if (name) renameWindow(paneId, name); // empty ⇒ just cancel (the daemon would reject it too)
+  };
+  save.onclick = submit;
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeRenameMenu(); }
+  };
+  m.append(head, input, save);
+  document.body.appendChild(m);
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8)) + "px";
+  m.style.top = r.bottom + 6 + "px";
+  renameMenuEl = m;
+  document.addEventListener("pointerdown", renameMenuAway, true);
+  input.focus();
+  input.select();
+}
+async function renameWindow(paneId, name) {
+  try {
+    const r = await fetch(`/api/panes/${encodeURIComponent(paneId)}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+      signal: timeoutSignal(8000),
+    });
+    if (!r.ok) throw new Error("rename failed: " + r.status);
+  } catch (e) {
+    barNote(`Couldn't rename the window — ${e.message}.`);
+    reportError("rename", e);
+  }
+}
+
 function buildDockIcon(paneId) {
   const b = document.createElement("button");
   b.className = "dock-icon";
@@ -2304,8 +2372,16 @@ function buildCard() {
     e.stopPropagation(); // don't also re-select the pane
     setViewMode(isAgentView() ? "orchestrator" : "agent"); // setViewMode re-renders
   });
-  // Close this window from the card header. The card node is reused across panes, so the
-  // button reads the CURRENT pane (ui.pane, set each applyCard) at click time.
+  // Rename this window (pencil) then close it (✕), from the card header. Both read the
+  // CURRENT pane (ui.pane, set each applyCard) at click time — the card node is reused.
+  const renameBtn = document.createElement("button");
+  renameBtn.className = "row-rename";
+  renameBtn.type = "button";
+  renameBtn.innerHTML = licon("pencil", 15);
+  setAttr(renameBtn, "aria-label", "Rename window");
+  setAttr(renameBtn, "title", "Rename window");
+  renameBtn.onclick = (e) => { e.stopPropagation(); openRenameMenu(ui.pane, renameBtn); };
+  ui.hdr.right.appendChild(renameBtn);
   ui.hdr.right.appendChild(buildCloseBtn(() => ui.pane));
   el.appendChild(row);
   // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order

@@ -124,6 +124,10 @@ class NewWindowBody(BaseModel):
     launcher: str  # label of a configured launcher — never a raw command
 
 
+class RenameBody(BaseModel):
+    name: str  # new window name; sanitized (trim, strip control chars, cap) in the route
+
+
 # Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
 # model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
 # back only the LABEL and the daemon looks the command up here, so the HTTP surface
@@ -634,6 +638,28 @@ def close_window(pane_id: str, request: Request):
         _audit(request, "kill_window", pane_id, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "kill_window", pane_id)
+    return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/rename")
+def rename_window(pane_id: str, body: RenameBody, request: Request):
+    """Rename the WINDOW that contains this pane. The new name is sanitized here — trimmed,
+    control characters (newlines/escape/etc.) removed so it can't corrupt the tmux status
+    line, and capped — before it reaches tmux (as a subprocess arg, never a shell string).
+    The renamed window flows back to the phone on the next watcher tick."""
+    name = "".join(ch for ch in body.name if ch.isprintable()).strip()[:120]
+    if not name:
+        _audit(request, "rename_window", pane_id, outcome="rejected: empty name")
+        raise HTTPException(422, "a non-empty name is required")
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, "rename_window", pane_id, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        tmux.rename_window(pane_id, name)
+    except Exception as e:
+        _audit(request, "rename_window", pane_id, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "rename_window", pane_id, detail=name[:40])
     return {"ok": True}
 
 

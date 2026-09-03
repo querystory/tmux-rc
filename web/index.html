@@ -311,6 +311,17 @@
   .launch-head { padding: 8px 12px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--border);
     color: var(--fg-dim); font-size: 11px; font-weight: 600; letter-spacing: .02em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Rename-window popover — same floating card as .launch-menu, with a text field + button. */
+  .rename-menu { position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 6px;
+    min-width: 220px; padding: 6px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--card-lift); }
+  .rename-input { font: inherit; font-size: 15px; color: var(--fg); background: var(--chrome);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 0 6px;
+    -webkit-appearance: none; outline: none; }
+  .rename-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+  .rename-save { font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; margin: 0 6px 2px; }
+  .rename-save:active { filter: brightness(.92); }
   /* Corner badge over the logo (favicon-style), dark ring for contrast. */
   .ddot { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px;
     border-radius: 50%; background: var(--fg-faint); box-shadow: 0 0 0 2px var(--surface); }
@@ -818,6 +829,11 @@
   .row-close:hover { color: var(--red); }
   .row-close.armed { line-height: 1; padding: 3px 8px; font-size: 12px; font-weight: 600;
     color: #fff; background: var(--red); }
+  /* Rename-window (pencil) button — same icon-button shape as .row-close, but non-destructive,
+     so it tints toward the accent, not red. Opens the .rename-menu popover. */
+  .row-rename { border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+    padding: 4px; line-height: 0; border-radius: 6px; }
+  .row-rename:hover { color: var(--accent-text); }
   /* Orchestrator priority-group headers (Waiting on you / Awaiting next / Running / Parked)
      replace the session headers in this list. Reuse .sess-hdr; the waiting bucket gets the
      amber emphasis so the thing needing you draws the eye. */
@@ -1137,6 +1153,8 @@
       <button data-k="Escape">Esc</button>
       <button data-k="Up">↑</button>
       <button data-k="Down">↓</button>
+      <button data-k="Left">←</button>
+      <button data-k="Right">→</button>
       <button data-k="C-o">Ctrl-O</button>
       <button id="bar-prefix" data-k="C-b" title="tmux prefix">Prefix</button>
       <!-- Ctrl-B as a LITERAL key, distinct from the Prefix button above. Prefix sends
