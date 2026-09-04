@@ -270,6 +270,9 @@ const LUCIDE = {
   pr: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>',
   // pencil — the rename-window affordance.
   pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  // eye / eye-off — the show/hide toggle for the "Review requested" group.
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  "eye-off": '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1929,10 +1932,10 @@ function dock(states, act) {
   if (nAttn || listFilter === "attention")
     tallies.push({ key: "attention", label: `Needs you · ${nAttn}`, attn: true });
   // Opt-in "Review requested" toggle: shown whenever there are PRs to review, so you can
-  // reveal/hide the group without it living in the list all the time. Its own count, always
-  // visible as a hint even while the group is hidden.
+  // reveal/hide the group without it living in the list all the time. Its label (Show N /
+  // Hide) is computed per-render in the update fn so it tracks reviewsShown.
   if (reviewItems.length)
-    tallies.push({ key: "reviews", label: `${reviewItems.length} to review`, rev: true });
+    tallies.push({ key: "reviews", rev: true });
   ["running", "compacting", "unknown"]
     .filter((a) => n[a]).forEach((a) => tallies.push({ key: a, label: `${n[a]} ${a}` }));
   // "N recent" — the count the user actually wants at a glance: how much of the fleet is
@@ -1968,7 +1971,19 @@ function dock(states, act) {
       else render(Object.values(panesById));
     };
     return b;
-  }, (b, t) => { setText(b, t.label); setCls(b, "active", t.rev ? reviewsShown : t.key === listFilter); });
+  }, (b, t) => {
+    if (t.rev) {
+      // An eye/eye-off + verb makes it read as a control, not a passive count. The icon shows
+      // the ACTION: eye = "reveal", eye-off = "hide". Count only in the reveal state.
+      const n = reviewItems.length;
+      b.innerHTML = licon(reviewsShown ? "eye-off" : "eye", 12) +
+        "<span>" + (reviewsShown ? "Hide reviews" : `Show ${n} review${n === 1 ? "" : "s"}`) + "</span>";
+      setCls(b, "active", reviewsShown);
+      return;
+    }
+    setText(b, t.label);
+    setCls(b, "active", t.key === listFilter);
+  });
 
   // With many panes the dock scrolls horizontally, and the selected icon can sit off
   // screen — its card then joins to a tab that isn't visible (looks severed). Center
