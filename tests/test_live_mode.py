@@ -269,7 +269,7 @@ class _FakeClient:
         self._connects = list(connects)
         self.attempts = 0
 
-    def connect(self, system_prompt):
+    def connect(self, model, system_prompt):
         self.attempts += 1
         cm = self._connects.pop(0)
         return cm() if callable(cm) else cm
@@ -313,7 +313,7 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
     ws = _ScriptedWS([{"action": "stop"}])
-    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))  # must not raise
+    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))  # must not raise
 
     assert client.attempts == 1  # clean stop → no reconnect
     assert _statuses(ws)[-1:] == ["listening"] or "listening" in _statuses(ws)
@@ -332,7 +332,7 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
     ws = _ScriptedWS([{"action": "stop"}])
-    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))
+    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
 
     assert client.attempts == 2  # exactly one reconnect
     assert _statuses(ws).count("reconnecting") == 1
@@ -348,7 +348,7 @@ def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
 
     ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
     try:
-        _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))
+        _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
         raised = False
     except L.WebSocketDisconnect:
         raised = True
@@ -374,20 +374,20 @@ class _Usage:
 
 
 def test_live_usage_splits_modalities_and_costs():
-    u = L._LiveUsage()
+    u = L._LiveUsage(P._RATES_25)
     u.set(P.gemini_usage(_Usage(prompt=1000, resp=500, audio_in=800, audio_out=400)))
     # prompt 1000 = 800 audio + 200 text; response 500 = 400 audio + 100 text.
     assert (u.audio_in, u.text_in) == (800, 200)
     assert (u.audio_out, u.text_out) == (400, 100)
     assert u.in_tokens == 1000 and u.out_tokens == 500
-    expected = (200 / 1e6 * L._LIVE_TEXT_IN_PER_M + 100 / 1e6 * L._LIVE_TEXT_OUT_PER_M
-                + 800 / 1e6 * L._LIVE_AUDIO_IN_PER_M + 400 / 1e6 * L._LIVE_AUDIO_OUT_PER_M)
+    t_in, t_out, a_in, a_out = P._RATES_25
+    expected = 200 / 1e6 * t_in + 100 / 1e6 * t_out + 800 / 1e6 * a_in + 400 / 1e6 * a_out
     assert abs(u.cost() - expected) < 1e-12
 
 
 def test_live_usage_is_cumulative_not_summed():
     # Live sends running totals per message — later messages overwrite, never add.
-    u = L._LiveUsage()
+    u = L._LiveUsage(P._RATES_25)
     u.set(P.gemini_usage(_Usage(prompt=100, resp=50)))
     u.set(P.gemini_usage(_Usage(prompt=300, resp=120)))
     assert u.in_tokens == 300 and u.out_tokens == 120
@@ -399,7 +399,7 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     folded = {}
     monkeypatch.setattr(llm, "record_live_usage", lambda **k: folded.update(k))
-    m = L._Meter("sess-abc", "user@example.com")
+    m = L._Meter("sess-abc", "user@example.com", P._DEFAULT[0])
     m.usage.set(P.gemini_usage(_Usage(prompt=200, resp=80, audio_in=150, audio_out=60)))
     m.note("user: what's running")
     m.end_turn()

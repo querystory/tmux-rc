@@ -22,7 +22,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import live_providers, telemetry, tmux
 from .classify import _load_prompt
-from .live_providers import KEYS, LIVE_MODEL
+from .live_providers import KEYS, LiveModel
 
 logger = logging.getLogger(__name__)
 
@@ -60,23 +60,16 @@ SCREEN_BUDGET_CHARS = 24_000
 # pane's app needs a beat to react before a capture shows anything new.
 POST_TYPE_REFRESH_SECONDS = 1.5
 
-# Native-audio Live pricing (USD per 1M tokens). Audio and text bill at very different
-# rates, so we price the two modalities separately rather than with one blended number.
-# Overridable in case the rate card moves. Defaults are the gemini-2.5-flash native-audio
-# published rates; TEXT covers the system prompt + [tmux update] context we send as text.
-_LIVE_TEXT_IN_PER_M = float(os.environ.get("TMUXRC_LIVE_TEXT_IN_PER_M", "0.50"))
-_LIVE_TEXT_OUT_PER_M = float(os.environ.get("TMUXRC_LIVE_TEXT_OUT_PER_M", "2.00"))
-_LIVE_AUDIO_IN_PER_M = float(os.environ.get("TMUXRC_LIVE_AUDIO_IN_PER_M", "3.00"))
-_LIVE_AUDIO_OUT_PER_M = float(os.environ.get("TMUXRC_LIVE_AUDIO_OUT_PER_M", "12.00"))
-
-
 class _LiveUsage:
-    """A session's token split (text/audio × in/out) and its cost under the four-way rate
-    card above — a single blended price would be badly wrong because audio out is ~24×
-    text in. Providers report CONNECTION-cumulative totals (live_providers.Event.usage),
-    so the last event always carries the totals and cost() is always current."""
+    """A session's token split (text/audio × in/out) and its cost under the MODEL's
+    four-way rate card (live_providers.LiveModel.rates) — a single blended price would be
+    badly wrong because audio out is ~24× text in, and one global card would be wrong the
+    moment a second model is on the menu. Providers report CONNECTION-cumulative totals
+    (live_providers.Event.usage), so the last event always carries the totals and cost()
+    is always current."""
 
-    def __init__(self) -> None:
+    def __init__(self, rates: tuple[float, float, float, float]) -> None:
+        self.rates = rates
         self.text_in = self.text_out = self.audio_in = self.audio_out = 0
 
     def set(self, split: tuple[int, int, int, int]) -> None:
@@ -93,12 +86,8 @@ class _LiveUsage:
         return self.text_out + self.audio_out
 
     def cost(self) -> float:
-        return (
-            self.text_in / 1e6 * _LIVE_TEXT_IN_PER_M
-            + self.text_out / 1e6 * _LIVE_TEXT_OUT_PER_M
-            + self.audio_in / 1e6 * _LIVE_AUDIO_IN_PER_M
-            + self.audio_out / 1e6 * _LIVE_AUDIO_OUT_PER_M
-        )
+        split = (self.text_in, self.text_out, self.audio_in, self.audio_out)
+        return sum(n / 1e6 * rate for n, rate in zip(split, self.rates))
 
 
 class _Meter:
@@ -110,10 +99,11 @@ class _Meter:
     `session` is a per-session UUID — the summable key shared with emit_live's watch-time
     rounds, so a query can join a voice session's cost to its screen-view time."""
 
-    def __init__(self, session: str, actor: str | None) -> None:
+    def __init__(self, session: str, actor: str | None, model: LiveModel) -> None:
         self.session = session
         self.actor = actor
-        self.usage = _LiveUsage()
+        self.model = model
+        self.usage = _LiveUsage(model.rates)
         self.turns = 0
         self.started = time.monotonic()
         self._lines: list[str] = []
@@ -149,7 +139,7 @@ class _Meter:
         telemetry.emit_live_turn(
             session=self.session,
             actor=self.actor,
-            model=LIVE_MODEL,
+            model=self.model.model,
             in_tokens=self.usage.in_tokens,
             out_tokens=self.usage.out_tokens,
             audio_in_tokens=self.usage.audio_in,
@@ -457,7 +447,8 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
-    """Connect to the model and run the session; reconnect with backoff on drops."""
+    """Connect to meter.model and run the session; reconnect with backoff on drops."""
+    model = meter.model
     max_reconnects = 5
     for attempt in range(max_reconnects + 1):
         await websocket.send_json({"type": "status", "status": "connecting"})
@@ -466,8 +457,8 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
             # pane snapshot — the connect snapshot is the only place full screens are sent
             # (ambient [tmux update]s omit them), so reusing a stale one would leave a
             # reconnected session answering/acting on minutes-old screen state.
-            async with live_providers.connect(_system_prompt(watcher)) as session:
-                logger.info("[live] session up (model=%s, actor=%s)", LIVE_MODEL, actor)
+            async with live_providers.connect(model, _system_prompt(watcher)) as session:
+                logger.info("[live] session up (model=%s via %s, actor=%s)", model.model, model.backend, actor)
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [
                     asyncio.create_task(
@@ -514,14 +505,21 @@ async def live_mode(websocket: WebSocket) -> None:
         # a current client reads live_enabled from /api/version and hides the button).
         await websocket.close(code=1008, reason="Live Mode is disabled — reload the page")
         return
+    # Label-only, like launchers: the client names an entry from the server's table and
+    # never a model id or backend. An unoffered label (unknown, or its key is absent) is
+    # refused rather than defaulted — the picker must never lie about who answered.
+    model = live_providers.find(websocket.query_params.get("model"))
+    if model is None:
+        await websocket.close(code=1008, reason="Live model not available — reload the page")
+        return
     await websocket.accept()
     watcher = websocket.app.state.watcher
     actor = _actor(websocket)
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
-    meter = _Meter(session_id, actor)
-    logger.info("[live] session start (actor=%s, session=%s)", actor, session_id)
+    meter = _Meter(session_id, actor, model)
+    logger.info("[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label)
     telemetry.emit_action(action="live_session", pane_uid="-", actor=actor, detail="start", keys=None)
     outcome = "ok"
     try:
