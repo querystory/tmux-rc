@@ -3776,6 +3776,7 @@ applyLiveEnabled(false);
 fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled)).catch(() => {});
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
+let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
 let lmLog = [];                  // rolling conversation: {role, text, done}
 let lmListening = false;         // true only while the daemon reports "listening" — mic
                                  // frames are dropped otherwise so a reconnect (during
@@ -3827,6 +3828,8 @@ function lmPlayChunk(b64) {
   const ch = buf.getChannelData(0);
   for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
   const src = lmPlay.createBufferSource();
+  lmQueued.push(src);
+  src.onended = () => { lmQueued = lmQueued.filter((s) => s !== src); };
   src.buffer = buf;
   src.connect(lmPlay.destination);
   lmPlayAt = Math.max(lmPlayAt, lmPlay.currentTime) ;
@@ -3965,6 +3968,9 @@ async function lmStart() {
     else if (m.type === "transcript") lmAdd(m.role, m.text);
     else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
     else if (m.type === "audio") lmPlayChunk(m.data);
+    // The user spoke over the model: drop the queued voice so the reply doesn't keep
+    // talking through them (the model itself has already stopped generating).
+    else if (m.type === "interrupted") { lmQueued.forEach((s) => { try { s.stop(); } catch {} }); lmQueued = []; lmPlayAt = 0; }
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") lmAdd("err", m.message); // .lm-err red = the signal

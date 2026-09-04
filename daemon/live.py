@@ -1,10 +1,10 @@
 """Live Mode: talk to every pane at once over a Gemini Live voice session.
 
 One WebSocket (`/api/live-mode`) per session. The browser streams mic PCM up; the
-daemon owns the Gemini Live connection, feeds it the watcher's always-current pane
-state, streams the model's voice + transcripts back, and executes the session's tools —
-type_in_pane and press_key — through the same send_keys primitive every other input
-path uses.
+daemon owns the model connection (live_providers.py), feeds it the watcher's
+always-current pane state, streams the model's voice + transcripts back, and executes
+the session's tools — type_in_pane and press_key — through the same send_keys primitive
+every other input path uses.
 Design + prompting rationale: docs/design/live-mode.md.
 """
 
@@ -20,8 +20,9 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import telemetry, tmux
+from . import live_providers, telemetry, tmux
 from .classify import _load_prompt
+from .live_providers import KEYS, LIVE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,6 @@ def enabled() -> bool:
     os.environ per-call (not cached) so an env change is picked up without a code edit."""
     return os.environ.get("TMUXRC_LIVE_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
-
-# The Live-capable model — NOT the flash-lite classifier model (which has no live/bidi
-# variant). Region likewise: Live models are region-pinned, not "global".
-LIVE_MODEL = os.environ.get("TMUXRC_LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
-LIVE_REGION = os.environ.get("TMUXRC_LIVE_REGION", "us-central1")
 
 # Ambient [tmux update] messages: at most one per this many seconds, and only when the
 # watcher's state_version moved (the same change signal /api/state long-polls on).
@@ -75,31 +71,18 @@ _LIVE_AUDIO_OUT_PER_M = float(os.environ.get("TMUXRC_LIVE_AUDIO_OUT_PER_M", "12.
 
 
 class _LiveUsage:
-    """Accumulates a session's token usage from Gemini Live usage_metadata messages.
-
-    Live reports usage per server message; we keep the latest per-modality split (in vs
-    out, text vs audio) and derive cost with the four-way rate card above — a single
-    blended price would be badly wrong because audio out is ~24× text in. Cumulative:
-    the last message of a session carries the session totals, so cost() is always current.
-    Cheap and allocation-free in the hot receive loop (plain int adds)."""
+    """A session's token split (text/audio × in/out) and its cost under the four-way rate
+    card above — a single blended price would be badly wrong because audio out is ~24×
+    text in. Providers report CONNECTION-cumulative totals (live_providers.Event.usage),
+    so the last event always carries the totals and cost() is always current."""
 
     def __init__(self) -> None:
         self.text_in = self.text_out = self.audio_in = self.audio_out = 0
 
-    def add(self, usage) -> None:
-        """Fold one usage_metadata into the running split. Prompt = input, response =
-        output; per-modality details break each into text/audio (anything not audio is
-        billed as text)."""
-        if usage is None:
-            return
-        prompt = getattr(usage, "prompt_token_count", 0) or 0
-        resp = getattr(usage, "response_token_count", 0) or 0
-        a_in = _audio_tokens(getattr(usage, "prompt_tokens_details", None))
-        a_out = _audio_tokens(getattr(usage, "response_tokens_details", None))
-        # These messages carry CUMULATIVE session totals, so overwrite, don't sum.
-        self.audio_in, self.audio_out = a_in, a_out
-        self.text_in = max(prompt - a_in, 0)
-        self.text_out = max(resp - a_out, 0)
+    def set(self, split: tuple[int, int, int, int]) -> None:
+        """Take the provider's latest CUMULATIVE (text_in, text_out, audio_in, audio_out)
+        — overwrite, don't sum: the last event of a connection carries its totals."""
+        self.text_in, self.text_out, self.audio_in, self.audio_out = split
 
     @property
     def in_tokens(self) -> int:
@@ -116,17 +99,6 @@ class _LiveUsage:
             + self.audio_in / 1e6 * _LIVE_AUDIO_IN_PER_M
             + self.audio_out / 1e6 * _LIVE_AUDIO_OUT_PER_M
         )
-
-
-def _audio_tokens(details) -> int:
-    """Sum the AUDIO-modality token counts out of a *_tokens_details list; 0 if absent."""
-    from google.genai import types
-
-    total = 0
-    for d in details or []:
-        if getattr(d, "modality", None) == types.Modality.AUDIO:
-            total += getattr(d, "token_count", 0) or 0
-    return total
 
 
 class _Meter:
@@ -188,19 +160,6 @@ class _Meter:
             final=final,
             transcript=self._transcript(),
         )
-
-
-def _live_client():
-    """A dedicated Vertex client for Live sessions. Deliberately NOT llm._client():
-    that one pins the classifier's per-request timeout (an anti-wedge guard for one-shot
-    parse calls) which would sever a long-lived bidi stream, and defaults to the
-    'global' region which Live models don't serve."""
-    from google import genai
-
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if not project:
-        raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set; cannot reach Vertex.")
-    return genai.Client(vertexai=True, project=project, location=LIVE_REGION)
 
 
 def _screen_tail(watcher, pane_id: str) -> str:
@@ -327,99 +286,13 @@ def _actor(websocket: WebSocket) -> str:
     return f"local:{peer}"
 
 
-# Named keys press_key can send — a fixed whitelist, mapped to the tmux key names
-# send_keys(literal=False) understands. Bounded on purpose: the model can only press
-# keys that make sense for terminal UIs (cancel, interrupt, menu nav, submit), never an
-# arbitrary key string that could be a chord we didn't vet.
-_KEYS = {
-    "Escape": "Escape",   # cancel / reject the current prompt
-    "Enter": "Enter",     # accept / continue with no text
-    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",  # menu navigation
-    "Tab": "Tab",         # cycle / complete
-    "C-c": "C-c",         # interrupt what's running
-    "C-d": "C-d",         # EOF / exit a REPL
-}
-
-
-def _tools():
-    """The session's tools: type_in_pane (types a string) and press_key (sends one named
-    control key). Two narrow verbs beat one overloaded one — the model can't accidentally
-    fold text and a chord into a single ambiguous call, and press_key's whitelist keeps it
-    from inventing arbitrary key sequences."""
-    from google.genai import types
-
-    return [
-        types.Tool(
-            function_declarations=[
-                types.FunctionDeclaration(
-                    name="type_in_pane",
-                    description=(
-                        "Type text into one tmux pane, exactly as if the user typed "
-                        "it at that terminal. Use only when the user clearly asks "
-                        "you to type, run, answer, or tell a pane something."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "pane_id": types.Schema(
-                                type=types.Type.STRING,
-                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
-                            ),
-                            "text": types.Schema(
-                                type=types.Type.STRING,
-                                description="The exact text to type",
-                            ),
-                            "press_enter": types.Schema(
-                                type=types.Type.BOOLEAN,
-                                description="Submit with Enter after typing (default true)",
-                            ),
-                        },
-                        required=["pane_id", "text"],
-                    ),
-                ),
-                types.FunctionDeclaration(
-                    name="press_key",
-                    description=(
-                        "Press ONE control key in a pane (no text) — to cancel, "
-                        "interrupt, navigate a menu, or continue. Escape cancels/rejects "
-                        "the current prompt; C-c interrupts what's running; Up/Down then "
-                        "Enter picks a menu item; Enter alone accepts/continues; Tab "
-                        "cycles or completes; C-d sends EOF."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "pane_id": types.Schema(
-                                type=types.Type.STRING,
-                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
-                            ),
-                            "key": types.Schema(
-                                type=types.Type.STRING,
-                                enum=list(_KEYS),
-                                description="One of: " + ", ".join(_KEYS),
-                            ),
-                        },
-                        required=["pane_id", "key"],
-                    ),
-                ),
-            ]
-        )
-    ]
-
-
 async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: str) -> None:
-    """Route a tool call (type_in_pane / press_key) to the pane and answer Gemini tersely.
-    The result NEVER rides back through the FunctionResponse (echo loops — see design doc);
+    """Route a tool call (type_in_pane / press_key) to the pane and answer the model tersely.
+    The result NEVER rides back through the tool response (echo loops — see design doc);
     the model sees the outcome via the post-action ambient refresh instead."""
-    from google.genai import types
 
     async def respond(payload: dict) -> None:
-        await session.send_tool_response(
-            function_responses=[
-                # fc.id must ride back or the session wedges (inherited lesson).
-                types.FunctionResponse(id=fc.id, name=fc.name, response=payload)
-            ]
-        )
+        await session.send_tool_result(fc, payload)
 
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = str(args.get("pane_id", "")).strip()
@@ -438,7 +311,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
             send_args = (pane_id, text, raw_enter, True)  # literal text
             what, submitted = text, raw_enter
     elif fc.name == "press_key" and isinstance(fc.args, dict) and not (set(args) - {"pane_id", "key"}):
-        key = _KEYS.get(str(args.get("key", "")))
+        key = KEYS.get(str(args.get("key", "")))
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
@@ -506,17 +379,11 @@ def _background(task: asyncio.Task) -> None:
 
 
 async def _send_ambient(session, text: str) -> None:
-    """Inject context WITHOUT prompting a response: turn_complete=False adds the content
-    to the conversation but no model turn fires — the model simply has current state the
-    next time the user speaks. This is the whole 'state is just always up to date'
+    """Inject context WITHOUT prompting a response — the model simply has current state
+    the next time the user speaks. This is the whole 'state is just always up to date'
     mechanism; the prompt additionally fences [tmux update] messages off from replies."""
-    from google.genai import types
-
     try:
-        await session.send_client_content(
-            turns=types.Content(role="user", parts=[types.Part(text=text)]),
-            turn_complete=False,
-        )
+        await session.send_context(text)
     except Exception:
         # A dropped session is the reconnect loop's job, but a PERSISTENT non-transport
         # failure would otherwise freeze the model's pane view with no signal.
@@ -542,9 +409,7 @@ async def _context_updater(session, watcher) -> None:
 
 
 async def _forward_audio(websocket: WebSocket, session) -> None:
-    """Client → Gemini: base64 16kHz PCM frames until the client says stop."""
-    from google.genai import types
-
+    """Client → model: base64 16kHz PCM frames until the client says stop."""
     while True:
         data = await websocket.receive_json()
         action = data.get("action")
@@ -556,9 +421,7 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
                 audio = base64.b64decode(raw)
             except Exception:  # noqa: BLE001 - skip one bad frame, keep streaming
                 continue
-            await session.send_realtime_input(
-                audio=types.Blob(data=audio, mime_type="audio/pcm;rate=16000")
-            )
+            await session.send_audio(audio)
         elif action == "stop":
             return
         else:
@@ -566,72 +429,44 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
 
 
 async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _Meter) -> None:
-    """Gemini → client: voice audio, both transcripts, and tool calls. Also meters the
-    session — folds each message's usage_metadata into `meter` and emits a per-turn OTel
-    record at every turn boundary."""
-    while True:
-        async for response in session.receive():
-            if response.usage_metadata:
-                meter.usage.add(response.usage_metadata)
-            if response.tool_call and response.tool_call.function_calls:
-                for fc in response.tool_call.function_calls:
-                    # Log the verb + target only, never the payload — typed text can
-                    # carry secrets, and logs aren't gated by TMUXRC_QSDEBUG the way
-                    # telemetry/meter content is.
-                    pane = (fc.args or {}).get("pane_id") if isinstance(fc.args, dict) else None
-                    logger.info("[live] tool call: %s -> %s", fc.name, pane)
-                    meter.note(f"[typed] {fc.args}")
-                    await _handle_tool_call(websocket, session, fc, watcher, actor)
-            if response.data:
-                await websocket.send_json(
-                    {"type": "audio", "data": base64.b64encode(response.data).decode()}
-                )
-            sc = response.server_content
-            if sc:
-                if sc.input_transcription and sc.input_transcription.text:
-                    meter.note("user: " + sc.input_transcription.text)
-                    await websocket.send_json(
-                        {"type": "transcript", "role": "user",
-                         "text": sc.input_transcription.text}
-                    )
-                if sc.output_transcription and sc.output_transcription.text:
-                    meter.note("model: " + sc.output_transcription.text)
-                    await websocket.send_json(
-                        {"type": "transcript", "role": "model",
-                         "text": sc.output_transcription.text}
-                    )
-                if sc.turn_complete:
-                    meter.end_turn()
-                    await websocket.send_json({"type": "turn_complete"})
+    """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
+    the session — takes each usage event into `meter` and emits a per-turn OTel record
+    at every turn boundary."""
+    async for ev in session.events():
+        if ev.kind == "usage":
+            meter.usage.set(ev.usage)
+        elif ev.kind == "tool_call":
+            fc = ev.call
+            # Log the verb + target only, never the payload — typed text can carry
+            # secrets, and logs aren't gated by TMUXRC_QSDEBUG the way telemetry/meter
+            # content is.
+            pane = fc.args.get("pane_id") if isinstance(fc.args, dict) else None
+            logger.info("[live] tool call: %s -> %s", fc.name, pane)
+            meter.note(f"[typed] {fc.args}")
+            await _handle_tool_call(websocket, session, fc, watcher, actor)
+        elif ev.kind == "audio":
+            await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
+        elif ev.kind == "transcript":
+            meter.note(f"{ev.role}: {ev.text}")
+            await websocket.send_json({"type": "transcript", "role": ev.role, "text": ev.text})
+        elif ev.kind == "turn_complete":
+            meter.end_turn()
+            await websocket.send_json({"type": "turn_complete"})
+        elif ev.kind == "interrupted":
+            await websocket.send_json({"type": "interrupted"})
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
-    """Connect to Gemini Live and run the session; reconnect with backoff on drops."""
-    from google.genai import types
-
-    client = _live_client()
-
-    def _config():
-        # Rebuilt per connect attempt so a RECONNECT gets a fresh pane snapshot in its
-        # system prompt — the connect snapshot is the only place full screens are sent
-        # (ambient [tmux update]s omit them), so reusing a stale one would leave a
-        # reconnected session answering/acting on minutes-old screen state.
-        return types.LiveConnectConfig(
-            response_modalities=[types.Modality.AUDIO],
-            tools=_tools(),
-            system_instruction=_system_prompt(watcher),
-            input_audio_transcription=types.AudioTranscriptionConfig(),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
-            # Let the model choose NOT to answer — required for the noise/silence prompt
-            # rules to work instead of the model replying to every sound.
-            proactivity=types.ProactivityConfig(proactive_audio=True),
-        )
-
+    """Connect to the model and run the session; reconnect with backoff on drops."""
     max_reconnects = 5
     for attempt in range(max_reconnects + 1):
         await websocket.send_json({"type": "status", "status": "connecting"})
         try:
-            async with client.aio.live.connect(model=LIVE_MODEL, config=_config()) as session:
+            # The system prompt is rebuilt per connect attempt so a RECONNECT gets a fresh
+            # pane snapshot — the connect snapshot is the only place full screens are sent
+            # (ambient [tmux update]s omit them), so reusing a stale one would leave a
+            # reconnected session answering/acting on minutes-old screen state.
+            async with live_providers.connect(_system_prompt(watcher)) as session:
                 logger.info("[live] session up (model=%s, actor=%s)", LIVE_MODEL, actor)
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [
@@ -673,7 +508,7 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
 @router.websocket("/api/live-mode")
 async def live_mode(websocket: WebSocket) -> None:
     if not enabled():
-        # Feature-flagged off — refuse before any Gemini connection or mic streaming.
+        # Feature-flagged off — refuse before any model connection or mic streaming.
         # 1008 = policy violation; the client hides the button too, so this only fires
         # for a stale tab or a direct probe. Reason points at the fix (reload the page —
         # a current client reads live_enabled from /api/version and hides the button).
