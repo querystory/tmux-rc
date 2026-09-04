@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- interactive-widget=resizes-content: on Android Chrome the on-screen keyboard shrinks the
+     LAYOUT viewport (innerHeight, 100dvh), so the fixed bar sits above it with no JS at all.
+     iOS ignores the key and only overlays the keyboard; app.js lifts the bar there. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <meta name="theme-color" content="#0b0f14" />
 <!-- Full screen on phones: launch from the home-screen icon (Add to Home Screen).
      The manifest's display:standalone covers Android/modern iOS; these metas cover
@@ -80,11 +83,11 @@
      those code points while ASCII still renders in the preferred ui-monospace. */
   :root { --mono-term: ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  /* Flex-column layout: header + scrolling panes + bar. The bar is a normal flex
-     child (NOT position:fixed), so when the mobile keyboard opens and shrinks the
-     visual viewport, the layout compresses and the bar stays right above the keyboard
-     — cards scroll within #panes instead of the whole page scrolling off. Uses dvh so
-     it tracks the keyboard-adjusted viewport. */
+  /* Layout: a pinned ribbon (#top), the scroller (#panes), and the bar (#bar) pinned to the
+     bottom — both fixed, with #panes padded for their measured heights. When the on-screen
+     keyboard opens, the bar has to end up right above it: Android shrinks the viewport
+     (interactive-widget=resizes-content in the meta above), iOS only overlays the keyboard
+     and app.js lifts the bar by the covered height. */
   body {
     margin: 0; font: 15px/1.4 -apple-system, system-ui, sans-serif;
     background: var(--bg); color: var(--fg);

@@ -3708,11 +3708,11 @@ function showUpdateBanner() {
   document.body.appendChild(b);
 }
 
-// Keyboard fit: CSS 100dvh / flex compression doesn't reliably clear the on-screen
-// keyboard on mobile Chrome (the bar ends up half-covered). Explicitly PIN the bar to
-// the bottom of the visual viewport (the visible area above the keyboard) via a fixed
-// transform, and pad #panes so nothing hides behind it. This positions the whole bar —
-// keys + input + send — right above the keyboard regardless of flex math.
+// Keyboard fit: the bar is position:fixed at bottom:0 and #panes is padded for it. On
+// Android the viewport meta (interactive-widget=resizes-content) makes the keyboard shrink
+// the layout viewport, so bottom:0 already means "above the keyboard". On iOS the keyboard
+// overlays instead, so the block further down lifts the bar by the covered height, measured
+// from the visual viewport. This positions the whole bar — keys + input + send.
 const barEl = document.getElementById("bar");
 // Publish the MEASURED heights of the fixed chrome as CSS vars — deck/peek/card
 // layout math uses them instead of hardcoded px that drift per device and content
@@ -3739,17 +3739,39 @@ const barEl = document.getElementById("bar");
 }
 if (window.visualViewport && barEl) {
   const vv = window.visualViewport;
-  // Keyboard height = how much the layout viewport exceeds the visible viewport. Lift
-  // the fixed bar (bottom:0) by that amount so it rides just above the keyboard. No
-  // offsetHeight reads (which mis-measured and pushed it off-screen) — just a bottom
-  // offset, clamped to >=0.
+  // Keyboard height = how far the layout viewport extends below the visible one (the visible
+  // viewport's bottom edge, in layout coordinates, is offsetTop + height). Lift the fixed bar
+  // (bottom:0) by that much so it rides just above the keyboard. Under
+  // interactive-widget=resizes-content (Android Chrome) the layout viewport itself shrinks
+  // and this comes out ~0; the lift is for iOS, where the keyboard only overlays.
+  const covered = () => Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+  let lifted = -1;
   const fit = () => {
-    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    barEl.style.bottom = kb + "px";
+    const kb = covered();
+    if (kb !== lifted) { lifted = kb; barEl.style.bottom = kb + "px"; }
   };
-  vv.addEventListener("resize", fit);
-  vv.addEventListener("scroll", fit);
-  bar.input && bar.input.addEventListener("focus", () => setTimeout(fit, 100));
+  // The keyboard starts sliding 50-150ms after focus and animates for ~300ms, and iOS — an
+  // installed PWA especially — does not reliably fire a visualViewport resize when it lands.
+  // The previous fix refit once, 100ms after focus: mid-animation at best, so whenever the
+  // resize event then failed to arrive the bar stayed half (or wholly) behind the keyboard.
+  // So every trigger starts a one-second SETTLE LOOP: refit every frame for a second, which
+  // outlasts the animation with margin. Not "until still": the covered height is still for
+  // the first frames too, before the keyboard has begun to move. A no-op frame costs two
+  // property reads, sixty of them per trigger.
+  let raf = 0;
+  const settle = () => {
+    cancelAnimationFrame(raf);
+    const until = performance.now() + 1000;
+    const step = () => { fit(); if (performance.now() < until) raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+  };
+  vv.addEventListener("resize", settle);
+  vv.addEventListener("scroll", settle);
+  window.addEventListener("resize", settle);
+  // focusin/focusout bubble from every field — the contenteditable composer, chips, the
+  // launcher's inputs — and fire whether the keyboard is opening or closing.
+  document.addEventListener("focusin", settle);
+  document.addEventListener("focusout", settle);
   fit();
 }
 
