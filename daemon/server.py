@@ -614,6 +614,24 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/panes/{pane_id}/close")
+def close_window(pane_id: str, request: Request):
+    """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
+    Destructive: any process in the window is killed. The watcher evicts the pane on its next
+    tick (emitting pane_removed), so the card disappears on the client's next poll with no
+    special cleanup — the same path as a window closed on the host."""
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, "kill_window", pane_id, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        tmux.kill_window(pane_id)
+    except Exception as e:
+        _audit(request, "kill_window", pane_id, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "kill_window", pane_id)
+    return {"ok": True}
+
+
 @app.post("/api/client-error")
 async def client_error(request: Request):
     """Sink for browser-side failures invisible on mobile (no devtools) — mic denial, ws
