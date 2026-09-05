@@ -34,7 +34,9 @@ def test_default_table_is_the_pre_table_behaviour(monkeypatch):
     (m,) = P.models()
     assert (m.model, m.backend) == ("gemini-live-2.5-flash-native-audio", "vertex")
     assert m.flags == {"proactive_audio": True} and m.rates == P._RATES_25
-    assert m.available()  # Vertex gates on nothing — creds resolve at call time
+    assert m.available()  # Vertex gates on the project alone — creds resolve at call time
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")
+    assert not m.available()  # no project: connect() could only fail, so never offered
 
 
 def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):

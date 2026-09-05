@@ -29,10 +29,10 @@ from .config import json_list
 logger = logging.getLogger(__name__)
 
 # backend → the env vars that must be set before the model is OFFERED. Vertex resolves
-# credentials at call time (SA key / ADC), so it gates on nothing here. Azure needs the
-# resource host as well as the key.
+# credentials at call time (SA key / ADC) but cannot reach anything without a project, so
+# that is all it gates on. Azure needs the resource host as well as the key.
 _NEEDS = {
-    "vertex": (),
+    "vertex": ("GOOGLE_CLOUD_PROJECT",),
     "gemini-api": ("GEMINI_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "azure-openai": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
