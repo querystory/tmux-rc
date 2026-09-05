@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#101312">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="tmux-rc">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/m/manifest.json" crossorigin="use-credentials">
+  <title>tmux-rc mobile</title>
+  <script>
+    (() => {
+      let theme;
+      try { theme = localStorage.getItem("tmuxrc-theme"); } catch {}
+      const light = theme === "light" || (theme !== "dark" && matchMedia("(prefers-color-scheme: light)").matches);
+      document.documentElement.classList.toggle("light", light);
+      document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
+    })();
+  </script>
+  <link rel="stylesheet" href="/m/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
+      <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
+      <div id="heading" hidden><h1 id="pane-title"></h1><p id="pane-location"></p></div>
+      <span id="connection" role="status">Connecting</span>
+      <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
+      <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
+    </header>
+    <p id="notice" role="status" hidden></p>
+    <section id="sessions" aria-label="Sessions">
+      <div class="list-heading"><h1>Sessions</h1><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
+      <label class="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"></label>
+      <div class="list-order"><label for="sort">Sort</label><select id="sort" aria-label="Sort panes"><option value="session">Session order</option><option value="updated">Last updated</option></select></div>
+      <div id="pane-list"></div>
+      <p id="empty" class="empty" role="status">Loading sessions...</p>
+    </section>
+    <section id="detail" aria-label="Selected pane" hidden>
+      <nav class="view-tabs" aria-label="Pane view"><button id="summary-tab" aria-pressed="true">Overview</button><button id="terminal-tab" aria-pressed="false">Terminal</button></nav>
+      <div id="overview" class="scroller">
+        <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
+        <section id="question" hidden><h2 id="prompt"></h2><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
+        <section id="link-section" hidden><h2>Links</h2><div id="links"></div></section>
+        <section id="table-section" hidden><div id="tables"></div></section>
+        <section id="task-section" hidden><h2>Tasks <span id="task-count"></span></h2><div id="tasks"></div></section>
+        <section id="agent-section" hidden><h2>Agents</h2><div id="agents"></div></section>
+        <section id="copy-section" hidden><h2>From the terminal</h2><div id="copyables"></div></section>
+        <section id="event-section"><h2>Activity</h2><div id="events"></div><p id="events-empty" class="muted">Loading activity...</p></section>
+      </div>
+      <div id="terminal" hidden>
+        <div class="terminal-toolbar"><span id="terminal-status" role="status">Connecting</span><button id="zoom-out" class="icon-button" aria-label="Smaller terminal text" title="Smaller terminal text"></button><output id="font-size">13</output><button id="zoom-in" class="icon-button" aria-label="Larger terminal text" title="Larger terminal text"></button><button id="tail" class="icon-button" aria-label="Latest output" title="Latest output"></button></div>
+        <div id="terminal-scroll" tabindex="0" aria-label="Terminal output"><pre id="capture"></pre></div>
+      </div>
+      <footer id="composer">
+        <div id="keys" hidden aria-label="Terminal keys"></div>
+        <form id="reply-form"><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
+        <div class="composer-tools"><button id="keyboard" class="text-button" aria-expanded="false"></button><span id="draft-status" role="status"></span><a id="full-ui" href="/">Full UI</a></div>
+        <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </footer>
+    </section>
+    <nav id="list-nav" aria-label="Pane filter"><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="running-tab" data-filter="running" aria-pressed="false"></button><button id="recent-tab" data-filter="recent" aria-pressed="false"></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
+    <dialog id="launch-dialog" aria-labelledby="launch-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><label for="launch-session">Session</label><select id="launch-session" required></select><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></dialog>
+    <dialog id="voice-dialog" aria-labelledby="voice-title">
+      <div class="sheet-handle"></div>
+      <div class="dialog-heading"><h2 id="voice-title">Live Mode</h2><button id="voice-close" class="icon-button" aria-label="Close Live Mode panel" title="Close panel"></button></div>
+      <input id="voice-model" type="hidden"><div id="voice-models" class="choice-list" aria-label="Live Mode model"></div>
+      <p id="voice-status" role="status"></p>
+      <div id="voice-log" role="log" aria-label="Live conversation"></div>
+      <div class="voice-controls"><button id="voice-mute" class="icon-button" aria-label="Mute microphone" title="Mute microphone" aria-pressed="false" hidden></button><button id="voice-start" class="primary" hidden>End Live Mode</button></div>
+    </dialog>
+  </div>
+  <script type="module" src="/m/app.js"></script>
+</body>
+</html>
