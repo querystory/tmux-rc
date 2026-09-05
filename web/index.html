@@ -933,6 +933,7 @@
     padding: 6px 8px calc(env(safe-area-inset-bottom) + 8px); display: flex; flex-direction: column;
     animation: lm-rise .18s ease-out; }
   @keyframes lm-rise { from { transform: translateY(100%); } }
+  @media (prefers-reduced-motion: reduce) { .lm-sheet-body { animation: none; } }
   .lm-sheet-head { padding: 10px 12px 6px; color: var(--fg-dim); font-size: 11px;
     font-weight: 600; letter-spacing: .02em; }
   .lm-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px;
@@ -1108,7 +1109,7 @@
     <div id="bar-meta" class="metarow"></div>
   </div>
   <!-- Live Mode model picker (bottom sheet); rows are built by lmSheet() in app.js. -->
-  <div id="lm-sheet" hidden role="dialog" aria-label="Live Mode model"><div class="lm-sheet-body"></div></div>
+  <div id="lm-sheet" hidden role="dialog" aria-modal="true" aria-label="Live Mode model"><div class="lm-sheet-body"></div></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
