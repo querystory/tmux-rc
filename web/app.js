@@ -485,6 +485,13 @@ function setActive(id) {
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
   pending = { id, ts: Date.now() };
+  // The single URL write for every pane change (#162) — dock tap, list row, swipe,
+  // launcher jump all land here with listFilter already null: list rows clear it
+  // explicitly, the rest (card tap, swipe, answer keys) only fire in card view where it
+  // was never set. Nothing here enforces that, so a new call site reachable FROM a list
+  // must clear it itself. AFTER `pending` is set: viewHash reads activeId(), which only
+  // reports the new pane once pending exists.
+  syncUrl();
   // MOVE THE HIGHLIGHT FIRST, in this same task, before the full reconcile. A tap used to
   // show nothing until render() had walked the dock, the card, the peek and the event feed
   // — so tapping a tab felt dead while SWIPING felt instant, purely because a swipe paints
@@ -1068,6 +1075,28 @@ function listSubset(states) {
 
 function render(states) {
   panesById = Object.fromEntries(states.map((s) => [s.pane_id, s]));
+  // Restore the view the URL asked for, ONCE, as soon as state has landed (#162). It has
+  // to happen here rather than at load: panes arrive with the first poll, so a
+  // `#/pane/…` restore run at DOMContentLoaded would always miss. Retry while the deck is
+  // still empty (the daemon may not have parsed any pane yet); once panes exist and the id
+  // is still absent it was recycled away, so give up and keep the default view.
+  if (_restorePending !== null && (applyHash(_restorePending) || states.length)) {
+    _restorePending = null;
+    // A dead pane id would otherwise sit in the URL forever, re-restoring nothing on the
+    // next reload and lying about what is on screen. syncUrl rewrites it to the view we
+    // actually fell back to (and no-ops when the restore succeeded). Forced replace: the
+    // dead link is the entry we are ON, and pushing would leave Back pointing back at it.
+    syncUrl(true);
+  }
+  // Focus can also move WITHOUT a tap: activeId() follows tmux/session focus from the
+  // poll. A URL already naming a pane must follow it, or reload/copy-link points at the
+  // pane the user left. Forced replace (no history spam, and syncUrl no-ops when the hash
+  // already matches); guarded on an existing pane hash so a bare URL is never stamped and
+  // a list view is never overwritten. The _restorePending guard matters: on a cold load
+  // whose first polls are EMPTY, the restore above hasn't run yet and activeId() is null —
+  // syncing here would blank the deep link before the pane it names ever arrives.
+  else if (_restorePending === null && !listFilter && parseHash(location.hash)?.kind === "pane")
+    syncUrl(true);
   // Refetch each pane's server-side activity log if its events_seq advanced — AFTER
   // panesById is set, because syncEvents' async completion checks activeId() (which
   // reads panesById) to decide whether to re-render the visible feed.
@@ -1156,7 +1185,11 @@ function render(states) {
     updateBar(panesById[act]);
     return;
   }
-  listFilter = null; // filter emptied out (e.g. last waiting pane answered) — card view
+  // Filter emptied out (e.g. last waiting pane answered) — fall back to card view. This
+  // IS a state change, so the URL follows, but only on the poll where it actually
+  // happens: syncUrl on every render would stamp a #/pane/… hash onto a bare URL the
+  // user never navigated, and a bare URL must keep behaving as it always has.
+  if (listFilter) { listFilter = null; syncUrl(true); }
   setCls(ui.list, "hid", true);
   // Hiding the list must also EMPTY it: a .sess-hdr:first-child rule and the row nodes
   // themselves would otherwise linger behind the hidden class, and stale rows holding
@@ -1380,6 +1413,101 @@ const _joinRO = new ResizeObserver(() => {
 // (spans activities — see isRecent), or "all". No "idle": on a real deck most panes are
 // idle, so that tally was the largest and least actionable number on the strip.
 let listFilter = null;
+
+// ── View state in the URL (#162) ──────────────────────────────────────────────
+// `#/list/<filter>` or `#/pane/<pane_id>`; empty hash = the default view (whatever pane
+// tmux is focused on), so a bare URL behaves exactly as it did before this existed.
+//
+// A HASH, not a History-API path: the daemon serves the PWA from `/` and routes nothing
+// else, so a real path would 404 on reload and behind the tunnel. The hash also keeps
+// manifest.json's `start_url: "/"` intact — an installed PWA still launches at the
+// default view rather than wherever the last session happened to be.
+//
+// Pane ids are tmux `%N`, and a bare `%` in a URL is a truncated escape: `#/pane/%1`
+// decodes to garbage (or throws in decodeURIComponent). Encode on write, decode on read —
+// the same trap the API paths hit, hence encodeURIComponent on every /api/panes/ fetch.
+function viewHash() {
+  if (listFilter) return "#/list/" + encodeURIComponent(listFilter);
+  const id = activeId();
+  return id ? "#/pane/" + encodeURIComponent(id) : "";
+}
+// Write the current view to the URL. Never call this unguarded from render() — render
+// runs on every poll, so an unconditional push would rewrite history a few times a
+// second. Call it where the view actually changes (dock/list/badge taps, setActive, the
+// launcher's jump); render()'s own calls are all replaces guarded to fire only on a real
+// view change (restore cleanup, filter-emptied fallback, focus following an existing
+// pane hash — the last is per-poll but no-ops via the `next === cur` check below).
+//
+// push vs replace is decided from the TRANSITION, not per call site: leaving a list for a
+// card pushes, so Back returns to the list you came from (the SPA complaint in #162).
+// Everything else replaces — filter switches would otherwise pile up a Back trail of
+// taps, and a card swipe fires setActive per pane, which would bury the list under a
+// dozen entries. Inferring it here rather than threading a flag through setActive's five
+// callers is also why the swipe needs no debounce: replaceState has no history cost to
+// spam. `replace` forces the replace arm for changes the USER did not initiate (see the
+// filter-emptied fallback in render) — a poll must never push a history entry.
+function syncUrl(replace) {
+  const next = viewHash();
+  const cur = location.hash;
+  if (next === cur) return; // re-selecting the pane already shown (card tap, answer option)
+  const intoCard = !replace && next.startsWith("#/pane/") && cur.startsWith("#/list/");
+  // `location.pathname + search` keeps any query string; passing just the hash would be
+  // resolved against the current URL anyway, but being explicit survives a future basepath.
+  const url = location.pathname + location.search + next;
+  if (intoCard) history.pushState(null, "", url);
+  else history.replaceState(null, "", url);
+}
+// Parse a hash into a view. Returns null for anything unrecognised (a hand-edited URL, a
+// link from a future version) so the caller can fall back to the default view.
+function parseHash(h) {
+  const m = /^#\/(list|pane)\/(.+)$/.exec(h || "");
+  if (!m) return null;
+  let val;
+  try { val = decodeURIComponent(m[2]); } catch { return null; } // malformed %-escape
+  return { kind: m[1], val };
+}
+// Apply a hash to the view. Called on load (once panes land) and on hashchange.
+// Returns false if it could not be honoured, so the load path knows to keep waiting.
+function applyHash(h) {
+  const v = parseHash(h);
+  if (!v) { listFilter = null; return true; } // bare / unparseable → default view
+  if (v.kind === "list") {
+    // Any string is accepted as a filter: the tally keys are activities the CLASSIFIER
+    // produces, not a closed set the client can validate, and listSubset already renders
+    // an empty subset as the card view rather than breaking.
+    listFilter = v.val;
+    return true;
+  }
+  // tmux recycles %ids, so a bookmarked pane may be gone — or may simply not have arrived
+  // yet on a cold load. Both look identical here; the caller distinguishes them by
+  // retrying until the deck is non-empty, then giving up to the default view.
+  if (!has(panesById, v.val)) return false;
+  listFilter = null;
+  setActive(v.val); // a deep link means "open this pane", same as tapping its dock icon
+  return true;
+}
+// Back/Forward, and someone editing the hash by hand. Unlike the load path there is
+// nothing to wait for here — the deck is already populated — so an unhonourable hash
+// (dead pane id, `#/garbage`, malformed escapes) is dead for good: drop to the default
+// view and correct the URL in place, rather than leaving the address bar pointing at
+// something that isn't on screen.
+window.addEventListener("hashchange", () => {
+  // Parse ONCE, before syncUrl below rewrites location.hash out from under a re-parse.
+  const v = parseHash(location.hash);
+  const ok = applyHash(location.hash);
+  if (!ok || !v) { listFilter = null; syncUrl(true); }
+  // setActive() already schedules its own render, deliberately deferred so the dock
+  // highlight paints before the heavier reconcile. Rendering here too would both
+  // discard that and run the reconcile twice, so only the paths that DIDN'T go
+  // through setActive — a list filter, or either fallback — render.
+  if (!ok || v?.kind !== "pane") render(Object.values(panesById));
+});
+// Load-time restore. ANY non-empty hash is deferred, not just pane hashes: a pane hash
+// names a pane the FIRST poll hasn't delivered yet, so this cannot run at DOMContentLoaded
+// — it runs from render() (see _restorePending), the one place that knows state has
+// landed. Unrecognised hashes ride along and get rewritten there to the view actually
+// shown, so a garbage URL doesn't survive the load pretending it meant something.
+let _restorePending = location.hash || null;
 
 // How long a pane must sit IDLE before the dock folds it away as parked.
 //
@@ -1736,7 +1864,7 @@ function dock(states, act) {
   keyedList(filtersEl, tallies, (t) => t.key, (t) => {
     const b = document.createElement("button");
     b.className = "badge b-" + t.key;
-    b.onclick = () => { listFilter = t.key; render(Object.values(panesById)); };
+    b.onclick = () => { listFilter = t.key; syncUrl(); render(Object.values(panesById)); };
     return b;
   }, (b, t) => setText(b, t.label));
 
