@@ -4,24 +4,37 @@ Conventions for AI agents (and humans) working in this repo. The philosophy note
 harness/session prompt still apply (minimize LOC, DRY, KISS, why-focused docs); this file
 captures repo-specific workflow that isn't obvious from the code.
 
-## Testing changes on the live dev instance
+## The repo root is the live deploy — and it is always the integration branch
 
-**The dev daemon always runs `make dev` from the REPO ROOT, in a
-dedicated tmux pane. To test a branch on the live phone instance, `git checkout <branch>` in
-the root and restart the daemon — never `cd` the daemon into a worktree.**
+The daemon is a systemd `--user` unit (`tmux-rc.service`, installed by `make install-units`)
+whose `WorkingDirectory` is the repo root. The root is checked out **detached at
+`origin/integration`**: `origin/main` plus **every open, non-draft PR** merged together.
+That merge is what the phone runs, so several in-flight PRs get field-tested at once
+without merging any of them prematurely, and two PRs that fight each other show up here
+before either lands.
 
-- The daemon loads `web/`, prompts, etc. relative to its cwd. Running from the stable root
-  means a later `git worktree remove` can never delete the cwd out from under it (that
-  strands the process → `FileNotFoundError` on `parser_prompt.txt`, site returns
-  `{"detail":"Not Found"}`, and even `cd`/`make` fail with "getcwd: No such file").
-- **To make branch X live:** from root, `git checkout X`, then in that pane:
-  `C-c`, then `make dev > out.log 2>&1`. StatReload restarts on `.py` edits; for `web/`
-  changes just reload the page (assets are served no-store).
-- A branch checked out in a `.claude/worktrees/*` worktree can't also be checked out in
-  root — `git worktree remove` it first (after pushing), then checkout in root.
-- The live instance is at `<slug>.<your-tunnel-domain>` (via the tunnel client, run in its
-  own window). A momentary "no tunnel connected" is the relay's ~1h connection
-  cap; the client auto-reconnects within ~1min.
+- **Never `git checkout` / `switch` / `reset` in the root to try one PR.** That silently
+  drops every other PR under test. Try a single PR alone in its own worktree.
+- **To make a PR (or a new push to one) live, rebuild integration:** in a worktree, reset
+  the `integration` branch to `origin/main` and merge each open PR branch (`gh pr list`),
+  most conflict-prone last. Its history is disposable — rebuild from main rather than piling
+  merges on the old tip, or a PR that was dropped or reworked lingers in the merge. Resolve
+  conflicts in the merge commit only, never on the PR branch. `make test`, force-push
+  `integration`, then in the root `git checkout --detach origin/integration` and
+  `systemctl --user restart tmux-rc` (the unit runs with reload off, so nothing applies
+  until the restart). Leave a PR out only when its conflict is not mechanical, and say so —
+  its author fixes it against main.
+- **Integration is never merged to main.** PRs land one at a time, via review and the user's
+  explicit go.
+- **Never edit files in the root.** All changes go through worktrees cut from `origin/main`
+  (below); the root's only writes are the detached checkout and `.env`.
+- `.env` (gitignored) lives in the root. Provider API keys do **not**: they go in
+  `~/.config/tmux-rc/openai.env`, outside every checkout, so no worktree or commit can
+  carry one. Logs: `journalctl --user -fu tmux-rc`. `make dev` (StatReload) is for iterating
+  in a worktree, never the root.
+- The live instance is reached through the tunnel client (`tmux-rc-tunnel.service`). A
+  momentary "no tunnel connected" is the relay's ~1h connection cap; the client reconnects
+  within ~1min.
 
 ## Develop in worktrees, off main
 
