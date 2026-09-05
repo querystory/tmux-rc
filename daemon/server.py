@@ -337,9 +337,9 @@ def get_version():
     (see app.js). Cheap to recompute per call — the web dir is tiny. Also reports
     server feature flags the client gates UI on (live_enabled → shows the mic button)."""
     h = hashlib.md5()
-    for p in sorted(WEB_DIR.glob("*")):
+    for p in sorted(WEB_DIR.rglob("*")):
         if p.is_file():
-            h.update(p.name.encode())
+            h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
     return {"version": h.hexdigest(), "live_enabled": live.enabled()}
 
