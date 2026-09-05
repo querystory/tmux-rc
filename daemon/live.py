@@ -589,14 +589,16 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
             sc = response.server_content
             if sc:
                 if sc.input_transcription and sc.input_transcription.text:
-                    logger.info("[live] user: %s", sc.input_transcription.text)  # journal: what the model heard
+                    if telemetry._QSDEBUG:  # content reaches the journal under the same flag as OTel
+                        logger.info("[live] user: %s", sc.input_transcription.text)
                     meter.note("user: " + sc.input_transcription.text)
                     await websocket.send_json(
                         {"type": "transcript", "role": "user",
                          "text": sc.input_transcription.text}
                     )
                 if sc.output_transcription and sc.output_transcription.text:
-                    logger.info("[live] model: %s", sc.output_transcription.text)
+                    if telemetry._QSDEBUG:
+                        logger.info("[live] model: %s", sc.output_transcription.text)
                     meter.note("model: " + sc.output_transcription.text)
                     await websocket.send_json(
                         {"type": "transcript", "role": "model",
@@ -612,14 +614,11 @@ async def _hold(websocket: WebSocket, seconds: float) -> bool:
     the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
     both legs at once, and the browser's disconnect is only observed by a receive. A
     WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True."""
-    reader = asyncio.ensure_future(websocket.receive_json())
-    timer = asyncio.ensure_future(asyncio.sleep(seconds))
-    done, _ = await asyncio.wait({reader, timer}, return_when=asyncio.FIRST_COMPLETED)
-    timer.cancel()
-    if reader not in done:
-        reader.cancel()
+    try:
+        msg = await asyncio.wait_for(websocket.receive_json(), seconds)
+    except TimeoutError:
         return True
-    return reader.result().get("action") != "stop"
+    return msg.get("action") != "stop"
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:

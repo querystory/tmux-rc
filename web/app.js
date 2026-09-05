@@ -2001,7 +2001,7 @@ function applyCard(ui, s, collapsed = cardsCollapsed) {
   // Collapsed: the one-line form, everything below the header hidden. Live Mode: the
   // voice interface owns everything below the header, in place of the pane's summary,
   // question and event views.
-  const lmOwns = !collapsed && !!lmWs && s.pane_id === activeId();
+  const lmOwns = !collapsed && !!(lmWs || lmRetry) && s.pane_id === activeId(); // held through a reconnect
   const body = !collapsed && !lmOwns;
   setCls(ui.lm, "hid", !lmOwns);
   if (lmOwns) lmPaintInto(ui.lm); else keyedList(ui.lm, [], (x) => x, () => null);
@@ -3949,6 +3949,7 @@ async function lmStart() {
   }
   lmStarting = false;
   lmConnect();
+  if (!lmWs) return; // the constructor threw: lmConnect already stopped and re-rendered
   lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
   render(Object.values(panesById)); // swap the active card's summary for the convo box
 }
