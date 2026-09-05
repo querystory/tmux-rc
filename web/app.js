@@ -3902,7 +3902,8 @@ async function lmCapture(ws) {
 // The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
-  if (lmListening) { lmUp = true; lmTries = 0; }
+  lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
+  if (lmListening) lmTries = 0; // a session that came back resets the retry budget
   lm.btn.classList.toggle("listening", lmListening);
   lm.btn.classList.toggle("reconnecting", s === "reconnecting");
 }
