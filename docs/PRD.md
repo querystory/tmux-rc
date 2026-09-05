@@ -2,20 +2,22 @@
 
 ## Problem
 
-AI coding agents (Claude Code, Codex, Gemini CLI) and long-running shell tasks run in
-a terminal on a dev machine. When you step away, you lose all visibility and control:
-you can't see that a 40-minute test run finished, that an agent hit an error, or —
+AI coding agents (Codex, Claude Code, Gemini CLI, OpenCode) and long-running shell
+tasks run in a terminal on a dev machine. When you step away, you lose all visibility
+and control: you can't see that a 40-minute test run finished, that an agent hit an error, or —
 most painfully — that an agent has been sitting for 20 minutes waiting for you to
 answer a yes/no permission prompt or pick from a multiple-choice question.
 
-Claude Code ships `/remote-control`, which gives a phone UI for exactly this. But it
-has two disqualifying limitations for a heterogeneous terminal workflow:
+Every vendor's answer to this stops at its own walls. Claude Code ships
+`/remote-control`, which gives a phone UI for exactly this and is the best of them —
+but it has two disqualifying limitations for a heterogeneous terminal workflow, and
+they are the ones any single-vendor remote will have:
 
 1. **Locked to the Anthropic API.** It does not work with Amazon Bedrock, Google
    Vertex, Microsoft Foundry, or any custom LLM gateway. If your inference runs
    through Bedrock/Vertex, remote control is simply unavailable.
 2. **Single vendor.** It controls Claude Code and nothing else. Codex, Gemini CLI,
-   `make test`, a `psql` session, a raw shell — all invisible to it.
+   OpenCode, `make test`, a `psql` session, a raw shell — all invisible to it.
 
 The terminal is the universal substrate. A phone control plane should treat it that
 way: watch whatever is in the terminal, regardless of which agent (or no agent) is

@@ -7,7 +7,7 @@ the way, so no prior knowledge is assumed.
 
 ## The problem: the agents live elsewhere, and reaching them is the pain
 
-The whole thing starts from one decision: **I don't want to run Claude Code on my local machine.**
+The whole thing starts from one decision: **I don't want to run coding agents on my local machine.**
 Coding agents want a beefy, always-on box — one that keeps grinding while my laptop sleeps, moves
 between networks, or runs out of battery. So the agents run on a remote dev box, working away
 whether or not I'm at my desk.
@@ -38,9 +38,9 @@ its prompts from your pocket. It's genuinely good, and it's the direct inspirati
 exactly right. But in daily use it's opinionated in three ways that disqualify it for how I actually
 work:
 
-- **One vendor.** It drives Claude Code and nothing else. But Codex and Gemini CLI are in the same
-  workflow — different models win at different things, and the interesting work increasingly *mixes*
-  them. A single-vendor remote is blind to most of the fleet.
+- **One vendor.** It drives Claude Code and nothing else. But Codex, Gemini CLI and OpenCode are in
+  the same workflow — different models win at different things, and the interesting work increasingly
+  *mixes* them. A single-vendor remote is blind to most of the fleet.
 - **One billing path.** It's locked to the first-party Anthropic API — no Bedrock, Vertex, or
   Foundry. That has a real economic bite: running Claude through **Bedrock spends AWS credits**, but
   remote control forces first-party billing, so you can run out of quota mid-session and be stuck
@@ -55,8 +55,8 @@ all of these share.
 
 ## The insight: the terminal is the universal surface
 
-Every one of those agents — Claude Code, Codex, Gemini CLI — and every non-agent task too (`make
-test`, a `psql` shell, a plain prompt) has exactly one thing in common: **it runs in a terminal.**
+Every one of those agents — Codex, Claude Code, Gemini CLI, OpenCode — and every non-agent task
+too (`make test`, a `psql` shell, a plain prompt) has exactly one thing in common: **it runs in a terminal.**
 The terminal is the universal substrate. If you watch and drive *that*, you're automatically neutral
 on vendor, on billing, and on environment, because the terminal doesn't care which of those produced
 the text on it.
@@ -134,14 +134,15 @@ This generalizes well past tmux-rc, and it's the concept most worth stealing fro
 
 Answering prompts from a phone is the visible feature. The deeper reason is **orchestration** —
 driving a whole fleet of sessions from an *outer-loop agent*, not only a human. Picture an
-orchestrator that spins up several Claude Code / Codex / Gemini sessions, hands each a slice of work,
+orchestrator that spins up several Codex / Claude Code / Gemini CLI sessions, hands each a slice of work,
 and coordinates: notices when one blocks, pipes one's output into another, decides what to launch
 next. To reason about the fleet it needs a clean, live, structured read of **what each session is
 doing right now** — the same thing the phone UI needs, just consumed by code instead of eyes.
 
-Today the only window into a Claude Code session is its `~/.claude/projects/**/**.jsonl` transcript,
-and as an orchestration substrate it's the wrong tool: the files **rotate** (so "the current session"
-is a moving target), they're **slow to parse** (large append-only JSONL, no index), they're **not
+Today the only window into a running session is whatever transcript its harness happens to write —
+for Claude Code, `~/.claude/projects/**/**.jsonl` — and as an orchestration substrate that's the
+wrong tool: the files **rotate** (so "the current session" is a moving target),
+they're **slow to parse** (large append-only JSONL, no index), they're **not
 semantically indexed** (raw event soup you re-derive meaning from every time), and **grepping logs is
 the wrong interface** for an agent that needs to act on state, not spelunk for it. I built a
 `/session-summary` skill that writes `.md` sidecars next to those files to make them searchable — it
