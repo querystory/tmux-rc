@@ -125,6 +125,7 @@ def test_events_map_to_neutral_kinds_and_usage_accumulates():
             "text_tokens": 100,
             "audio_tokens": 50,
             "cached_tokens": 40,
+            "cached_tokens_details": {"text_tokens": 30, "audio_tokens": 10},
         },
         "output_token_details": {"text_tokens": 10, "audio_tokens": 200},
     }
@@ -173,9 +174,10 @@ def test_events_map_to_neutral_kinds_and_usage_accumulates():
     assert evs[3].call == P.ToolCall(
         "c9", "type_in_pane", {"pane_id": "%1", "text": "y"}
     )
-    # Per-response usage is SUMMED into connection totals (text_in, text_out, audio_in, audio_out).
-    assert evs[4].usage == (100, 10, 50, 200)
-    assert evs[7].usage == (220, 15, 80, 300)
+    # Per-response usage is SUMMED into connection totals; cached input moves out of the
+    # text/audio input buckets into its own two (usage2 reports no cache: all uncached).
+    assert evs[4].usage == P.Split(70, 10, 40, 200, 30, 10)
+    assert evs[7].usage == P.Split(190, 15, 70, 300, 30, 10)
     assert ws.sent == []  # a benign error is logged, never answered or fatal
 
 

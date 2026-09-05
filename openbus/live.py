@@ -1,4 +1,5 @@
-"""Live Mode: talk to every pane at once over a Gemini Live voice session.
+"""Live Mode: talk to every pane at once over a voice-model session (Gemini Live or
+OpenAI Realtime — the adapters live in live_providers.py).
 
 One WebSocket (`/api/live-mode`) per session. The browser streams mic PCM up; the
 daemon owns the model connection (live_providers.py), feeds it the watcher's
@@ -61,33 +62,40 @@ SCREEN_BUDGET_CHARS = 24_000
 POST_TYPE_REFRESH_SECONDS = 1.5
 
 class _LiveUsage:
-    """A session's token split (text/audio × in/out) and its cost under the MODEL's
-    four-way rate card (live_providers.LiveModel.rates) — a single blended price would be
-    badly wrong because audio out is ~24× text in, and one global card would be wrong the
-    moment a second model is on the menu. Providers report CONNECTION-cumulative totals
-    (live_providers.Event.usage), so the last event always carries the totals and cost()
-    is always current."""
+    """A session's token Split (text/audio × in/out, plus cached input) and its cost under
+    the MODEL's rate card (live_providers.LiveModel.rates) — a single blended price would
+    be badly wrong because audio out is ~24× text in and cached input is ~30× cheaper
+    again, and one global card would be wrong the moment a second model is on the menu.
+    Providers report CONNECTION-cumulative totals (live_providers.Event.usage), so the
+    last event always carries the totals and cost() is always current."""
 
-    def __init__(self, rates: tuple[float, float, float, float]) -> None:
+    def __init__(self, rates: live_providers.Split) -> None:
         self.rates = rates
-        self.text_in = self.text_out = self.audio_in = self.audio_out = 0
+        self.split = live_providers.Split(*[0] * len(rates))
 
-    def set(self, split: tuple[int, int, int, int]) -> None:
-        """Take the provider's latest CUMULATIVE (text_in, text_out, audio_in, audio_out)
-        — overwrite, don't sum: the last event of a connection carries its totals."""
-        self.text_in, self.text_out, self.audio_in, self.audio_out = split
+    def set(self, split: live_providers.Split) -> None:
+        """Take the provider's latest CUMULATIVE Split — overwrite, don't sum: the last
+        event of a connection carries its totals."""
+        self.split = live_providers.Split(*split)
+
+    @property
+    def cached(self) -> int:
+        return self.split.text_cached + self.split.audio_cached
+
+    @property
+    def audio_in(self) -> int:
+        return self.split.audio_in + self.split.audio_cached
 
     @property
     def in_tokens(self) -> int:
-        return self.text_in + self.audio_in
+        return self.split.text_in + self.split.text_cached + self.audio_in
 
     @property
     def out_tokens(self) -> int:
-        return self.text_out + self.audio_out
+        return self.split.text_out + self.split.audio_out
 
     def cost(self) -> float:
-        split = (self.text_in, self.text_out, self.audio_in, self.audio_out)
-        return sum(n / 1e6 * rate for n, rate in zip(split, self.rates))
+        return sum(n / 1e6 * rate for n, rate in zip(self.split, self.rates))
 
 
 class _Meter:
@@ -140,10 +148,12 @@ class _Meter:
             session=self.session,
             actor=self.actor,
             model=self.model.model,
+            provider=self.model.backend,
             in_tokens=self.usage.in_tokens,
             out_tokens=self.usage.out_tokens,
+            cached_tokens=self.usage.cached,
             audio_in_tokens=self.usage.audio_in,
-            audio_out_tokens=self.usage.audio_out,
+            audio_out_tokens=self.usage.split.audio_out,
             cost=self.usage.cost(),
             turns=self.turns,
             duration_s=time.monotonic() - self.started,
@@ -531,7 +541,10 @@ async def live_mode(websocket: WebSocket) -> None:
     # refused rather than defaulted — the picker must never lie about who answered.
     model = live_providers.find(websocket.query_params.get("model"))
     if model is None:
-        await websocket.close(code=1008, reason="Live model not available — reload the page")
+        # Nothing offered at all (every entry key-gated, no key set) is the operator's
+        # config problem, not a stale tab's — a reload can't fix it, so don't say so.
+        why = "reload the page" if live_providers.available() else "no configured model has its key set"
+        await websocket.close(code=1008, reason=f"Live model not available — {why}")
         return
     await websocket.accept()
     watcher = websocket.app.state.watcher

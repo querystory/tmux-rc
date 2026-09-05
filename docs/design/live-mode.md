@@ -229,12 +229,22 @@ parsing. It gets its own accounting rather than being folded into the parser's:
   on the menu, and an OpenAI session at ten times Gemini's audio rate must show up as
   such in the status bar, not be quietly priced as Gemini. A missing rate defaults to
   Gemini 2.5's, so a new entry is never a silent zero.
+- **Cached input has its own two rates.** Realtime re-bills the entire conversation as
+  input on every response, and the server caches most of it at a 97-99% discount — so
+  in any session longer than a few turns, cached tokens are the majority of input.
+  Pricing them at list (the first cut did, calling it a "slight overcount") overstates a
+  long session severalfold, which defeats the point of a side-by-side cost comparison.
+  The providers return token counts only, never a price, so the split has to be carried
+  through: the cached counts leave the text/audio input buckets and are billed at the
+  card's `text_cached`/`audio_cached` rates. Those default to the entry's OWN uncached
+  rate rather than Gemini's: a model with no published cache discount gets none, so the
+  default is never a silent undercount either.
 - **Providers report connection-cumulative totals, so the meter overwrites.** Gemini
   sends running session totals on every message; the OpenAI adapter sums its
   per-response usage into the same shape (each Realtime response re-bills the whole
-  context as input, minus what the server cached — that is the real cost shape of the
-  API, and summing is what makes it visible). Either way the last event carries the
-  totals and the accumulator overwrites rather than sums.
+  context as input — that is the real cost shape of the API, and summing is what makes
+  it visible). Either way the last event carries the totals and the accumulator
+  overwrites rather than sums.
 - **OTel.** A `tmux-rc.live` record per voice turn plus a `final` cumulative row at
   session end (`emit_live_turn`), keyed by the same per-page `session` UUID as the
   live-view watch-time rounds — so a query joins voice spend to screen time. Privacy
