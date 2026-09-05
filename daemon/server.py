@@ -793,6 +793,14 @@ if Path(_docs_dir).is_dir():
 
     app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
 
+@app.get("/m", include_in_schema=False)
+def mobile_ui():
+    # Avoid an absolute slash redirect with an HTTP scheme behind the TLS tunnel.
+    from fastapi.responses import FileResponse
+
+    return FileResponse(WEB_DIR / "m" / "index.html")
+
+
 # PWA static files last so /api/* and /docs win. html=True serves index.html at /.
 if WEB_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

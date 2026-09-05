@@ -16,9 +16,9 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-@pytest.mark.parametrize("name", ["app.js", "terminal.js"])
+@pytest.mark.parametrize("name", ["app.js", "terminal.js", "m/app.js", "m/live.js", "m/mic-tap.js"])
 def test_module_parses_as_esm(tmp_path, name):
-    mjs = tmp_path / (name + ".mjs")
+    mjs = tmp_path / (Path(name).name + ".mjs")
     mjs.write_bytes((WEB / name).read_bytes())
     res = subprocess.run(
         ["node", "--check", str(mjs)], capture_output=True, text=True, timeout=60
