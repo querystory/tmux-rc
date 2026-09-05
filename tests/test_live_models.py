@@ -56,6 +56,7 @@ def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
         "nope",
         "[]",
         json.dumps([{"label": "x", "model": "y", "backend": "wat"}]),
+        json.dumps([TABLE[0], "not an entry"]),  # all-or-nothing: one bad entry sinks the list
     ):
         monkeypatch.setenv("TMUXRC_LIVE_MODELS", bad)
         assert P.models() == P._DEFAULT

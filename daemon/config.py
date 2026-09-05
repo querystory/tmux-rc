@@ -23,7 +23,7 @@ def json_list(var: str, default: list, coerce: Callable[[dict], object]) -> list
     try:
         if not raw.startswith("["):
             raw = Path(raw).read_text(encoding="utf-8")
-        good = [coerce(e) for e in json.loads(raw) if isinstance(e, dict)]
+        good = [coerce(e) for e in json.loads(raw)]  # a non-dict raises inside coerce
         if not good:
             raise ValueError("no valid entries")
         return good

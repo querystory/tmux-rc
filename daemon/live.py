@@ -1,4 +1,5 @@
-"""Live Mode: talk to every pane at once over a Gemini Live voice session.
+"""Live Mode: talk to every pane at once over a voice-model session (Gemini Live or
+OpenAI Realtime — the adapters live in live_providers.py).
 
 One WebSocket (`/api/live-mode`) per session. The browser streams mic PCM up; the
 daemon owns the model connection (live_providers.py), feeds it the watcher's

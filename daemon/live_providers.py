@@ -559,8 +559,9 @@ class _OpenAISession:
     def _add_usage(self, u: dict) -> None:
         """Per-response usage → connection totals. Each response re-bills the whole context
         as input (minus what the server cached), which is the real cost shape of this API
-        and why it is summed rather than overwritten. Cached input is counted at full rate
-        here — a slight overcount, on the side of not under-reporting."""
+        and why it is summed rather than overwritten. `cached_tokens` is a SUBSET of the
+        text/audio input counts, and this deliberately does not discount it — a slight
+        overcount, on the side of not under-reporting."""
         i, o = u.get("input_token_details") or {}, u.get("output_token_details") or {}
         split = (
             i.get("text_tokens"),
