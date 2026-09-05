@@ -3962,7 +3962,7 @@ function lmPlayChunk(b64) {
   lmPlayAt += buf.duration;
 }
 
-// Mic → 16kHz Int16 PCM → base64 frames. AudioWorklet (inline module) is the capture
+// Mic → 16kHz Int16 PCM → base64 frames. AudioWorklet (web/lm-tap.js) is the capture
 // tap; if the context won't run at 16kHz (Safari ignores the request), we resample
 // before sending — the wire format is always 16kHz.
 async function lmCapture(ws) {
@@ -4006,15 +4006,7 @@ async function lmCapture(ws) {
     if (lmListening && ws.readyState === WebSocket.OPEN)
       ws.send(JSON.stringify({ action: "audio", data: btoa(bin) }));
   };
-  const mod = URL.createObjectURL(new Blob([
-    'registerProcessor("lm-tap", class extends AudioWorkletProcessor {',
-    ' process(inputs) { const c = inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } });',
-  ], { type: "application/javascript" }));
-  try {
-    await lmCtx.audioWorklet.addModule(mod);
-  } finally {
-    URL.revokeObjectURL(mod); // a rejected addModule must not leak the blob URL
-  }
+  await lmCtx.audioWorklet.addModule("/lm-tap.js"); // a file, not a blob: — see lm-tap.js
   if (lmWs !== ws || !lmCtx) return; // stopped during the await — see above
   const tap = new AudioWorkletNode(lmCtx, "lm-tap");
   tap.port.onmessage = (e) => push(e.data);
