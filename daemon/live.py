@@ -451,6 +451,8 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
+            if telemetry._QSDEBUG:
+                logger.info("[live] %s: %s", ev.role, ev.text)
             meter.note(f"{ev.role}: {ev.text}")
             await websocket.send_json({"type": "transcript", "role": ev.role, "text": ev.text})
         elif ev.kind == "turn_complete":
@@ -458,6 +460,20 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
             await websocket.send_json({"type": "turn_complete"})
         elif ev.kind == "interrupted":
             await websocket.send_json({"type": "interrupted"})
+
+
+async def _hold(websocket: WebSocket, seconds: float) -> bool:
+    """Wait out a reconnect backoff while still reading the browser socket. Without this
+    the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
+    both legs at once, and the browser's disconnect is only observed by a receive. A
+    WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True."""
+    try:
+        async with asyncio.timeout(seconds):
+            while (await websocket.receive_json()).get("action") != "stop":
+                pass  # a stray frame (audio already in flight) is no reason to reconnect early
+    except TimeoutError:
+        return True
+    return False
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
@@ -507,7 +523,8 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
             backoff = min(2**attempt, 15)
             logger.warning("[live] session dropped; reconnecting in %ds", backoff, exc_info=True)
             await websocket.send_json({"type": "status", "status": "reconnecting"})
-            await asyncio.sleep(backoff)
+            if not await _hold(websocket, backoff):
+                return  # client sent stop during the backoff
 
 
 @router.websocket("/api/live-mode")
@@ -538,13 +555,13 @@ async def live_mode(websocket: WebSocket) -> None:
     meter = _Meter(session_id, actor, model)
     logger.info("[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label)
     telemetry.emit_action(action="live_session", pane_uid="-", actor=actor, detail="start", keys=None)
-    outcome = "ok"
+    outcome, reason = "ok", "stop"
     try:
         await _run_session(websocket, watcher, actor, meter)
     except WebSocketDisconnect:
-        pass  # phone lock / tab close — the normal way sessions end
+        reason = "client gone"  # phone lock / tab close / tunnel drop
     except Exception as e:
-        outcome = "error"
+        outcome = reason = "error"
         # A model that can't be reached (bad deployment name, rejected key) says exactly
         # what to fix — the user fixes config, not the retry count. Anything else stays a
         # generic line so internal detail never reaches the browser.
@@ -553,6 +570,10 @@ async def live_mode(websocket: WebSocket) -> None:
         with contextlib.suppress(Exception):
             await websocket.send_json({"type": "error", "message": str(e) if fatal else "live session failed"})
     finally:
+        logger.info(
+            "[live] session end: %s (%d turns, $%.4f, session=%s)",
+            reason, meter.turns, meter.usage.cost(), session_id,
+        )
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         telemetry.emit_action(
             action="live_session", pane_uid="-", actor=actor,
