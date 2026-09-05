@@ -950,6 +950,30 @@
   #lm-btn.on { background: var(--red-bg); border-color: var(--red); color: var(--red); }
   @keyframes lm-pulse { 50% { opacity: .35; } }
   #lm-btn.on.listening { animation: lm-pulse 1.4s ease-in-out infinite; }
+  /* Live Mode model picker: a bottom sheet the Live button opens when the server offers
+     more than one model. Bottom-anchored, full width, ≥52px rows: the choice is made with
+     a thumb mid-conversation, so it gets phone-grade targets rather than a header dropdown
+     the top bar has no room for. Scrim tap or the Close row dismisses. */
+  #lm-sheet { position: fixed; inset: 0; z-index: 70; background: #0009; display: flex;
+    align-items: flex-end; }
+  #lm-sheet[hidden] { display: none; } /* author display:flex beats the UA [hidden] rule */
+  .lm-sheet-body { width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: var(--card-lift);
+    padding: 6px 8px calc(env(safe-area-inset-bottom) + 8px); display: flex; flex-direction: column;
+    animation: lm-rise .18s ease-out; }
+  @keyframes lm-rise { from { transform: translateY(100%); } }
+  @media (prefers-reduced-motion: reduce) { .lm-sheet-body { animation: none; } }
+  .lm-sheet-head { padding: 10px 12px 6px; color: var(--fg-dim); font-size: 11px;
+    font-weight: 600; letter-spacing: .02em; }
+  .lm-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px;
+    background: transparent; border: 0; border-radius: 10px; color: var(--fg); font: inherit;
+    text-align: left; cursor: pointer; }
+  .lm-row:active { background: var(--accent-glow); }
+  .lm-row-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .lm-row-label { font-size: 15px; font-weight: 600; }
+  .lm-row-hint { font-size: 12px; color: var(--fg-dim); }
+  .lm-row.close { justify-content: center; color: var(--fg-dim); margin-top: 4px;
+    border-top: 1px solid var(--border); border-radius: 0; }
   #lm-btn.on.reconnecting { border-style: dashed; } /* socket down, mic held, retrying */
   /* The rolling voice conversation — while live, it IS the active card's body (below
      the header row); nothing overlays the app and the other cards stay untouched. */
@@ -1114,6 +1138,8 @@
     <!-- Active pane's meta chips (model · ctx% · cost · mode · agents), below the input. -->
     <div id="bar-meta" class="metarow"></div>
   </div>
+  <!-- Live Mode model picker (bottom sheet); rows are built by lmSheet() in app.js. -->
+  <div id="lm-sheet" hidden role="dialog" aria-modal="true" aria-label="Live Mode model"><div class="lm-sheet-body"></div></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

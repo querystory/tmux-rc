@@ -4,10 +4,12 @@ title: "Live Mode (voice)"
 
 # Design: Live Mode — talk to your tmux
 
-Status: **v0.1 implemented** (this doc tracks the shipped MVP). Voice-only surface: a
-Live button in the header opens a session where you talk in natural language about — and
-into — every pane at once. The model hears you, sees the live state of all panes, answers
-out loud, and can type into a pane, as the one and only action it can take.
+Status: **v0.1 implemented, multi-provider** (this doc tracks what ships). Voice-only
+surface: a Live button in the header opens a session where you talk in natural language
+about — and into — every pane at once. The model hears you, sees the live state of all
+panes, answers out loud, and can type into a pane, as the one and only action it can
+take. Which model answers is a server-side table; with more than one configured, the
+Live button becomes a picker (see "Model providers").
 
 ## Why voice, why now
 
@@ -24,7 +26,7 @@ founding "observe the terminal, don't drive the agent" invariant.
 
 ## Architecture (two hops, mirrored from a proven implementation)
 
-`browser → daemon WebSocket → Gemini Live (Vertex bidirectional stream)`
+`browser → daemon WebSocket → the model's bidirectional stream (Gemini Live or OpenAI Realtime)`
 
 The browser only captures and plays audio; the daemon owns the model session. This is
 deliberately modeled line-for-line on a battle-tested internal implementation of the
@@ -37,15 +39,17 @@ inherited" below.
   alive without echoing the mic to the speakers. Playback of the model's voice is the
   reverse: base64 24 kHz PCM chunks → queued `AudioBufferSourceNode`s.
 - **Daemon** (`daemon/live.py`): accepts the WS, builds the system prompt from live
-  watcher state, opens `client.aio.live.connect(...)` on Vertex, then runs two
-  concurrent coroutines — forward-audio-up and receive-events-down — plus a
-  context-updater (below). Session drops reconnect with exponential backoff.
-- **Model**: `gemini-live-2.5-flash-native-audio` (Vertex, `us-central1`), AUDIO
-  response modality, input+output transcription on (so the UI can show a text
-  transcript of both sides). Configurable via `TMUXRC_LIVE_MODEL`.
-- The Live client is built separately from the classifier's cached client: Live needs
-  `us-central1` (not the classifier's `global`) and must NOT inherit the classifier's
-  20s per-request timeout — a live session is one long-lived stream.
+  watcher state, opens the chosen model through the provider seam
+  (`daemon/live_providers.py`), then runs two concurrent coroutines — forward-audio-up
+  and receive-events-down — plus a context-updater (below). Session drops reconnect
+  with exponential backoff.
+- **Model**: whichever entry of the server's table the user picked; the default table is
+  `gemini-live-2.5-flash-native-audio` on Vertex (`us-central1`). Always AUDIO response
+  modality with input+output transcription on, so the UI can show a text transcript of
+  both sides whoever is answering.
+- The Gemini Live client is built separately from the classifier's cached client: Live
+  needs `us-central1` (not the classifier's `global`) and must NOT inherit the
+  classifier's 20s per-request timeout — a live session is one long-lived stream.
 
 Two transport lessons from first deployment, both invisible until a real WebSocket is
 in the path (everything else in the app is request/response):
@@ -185,7 +189,8 @@ executor). What carried over, adapted:
   fails opaquely. Pinned: `gemini-live-2.5-flash-native-audio` @ `us-central1`, AUDIO.
 - **Proactive audio** (`proactivity.proactive_audio=true`) lets the model decide not to
   respond — required for the noise rules to actually work rather than the model
-  answering every sound.
+  answering every sound. It is a per-entry flag, not a constant: Gemini 3.1 Flash Live
+  rejects the setup field outright (found the hard way in the qs-app prototype).
 
 ## Alternatives considered
 
@@ -217,13 +222,29 @@ Voice is billed unlike anything else in the app: mostly AUDIO tokens, at roughly
 the flash-lite parser's text rate, so a few minutes of talking can outspend an hour of
 parsing. It gets its own accounting rather than being folded into the parser's:
 
-- **Per-modality pricing.** A session accumulates `usage_metadata` from each Gemini
-  message (`_LiveUsage`), keeping text and audio in/out separate — a single blended
-  price would be wildly off since audio-out alone is ~24× text-in. The four rates are
-  env-overridable (`TMUXRC_LIVE_*_PER_M`) so a rate-card change is config, not code.
-- **Usage is cumulative, so we overwrite.** Live reports running session totals on every
-  message (not deltas); the accumulator overwrites rather than sums, which also means it
-  survives a mid-session reconnect for free — the new connection continues the count.
+- **Per-modality, per-model pricing.** A session keeps text and audio in/out separate
+  (`_LiveUsage`) — a single blended price would be wildly off since audio-out alone is
+  ~24× text-in — and prices them with the rate card on the model's table entry. The
+  card is per entry because one global card would be wrong the moment a second model is
+  on the menu, and an OpenAI session at ten times Gemini's audio rate must show up as
+  such in the status bar, not be quietly priced as Gemini. A missing rate defaults to
+  Gemini 2.5's, so a new entry is never a silent zero.
+- **Cached input has its own two rates.** Realtime re-bills the entire conversation as
+  input on every response, and the server caches most of it at a 97-99% discount — so
+  in any session longer than a few turns, cached tokens are the majority of input.
+  Pricing them at list (the first cut did, calling it a "slight overcount") overstates a
+  long session severalfold, which defeats the point of a side-by-side cost comparison.
+  The providers return token counts only, never a price, so the split has to be carried
+  through: the cached counts leave the text/audio input buckets and are billed at the
+  card's `text_cached`/`audio_cached` rates. Those default to the entry's OWN uncached
+  rate rather than Gemini's: a model with no published cache discount gets none, so the
+  default is never a silent undercount either.
+- **Providers report connection-cumulative totals, so the meter overwrites.** Gemini
+  sends running session totals on every message; the OpenAI adapter sums its
+  per-response usage into the same shape (each Realtime response re-bills the whole
+  context as input — that is the real cost shape of the API, and summing is what makes
+  it visible). Either way the last event carries the totals and the accumulator
+  overwrites rather than sums.
 - **OTel.** A `tmux-rc.live` record per voice turn plus a `final` cumulative row at
   session end (`emit_live_turn`), keyed by the same per-page `session` UUID as the
   live-view watch-time rounds — so a query joins voice spend to screen time. Privacy
@@ -233,8 +254,73 @@ parsing. It gets its own accounting rather than being folded into the parser's:
   distinct `live` bucket, so the top-bar `$cost` is total (parser + voice) with the
   tooltip splitting the two; a `🎙<n>` chip shows how many voice sessions ran.
 
+## Model providers (side-by-side)
+
+The 2.5 voice sounded dated next to current consumer assistants, and the only honest way
+to judge a voice model is to talk to it from the phone about real panes — a text harness
+(`research/live-eval/`) shows every candidate passing the same tool-calling cases at
+sub-second latency, so reasoning is not what separates them; naturalness, barge-in and
+turn-taking are, and no harness sees those. Hence a picker on the real surface, backed by
+a small amount of deliberate structure:
+
+- **The model list is server-owned, and the browser only ever names a label.** Same rule
+  as the launcher menu, for the same reason: the WebSocket must never accept a raw model
+  id, backend or credential from a client. `TMUXRC_LIVE_MODELS` holds the table (inline
+  JSON or a path — the launchers shape, through one shared helper); `/api/version`
+  lists the *offered* labels with a provider/cost hint; `?model=<label>` on the session
+  socket is resolved against that list and anything not offered is refused with a
+  policy-violation close rather than defaulted — a picker that quietly answered with a
+  different model would make every side-by-side impression a lie.
+- **Backend is per entry, because auth is.** Gemini 2.5 stays on Vertex with the durable
+  service-account story (`durable-vertex-auth.md`); Gemini 3.x Live exists only on the
+  AI Studio API, so it needs an API key; OpenAI Realtime needs its own key, or an Azure
+  resource where the "model" is a deployment name. An entry whose keys are absent stays
+  configured but unoffered, so the picker appears the moment a key lands with no config
+  edit. Keys live in one mode-600 file outside every checkout
+  (`~/.config/tmux-rc/openai.env`), never in a worktree's `.env`.
+- **Capability flags are per entry too.** 3.1 Flash Live rejects the proactivity field
+  that 2.5 depends on; the OpenAI voice name means nothing to Gemini. Anything a backend
+  might reject rides on the entry, not in shared code.
+- **A session protocol, not `if provider:` branches.** live.py's coroutines speak four
+  verbs and one event stream (send audio, send context, send tool result, events out);
+  each provider is an adapter behind them. The seven functions that used to touch the
+  Gemini SDK moved; nothing else changed. The tools are declared once as plain JSON
+  Schema, which both SDKs accept as-is.
+- **What "context without a reply" means on each wire.** Gemini: a client-content turn
+  with `turn_complete=False`. OpenAI: a *system*-role conversation item with no
+  `response.create` — system rather than user role so a state refresh can never be
+  mistaken for the user speaking (the qs-app prototype saw user-role injections re-trigger
+  actions). OpenAI also does not continue a turn after a tool result on its own; the
+  adapter asks for the follow-up, deferring until the current response has finished
+  because asking mid-response is a protocol error.
+- **Audio is normalised server-side.** The browser captures 16 kHz and plays 24 kHz;
+  Realtime is 24 kHz both ways. The adapter resamples input (linear, 2→3) so `web/` has
+  one audio pipeline and never learns which provider it is talking to.
+- **Barge-in is a first-class event.** Both providers signal that the user spoke over the
+  model (Gemini `interrupted`, Realtime `speech_started`); the browser cuts its queued
+  playback so the reply stops with the model instead of talking through the user. It
+  matters here precisely because interruption handling is one of the things being
+  compared.
+- **A model that cannot be reached says so.** A wrong Azure deployment name or a rejected
+  key fails at the handshake with a message naming the deployment and host; that error is
+  not retried (the reconnect loop cannot fix config) and is shown verbatim, unlike
+  in-session failures which stay generic.
+- **Picker UX.** The Live button is the picker: with one offered model it starts a session
+  exactly as before; with several it opens a bottom sheet — one thumb-sized row per model
+  with the provider and audio rate as a hint, the remembered choice ticked — and tapping
+  a row starts the session at once. While connected the pill's tag shows the model's
+  label, so during a comparison you always know which voice you are hearing. A header
+  dropdown was rejected: the top bar has no room on a phone, and the choice is made
+  mid-conversation with a thumb.
+
+Rejected: routing OpenAI through Bedrock (it carries no realtime models) and gating on
+the harness alone (see above). The cost argument against OpenAI stands — ten times
+Gemini's audio rate — which is why the status-bar fold-in must use each session's own
+card: that number is where the comparison will be decided.
+
 ## v0.2 candidates (explicitly out of scope now)
 
 Pane creation ("open claude code in a new pane in ~/src/x") once the create-pane
-endpoint exists; the approval gate; barge-in/interruption tuning; a wake word;
-live (in-session) cost display rather than the current fold-in-at-end.
+endpoint exists; the approval gate; a wake word; live (in-session) cost display rather
+than the current fold-in-at-end; carrying usage across a mid-session reconnect (today a
+new connection restarts the count on every provider).
