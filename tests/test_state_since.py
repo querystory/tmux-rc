@@ -140,3 +140,24 @@ def test_list_panes_populates_window_activity(monkeypatch):
     (pane,) = tmux.list_panes()
     assert pane.window_activity == "4000"
     assert (pane.id, pane.pane_active) == ("%1", "1")  # order intact around the new column
+
+
+def test_last_activity_survives_refresh_and_restart(monkeypatch):
+    frame, state, clock = ["idle screen"], [{"activity": "idle"}], [10_000.0]
+    w = _harness(monkeypatch, frame, state, clock)
+    pane = _Pane()
+    pane.window_activity = "4000"
+    first = dict(w._tick_pane(pane))
+    assert first["last_activity_at"] == 4000.0
+    clock[0] = 11_000.0
+    cached = w._tick_pane(pane)
+    assert cached["updated_at"] == 11_000.0
+    assert cached["last_activity_at"] == 4000.0
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["last_activity_at"] == 4000.0
+    frame[0] = "new output, same idle classification"
+    clock[0] = 12_000.0
+    changed = w._tick_pane(pane)
+    assert changed["last_activity_at"] == 12_000.0
+    assert changed["state_since"] == first["state_since"]
+    assert Watcher._deck_fp([first]) != Watcher._deck_fp([{**first, "last_activity_at": 12_000.0}])
