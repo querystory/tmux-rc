@@ -119,6 +119,15 @@ class SendBody(BaseModel):
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
 
 
+class ReorderBody(BaseModel):
+    """A dock drag-reorder (see POST /api/panes/{id}/reorder). `target` is the pane the
+    dragged icon was dropped onto/beside; `after` says which side (drop-after vs
+    drop-before). The move happens at the WINDOW level server-side — see tmux.reorder_pane."""
+
+    target: str  # pane id ("%N") the dragged pane is placed relative to
+    after: bool = False  # True ⇒ place src AFTER target; False ⇒ before
+
+
 class NewWindowBody(BaseModel):
     session: str
     launcher: str  # label of a configured launcher — never a raw command
@@ -252,10 +261,16 @@ def _audit(
     else:
         actor = f"local:{peer}"
     shown = f" keys={keys[:80]!r}" if keys is not None and _AUDIT_KEYS else ""
+    # pane_id is client-controlled on every audited route (it is a URL path segment, so a
+    # "%0A" arrives here as a real newline). An audit line is ONE line, so it is capped and
+    # !r-escaped like every other untrusted field — otherwise a crafted pane id could forge
+    # extra records in the trail. Hardened HERE rather than per-endpoint so the guarantee
+    # covers all of send/select/reorder/paste at once and cannot be forgotten by a new one.
+    safe_pane = repr(pane_id[:80])
     _audit_log.info(
         "AUDIT %s pane=%s by %s%s%s%s",
         action,
-        pane_id,
+        safe_pane,
         actor,
         f" {detail}" if detail else "",
         shown,
@@ -266,7 +281,9 @@ def _audit(
 
         telemetry.emit_action(
             action=action,
-            pane_uid=f"{tmux.server_uid()}:{pane_id}",
+            # Capped for the same reason as the log line above: an unbounded client string
+            # must not ride into telemetry as a uid.
+            pane_uid=f"{tmux.server_uid()}:{pane_id[:80]}",
             actor=actor[:200],
             detail=detail or None,
             keys=keys if _AUDIT_KEYS else None,
@@ -611,6 +628,41 @@ def select(pane_id: str, request: Request):
         _audit(request, "select_pane", pane_id, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "select_pane", pane_id)
+    return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/reorder")
+def reorder(pane_id: str, body: ReorderBody, request: Request):
+    """Persist a dock drag-reorder into tmux itself — move pane_id's window before/after
+    the target's window. Same trust/audit treatment as send/select: it's a real terminal
+    mutation. The next watcher tick re-lists panes in the new tmux order and the dock
+    updates via the normal poll (tmux is the source of truth — no server-side array
+    hand-reorder). Missing SOURCE is 404; cross-session / missing target is 400."""
+    # !r + a cap, exactly as new_window does: `target` is a client-supplied string and an
+    # audit line is ONE line. Unescaped, a newline in `target` would forge a second record
+    # in the trail — the audit log is a security surface, so untrusted text never reaches
+    # it raw. `after` is a bool, parsed by pydantic, so it needs no such treatment.
+    detail = f"target={body.target[:80]!r} after={body.after}"
+    # NO preflight find_pane here, deliberately. reorder_pane already resolves both panes
+    # and raises "source pane not found", which maps to the same 404 below — a preflight
+    # would only add a THIRD list-panes to a gesture-driven endpoint (reorder_pane does
+    # two) for an answer we are about to get anyway. Dropping it also removes the race the
+    # old guard had to reason about: with one lookup there is no window in which the pane
+    # can vanish between the check and the move.
+    try:
+        tmux.reorder_pane(pane_id, body.target, body.after)
+    except RuntimeError as e:
+        # A rejectable request — audited as rejected (probing shows in the trail), not a
+        # 500 crash. A missing SOURCE is a 404 (the pane in the URL does not exist);
+        # everything else (cross-session, missing target) is a 400, since those are the
+        # client's body talking about panes that do exist.
+        status = 404 if str(e) == "source pane not found" else 400
+        _audit(request, "reorder_pane", pane_id, detail, outcome=f"rejected: {e}")
+        raise HTTPException(status, str(e)) from None
+    except Exception as e:
+        _audit(request, "reorder_pane", pane_id, detail, outcome=f"error: {e}"[:80])
+        raise
+    _audit(request, "reorder_pane", pane_id, detail)
     return {"ok": True}
 
 

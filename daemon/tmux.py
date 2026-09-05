@@ -7,6 +7,7 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -14,6 +15,8 @@ import socket
 import subprocess
 import threading
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
@@ -269,6 +272,68 @@ def select_pane(pane_id: str) -> None:
     so tapping a card on the phone focuses the same pane on the host."""
     _run(["select-window", "-t", pane_id])
     _run(["select-pane", "-t", pane_id])
+
+
+def reorder_pane(src_id: str, dst_id: str, after: bool) -> None:
+    """Persist a dock drag-reorder by moving src's WINDOW before/after dst's window.
+
+    The dock flattens session→window→pane in list-panes order, and the drag maps to
+    reordering that flat strip — so we reorder at the WINDOW level with `move-window`,
+    the unit tmux's own status bar and window-index numbering key off. `-b`/`-a` insert
+    src's window immediately before/after dst's window, which is exactly drop-before /
+    drop-after and survives reload + reflects to every attached client (real server-side
+    order, not a client shuffle).
+
+    INDEX DRIFT, and the second command that pins it. `-b`/`-a` do NOT renumber: they
+    make room by shifting the windows at and above the insertion point UP one. Measured
+    on tmux 3.4 with `renumber-windows off`, indices 2,3,4 became 3,4,5 after one drag
+    and 19,20,21 after fifteen — the ORDER is right every time, but the numbers the user
+    types (`prefix 3`) and reads off the status bar creep away from 0 with every drag,
+    and far enough out tmux silently refuses the move at the INT_MAX ceiling.
+
+    So the move is followed by a SEPARATE `move-window -r -t <session>:`, which renumbers
+    that session sequentially, respecting `base-index`. It must be its own command: `-r`
+    passed alongside `-s`/`-t` makes tmux renumber and IGNORE THE MOVE — it exits 0
+    having done nothing, so folding the two together silently turns every drag into a
+    no-op. (Verified on 3.4: `move-window -r -b -s t:3 -t t:0` left the order untouched.)
+
+    Renumbering is a deliberate, scoped exception to `renumber-windows off`: that option
+    governs what happens when a window CLOSES, and leaving it off is a choice to keep
+    numbers stable under churn. A drag is the user explicitly restating the order, and we
+    renumber only the one session they just dragged in — never a session they did not
+    touch. It is also best-effort: if the renumber fails the reorder still stands, so a
+    cosmetic follow-up can never turn a successful move into a 500.
+
+    Panes that SHARE a window move together (they're one window) — coherent, since they
+    also share one window index in the dock's ordering. Cross-SESSION drag is rejected:
+    move-window across sessions would renumber a session the user didn't touch and has
+    no meaning on a single flat strip. Same window (a no-op drop, or the two ends of an
+    intra-window neighbor) is a harmless no-op. Raises RuntimeError on a cross-session
+    target so the caller returns a clear error rather than issuing a surprising move."""
+    src = find_pane(src_id)
+    dst = find_pane(dst_id)
+    # Distinct messages, because the caller maps them to DIFFERENT statuses. The reorder
+    # endpoint has no preflight lookup — it relies on this function to detect a missing
+    # source — so "source pane not found" is the live 404 path, not a defensive one. A
+    # missing TARGET is a client-supplied body value and gets its own 400.
+    if src is None:
+        raise RuntimeError("source pane not found")
+    if dst is None:
+        raise RuntimeError("target pane not found")
+    if src.session != dst.session:
+        raise RuntimeError("cannot reorder across sessions")
+    src_win = f"{src.session}:{src.window_index}"
+    dst_win = f"{dst.session}:{dst.window_index}"
+    if src.window_index == dst.window_index:
+        return  # same window — nothing to move (renumbering it in place is a no-op)
+    _run(["move-window", "-a" if after else "-b", "-s", src_win, "-t", dst_win])
+    # Pin the index drift the move just introduced (see the docstring). Best-effort: the
+    # reorder has already succeeded, and failing the request over a cosmetic renumber
+    # would report a move that in fact landed as an error.
+    try:
+        _run(["move-window", "-r", "-t", f"{src.session}:"])
+    except subprocess.CalledProcessError:
+        logger.warning("renumber after reorder failed for session %s", src.session, exc_info=True)
 
 
 def new_window(session: str, name: str, command: str) -> str:

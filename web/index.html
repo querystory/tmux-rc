@@ -237,8 +237,21 @@
   .dock-group:nth-of-type(4n) { --grp: var(--sessc4); }
   .dock-icon { position: relative; background: transparent; border: 1px solid transparent;
     border-radius: 8px; padding: 6px 8px; cursor: pointer; color: var(--fg-mid);
-    font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
+    font-size: 16px; flex: none; display: flex; align-items: center; justify-content: center;
+    /* Long-press = reorder (dragReorder), not the browser's image callout/selection. */
+    -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  .dock-icon img { -webkit-user-drag: none; pointer-events: none; }
   .dock-icon.sel { background: var(--chrome); border-color: var(--accent); }
+  /* Drag-reorder: a dashed ring marks the icon under the finger as the drop target so
+     the reorder reads clearly on a small screen. (The dock keeps its native horizontal
+     scroll — the reorder arms only on a long-press hold, see dragReorder in app.js.) */
+  .dock-icon.drop-into { border-style: dashed; border-color: var(--accent); }
+  /* Armed drag: touch-action:none tells the browser to stop panning the strip for this
+     gesture — the RELIABLE touch scroll-suppression (pointermove.preventDefault alone is
+     not honored for scroll on all touch browsers). Applied only while dragging, so a
+     normal touch on an icon still scrolls the overflow-x dock; the class lands the instant
+     the long-press arms (finger still ⇒ no scroll has begun yet). */
+  .dock-icon.dragging { opacity: 0.85; touch-action: none; }
   /* Fold chip: "+6" standing in for a session's parked panes (idle past
      PARKED_IDLE_SECS), at the tail of its tray. A "‹" chevron (styled small and
      borderless below) folds them back.
