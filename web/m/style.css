@@ -13,6 +13,7 @@
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+html, body { position: fixed; inset: 0; overflow: hidden; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
@@ -25,7 +26,7 @@ h1, h2, p { margin: 0; overflow-wrap: anywhere; }
 h1 { font-size: 26px; line-height: 1.2; font-weight: 650; }
 h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 .muted { color: var(--muted); }
-#app { height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+#app { position: absolute; top: var(--app-top, 0px); left: 0; right: 0; height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .app-header { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
 #brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; }
 #heading { min-width: 0; flex: 1; }
@@ -110,9 +111,10 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #draft-status { font-size: 11px; }
 #keys { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 10px; scrollbar-width: thin; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
-#attachment { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12px; }
-#attachment-preview { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
-#attachment-name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
+#reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+#reply:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.attach-chip { display: inline-block; width: 32px; height: 32px; object-fit: cover; vertical-align: middle; border-radius: 4px; margin: 0 3px; cursor: pointer; }
 dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
 dialog::backdrop { background: #0008; }
 .sheet-handle { width: 32px; height: 4px; background: var(--line); border-radius: 2px; margin: 0 auto 12px; }

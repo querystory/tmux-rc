@@ -1,5 +1,6 @@
 import { renderCapture, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
+import { Composer } from "/m/composer.js";
 
 // Inline Lucide paths, matching the existing UI; no external assets behind IAP.
 const LUCIDE = {
@@ -58,7 +59,7 @@ const liveSession = (() => {
 })();
 
 function draft(id = active) {
-  if (!drafts.has(id)) drafts.set(id, { text: "", file: null, url: null });
+  if (!drafts.has(id)) drafts.set(id, new Composer(() => { text($("draft-status"), "Draft"); updateComposer(); }, notice));
   return drafts.get(id);
 }
 
@@ -115,14 +116,13 @@ function route() {
   const params = new URLSearchParams(location.hash.slice(1));
   const next = params.get("pane");
   const changed = next !== active;
-  if (active) draft().text = $("reply").value;
   active = next;
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
   sort = params.get("sort") === "updated" ? "updated" : "session";
   $("sort").value = sort;
   if (changed) {
-    $("reply").value = active ? draft().text : "";
+    if (active) $("reply").replaceWith(draft().editor);
     $("overview").scrollTop = 0;
     text($("draft-status"), "");
     show("keys", false);
@@ -338,24 +338,15 @@ async function pollState(signal) {
   }
 }
 
-function resizeReply() { $("reply").style.height = "auto"; $("reply").style.height = `${Math.min(132, $("reply").scrollHeight)}px`; }
 function updateComposer() {
   if (!active) return;
   const available = panes.some((p) => p.pane_id === active);
   const value = draft();
-  $("reply").readOnly = sending || !available;
-  $("send").disabled = sending || !available || (!value.text.trim() && !value.file);
+  $("reply").contentEditable = String(!sending && available);
+  $("reply").setAttribute("aria-disabled", String(sending || !available));
+  $("send").disabled = sending || !available || (!value.segments().length && !value.pendingEnter);
   $("attach").disabled = sending || !available;
-  $("remove-image").disabled = sending;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
-  show("attachment", !!value.file);
-  if (value.file) { $("attachment-preview").src = value.url; text($("attachment-name"), value.file.name); }
-  else $("attachment-preview").removeAttribute("src");
-  resizeReply();
-}
-function clearImage(value) {
-  if (value.url) URL.revokeObjectURL(value.url);
-  value.file = value.url = null;
 }
 async function sendKeys(body, answer = false) {
   if (sending || !panes.some((p) => p.pane_id === active)) return;
@@ -376,35 +367,32 @@ async function sendKeys(body, answer = false) {
 $("reply-form").onsubmit = async (event) => {
   event.preventDefault();
   if (sending || $("send").disabled) return;
-  const id = active, value = draft(), message = value.text;
+  const id = active, value = draft(), segments = value.segments();
   sending = true; notice(); render();
   try {
-    if (value.file) {
-      const form = new FormData(); form.append("file", value.file);
-      await request(paneUrl(id, "image"), { method: "POST", body: form }, 30000);
-      // An uploaded image is already in tmux. Never upload it twice after a later send failure.
-      clearImage(value);
+    while (segments.length) {
+      const segment = segments[0];
+      if (segment.file) {
+        const form = new FormData(); form.append("file", segment.file);
+        await request(paneUrl(id, "image"), { method: "POST", body: form }, 30000);
+      } else await post(paneUrl(id, "send"), { keys: segment.text, enter: false, literal: true });
+      // Remove only acknowledged segments, so retry never repeats a confirmed upload.
+      segments.shift(); value.pendingEnter = true; value.replace(segments);
     }
-    await post(paneUrl(id, "send"), { keys: message, enter: true, literal: true });
-    value.text = "";
-    if (active === id) { $("reply").value = ""; text($("draft-status"), "Sent"); }
+    await post(paneUrl(id, "send"), { keys: "", enter: true, literal: true });
+    value.pendingEnter = false;
+    if (active === id) text($("draft-status"), "Sent");
     startState();
   } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); }
   finally { sending = false; render(); }
 };
-$("reply").oninput = () => { draft().text = $("reply").value; text($("draft-status"), "Draft"); updateComposer(); };
-$("reply").onkeydown = (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) { event.preventDefault(); $("reply-form").requestSubmit(); } };
-$("attach").onclick = () => $("image-file").click();
-function attachFile(file) {
-  if (!file || !active || sending) return;
-  if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type) || file.size > 20 * 1024 * 1024) { notice("Choose a PNG, JPEG, WebP, or GIF under 20 MB."); return; }
-  const value = draft(); clearImage(value); value.file = file; value.url = URL.createObjectURL(file); updateComposer();
-}
-$("image-file").onchange = () => { attachFile($("image-file").files[0]); $("image-file").value = ""; };
-$("reply").onpaste = (event) => { const file = [...(event.clipboardData?.files || [])].find((f) => f.type.startsWith("image/")); if (file) { event.preventDefault(); attachFile(file); } };
-$("remove-image").onclick = () => { clearImage(draft()); updateComposer(); };
+$("reply-form").onkeydown = (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) { event.preventDefault(); $("reply-form").requestSubmit(); } };
+let fileTarget = null;
+$("attach").onpointerdown = () => { if (active) draft().saveCaret(); };
+$("attach").onclick = () => { fileTarget = active; $("image-file").click(); };
+$("image-file").onchange = () => { if (active === fileTarget && !sending) draft().attach($("image-file").files[0]); $("image-file").value = ""; };
 
-for (const [id, name] of Object.entries({ back: "back", theme: "sun", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", "remove-image": "x", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ back: "back", theme: "sun", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 html($("keyboard"), licon("keyboard", 16) + "<span>Keys</span>");
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
@@ -471,9 +459,10 @@ function fitViewport() {
   const viewport = window.visualViewport;
   if (!viewport || viewport.scale !== 1) return;
   document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
-  window.scrollTo(0, 0);
+  document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
 }
 window.visualViewport?.addEventListener("resize", fitViewport);
+window.visualViewport?.addEventListener("scroll", fitViewport);
 window.addEventListener("resize", fitViewport);
 window.addEventListener("hashchange", route);
 document.addEventListener("selectionchange", () => { if (view === "terminal") paintCapture(); });
