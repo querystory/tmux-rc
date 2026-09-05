@@ -624,9 +624,29 @@
   /* Inline image thumbnail: an <img> living INSIDE the contenteditable at the caret,
      interleaved with text (mirrors [Image #N] in Claude Code's composer) until the next
      Enter sends it. contenteditable=false (set in JS) makes the caret treat it as one
-     atomic character. vertical-align keeps it centred on the text baseline. */
+     atomic character. vertical-align keeps it centred on the text baseline.
+
+     The margin is LEFT-ONLY on purpose (it was `0 2px`, which put the caret 2px off).
+     After inserting a chip the caret sits immediately after it, and a caret anchored
+     after an inline-block draws at that box's MARGIN edge, not its border edge — so a
+     right margin renders the caret floating in the gap beside the thumbnail instead of
+     hugging it ("pasting an image moves the cursor to the right"). The gap tracked the
+     margin exactly: 0/2/10/30px of right margin gave 0/2/10/30px of caret offset.
+
+     Dropping the right margin and keeping the left at its original 2px puts the caret
+     flush while leaving every spacing that faces TEXT untouched: a leading chip still
+     indents 2px, and text-to-chip is still 2px. The one difference is that two ADJACENT
+     chips now sit 2px apart instead of 4px (that 4px was only ever 2+2 meeting), which
+     is a fair trade for a caret that lands where the user is about to type. The 1px
+     box-shadow ring still hugs the 24x24 thumbnail — padding would have closed the gap
+     too, but it stretches that ring to wrap the padding box.
+
+     Note there is deliberately NO :first-child exception. CSS cannot see text nodes, so
+     `:first-child` also matches the chip in `"a" + <chip> + "b"` (a mid-text paste) and
+     would shrink that spacing too; keeping the left margin at the original 2px makes the
+     exception unnecessary rather than papering over it. */
   .attach-chip { display: inline-block; width: 24px; height: 24px; border-radius: 5px;
-    object-fit: cover; margin: 0 2px; vertical-align: middle;
+    object-fit: cover; margin: 0 0 0 2px; vertical-align: middle;
     cursor: pointer; box-shadow: 0 0 0 1px var(--border); }
   .row { display: flex; align-items: center; gap: 10px; }
   /* Collapse caret: shrinks the card to just this header row, giving the live terminal
