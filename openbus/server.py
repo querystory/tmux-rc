@@ -332,9 +332,9 @@ def get_version():
     live_enabled is false when nothing is offered (every entry key-gated, no key set) even
     with the flag on, so the client never shows a button the socket would only refuse."""
     h = hashlib.md5()
-    for p in sorted(WEB_DIR.glob("*")):
+    for p in sorted(WEB_DIR.rglob("*")):
         if p.is_file():
-            h.update(p.name.encode())
+            h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
     offered = live_providers.available()
     return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered),
@@ -807,6 +807,17 @@ if Path(_docs_dir).is_dir():
         return RedirectResponse("/docs/")
 
     app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
+
+@app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False)
+def mobile_ui():
+    # Avoid an absolute slash redirect with an HTTP scheme behind the TLS tunnel.
+    from fastapi.responses import FileResponse, HTMLResponse
+
+    entrypoint = WEB_DIR / "m" / "index.html"
+    if not entrypoint.is_file():
+        return HTMLResponse("<!doctype html><title>Not found</title><h1>Mobile UI assets are not installed</h1>", status_code=404)
+    return FileResponse(entrypoint)
+
 
 # PWA static files last so /api/* and /docs win. html=True serves index.html at /.
 if WEB_DIR.is_dir():
