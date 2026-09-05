@@ -63,6 +63,32 @@ def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
         assert P.models() == P._DEFAULT
 
 
+@pytest.mark.parametrize("field", ["label", "model"])
+@pytest.mark.parametrize("invalid", ["", " \t\n", None, 42])
+def test_table_rejects_empty_or_nonstring_identity(monkeypatch, field, invalid):
+    entry = {**TABLE[0], field: invalid}
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([entry]))
+    assert P.models() == P._DEFAULT
+
+
+def test_table_trims_identity_and_round_trips_offered_label(monkeypatch):
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([{
+        "label": "  Voice test \t", "model": " model-id \n",
+    }]))
+    offered = TestClient(server.app).get("/api/version").json()["live_models"]
+    assert offered[0]["label"] == "Voice test"
+    assert P.find(offered[0]["label"]).model == "model-id"
+
+
+def test_table_rejects_duplicate_normalized_labels(monkeypatch):
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([
+        {"label": "Same", "model": "first"},
+        {"label": " Same ", "model": "second"},
+    ]))
+    assert P.models() == P._DEFAULT
+
+
 def test_keyless_entry_is_configured_but_not_offered(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)

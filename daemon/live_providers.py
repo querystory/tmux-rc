@@ -89,6 +89,11 @@ class LiveModel:
 
 
 def _coerce(e: dict) -> LiveModel:
+    label, model = e["label"], e["model"]
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError("model label must be a non-empty string")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("model id must be a non-empty string")
     backend = e.get("backend", "vertex")
     if backend not in _NEEDS:
         raise ValueError(f"unknown backend {backend!r}")
@@ -96,8 +101,8 @@ def _coerce(e: dict) -> LiveModel:
     rates = {k: float(given.get(k, d)) for k, d in _RATES_25._asdict().items()}
     rates.update({c: rates[full] for c, full in _CACHED.items() if c not in given})
     return LiveModel(
-        label=str(e["label"]),
-        model=str(e["model"]),
+        label=label.strip(),
+        model=model.strip(),
         backend=backend,
         rates=Split(**rates),
         flags={
@@ -121,7 +126,11 @@ _DEFAULT = [
 
 def models() -> list[LiveModel]:
     """The configured table. Re-read per call (cheap) so it tracks env like enabled()."""
-    return json_list("TMUXRC_LIVE_MODELS", _DEFAULT, _coerce)
+    table = json_list("TMUXRC_LIVE_MODELS", _DEFAULT, _coerce)
+    if len({m.label for m in table}) != len(table):
+        logger.warning("TMUXRC_LIVE_MODELS has duplicate labels; using defaults")
+        return _DEFAULT
+    return table
 
 
 def available() -> list[LiveModel]:
