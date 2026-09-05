@@ -7,6 +7,7 @@ tool call may touch a real terminal — the context builder and the reject paths
 import asyncio
 
 import openbus.live as L
+import openbus.live_providers as P
 
 
 def _run(coro):
@@ -51,8 +52,8 @@ class _Session:
     def __init__(self):
         self.responses = []
 
-    async def send_tool_response(self, function_responses):
-        self.responses.extend(function_responses)
+    async def send_tool_result(self, call, payload):
+        self.responses.append((call, payload))
 
 
 class _WS:
@@ -147,11 +148,11 @@ def test_typing_dispatches_and_logs(monkeypatch):
     assert typed == [("%1", "1", True, True)]  # literal send_keys, with Enter
     assert w.reparsed == ["%1"]  # the keystrokes trigger a fresh parse
     assert any(m["type"] == "typed" and m["label"] == "work" for m in ws.sent)
-    r = session.responses[0]
-    assert r.id == "call-1"  # fc.id must ride back or the session wedges
-    assert r.response == {"status": "done", "pane": "work"}
-    # the FunctionResponse never carries screen content (echo-loop guard)
-    assert "screen" not in str(r.response)
+    call, payload = session.responses[0]
+    assert call.id == "call-1"  # the call (with its id) rides back to the provider
+    assert payload == {"status": "done", "pane": "work"}
+    # the tool result never carries screen content (echo-loop guard)
+    assert "screen" not in str(payload)
 
 
 def test_press_key_dispatches_named_key(monkeypatch):
@@ -162,7 +163,7 @@ def test_press_key_dispatches_named_key(monkeypatch):
     assert typed == [("%1", "Escape", False, False)]  # not literal, no trailing Enter
     assert w.reparsed == ["%1"]
     assert any(m["type"] == "typed" and m["text"] == "[Escape]" for m in ws.sent)
-    assert session.responses[0].response == {"status": "done", "pane": "work"}
+    assert session.responses[0][1] == {"status": "done", "pane": "work"}
 
 
 def test_press_key_rejects_unknown_key(monkeypatch):
@@ -171,14 +172,14 @@ def test_press_key_rejects_unknown_key(monkeypatch):
         fc = _FC(name="press_key", args={"pane_id": "%1", "key": key})
         _, _, session, typed = _dispatch(fc, monkeypatch)
         assert typed == []
-        assert session.responses[0].response["status"] == "rejected"
+        assert session.responses[0][1]["status"] == "rejected"
 
 
 def test_unknown_pane_is_rejected(monkeypatch):
     fc = _FC(args={"pane_id": "%99", "text": "hi"})
     _, ws, session, typed = _dispatch(fc, monkeypatch)
     assert typed == [] and ws.sent == []
-    assert session.responses[0].response["status"] == "rejected"
+    assert session.responses[0][1]["status"] == "rejected"
 
 
 def test_echoed_or_malformed_call_is_rejected(monkeypatch):
@@ -192,11 +193,11 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     ):
         _, _, session, typed = _dispatch(_FC(args=args), monkeypatch)
         assert typed == []
-        assert session.responses[0].response["status"] == "rejected"
+        assert session.responses[0][1]["status"] == "rejected"
     # Non-dict args (the model returned a bare string/list) must be rejected, not crash.
     _, _, session, typed = _dispatch(_FC(args="oops"), monkeypatch)
     assert typed == []
-    assert session.responses[0].response["status"] == "rejected"
+    assert session.responses[0][1]["status"] == "rejected"
 
 
 def test_context_updater_skips_timeouts(monkeypatch):
@@ -222,8 +223,8 @@ def test_context_updater_skips_timeouts(monkeypatch):
         def __init__(self):
             self.sent = []
 
-        async def send_client_content(self, turns, turn_complete):
-            self.sent.append(turns.parts[0].text)
+        async def send_context(self, text):
+            self.sent.append(text)
 
     monkeypatch.setattr(L, "UPDATE_MIN_SECONDS", 0)
 
@@ -247,7 +248,7 @@ def test_context_updater_skips_timeouts(monkeypatch):
 
 
 class _Connect:
-    """Fake `client.aio.live.connect(...)` context manager. `boom` (if set) is raised
+    """Fake provider-session context manager. `boom` (if set) is raised
     on __aenter__ to simulate a connect that fails before the session is up."""
     def __init__(self, session, boom=None):
         self._session, self._boom = session, boom
@@ -262,15 +263,13 @@ class _Connect:
 
 
 class _FakeClient:
-    """Serves the `client.aio.live.connect(...)` chain and counts connect attempts.
-    `connects` is one _Connect (or callable returning one) per expected attempt."""
+    """Stands in for live_providers.connect and counts connect attempts. `connects` is
+    one _Connect (or callable returning one) per expected attempt."""
     def __init__(self, connects):
         self._connects = list(connects)
         self.attempts = 0
-        self.aio = self
-        self.live = self
 
-    def connect(self, model, config):
+    def connect(self, model, system_prompt):
         self.attempts += 1
         cm = self._connects.pop(0)
         return cm() if callable(cm) else cm
@@ -311,10 +310,10 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     client = _FakeClient([_Connect(_Session())])
-    monkeypatch.setattr(L, "_live_client", lambda: client)
+    monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
     ws = _ScriptedWS([{"action": "stop"}])
-    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))  # must not raise
+    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))  # must not raise
 
     assert client.attempts == 1  # clean stop → no reconnect
     assert _statuses(ws)[-1:] == ["listening"] or "listening" in _statuses(ws)
@@ -330,10 +329,10 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
         _Connect(_Session(), boom=RuntimeError("gemini drop")),
         _Connect(_Session()),
     ])
-    monkeypatch.setattr(L, "_live_client", lambda: client)
+    monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
     ws = _ScriptedWS([{"action": "stop"}])
-    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))
+    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
 
     assert client.attempts == 2  # exactly one reconnect
     assert _statuses(ws).count("reconnecting") == 1
@@ -345,11 +344,11 @@ def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
     client = _FakeClient([_Connect(_Session())])
-    monkeypatch.setattr(L, "_live_client", lambda: client)
+    monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
     ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
     try:
-        _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a")))
+        _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
         raised = False
     except L.WebSocketDisconnect:
         raised = True
@@ -375,22 +374,22 @@ class _Usage:
 
 
 def test_live_usage_splits_modalities_and_costs():
-    u = L._LiveUsage()
-    u.add(_Usage(prompt=1000, resp=500, audio_in=800, audio_out=400))
+    u = L._LiveUsage(P._RATES_25)
+    u.set(P.gemini_usage(_Usage(prompt=1000, resp=500, audio_in=800, audio_out=400)))
     # prompt 1000 = 800 audio + 200 text; response 500 = 400 audio + 100 text.
     assert (u.audio_in, u.text_in) == (800, 200)
     assert (u.audio_out, u.text_out) == (400, 100)
     assert u.in_tokens == 1000 and u.out_tokens == 500
-    expected = (200 / 1e6 * L._LIVE_TEXT_IN_PER_M + 100 / 1e6 * L._LIVE_TEXT_OUT_PER_M
-                + 800 / 1e6 * L._LIVE_AUDIO_IN_PER_M + 400 / 1e6 * L._LIVE_AUDIO_OUT_PER_M)
+    t_in, t_out, a_in, a_out = P._RATES_25
+    expected = 200 / 1e6 * t_in + 100 / 1e6 * t_out + 800 / 1e6 * a_in + 400 / 1e6 * a_out
     assert abs(u.cost() - expected) < 1e-12
 
 
 def test_live_usage_is_cumulative_not_summed():
     # Live sends running totals per message — later messages overwrite, never add.
-    u = L._LiveUsage()
-    u.add(_Usage(prompt=100, resp=50))
-    u.add(_Usage(prompt=300, resp=120))
+    u = L._LiveUsage(P._RATES_25)
+    u.set(P.gemini_usage(_Usage(prompt=100, resp=50)))
+    u.set(P.gemini_usage(_Usage(prompt=300, resp=120)))
     assert u.in_tokens == 300 and u.out_tokens == 120
 
 
@@ -400,8 +399,8 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     folded = {}
     monkeypatch.setattr(llm, "record_live_usage", lambda **k: folded.update(k))
-    m = L._Meter("sess-abc", "user@example.com")
-    m.usage.add(_Usage(prompt=200, resp=80, audio_in=150, audio_out=60))
+    m = L._Meter("sess-abc", "user@example.com", P._DEFAULT[0])
+    m.usage.set(P.gemini_usage(_Usage(prompt=200, resp=80, audio_in=150, audio_out=60)))
     m.note("user: what's running")
     m.end_turn()
     m.finish()

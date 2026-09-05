@@ -4020,8 +4020,8 @@ syncBadgeTick(); // live-tick idle/waiting durations while visible (paused when 
 let _ver = null;
 setInterval(async () => {
   try {
-    const { version, live_enabled } = await (await fetch("/api/version")).json();
-    applyLiveEnabled(!!live_enabled);  // sync the mic button to the server flag
+    const { version, live_enabled, live_models } = await (await fetch("/api/version")).json();
+    applyLiveEnabled(!!live_enabled, live_models);  // sync the mic button + model menu to the server
     if (_ver === null) _ver = version;
     else if (version !== _ver) {
       if (composerEmpty()) location.reload();
@@ -4091,7 +4091,7 @@ if (window.visualViewport && barEl) {
 // every keystroke the model puts into a pane. Nothing overlays the app: the pulsing 🎙
 // header pill is the status, and the rolling conversation renders in the active card's
 // summary slot (see applyCard's `lmOwns`). Design: docs/design/live-mode.md.
-const lm = { btn: document.getElementById("lm-btn") };
+const lm = { btn: document.getElementById("lm-btn"), sheet: document.getElementById("lm-sheet") };
 // The static buttons get their icons here (their HTML ships empty): mic without the
 // word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
 if (lm.btn) lm.btn.innerHTML = licon("mic", 14) + '<sup class="lm-exp">beta</sup>';
@@ -4100,14 +4100,20 @@ bar.attach.innerHTML = licon("paperclip", 15);
 // Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
 // the server reports it enabled — one source of truth, so a stale tab can't offer a
 // button the /api/live-mode route will just refuse. Hidden until confirmed.
-function applyLiveEnabled(on) {
+// The same reply carries the model menu: [{label, hint}] for every model the SERVER has a
+// credential for. Labels are all the client ever sends back (?model=<label>) — never a
+// model id or backend, same rule as launchers.
+let lmModels = [];
+function applyLiveEnabled(on, models) {
   if (lm.btn) lm.btn.hidden = !on;
+  if (models) lmModels = models;
 }
 applyLiveEnabled(false);
 // Resolve the flag immediately on load (the 5s version poll also keeps it in sync).
-fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled)).catch(() => {});
+fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled, d.live_models)).catch(() => {});
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
+let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
 let lmLog = [];                  // rolling conversation: {role, text, done}
 let lmListening = false;         // true only while the daemon reports "listening" — mic
                                  // frames are dropped otherwise so a reconnect (during
@@ -4159,6 +4165,8 @@ function lmPlayChunk(b64) {
   const ch = buf.getChannelData(0);
   for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
   const src = lmPlay.createBufferSource();
+  lmQueued.push(src);
+  src.onended = () => { lmQueued = lmQueued.filter((s) => s !== src); };
   src.buffer = buf;
   src.connect(lmPlay.destination);
   lmPlayAt = Math.max(lmPlayAt, lmPlay.currentTime) ;
@@ -4224,13 +4232,57 @@ async function lmCapture(ws) {
 function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
   lm.btn.classList.toggle("listening", lmListening);
+  // While connected the pill's tag names the model answering — side-by-side testing
+  // needs to know WHICH voice this is. "beta" comes back when the session ends.
+  if (lmListening && lmLabel) lm.btn.querySelector(".lm-exp").textContent = lmLabel;
 }
 
-let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
+// Tap Live: stop a running session, else start one. With one model on the menu that is
+// the whole story (the single-model experience is unchanged); with several, the bottom
+// sheet picks — one thumb-sized row per model, the remembered choice ticked — and the
+// tapped row starts the session at once.
+function lmTap() {
+  if (lmWs) return lmStop();
+  if (lmModels.length < 2) return lmStart(lmModels[0]?.label);
+  lmSheet(true);
+}
+const lmChoice = () => { try { return localStorage.getItem("tmuxrc-live-model") || ""; } catch { return ""; } };
+function lmSheet(open) {
+  lm.sheet.hidden = !open;
+  if (!open) return;
+  const cur = lmChoice();
+  const row = (label, hint, ticked, cls) => {
+    const b = document.createElement("button");
+    b.className = "lm-row" + (cls ? " " + cls : "");
+    const main = document.createElement("span"); main.className = "lm-row-main";
+    const l = document.createElement("span"); l.className = "lm-row-label"; l.textContent = label;
+    main.append(l);
+    if (hint) { const h = document.createElement("span"); h.className = "lm-row-hint"; h.textContent = hint; main.append(h); }
+    b.append(main);
+    if (ticked) b.insertAdjacentHTML("beforeend", licon("check", 18));
+    return b;
+  };
+  const head = document.createElement("div"); head.className = "lm-sheet-head";
+  head.textContent = "Live Mode — pick a model";
+  const rows = lmModels.map((m) => {
+    const b = row(m.label, m.hint, m.label === cur);
+    b.onclick = () => { lmSheet(false); lmStart(m.label); };
+    return b;
+  });
+  const close = row("Close", "", false, "close");
+  close.onclick = () => lmSheet(false);
+  lm.sheet.firstElementChild.replaceChildren(head, ...rows, close);
+}
+if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
 
-async function lmStart() {
+let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
+let lmLabel = "";       // the label this session was started with (shown in the pill)
+
+async function lmStart(label) {
   if (lmStarting) return; // re-tap while the permission prompt is up: not a stop request
   lmStarting = true;
+  lmLabel = label || "";
+  if (label) { try { localStorage.setItem("tmuxrc-live-model", label); } catch {} }
   lm.btn.classList.add("on");
   lmLog = [];
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
@@ -4269,10 +4321,13 @@ async function lmStart() {
   lmStarting = false;
   // Same page-load session id as the live-view stream, so voice cost and screen
   // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
-  const q = SESSION_ID ? `?session=${encodeURIComponent(SESSION_ID)}` : "";
+  const q = new URLSearchParams();
+  if (SESSION_ID) q.set("session", SESSION_ID);
+  if (lmLabel) q.set("model", lmLabel);  // a label from the server's own menu, nothing else
+  const qs = q.toString();
   let ws;
   try {
-    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${q}`);
+    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${qs ? "?" + qs : ""}`);
   } catch (e) {
     // A sync constructor throw (bad URL, environment restriction) lands AFTER the mic
     // was acquired — without this, the stream and both contexts leak and the pill
@@ -4289,6 +4344,9 @@ async function lmStart() {
     else if (m.type === "transcript") lmAdd(m.role, m.text);
     else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
     else if (m.type === "audio") lmPlayChunk(m.data);
+    // The user spoke over the model: drop the queued voice so the reply doesn't keep
+    // talking through them (the model itself has already stopped generating).
+    else if (m.type === "interrupted") { lmQueued.forEach((s) => { try { s.stop(); } catch {} }); lmQueued = []; lmPlayAt = 0; }
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") lmAdd("err", m.message); // .lm-err red = the signal
@@ -4328,6 +4386,7 @@ function lmStop() {
     try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
   }
   lmListening = false;
+  lm.btn.querySelector(".lm-exp").textContent = "beta";
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
@@ -4338,4 +4397,4 @@ function lmStop() {
   render(Object.values(panesById)); // the active card gets its static summary back
 }
 
-if (lm.btn) lm.btn.onclick = () => (lmWs ? lmStop() : lmStart());
+if (lm.btn) lm.btn.onclick = lmTap;

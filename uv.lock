@@ -844,6 +844,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "uvicorn" },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -862,6 +863,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "uvicorn", specifier = ">=0.30" },
+    { name = "websockets", specifier = ">=13" },
 ]
 
 [package.metadata.requires-dev]
