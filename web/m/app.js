@@ -33,8 +33,16 @@ const activity = (pane) => needsYou(pane) ? "Needs you" : ({ running: "Running",
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", shell: "/bash.png" };
 const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : pane.activity;
+const isRunning = (pane) => ["running", "compacting"].includes(activityClass(pane));
+function isRecent(pane) {
+  const since = pane.state_since == null ? NaN : Number(pane.state_since);
+  const idle = Number.isFinite(since) ? Math.max(0, Date.now() / 1000 - since) : pane.idle_seconds || 0;
+  return pane.activity !== "idle" || idle < 600;
+}
+const matchesFilter = (pane) => filter === "attention" ? needsYou(pane) : filter === "running" ? isRunning(pane) : filter === "recent" ? isRecent(pane) : true;
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
+let sort = "session";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 const liveSession = crypto.randomUUID();
@@ -87,8 +95,9 @@ function notice(message = "") { text($("notice"), message); show("notice", !!mes
 
 function navigate(id = null, nextView = "summary") {
   const params = new URLSearchParams();
+  if (filter !== "all") params.set("filter", filter);
+  if (sort !== "session") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
-  else if (filter === "attention") params.set("filter", "attention");
   location.hash = params.toString();
 }
 
@@ -99,7 +108,9 @@ function route() {
   if (active) draft().text = $("reply").value;
   active = next;
   view = params.get("view") === "terminal" ? "terminal" : "summary";
-  if (!active) filter = params.get("filter") === "attention" ? "attention" : "all";
+  filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
+  sort = params.get("sort") === "updated" ? "updated" : "session";
+  $("sort").value = sort;
   if (changed) {
     $("reply").value = active ? draft().text : "";
     $("overview").scrollTop = 0;
@@ -132,25 +143,32 @@ function updateRow(button, pane) {
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activity(pane));
   text(button.querySelector(".row-status"), pane.question?.prompt || pane.status_line || pane.session_summary || "No recent activity");
-  text(button.querySelector(".row-meta"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
+  text(button.querySelector(".row-meta"), [sort === "updated" ? pane.session : "", pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => (filter !== "attention" || needsYou(p)) && `${p.session} ${p.label} ${p.tool} ${p.status_line}`.toLowerCase().includes(query));
+  const subset = panes.filter((p) => matchesFilter(p) && `${p.session} ${p.label} ${p.tool} ${p.status_line}`.toLowerCase().includes(query));
   const sessions = [...new Set(subset.map((p) => p.session))];
-  const rows = sessions.flatMap((session) => [{ session, group: true }, ...subset.filter((p) => p.session === session)]);
+  const rows = sort === "updated"
+    ? subset.sort((a, b) => (Number(b.updated_at) || 0) - (Number(a.updated_at) || 0))
+    : sessions.flatMap((session) => [{ session, group: true }, ...subset.filter((p) => p.session === session)]);
+  text($("visible-count"), `${subset.length} pane${subset.length === 1 ? "" : "s"}`);
   reconcile($("pane-list"), rows, (p) => p.group ? `session:${p.session}` : p.pane_id, (p) => {
     if (!p.group) return makeRow(p);
     const label = document.createElement("h2"); label.className = "session-label"; return label;
   }, (node, p) => p.group ? text(node, p.session || "Session") : updateRow(node, p));
   show("empty", !subset.length);
-  text($("empty"), !loaded ? "Loading sessions..." : !booted ? "Reading terminal sessions..." : query ? "No matching panes." : filter === "attention" ? "Nothing needs your attention." : "No tmux panes are open.");
+  text($("empty"), !loaded ? "Loading sessions..." : !booted ? "Reading terminal sessions..." : query ? "No matching panes." : filter === "attention" ? "Nothing needs your attention." : filter === "running" ? "No panes are running." : filter === "recent" ? "No recently active panes." : "No tmux panes are open.");
   const waiting = panes.filter(needsYou).length;
   text($("session-count"), loaded ? `${panes.length} panes / ${waiting} need${waiting === 1 ? "s" : ""} you` : "Connecting to your workspace");
   text($("all-count"), panes.length);
   text($("attention-count"), waiting);
-  $("all-tab").setAttribute("aria-pressed", filter === "all");
+  $("all-tab").setAttribute("aria-pressed", filter !== "attention");
   $("attention-tab").setAttribute("aria-pressed", filter === "attention");
+  text($("filter-all-count"), panes.length);
+  text($("filter-running-count"), panes.filter(isRunning).length);
+  text($("filter-recent-count"), panes.filter(isRecent).length);
+  $("activity-filters").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", filter === button.dataset.filter));
   $("new-window").disabled = !panes.length;
 }
 
@@ -398,6 +416,8 @@ $("terminal-tab").onclick = () => navigate(active, "terminal");
 $("all-tab").onclick = () => { filter = "all"; navigate(); };
 $("attention-tab").onclick = () => { filter = "attention"; navigate(); };
 $("search").oninput = renderList;
+$("sort").onchange = () => { sort = $("sort").value; navigate(); };
+$("activity-filters").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
