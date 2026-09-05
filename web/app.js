@@ -4159,6 +4159,7 @@ function lmConnect() {
   }
   lmWs = ws;
   ws.onmessage = (ev) => {
+    if (lmWs !== ws) return;
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.type === "status") lmStatus(m.status);
     else if (m.type === "transcript") lmAdd(m.role, m.text);
@@ -4218,6 +4219,8 @@ function lmStop() {
     try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
   }
   lmListening = false;
+  lmQueued.forEach((source) => { try { source.stop(); } catch {} });
+  lmQueued = []; lmPlayAt = 0;
   lm.btn.querySelector(".lm-exp").textContent = "beta";
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];
