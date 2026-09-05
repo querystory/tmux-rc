@@ -192,7 +192,10 @@ function render() {
   text($("activity"), pane ? activity(pane) : "Unavailable");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
-  text($("status-line"), pane?.status_line || pane?.session_summary || (loaded && !pane ? "This pane is no longer available." : "Waiting for activity..."));
+  const headline = pane?.headline || pane?.status_line || pane?.session_summary || (loaded && !pane ? "This pane is no longer available." : "Waiting for activity...");
+  html($("status-line"), linkifyText(headline));
+  const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
+  html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
   text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.elapsed].filter(Boolean).join(" / "));
   $("full-ui").href = "/";
   show("question", !!pane?.question && needsYou(pane));
@@ -217,8 +220,46 @@ function render() {
     return button;
   }, (button, option) => { button._option = option; text(button, option.option); button.disabled = sending || !!answered; });
   renderTasks(pane);
+  renderRichContent(pane);
   updateComposer();
   if (pane && view === "summary") loadEvents(pane);
+}
+
+function renderRichContent(pane) {
+  const links = (Array.isArray(pane?.links) ? pane.links : []).filter((link) => {
+    try { return /^https?:$/.test(new URL(link.href).protocol); } catch { return false; }
+  });
+  show("link-section", !!links.length);
+  reconcile($("links"), links, (link, i) => `${i}:${link.href}`, () => {
+    const anchor = document.createElement("a");
+    anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
+    anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
+    return anchor;
+  }, (anchor, link) => {
+    const host = new URL(link.href).host;
+    anchor.href = link.href;
+    text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
+    text(anchor.querySelector("small"), host);
+  });
+  const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
+  show("table-section", !!tables.length);
+  // Reconcile inside stable scroll containers so a poll never resets a table's position.
+  reconcile($("tables"), tables, (table, i) => `${i}:${table.title || ""}`, () => {
+    const box = document.createElement("div"); box.className = "pane-table";
+    box.innerHTML = '<h2></h2><div class="table-scroll" tabindex="0" role="region"><table><thead><tr></tr></thead><tbody></tbody></table></div>';
+    return box;
+  }, (box, table) => {
+    text(box.firstChild, table.title || ""); box.firstChild.hidden = !table.title;
+    box.querySelector(".table-scroll").setAttribute("aria-label", table.title || "Pane table");
+    const headers = Array.isArray(table.headers) ? table.headers : [];
+    box.querySelector("thead").hidden = !headers.length;
+    reconcile(box.querySelector("thead tr"), headers, (_, i) => i, () => {
+      const cell = document.createElement("th"); cell.scope = "col"; return cell;
+    }, (cell, value) => html(cell, linkifyText(value)));
+    reconcile(box.querySelector("tbody"), table.rows.filter(Array.isArray), (_, i) => i, () => document.createElement("tr"), (row, cells) => {
+      reconcile(row, cells, (_, i) => i, () => document.createElement("td"), (cell, value) => html(cell, linkifyText(value)));
+    });
+  });
 }
 
 function renderTasks(pane) {

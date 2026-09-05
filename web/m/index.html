@@ -44,8 +44,10 @@
     <section id="detail" aria-label="Selected pane" hidden>
       <nav class="view-tabs" aria-label="Pane view"><button id="summary-tab" aria-pressed="true">Overview</button><button id="terminal-tab" aria-pressed="false">Terminal</button></nav>
       <div id="overview" class="scroller">
-        <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="metadata"></p></section>
+        <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
         <section id="question" hidden><h2 id="prompt"></h2><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
+        <section id="link-section" hidden><h2>Links</h2><div id="links"></div></section>
+        <section id="table-section" hidden><div id="tables"></div></section>
         <section id="task-section" hidden><h2>Tasks <span id="task-count"></span></h2><div id="tasks"></div></section>
         <section id="agent-section" hidden><h2>Agents</h2><div id="agents"></div></section>
         <section id="copy-section" hidden><h2>From the terminal</h2><div id="copyables"></div></section>
