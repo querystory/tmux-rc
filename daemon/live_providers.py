@@ -20,6 +20,7 @@ import logging
 import os
 import re
 from collections.abc import AsyncIterator
+from collections import namedtuple
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,12 +44,18 @@ _BACKEND_NAME = {
     "azure-openai": "Azure",
 }
 
-# gemini-2.5-flash native-audio published rates, USD per 1M tokens, in the order
-# (text_in, text_out, audio_in, audio_out). Audio and text bill at very different rates
-# (audio out ≈ 24× text in), so every entry carries a four-way card; an entry that omits
-# a rate gets 2.5's — visibly the default, never a silent zero.
-_RATE_KEYS = ("text_in", "text_out", "audio_in", "audio_out")
-_RATES_25 = (0.50, 2.00, 3.00, 12.00)
+# gemini-2.5-flash native-audio published rates, USD per 1M tokens, by Split field. Audio
+# and text bill at very different rates (audio out ≈ 24× text in), and CACHED input at a
+# different rate again (OpenAI Realtime re-bills the whole context on every response, most
+# of it cached at a 97-99% discount — pricing it uncached overstates a long session
+# severalfold). So every entry carries a six-way card; an entry that omits a rate gets
+# 2.5's — visibly the default, never a silent zero — except the cached rates, which
+# default to the entry's OWN uncached rate: no published discount means no discount.
+Split = namedtuple(
+    "Split", ("text_in", "text_out", "audio_in", "audio_out", "text_cached", "audio_cached")
+)
+_RATES_25 = Split(0.50, 2.00, 3.00, 12.00, 0.50, 3.00)
+_CACHED = {"text_cached": "text_in", "audio_cached": "audio_in"}
 
 
 @dataclass(frozen=True)
@@ -60,7 +67,7 @@ class LiveModel:
     label: str
     model: str
     backend: str = "vertex"
-    rates: tuple[float, float, float, float] = _RATES_25
+    rates: Split = _RATES_25
     flags: dict = field(default_factory=dict)
 
     @property
@@ -85,12 +92,14 @@ def _coerce(e: dict) -> LiveModel:
     backend = e.get("backend", "vertex")
     if backend not in _NEEDS:
         raise ValueError(f"unknown backend {backend!r}")
-    rates = e.get("rates") or {}
+    given = e.get("rates") or {}
+    rates = {k: float(given.get(k, d)) for k, d in _RATES_25._asdict().items()}
+    rates.update({c: rates[full] for c, full in _CACHED.items() if c not in given})
     return LiveModel(
         label=str(e["label"]),
         model=str(e["model"]),
         backend=backend,
-        rates=tuple(float(rates.get(k, d)) for k, d in zip(_RATE_KEYS, _RATES_25)),
+        rates=Split(**rates),
         flags={
             k: v
             for k, v in e.items()
@@ -211,15 +220,15 @@ class ToolCall:
 class Event:
     """One provider-neutral thing the model did. `kind` is one of: audio (24 kHz PCM16 in
     `data`), transcript (`role` user|model + `text`), tool_call (`call`), turn_complete,
-    interrupted (the user barged in — stop playback), usage (`usage`: text_in, text_out,
-    audio_in, audio_out token counts, CUMULATIVE for the connection)."""
+    interrupted (the user barged in — stop playback), usage (`usage`: a Split of token
+    counts, CUMULATIVE for the connection; the *_in fields EXCLUDE the cached ones)."""
 
     kind: str
     data: bytes | None = None
     role: str | None = None
     text: str | None = None
     call: ToolCall | None = None
-    usage: tuple[int, int, int, int] | None = None
+    usage: Split | None = None
 
 
 class Unreachable(RuntimeError):
@@ -349,11 +358,11 @@ class _GeminiSession:
                         yield Event("turn_complete")
 
 
-def gemini_usage(u) -> tuple[int, int, int, int]:
-    """Gemini's usage_metadata → (text_in, text_out, audio_in, audio_out). Prompt = input,
-    response = output; the per-modality details split out audio and anything that isn't
-    audio bills as text. These are CUMULATIVE session totals, which is what Event.usage
-    promises."""
+def gemini_usage(u) -> Split:
+    """Gemini's usage_metadata → Split. Prompt = input, response = output; the
+    per-modality details split out audio and anything that isn't audio bills as text.
+    prompt_token_count INCLUDES the cached tokens, so those come out of the uncached
+    buckets. These are CUMULATIVE session totals, which is what Event.usage promises."""
     from google.genai import types
 
     def audio(details) -> int:
@@ -367,7 +376,12 @@ def gemini_usage(u) -> tuple[int, int, int, int]:
     resp = getattr(u, "response_token_count", 0) or 0
     a_in = audio(getattr(u, "prompt_tokens_details", None))
     a_out = audio(getattr(u, "response_tokens_details", None))
-    return (max(prompt - a_in, 0), max(resp - a_out, 0), a_in, a_out)
+    a_cached = audio(getattr(u, "cache_tokens_details", None))
+    t_cached = (getattr(u, "cached_content_token_count", 0) or 0) - a_cached
+    return Split(
+        max(prompt - a_in - t_cached, 0), max(resp - a_out, 0), a_in - a_cached, a_out,
+        t_cached, a_cached,
+    )
 
 
 def openai_endpoint(model: LiveModel) -> tuple[str, dict[str, str]]:
@@ -417,7 +431,7 @@ class _OpenAISession:
 
     def __init__(self, ws) -> None:
         self._ws = ws
-        self._usage = [0, 0, 0, 0]  # per-response usage summed to connection totals
+        self._usage = [0] * len(Split._fields)  # per-response usage summed to totals
         self._active = False  # a response is streaming (response.created … done)
         self._pending = False  # a tool result is waiting for the turn to end
 
@@ -546,7 +560,7 @@ class _OpenAISession:
             elif t == "response.done":
                 self._active = False
                 self._add_usage((ev.get("response") or {}).get("usage") or {})
-                yield Event("usage", usage=tuple(self._usage))
+                yield Event("usage", usage=Split(*self._usage))
                 yield Event("turn_complete")
                 if self._pending:
                     self._pending = False
@@ -559,15 +573,20 @@ class _OpenAISession:
     def _add_usage(self, u: dict) -> None:
         """Per-response usage → connection totals. Each response re-bills the whole context
         as input (minus what the server cached), which is the real cost shape of this API
-        and why it is summed rather than overwritten. `cached_tokens` is a SUBSET of the
-        text/audio input counts, and this deliberately does not discount it — a slight
-        overcount, on the side of not under-reporting."""
+        and why it is summed rather than overwritten. The cached counts are a SUBSET of
+        the text/audio input counts, so they move out of those buckets into their own
+        (billed at the card's cached rates). The API returns token counts only, never a
+        price, so counts × card is the only cost there is."""
         i, o = u.get("input_token_details") or {}, u.get("output_token_details") or {}
+        c = i.get("cached_tokens_details") or {}
+        ct, ca = c.get("text_tokens") or 0, c.get("audio_tokens") or 0
         split = (
-            i.get("text_tokens"),
+            (i.get("text_tokens") or 0) - ct,
             o.get("text_tokens"),
-            i.get("audio_tokens"),
+            (i.get("audio_tokens") or 0) - ca,
             o.get("audio_tokens"),
+            ct,
+            ca,
         )
         for k, v in enumerate(split):
             self._usage[k] += v or 0

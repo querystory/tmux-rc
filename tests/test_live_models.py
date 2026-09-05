@@ -45,8 +45,9 @@ def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
         "vertex",
         {"proactive_audio": True},
     )
-    # Missing rates fall back to 2.5's card per field — never a silent zero.
-    assert b.rates == (0.50, 2.00, 4.0, 16.0) and b.needs == ("GEMINI_API_KEY",)
+    # Missing rates fall back to 2.5's card per field — never a silent zero — except the
+    # cached rates, which follow the entry's OWN uncached rate (no published discount).
+    assert b.rates == (0.50, 2.00, 4.0, 16.0, 0.50, 4.0) and b.needs == ("GEMINI_API_KEY",)
     assert "AI Studio" in b.hint and "$4/$16" in b.hint
     p = tmp_path / "models.json"
     p.write_text(json.dumps(TABLE[:1]))

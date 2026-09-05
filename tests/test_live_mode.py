@@ -365,24 +365,42 @@ class _Detail:
 class _Usage:
     """Mimics Gemini Live usage_metadata: cumulative session totals, with per-modality
     breakdowns splitting audio from text."""
-    def __init__(self, prompt, resp, audio_in=0, audio_out=0):
+    def __init__(self, prompt, resp, audio_in=0, audio_out=0, cached=0, audio_cached=0):
         from google.genai import types
         self.prompt_token_count = prompt
         self.response_token_count = resp
         self.prompt_tokens_details = [_Detail(types.Modality.AUDIO, audio_in)] if audio_in else []
         self.response_tokens_details = [_Detail(types.Modality.AUDIO, audio_out)] if audio_out else []
+        self.cached_content_token_count = cached
+        self.cache_tokens_details = [_Detail(types.Modality.AUDIO, audio_cached)] if audio_cached else []
 
 
 def test_live_usage_splits_modalities_and_costs():
     u = L._LiveUsage(P._RATES_25)
     u.set(P.gemini_usage(_Usage(prompt=1000, resp=500, audio_in=800, audio_out=400)))
     # prompt 1000 = 800 audio + 200 text; response 500 = 400 audio + 100 text.
-    assert (u.audio_in, u.text_in) == (800, 200)
-    assert (u.audio_out, u.text_out) == (400, 100)
-    assert u.in_tokens == 1000 and u.out_tokens == 500
-    t_in, t_out, a_in, a_out = P._RATES_25
-    expected = 200 / 1e6 * t_in + 100 / 1e6 * t_out + 800 / 1e6 * a_in + 400 / 1e6 * a_out
+    assert (u.audio_in, u.split.text_in) == (800, 200)
+    assert (u.split.audio_out, u.split.text_out) == (400, 100)
+    assert u.in_tokens == 1000 and u.out_tokens == 500 and u.cached == 0
+    r = P._RATES_25
+    expected = 200 / 1e6 * r.text_in + 100 / 1e6 * r.text_out + 800 / 1e6 * r.audio_in + 400 / 1e6 * r.audio_out
     assert abs(u.cost() - expected) < 1e-12
+
+
+def test_live_usage_prices_cached_input_at_the_cached_rate():
+    # OpenAI-shaped card: cached input ~30× cheaper. prompt 1000 = 800 audio (300 of it
+    # cached) + 200 text (100 cached): the cached share leaves the uncached buckets.
+    rates = P.Split(0.6, 2.4, 10.0, 20.0, 0.06, 0.3)
+    u = L._LiveUsage(rates)
+    u.set(P.gemini_usage(_Usage(prompt=1000, resp=0, audio_in=800, cached=400, audio_cached=300)))
+    assert u.split == (100, 0, 500, 0, 100, 300)
+    assert u.in_tokens == 1000 and u.audio_in == 800 and u.cached == 400
+    assert abs(u.cost() - (100 * 0.6 + 500 * 10 + 100 * 0.06 + 300 * 0.3) / 1e6) < 1e-12
+    # Gemini's default card has no cached discount, so the same tokens cost the same as
+    # uncached — the split is informational there, never a silent undercount.
+    g = L._LiveUsage(P._RATES_25)
+    g.set(u.split)
+    assert abs(g.cost() - (200 * 0.5 + 800 * 3) / 1e6) < 1e-12
 
 
 def test_live_usage_is_cumulative_not_summed():
@@ -406,7 +424,7 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     m.finish()
     assert [e["final"] for e in emitted] == [False, True]  # one per-turn, one final
     assert (emitted[0]["turns"], emitted[0]["session"], emitted[0]["provider"]) == (1, "sess-abc", "vertex")
-    assert emitted[-1]["cost"] == m.usage.cost()
+    assert emitted[-1]["cost"] == m.usage.cost() and emitted[-1]["cached_tokens"] == 0
     # Session cost is folded into the status-bar totals exactly once, at finish().
     assert folded == {"in_tokens": 200, "out_tokens": 80, "cost": m.usage.cost()}
 

@@ -303,6 +303,7 @@ def emit_live_turn(
     provider: str,
     in_tokens: int,
     out_tokens: int,
+    cached_tokens: int,
     audio_in_tokens: int,
     audio_out_tokens: int,
     cost: float,
@@ -336,6 +337,7 @@ def emit_live_turn(
             "final": final,
             "in_tokens": in_tokens,
             "out_tokens": out_tokens,
+            "cached_tokens": cached_tokens,  # subset of in_tokens, billed at the cached rate
             "audio_in_tokens": audio_in_tokens,
             "audio_out_tokens": audio_out_tokens,
             "cost_usd": round(cost, 6),
