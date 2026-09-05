@@ -41,10 +41,6 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
 .search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline-offset: 4px; font-size: 16px; }
-#activity-filters { display: flex; gap: 4px; padding: 0 20px 12px; position: sticky; top: 0; background: var(--bg); z-index: 1; }
-#activity-filters button { flex: 1; font-size: 13px; padding: 8px; color: var(--muted); }
-#activity-filters button[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
-#activity-filters span { margin-left: 4px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .list-order { display: flex; align-items: center; justify-content: space-between; padding: 0 20px 8px; color: var(--muted); font-size: 12px; }
 #sort { max-width: 180px; min-height: 44px; border: 0; background: var(--bg); padding: 8px 4px; font-size: 16px; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
@@ -62,8 +58,9 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 .badge.waiting { color: var(--amber); }
 .badge.running, .badge.compacting { color: var(--accent); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
-#list-nav { display: flex; flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 16px max(8px, env(safe-area-inset-bottom)); gap: 8px; }
-#list-nav button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; font-size: 13px; color: var(--muted); }
+#list-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 8px max(8px, env(safe-area-inset-bottom)); gap: 4px; }
+#list-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; padding: 6px 2px; font-size: 12px; color: var(--muted); }
+.nav-icon { display: flex; align-items: center; gap: 5px; }
 #list-nav button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
 #list-nav button:last-child[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -116,17 +113,24 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #attachment { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12px; }
 #attachment-preview { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
 #attachment-name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-dialog { background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; width: min(440px, calc(100% - 24px)); padding: 20px; max-height: 90dvh; }
+dialog { position: fixed; inset: auto 0 0; margin: 0 auto; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; width: min(760px, 100%); max-width: 100%; padding: 10px 20px max(20px, env(safe-area-inset-bottom)); max-height: 88dvh; }
 dialog::backdrop { background: #0008; }
+.sheet-handle { width: 32px; height: 4px; background: var(--line); border-radius: 2px; margin: 0 auto 12px; }
+.choice-list { display: flex; flex-direction: column; margin-top: 12px; }
+.choice-list button { display: flex; align-items: center; gap: 14px; padding: 16px 4px; min-height: 64px; text-align: left; border-radius: 0; border-bottom: 1px solid var(--line); }
+.choice-list button:last-child { border-bottom: 0; }
+.choice-list img { width: 28px; height: 28px; object-fit: contain; flex: none; }
+.choice-list span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.choice-list strong { display: block; font-size: 16px; font-weight: 550; }
+.choice-list small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 dialog label { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
 dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }
-#launch-submit { width: 100%; margin-top: 16px; }
 #launch-error { color: var(--red); margin-top: 12px; font-size: 13px; }
 #live-mode { color: var(--accent); background: var(--accent-bg); }
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
-#voice-dialog { padding: 20px; }
 #voice-status { padding: 16px 0; color: var(--muted); font-size: 13px; }
+#voice-status:empty, #voice-log:empty, .voice-controls:not(:has(button:not([hidden]))) { display: none; }
 #voice-log { min-height: 100px; max-height: 35dvh; overflow: auto; overscroll-behavior: contain; }
 .voice-entry { padding: 12px 0; border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
 .voice-entry strong { display: block; color: var(--muted); font-size: 12px; font-weight: 500; margin-bottom: 4px; }
@@ -136,6 +140,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .voice-controls { display: flex; gap: 10px; padding-top: 16px; }
 #voice-start { flex: 1; min-height: 48px; }
 #voice-mute[aria-pressed="true"] { color: var(--red); background: var(--raised); }
+@media (prefers-reduced-motion: no-preference) { dialog[open] { animation: sheet-in .16s ease-out; } @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } }
 @media (min-width: 761px) { #app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
 @media (max-width: 359px) { .app-header { padding-inline: 8px; gap: 4px; } .pane-row { padding-inline: 14px; gap: 8px; } .row-title { flex-wrap: wrap; gap: 2px 8px; } #composer { padding-inline: 8px; } }
 @media (max-height: 500px) { .app-header { min-height: 48px; padding-block: 2px; } #composer { padding-top: 6px; padding-bottom: 4px; } .composer-tools { min-height: 28px; } .composer-tools button { min-height: 32px; } }

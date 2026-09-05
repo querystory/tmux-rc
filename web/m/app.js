@@ -15,6 +15,7 @@ const LUCIDE = {
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   check: '<path d="m20 6-11 11-5-5"/>',
   circle: '<circle cx="12" cy="12" r="9"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -40,12 +41,21 @@ function isRecent(pane) {
   return pane.activity !== "idle" || idle < 600;
 }
 const matchesFilter = (pane) => filter === "attention" ? needsYou(pane) : filter === "running" ? isRunning(pane) : filter === "recent" ? isRecent(pane) : true;
+function lastActivity(pane) {
+  if (Number.isFinite(pane.last_activity_at)) return pane.last_activity_at;
+  const changed = (Number(pane.updated_at) || 0) - (Number(pane.idle_seconds) || 0);
+  const since = Number(pane.state_since);
+  return pane.activity === "idle" && since > 0 ? Math.min(changed, since) : changed;
+}
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let sort = "session";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
-const liveSession = crypto.randomUUID();
+const liveSession = (() => {
+  try { return crypto.randomUUID(); }
+  catch { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
+})();
 
 function draft(id = active) {
   if (!drafts.has(id)) drafts.set(id, { text: "", file: null, url: null });
@@ -135,7 +145,7 @@ function makeRow(pane) {
 function updateRow(button, pane) {
   button.classList.toggle("needs-you", needsYou(pane));
   const logo = button.querySelector(".pane-icon img");
-  const src = Object.hasOwn(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
+  const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
   if (logo.getAttribute("src") !== src) logo.src = src;
   logo.alt = pane.tool || "tmux";
   text(button.querySelector("strong"), pane.label || pane.window_name || pane.pane_id);
@@ -150,9 +160,8 @@ function renderList() {
   const subset = panes.filter((p) => matchesFilter(p) && `${p.session} ${p.label} ${p.tool} ${p.status_line}`.toLowerCase().includes(query));
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
-    ? subset.sort((a, b) => (Number(b.updated_at) || 0) - (Number(a.updated_at) || 0))
+    ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
     : sessions.flatMap((session) => [{ session, group: true }, ...subset.filter((p) => p.session === session)]);
-  text($("visible-count"), `${subset.length} pane${subset.length === 1 ? "" : "s"}`);
   reconcile($("pane-list"), rows, (p) => p.group ? `session:${p.session}` : p.pane_id, (p) => {
     if (!p.group) return makeRow(p);
     const label = document.createElement("h2"); label.className = "session-label"; return label;
@@ -162,12 +171,9 @@ function renderList() {
   const waiting = panes.filter(needsYou).length;
   text($("all-count"), panes.length);
   text($("attention-count"), waiting);
-  $("all-tab").setAttribute("aria-pressed", filter !== "attention");
-  $("attention-tab").setAttribute("aria-pressed", filter === "attention");
-  text($("filter-all-count"), panes.length);
-  text($("filter-running-count"), panes.filter(isRunning).length);
-  text($("filter-recent-count"), panes.filter(isRecent).length);
-  $("activity-filters").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", filter === button.dataset.filter));
+  text($("running-count"), panes.filter(isRunning).length);
+  text($("recent-count"), panes.filter(isRecent).length);
+  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", filter === button.dataset.filter));
   $("new-window").disabled = !panes.length;
 }
 
@@ -400,8 +406,9 @@ $("remove-image").onclick = () => { clearImage(draft()); updateComposer(); };
 
 for (const [id, name] of Object.entries({ back: "back", theme: "sun", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", "remove-image": "x", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 html($("keyboard"), licon("keyboard", 16) + "<span>Keys</span>");
-html($("all-tab"), licon("layers") + '<span>Sessions</span><span id="all-count" class="count">0</span>');
-html($("attention-tab"), licon("alert") + '<span>Needs you</span><span id="attention-count" class="count">0</span>');
+for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
+  html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
+}
 for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Prefix", "prefix"]]) {
   const button = document.createElement("button"); button.title = label; button.setAttribute("aria-label", label);
   if (name) html(button, licon(name, 18)); else text(button, label);
@@ -412,11 +419,9 @@ $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open
 $("back").onclick = () => navigate();
 $("summary-tab").onclick = () => navigate(active, "summary");
 $("terminal-tab").onclick = () => navigate(active, "terminal");
-$("all-tab").onclick = () => { filter = "all"; navigate(); };
-$("attention-tab").onclick = () => { filter = "attention"; navigate(); };
 $("search").oninput = renderList;
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
-$("activity-filters").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
+$("list-nav").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
@@ -430,26 +435,36 @@ $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; };
 
 $("new-window").onclick = async () => {
-  $("launch-dialog").showModal(); text($("launch-error"), ""); $("launch-submit").disabled = true;
+  $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
   const sessions = [...new Set(panes.map((p) => p.session).filter(Boolean))];
   $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)));
   try {
     const data = await request("/api/launchers");
-    $("launcher").replaceChildren(...data.launchers.map((l) => new Option(l.label, l.label)));
-    $("launch-submit").disabled = !sessions.length || !data.launchers.length;
+    text($("launch-error"), "");
+    $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
+      const button = document.createElement("button");
+      const logo = document.createElement("img");
+      logo.src = LOGOS[launcher.icon] || "/tmux-logomark.svg"; logo.alt = "";
+      const label = document.createElement("span"); label.textContent = launcher.label;
+      button.append(logo, label); button.insertAdjacentHTML("beforeend", licon("plus"));
+      button.disabled = !sessions.length;
+      button.onclick = () => launchWindow(launcher.label);
+      return button;
+    }));
   } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
 };
 $("close-launch").onclick = () => $("launch-dialog").close();
-$("launch-form").onsubmit = async (event) => {
-  event.preventDefault();
-  if ($("launch-submit").disabled) return;
-  $("launch-submit").disabled = true; text($("launch-error"), "");
+let launching = false;
+async function launchWindow(launcher) {
+  if (launching) return;
+  launching = true; text($("launch-error"), "Creating window...");
+  $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
-    const data = await post("/api/windows", { session: $("launch-session").value, launcher: $("launcher").value });
+    const data = await post("/api/windows", { session: $("launch-session").value, launcher });
     $("launch-dialog").close(); startState(); navigate(data.pane_id);
   } catch { text($("launch-error"), "Creation could not be confirmed. Check sessions before retrying."); }
-  finally { $("launch-submit").disabled = false; }
-};
+  finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = false; }); }
+}
 
 function fitViewport() {
   // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.

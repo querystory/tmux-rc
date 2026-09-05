@@ -10,7 +10,8 @@ export function setupLiveMode({ request, session }) {
     $("live-mode").classList.toggle("active", !!run);
     $("live-mode").title = $("live-mode").ariaLabel = run ? "Live Mode active" : "Live Mode";
     $("voice-start").textContent = run ? "End Live Mode" : "Start Live Mode";
-    $("voice-model").disabled = !!run;
+    $("voice-start").hidden = !run;
+    $("voice-models").hidden = !!run;
     $("voice-mute").hidden = !run?.stream;
     $("voice-mute").setAttribute("aria-pressed", !!run?.muted);
     $("voice-mute").title = $("voice-mute").ariaLabel = run?.muted ? "Unmute microphone" : "Mute microphone";
@@ -21,10 +22,17 @@ export function setupLiveMode({ request, session }) {
       $("live-mode").hidden = !data.live_enabled && !run;
       if (run) return;
       const models = data.live_models || [{ label: "Default", value: "" }];
-      $("voice-model").replaceChildren(...models.map((m) => {
-        const option = new Option(m.label, m.value ?? m.label); option.title = m.hint || ""; return option;
+      let saved; try { saved = localStorage.getItem("tmuxrc-live-model"); } catch {}
+      $("voice-models").replaceChildren(...models.map((model) => {
+        const button = document.createElement("button");
+        const image = document.createElement("img"); image.alt = "";
+        image.src = /gemini/i.test(model.label) ? "/gemini.svg" : /gpt|openai/i.test(model.label) ? "/openai.svg" : "/icon.svg";
+        const label = document.createElement("span"), title = document.createElement("strong"), hint = document.createElement("small");
+        title.textContent = model.label; hint.textContent = [model.hint, (model.value ?? model.label) === saved ? "Last used" : ""].filter(Boolean).join(" / ");
+        label.append(title, hint); button.append(image, label); button.insertAdjacentHTML("beforeend", mic);
+        button.onclick = () => { $("voice-model").value = model.value ?? model.label; start(); };
+        return button;
       }));
-      try { const saved = localStorage.getItem("tmuxrc-live-model"); if (models.some((m) => m.label === saved)) $("voice-model").value = saved; } catch {}
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
   }
   function add(role, message) {
@@ -101,7 +109,9 @@ export function setupLiveMode({ request, session }) {
       const pcm = new Int16Array(samples.length);
       for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 32767;
       const bytes = new Uint8Array(pcm.buffer);
-      current.ws.send(JSON.stringify({ action: "audio", data: btoa(String.fromCharCode(...bytes)) }));
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      current.ws.send(JSON.stringify({ action: "audio", data: btoa(binary) }));
     };
     source.connect(tap); tap.connect(mute); mute.connect(current.capture.destination);
     current.nodes = [source, tap, mute];
@@ -121,7 +131,7 @@ export function setupLiveMode({ request, session }) {
       if (message.type === "status") {
         current.up = true; current.listening = message.status === "listening";
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
-        status(current.listening ? "Listening" : message.status === "reconnecting" ? "Reconnecting..." : "Connecting...");
+        status(current.listening ? `Listening / ${current.model || "Default"}` : message.status === "reconnecting" ? "Reconnecting..." : "Connecting...");
       } else if (message.type === "transcript") add(message.role, message.text);
       else if (message.type === "turn_complete") [...$("voice-log").children].forEach((row) => { row.dataset.done = "true"; });
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
