@@ -3951,7 +3951,13 @@ function lmSheet(open) {
   rows[Math.max(0, lmModels.findIndex((m) => m.label === cur))].focus(); // land on the remembered choice
 }
 if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
-if (lm.sheet) lm.sheet.onkeydown = (e) => { if (e.key === "Escape") lmSheet(false); };
+if (lm.sheet) lm.sheet.onkeydown = (e) => {
+  if (e.key === "Escape") return lmSheet(false);
+  if (e.key !== "Tab") return;
+  // Wrap Tab within the sheet — aria-modal promises the page behind it is unreachable.
+  const b = lm.sheet.querySelectorAll("button"), first = b[0], last = b[b.length - 1];
+  if (e.target === (e.shiftKey ? first : last)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+};
 
 let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
 let lmLabel = "";       // the label this session was started with (shown in the pill)
