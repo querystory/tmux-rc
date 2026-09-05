@@ -12,9 +12,13 @@ carries a model id, backend, or credential). Rationale: docs/design/live-mode.md
 
 from __future__ import annotations
 
+import array
+import base64
 import contextlib
+import json
 import logging
 import os
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,10 +27,21 @@ from .config import json_list
 
 logger = logging.getLogger(__name__)
 
-# backend → the env var that must hold its credential before the model is OFFERED. Vertex
-# resolves credentials at call time (SA key / ADC), so it gates on nothing here.
-_KEY_ENV = {"vertex": None, "gemini-api": "GEMINI_API_KEY"}
-_BACKEND_NAME = {"vertex": "Vertex", "gemini-api": "AI Studio"}
+# backend → the env vars that must be set before the model is OFFERED. Vertex resolves
+# credentials at call time (SA key / ADC), so it gates on nothing here. Azure needs the
+# resource host as well as the key.
+_NEEDS = {
+    "vertex": (),
+    "gemini-api": ("GEMINI_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "azure-openai": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
+}
+_BACKEND_NAME = {
+    "vertex": "Vertex",
+    "gemini-api": "AI Studio",
+    "openai": "OpenAI",
+    "azure-openai": "Azure",
+}
 
 # gemini-2.5-flash native-audio published rates, USD per 1M tokens, in the order
 # (text_in, text_out, audio_in, audio_out). Audio and text bill at very different rates
@@ -40,7 +55,7 @@ _RATES_25 = (0.50, 2.00, 3.00, 12.00)
 class LiveModel:
     """One picker entry. `flags` holds backend-specific knobs the adapters read
     (proactive_audio for Gemini — 3.1 Flash Live rejects the field outright, so it must be
-    per entry, not global)."""
+    per entry, not global; voice for OpenAI). For Azure, `model` is the DEPLOYMENT name."""
 
     label: str
     model: str
@@ -49,8 +64,8 @@ class LiveModel:
     flags: dict = field(default_factory=dict)
 
     @property
-    def key_env(self) -> str | None:
-        return _KEY_ENV[self.backend]
+    def needs(self) -> tuple[str, ...]:
+        return _NEEDS[self.backend]
 
     @property
     def hint(self) -> str:
@@ -63,25 +78,36 @@ class LiveModel:
         """Offered only when its credential is present. A keyless entry stays in the
         table — so the picker appears the moment the key lands, no config edit — but is
         never offered, and `find` refuses it if a stale client names it anyway."""
-        return not self.key_env or bool(os.environ.get(self.key_env))
+        return all(os.environ.get(v) for v in self.needs)
 
 
 def _coerce(e: dict) -> LiveModel:
     backend = e.get("backend", "vertex")
-    if backend not in _KEY_ENV:
+    if backend not in _NEEDS:
         raise ValueError(f"unknown backend {backend!r}")
     rates = e.get("rates") or {}
     return LiveModel(
-        label=str(e["label"]), model=str(e["model"]), backend=backend,
+        label=str(e["label"]),
+        model=str(e["model"]),
+        backend=backend,
         rates=tuple(float(rates.get(k, d)) for k, d in zip(_RATE_KEYS, _RATES_25)),
-        flags={k: v for k, v in e.items() if k not in ("label", "model", "backend", "rates")},
+        flags={
+            k: v
+            for k, v in e.items()
+            if k not in ("label", "model", "backend", "rates")
+        },
     )
 
 
 # Unset TMUXRC_LIVE_MODELS = exactly what shipped before there was a table: 2.5 on Vertex,
 # no picker. Newer entries are opt-in via .env (see .env.example for the shapes).
-_DEFAULT = [LiveModel("Gemini 2.5", "gemini-live-2.5-flash-native-audio",
-                      flags={"proactive_audio": True})]
+_DEFAULT = [
+    LiveModel(
+        "Gemini 2.5",
+        "gemini-live-2.5-flash-native-audio",
+        flags={"proactive_audio": True},
+    )
+]
 
 
 def models() -> list[LiveModel]:
@@ -109,16 +135,21 @@ def find(label: str | None) -> LiveModel | None:
 # keys that make sense for terminal UIs (cancel, interrupt, menu nav, submit), never an
 # arbitrary key string that could be a chord we didn't vet.
 KEYS = {
-    "Escape": "Escape",   # cancel / reject the current prompt
-    "Enter": "Enter",     # accept / continue with no text
-    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",  # menu navigation
-    "Tab": "Tab",         # cycle / complete
-    "C-c": "C-c",         # interrupt what's running
-    "C-d": "C-d",         # EOF / exit a REPL
+    "Escape": "Escape",  # cancel / reject the current prompt
+    "Enter": "Enter",  # accept / continue with no text
+    "Up": "Up",
+    "Down": "Down",
+    "Left": "Left",
+    "Right": "Right",  # menu navigation
+    "Tab": "Tab",  # cycle / complete
+    "C-c": "C-c",  # interrupt what's running
+    "C-d": "C-d",  # EOF / exit a REPL
 }
 
-_PANE_ID = {"type": "string",
-            "description": "Target pane id — the id=%N handle from the window state, e.g. %5"}
+_PANE_ID = {
+    "type": "string",
+    "description": "Target pane id — the id=%N handle from the window state, e.g. %5",
+}
 
 # The session's tools as plain JSON Schema — the one format every provider accepts as-is
 # (google-genai coerces the lowercase types). Two narrow verbs beat one overloaded one —
@@ -137,8 +168,10 @@ TOOLS = [
             "properties": {
                 "pane_id": _PANE_ID,
                 "text": {"type": "string", "description": "The exact text to type"},
-                "press_enter": {"type": "boolean",
-                                "description": "Submit with Enter after typing (default true)"},
+                "press_enter": {
+                    "type": "boolean",
+                    "description": "Submit with Enter after typing (default true)",
+                },
             },
             "required": ["pane_id", "text"],
         },
@@ -155,8 +188,11 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "pane_id": _PANE_ID,
-                "key": {"type": "string", "enum": list(KEYS),
-                        "description": "One of: " + ", ".join(KEYS)},
+                "key": {
+                    "type": "string",
+                    "enum": list(KEYS),
+                    "description": "One of: " + ", ".join(KEYS),
+                },
             },
             "required": ["pane_id", "key"],
         },
@@ -186,11 +222,22 @@ class Event:
     usage: tuple[int, int, int, int] | None = None
 
 
+class Unreachable(RuntimeError):
+    """The model cannot be reached for a reason a retry will never fix — a deployment or
+    model id that does not exist, a rejected key. live.py neither reconnects on it nor
+    hides the message: the user fixes config, and needs to see which."""
+
+
 def connect(model: LiveModel, system_prompt: str):
     """Open one connection to `model`: an async context manager yielding a session that
     speaks the protocol. Takes the system prompt per connect so a RECONNECT gets a fresh
     pane snapshot — the connect snapshot is the only place full screens are sent."""
-    return _GeminiSession.open(model, system_prompt)
+    opener = (
+        _OpenAISession.open
+        if model.backend in ("openai", "azure-openai")
+        else _GeminiSession.open
+    )
+    return opener(model, system_prompt)
 
 
 class _GeminiSession:
@@ -207,7 +254,7 @@ class _GeminiSession:
         from google.genai import types
 
         if model.backend == "gemini-api":
-            client = genai.Client(api_key=os.environ[model.key_env])
+            client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         else:
             # A dedicated Vertex client, deliberately NOT llm._client(): that one pins the
             # classifier's per-request timeout (an anti-wedge guard for one-shot parse
@@ -215,20 +262,34 @@ class _GeminiSession:
             # 'global' region, which Live models don't serve — they are region-pinned.
             project = os.environ.get("GOOGLE_CLOUD_PROJECT")
             if not project:
-                raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set; cannot reach Vertex.")
-            client = genai.Client(vertexai=True, project=project,
-                                  location=os.environ.get("TMUXRC_LIVE_REGION", "us-central1"))
+                raise RuntimeError(
+                    "GOOGLE_CLOUD_PROJECT is not set; cannot reach Vertex."
+                )
+            client = genai.Client(
+                vertexai=True,
+                project=project,
+                location=os.environ.get("TMUXRC_LIVE_REGION", "us-central1"),
+            )
         cfg = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
-            tools=[types.Tool(function_declarations=[types.FunctionDeclaration(**t) for t in TOOLS])],
+            tools=[
+                types.Tool(
+                    function_declarations=[
+                        types.FunctionDeclaration(**t) for t in TOOLS
+                    ]
+                )
+            ],
             system_instruction=system_prompt,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             # Let the model choose NOT to answer — required for the noise/silence prompt
             # rules to work instead of the model replying to every sound. Per entry: 3.1
             # Flash Live rejects the setup field, so it is off unless the entry says so.
-            proactivity=(types.ProactivityConfig(proactive_audio=True)
-                         if model.flags.get("proactive_audio") else None),
+            proactivity=(
+                types.ProactivityConfig(proactive_audio=True)
+                if model.flags.get("proactive_audio")
+                else None
+            ),
         )
         async with client.aio.live.connect(model=model.model, config=cfg) as s:
             yield _GeminiSession(s)
@@ -273,9 +334,15 @@ class _GeminiSession:
                 sc = r.server_content
                 if sc:
                     if sc.input_transcription and sc.input_transcription.text:
-                        yield Event("transcript", role="user", text=sc.input_transcription.text)
+                        yield Event(
+                            "transcript", role="user", text=sc.input_transcription.text
+                        )
                     if sc.output_transcription and sc.output_transcription.text:
-                        yield Event("transcript", role="model", text=sc.output_transcription.text)
+                        yield Event(
+                            "transcript",
+                            role="model",
+                            text=sc.output_transcription.text,
+                        )
                     if sc.interrupted:
                         yield Event("interrupted")
                     if sc.turn_complete:
@@ -290,11 +357,225 @@ def gemini_usage(u) -> tuple[int, int, int, int]:
     from google.genai import types
 
     def audio(details) -> int:
-        return sum((getattr(d, "token_count", 0) or 0) for d in details or []
-                   if getattr(d, "modality", None) == types.Modality.AUDIO)
+        return sum(
+            (getattr(d, "token_count", 0) or 0)
+            for d in details or []
+            if getattr(d, "modality", None) == types.Modality.AUDIO
+        )
 
     prompt = getattr(u, "prompt_token_count", 0) or 0
     resp = getattr(u, "response_token_count", 0) or 0
     a_in = audio(getattr(u, "prompt_tokens_details", None))
     a_out = audio(getattr(u, "response_tokens_details", None))
     return (max(prompt - a_in, 0), max(resp - a_out, 0), a_in, a_out)
+
+
+def openai_endpoint(model: LiveModel) -> tuple[str, dict[str, str]]:
+    """WebSocket URL + auth header. Azure speaks the same v1 Realtime protocol at the
+    resource host with an api-key header, `model` being the deployment name; the host may
+    be given as *.openai.azure.com or *.cognitiveservices.azure.com, with or without a
+    scheme or trailing slash."""
+    if model.backend == "azure-openai":
+        host = re.sub(r"^https?://", "", os.environ["AZURE_OPENAI_ENDPOINT"]).split(
+            "/"
+        )[0]
+        return (
+            f"wss://{host}/openai/v1/realtime?model={model.model}",
+            {"api-key": os.environ["AZURE_OPENAI_API_KEY"]},
+        )
+    return (
+        f"wss://api.openai.com/v1/realtime?model={model.model}",
+        {"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"]},
+    )
+
+
+def resample_16k_to_24k(pcm: bytes) -> bytes:
+    """Linear interpolation, 2 samples in → 3 out, int16 mono little-endian. Stateless per
+    frame: the at-most-one-sample seam between 4096-sample frames is inaudible on speech
+    and not worth carrying state for. No numpy — ~6k output samples every 256 ms is a
+    couple of milliseconds of plain Python."""
+    x = array.array("h")
+    x.frombytes(pcm[: len(pcm) & ~1])
+    n = len(x)
+    if n < 2:
+        return pcm
+    y = array.array("h", bytes(2 * (n * 3 // 2)))
+    for j in range(len(y)):
+        pos = j * 2 / 3
+        i = int(pos)
+        a = x[i]
+        b = x[i + 1] if i + 1 < n else a
+        y[j] = int(a + (b - a) * (pos - i))
+    return y.tobytes()
+
+
+class _OpenAISession:
+    """OpenAI Realtime (GA event names) over its raw WebSocket — no SDK: the protocol is a
+    dozen JSON event types, and an SDK would be a dependency wrapping a websocket we
+    already hold. Realtime is 24 kHz PCM16 both ways; the browser captures 16 kHz, so
+    input is resampled here and web/ never learns which provider is on the wire."""
+
+    def __init__(self, ws) -> None:
+        self._ws = ws
+        self._usage = [0, 0, 0, 0]  # per-response usage summed to connection totals
+        self._active = False  # a response is streaming (response.created … done)
+        self._pending = False  # a tool result is waiting for the turn to end
+
+    @staticmethod
+    @contextlib.asynccontextmanager
+    async def open(model: LiveModel, system_prompt: str):
+        import websockets
+
+        url, headers = openai_endpoint(model)
+        try:
+            async with websockets.connect(
+                url, additional_headers=headers, max_size=None
+            ) as ws:
+                s = _OpenAISession(ws)
+                await s._send(
+                    {
+                        "type": "session.update",
+                        "session": {
+                            "type": "realtime",
+                            "instructions": system_prompt,
+                            "tools": [{"type": "function", **t} for t in TOOLS],
+                            "tool_choice": "auto",
+                            "output_modalities": ["audio"],
+                            "audio": {
+                                "input": {
+                                    "format": {"type": "audio/pcm", "rate": 24000},
+                                    "transcription": {
+                                        "model": "gpt-4o-mini-transcribe"
+                                    },
+                                    # The model decides when a turn ended and speaks unprompted —
+                                    # the analogue of Gemini's server-side VAD; semantic so a
+                                    # thinking pause mid-command isn't cut off.
+                                    "turn_detection": {
+                                        "type": "semantic_vad",
+                                        "interrupt_response": True,
+                                    },
+                                },
+                                "output": {
+                                    "format": {"type": "audio/pcm", "rate": 24000},
+                                    "voice": model.flags.get("voice", "marin"),
+                                },
+                            },
+                        },
+                    }
+                )
+                yield s
+        except websockets.exceptions.InvalidStatus as e:
+            # The handshake is where a wrong deployment/model name or a bad key fails:
+            # Azure answers 400/404 for a deployment that does not exist. Name the thing to
+            # fix — retrying (live.py's reconnect loop) can't.
+            host = url.split("/")[2]
+            what = (
+                f"deployment {model.model!r} not found on {host}"
+                if e.response.status_code in (400, 404)
+                else f"{host} refused the connection (HTTP {e.response.status_code})"
+            )
+            raise Unreachable(what) from e
+
+    async def _send(self, ev: dict) -> None:
+        await self._ws.send(json.dumps(ev))
+
+    async def send_audio(self, pcm16k: bytes) -> None:
+        await self._send(
+            {
+                "type": "input_audio_buffer.append",
+                "audio": base64.b64encode(resample_16k_to_24k(pcm16k)).decode(),
+            }
+        )
+
+    async def send_context(self, text: str) -> None:
+        """A system-role item and NO response.create — the analogue of turn_complete=False:
+        it lands in the conversation and nothing fires until the user next speaks. System
+        rather than user role so the model can't mistake a state refresh for speech."""
+        await self._send(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "system",
+                    "content": [{"type": "input_text", "text": text}],
+                },
+            }
+        )
+
+    async def send_tool_result(self, call: ToolCall, payload: dict) -> None:
+        await self._send(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call.id,
+                    "output": json.dumps(payload),
+                },
+            }
+        )
+        # Unlike Gemini, Realtime does not continue the turn on its own after a tool
+        # result: ask for the follow-up so the model confirms what it did. If the response
+        # that made the call is still streaming, asking now is an error
+        # (conversation_already_has_active_response) — defer to its response.done.
+        if self._active:
+            self._pending = True
+        else:
+            await self._send({"type": "response.create"})
+
+    async def events(self) -> AsyncIterator[Event]:
+        async for raw in self._ws:
+            ev = json.loads(raw)
+            t = ev.get("type", "")
+            if t == "response.output_audio.delta":
+                yield Event("audio", data=base64.b64decode(ev["delta"]))
+            elif t == "response.output_audio_transcript.delta":
+                yield Event("transcript", role="model", text=ev["delta"])
+            elif t == "conversation.item.input_audio_transcription.completed":
+                yield Event("transcript", role="user", text=ev.get("transcript") or "")
+            elif t == "response.function_call_arguments.done":
+                yield Event(
+                    "tool_call",
+                    call=ToolCall(
+                        ev["call_id"], ev["name"], _args(ev.get("arguments"))
+                    ),
+                )
+            elif t == "input_audio_buffer.speech_started":
+                yield Event("interrupted")
+            elif t == "response.created":
+                self._active = True
+            elif t == "response.done":
+                self._active = False
+                self._add_usage((ev.get("response") or {}).get("usage") or {})
+                yield Event("usage", usage=tuple(self._usage))
+                yield Event("turn_complete")
+                if self._pending:
+                    self._pending = False
+                    await self._send({"type": "response.create"})
+            elif t == "error":
+                # Session-fatal errors also close the socket, which ends this loop and
+                # hands the reconnect to live.py; the rest are per-event and just logged.
+                logger.warning("[live] realtime error: %s", ev.get("error"))
+
+    def _add_usage(self, u: dict) -> None:
+        """Per-response usage → connection totals. Each response re-bills the whole context
+        as input (minus what the server cached), which is the real cost shape of this API
+        and why it is summed rather than overwritten. Cached input is counted at full rate
+        here — a slight overcount, on the side of not under-reporting."""
+        i, o = u.get("input_token_details") or {}, u.get("output_token_details") or {}
+        split = (
+            i.get("text_tokens"),
+            o.get("text_tokens"),
+            i.get("audio_tokens"),
+            o.get("audio_tokens"),
+        )
+        for k, v in enumerate(split):
+            self._usage[k] += v or 0
+
+
+def _args(raw) -> Any:
+    """Realtime ships tool arguments as a JSON string; anything unparseable is handed on
+    as-is so live._handle_tool_call rejects it as malformed rather than us guessing."""
+    try:
+        return json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return raw

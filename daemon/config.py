@@ -27,6 +27,6 @@ def json_list(var: str, default: list, coerce: Callable[[dict], object]) -> list
         if not good:
             raise ValueError("no valid entries")
         return good
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.warning("%s invalid; using defaults", var, exc_info=True)
         return default

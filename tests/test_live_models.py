@@ -14,9 +14,17 @@ import daemon.live_providers as P
 from daemon import server
 
 TABLE = [
-    {"label": "Gemini 2.5", "model": "gemini-live-2.5-flash-native-audio", "proactive_audio": True},
-    {"label": "Gemini 3.1", "model": "gemini-3.1-flash-live-preview", "backend": "gemini-api",
-     "rates": {"audio_in": 4, "audio_out": 16}},
+    {
+        "label": "Gemini 2.5",
+        "model": "gemini-live-2.5-flash-native-audio",
+        "proactive_audio": True,
+    },
+    {
+        "label": "Gemini 3.1",
+        "model": "gemini-3.1-flash-live-preview",
+        "backend": "gemini-api",
+        "rates": {"audio_in": 4, "audio_out": 16},
+    },
 ]
 
 
@@ -31,15 +39,23 @@ def test_default_table_is_the_pre_table_behaviour(monkeypatch):
 def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     a, b = P.models()
-    assert (a.label, a.backend, a.flags) == ("Gemini 2.5", "vertex", {"proactive_audio": True})
+    assert (a.label, a.backend, a.flags) == (
+        "Gemini 2.5",
+        "vertex",
+        {"proactive_audio": True},
+    )
     # Missing rates fall back to 2.5's card per field — never a silent zero.
-    assert b.rates == (0.50, 2.00, 4.0, 16.0) and b.key_env == "GEMINI_API_KEY"
+    assert b.rates == (0.50, 2.00, 4.0, 16.0) and b.needs == ("GEMINI_API_KEY",)
     assert "AI Studio" in b.hint and "$4/$16" in b.hint
     p = tmp_path / "models.json"
     p.write_text(json.dumps(TABLE[:1]))
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", str(p))
     assert [m.label for m in P.models()] == ["Gemini 2.5"]
-    for bad in ("nope", "[]", json.dumps([{"label": "x", "model": "y", "backend": "wat"}])):
+    for bad in (
+        "nope",
+        "[]",
+        json.dumps([{"label": "x", "model": "y", "backend": "wat"}]),
+    ):
         monkeypatch.setenv("TMUXRC_LIVE_MODELS", bad)
         assert P.models() == P._DEFAULT
 

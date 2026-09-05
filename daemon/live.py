@@ -374,10 +374,14 @@ async def _send_ambient(session, text: str) -> None:
     mechanism; the prompt additionally fences [tmux update] messages off from replies."""
     try:
         await session.send_context(text)
-    except Exception:
-        # A dropped session is the reconnect loop's job, but a PERSISTENT non-transport
-        # failure would otherwise freeze the model's pane view with no signal.
-        logger.warning("[live] ambient context update failed", exc_info=True)
+    except Exception as e:
+        # A closed socket here is the normal stop/reconnect race (the updater lost to the
+        # client's stop, or the session dropped — the reconnect loop's job); log it quietly.
+        # A PERSISTENT non-transport failure is different: it would freeze the model's pane
+        # view with no signal, so that keeps the warning + traceback.
+        closed = type(e).__name__.startswith("ConnectionClosed")
+        logger.log(logging.DEBUG if closed else logging.WARNING,
+                   "[live] ambient context update skipped: %s", e, exc_info=not closed)
 
 
 async def _context_updater(session, watcher) -> None:
@@ -485,8 +489,8 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                     for t in done:
                         if not t.cancelled() and (exc := t.exception()) is not None:
                             logger.warning("[live] side task %s ended in error: %r", t.get_name(), exc)
-        except WebSocketDisconnect:
-            raise  # client gone — nothing to reconnect for
+        except (WebSocketDisconnect, live_providers.Unreachable):
+            raise  # client gone, or a misconfiguration no retry can fix
         except Exception:
             if attempt >= max_reconnects:
                 raise
@@ -526,11 +530,15 @@ async def live_mode(websocket: WebSocket) -> None:
         await _run_session(websocket, watcher, actor, meter)
     except WebSocketDisconnect:
         pass  # phone lock / tab close — the normal way sessions end
-    except Exception:
+    except Exception as e:
         outcome = "error"
-        logger.exception("[live] session failed")
+        # A model that can't be reached (bad deployment name, rejected key) says exactly
+        # what to fix — the user fixes config, not the retry count. Anything else stays a
+        # generic line so internal detail never reaches the browser.
+        fatal = isinstance(e, live_providers.Unreachable)
+        (logger.error if fatal else logger.exception)("[live] session failed%s", f": {e}" if fatal else "")
         with contextlib.suppress(Exception):
-            await websocket.send_json({"type": "error", "message": "live session failed"})
+            await websocket.send_json({"type": "error", "message": str(e) if fatal else "live session failed"})
     finally:
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         telemetry.emit_action(
