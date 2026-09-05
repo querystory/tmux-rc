@@ -286,7 +286,12 @@ class _ScriptedWS(_WS):
         item = self.script.pop(0)
         if isinstance(item, BaseException):
             raise item
+        if item is _SILENT:
+            await asyncio.Event().wait()  # a live browser saying nothing (e.g. during a backoff)
         return item
+
+
+_SILENT = object()
 
 
 async def _park(*args, **kwargs):
@@ -331,7 +336,7 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
     ])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
-    ws = _ScriptedWS([{"action": "stop"}])
+    ws = _ScriptedWS([_SILENT, {"action": "stop"}])  # silent through the backoff, then stop
     _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
 
     assert client.attempts == 2  # exactly one reconnect

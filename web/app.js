@@ -4112,6 +4112,7 @@ applyLiveEnabled(false);
 // Resolve the flag immediately on load (the 5s version poll also keeps it in sync).
 fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled, d.live_models)).catch(() => {});
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
+let lmUp = false, lmTries = 0, lmRetry = null; // session was up; reconnect count + timer
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
 let lmLog = [];                  // rolling conversation: {role, text, done}
@@ -4215,8 +4216,10 @@ async function lmCapture(ws) {
       bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
     // Only stream while the server is actively listening — during a reconnect it stops
     // reading, so sending would just pile up in the socket's client-side buffer.
-    if (lmListening && ws.readyState === WebSocket.OPEN)
-      ws.send(JSON.stringify({ action: "audio", data: btoa(bin) }));
+    // lmWs, not the ws this graph was built under: the graph outlives any one socket, so
+    // a tunnel-drop reconnect (ws.onclose) keeps the mic without a new user gesture.
+    if (lmListening && lmWs?.readyState === WebSocket.OPEN)
+      lmWs.send(JSON.stringify({ action: "audio", data: btoa(bin) }));
   };
   await lmCtx.audioWorklet.addModule("/lm-tap.js"); // a file, not a blob: — see lm-tap.js
   if (lmWs !== ws || !lmCtx) return; // stopped during the await — see above
@@ -4231,10 +4234,12 @@ async function lmCapture(ws) {
 // The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
+  if (lmListening) { lmUp = true; lmTries = 0; }
   lm.btn.classList.toggle("listening", lmListening);
   // While connected the pill's tag names the model answering — side-by-side testing
   // needs to know WHICH voice this is. "beta" comes back when the session ends.
   if (lmListening && lmLabel) lm.btn.querySelector(".lm-exp").textContent = lmLabel;
+  lm.btn.classList.toggle("reconnecting", s === "reconnecting");
 }
 
 // Tap Live: stop a running session, else start one. With one model on the menu that is
@@ -4242,7 +4247,7 @@ function lmStatus(s) {
 // sheet picks — one thumb-sized row per model, the remembered choice ticked — and the
 // tapped row starts the session at once.
 function lmTap() {
-  if (lmWs) return lmStop();
+  if (lmWs || lmRetry) return lmStop(); // a pending reconnect counts as "on"
   if (lmModels.length < 2) return lmStart(lmModels[0]?.label);
   lmSheet(true);
 }
@@ -4319,6 +4324,15 @@ async function lmStart(label) {
     return;
   }
   lmStarting = false;
+  lmConnect();
+  lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
+  render(Object.values(panesById)); // swap the active card's summary for the convo box
+}
+
+// Open (or re-open) the session socket. The mic and both contexts are already held, so
+// this needs no user gesture — which is what lets ws.onclose call it again after a drop.
+function lmConnect() {
+  lmRetry = null;
   // Same page-load session id as the live-view stream, so voice cost and screen
   // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
   const q = new URLSearchParams();
@@ -4357,8 +4371,19 @@ async function lmStart(label) {
     // #57 wants visible; only a CLEAN close is skipped — 1000 (normal, we called stop)
     // and 1005 (no status). Everything else, INCLUDING code 0/1006 (failed handshake /
     // no close frame), is reported — those are the very failures this surfaces.
-    if (e.code !== 1000 && e.code !== 1005)
+    const abnormal = e.code !== 1000 && e.code !== 1005;
+    if (abnormal)
       reportError("ws", { name: "close " + e.code, message: e.reason || "" });
+    // Dropped MID-SESSION (it was up): almost always the tunnel resetting its relay
+    // link, which is back within seconds — hold the mic and reopen with the same session
+    // id: 1,2,4,8,16s. A drop before the session was ever up, or a spent budget, stops.
+    if (abnormal && lmUp && lmTries < 5) {
+      lmWs = null;
+      lmStatus("reconnecting");
+      lmAdd("err", `connection lost — reconnecting (${lmTries + 1}/5)`);
+      lmRetry = setTimeout(lmConnect, 1000 * 2 ** lmTries++);
+      return;
+    }
     lmStop();
   };
   ws.onopen = async () => {
@@ -4366,6 +4391,7 @@ async function lmStart(label) {
     // Mic permission was settled in lmStart (inside the gesture); this can still fail
     // on worklet/graph construction, which is a platform bug worth showing, not a
     // permission issue — so no settings advice here.
+    if (lmNodes.length) return; // reconnect: the graph from the first socket is still live
     try { await lmCapture(ws); }
     catch (e) {
       reportError("mic", e);
@@ -4373,12 +4399,12 @@ async function lmStart(label) {
       alert(`Live Mode audio error:\n${e.name || "Error"}: ${e.message}`);
     }
   };
-  lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
-  render(Object.values(panesById)); // swap the active card's summary for the convo box
 }
 
 function lmStop() {
   const ws = lmWs; lmWs = null;
+  clearTimeout(lmRetry); lmRetry = null;
+  lmUp = false; lmTries = 0;
   if (ws && ws.readyState === WebSocket.OPEN) {
     try { ws.send(JSON.stringify({ action: "stop" })); } catch {}
     setTimeout(() => { try { ws.close(); } catch {} }, 250);
@@ -4392,7 +4418,7 @@ function lmStop() {
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
   if (lmCtx) { try { lmCtx.close(); } catch {} lmCtx = null; }
   if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
-  lm.btn.classList.remove("on", "listening");
+  lm.btn.classList.remove("on", "listening", "reconnecting");
   lm.btn.title = lm.btn.ariaLabel = "Start Live Mode (experimental)";
   render(Object.values(panesById)); // the active card gets its static summary back
 }
