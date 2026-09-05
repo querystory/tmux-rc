@@ -5,7 +5,7 @@ the phone cards regardless."""
 
 from fastapi.testclient import TestClient
 
-from daemon import live, server
+from openbus import live, server
 
 
 def test_enabled_off_by_default_and_truthy_values(monkeypatch):

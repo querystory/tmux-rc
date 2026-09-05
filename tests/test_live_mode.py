@@ -9,8 +9,8 @@ import logging
 
 import pytest
 
-import daemon.live as L
-import daemon.live_providers as P
+import openbus.live as L
+import openbus.live_providers as P
 
 
 def _run(coro):
@@ -439,7 +439,7 @@ def test_live_usage_is_cumulative_not_summed():
 
 
 def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
-    import daemon.llm as llm
+    import openbus.llm as llm
     emitted = []
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     folded = {}

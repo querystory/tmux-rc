@@ -7,7 +7,7 @@ from pathlib import Path
 import websockets
 sys.path.insert(0, os.path.dirname(__file__)); sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness_gemini import SNAPSHOT, CASES  # noqa: E402  (module-level Gemini client is not built on import)
-from daemon.live_providers import LiveModel, openai_endpoint  # noqa: E402  (the daemon's own URL/header logic)
+from openbus.live_providers import LiveModel, openai_endpoint  # noqa: E402  (the daemon's own URL/header logic)
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "gpt-realtime-2.1"
 BACKEND = "azure-openai" if (sys.argv[2:3] or ["openai"])[0] == "azure" else "openai"
 URL, HDR = openai_endpoint(LiveModel(MODEL, MODEL, BACKEND))

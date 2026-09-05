@@ -49,7 +49,7 @@ tmux new -s work
 #   ... run codex / claude / gemini / opencode / anything ...
 
 # Start tmux-rc (config is loaded from .env automatically):
-uv run python -m daemon.server
+uv run python -m openbus.server
 ```
 
 > **The daemon has no authentication, so run it only on a single-user machine.** There is

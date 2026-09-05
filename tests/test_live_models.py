@@ -11,8 +11,8 @@ import pytest
 import starlette.websockets
 from fastapi.testclient import TestClient
 
-import daemon.live_providers as P
-from daemon import server
+import openbus.live_providers as P
+from openbus import server
 
 TABLE = [
     {

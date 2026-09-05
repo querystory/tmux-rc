@@ -31,7 +31,7 @@ from dotenv import find_dotenv, load_dotenv
 # resolution below. In a source checkout the parent is the repo root; in an installed
 # wheel it's site-packages. Which one we're in is decided by asset existence, not this
 # path alone (see WEB_DIR).
-_PKG_DIR = Path(__file__).resolve().parent  # .../daemon (checkout or site-packages)
+_PKG_DIR = Path(__file__).resolve().parent  # .../openbus (checkout or site-packages)
 _REPO_ROOT = _PKG_DIR.parent
 
 # Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
@@ -88,13 +88,13 @@ if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
 logger = logging.getLogger(__name__)
 
 # Key on the actual asset, not a marker file: the repo-root web/ exists only in a source
-# checkout, since the wheel carries the UI bundled at daemon/web/ instead. Its presence is
+# checkout, since the wheel carries the UI bundled at openbus/web/ instead. Its presence is
 # therefore an unambiguous "running from a checkout" signal — a stray pyproject.toml beside
 # the package in a shared venv (or a `pip install --target` into such a dir) can't fake it.
 # Prefer the checkout copy so edits are served live (and /api/version's hash changes, so the
 # client self-reloads); fall back to the bundled copy when installed. Same asset-existence
 # predicate as the .env lookup above. Caveat: a *non-editable* `pip install .` from a
-# checkout has no daemon/-adjacent web/ and serves the bundled install-time snapshot, so
+# checkout has no openbus/-adjacent web/ and serves the bundled install-time snapshot, so
 # later edits to that checkout's web/ won't show — use an editable install or uvx for live
 # edits. _FROM_CHECKOUT reuses this predicate to gate reload in main().
 _repo_web = _REPO_ROOT / "web"
@@ -164,7 +164,7 @@ class ClientErrorBody(BaseModel):
 
 
 # Audit lines ride the standard root config above (INFO). Routine records, not warnings.
-_audit_log = logging.getLogger("daemon.server.audit")
+_audit_log = logging.getLogger("openbus.server.audit")
 
 # Key CONTENT in the audit trail is on by default (the operator asked for exactly this
 # visibility) but can be switched off: keys typed via the phone can include no-echo
@@ -290,7 +290,7 @@ from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
 
 app.add_middleware(GZipMiddleware, minimum_size=512)
 
-# Live Mode (voice): one WebSocket per session — see daemon/live.py and
+# Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
 from . import live, live_providers  # noqa: E402
 from .live import router as live_router  # noqa: E402
@@ -835,7 +835,7 @@ def main() -> None:
     # log_config=None: don't install uvicorn's own handlers/formatters — its loggers
     # (uvicorn.access etc.) then propagate to root and share the timestamped format above.
     uvicorn.run(
-        "daemon.server:app" if reload else app,
+        "openbus.server:app" if reload else app,
         proxy_headers=False,
         log_config=None,
         host=os.environ.get("TMUXRC_HOST", "127.0.0.1"),

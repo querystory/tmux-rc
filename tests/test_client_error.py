@@ -5,7 +5,7 @@ bodies are rejected before parsing so a hostile report can't balloon daemon memo
 
 from fastapi.testclient import TestClient
 
-from daemon import server, telemetry
+from openbus import server, telemetry
 
 
 def _capture(monkeypatch):

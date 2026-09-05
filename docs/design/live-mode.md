@@ -38,9 +38,9 @@ inherited" below.
   Float32→Int16 PCM frames → base64 over the WebSocket. A gain-0 node keeps the graph
   alive without echoing the mic to the speakers. Playback of the model's voice is the
   reverse: base64 24 kHz PCM chunks → queued `AudioBufferSourceNode`s.
-- **Daemon** (`daemon/live.py`): accepts the WS, builds the system prompt from live
+- **Daemon** (`openbus/live.py`): accepts the WS, builds the system prompt from live
   watcher state, opens the chosen model through the provider seam
-  (`daemon/live_providers.py`), then runs two concurrent coroutines — forward-audio-up
+  (`openbus/live_providers.py`), then runs two concurrent coroutines — forward-audio-up
   and receive-events-down — plus a context-updater (below). Session drops reconnect
   with exponential backoff.
 - **Model**: whichever entry of the server's table the user picked; the default table is

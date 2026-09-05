@@ -6,7 +6,7 @@ import asyncio
 
 from fastapi import WebSocketDisconnect
 
-import daemon.live as L
+import openbus.live as L
 
 
 class _WS:
