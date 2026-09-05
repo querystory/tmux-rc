@@ -793,7 +793,7 @@ if Path(_docs_dir).is_dir():
 
     app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
 
-@app.get("/m", include_in_schema=False)
+@app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False)
 def mobile_ui():
     # Avoid an absolute slash redirect with an HTTP scheme behind the TLS tunnel.
     from fastapi.responses import FileResponse
