@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 import os
 import socket
@@ -40,6 +39,10 @@ _REPO_ROOT = _PKG_DIR.parent
 # usual upward search from cwd. Either way, real env vars still win (override=False).
 _repo_env = _REPO_ROOT / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
+# Live Mode provider keys (OpenAI, Azure, AI Studio) live in ONE mode-600 file outside
+# every checkout, so a worktree's .env or a commit can never carry them. Same
+# override=False rule; silently a no-op when the file is absent.
+load_dotenv(Path.home() / ".config" / "tmux-rc" / "openai.env")
 
 # Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
 # client that walks AAAA records serially — the Vertex Live websocket handshake times out
@@ -58,6 +61,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from . import tmux  # noqa: E402
+from .config import json_list  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -137,26 +141,14 @@ _DEFAULT_LAUNCHERS = [
 ]
 
 
+def _launcher(e: dict) -> dict:
+    if not (e.get("label") and e.get("command")):
+        raise ValueError("launcher needs label and command")
+    return {"label": str(e["label"]), "command": str(e["command"]), "icon": str(e.get("icon", ""))}
+
+
 def _launchers() -> list[dict]:
-    raw = os.environ.get("TMUXRC_LAUNCHERS", "").strip()
-    if not raw:
-        return _DEFAULT_LAUNCHERS
-    try:
-        if not raw.startswith("["):
-            raw = Path(raw).read_text(encoding="utf-8")
-        entries = json.loads(raw)
-        good = [
-            {"label": str(e["label"]), "command": str(e["command"]),
-             "icon": str(e.get("icon", ""))}
-            for e in entries
-            if isinstance(e, dict) and e.get("label") and e.get("command")
-        ]
-        if good:
-            return good
-        raise ValueError("no valid entries")
-    except Exception:  # noqa: BLE001 - a broken config must not brick the menu
-        logger.warning("TMUXRC_LAUNCHERS invalid; using defaults", exc_info=True)
-        return _DEFAULT_LAUNCHERS
+    return json_list("TMUXRC_LAUNCHERS", _DEFAULT_LAUNCHERS, _launcher)
 
 
 class ClientErrorBody(BaseModel):
@@ -300,7 +292,7 @@ app.add_middleware(GZipMiddleware, minimum_size=512)
 
 # Live Mode (voice): one WebSocket per session — see daemon/live.py and
 # docs/design/live-mode.md.
-from . import live  # noqa: E402
+from . import live, live_providers  # noqa: E402
 from .live import router as live_router  # noqa: E402
 
 app.include_router(live_router)
@@ -335,13 +327,18 @@ async def no_cache(request, call_next):
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
     (see app.js). Cheap to recompute per call — the web dir is tiny. Also reports
-    server feature flags the client gates UI on (live_enabled → shows the mic button)."""
+    server feature flags the client gates UI on (live_enabled → shows the mic button;
+    live_models → the labels the model picker offers, shown only when there are ≥2).
+    live_enabled is false when nothing is offered (every entry key-gated, no key set) even
+    with the flag on, so the client never shows a button the socket would only refuse."""
     h = hashlib.md5()
     for p in sorted(WEB_DIR.glob("*")):
         if p.is_file():
             h.update(p.name.encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    return {"version": h.hexdigest(), "live_enabled": live.enabled()}
+    offered = live_providers.available()
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered),
+            "live_models": [{"label": m.label, "hint": m.hint} for m in offered]}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).

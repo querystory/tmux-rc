@@ -10,6 +10,7 @@ dependencies = [
     "uvicorn>=0.30",
     "pydantic>=2.7",
     "google-genai>=0.3",
+    "websockets>=13",  # OpenAI Realtime is spoken raw over its WebSocket (live_providers.py)
     "python-multipart>=0.0.32",
     "pillow>=12.3.0",
     "opentelemetry-sdk>=1.43.0",
