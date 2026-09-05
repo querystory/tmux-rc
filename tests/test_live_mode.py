@@ -301,11 +301,6 @@ async def _park(*args, **kwargs):
     await asyncio.Event().wait()
 
 
-async def _instant_sleep(*args, **kwargs):
-    # Collapse the reconnect backoff so the test doesn't actually wait seconds.
-    return None
-
-
 def _statuses(ws):
     return [m["status"] for m in ws.sent if m.get("type") == "status"]
 
@@ -330,7 +325,8 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
     # then the second connect runs to a clean stop.
     monkeypatch.setattr(L, "_receiver", _park)
     monkeypatch.setattr(L, "_context_updater", _park)
-    monkeypatch.setattr(L.asyncio, "sleep", _instant_sleep)  # collapse reconnect backoff
+    hold = L._hold
+    monkeypatch.setattr(L, "_hold", lambda ws, seconds: hold(ws, 0.01))  # collapse the backoff
     client = _FakeClient([
         _Connect(_Session(), boom=RuntimeError("gemini drop")),
         _Connect(_Session()),

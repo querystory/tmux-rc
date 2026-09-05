@@ -615,10 +615,12 @@ async def _hold(websocket: WebSocket, seconds: float) -> bool:
     both legs at once, and the browser's disconnect is only observed by a receive. A
     WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True."""
     try:
-        msg = await asyncio.wait_for(websocket.receive_json(), seconds)
+        async with asyncio.timeout(seconds):
+            while (await websocket.receive_json()).get("action") != "stop":
+                pass  # a stray frame (audio already in flight) is no reason to reconnect early
     except TimeoutError:
         return True
-    return msg.get("action") != "stop"
+    return False
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
