@@ -37,8 +37,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.list-heading { padding: 24px 20px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.list-heading p { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
 .search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline-offset: 4px; font-size: 16px; }

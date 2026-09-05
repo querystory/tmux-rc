@@ -160,7 +160,6 @@ function renderList() {
   show("empty", !subset.length);
   text($("empty"), !loaded ? "Loading sessions..." : !booted ? "Reading terminal sessions..." : query ? "No matching panes." : filter === "attention" ? "Nothing needs your attention." : filter === "running" ? "No panes are running." : filter === "recent" ? "No recently active panes." : "No tmux panes are open.");
   const waiting = panes.filter(needsYou).length;
-  text($("session-count"), loaded ? `${panes.length} panes / ${waiting} need${waiting === 1 ? "s" : ""} you` : "Connecting to your workspace");
   text($("all-count"), panes.length);
   text($("attention-count"), waiting);
   $("all-tab").setAttribute("aria-pressed", filter !== "attention");
