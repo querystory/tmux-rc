@@ -514,7 +514,10 @@ async def live_mode(websocket: WebSocket) -> None:
     # refused rather than defaulted — the picker must never lie about who answered.
     model = live_providers.find(websocket.query_params.get("model"))
     if model is None:
-        await websocket.close(code=1008, reason="Live model not available — reload the page")
+        # Nothing offered at all (every entry key-gated, no key set) is the operator's
+        # config problem, not a stale tab's — a reload can't fix it, so don't say so.
+        why = "reload the page" if live_providers.available() else "no configured model has its key set"
+        await websocket.close(code=1008, reason=f"Live model not available — {why}")
         return
     await websocket.accept()
     watcher = websocket.app.state.watcher

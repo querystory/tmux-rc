@@ -7,6 +7,7 @@ offer, so the client can never pick a model id or backend of its own."""
 
 import json
 
+import pytest
 import starlette.websockets
 from fastapi.testclient import TestClient
 
@@ -79,14 +80,30 @@ def test_version_lists_offered_labels_with_hints(monkeypatch):
     assert got == [{"label": "Gemini 2.5", "hint": "Vertex · $3/$12 per 1M audio"}]
 
 
+def _refused(c, path):
+    """Connect and return the 1008 close the route answers an unoffered model with."""
+    with pytest.raises(starlette.websockets.WebSocketDisconnect) as ei, c.websocket_connect(path):
+        raise AssertionError("an unoffered model must close the socket")
+    assert ei.value.code == 1008
+    return ei.value
+
+
 def test_live_ws_refuses_unoffered_label(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     c = TestClient(server.app)
     for label in ("Gemini 3.1", "gemini-live-2.5-flash-native-audio", "OpenAI"):
-        try:
-            with c.websocket_connect(f"/api/live-mode?model={label}"):
-                raise AssertionError("an unoffered label must close the socket")
-        except starlette.websockets.WebSocketDisconnect as e:
-            assert e.code == 1008
+        assert "reload" in _refused(c, f"/api/live-mode?model={label}").reason
+
+
+def test_nothing_offered_hides_live_and_names_the_cause(monkeypatch):
+    """Flag on but every entry key-gated and keyless: the button must not appear, and a
+    probe is told it is a credential problem — "reload the page" would be a lie here."""
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE[1:]))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    c = TestClient(server.app)
+    v = c.get("/api/version").json()
+    assert (v["live_enabled"], v["live_models"]) == (False, [])
+    assert "key" in _refused(c, "/api/live-mode").reason

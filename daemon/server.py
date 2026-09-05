@@ -328,14 +328,17 @@ def get_version():
     """Hash of the web assets, so the client can reload itself when they change
     (see app.js). Cheap to recompute per call — the web dir is tiny. Also reports
     server feature flags the client gates UI on (live_enabled → shows the mic button;
-    live_models → the labels the model picker offers, shown only when there are ≥2)."""
+    live_models → the labels the model picker offers, shown only when there are ≥2).
+    live_enabled is false when nothing is offered (every entry key-gated, no key set) even
+    with the flag on, so the client never shows a button the socket would only refuse."""
     h = hashlib.md5()
     for p in sorted(WEB_DIR.glob("*")):
         if p.is_file():
             h.update(p.name.encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    return {"version": h.hexdigest(), "live_enabled": live.enabled(),
-            "live_models": [{"label": m.label, "hint": m.hint} for m in live_providers.available()]}
+    offered = live_providers.available()
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered),
+            "live_models": [{"label": m.label, "hint": m.hint} for m in offered]}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
