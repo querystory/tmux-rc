@@ -442,8 +442,10 @@ class _OpenAISession:
 
         url, headers = openai_endpoint(model)
         try:
+            # Realtime frames are audio deltas and JSON events, all well under a MiB;
+            # the cap is only there so a runaway peer can't grow memory without bound.
             async with websockets.connect(
-                url, additional_headers=headers, max_size=None
+                url, additional_headers=headers, max_size=16 * 2**20
             ) as ws:
                 s = _OpenAISession(ws)
                 await s._send(

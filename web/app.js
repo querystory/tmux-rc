@@ -4255,7 +4255,7 @@ function lmTap() {
 const lmChoice = () => { try { return localStorage.getItem("tmuxrc-live-model") || ""; } catch { return ""; } };
 function lmSheet(open) {
   lm.sheet.hidden = !open;
-  if (!open) return;
+  if (!open) return lm.btn.focus(); // hand focus back so keyboard/AT users aren't stranded on <body>
   const cur = lmChoice();
   const row = (label, hint, ticked, cls) => {
     const b = document.createElement("button");
@@ -4278,8 +4278,16 @@ function lmSheet(open) {
   const close = row("Close", "", false, "close");
   close.onclick = () => lmSheet(false);
   lm.sheet.firstElementChild.replaceChildren(head, ...rows, close);
+  rows[Math.max(0, lmModels.findIndex((m) => m.label === cur))].focus(); // land on the remembered choice
 }
 if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
+if (lm.sheet) lm.sheet.onkeydown = (e) => {
+  if (e.key === "Escape") return lmSheet(false);
+  if (e.key !== "Tab") return;
+  // Wrap Tab within the sheet — aria-modal promises the page behind it is unreachable.
+  const b = lm.sheet.querySelectorAll("button"), first = b[0], last = b[b.length - 1];
+  if (e.target === (e.shiftKey ? first : last)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+};
 
 let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
 let lmLabel = "";       // the label this session was started with (shown in the pill)
