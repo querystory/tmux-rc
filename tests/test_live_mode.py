@@ -5,6 +5,9 @@ must be pinned in tests is everything that decides WHAT the model sees and WHETH
 tool call may touch a real terminal — the context builder and the reject paths."""
 
 import asyncio
+import logging
+
+import pytest
 
 import daemon.live as L
 import daemon.live_providers as P
@@ -62,6 +65,29 @@ class _WS:
 
     async def send_json(self, obj):
         self.sent.append(obj)
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_receiver_preserves_transcripts_and_debug_logging(monkeypatch, caplog, debug):
+    class Session:
+        async def events(self):
+            yield P.Event("transcript", role="user", text="private user words")
+            yield P.Event("transcript", role="model", text="private model words")
+            yield P.Event("interrupted")
+
+    monkeypatch.setattr(L.telemetry, "_QSDEBUG", debug)
+    caplog.set_level(logging.INFO, logger=L.logger.name)
+    ws = _WS()
+    meter = L._Meter("s", "a", P._DEFAULT[0])
+    _run(L._receiver(ws, Session(), _Watcher(), "tester", meter))
+    assert ws.sent == [
+        {"type": "transcript", "role": "user", "text": "private user words"},
+        {"type": "transcript", "role": "model", "text": "private model words"},
+        {"type": "interrupted"},
+    ]
+    assert meter._transcript() == "user: private user words\nmodel: private model words"
+    assert ("private user words" in caplog.text) is debug
+    assert ("private model words" in caplog.text) is debug
 
 
 def test_pane_context_carries_state_and_screens():

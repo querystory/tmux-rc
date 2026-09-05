@@ -412,7 +412,7 @@ def resample_16k_to_24k(pcm: bytes) -> bytes:
     x.frombytes(pcm[: len(pcm) & ~1])
     n = len(x)
     if n < 2:
-        return pcm
+        return x.tobytes()
     y = array.array("h", bytes(2 * (n * 3 // 2)))
     for j in range(len(y)):
         pos = j * 2 / 3
@@ -496,10 +496,13 @@ class _OpenAISession:
         await self._ws.send(json.dumps(ev))
 
     async def send_audio(self, pcm16k: bytes) -> None:
+        pcm24k = resample_16k_to_24k(pcm16k)
+        if not pcm24k:
+            return
         await self._send(
             {
                 "type": "input_audio_buffer.append",
-                "audio": base64.b64encode(resample_16k_to_24k(pcm16k)).decode(),
+                "audio": base64.b64encode(pcm24k).decode(),
             }
         )
 

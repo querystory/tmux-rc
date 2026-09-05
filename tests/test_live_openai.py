@@ -9,6 +9,8 @@ import base64
 import json
 import struct
 
+import pytest
+
 import daemon.live_providers as P
 
 
@@ -61,6 +63,21 @@ def test_resampler_length_and_values():
     assert (
         P.resample_16k_to_24k(b"\1\0") == b"\1\0"
     )  # too short to interpolate: pass through
+
+
+@pytest.mark.parametrize("pcm", [b"", b"\xff", _pcm(123), _pcm(123) + b"\xff", _pcm(0, 300) + b"\xff"])
+def test_resampler_discards_incomplete_samples(pcm):
+    normalized = pcm[:len(pcm) & ~1]
+    result = P.resample_16k_to_24k(pcm)
+    assert result == P.resample_16k_to_24k(normalized)
+    assert len(result) % 2 == 0
+
+
+@pytest.mark.parametrize("pcm", [b"", b"\xff"])
+def test_send_audio_skips_frames_without_a_complete_sample(pcm):
+    ws = _WS()
+    _run(P._OpenAISession(ws).send_audio(pcm))
+    assert ws.sent == []
 
 
 def test_send_audio_resamples_and_base64s():
