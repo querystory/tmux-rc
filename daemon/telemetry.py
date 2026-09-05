@@ -300,6 +300,7 @@ def emit_live_turn(
     session: str,
     actor: str | None,
     model: str,
+    provider: str,
     in_tokens: int,
     out_tokens: int,
     audio_in_tokens: int,
@@ -328,7 +329,7 @@ def emit_live_turn(
         attrs = {
             "kind": "live_turn",
             "model": model,
-            "provider": "vertex",
+            "provider": provider,  # the entry's backend: vertex / gemini-api / openai / azure-openai
             "session": session[:64],
             "turns": turns,
             "duration_s": round(duration_s, 3),

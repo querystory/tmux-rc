@@ -141,6 +141,7 @@ class _Meter:
             session=self.session,
             actor=self.actor,
             model=self.model.model,
+            provider=self.model.backend,
             in_tokens=self.usage.in_tokens,
             out_tokens=self.usage.out_tokens,
             audio_in_tokens=self.usage.audio_in,

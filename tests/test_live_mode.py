@@ -405,7 +405,7 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     m.end_turn()
     m.finish()
     assert [e["final"] for e in emitted] == [False, True]  # one per-turn, one final
-    assert emitted[0]["turns"] == 1 and emitted[0]["session"] == "sess-abc"
+    assert (emitted[0]["turns"], emitted[0]["session"], emitted[0]["provider"]) == (1, "sess-abc", "vertex")
     assert emitted[-1]["cost"] == m.usage.cost()
     # Session cost is folded into the status-bar totals exactly once, at finish().
     assert folded == {"in_tokens": 200, "out_tokens": 80, "cost": m.usage.cost()}
