@@ -927,6 +927,7 @@
      the top bar has no room for. Scrim tap or the Close row dismisses. */
   #lm-sheet { position: fixed; inset: 0; z-index: 70; background: #0009; display: flex;
     align-items: flex-end; }
+  #lm-sheet[hidden] { display: none; } /* author display:flex beats the UA [hidden] rule */
   .lm-sheet-body { width: 100%; background: var(--surface); border: 1px solid var(--border);
     border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: var(--card-lift);
     padding: 6px 8px calc(env(safe-area-inset-bottom) + 8px); display: flex; flex-direction: column;
