@@ -157,7 +157,9 @@ function updateRow(button, pane) {
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p) && `${p.session} ${p.label} ${p.tool} ${p.status_line}`.toLowerCase().includes(query));
+  const subset = panes.filter((p) => matchesFilter(p) && [p.session, p.label, p.window_name, p.pane_id, p.tool, p.model,
+    p.question?.prompt, p.headline, p.status_line, p.session_summary, activity(p),
+    p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
     ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
@@ -473,7 +475,7 @@ $("new-window").onclick = async () => {
     $("launch-choices").replaceChildren(...data.launchers.map((launcher) => {
       const button = document.createElement("button");
       const logo = document.createElement("img");
-      logo.src = LOGOS[launcher.icon] || "/tmux-logomark.svg"; logo.alt = "";
+      logo.src = Object.prototype.hasOwnProperty.call(LOGOS, launcher.icon) ? LOGOS[launcher.icon] : launcher.icon || "/tmux-logomark.svg"; logo.alt = "";
       const label = document.createElement("span"); label.textContent = launcher.label;
       button.append(logo, label); button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !sessions.length;
