@@ -34,7 +34,9 @@ def test_default_table_is_the_pre_table_behaviour(monkeypatch):
     (m,) = P.models()
     assert (m.model, m.backend) == ("gemini-live-2.5-flash-native-audio", "vertex")
     assert m.flags == {"proactive_audio": True} and m.rates == P._RATES_25
-    assert m.available()  # Vertex gates on nothing — creds resolve at call time
+    assert m.available()  # Vertex gates on the project alone — creds resolve at call time
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")
+    assert not m.available()  # no project: connect() could only fail, so never offered
 
 
 def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
@@ -61,6 +63,32 @@ def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
     ):
         monkeypatch.setenv("TMUXRC_LIVE_MODELS", bad)
         assert P.models() == P._DEFAULT
+
+
+@pytest.mark.parametrize("field", ["label", "model"])
+@pytest.mark.parametrize("invalid", ["", " \t\n", None, 42])
+def test_table_rejects_empty_or_nonstring_identity(monkeypatch, field, invalid):
+    entry = {**TABLE[0], field: invalid}
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([entry]))
+    assert P.models() == P._DEFAULT
+
+
+def test_table_trims_identity_and_round_trips_offered_label(monkeypatch):
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([{
+        "label": "  Voice test \t", "model": " model-id \n",
+    }]))
+    offered = TestClient(server.app).get("/api/version").json()["live_models"]
+    assert offered[0]["label"] == "Voice test"
+    assert P.find(offered[0]["label"]).model == "model-id"
+
+
+def test_table_rejects_duplicate_normalized_labels(monkeypatch):
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([
+        {"label": "Same", "model": "first"},
+        {"label": " Same ", "model": "second"},
+    ]))
+    assert P.models() == P._DEFAULT
 
 
 def test_keyless_entry_is_configured_but_not_offered(monkeypatch):

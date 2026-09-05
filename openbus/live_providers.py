@@ -29,10 +29,10 @@ from .config import json_list
 logger = logging.getLogger(__name__)
 
 # backend → the env vars that must be set before the model is OFFERED. Vertex resolves
-# credentials at call time (SA key / ADC), so it gates on nothing here. Azure needs the
-# resource host as well as the key.
+# credentials at call time (SA key / ADC) but cannot reach anything without a project, so
+# that is all it gates on. Azure needs the resource host as well as the key.
 _NEEDS = {
-    "vertex": (),
+    "vertex": ("GOOGLE_CLOUD_PROJECT",),
     "gemini-api": ("GEMINI_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "azure-openai": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
@@ -89,6 +89,11 @@ class LiveModel:
 
 
 def _coerce(e: dict) -> LiveModel:
+    label, model = e["label"], e["model"]
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError("model label must be a non-empty string")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("model id must be a non-empty string")
     backend = e.get("backend", "vertex")
     if backend not in _NEEDS:
         raise ValueError(f"unknown backend {backend!r}")
@@ -96,8 +101,8 @@ def _coerce(e: dict) -> LiveModel:
     rates = {k: float(given.get(k, d)) for k, d in _RATES_25._asdict().items()}
     rates.update({c: rates[full] for c, full in _CACHED.items() if c not in given})
     return LiveModel(
-        label=str(e["label"]),
-        model=str(e["model"]),
+        label=label.strip(),
+        model=model.strip(),
         backend=backend,
         rates=Split(**rates),
         flags={
@@ -121,7 +126,11 @@ _DEFAULT = [
 
 def models() -> list[LiveModel]:
     """The configured table. Re-read per call (cheap) so it tracks env like enabled()."""
-    return json_list("TMUXRC_LIVE_MODELS", _DEFAULT, _coerce)
+    table = json_list("TMUXRC_LIVE_MODELS", _DEFAULT, _coerce)
+    if len({m.label for m in table}) != len(table):
+        logger.warning("TMUXRC_LIVE_MODELS has duplicate labels; using defaults")
+        return _DEFAULT
+    return table
 
 
 def available() -> list[LiveModel]:
@@ -412,7 +421,7 @@ def resample_16k_to_24k(pcm: bytes) -> bytes:
     x.frombytes(pcm[: len(pcm) & ~1])
     n = len(x)
     if n < 2:
-        return pcm
+        return x.tobytes()
     y = array.array("h", bytes(2 * (n * 3 // 2)))
     for j in range(len(y)):
         pos = j * 2 / 3
@@ -496,10 +505,13 @@ class _OpenAISession:
         await self._ws.send(json.dumps(ev))
 
     async def send_audio(self, pcm16k: bytes) -> None:
+        pcm24k = resample_16k_to_24k(pcm16k)
+        if not pcm24k:
+            return
         await self._send(
             {
                 "type": "input_audio_buffer.append",
-                "audio": base64.b64encode(resample_16k_to_24k(pcm16k)).decode(),
+                "audio": base64.b64encode(pcm24k).decode(),
             }
         )
 
