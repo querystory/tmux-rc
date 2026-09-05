@@ -48,3 +48,18 @@ def test_version_tracks_nested_mobile_assets(tmp_path, monkeypatch):
     assert edited != before
     mobile.rename(tmp_path / "renamed")
     assert server.get_version()["version"] != edited
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+@pytest.mark.parametrize("directory_exists", [False, True])
+def test_mobile_missing_assets_return_html_404(tmp_path, monkeypatch, method, directory_exists):
+    web = tmp_path / "web"
+    if directory_exists:
+        (web / "m").mkdir(parents=True)
+    monkeypatch.setattr(server, "WEB_DIR", web)
+    response = TestClient(app).request(method, "/m")
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("text/html")
+    assert "attachment" not in response.headers.get("content-disposition", "")
+    if method == "GET":
+        assert "Mobile UI assets are not installed" in response.text

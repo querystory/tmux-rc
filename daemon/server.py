@@ -796,9 +796,12 @@ if Path(_docs_dir).is_dir():
 @app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False)
 def mobile_ui():
     # Avoid an absolute slash redirect with an HTTP scheme behind the TLS tunnel.
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, HTMLResponse
 
-    return FileResponse(WEB_DIR / "m" / "index.html")
+    entrypoint = WEB_DIR / "m" / "index.html"
+    if not entrypoint.is_file():
+        return HTMLResponse("<!doctype html><title>Not found</title><h1>Mobile UI assets are not installed</h1>", status_code=404)
+    return FileResponse(entrypoint)
 
 
 # PWA static files last so /api/* and /docs win. html=True serves index.html at /.
