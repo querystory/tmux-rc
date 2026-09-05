@@ -441,7 +441,8 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
-            logger.info("[live] %s: %s", ev.role, ev.text)  # journal: what was heard/said
+            if telemetry._QSDEBUG:  # content reaches the journal under the same flag as OTel
+                logger.info("[live] %s: %s", ev.role, ev.text)
             meter.note(f"{ev.role}: {ev.text}")
             await websocket.send_json({"type": "transcript", "role": ev.role, "text": ev.text})
         elif ev.kind == "turn_complete":
@@ -456,14 +457,13 @@ async def _hold(websocket: WebSocket, seconds: float) -> bool:
     the loop reconnected to Vertex for a phone that was already gone — the tunnel drops
     both legs at once, and the browser's disconnect is only observed by a receive. A
     WebSocketDisconnect propagates (client gone); a stop returns False; a timeout, True."""
-    reader = asyncio.ensure_future(websocket.receive_json())
-    timer = asyncio.ensure_future(asyncio.sleep(seconds))
-    done, _ = await asyncio.wait({reader, timer}, return_when=asyncio.FIRST_COMPLETED)
-    timer.cancel()
-    if reader not in done:
-        reader.cancel()
+    try:
+        async with asyncio.timeout(seconds):
+            while (await websocket.receive_json()).get("action") != "stop":
+                pass  # a stray frame (audio already in flight) is no reason to reconnect early
+    except TimeoutError:
         return True
-    return reader.result().get("action") != "stop"
+    return False
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
