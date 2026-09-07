@@ -53,7 +53,7 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
     )
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
-from fastapi.responses import PlainTextResponse  # noqa: E402
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
@@ -793,11 +793,19 @@ if Path(_docs_dir).is_dir():
 
     app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
 
-@app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False)
-def mobile_ui():
-    # Avoid an absolute slash redirect with an HTTP scheme behind the TLS tunnel.
-    from fastapi.responses import FileResponse, HTMLResponse
-
+# Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
+# web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
+# scheme/host — behind the TLS-terminating phone tunnel that is http://…/m/, an origin
+# the phone can't reach (#174). GET and HEAD both, since phones/PWAs probe with HEAD.
+# The 404 is inline HTML rather than HTTPException(404): the JSON {"detail":"Not Found"}
+# body made the phone browser download an "m.json" file (#174), whereas text/html is
+# rendered. The check is per-request, so a daemon started before the assets were
+# deployed recovers without a restart. (Starlette's TestClient follows that 307 by
+# default, so a naive test would pass without this route; test_mobile_entrypoint sets
+# follow_redirects=False on purpose to pin it.) response_model=None: FastAPI can't build
+# a response model from a union of Response classes and refuses to import otherwise.
+@app.api_route("/m", methods=["GET", "HEAD"], include_in_schema=False, response_model=None)
+def mobile_ui() -> FileResponse | HTMLResponse:
     entrypoint = WEB_DIR / "m" / "index.html"
     if not entrypoint.is_file():
         return HTMLResponse("<!doctype html><title>Not found</title><h1>Mobile UI assets are not installed</h1>", status_code=404)

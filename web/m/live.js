@@ -1,9 +1,26 @@
 // Same PCM and WebSocket protocol as the full UI's Live Mode.
-export function setupLiveMode({ request, session }) {
+const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
+const PLAYBACK_RATE = 24000; // Rate of the PCM the server streams back.
+const MIN_FRAME_SAMPLES = 4096; // Batch mic samples so each WebSocket frame is worth its JSON overhead.
+const MAX_SOCKET_BACKLOG = 65536; // Drop mic audio once this much is unsent, instead of piling up latency.
+const CHAR_CHUNK = 8192; // fromCharCode argument count that stays under engine spread limits.
+const CONNECT_DEADLINE_MS = 30000; // Give up if the server never reports "listening".
+const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring the session lost.
+const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
+const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
+
+// Fallback glyphs used when the caller does not pass app.js's `licon` helper.
+const FALLBACK_ICONS = {
+  mic: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>',
+  x: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>',
+};
+const fallbackIcon = (name) => FALLBACK_ICONS[name];
+
+export function setupLiveMode({ request, session, licon = fallbackIcon }) {
   const $ = (id) => document.getElementById(id);
-  const mic = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>';
+  const mic = licon("mic");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
-  $("voice-close").innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>';
+  $("voice-close").innerHTML = licon("x");
   let run = null, sequence = 0;
   const status = (message) => { $("voice-status").textContent = message; };
   function paint() {
@@ -37,7 +54,7 @@ export function setupLiveMode({ request, session }) {
   }
   function add(role, message) {
     const log = $("voice-log"), previous = log.lastElementChild;
-    const follow = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+    const follow = log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX;
     const grow = (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
     let row = previous;
     if (!grow) {
@@ -49,7 +66,7 @@ export function setupLiveMode({ request, session }) {
       row.append(heading, document.createElement("span")); log.append(row);
     }
     row.lastChild.textContent += message || "";
-    while (log.children.length > 40) log.firstChild.remove();
+    while (log.children.length > TRANSCRIPT_ROWS) log.firstChild.remove();
     if (follow) log.scrollTop = log.scrollHeight;
   }
   function silence(current) {
@@ -75,7 +92,7 @@ export function setupLiveMode({ request, session }) {
   function playAudio(current, data) {
     const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
     const pcm = new Int16Array(bytes.buffer);
-    const buffer = current.play.createBuffer(1, pcm.length, 24000);
+    const buffer = current.play.createBuffer(1, pcm.length, PLAYBACK_RATE);
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
     const source = current.play.createBufferSource(); source.buffer = buffer;
@@ -85,21 +102,23 @@ export function setupLiveMode({ request, session }) {
     source.start(current.playAt); current.playAt += buffer.duration;
   }
   async function capture(current) {
-    await current.capture.audioWorklet.addModule("/m/mic-tap.js");
+    // The tap worklet is shared with the desktop Live Mode; see lm-tap.js for why it
+    // has to be a same-origin file rather than an inline blob: module.
+    await current.capture.audioWorklet.addModule("/lm-tap.js");
     if (run !== current) return;
     const source = current.capture.createMediaStreamSource(current.stream);
-    const tap = new AudioWorkletNode(current.capture, "mobile-mic");
+    const tap = new AudioWorkletNode(current.capture, "lm-tap");
     const mute = current.capture.createGain(); mute.gain.value = 0;
     const rate = current.capture.sampleRate;
     let pending = new Float32Array(0);
     tap.port.onmessage = ({ data }) => {
-      if (run !== current || !current.listening || current.muted || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > 65536) { pending = new Float32Array(0); return; }
+      if (run !== current || !current.listening || current.muted || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) { pending = new Float32Array(0); return; }
       const joined = new Float32Array(pending.length + data.length);
       joined.set(pending); joined.set(data, pending.length); pending = joined;
-      if (pending.length < 4096) return;
+      if (pending.length < MIN_FRAME_SAMPLES) return;
       let samples = pending; pending = new Float32Array(0);
-      if (rate !== 16000) {
-        const resampled = new Float32Array(Math.round(samples.length * 16000 / rate));
+      if (rate !== CAPTURE_RATE) {
+        const resampled = new Float32Array(Math.round(samples.length * CAPTURE_RATE / rate));
         for (let i = 0; i < resampled.length; i++) {
           const at = i * (samples.length - 1) / (resampled.length - 1), low = Math.floor(at);
           resampled[i] = samples[low] + (samples[Math.min(low + 1, samples.length - 1)] - samples[low]) * (at - low);
@@ -110,7 +129,7 @@ export function setupLiveMode({ request, session }) {
       for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 32767;
       const bytes = new Uint8Array(pcm.buffer);
       let binary = "";
-      for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      for (let i = 0; i < bytes.length; i += CHAR_CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHAR_CHUNK));
       current.ws.send(JSON.stringify({ action: "audio", data: btoa(binary) }));
     };
     source.connect(tap); tap.connect(mute); mute.connect(current.capture.destination);
@@ -124,7 +143,7 @@ export function setupLiveMode({ request, session }) {
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop("Could not connect to Live Mode."); return; }
     current.ws = ws;
-    current.deadline = setTimeout(() => { if (run === current && !current.listening) stop("Live Mode connection timed out. Try again."); }, 30000);
+    current.deadline = setTimeout(() => { if (run === current && !current.listening) stop("Live Mode connection timed out. Try again."); }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {
       if (run !== current || current.ws !== ws) return;
       let message; try { message = JSON.parse(data); } catch { return; }
@@ -142,7 +161,7 @@ export function setupLiveMode({ request, session }) {
     ws.onclose = (event) => {
       if (run !== current || current.ws !== ws) return;
       clearTimeout(current.deadline); current.listening = false;
-      if (event.code !== 1000 && event.code !== 1005 && current.up && current.tries < 5) {
+      if (event.code !== 1000 && event.code !== 1005 && current.up && current.tries < MAX_RECONNECT_TRIES) {
         status("Connection lost. Reconnecting...");
         current.retry = setTimeout(() => connect(current), 1000 * 2 ** current.tries++);
       } else stop(event.code === 1000 ? "Session ended" : "Live Mode disconnected. Try again.");
@@ -156,7 +175,7 @@ export function setupLiveMode({ request, session }) {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture requires HTTPS and a supported browser.");
       // Both contexts are created and resumed within the tap's activation on iOS.
       current.play = new AudioContext();
-      try { current.capture = new AudioContext({ sampleRate: 16000 }); } catch { current.capture = new AudioContext(); }
+      try { current.capture = new AudioContext({ sampleRate: CAPTURE_RATE }); } catch { current.capture = new AudioContext(); }
       const resumes = Promise.all([current.play.resume(), current.capture.resume()]);
       resumes.catch(() => {});
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });

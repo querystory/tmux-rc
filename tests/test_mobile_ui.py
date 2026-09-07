@@ -26,7 +26,16 @@ def test_mobile_entrypoint(path, method):
 
 def test_mobile_assets_and_manifest():
     client = TestClient(app)
-    for path in ("/m/app.js", "/m/style.css", "/m/live.js", "/m/composer.js", "/m/mic-tap.js", "/terminal.js", "/icon.svg"):
+    for path in (
+        "/m/app.js",
+        "/m/style.css",
+        "/m/live.js",
+        "/m/composer.js",
+        "/m/pane-model.js",
+        "/lm-tap.js",
+        "/terminal.js",
+        "/icon.svg",
+    ):
         assert client.get(path).status_code == 200
     manifest = client.get("/m/manifest.json").json()
     assert manifest["start_url"] == "/m"
@@ -52,7 +61,9 @@ def test_version_tracks_nested_mobile_assets(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("method", ["GET", "HEAD"])
 @pytest.mark.parametrize("directory_exists", [False, True])
-def test_mobile_missing_assets_return_html_404(tmp_path, monkeypatch, method, directory_exists):
+def test_mobile_missing_assets_return_html_404(
+    tmp_path, monkeypatch, method, directory_exists
+):
     web = tmp_path / "web"
     if directory_exists:
         (web / "m").mkdir(parents=True)

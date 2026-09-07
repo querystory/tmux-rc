@@ -1,6 +1,20 @@
-import { renderCapture, linkifyText } from "/terminal.js";
+import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity } from "/m/pane-model.js";
+
+// Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
+// surfaces as an error before the user retries by hand.
+const REQUEST_TIMEOUT_MS = 8000;
+// Long polls (/api/state, /live) must outlast the server's 25s hold, or every idle poll
+// would abort just before the server answers.
+const LONG_POLL_TIMEOUT_MS = 35000;
+// How long "Answer sent" stays (and the option buttons stay disabled) before we trust
+// the pane's own state again — covers the round trip to the agent and back.
+const ANSWER_PENDING_MS = 10000;
+// Being this close to the bottom of the terminal counts as following it, so a frame
+// keeps the view pinned to the tail; further up, the user is reading and we leave it.
+const FOLLOW_SLACK_PX = 48;
 
 // Inline Lucide paths, matching the existing UI; no external assets behind IAP.
 const LUCIDE = {
@@ -18,6 +32,7 @@ const LUCIDE = {
   circle: '<circle cx="12" cy="12" r="9"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
@@ -30,29 +45,18 @@ const text = (node, value = "") => { if (node.textContent !== String(value)) nod
 const html = (node, value) => { if (node._html !== value) { node.innerHTML = value; node._html = value; } };
 const show = (id, visible) => { $(id).hidden = !visible; };
 const icon = (id, name) => html($(id), licon(name));
-const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-const activity = (pane) => needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[pane.activity] || "Unknown");
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", shell: "/bash.png" };
-const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : pane.activity;
-const isRunning = (pane) => ["running", "compacting"].includes(activityClass(pane));
-function isRecent(pane) {
-  const since = pane.state_since == null ? NaN : Number(pane.state_since);
-  const idle = Number.isFinite(since) ? Math.max(0, Date.now() / 1000 - since) : pane.idle_seconds || 0;
-  return pane.activity !== "idle" || idle < 600;
-}
-const matchesFilter = (pane) => filter === "attention" ? needsYou(pane) : filter === "running" ? isRunning(pane) : filter === "recent" ? isRecent(pane) : true;
-function lastActivity(pane) {
-  if (Number.isFinite(pane.last_activity_at)) return pane.last_activity_at;
-  const changed = (Number(pane.updated_at) || 0) - (Number(pane.idle_seconds) || 0);
-  const since = Number(pane.state_since);
-  return pane.activity === "idle" && since > 0 ? Math.min(changed, since) : changed;
-}
+const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let sort = "session";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
+// Per-line nodes under #capture, in document order; each caches the markup last written
+// to it (_html). Set when a frame was held back for a selection, so selectionchange
+// knows there is something to catch up on.
+let captureLines = [], captureDirty = false;
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
@@ -77,7 +81,7 @@ function reconcile(parent, values, keyOf, build, update) {
   previous.forEach((node) => node.remove());
 }
 
-async function request(url, options = {}, timeout = 8000) {
+async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
   const abort = () => controller.abort();
   const external = options.signal;
@@ -129,9 +133,12 @@ function route() {
     $("keyboard").setAttribute("aria-expanded", "false");
     notice();
   }
+  // restartDetail first: it swaps the detail controller, and render()'s loadEvents keys
+  // off it. The other way round the events request left on the old controller and was
+  // aborted at once, so every navigation fetched events twice.
+  restartDetail();
   render();
   if (active && changed) post(paneUrl(active, "select")).catch(() => notice("Could not focus this pane on the host."));
-  restartDetail();
   if (changed && active) $("back").focus({ preventScroll: true });
 }
 
@@ -151,14 +158,20 @@ function updateRow(button, pane) {
   text(button.querySelector("strong"), pane.label || pane.window_name || pane.pane_id);
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
-  text(badge, activity(pane));
+  text(badge, activityLabel(pane));
   text(button.querySelector(".row-status"), pane.question?.prompt || pane.status_line || pane.session_summary || "No recent activity");
   text(button.querySelector(".row-meta"), [sort === "updated" ? pane.session : "", pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
+function emptyMessage(query) {
+  if (!loaded) return "Loading sessions...";
+  if (!booted) return "Reading terminal sessions...";
+  if (query) return "No matching panes.";
+  return EMPTY_MESSAGE[filter] || EMPTY_MESSAGE.all;
+}
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p) && [p.session, p.label, p.window_name, p.pane_id, p.tool, p.model,
-    p.question?.prompt, p.headline, p.status_line, p.session_summary, activity(p),
+  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.label, p.window_name, p.pane_id, p.tool, p.model,
+    p.question?.prompt, p.headline, p.status_line, p.session_summary, activityLabel(p),
     p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
@@ -169,7 +182,7 @@ function renderList() {
     const label = document.createElement("h2"); label.className = "session-label"; return label;
   }, (node, p) => p.group ? text(node, p.session || "Session") : updateRow(node, p));
   show("empty", !subset.length);
-  text($("empty"), !loaded ? "Loading sessions..." : !booted ? "Reading terminal sessions..." : query ? "No matching panes." : filter === "attention" ? "Nothing needs your attention." : filter === "running" ? "No panes are running." : filter === "recent" ? "No recently active panes." : "No tmux panes are open.");
+  text($("empty"), emptyMessage(query));
   const waiting = panes.filter(needsYou).length;
   text($("all-count"), panes.length);
   text($("attention-count"), waiting);
@@ -191,7 +204,7 @@ function render() {
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
   $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
   show("overview", view === "summary"); show("terminal", view === "terminal");
-  text($("activity"), pane ? activity(pane) : "Unavailable");
+  text($("activity"), pane ? activityLabel(pane) : "Unavailable");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
   const headline = pane?.headline || pane?.status_line || pane?.session_summary || (loaded && !pane ? "This pane is no longer available." : "Waiting for activity...");
@@ -199,7 +212,6 @@ function render() {
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
   text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.elapsed].filter(Boolean).join(" / "));
-  $("full-ui").href = "/";
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.prompt || "");
@@ -291,7 +303,8 @@ function renderTasks(pane) {
 
 async function loadEvents(pane) {
   const key = `${pane.pane_id}:${pane.events_seq ?? pane.updated_at}`;
-  if (eventsKey === key || !detailController || detailController.signal.aborted) return;
+  // Same hidden-tab rule as restartDetail, which used to be the only path that ran first.
+  if (eventsKey === key || document.hidden || !detailController || detailController.signal.aborted) return;
   eventsKey = key;
   const signal = detailController.signal;
   try {
@@ -317,7 +330,7 @@ function restartDetail() {
   eventsKey = null;
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
-    latestCapture = ""; html($("capture"), ""); detailId = active;
+    latestCapture = ""; clearCapture(); detailId = active;
   }
   if (!active || document.hidden) return;
   const pane = panes.find((p) => p.pane_id === active);
@@ -325,12 +338,43 @@ function restartDetail() {
   else if (pane) loadEvents(pane);
 }
 
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; }
+// One <span> per screen line, each ending in its own "\n" (except the last), so inside the
+// <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
+// the whole frame gave — no extra CSS, and no block children to lose the newlines. The
+// newline is part of the cached markup, so a line that becomes/stops being last is
+// rewritten like any other change.
+const lineMarkup = (lines) => lines.map((line, i) => i < lines.length - 1 ? `${line}\n` : line);
+// Would this frame disturb the selection? Only if it changes a line the selection touches
+// (or the line count, which reflows everything from there down). A selection outside
+// #capture, or over lines the frame leaves alone, never holds the paint; one we cannot
+// localize (no range, no lines painted yet) does, rather than risk eating it.
+function selectionDirty(selection, lines) {
+  const range = selection.rangeCount ? selection.getRangeAt(0) : null;
+  if (!range) return true;
+  if (!range.intersectsNode($("capture"))) return false;
+  if (!captureLines.length || lines.length !== captureLines.length) return true;
+  return captureLines.some((node, i) => node._html !== lines[i] && range.intersectsNode(node));
+}
+// Line-diff painter (desktop paintTerm): only lines whose markup changed are written, so
+// a busy pane repaints a few rows per frame and untouched rows keep their selection.
+function paintLines(lines) {
+  const pre = $("capture");
+  lines.forEach((markup, i) => {
+    let node = captureLines[i];
+    if (!node) { node = document.createElement("span"); captureLines[i] = node; pre.appendChild(node); }
+    if (node._html !== markup) { node._html = markup; node.innerHTML = markup; }
+  });
+  captureLines.splice(lines.length).forEach((node) => node.remove());
+}
 function paintCapture() {
+  const lines = lineMarkup(renderCaptureLines(latestCapture, { color: true }));
   const selection = getSelection();
-  if (selection && !selection.isCollapsed && $("capture").contains(selection.anchorNode)) return;
+  if (selection && !selection.isCollapsed && selectionDirty(selection, lines)) { captureDirty = true; return; }
+  captureDirty = false;
   const scroll = $("terminal-scroll");
-  const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 48;
-  html($("capture"), renderCapture(latestCapture, { color: true }));
+  const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - FOLLOW_SLACK_PX;
+  paintLines(lines);
   if (follow) scroll.scrollTop = scroll.scrollHeight;
 }
 async function streamTerminal(id, signal) {
@@ -339,7 +383,7 @@ async function streamTerminal(id, signal) {
   while (!signal.aborted) {
     try {
       const query = new URLSearchParams({ frame, session: liveSession });
-      const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, 35000);
+      const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
       if (typeof data.text === "string") { latestCapture = data.text; paintCapture(); }
@@ -363,10 +407,11 @@ async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
     try {
-      const data = await request(`/api/state${version ? `?v=${version}` : ""}`, { signal }, 35000);
+      const data = await request(`/api/state${version ? `?v=${version}` : ""}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
+      pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
       $("connection").title = data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected";
@@ -381,12 +426,25 @@ async function pollState(signal) {
   }
 }
 
+// Drafts for panes that have closed: drop the empty ones (revoking chip object URLs the
+// way Composer.edited does) but keep any with content, so text is not lost if the pane
+// reappears. The active pane's draft is the editor on screen, so it always stays.
+function pruneDrafts() {
+  for (const [id, value] of drafts) {
+    if (id === active || panes.some((p) => p.pane_id === id)) continue;
+    if (value.segments().length || value.pendingEnter) continue;
+    value.files.forEach((_, chip) => URL.revokeObjectURL(chip.src));
+    drafts.delete(id);
+  }
+}
 function updateComposer() {
   if (!active) return;
   const available = panes.some((p) => p.pane_id === active);
   const value = draft();
-  $("reply").contentEditable = String(!sending && available);
-  $("reply").setAttribute("aria-disabled", String(sending || !available));
+  // Editability depends only on the pane existing: a non-editable div loses focus and
+  // dismisses the phone keyboard on every send, and `sending` already guards re-entry.
+  $("reply").contentEditable = String(available);
+  $("reply").setAttribute("aria-disabled", String(!available));
   $("send").disabled = sending || !available || (!value.segments().length && !value.pendingEnter);
   $("attach").disabled = sending || !available;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
@@ -400,7 +458,7 @@ async function sendKeys(body, answer = false) {
     await post(paneUrl(id, "send"), body);
     if (answer) {
       pendingAnswer = { id, signature };
-      setTimeout(() => { if (pendingAnswer?.id === id && pendingAnswer.signature === signature) { pendingAnswer = null; render(); } }, 10000);
+      setTimeout(() => { if (pendingAnswer?.id === id && pendingAnswer.signature === signature) { pendingAnswer = null; render(); } }, ANSWER_PENDING_MS);
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
@@ -508,10 +566,11 @@ window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
 window.addEventListener("resize", fitViewport);
 window.addEventListener("hashchange", route);
-document.addEventListener("selectionchange", () => { if (view === "terminal") paintCapture(); });
+// Only catch up a frame that was held for a selection; composer keystrokes also fire this.
+document.addEventListener("selectionchange", () => { if (view === "terminal" && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { startState(); restartDetail(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
-setupLiveMode({ request, session: liveSession });
+setupLiveMode({ request, session: liveSession, licon });
