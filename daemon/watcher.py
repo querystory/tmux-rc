@@ -183,7 +183,7 @@ class Watcher:
         self._last_tick: float = (
             0.0  # wall time of the last loop iteration (staleness check)
         )
-        self._booted: bool = False  # set once a _tick completes without raising
+        self._booted: bool = False  # set once tmux inventory has been published
         self._task: asyncio.Task | None = None
         # Input-driven reparse: request_reparse() adds pane ids here and wakes the loop
         # so a submitted answer/keypress re-parses within a capture, not a poll interval.
@@ -238,11 +238,9 @@ class Watcher:
         )
 
     def booted(self) -> bool:
-        """False until the first tick RUNS TO COMPLETION. An empty `states` means "no
-        panes" only once this is True — before it, panes may exist but their initial
-        parses haven't finished, so the UI shows a loading spinner, not "no panes found".
-        Keyed off a completion flag (not _last_tick, which _loop also stamps on a tick
-        that raised before populating states)."""
+        """Whether tmux inventory is known, not whether classification has finished.
+        Before discovery succeeds an empty state means loading. Afterwards, identities
+        are visible immediately and unknown activities fill in as parses finish."""
         return self._booted
 
     def start(self) -> None:
@@ -304,7 +302,6 @@ class Watcher:
         while True:
             try:
                 await asyncio.to_thread(self._tick)
-                self._booted = True  # a tick COMPLETED — states now reflect reality
             except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
@@ -368,8 +365,7 @@ class Watcher:
 
     def _tick(self) -> None:
         if not tmux.server_running():
-            self.states = []
-            self._bump_state_if_changed([])  # wake the hold: tmux-down is a deck change too
+            self._publish_states([])
             return
         # Multi-pane: watch every pane (or just the configured target if set). Each
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
@@ -389,9 +385,20 @@ class Watcher:
         else:
             panes = tmux.list_panes()
         if not panes:
-            self.states = []
-            self._bump_state_if_changed([])  # wake the hold: no-panes is a deck change too
+            self._publish_states([])
             return
+        initial = not self._booted
+        states = []
+        if initial:
+            # Discovery is cheap; do not make visibility wait for capture, parsing or
+            # scrollback bootstrap. Never seed the parse cache with these placeholders.
+            focused = tmux.active_pane_id()
+            for p in panes:
+                s = {"pane_id": p.id, "tool": "unknown", "activity": "unknown",
+                     "tmux_active": p.id == focused}
+                _stamp_identity(s, p)
+                states.append(s)
+            self._publish_states(states)
         alive = {p.id for p in panes}
         # tmux recycles pane ids on close ("%3" freed, reassigned to a new pane). If an
         # id's pid changed, it's a different pane wearing the old id — evict the previous
@@ -413,8 +420,7 @@ class Watcher:
         self._force_parse = set()
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
-        states = []
-        for p in panes:
+        for index, p in enumerate(panes):
             try:
                 s = self._tick_pane(p)
             except subprocess.CalledProcessError as e:
@@ -439,7 +445,13 @@ class Watcher:
                     "updated_at": time.time(),
                 }
                 _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
-            states.append(s)
+            if initial:
+                s["tmux_active"] = p.id == focused
+                s["events_seq"] = self._events_seq.get(p.id, 0)
+                states[index] = s
+                self._publish_states(states)
+            else:
+                states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
         focused = tmux.active_pane_id()
@@ -463,9 +475,15 @@ class Watcher:
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
-        self.states = states
-        self._bump_state_if_changed(states)
+        self._publish_states(states)
         self._gc(alive)
+
+    def _publish_states(self, states: list[dict]) -> None:
+        # Publish a fresh snapshot so replacing/enriching the next startup result does
+        # not mutate the deck already visible to HTTP handlers between version bumps.
+        self.states = [dict(s) for s in states]
+        self._booted = True
+        self._bump_state_if_changed(self.states)
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state
