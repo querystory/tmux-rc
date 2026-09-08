@@ -223,7 +223,7 @@ function render() {
   const answered = pendingAnswer && pendingAnswer.id === active && pendingAnswer.signature === JSON.stringify(question);
   show("answer-status", !!answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
-  const options = (question?.options || []).map((option, index) => ({ option, index })).filter(({ option }) => !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
   reconcile($("options"), options, (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
     button.onclick = () => {
@@ -282,7 +282,8 @@ function renderRichContent(pane) {
 }
 
 function renderTasks(pane) {
-  const tasks = pane?.tasks || [], agents = pane?.subagents || [], copyables = pane?.copyables || [];
+  const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
+  const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables);
   show("task-section", !!tasks.length); show("agent-section", !!agents.length); show("copy-section", !!copyables.length);
   text($("task-count"), `${tasks.filter((t) => t.done).length}/${tasks.length}`);
   for (const [id, values] of [["tasks", tasks], ["agents", agents]]) {
