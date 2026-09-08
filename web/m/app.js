@@ -192,7 +192,7 @@ function renderList() {
   text($("all-count"), panes.length);
   text($("attention-count"), waiting);
   text($("running-count"), panes.filter(isRunning).length);
-  text($("recent-count"), panes.filter(isRecent).length);
+  text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", filter === button.dataset.filter));
   $("new-window").disabled = !panes.length;
 }
