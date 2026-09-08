@@ -98,7 +98,7 @@ loosen the score.
 }
 ```
 
-Coverage (13 samples, quality over quantity) — every state, every tool, and the
+Coverage (17 samples, quality over quantity) — every state, every tool, and the
 affordances this session actually hit:
 
 | sample | asserts |
@@ -116,6 +116,10 @@ affordances this session actually hit:
 | `11_shell_idle` | bare shell prompt → tool=shell, idle |
 | `12_shell_server_gemini_trap` | server log mentioning `gemini-…` → tool=shell (not gemini) |
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
+| `14_copyable_commit_and_command` | drafted text and commands surface as copyables |
+| `15_codex_working_chrome` | ordinary Codex tool/progress chrome stays Codex while discussing Claude |
+| `16_codex_idle_custom_footer` | Codex with a custom footer and no model name stays Codex and idle |
+| `17_shell_printed_codex_chrome` | a shell printing saved Codex chrome stays an idle shell |
 
 ### Committed vs local — what's repo-safe
 

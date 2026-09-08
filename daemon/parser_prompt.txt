@@ -67,6 +67,11 @@ but have distinct signatures. Decide by the evidence on screen:
   names its session/thread only when it explicitly says so (e.g. a line like "Thread
   renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,
   OMIT "session" — never fall back to a status-line token.
+  Outside approval dialogs, recognize its combined chrome: "• Ran" / "• Explored"
+  with "└" tool output, "• Working (... • esc to interrupt)", and the "›" input line
+  (often "Ask Codex to do anything"). Its footer is customizable; a thread title or
+  context/token counters instead of a model name do not make it Claude. These cues
+  identify the TOOL, not whether the current turn is running, idle, or awaiting input.
 - "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
   with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
   "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
@@ -88,6 +93,9 @@ mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:g
 code, or discussion is NOT that agent — a server log spamming Gemini endpoints is
 whatever program is actually running there (a shell running a server, a log tail), not
 "gemini".
+Likewise, a shell printing a saved agent transcript (e.g. `cat codex-fixture.txt`)
+and returning to its bare shell prompt is an idle SHELL. Printed "Working", input
+placeholders, and model footers are file contents, not live agent chrome.
 An agent pane STAYS that agent even when a shell command it launched fills the screen —
 the agent is driving it. Use earlier frames and the model name for continuity; if recent
 frames identified a specific agent, prefer that SAME agent (do not switch to a different
