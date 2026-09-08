@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic Codex idle view with a custom thread-title footer and no model name. Recognize transcript/tool chrome and input placeholder, not a Claude-like session title.",
+  "current_command": "node",
+  "capture": "• Explored\n  └ Read parser_prompt.txt\n\n• Ran make test\n  └ 299 passed in 3.2s\n\n• The classifier tests pass. The daemon has not been restarted.\n\n› Ask Codex to do anything\n\n  mobile-agent-icons · Context 86% left · 1.08M used · ~/src/tmux-rc · weekly 82% left",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "question": null,
+    "headline": "Classifier tests passed; the daemon was not restarted"
+  }
+}

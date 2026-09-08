@@ -1,0 +1,11 @@
+{
+  "description": "Synthetic negative control: a shell printing a Codex fixture is not Codex, even when output contains the entire working-view signature.",
+  "current_command": "bash",
+  "capture": "$ cat codex-fixture.txt\n• Explored\n  └ Read parser_prompt.txt\n• Working (7m 29s • esc to interrupt)\n› Ask Codex to do anything\n  gpt-6-astra high · Context 86% left · ~/src/tmux-rc\n$ ",
+  "expected": {
+    "tool": "shell",
+    "activity": "idle",
+    "question": null,
+    "headline": "Shell is idle after printing a Codex fixture"
+  }
+}
