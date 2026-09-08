@@ -1776,7 +1776,9 @@ async function closeWindow(paneId) {
   try {
     const r = await fetch(`/api/panes/${encodeURIComponent(paneId)}/close`,
       { method: "POST", signal: timeoutSignal(8000) });
-    if (!r.ok) throw new Error("close failed: " + r.status);
+    // 404 = the window is already gone (closed on the host, or evicted between the last poll
+    // and the tap). That IS the outcome we wanted; a retry could never succeed.
+    if (!r.ok && r.status !== 404) throw new Error("close failed: " + r.status);
   } catch (e) {
     barNote(`Couldn't close the window — ${e.message}. Tap again to retry.`);
     reportError("close", e);
