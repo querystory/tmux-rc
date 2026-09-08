@@ -91,7 +91,11 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
   const timer = setTimeout(abort, timeout);
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
-    if (!response.ok) throw new Error(`Request failed (${response.status})`);
+    if (!response.ok) {
+      const error = new Error(`Request failed (${response.status})`);
+      error.status = response.status;
+      throw error;
+    }
     return await response.json();
   } finally {
     clearTimeout(timer);
@@ -391,8 +395,12 @@ async function streamTerminal(id, signal) {
       if (typeof data.text === "string") { latestCapture = data.text; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
-    } catch {
+    } catch (error) {
       if (signal.aborted) return;
+      if (error.status === 404) {
+        text($("terminal-status"), "Pane closed or not found");
+        return;
+      }
       text($("terminal-status"), "Reconnecting...");
       frame = "";
       await pause(1500, signal);
