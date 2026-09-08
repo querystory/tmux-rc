@@ -503,6 +503,7 @@ class Watcher:
                 # change (idle pane, cadence elapsed) — the hold must still return.
                 s.get("session_summary"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
+                s.get("last_activity_at"),
             ))
             for s in states
         ]
@@ -749,6 +750,13 @@ class Watcher:
         changed = fp != self._prev_fp.get(
             pane.id
         )  # real content change (timers stripped)
+        previous = self._state.get(pane.id)
+        # Seed from tmux on restart; only observed content changes advance this clock.
+        last_activity = (previous or {}).get("last_activity_at")
+        if last_activity is None:
+            last_activity = min(_activity_ts(pane) or now, now)
+        elif changed:
+            last_activity = now
         if changed:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
@@ -775,6 +783,7 @@ class Watcher:
             # climbing while the pane sits still.
             cached["state_since"] = self._state_since_for(pane.id, cached, now, _activity_ts(pane))
             cached["updated_at"] = now
+            cached["last_activity_at"] = last_activity
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
@@ -911,6 +920,7 @@ class Watcher:
         # `now - state_since` live so idle/waiting durations stay honest between parses.
         state["state_since"] = self._state_since_for(pane.id, state, now, _activity_ts(pane))
         state["updated_at"] = now
+        state["last_activity_at"] = last_activity
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
