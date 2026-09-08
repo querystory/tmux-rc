@@ -18,7 +18,10 @@ export function isRecent(pane, nowMs = Date.now()) {
   return pane.activity !== "idle" || idle < PARKED_IDLE_SECS;
 }
 export const FILTERS = { all: () => true, running: isRunning, recent: (pane, nowMs) => isRecent(pane, nowMs), attention: needsYou };
-export function matchesFilter(pane, filter, nowMs = Date.now()) { return (FILTERS[filter] || FILTERS.all)(pane, nowMs); }
+export function matchesFilter(pane, filter, nowMs = Date.now()) {
+  const predicate = Object.prototype.hasOwnProperty.call(FILTERS, filter) ? FILTERS[filter] : FILTERS.all;
+  return predicate(pane, nowMs);
+}
 // Sort key for "Sort by updated": the parser's timestamp when it has one, else the moment
 // the pane's state last changed, never later than when an idle pane went idle.
 export function lastActivity(pane) {

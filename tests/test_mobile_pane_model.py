@@ -248,6 +248,12 @@ CASES = [
 ]
 
 FILTER_NAMES = ["all", "running", "recent", "attention"]
+for invalid_filter in ("__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None):
+    CASES.append((
+        f"matchesFilter: unknown filter {invalid_filter!r} behaves like all",
+        "matchesFilter", [IDLE_11_MIN_AGO, invalid_filter, NOW_MS], True,
+    ))
+
 for invalid in (None, "", "idle extra-class", "__proto__", "constructor", 42, {}):
     for helper in ("activityClass", "activityLabel"):
         CASES.append((
