@@ -117,6 +117,8 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #reply { flex: 1; min-width: 0; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 16px; line-height: 22px; min-height: 44px; max-height: 132px; }
 .primary { background: var(--accent); color: var(--bg); font-weight: 600; }
 .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.92); }
+#update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
+#reload-update { padding: 0 12px; text-decoration: underline; }
 .composer-tools { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 12px; color: var(--muted); }
 .composer-tools a { margin-left: auto; color: var(--muted); min-height: 36px; display: flex; align-items: center; flex: none; }
 .text-button { display: flex; align-items: center; gap: 6px; padding: 0 6px; color: var(--muted); font-size: 12px; }

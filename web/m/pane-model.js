@@ -4,11 +4,13 @@
 // Same fold rule as the desktop dock (web/app.js PARKED_IDLE_SECS): an idle pane older
 // than this is parked, so it drops out of "Recent".
 export const PARKED_IDLE_SECS = 600;
+const ACTIVITIES = ["running", "waiting", "idle", "compacting", "unknown"];
+const actOf = (pane) => ACTIVITIES.includes(pane.activity) ? pane.activity : "unknown";
 export const needsYou = (pane) => pane.activity === "waiting" && pane.waiting_on !== "external";
-export const activityLabel = (pane) => needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[pane.activity] || "Unknown");
+export const activityLabel = (pane) => needsYou(pane) ? "Needs you" : ({ running: "Running", waiting: "Working", idle: "Idle", compacting: "Compacting", unknown: "Unknown" }[actOf(pane)]);
 // "waiting" on something external (a tool, a subagent) is shown as running: the pane is
 // busy, it just isn't our turn.
-export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : pane.activity;
+export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
 export const isRunning = (pane) => ["running", "compacting"].includes(activityClass(pane));
 export function isRecent(pane, nowMs = Date.now()) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);

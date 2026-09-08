@@ -248,6 +248,13 @@ CASES = [
 ]
 
 FILTER_NAMES = ["all", "running", "recent", "attention"]
+for invalid in (None, "", "idle extra-class", "__proto__", "constructor", 42, {}):
+    for helper in ("activityClass", "activityLabel"):
+        CASES.append((
+            f"{helper}: reject unexpected activity {invalid!r}",
+            helper, [{"activity": invalid}],
+            "unknown" if helper == "activityClass" else "Unknown",
+        ))
 
 
 def render_script() -> str:

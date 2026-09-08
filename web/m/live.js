@@ -1,9 +1,10 @@
-// Same PCM and WebSocket protocol as the full UI's Live Mode.
+// Audio wire contract mirrors lmCapture/lmPlayChunk in /app.js. Keep rates, resampling,
+// PCM scaling, and base64 chunk bounds in sync with those desktop implementations.
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
 const PLAYBACK_RATE = 24000; // Rate of the PCM the server streams back.
 const MIN_FRAME_SAMPLES = 4096; // Batch mic samples so each WebSocket frame is worth its JSON overhead.
 const MAX_SOCKET_BACKLOG = 65536; // Drop mic audio once this much is unsent, instead of piling up latency.
-const CHAR_CHUNK = 8192; // fromCharCode argument count that stays under engine spread limits.
+const CHAR_CHUNK = 0x8000; // Same fromCharCode chunk bound as desktop lmCapture.
 const CONNECT_DEADLINE_MS = 30000; // Give up if the server never reports "listening".
 const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring the session lost.
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
@@ -16,12 +17,12 @@ const FALLBACK_ICONS = {
 };
 const fallbackIcon = (name) => FALLBACK_ICONS[name];
 
-export function setupLiveMode({ request, session, licon = fallbackIcon }) {
+export function setupLiveMode({ request, session, licon = fallbackIcon, onVersion = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-close").innerHTML = licon("x");
-  let run = null, sequence = 0;
+  let run = null, sequence = 0, fetching = false, modelSignature = null;
   const status = (message) => { $("voice-status").textContent = message; };
   function paint() {
     $("live-mode").classList.toggle("active", !!run);
@@ -34,12 +35,18 @@ export function setupLiveMode({ request, session, licon = fallbackIcon }) {
     $("voice-mute").title = $("voice-mute").ariaLabel = run?.muted ? "Unmute microphone" : "Mute microphone";
   }
   async function capabilities() {
+    if (fetching) return;
+    fetching = true;
     try {
       const data = await request("/api/version");
+      onVersion(data.version);
       $("live-mode").hidden = !data.live_enabled && !run;
       if (run) return;
       const models = data.live_models || [{ label: "Default", value: "" }];
       let saved; try { saved = localStorage.getItem("tmuxrc-live-model"); } catch {}
+      const signature = JSON.stringify([models, saved]);
+      if (signature === modelSignature) return;
+      modelSignature = signature;
       $("voice-models").replaceChildren(...models.map((model) => {
         const button = document.createElement("button");
         const image = document.createElement("img"); image.alt = "";
@@ -51,6 +58,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon }) {
         return button;
       }));
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
+    finally { fetching = false; }
   }
   function add(role, message) {
     const log = $("voice-log"), previous = log.lastElementChild;
@@ -94,7 +102,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon }) {
     const pcm = new Int16Array(bytes.buffer);
     const buffer = current.play.createBuffer(1, pcm.length, PLAYBACK_RATE);
     const channel = buffer.getChannelData(0);
-    for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+    for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 0x8000;
     const source = current.play.createBufferSource(); source.buffer = buffer;
     source.connect(current.play.destination); current.queued.add(source);
     source.onended = () => current.queued.delete(source);
@@ -126,7 +134,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon }) {
         samples = resampled;
       }
       const pcm = new Int16Array(samples.length);
-      for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 32767;
+      for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 0x7fff;
       const bytes = new Uint8Array(pcm.buffer);
       let binary = "";
       for (let i = 0; i < bytes.length; i += CHAR_CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHAR_CHUNK));
@@ -137,7 +145,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon }) {
   }
   function connect(current) {
     if (run !== current) return;
-    const query = new URLSearchParams({ session });
+    const query = new URLSearchParams();
+    if (session) query.set("session", session);
     if (current.model) query.set("model", current.model);
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
@@ -205,4 +214,5 @@ export function setupLiveMode({ request, session, licon = fallbackIcon }) {
   window.addEventListener("online", capabilities);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) capabilities(); });
   capabilities();
+  return { isActive: () => !!run, refresh: capabilities };
 }

@@ -15,6 +15,7 @@ const ANSWER_PENDING_MS = 10000;
 // Being this close to the bottom of the terminal counts as following it, so a frame
 // keeps the view pinned to the tail; further up, the user is reading and we leave it.
 const FOLLOW_SLACK_PX = 48;
+const VERSION_POLL_MS = 5000;
 
 // Inline Lucide paths, matching the existing UI; no external assets behind IAP.
 const LUCIDE = {
@@ -59,7 +60,7 @@ let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 let captureLines = [], captureDirty = false;
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
-  catch { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
+  catch { return ""; } // Like desktop SESSION_ID: CSPRNG-random or omitted, never guessed.
 })();
 
 function draft(id = active) {
@@ -382,7 +383,8 @@ async function streamTerminal(id, signal) {
   text($("terminal-status"), "Connecting");
   while (!signal.aborted) {
     try {
-      const query = new URLSearchParams({ frame, session: liveSession });
+      const query = new URLSearchParams({ frame });
+      if (liveSession) query.set("session", liveSession);
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
@@ -573,4 +575,23 @@ window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
-setupLiveMode({ request, session: liveSession, licon });
+const live = setupLiveMode({ request, session: liveSession, licon, onVersion: observeVersion });
+let assetVersion = null;
+function hasDrafts() {
+  return [...drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+}
+function observeVersion(version) {
+  if (typeof version !== "string" || !version) return;
+  if (assetVersion === null) assetVersion = version;
+  const changed = version !== assetVersion;
+  show("update-notice", changed);
+  $("reload-update").disabled = sending || launching;
+  // A deploy must not eat another pane's draft, an in-flight action, or a voice session.
+  if (changed && !document.hidden && !sending && !launching && !hasDrafts() && !live.isActive() && !document.querySelector("dialog[open]")) location.reload();
+}
+$("reload-update").onclick = () => {
+  if (sending || launching) return;
+  if ((hasDrafts() || live.isActive()) && !confirm("Reload now? Unsent drafts will be discarded and Live Mode will end.")) return;
+  location.reload();
+};
+setInterval(() => { if (!document.hidden) live.refresh(); }, VERSION_POLL_MS);
