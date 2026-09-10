@@ -64,7 +64,7 @@ def test_pipes_llm_json_through():
     )
     assert r["tool"] == "claude" and r["headline"] == "Editing models.py"
     assert r["notable"] == ["ran tests", "8 passed"]  # passed straight through
-    assert r["pane_id"] == "%0" and r["label"] == "work"  # merged in (session name)
+    assert r["pane_id"] == "%0" and r["label"] == "work:0"  # merged in (session:window)
 
 
 def test_question_forces_waiting():
