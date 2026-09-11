@@ -204,6 +204,13 @@ function render() {
   show("back", inPane); show("heading", inPane); show("detail", inPane);
   renderList();
   if (!inPane) return;
+  // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
+  // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
+  // still shows the last frame, and every key is disabled — nothing to do but hit back.
+  // Go back to the list instead, and only once the daemon is authoritative: `booted`
+  // false means the inventory is still loading (startup, or a restart), where an absent
+  // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
+  if (booted && loaded && !pane) { navigate(); return; }
   text($("pane-title"), pane?.label || (booted ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
