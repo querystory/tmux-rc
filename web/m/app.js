@@ -520,7 +520,12 @@ html($("keyboard"), licon("keyboard", 16) + "<span>Keys</span>");
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
-for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Prefix", "prefix"]]) {
+// Same set the full UI's key bar offers. Ctrl-D and Ctrl-O were missing here: this list
+// was written fresh rather than ported, so the two keys you need when a pane has dropped
+// to a bare shell — EOF to close it, and Claude Code's newline — were unreachable from a
+// phone. The row is overflow-x:auto with flex:none buttons, so it scrolls rather than
+// shrinking them below a thumb-sized target (see #keys in style.css).
+for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
   const button = document.createElement("button"); button.title = label; button.setAttribute("aria-label", label);
   if (name) html(button, licon(name, 18)); else text(button, label);
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });
