@@ -112,7 +112,13 @@ _SPARKLE_RE = re.compile(r"[⠁⠂⠄⠈⠐⠠⡀⢀]")
 # still anchors when a sparkle lands flush against it ("›⠁Ask"), which is exactly the
 # frame that most needs normalizing.
 _CODEX_INPUT_RE = re.compile(r"^\s*\u203a")
-_SPARKLE_RADIUS = 1  # rows either side of the input line the animation reaches
+# Rows either side of the input line that the band covers. The animation was measured at
+# ±1 on every sparkling pane; ±2 is deliberate headroom so the rows immediately outside it
+# — the input box's borders, which carry real spacing — are normalized too. The band MUST
+# be a function of the anchor alone: any term that depends on where the dots are this
+# frame makes it breathe, and a row flattened in one frame and kept verbatim in the next
+# re-creates the exact churn this removes.
+_SPARKLE_RADIUS = 2
 _WS_RUN_RE = re.compile(r"[ \t]+")
 
 

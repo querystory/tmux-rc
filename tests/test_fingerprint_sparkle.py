@@ -59,6 +59,32 @@ def test_dots_leaving_both_band_edges_still_matches():
     assert _fingerprint(empty_edges) == _fingerprint(_FRAME_A)
 
 
+def test_dots_leaving_the_outer_rows_still_matches():
+    """Review case (antonyliang): the extreme dots move inward, vacating the input box's
+    BORDER rows. Those carry real spacing, so if the band were derived from where the
+    dots are they would be flattened in one frame and kept verbatim in the next — the
+    worst place for it. The band is a fixed offset from the input line, so it holds."""
+    outer = (
+        "• Working\n"
+        "  ⠁    border   row\n"
+        "     ⠄\n"
+        "› Ask Codex to do anything\n"
+        "     ⠂\n"
+        "  ⠈    border   row\n"
+        "  status bar\n"
+    )
+    inner = (
+        "• Working\n"
+        "       border   row\n"
+        "     ⠄  ⠁\n"
+        "› Ask Codex to do anything\n"
+        "     ⠂ ⠈\n"
+        "       border   row\n"
+        "  status bar\n"
+    )
+    assert _fingerprint(outer) == _fingerprint(inner)
+
+
 def test_single_cell_braille_outside_the_band_is_content():
     """U+2801 is the braille letter "a". Outside Codex's input band a lone dot is text,
     not decoration, so a change to it is a real change and must be seen."""
