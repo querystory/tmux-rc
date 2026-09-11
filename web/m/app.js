@@ -407,7 +407,14 @@ async function streamTerminal(id, signal) {
     } catch (error) {
       if (signal.aborted) return;
       if (error.status === 404) {
+        // The daemon says this pane is gone, and it is the FIRST thing to know: the live
+        // stream 404s the moment the pane dies, while /api/state may still be holding its
+        // long poll. Leaving you on a dead pane — stale frame, disabled keys — is a dead
+        // end, and render()'s own check cannot fire until the pane list catches up. Only
+        // act when this is still the pane on screen; a stale controller must not yank you
+        // out of a pane you have since switched to.
         text($("terminal-status"), "Pane closed or not found");
+        if (id === active) navigate();
         return;
       }
       text($("terminal-status"), "Reconnecting...");
