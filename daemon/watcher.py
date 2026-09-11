@@ -82,15 +82,59 @@ _VOLATILE_RE = re.compile(
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
     r"|\d+\s*(prompts|tools|imgs)|[\d.]+\s*[KMG]B"  # history counters
+    # Codex's own status bar wording for the same drifting metrics Claude Code's
+    # patterns above already cover: "Context 36% left", "4.78M used", "weekly 52% left".
+    r"|Context\s+\d+%\s+\w+|[\d.]+[KMG]\s+used|weekly\s+\d+%\s+left"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    # Codex's ambient "sparkle" animation: single-dot braille scattered across the rows
+    # around its input box, reshuffled every frame. Unlike the spinners above it is not
+    # one cell in a fixed spot, so it defeated the whole change check — three lines of a
+    # 30-line screen churned constantly and EVERY tick looked like new content, firing a
+    # classification per 1.5s on an idle pane. Matched narrowly, by construction rather
     r"|[ \t]+$",  # trailing whitespace
     re.MULTILINE,
 )
 
+# Codex's ambient "sparkle" animation: single-dot braille scattered over the rows around
+# its input box, reshuffled every frame. Unlike the spinners above it is not one cell in
+# a fixed place — the dots MOVE — so deleting the glyph in place is not enough: the same
+# screen still fingerprints differently because the surrounding spaces shift with them.
+# Three churning lines out of thirty made every tick look like new content, firing a
+# classification per 1.5s on a pane where nothing was happening (and, with each call
+# free to take 20s, starving the tick that drives the "stalled" flag).
+#
+# Identified by construction, not by listing glyphs: a single raised dot
+# (U+2801/02/04/08/10/20/40/80). Every spinner that actually means something is
+# multi-dot, and real braille prose is dense multi-dot cells, so neither is matched.
+_SPARKLE_RE = re.compile(r"[⠁⠂⠄⠈⠐⠠⡀⢀]")
+_WS_RUN_RE = re.compile(r"[ \t]+")
+
 
 def _fingerprint(text: str) -> str:
-    """Content signature of a pane, ignoring volatile timer/spinner churn."""
-    return _VOLATILE_RE.sub("", text)
+    """Content signature of a pane, ignoring volatile timer/spinner churn.
+
+    A sparkle changes the line by MOVING, so deleting the glyph is not enough — the gap
+    it leaves shifts too, and the same screen still signs differently.
+
+    Normalising only the lines that currently hold a dot is not enough either, and was
+    the subtler half of this bug: the animation drifts BETWEEN lines, so a line flattened
+    on one frame is untouched on the next and flips the signature by itself. So once a
+    screen shows the animation anywhere, every line in the band it plays over — from the
+    first sparkled line to the last — is flattened, whether or not a dot is on it right
+    now. The rest of the screen keeps its exact spacing: collapsing everything would
+    erase the indentation that distinguishes real content (a diff, a tree, nested
+    output)."""
+    text = _VOLATILE_RE.sub("", text)
+    if not _SPARKLE_RE.search(text):
+        return text
+    lines = text.split("\n")
+    sparkled = [i for i, ln in enumerate(lines) if _SPARKLE_RE.search(ln)]
+    lo, hi = sparkled[0], sparkled[-1]
+    for i in range(lo, hi + 1):
+        # Blank, don't delete: a dot can land flush against the text ("›⠁Ask"), and
+        # removing it outright would weld the words together on that frame only.
+        lines[i] = _WS_RUN_RE.sub(" ", _SPARKLE_RE.sub(" ", lines[i])).strip()
+    return "\n".join(lines)
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
