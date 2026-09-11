@@ -347,11 +347,13 @@
   #expand-btn, #theme-btn, #mobile-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
     font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
   #expand-btn:hover, #theme-btn:hover, #mobile-btn:hover { color: var(--accent); }
-  /* The phone-UI link only earns its header slot where the phone UI is the better
-     experience. Wider than a phone, it's dead chrome in a tight bar — so it's gone.
-     display:none (not [hidden]) so the media query alone owns its visibility. */
-  #mobile-btn { display: none; }
-  @media (max-width: 600px) { #mobile-btn { display: inline-flex; align-items: center; } }
+  /* Always shown. It was behind a max-width:600px query, which hid it on exactly the
+     devices it exists for — a large phone (and any phone in landscape) reports a CSS
+     viewport wider than that, so the escape hatch vanished on the screen that needs it.
+     A viewport width cannot tell you whether you are on a phone; the honest version is
+     to let anyone take the link, since it costs one quiet glyph next to the theme
+     toggle and a desktop user simply never taps it. */
+  #mobile-btn { display: inline-flex; align-items: center; }
   /* overflow-x hidden: swipe gestures park the neighbour card off-screen with transforms,
      and the ghost card sits a full viewport away — without clipping, that overhang becomes
      scrollable width and the WHOLE PAGE slides sideways mid-swipe (dock, card, terminal,
