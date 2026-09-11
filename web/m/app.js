@@ -499,7 +499,17 @@ $("reply-form").onsubmit = async (event) => {
   } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); }
   finally { sending = false; render(); }
 };
-$("reply-form").onkeydown = (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) { event.preventDefault(); $("reply-form").requestSubmit(); } };
+// Enter SENDS, Shift+Enter inserts a newline — the same contract as the full UI's
+// composer, which this one is a port of. It shipped requiring Cmd/Ctrl+Enter, a shortcut
+// a phone keyboard cannot type at all, so the most obvious way to send did nothing and
+// silently added a blank line instead. Cmd/Ctrl+Enter still sends, for a hardware
+// keyboard and for anyone whose fingers already learned it. isComposing guards IME
+// input: mid-composition Enter commits the candidate word and must not send.
+$("reply-form").onkeydown = (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  $("reply-form").requestSubmit();
+};
 let fileTarget = null;
 $("attach").onpointerdown = () => { if (active) draft().saveCaret(); };
 $("attach").onclick = () => { fileTarget = active; $("image-file").click(); };
