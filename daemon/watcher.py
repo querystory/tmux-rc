@@ -92,41 +92,51 @@ _VOLATILE_RE = re.compile(
 )
 
 # Codex's ambient "sparkle" animation: single-dot braille scattered over the rows around
-# its input box, reshuffled every frame. Unlike the spinners above it is not one cell in
-# a fixed place — the dots MOVE — so deleting the glyph in place is not enough: the same
-# screen still fingerprints differently because the surrounding spaces shift with them.
-# Three churning lines out of thirty made every tick look like new content, firing a
-# classification per 1.5s on a pane where nothing was happening (and, with each call
-# free to take 20s, starving the tick that drives the "stalled" flag).
+# its input box, reshuffled every frame. Unlike the spinners in _VOLATILE_RE it is not one
+# cell in a fixed place — the dots MOVE, so deleting the glyph is not enough: the gap it
+# leaves shifts with it and the same screen still signs differently. Left alone it made
+# every tick look like new content, firing a classification per 1.5s on a pane where
+# nothing was happening (and, with each call free to take 20s, starving the tick that
+# drives the "stalled" flag).
 #
-# Identified by construction, not by listing glyphs: a single raised dot
-# (U+2801/02/04/08/10/20/40/80). Every spinner that actually means something is
-# multi-dot, and real braille prose is dense multi-dot cells, so neither is matched.
+# ANCHORED to the input box rather than hunting glyphs screen-wide. The animation only
+# ever plays on the input row and the row either side; treating a lone dot as decoration
+# anywhere would erase real single-cell braille (U+2801 is the letter "a", so "⠁"→"⠂" is
+# a genuine change) and would let a stray dot in scrollback drag unrelated rows into the
+# flattened band. Anchoring also keeps the band FIXED as dots come and go: derived from
+# the dots themselves it grew and shrank between frames, so a boundary row was flattened
+# in one and not the next — which reintroduced the very churn this removes.
 _SPARKLE_RE = re.compile(r"[⠁⠂⠄⠈⠐⠠⡀⢀]")
+# Codex's input line: "›" (U+203A) at the left, usually followed by its placeholder.
+# Matched on the prompt glyph alone so it anchors once the user has typed — and so it
+# still anchors when a sparkle lands flush against it ("›⠁Ask"), which is exactly the
+# frame that most needs normalizing.
+_CODEX_INPUT_RE = re.compile(r"^\s*\u203a")
+_SPARKLE_RADIUS = 1  # rows either side of the input line the animation reaches
 _WS_RUN_RE = re.compile(r"[ \t]+")
 
 
 def _fingerprint(text: str) -> str:
     """Content signature of a pane, ignoring volatile timer/spinner churn.
 
-    A sparkle changes the line by MOVING, so deleting the glyph is not enough — the gap
-    it leaves shifts too, and the same screen still signs differently.
-
-    Normalising only the lines that currently hold a dot is not enough either, and was
-    the subtler half of this bug: the animation drifts BETWEEN lines, so a line flattened
-    on one frame is untouched on the next and flips the signature by itself. So once a
-    screen shows the animation anywhere, every line in the band it plays over — from the
-    first sparkled line to the last — is flattened, whether or not a dot is on it right
-    now. The rest of the screen keeps its exact spacing: collapsing everything would
-    erase the indentation that distinguishes real content (a diff, a tree, nested
-    output)."""
+    Rows in the sparkle band (Codex's input line ± _SPARKLE_RADIUS) have their dots
+    blanked and their whitespace flattened, so a dot cannot change the signature by
+    moving. The band is fixed by the input line's position, not by where dots happen to
+    be this frame, so it does not breathe between frames. Everywhere else the text is
+    untouched — including single-cell braille, which is real content — because
+    collapsing spacing globally would erase the indentation that distinguishes one
+    screen from another (a diff, a tree, nested output)."""
     text = _VOLATILE_RE.sub("", text)
-    if not _SPARKLE_RE.search(text):
-        return text
     lines = text.split("\n")
-    sparkled = [i for i, ln in enumerate(lines) if _SPARKLE_RE.search(ln)]
-    lo, hi = sparkled[0], sparkled[-1]
-    for i in range(lo, hi + 1):
+    anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
+    if not anchors:
+        return text
+    band = {
+        i
+        for a in anchors
+        for i in range(max(0, a - _SPARKLE_RADIUS), min(len(lines), a + _SPARKLE_RADIUS + 1))
+    }
+    for i in band:
         # Blank, don't delete: a dot can land flush against the text ("›⠁Ask"), and
         # removing it outright would weld the words together on that frame only.
         lines[i] = _WS_RUN_RE.sub(" ", _SPARKLE_RE.sub(" ", lines[i])).strip()

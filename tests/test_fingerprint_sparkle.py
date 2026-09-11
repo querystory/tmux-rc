@@ -45,6 +45,41 @@ def test_a_line_the_animation_drifts_off_still_matches():
     assert _fingerprint(bare) == _fingerprint(_FRAME_A)
 
 
+def test_dots_leaving_both_band_edges_still_matches():
+    """The band must not breathe. Derived from where the dots ARE, it grew and shrank
+    between frames, so an edge row was flattened in one fingerprint and left alone in
+    the next — re-creating the churn. Anchored to the input line it stays put."""
+    empty_edges = (
+        "• Working (1h 05m 15s • esc to interrupt)\n"
+        "   \n"                                        # top edge: no dot this frame
+        "› Ask Codex to do anything        ⠁\n"
+        "   \n"                                        # bottom edge: no dot either
+        "  fix-async-mess · gpt-6-astra max · Context 43% left · 4.36M used"
+    )
+    assert _fingerprint(empty_edges) == _fingerprint(_FRAME_A)
+
+
+def test_single_cell_braille_outside_the_band_is_content():
+    """U+2801 is the braille letter "a". Outside Codex's input band a lone dot is text,
+    not decoration, so a change to it is a real change and must be seen."""
+    a = "output: ⠁\ndone"
+    b = "output: ⠂\ndone"
+    assert _fingerprint(a) != _fingerprint(b)
+
+
+def test_a_stray_dot_in_scrollback_flattens_nothing():
+    """A lone dot far from the input box must not drag unrelated rows into the band and
+    erase their indentation."""
+    a = "  ⠁ log line\n    indented   detail\nplain"
+    assert _fingerprint(a) == a
+
+
+def test_no_codex_input_line_means_no_band():
+    """A Claude Code or shell pane has no "›" prompt: nothing is normalized at all."""
+    plain = "$ make test\n   297 passed\n$"
+    assert _fingerprint(plain) == plain
+
+
 def test_real_change_under_the_animation_still_registers():
     """The guard against over-stripping: a sparkled screen is not a blind spot."""
     changed = _FRAME_B.replace("• Working", "• Ran pytest")
@@ -72,9 +107,8 @@ def test_multi_dot_spinners_and_braille_text_are_untouched():
     assert _fingerprint("⣿⣿⠿⣿ banner") != _fingerprint("⣿⡿⠿⣿ banner")
 
 
-def test_screens_without_the_animation_keep_their_own_shape():
-    """No sparkle anywhere ⇒ the fast path: the volatile list still runs (it trims the
-    trailing space after the prompt), but no line is flattened, so indentation survives
-    verbatim."""
+def test_volatile_list_still_runs_without_a_band():
+    """No Codex input line ⇒ no flattening, but the volatile list still trims the
+    trailing space after the prompt."""
     plain = "$ make test\n   297 passed\n$ "
     assert _fingerprint(plain) == "$ make test\n   297 passed\n$"
