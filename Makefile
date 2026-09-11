@@ -34,8 +34,8 @@ test:
 	uv run pytest -q tests/
 
 fmt:
-	uv run --with ruff ruff check --fix daemon tests
-	uv run --with ruff ruff format daemon tests
+	uv run --with ruff ruff check --fix openbus tests
+	uv run --with ruff ruff format openbus tests
 
 # Build the docs site the daemon serves, into docs-site/serve/ (NOT public/).
 # Needs the EXTENDED Hugo build AND `go` on PATH (Hugo Modules fetches the Hextra
