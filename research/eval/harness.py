@@ -8,8 +8,8 @@ throwaway script each time. This codifies that into standing infra: a committed 
 change or model swap gets the same check every time and CI can gate on it.
 
 WHAT it does: for each sample it runs the SAME code path production uses —
-`daemon.classify.classify(pane, text, llm_fn)` with `llm_fn` calling the real Vertex
-model under `daemon/parser_prompt.txt` — so the candidate output includes the
+`openbus.classify.classify(pane, text, llm_fn)` with `llm_fn` calling the real Vertex
+model under `openbus/parser_prompt.txt` — so the candidate output includes the
 waiting_on / activity overrides that actually drive the UI badge, not just raw model
 JSON. It then scores the candidate against the sample's blessed `expected`:
 
@@ -37,8 +37,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from daemon.classify import classify
-from daemon.tmux import Pane
+from openbus.classify import classify
+from openbus.tmux import Pane
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
 

@@ -5,8 +5,8 @@ address ("work:0.0" — window/pane INDEX, not the window name) has to be matche
 own — see issue #146.
 """
 
-from daemon import tmux
-from daemon.tmux import Pane, find_pane
+from openbus import tmux
+from openbus.tmux import Pane, find_pane
 
 # session, window_index, window_name, pane_index, id, cmd, title, cwd
 NAMED = Pane("work", "0", "Resolve PR 38", "0", "%0", "node", "t", "/home/x/proj")
@@ -87,14 +87,14 @@ def test_empty_server(monkeypatch):
 def test_missing_target_warns_once(monkeypatch, caplog):
     """A target that matches nothing used to serve an empty deck silently. Warn — but
     only on the first tick, not once per poll for the life of the daemon."""
-    from daemon import watcher
+    from openbus import watcher
 
     monkeypatch.setattr(watcher.tmux, "server_running", lambda: True)
     monkeypatch.setattr(watcher.tmux, "find_pane", lambda t: None)
     monkeypatch.setattr(watcher.tmux, "list_panes", list)
 
     w = watcher.Watcher(target="nope:9", use_llm=False)
-    with caplog.at_level("WARNING", logger="daemon.watcher"):
+    with caplog.at_level("WARNING", logger="openbus.watcher"):
         w._tick()
         w._tick()
 

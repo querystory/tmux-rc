@@ -5,7 +5,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from daemon import server
+from openbus import server
 
 app = server.app
 

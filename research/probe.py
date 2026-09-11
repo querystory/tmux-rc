@@ -24,18 +24,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-from daemon import tmux
+from openbus import tmux
 # Prices AND the tokens→cost arithmetic come from the daemon (not a copy here): this file
 # used to hardcode 2.5-flash-lite's $0.10/$0.40 long after the move to 3.1, quoting costs
 # ~2.5x low. `_tokens_cost` is the daemon's single source of truth for both.
-from daemon.llm import _MODEL, _client, _parse_json, _tokens_cost
-from daemon.render import render_png
+from openbus.llm import _MODEL, _client, _parse_json, _tokens_cost
+from openbus.render import render_png
 
 SAMPLES = Path(__file__).parent / "samples"
 
 # The parser prompt under test IS the production one — import it (single source of
 # truth) rather than keeping a copy here that silently drifts from what ships.
-from daemon.classify import parser_prompt  # noqa: E402
+from openbus.classify import parser_prompt  # noqa: E402
 
 PROMPT = parser_prompt()
 

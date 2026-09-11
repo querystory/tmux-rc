@@ -29,7 +29,7 @@ _OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "1.50"))
 # so "add it all up / averages" is a real query (and the seed for QueryStory
 # introspection). We had this data in every response's usage_metadata and were throwing
 # it away — now it's recorded. Live totals also kept in-memory (see usage_totals()).
-_metrics = logging.getLogger("daemon.llm.metrics")
+_metrics = logging.getLogger("openbus.llm.metrics")
 if not _metrics.handlers:
     _mpath = os.environ.get("TMUXRC_METRICS_LOG", "/tmp/tmux-rc-metrics.jsonl")
     _mh = logging.FileHandler(_mpath)
@@ -78,7 +78,7 @@ def usage_totals() -> dict:
 
 # Dedicated LLM trace log so we can grep exactly what the model saw and returned.
 # Path override via TMUXRC_LLM_LOG; default alongside the repo. tail -f to watch.
-_trace = logging.getLogger("daemon.llm.trace")
+_trace = logging.getLogger("openbus.llm.trace")
 if not _trace.handlers:
     _path = os.environ.get("TMUXRC_LLM_LOG", "/tmp/tmux-rc-llm.log")
     _h = logging.FileHandler(_path)

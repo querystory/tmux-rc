@@ -8,7 +8,7 @@ from unrelated tmux servers fused together under one identity.
 
 import subprocess
 
-import daemon.tmux as T
+import openbus.tmux as T
 
 
 def _fail(_argv):
