@@ -113,12 +113,28 @@ function pause(ms, signal) {
 }
 function notice(message = "") { text($("notice"), message); show("notice", !!message); }
 
-function navigate(id = null, nextView = "summary") {
+function hashFor(id, nextView) {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
   if (sort !== "session") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
-  location.hash = params.toString();
+  return params.toString();
+}
+
+function navigate(id = null, nextView = "summary") {
+  location.hash = hashFor(id, nextView);
+}
+
+// Leaving a pane the user did not choose to leave — it closed under them. Unlike
+// navigate() this must NOT push a history entry: the pane is gone, so a Back that
+// returns to it would land on a dead deep link and bounce straight out again. replaceState
+// drops the dead URL instead of stacking it, and because it fires no hashchange we route
+// synchronously — otherwise `active` stays on the dead pane long enough for route() to
+// POST /select for a pane that no longer exists.
+function leaveMissingPane() {
+  const hash = hashFor(null);
+  history.replaceState(null, "", hash ? `#${hash}` : location.pathname + location.search);
+  route();
 }
 
 function route() {
@@ -210,7 +226,7 @@ function render() {
   // Go back to the list instead, and only once the daemon is authoritative: `booted`
   // false means the inventory is still loading (startup, or a restart), where an absent
   // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
-  if (booted && loaded && !pane) { navigate(); return; }
+  if (booted && loaded && !pane) { leaveMissingPane(); return; }
   text($("pane-title"), pane?.label || (booted ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
@@ -414,7 +430,7 @@ async function streamTerminal(id, signal) {
         // act when this is still the pane on screen; a stale controller must not yank you
         // out of a pane you have since switched to.
         text($("terminal-status"), "Pane closed or not found");
-        if (id === active) navigate();
+        if (id === active) leaveMissingPane();
         return;
       }
       text($("terminal-status"), "Reconnecting...");
