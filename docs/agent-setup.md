@@ -16,33 +16,40 @@ would. Two consequences follow, and every recommendation below is one of them:
    classified gets re-read. Chrome that *moves on its own* therefore bills you for
    information you already had. See [parse cadence](design/parse-cadence.md) for why the
    trigger is change-based and what the fingerprint already strips.
-2. **If the pane doesn't say who it is, the phone can't either.** A card's heading comes
-   from the pane's own identity, not from the agent. A fleet of agents that all
-   self-identify as "claude" is a column of identical rows.
+2. **If the pane doesn't say who it is, the phone can't either.** A card's heading is the
+   agent's own session title, read off the screen — so an agent that never puts its title
+   on screen leaves the phone nothing to show but a coordinate.
 
-## Name your windows
+## Let the agent name itself
 
-This is the single highest-value thing to do, and it costs nothing per tick.
+You do not have to name anything. The classifier reads the agent's **own** session title
+off the screen and uses it as the card's heading — that is what the `session` field in the
+parser prompt is for. Claude Code prints its session name just above its status line;
+Codex puts its thread title first on its status bar. Both are picked up automatically, so
+a pane reads as *Review 4745* or *airbyte-value-population* rather than as its command.
 
-tmux names a window after the command that launched it, so eight agents become eight rows
-headed `claude`. tmux-rc treats those auto-names as the non-information they are — the
-generic set in `openbus/tmux.py` includes the shells, `node`, `python`, and the agent CLIs
-themselves (`claude`, `codex`, `gemini`, `aider`) — and falls back to
-`<session-or-cwd>:<window-index>`, which at least points at a real window. A name you
-chose beats both:
+Two settings make that work better, and both are worth having:
 
-    tmux rename-window 'Resolve PR 38'
+- **Codex: include `"thread-title"` in `status_line`.** Without it the title is not on
+  screen at all, so there is nothing to read and the pane falls back to a coordinate.
+- **Leave `automatic-rename` alone** where an agent sets the window title itself. Fighting
+  the agent for it just throws away the better name.
 
-A window name wins outright because it is per-window. Session names and cwd basenames are
-shared by every window in the session, which is why tmux-rc qualifies those with the
-window index instead of using them bare.
+The fallback only matters when there is no agent title to find. tmux names a window after
+the command that launched it, so eight agents would otherwise be eight rows headed
+`claude`; tmux-rc treats those auto-names as the non-information they are (the generic set
+in `openbus/tmux.py` covers the shells, `node`, `python`, and the agent CLIs themselves)
+and falls back to `<session-or-cwd>:<window-index>`, which at least points at a real
+window. Session names and cwd basenames are shared by every window in a session, which is
+why they are qualified with the index rather than used bare.
 
-Codex can keep that heading current by itself: its `status_line` accepts a
-`"thread-title"` entry, so the pane text carries the thread's own subject and the
-classifier has something specific to summarize even when the window name is stale.
+A window name you choose still wins outright, because it is per-window and tmux-side —
+useful for a pane that is not an agent at all:
 
-If your agent renames the window as it works, let it — `automatic-rename` fighting the
-agent for the title just restores the wall of `claude`.
+    tmux rename-window 'db migration'
+
+But for an agent pane it is not the fix for anything; it is a manual override of a name
+the agent already publishes.
 
 ## Codex: turn off the sparkle animation
 
