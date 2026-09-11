@@ -86,11 +86,7 @@ _VOLATILE_RE = re.compile(
     # patterns above already cover: "Context 36% left", "4.78M used", "weekly 52% left".
     r"|Context\s+\d+%\s+\w+|[\d.]+[KMG]\s+used|weekly\s+\d+%\s+left"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
-    # Codex's ambient "sparkle" animation: single-dot braille scattered across the rows
-    # around its input box, reshuffled every frame. Unlike the spinners above it is not
-    # one cell in a fixed spot, so it defeated the whole change check — three lines of a
-    # 30-line screen churned constantly and EVERY tick looked like new content, firing a
-    # classification per 1.5s on an idle pane. Matched narrowly, by construction rather
+    # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     r"|[ \t]+$",  # trailing whitespace
     re.MULTILINE,
 )
