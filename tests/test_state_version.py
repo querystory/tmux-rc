@@ -183,13 +183,11 @@ def test_wait_times_out_when_nothing_changes():
     assert got == 1  # timed out → current version unchanged
 
 
-def test_booted_flips_after_first_tick():
-    # booted() is False until a _tick COMPLETES, so an empty deck reads as "loading"
-    # (spinner) not "no panes". It keys off the completion flag, NOT _last_tick — which
-    # _loop stamps even on a tick that raised before producing state.
+def test_booted_flips_after_inventory_publication():
+    # A failed discovery may stamp _last_tick, but it must not claim an empty inventory.
     w = Watcher(target=None)
     assert w.booted() is False
     w._last_tick = 123.0  # a tick that raised still stamps this — must NOT flip booted
     assert w.booted() is False
-    w._booted = True  # what _loop sets after a tick returns normally
+    w._publish_states([])
     assert w.booted() is True

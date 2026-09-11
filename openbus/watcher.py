@@ -82,15 +82,71 @@ _VOLATILE_RE = re.compile(
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
     r"|\d+\s*(prompts|tools|imgs)|[\d.]+\s*[KMG]B"  # history counters
+    # Codex's own status bar wording for the same drifting metrics Claude Code's
+    # patterns above already cover: "Context 36% left", "4.78M used", "weekly 52% left".
+    r"|Context\s+\d+%\s+\w+|[\d.]+[KMG]\s+used|weekly\s+\d+%\s+left"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     r"|[ \t]+$",  # trailing whitespace
     re.MULTILINE,
 )
 
+# Codex's ambient "sparkle" animation: single-dot braille scattered over the rows around
+# its input box, reshuffled every frame. Unlike the spinners in _VOLATILE_RE it is not one
+# cell in a fixed place — the dots MOVE, so deleting the glyph is not enough: the gap it
+# leaves shifts with it and the same screen still signs differently. Left alone it made
+# every tick look like new content, firing a classification per 1.5s on a pane where
+# nothing was happening (and, with each call free to take 20s, starving the tick that
+# drives the "stalled" flag).
+#
+# ANCHORED to the input box rather than hunting glyphs screen-wide. The animation only
+# ever plays on the input row and the row either side; treating a lone dot as decoration
+# anywhere would erase real single-cell braille (U+2801 is the letter "a", so "⠁"→"⠂" is
+# a genuine change) and would let a stray dot in scrollback drag unrelated rows into the
+# flattened band. Anchoring also keeps the band FIXED as dots come and go: derived from
+# the dots themselves it grew and shrank between frames, so a boundary row was flattened
+# in one and not the next — which reintroduced the very churn this removes.
+_SPARKLE_RE = re.compile(r"[⠁⠂⠄⠈⠐⠠⡀⢀]")
+# Codex's input line: "›" (U+203A) at the left, usually followed by its placeholder.
+# Matched on the prompt glyph alone so it anchors once the user has typed — and so it
+# still anchors when a sparkle lands flush against it ("›⠁Ask"), which is exactly the
+# frame that most needs normalizing.
+_CODEX_INPUT_RE = re.compile(r"^\s*\u203a")
+# Rows either side of the input line that the band covers. The animation was measured at
+# ±1 on every sparkling pane; ±2 is deliberate headroom so the rows immediately outside it
+# — the input box's borders, which carry real spacing — are normalized too. The band MUST
+# be a function of the anchor alone: any term that depends on where the dots are this
+# frame makes it breathe, and a row flattened in one frame and kept verbatim in the next
+# re-creates the exact churn this removes.
+_SPARKLE_RADIUS = 2
+_WS_RUN_RE = re.compile(r"[ \t]+")
+
 
 def _fingerprint(text: str) -> str:
-    """Content signature of a pane, ignoring volatile timer/spinner churn."""
-    return _VOLATILE_RE.sub("", text)
+    """Content signature of a pane, ignoring volatile timer/spinner churn.
+
+    Rows in the sparkle band (Codex's input line ± _SPARKLE_RADIUS) have their dots
+    blanked and their whitespace flattened, so a dot cannot change the signature by
+    moving. The band is fixed by the input line's position, not by where dots happen to
+    be this frame, so it does not breathe between frames. Everywhere else the text is
+    untouched — including single-cell braille, which is real content — because
+    collapsing spacing globally would erase the indentation that distinguishes one
+    screen from another (a diff, a tree, nested output)."""
+    text = _VOLATILE_RE.sub("", text)
+    lines = text.split("\n")
+    anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
+    if not anchors:
+        return text
+    band = {
+        i
+        for a in anchors
+        for i in range(max(0, a - _SPARKLE_RADIUS), min(len(lines), a + _SPARKLE_RADIUS + 1))
+    }
+    for i in band:
+        # Blank, don't delete: a dot can land flush against the text ("›⠁Ask"), and
+        # removing it outright would weld the words together on that frame only.
+        lines[i] = _WS_RUN_RE.sub(" ", _SPARKLE_RE.sub(" ", lines[i])).strip()
+    return "\n".join(lines)
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
@@ -183,7 +239,7 @@ class Watcher:
         self._last_tick: float = (
             0.0  # wall time of the last loop iteration (staleness check)
         )
-        self._booted: bool = False  # set once a _tick completes without raising
+        self._booted: bool = False  # set once tmux inventory has been published
         self._task: asyncio.Task | None = None
         # Input-driven reparse: request_reparse() adds pane ids here and wakes the loop
         # so a submitted answer/keypress re-parses within a capture, not a poll interval.
@@ -238,11 +294,9 @@ class Watcher:
         )
 
     def booted(self) -> bool:
-        """False until the first tick RUNS TO COMPLETION. An empty `states` means "no
-        panes" only once this is True — before it, panes may exist but their initial
-        parses haven't finished, so the UI shows a loading spinner, not "no panes found".
-        Keyed off a completion flag (not _last_tick, which _loop also stamps on a tick
-        that raised before populating states)."""
+        """Whether tmux inventory is known, not whether classification has finished.
+        Before discovery succeeds an empty state means loading. Afterwards, identities
+        are visible immediately and unknown activities fill in as parses finish."""
         return self._booted
 
     def start(self) -> None:
@@ -304,7 +358,6 @@ class Watcher:
         while True:
             try:
                 await asyncio.to_thread(self._tick)
-                self._booted = True  # a tick COMPLETED — states now reflect reality
             except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
@@ -368,8 +421,7 @@ class Watcher:
 
     def _tick(self) -> None:
         if not tmux.server_running():
-            self.states = []
-            self._bump_state_if_changed([])  # wake the hold: tmux-down is a deck change too
+            self._publish_states([])
             return
         # Multi-pane: watch every pane (or just the configured target if set). Each
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
@@ -389,9 +441,20 @@ class Watcher:
         else:
             panes = tmux.list_panes()
         if not panes:
-            self.states = []
-            self._bump_state_if_changed([])  # wake the hold: no-panes is a deck change too
+            self._publish_states([])
             return
+        initial = not self._booted
+        states = []
+        if initial:
+            # Discovery is cheap; do not make visibility wait for capture, parsing or
+            # scrollback bootstrap. Never seed the parse cache with these placeholders.
+            focused = tmux.active_pane_id()
+            for p in panes:
+                s = {"pane_id": p.id, "tool": "unknown", "activity": "unknown",
+                     "tmux_active": p.id == focused}
+                _stamp_identity(s, p)
+                states.append(s)
+            self._publish_states(states)
         alive = {p.id for p in panes}
         # tmux recycles pane ids on close ("%3" freed, reassigned to a new pane). If an
         # id's pid changed, it's a different pane wearing the old id — evict the previous
@@ -413,8 +476,7 @@ class Watcher:
         self._force_parse = set()
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
-        states = []
-        for p in panes:
+        for index, p in enumerate(panes):
             try:
                 s = self._tick_pane(p)
             except subprocess.CalledProcessError as e:
@@ -439,7 +501,13 @@ class Watcher:
                     "updated_at": time.time(),
                 }
                 _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
-            states.append(s)
+            if initial:
+                s["tmux_active"] = p.id == focused
+                s["events_seq"] = self._events_seq.get(p.id, 0)
+                states[index] = s
+                self._publish_states(states)
+            else:
+                states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
         # selection to the pane the user is actually on (not just the top-sorted one).
         focused = tmux.active_pane_id()
@@ -463,9 +531,15 @@ class Watcher:
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
-        self.states = states
-        self._bump_state_if_changed(states)
+        self._publish_states(states)
         self._gc(alive)
+
+    def _publish_states(self, states: list[dict]) -> None:
+        # Publish a fresh snapshot so replacing/enriching the next startup result does
+        # not mutate the deck already visible to HTTP handlers between version bumps.
+        self.states = [dict(s) for s in states]
+        self._booted = True
+        self._bump_state_if_changed(self.states)
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state
@@ -503,6 +577,7 @@ class Watcher:
                 # change (idle pane, cadence elapsed) — the hold must still return.
                 s.get("session_summary"),
                 Watcher._question_prompt(s), s.get("parsed_at"),
+                s.get("last_activity_at"),
             ))
             for s in states
         ]
@@ -749,6 +824,13 @@ class Watcher:
         changed = fp != self._prev_fp.get(
             pane.id
         )  # real content change (timers stripped)
+        previous = self._state.get(pane.id)
+        # Seed from tmux on restart; only observed content changes advance this clock.
+        last_activity = (previous or {}).get("last_activity_at")
+        if last_activity is None:
+            last_activity = min(_activity_ts(pane) or now, now)
+        elif changed:
+            last_activity = now
         if changed:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
@@ -775,6 +857,7 @@ class Watcher:
             # climbing while the pane sits still.
             cached["state_since"] = self._state_since_for(pane.id, cached, now, _activity_ts(pane))
             cached["updated_at"] = now
+            cached["last_activity_at"] = last_activity
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
@@ -911,6 +994,7 @@ class Watcher:
         # `now - state_since` live so idle/waiting durations stay honest between parses.
         state["state_since"] = self._state_since_for(pane.id, state, now, _activity_ts(pane))
         state["updated_at"] = now
+        state["last_activity_at"] = last_activity
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
