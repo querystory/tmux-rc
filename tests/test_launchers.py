@@ -56,6 +56,14 @@ def _resolves(monkeypatch):
     monkeypatch.setattr(S.shutil, "which", lambda c, path=None: c)
 
 
+# `_unavailable` is given the tmux server's PATH by its callers and declines outright when
+# that is None (not knowing is not evidence — see the function). These tests are about the
+# PARSING, so they hand it a real-but-empty list: tmux answered, and it has nothing.
+NO_PATH = "/nonexistent-tmux-path-for-tests"
+def unavailable(command):
+    return S._unavailable(command, NO_PATH)
+
+
 def _no_tmux_path(monkeypatch):
     """The check also consults the tmux SERVER's PATH, which means shelling out to a real
     tmux. Pin it: a test about resolution must not depend on whether the machine running
@@ -116,7 +124,7 @@ def test_new_window_refuses_command_not_on_path(monkeypatch):
         [{"label": "Codex", "command": "codex --yolo", "icon": "codex"}]))
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
     monkeypatch.setattr(S.shutil, "which", lambda c, path=None: None)
-    _no_tmux_path(monkeypatch)
+    monkeypatch.setattr(T, "server_path", lambda: "/nonexistent")  # tmux answered: nothing there
     monkeypatch.setattr(T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run")))
     client = TestClient(S.app)
     r = client.post("/api/windows", json={"session": "work", "launcher": "Codex"})
@@ -139,6 +147,21 @@ def test_new_window_allows_a_command_only_tmux_can_find(monkeypatch):
     client = TestClient(S.app)
     r = client.post("/api/windows", json={"session": "work", "launcher": "Codex"})
     assert r.status_code == 200 and opened, "a launcher tmux can run must not be refused"
+
+
+def test_new_window_allows_a_command_when_tmux_cannot_say(monkeypatch):
+    """No server yet, a wedged one, an old tmux: then half the answer is known, and half
+    the answer is the daemon's PATH alone — the thing that was wrong before. A launcher
+    must not be refused on it."""
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps(
+        [{"label": "Codex", "command": "codex", "icon": "codex"}]))
+    monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
+    monkeypatch.setattr(T, "server_path", lambda: None)
+    monkeypatch.setattr(S.shutil, "which", lambda c, path=None: None)
+    monkeypatch.setattr(T, "_run", lambda argv: "%7")
+    client = TestClient(S.app)
+    assert client.post("/api/windows", json={"session": "work", "launcher": "Codex"}).status_code == 200
+    assert "unavailable" not in client.get("/api/launchers").json()["launchers"][0]
 
 
 def test_launchers_endpoint_reads_the_tmux_path_once(monkeypatch):
@@ -167,53 +190,53 @@ def test_new_window_allows_absolute_path_that_exists(monkeypatch, tmp_path):
 
 
 def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
-    assert "no-such-command-xyz" in S._unavailable("NOPE_XYZ=1 no-such-command-xyz")
-    assert S._unavailable("FOO=1 sh -c true") is None  # `sh` resolves; the assignment isn't argv[0]
+    assert "no-such-command-xyz" in unavailable("NOPE_XYZ=1 no-such-command-xyz")
+    assert unavailable("FOO=1 sh -c true") is None  # `sh` resolves; the assignment isn't argv[0]
     # Everything it can't confidently decide is left to the shell rather than guessed at.
-    assert S._unavailable('"unbalanced') is None
-    assert S._unavailable("FOO=1") is None
-    assert S._unavailable("a | b") is None
+    assert unavailable('"unbalanced') is None
+    assert unavailable("FOO=1") is None
+    assert unavailable("a | b") is None
     # A newline separates commands exactly as `;` does, but shlex would eat it as
     # whitespace — so `cd /tmp\nclaude`, a launcher that works, would be judged on the
     # shell builtin `cd` and refused. Control characters are shell syntax, not argv.
-    assert S._unavailable("cd /tmp\nclaude") is None
+    assert unavailable("cd /tmp\nclaude") is None
     # A backslash escapes, and the non-posix split keeps it as a literal instead — so
     # this would otherwise split three ways and judge "baz" as the command.
-    assert S._unavailable("FOO=bar\\ baz no-such-command-xyz") is None
+    assert unavailable("FOO=bar\\ baz no-such-command-xyz") is None
     # `exec claude` replaces the shell with the agent so the pane dies with it. `exec` is
     # a builtin, so argv[0] is the word after it, not the one which() would be asked for.
-    assert S._unavailable("exec no-such-command-xyz").startswith("no-such-command-xyz")
-    assert S._unavailable("exec sh") is None
+    assert unavailable("exec no-such-command-xyz").startswith("no-such-command-xyz")
+    assert unavailable("exec sh") is None
     # Assignments prefix `exec`; a word AFTER it is exec's argument, so `exec FOO=1 sh`
     # genuinely makes sh hunt for a file called "FOO=1" (verified against sh). Reporting
     # that is the honest answer — stripping it would wave through a launcher that fails.
-    assert S._unavailable("FOO=1 exec sh") is None
-    assert S._unavailable("exec FOO=1 sh").startswith("FOO=1")
+    assert unavailable("FOO=1 exec sh") is None
+    assert unavailable("exec FOO=1 sh").startswith("FOO=1")
     # exec takes options of its own (`exec -a name cmd`, `exec -- cmd`). Resolving one as
     # if it were the command would refuse a launcher that works, which is the one outcome
     # this must never produce — so an option after `exec` ends the judging.
-    assert S._unavailable("exec -a agent no-such-command-xyz") is None
-    assert S._unavailable("exec -- no-such-command-xyz") is None
-    assert S._unavailable("command no-such-command-xyz").startswith("no-such-command-xyz")
-    assert S._unavailable("command -p sh") is None
+    assert unavailable("exec -a agent no-such-command-xyz") is None
+    assert unavailable("exec -- no-such-command-xyz") is None
+    assert unavailable("command no-such-command-xyz").startswith("no-such-command-xyz")
+    assert unavailable("command -p sh") is None
     # A PATH assignment changes the very lookup we would be doing, so don't do it.
-    assert S._unavailable("PATH=/opt/x/bin no-such-command-xyz") is None
+    assert unavailable("PATH=/opt/x/bin no-such-command-xyz") is None
     # A relative path is resolved by tmux against the SESSION's directory (new_window
     # -c #{session_path}), not the daemon's cwd — checking it here would answer about a
     # different file, so it isn't checked at all.
-    assert S._unavailable("./no-such-command-xyz") is None
+    assert unavailable("./no-such-command-xyz") is None
 
 
 def test_unavailable_judges_argv0_despite_ordinary_arguments():
     # Only argv[0] is resolved, so only argv[0] has to be a plain word. Holding the rest
     # to the same spelling meant one colon abandoned the check — and a config with a URL
     # or a versioned model name in it is exactly the kind whose binary lives off PATH.
-    why = S._unavailable("no-such-command-xyz --endpoint https://api.example.com")
+    why = unavailable("no-such-command-xyz --endpoint https://api.example.com")
     assert why and "no-such-command-xyz" in why
-    assert S._unavailable("sh --model claude-3:latest --x=1,2") is None
+    assert unavailable("sh --model claude-3:latest --x=1,2") is None
     # Shell syntax anywhere still means this is not a plain argv to judge.
     for line in ("sh --pipe | tee", "sh $(hostname)", "sh *.py", "sh 'quoted'"):
-        assert S._unavailable(line) is None, line
+        assert unavailable(line) is None, line
 
 
 def test_new_window_wakes_the_watcher_for_the_pane_it_made(monkeypatch):
@@ -251,10 +274,10 @@ def test_new_window_succeeds_with_no_watcher_running(monkeypatch):
 def test_unavailable_distinguishes_a_bad_path_from_a_bad_name(tmp_path):
     # Telling someone whose config already holds an absolute path to "use an absolute
     # path" sends them to fix the one thing that isn't wrong.
-    assert "PATH" in S._unavailable("no-such-command-xyz")
+    assert "PATH" in unavailable("no-such-command-xyz")
     bad = tmp_path / "nope"
-    assert "PATH" not in S._unavailable(str(bad))
-    assert str(bad) in S._unavailable(str(bad))
+    assert "PATH" not in unavailable(str(bad))
+    assert str(bad) in unavailable(str(bad))
 
 
 def test_unavailable_expands_tilde(monkeypatch, tmp_path):
@@ -264,12 +287,12 @@ def test_unavailable_expands_tilde(monkeypatch, tmp_path):
     exe.write_text("#!/bin/sh\n")
     exe.chmod(0o755)
     monkeypatch.setenv("HOME", str(tmp_path))
-    assert S._unavailable("~/codex --yolo") is None
-    why = S._unavailable("~/absent")
+    assert unavailable("~/codex --yolo") is None
+    why = unavailable("~/absent")
     assert why and "~/absent" in why  # named as configured, not as expanded
     # sh does not expand `~` inside quotes, so neither may we: the shell would look for a
     # literal "~/codex" and fail. Quoting is already a "can't say", and must stay one.
-    assert S._unavailable("'~/codex'") is None
+    assert unavailable("'~/codex'") is None
 
 
 def test_launchers_endpoint_flags_unavailable(monkeypatch):

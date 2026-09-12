@@ -1614,7 +1614,12 @@ function openLaunchMenu(sess, anchor) {
   // once entries arrive: a tap that silently does nothing is the symptom this PR exists
   // to remove. Bounded: the retry only re-enters with a non-empty list, which skips here.
   if (!launchers.length) {
-    loadLaunchers().then(() => { if (launchers.length) openLaunchMenu(sess, anchor); });
+    loadLaunchers().then(() => {
+      if (launchers.length) openLaunchMenu(sess, anchor);
+      // Still nothing: the read failed, or there are no launchers configured. Say so —
+      // a retry that leaves the tap unanswered is the same silence, one round later.
+      else barNote("Could not load launchers. Check the daemon and try again.");
+    });
     return;
   }
   const m = document.createElement("div");

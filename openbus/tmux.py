@@ -297,11 +297,14 @@ def server_path() -> str | None:
     typically far wider than the daemon's own — nvm, ~/bin — and is the difference between
     a launcher that works and one the daemon would swear does not exist.
 
-    The global environment, not a session's: sessions rarely override PATH, and this is
-    used to DECLINE to report a command missing, where the widest honest list is the safe
-    one. It is still only an approximation — the window's shell runs its rc files and can
-    prepend more — which is exactly why the caller treats a hit here as "can't say it's
-    missing" rather than as proof of anything."""
+    The global environment, not a session's. A session CAN override PATH with
+    `set-environment`, and one that did would be missed here — but reading it costs a tmux
+    call per session and the menu that consumes this has no session in hand at all, while
+    the override itself is vanishingly rare. The approximation errs the same way the whole
+    check does: an unmodelled PATH can only cause a launcher to be doubted, never a bad
+    one to be trusted. None means "don't know", which the caller must not read as "empty":
+    the window's shell also runs its rc files and can prepend more, so a hit here is only
+    ever "can't say it's missing" rather than proof of anything."""
     try:
         out = _run(["show-environment", "-g", "PATH"]).strip()
     except Exception:  # noqa: BLE001 - no server, old tmux, wedged: just don't know

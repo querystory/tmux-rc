@@ -226,7 +226,13 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
     if shutil.which(word) or (path and shutil.which(word, path=path)):
         return None
     if os.path.isabs(word):
+        # A path answers for itself; neither PATH was ever going to be consulted.
         return f"{words[0]} does not exist, or is not executable."
+    if path is None:
+        # tmux could not say what its PATH is (no server yet, a wedged one, an old
+        # version). That is half an answer, and half an answer here is the daemon's PATH
+        # alone — the very thing that was wrong before. Not knowing is not evidence.
+        return None
     return (f"{words[0]} is on neither the daemon's PATH nor tmux's. Use an absolute path "
             "in TMUXRC_LAUNCHERS, or add its directory to the PATH of whichever of the "
             "two starts your windows.")
