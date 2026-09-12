@@ -114,9 +114,10 @@ Capture is bounded in *rows*, not characters, so a wider pane sends a proportion
 payload to the classifier on every call. Measured across two live panes here: a 178-column
 pane captured ~3.7k characters where a 238-column pane captured ~23.9k. Width is not the
 only factor in that gap — the wide pane also held denser output — but the direction is
-real, and you pay it again every time the pane is classified. (Not every tick: on the
-normal path an unchanged screen is not re-read, so width taxes activity rather than mere
-existence. Sending input forces a reparse regardless, which is a cost you asked for.)
+real, and you pay it again every time the pane is classified. Not every tick: the pane is
+captured each tick either way, but on the normal path an unchanged screen is not sent to
+the classifier, so width taxes activity rather than mere existence. (Sending input forces
+a reparse regardless — a cost you asked for.)
 
 The honest tradeoff: this is a reason to prefer a reasonable width, not to cripple your
 terminal. A pane too narrow to render your agent's diffs is worse for you than the token
