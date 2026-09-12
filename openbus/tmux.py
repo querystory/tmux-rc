@@ -291,9 +291,13 @@ def new_window(session: str, name: str, command: str) -> str:
     """Open a new window in `session` running `command`, and return its pane id.
     The trailing ':' pins the target to the session (a bare name could match a window).
     -d: the phone asked, so the phone decides focus — the daemon must not yank the
-    host user's tmux client to the new window."""
+    host user's tmux client to the new window.
+    -c: without it tmux starts the window in the *client's* cwd, and here the client is
+    the daemon (its WorkingDirectory), not the user's session. #{session_path} is the
+    directory the session was created in, which is what a hand-typed `prefix c` gets."""
     return _run(
-        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"{session}:", "-n", name, command]
+        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", "#{session_path}",
+         "-t", f"{session}:", "-n", name, command]
     ).strip()
 
 
