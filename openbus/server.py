@@ -187,6 +187,8 @@ def _unavailable(command: str) -> str | None:
             return None
     if words and words[0] == "exec":
         words.pop(0)
+        if words and words[0].startswith("-"):
+            return None  # `exec -a name cmd`, `exec -- cmd`: its own options, not argv[0]
     # argv[0] must be a plain word — it is the thing being resolved, so anything that
     # isn't literally a name or a path (a quoted string, a substitution) is unanswerable.
     # The REST of the line only has to be free of shell syntax, which is a much weaker

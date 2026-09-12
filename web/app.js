@@ -472,6 +472,10 @@ function activeId() {
     // yet" and keeps its anchor for UNSEEN_PICK_MS below before giving up, while one
     // that was there and has since gone is the "pane closed" case and still drops at
     // once. Nothing else can reach here unseen — every other caller picks from the deck.
+    // Seeing the pane is what the launch grace was waiting for, so seeing it ends the
+    // grace: from here on this is an ordinary pick, and a pane that then vanishes is an
+    // ordinary death — it must drop at once rather than be held by its own birth.
+    if (s) pending.unseen = false;
     if ((!s && !pending.unseen) || Date.now() - pending.ts > (pending.unseen ? UNSEEN_PICK_MS : 8000)) { pending = null; shown = null; }
     else return (shown = pending.id);
   }
