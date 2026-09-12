@@ -123,3 +123,4 @@ class PaneState(BaseModel):
 
     snapshot_id: str | None = None  # latest snapshot for the timeline
     updated_at: float = 0.0
+    last_activity_at: float | None = None  # content change; seeded from tmux on restart

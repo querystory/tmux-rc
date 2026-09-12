@@ -1,0 +1,11 @@
+{
+  "description": "Codex idle with a THREAD TITLE leading its status bar ('airbyte-value-population · gpt-5.6-sol medium · …'). That first segment is the only per-window identity Codex exposes — without it every Codex pane in one repo renders under the same session name, which is what the phone's list showed. Asserts session picks up the title and NOT the model/mode/cwd/context segments beside it. Redacted from a real pane.",
+  "current_command": "node",
+  "capture": "• Fixed and deployed.\n\n  Test here: Chrome autofill regression Storybook (https://4342-autofill.preview.example.dev/storybook/)\n\n  Validated:\n  - Storybook built successfully in Cloud Build.\n  - Preview deployment passed and Cloud Run is ready on commit 9aa21c29.\n  - Storybook path survives the login redirect.\n  - Frontend, Go, security, and most Python CI checks passed; one Python shard is still running.\n\n  PRs:\n  - Autofill fix: #4768 (https://github.com/example-org/example-app/pull/4768)\n  - Permanent preview Storybook support: #4353 (https://github.com/example-org/example-app/pull/4353)\n\n─ Worked for 17m 01s ──────────────────────────────────────────\n\n› Ask Codex to do anything\n\n  airbyte-value-population · gpt-5.6-sol medium · Context 71% left · 415K used · Context 29% used · docs/query-result-metadata-design · ~/src/example-app · weekly 52% left · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": "airbyte-value-population",
+    "headline": "Deployed the Chrome autofill fix and opened PRs #4768 and #4353"
+  }
+}

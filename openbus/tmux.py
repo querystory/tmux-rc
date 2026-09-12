@@ -90,19 +90,18 @@ class Pane:
     @property
     def label(self) -> str:
         """Human label, best identity first. A window the user named (e.g. "Resolve PR
-        38") wins. Otherwise tmux auto-named the window after its command (bash/node),
-        which is noise — prefer the SESSION name the user deliberately set (e.g.
-        "tmux-rc-dev", shown in the tmux status bar), then the cwd basename, then
-        session:window."""
+        38") wins outright — it is per-window, so it identifies the row on its own.
+
+        Every other source (session name, cwd) is shared by every window in the session,
+        so using one bare turns a fleet into a column of identical headings — the phone's
+        list then names nothing. Qualify those with the window INDEX, the number tmux
+        already shows in the user's own status bar, so the row points at a real window."""
         if _meaningful(self.window_name):
             return self.window_name
-        if _meaningful(self.session):
-            return self.session
-        if self.cwd:
+        base = self.session if _meaningful(self.session) else ""
+        if not base and self.cwd:
             base = self.cwd.rstrip("/").rsplit("/", 1)[-1]
-            if base:
-                return base
-        return f"{self.session}:{self.window_index}"
+        return f"{base or self.session}:{self.window_index}"
 
 
 # tmux auto-assigns these as window names from the running command — not user intent.
@@ -116,6 +115,14 @@ _GENERIC_NAMES = {
     "python3",
     "tmux",
     "ssh",
+    # Agent CLIs. tmux names a window after the command it launched, so a fleet of
+    # agents self-names into a wall of "claude" / "codex" rows that identify nothing.
+    # Someone who genuinely wants a window called "claude" is better served by the
+    # qualified fallback than by three rows sharing one heading.
+    "claude",
+    "codex",
+    "gemini",
+    "aider",
 }
 
 
@@ -237,10 +244,10 @@ def find_pane(target: str | None) -> Pane | None:
 
     Also matched, but derived: `Pane.label`, optionally ".pane_index". The label is a
     precedence chain, not "the window/session name" — it is the window name if that is
-    meaningful (non-empty, not a generic command name, not purely numeric), else the
-    session name under the same test, else the cwd basename, else "session:window_index".
-    So the session name does NOT match on a user-named window, and callers should not
-    have to reason about which rung won: prefer a pane id or numeric address.
+    meaningful (non-empty, not a generic command name, not purely numeric), else
+    "<session or cwd basename>:window_index". So the session name alone does NOT match
+    any window, and callers should not have to reason about which rung won: prefer a
+    pane id or numeric address.
 
     The label preferring a user-named window over the session name is exactly why the
     canonical address is matched separately here — otherwise "work:0.0" resolves to
@@ -334,6 +341,15 @@ def reorder_pane(src_id: str, dst_id: str, after: bool) -> None:
         _run(["move-window", "-r", "-t", f"{src.session}:"])
     except subprocess.CalledProcessError:
         logger.warning("renumber after reorder failed for session %s", src.session, exc_info=True)
+
+
+def kill_window(pane_id: str) -> None:
+    """Close the WINDOW that contains this pane (kill-window targets the pane's window),
+    matching the phone's mental model: rows and cards are titled by window, and windows —
+    not bare panes — are what "+ New window" creates. Any split panes in the window go with
+    it, and whatever is running there is killed. The watcher's next tick sees the pane gone
+    and evicts it (watcher._gc), so no client-side cleanup is needed."""
+    _run(["kill-window", "-t", pane_id])
 
 
 def new_window(session: str, name: str, command: str) -> str:
