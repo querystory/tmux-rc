@@ -1,7 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -114,12 +114,31 @@ function pause(ms, signal) {
 }
 function notice(message = "") { text($("notice"), message); show("notice", !!message); }
 
-function navigate(id = null, nextView = "summary") {
+function hashFor(id, nextView) {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
   if (sort !== "session") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
-  location.hash = params.toString();
+  return params.toString();
+}
+
+function navigate(id = null, nextView = "summary") {
+  location.hash = hashFor(id, nextView);
+}
+
+// Leaving a pane the user did not choose to leave — it closed under them. Unlike
+// navigate() this must NOT push a history entry: the pane is gone, so a Back that
+// returns to it would land on a dead deep link and bounce straight out again. replaceState
+// drops the dead URL instead of stacking it, and because it fires no hashchange we route
+// synchronously — otherwise `active` stays on the dead pane long enough for route() to
+// POST /select for a pane that no longer exists. `id` is the pane the caller believes is on
+// screen; stillOnPane rejects the call when the user has already tapped their way somewhere
+// else and only the queued hashchange is late (see pane-model.js).
+function leaveMissingPane(id) {
+  if (!stillOnPane(location.hash, id)) return;
+  const hash = hashFor(null);
+  history.replaceState(null, "", hash ? `#${hash}` : location.pathname + location.search);
+  route();
 }
 
 function route() {
@@ -205,6 +224,13 @@ function render() {
   show("back", inPane); show("heading", inPane); show("detail", inPane);
   renderList();
   if (!inPane) return;
+  // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
+  // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
+  // still shows the last frame, and every key is disabled — nothing to do but hit back.
+  // Go back to the list instead, and only once the daemon is authoritative: `booted`
+  // false means the inventory is still loading (startup, or a restart), where an absent
+  // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
+  if (booted && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), pane?.label || (booted ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
@@ -401,7 +427,14 @@ async function streamTerminal(id, signal) {
     } catch (error) {
       if (signal.aborted) return;
       if (error.status === 404) {
+        // The daemon says this pane is gone, and it is the FIRST thing to know: the live
+        // stream 404s the moment the pane dies, while /api/state may still be holding its
+        // long poll. Leaving you on a dead pane — stale frame, disabled keys — is a dead
+        // end, and render()'s own check cannot fire until the pane list catches up. Only
+        // act when this is still the pane on screen; a stale controller must not yank you
+        // out of a pane you have since switched to, which is leaveMissingPane's own guard.
         text($("terminal-status"), "Pane closed or not found");
+        leaveMissingPane(id);
         return;
       }
       text($("terminal-status"), "Reconnecting...");
@@ -520,7 +553,12 @@ for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui":
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
-for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Prefix", "prefix"]]) {
+// Same set the full UI's key bar offers. Ctrl-D and Ctrl-O were missing here: this list
+// was written fresh rather than ported, so the two keys you need when a pane has dropped
+// to a bare shell — EOF to close it, and Claude Code's newline — were unreachable from a
+// phone. The row is overflow-x:auto with flex:none buttons, so it scrolls rather than
+// shrinking them below a thumb-sized target (see #keys in style.css).
+for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
   const button = document.createElement("button"); button.title = label; button.setAttribute("aria-label", label);
   if (name) html(button, licon(name, 18)); else text(button, label);
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });

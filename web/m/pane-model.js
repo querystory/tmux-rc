@@ -22,6 +22,16 @@ export function matchesFilter(pane, filter, nowMs = Date.now()) {
   const predicate = Object.prototype.hasOwnProperty.call(FILTERS, filter) ? FILTERS[filter] : FILTERS.all;
   return predicate(pane, nowMs);
 }
+// Is the URL still on pane `id`? Nothing may pull the user out of a pane on the strength of
+// the app's own `active`: navigate() only assigns location.hash, and the hashchange that
+// updates `active` is queued behind it, so for one task `active` still names the pane the
+// user just LEFT. Both involuntary exits fire inside exactly that window — a state poll that
+// no longer lists the old pane, and the old pane's live stream taking its 404 — and each
+// would replace the URL of the pane the user just tapped and dump them back on the list. The
+// hash changed the instant they tapped, so it, not `active`, is the authority on where they
+// want to be.
+export const stillOnPane = (hash, id) => !!id && new URLSearchParams(String(hash).replace(/^#/, "")).get("pane") === id;
+
 // Sort key for "Sort by updated": the parser's timestamp when it has one, else the moment
 // the pane's state last changed, never later than when an idle pane went idle.
 export function lastActivity(pane) {
