@@ -12,6 +12,7 @@ reach the daemon safely from outside localhost, and the running progress log.
   {{< card link="design/background-and-motivation/" title="Background & motivation" subtitle="New here? What tmux is, and why tmux-rc exists." >}}
   {{< card link="design/architecture/" title="How it all works" subtitle="An end-to-end tour of the running system, with diagrams." >}}
   {{< card link="deploy/" title="Reaching it from outside localhost" subtitle="The daemon has no auth — read this before exposing it to anything." >}}
+  {{< card link="agent-setup/" title="Configuring your agents" subtitle="Settings that make your agents readable on the phone — and cheaper to watch." >}}
   {{< card link="design/thin-llm-ui-layer/" title="The thin LLM UI layer" subtitle="Affordances that can't be built generically, decided per screen by a cheap model." >}}
   {{< card link="prd/" title="Product Requirements" subtitle="What we're building and why." >}}
   {{< card link="requirements/" title="Requirements" subtitle="Source-of-truth checklist of what was asked for." >}}
