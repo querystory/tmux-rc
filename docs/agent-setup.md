@@ -49,9 +49,11 @@ across every pane working in the same checkout, so either one bare turns a fleet
 column of identical headings.
 
 "Looks deliberate" is judged on the name itself, not on who set it. tmux names a window
-after the command that launched it, so the rejected set covers the shells and runtimes
-*and the agent CLIs* (`claude`, `codex`, `gemini`, `aider`): eight agents would otherwise
-be eight rows headed `claude`, and a qualified coordinate at least tells them apart. The
+after the command that launched it, so the rejected set names the shells and runtimes
+*and the agent CLIs it knows about* (`claude`, `codex`, `gemini`, `aider`): eight agents
+would otherwise be eight rows headed `claude`, and a qualified coordinate at least tells
+them apart. It is a literal list, so a CLI that is not on it is taken at face value and
+its auto-name collides as before — one more reason to rename the window yourself. The
 flip side is that `tmux rename-window claude` is rejected too — the check cannot tell your
 rename from tmux's.
 
