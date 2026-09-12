@@ -151,15 +151,21 @@ def _unavailable(command: str) -> str | None:
     unresolvable here, though the message quotes the token as configured. Everything this
     can't confidently decide is left to the shell rather than guessed at — a false
     "unavailable" would block a working launcher, which is worse than the fuzzy failure
-    this exists to explain. Hence the three ways of declining to judge:
+    this exists to explain. So it declines whenever the answer would be a guess:
 
-    - not a plain argv (quoting, a pipeline, a substitution, a newline, a bare
-      assignment) — `cd /tmp\nclaude` runs a working launcher, and answering about its
-      first word would report the shell BUILTIN `cd` as missing and block it;
+    - the line isn't a plain argv — a quote, a pipeline, a substitution, a newline, a
+      backslash, a bare assignment. `cd /tmp\nclaude` runs a working launcher, and
+      answering about its first word would report the BUILTIN `cd` as missing;
     - an assignment to PATH, which changes the very search we would be doing;
+    - an option after `exec`/`command`, which belongs to the builtin, not to us;
     - a RELATIVE path, which tmux resolves against the session's directory
       (`new_window -c #{session_path}`) and `shutil.which` would resolve against the
       daemon's own cwd — two different files, so the answer would be meaningless.
+
+    What it does NOT model is a tmux server started outside this unit, whose environment
+    can differ from the daemon's. In this deployment the daemon owns the server, which is
+    the condition the check was verified against; where that doesn't hold, the worst case
+    is the one failure mode above — a launcher refused that tmux could have run.
 
     Returning the reason rather than the word keeps one wording for both callers: the
     phone says the same thing whether it asked before the tap or after it."""
