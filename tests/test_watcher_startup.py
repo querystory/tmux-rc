@@ -142,22 +142,15 @@ def test_later_ticks_keep_classified_state_until_replacement(inventory, monkeypa
     assert w.state_version() == version
 
 
-def test_new_pane_is_visible_before_it_is_classified(inventory, monkeypatch):
-    """A window opened mid-session (the dock's "+") must show up as a known-but-
-    unclassified card at once, not only once the model has finished with it — the same
-    presence-before-parse guarantee startup gets."""
-    w, panes = inventory
-    monkeypatch.setattr(w, "_tick_pane", parsed)
-    w._tick()
-    assert [s["pane_id"] for s in w.states] == ["%0", "%1"]
-
-    fresh = W.tmux.Pane("work", "2", "agent-2", "0", "%2", "node", "Task 2",
-                        pid="102", window_active="0", pane_active="0")
-    panes.append(fresh)
+def _tick_blocked_on(w, monkeypatch, pane_id, inspect):
+    """Run one _tick with the classification of `pane_id` held open, run `inspect` while
+    it is stuck there, then release it and let the tick finish. That window is where the
+    pre-classification publish is observable — and the only place it can be asserted on,
+    since by the time the tick returns the real states have overwritten it."""
     entered, release = threading.Event(), threading.Event()
 
     def classify(pane):
-        if pane.id == "%2":
+        if pane.id == pane_id:
             entered.set()
             assert release.wait(5), "test did not release parser"
         return parsed(pane)
@@ -170,15 +163,59 @@ def test_new_pane_is_visible_before_it_is_classified(inventory, monkeypatch):
         try:
             assert await asyncio.to_thread(entered.wait, 3)
             assert not tick.done()  # still classifying
-            # The new pane is already published, with identity, awaiting classification.
-            assert [s["pane_id"] for s in w.states] == ["%0", "%1", "%2"]
-            new = w.states[-1]
-            assert new["activity"] == "unknown" and new["label"] == "agent-2"
-            # ...and the panes already classified did NOT flicker back to unknown.
-            assert [s["activity"] for s in w.states[:2]] == ["idle", "idle"]
+            inspect()
         finally:
             release.set()
             await tick
-        assert [s["activity"] for s in w.states] == ["idle"] * 3
 
     asyncio.run(scenario())
+
+
+def _classified(w, monkeypatch, panes):
+    """Get the fixture past startup: every pane seen, classified, and published."""
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    assert [s["activity"] for s in w.states] == ["idle"] * len(panes)
+
+
+def test_new_pane_is_visible_before_it_is_classified(inventory, monkeypatch):
+    """A window opened mid-session (the dock's "+") must show up as a known-but-
+    unclassified card at once, not only once the model has finished with it — the same
+    presence-before-parse guarantee startup gets."""
+    w, panes = inventory
+    _classified(w, monkeypatch, panes)
+    panes.append(W.tmux.Pane("work", "2", "agent-2", "0", "%2", "node", "Task 2",
+                             pid="102", window_active="0", pane_active="0"))
+
+    def while_blocked():
+        # The new pane is already published, with identity, awaiting classification.
+        assert [s["pane_id"] for s in w.states] == ["%0", "%1", "%2"]
+        new = w.states[-1]
+        assert new["activity"] == "unknown" and new["label"] == panes[-1].label
+        # ...and the panes already classified did NOT flicker back to unknown.
+        assert [s["activity"] for s in w.states[:2]] == ["idle", "idle"]
+
+    _tick_blocked_on(w, monkeypatch, "%2", while_blocked)
+    assert [s["activity"] for s in w.states] == ["idle"] * 3
+
+
+def test_recycled_pane_id_does_not_prepublish_the_old_occupant(inventory, monkeypatch):
+    """tmux hands a closed pane's id to the next pane. The pre-publish keys "already
+    known" off the PID, not the id, so a recycled id is treated as a brand-new pane: it
+    must show the NEW pane's identity as unclassified, never the classified card of the
+    tenant that just died — a card that would name the wrong window and, worse, look
+    settled rather than pending."""
+    w, panes = inventory
+    _classified(w, monkeypatch, panes)
+    panes[1] = W.tmux.Pane("work", "7", "agent-new", "0", "%1", "node", "Task new",
+                           pid="999", window_active="0", pane_active="0")
+
+    def while_blocked():
+        recycled = w.states[1]
+        assert recycled["pane_id"] == "%1"
+        assert recycled["activity"] == "unknown"  # not the dead pane's "idle"
+        assert recycled["label"] == panes[1].label and recycled["window_index"] == "7"
+        assert w.states[0]["activity"] == "idle"  # the untouched pane is undisturbed
+
+    _tick_blocked_on(w, monkeypatch, "%1", while_blocked)
+    assert [s["activity"] for s in w.states] == ["idle", "idle"]

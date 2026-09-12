@@ -140,33 +140,45 @@ _DEFAULT_LAUNCHERS = [
 ]
 
 
-# One wording for both the pre-flight reject and the menu's "unavailable" note, so the
-# phone says the same thing whether it asked before or after the tap.
-_NOT_ON_PATH = (
-    "%s is not on the daemon's PATH. Use an absolute path in TMUXRC_LAUNCHERS, or add "
-    "its directory to the service's PATH."
-)
-
-
-def _missing(command: str) -> str | None:
-    """argv[0] if it does NOT resolve against the DAEMON's PATH, else None.
+def _unavailable(command: str) -> str | None:
+    """Why the daemon can't run `command`, or None if it can — or can't tell.
 
     tmux runs the launcher with the daemon's environment, so a name that resolves in the
     user's login shell (nvm, ~/bin) may well not resolve here — the systemd unit's PATH
     is deliberately minimal. Only argv[0] is checked, and a command is a shell string, so
-    leading `VAR=x` assignments are skipped the way sh would; an absolute or relative
-    path is checked as given, which is the escape hatch for anything off PATH. Anything
-    this can't confidently parse (quoting, a pipeline, a bare assignment) is left to the
-    shell rather than guessed at — a false "missing" would block a working launcher."""
+    leading `VAR=x` assignments are skipped the way sh would; `~` is expanded because the
+    documented escape hatch (a home-relative path in TMUXRC_LAUNCHERS) is otherwise
+    unresolvable here, though the message quotes the token as configured. Everything this
+    can't confidently decide is left to the shell rather than guessed at — a false
+    "unavailable" would block a working launcher, which is worse than the fuzzy failure
+    this exists to explain. Hence the three ways of declining to judge:
+
+    - not a plain argv (quoting, a pipeline, a substitution, a bare assignment);
+    - an assignment to PATH, which changes the very search we would be doing;
+    - a RELATIVE path, which tmux resolves against the session's directory
+      (`new_window -c #{session_path}`) and `shutil.which` would resolve against the
+      daemon's own cwd — two different files, so the answer would be meaningless.
+
+    Returning the reason rather than the word keeps one wording for both callers: the
+    phone says the same thing whether it asked before the tap or after it."""
     try:
         words = shlex.split(command)
     except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
         return None
     while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
-        words.pop(0)
-    if not words or not all(re.fullmatch(r"[\w.@/=+-]+", w) for w in words):
-        return None  # operators/globs/substitutions: a shell line, not a plain argv
-    return None if shutil.which(words[0]) else words[0]
+        if words.pop(0).startswith("PATH="):
+            return None
+    if not words or not all(re.fullmatch(r"[\w.@/=+~-]+", w) for w in words):
+        return None
+    path = os.path.expanduser(words[0])
+    if "/" in path and not os.path.isabs(path):
+        return None
+    if shutil.which(path):
+        return None
+    if os.path.isabs(path):
+        return f"{words[0]} does not exist, or the daemon cannot execute it."
+    return (f"{words[0]} is not on the daemon's PATH. Use an absolute path in "
+            "TMUXRC_LAUNCHERS, or add its directory to the service's PATH.")
 
 
 def _launchers() -> list[dict]:
@@ -611,9 +623,9 @@ def launchers():
     out = []
     for e in _launchers():
         item = {"label": e["label"], "icon": e["icon"]}
-        missing = _missing(e["command"])
-        if missing:
-            item["unavailable"] = _NOT_ON_PATH % missing
+        why = _unavailable(e["command"])
+        if why:
+            item["unavailable"] = why
         out.append(item)
     return {"launchers": out}
 
@@ -637,10 +649,10 @@ def new_window(body: NewWindowBody, request: Request):
     # is created, the shell exits instantly ("command not found"), the pane is gone
     # before the phone can select it, and the only thing the user sees is a bogus
     # "could not focus this pane" — a third-order symptom of a PATH problem.
-    missing = _missing(entry["command"])
-    if missing:
+    why = _unavailable(entry["command"])
+    if why:
         _audit(request, "new_window", "-", detail, outcome="rejected: command not found")
-        raise HTTPException(400, _NOT_ON_PATH % missing)
+        raise HTTPException(400, why)
     try:
         pane_id = tmux.new_window(body.session, entry["label"], entry["command"])
     except Exception as e:

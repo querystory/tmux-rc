@@ -604,7 +604,10 @@ $("new-window").onclick = async () => {
       // A launcher whose command the daemon can't find stays VISIBLE — the user
       // configured it, so hiding it would only be a second mystery — but is disabled and
       // states the reason, instead of opening a window that dies in milliseconds.
-      if (launcher.unavailable) { const why = document.createElement("small"); why.textContent = launcher.unavailable; label.append(why); }
+      // The marker outlives the disabled flag, which launchWindow's `finally` clears on
+      // every button: without it one failed launch would re-arm the entries the daemon
+      // has just told us cannot run.
+      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; const why = document.createElement("small"); why.textContent = launcher.unavailable; label.append(why); }
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !sessions.length || !!launcher.unavailable;
@@ -623,7 +626,7 @@ async function launchWindow(launcher) {
     const data = await post("/api/windows", { session: $("launch-session").value, launcher });
     $("launch-dialog").close(); startState(); navigate(data.pane_id);
   } catch (error) { text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying."); }
-  finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = false; }); }
+  finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 
 function fitViewport() {

@@ -1587,6 +1587,13 @@ function openLaunchMenu(sess, anchor) {
     setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
     setAttr(im, "alt", "");
     b.append(im, document.createTextNode(l.label));
+    // The daemon flags a launcher whose command it can't run (GET /api/launchers).
+    // Show it anyway — the user configured it, so hiding it would only be a second
+    // mystery — but disabled, with the reason as the tooltip. Without this the entry
+    // stays clickable, the POST comes back 400, and the handler below (which only
+    // looks for pane_id) drops the explanation on the floor: exactly the silent
+    // nothing-happens this endpoint's `unavailable` exists to end.
+    if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); m.appendChild(b); continue; }
     b.onclick = () => {
       closeLaunchMenu();
       fetch("/api/windows", {

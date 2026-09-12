@@ -48,8 +48,17 @@ def _fake_pane(session="work"):
     return T.Pane(session, "1", "w", "0", "%9", "bash", "t")
 
 
+# The default launchers are real agent binaries, and the pre-flight check in
+# new_window/launchers means a suite that used them unstubbed would assert on whatever
+# happens to be installed on the runner — green here, red in CI, which installs tmux and
+# nothing else. Tests that are not ABOUT resolution stub it to "everything resolves".
+def _resolves(monkeypatch):
+    monkeypatch.setattr(S.shutil, "which", lambda c: c)
+
+
 def test_new_window_runs_configured_command(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
+    _resolves(monkeypatch)
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
     calls = []
     monkeypatch.setattr(T, "_run", lambda argv: (calls.append(argv), "%42")[1])
@@ -82,6 +91,7 @@ def test_new_window_refuses_unknown_session(monkeypatch):
 
 def test_launchers_endpoint_omits_commands(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
+    _resolves(monkeypatch)
     client = TestClient(S.app)
     got = client.get("/api/launchers").json()["launchers"]
     assert got and all(set(e) == {"label", "icon"} for e in got)
@@ -117,13 +127,40 @@ def test_new_window_allows_absolute_path_that_exists(monkeypatch, tmp_path):
     assert r.status_code == 200 and r.json()["pane_id"] == "%7"
 
 
-def test_missing_skips_env_assignments_and_gives_up_on_odd_commands():
-    assert S._missing("NOPE_NOT_A_CMD_XYZ=1 no-such-command-xyz") == "no-such-command-xyz"
-    assert S._missing("FOO=1 sh -c true") is None  # `sh` resolves; the assignment is not argv[0]
-    # Unparseable / not a plain word: left to the shell rather than guessed at.
-    assert S._missing('"unbalanced') is None
-    assert S._missing("FOO=1") is None
-    assert S._missing("a | b") is None
+def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
+    assert "no-such-command-xyz" in S._unavailable("NOPE_XYZ=1 no-such-command-xyz")
+    assert S._unavailable("FOO=1 sh -c true") is None  # `sh` resolves; the assignment isn't argv[0]
+    # Everything it can't confidently decide is left to the shell rather than guessed at.
+    assert S._unavailable('"unbalanced') is None
+    assert S._unavailable("FOO=1") is None
+    assert S._unavailable("a | b") is None
+    # A PATH assignment changes the very lookup we would be doing, so don't do it.
+    assert S._unavailable("PATH=/opt/x/bin no-such-command-xyz") is None
+    # A relative path is resolved by tmux against the SESSION's directory (new_window
+    # -c #{session_path}), not the daemon's cwd — checking it here would answer about a
+    # different file, so it isn't checked at all.
+    assert S._unavailable("./no-such-command-xyz") is None
+
+
+def test_unavailable_distinguishes_a_bad_path_from_a_bad_name(tmp_path):
+    # Telling someone whose config already holds an absolute path to "use an absolute
+    # path" sends them to fix the one thing that isn't wrong.
+    assert "PATH" in S._unavailable("no-such-command-xyz")
+    bad = tmp_path / "nope"
+    assert "PATH" not in S._unavailable(str(bad))
+    assert str(bad) in S._unavailable(str(bad))
+
+
+def test_unavailable_expands_tilde(monkeypatch, tmp_path):
+    # `~/.nvm/.../codex` is the escape hatch the error message itself recommends, so it
+    # has to be the one the check can actually resolve. shlex/which do no expansion.
+    exe = tmp_path / "codex"
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert S._unavailable("~/codex --yolo") is None
+    why = S._unavailable("~/absent")
+    assert why and "~/absent" in why  # quoted as configured, not as expanded
 
 
 def test_launchers_endpoint_flags_unavailable(monkeypatch):
