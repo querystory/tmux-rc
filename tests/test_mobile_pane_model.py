@@ -265,6 +265,23 @@ for hash_value, pane_id, expected in [
         "stillOnPane", [hash_value, pane_id], expected,
     ))
 
+# paneName heads every card. The regression: the phone rendered `label` alone — a tmux
+# fallback naming a WINDOW ("misc-5:1") and nothing about the work — while the agent's own
+# title sat unused in the same record. A session holding five unrelated projects gave five
+# cards headed by the session that contains them. (pane, expected heading)
+for pane, expected in [
+    ({"title": "PRs inventory and integration testing", "label": "misc-5:1", "pane_id": "%16"},
+     "PRs inventory and integration testing"),
+    # A plain shell names nothing, so the tmux label is still the best available heading.
+    ({"title": "", "label": "misc-5:1", "pane_id": "%16"}, "misc-5:1"),
+    ({"label": "", "window_name": "bash", "pane_id": "%16"}, "bash"),
+    ({"pane_id": "%16"}, "%16"),
+]:
+    CASES.append((
+        f"paneName: {pane!r}",
+        "paneName", [pane], expected,
+    ))
+
 FILTER_NAMES = ["all", "running", "recent", "attention"]
 for invalid_filter in ("__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None):
     CASES.append((
