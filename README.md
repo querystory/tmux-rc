@@ -8,7 +8,7 @@ a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
   <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, a running or idle badge, and a one-line summary of what it is doing" width="280">
-  <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and context left, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
+  <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and how much of its context window is used, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
 </p>
 
 <p align="center"><em>The phone UI at <code>/m</code>. Left: every pane on the tmux server, filtered by All / Running / Recent / Needs&nbsp;you. Right: one pane's Overview — what the agent is doing, and a composer to answer it.</em></p>

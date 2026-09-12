@@ -182,8 +182,8 @@ under its tmux session, one row each — agent name, activity badge, and the one
 summary — with a search box, a recency sort, and a bottom bar that filters to All,
 Running, Recent, or *Needs you* (the panes blocked on a question). Tapping a row opens
 that pane on its own screen, where **Overview** carries the headline, the summary, the
-model and context remaining, the sub-agents it spawned, and the timestamped activity
-list:
+model and the share of its context window used, the sub-agents it spawned, and the
+timestamped activity list:
 
 ![The phone session list, with panes grouped by tmux session and a bottom filter bar counting All, Running, Recent and Needs you](../img/mobile-list.png)
 ![A single pane's Overview on the phone: headline, summary, model and context chips, sub-agents, activity list, and a composer to message the pane](../img/mobile-pane.png)
