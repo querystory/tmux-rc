@@ -35,16 +35,22 @@ Two settings make that work better, and both are worth having:
 - **Leave `automatic-rename` alone** where an agent sets the window title itself. Fighting
   the agent for it just throws away the better name.
 
-The fallback only matters when there is no agent title to find. tmux names a window after
-the command that launched it, so eight agents would otherwise be eight rows headed
-`claude`; tmux-rc treats those auto-names as the non-information they are (the generic set
-in `openbus/tmux.py` covers the shells, `node`, `python`, and the agent CLIs themselves)
-and falls back to `<session-or-cwd>:<window-index>`, which at least points at a real
-window. Session names and cwd basenames are shared by every window in a session, which is
-why they are qualified with the index rather than used bare.
+The fallback only matters when there is no agent title to find. `Pane.label` in
+`daemon/tmux.py` then takes the first identity that looks user-chosen: the window name,
+then the session name, then the cwd basename, and only if all three are unusable
+`session:window-index`. "Unusable" is a deliberately small set — empty, a bare number, or
+one of tmux's command auto-names (`bash`, `node`, `python`, `ssh`, …) — because guessing
+wrong throws away a name the user meant.
 
-A window name you choose still wins outright, because it is per-window and tmux-side —
-useful for a pane that is not an agent at all:
+Two things follow that are worth knowing before you rely on it. Agent binaries are *not*
+in that set, so eight windows tmux auto-named `claude` are eight rows headed `claude`.
+And session names and cwd basenames are shared by every window in a session, so those
+collide too — the label is not qualified with the window index. Only the last resort is
+unique, and you rarely reach it.
+
+That is the whole argument for naming a window yourself when an agent publishes no title:
+a window name is per-window and tmux-side, so it is the one identity that cannot collide.
+Useful for a pane that is not an agent at all:
 
     tmux rename-window 'db migration'
 
@@ -67,7 +73,7 @@ In `~/.codex/config.toml`, under `[tui]`:
     animations = false
     whimsy = false
 
-**tmux-rc already defends itself against this** — `_fingerprint` in `openbus/watcher.py`
+**tmux-rc already defends itself against this** — `_fingerprint` in `daemon/watcher.py`
 flattens the band of lines the animation plays over, so you are not exposed if you skip
 this. Turn it off anyway if you can: suppressing decoration at the source is strictly
 better than pattern-matching it downstream, and the same reasoning applies to whatever
@@ -79,8 +85,9 @@ spinners are already stripped from the fingerprint, so those are safe to leave o
 
 ## Codex: don't use the alternate screen
 
-    [tui]
-    alternate_screen = "never"
+Add `alternate_screen = "never"` to the **same** `[tui]` table as above — TOML allows each
+table to be declared only once per file, so pasting a second `[tui]` header stops Codex
+from loading the config at all.
 
 A full-screen TUI runs on the terminal's alternate screen, which has no scrollback —
 `tmux capture-pane` can only return the rows currently visible. Measured on this machine:
@@ -101,7 +108,8 @@ Capture is bounded in *rows*, not characters, so a wider pane sends a proportion
 payload to the classifier on every call. Measured across two live panes here: a 178-column
 pane captured ~3.7k characters where a 238-column pane captured ~23.9k. Width is not the
 only factor in that gap — the wide pane also held denser output — but the direction is
-real and it multiplies by every tick.
+real, and you pay it again every time the pane is classified. (Not every tick: an
+unchanged screen is never re-read, so width taxes activity, not mere existence.)
 
 The honest tradeoff: this is a reason to prefer a reasonable width, not to cripple your
 terminal. A pane too narrow to render your agent's diffs is worse for you than the token
@@ -118,9 +126,13 @@ in a day** here.
 The classifier learns nothing from the fourth re-read of `top` that it didn't know on the
 first. If you keep such a pane around, scope what the daemon watches:
 
-    TMUXRC_TARGET=%3
+    export TMUXRC_TARGET=%3
 
-See the `TMUXRC_TARGET` row in the [README](https://github.com/querystory/tmux-rc#configuration)
+It has to reach the daemon's own environment, so export it (or put it in the `.env` the
+daemon loads, or prefix the launch command) — a bare assignment in your shell is invisible
+to the process you start next, and the daemon goes on watching everything.
+
+See the `TMUXRC_TARGET` row in the [README](https://github.com/querystory/tmux-rc#config-env)
 for the accepted forms — a pane id is the one that is always unambiguous. Note that this
 restricts watching to a *single* pane, so it is a blunt instrument: today it is the
 right answer when you have one agent you care about, and the wrong one when you have a
@@ -128,7 +140,8 @@ fleet plus a stray `top`. Closing the `top` pane is often the better fix.
 
 ## What this all adds up to
 
-Name your windows so the phone can tell your agents apart; turn off decoration that moves
+Let your agent put its title on screen (and name the window yourself when it can't) so the
+phone can tell your agents apart; turn off decoration that moves
 on a timer; keep agents off the alternate screen so their history is readable; and don't
 point the watcher at something that repaints forever. The first is about whether tmux-rc
 is *usable* from a phone. The rest are about what it costs you per day, and the numbers
