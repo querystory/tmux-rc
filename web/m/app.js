@@ -234,18 +234,25 @@ function render() {
   // Go back to the list instead, and only once the daemon is authoritative: `booted`
   // false means the inventory is still loading (startup, or a restart), where an absent
   // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
-  // ...unless the app itself created this pane moments ago and state has yet to catch
-  // up, which is "not yet" too — see awaitingLaunch for why that is a deadline.
-  if (booted && loaded && !pane && !awaitingLaunch(launched, active)) { leaveMissingPane(active); return; }
-  text($("pane-title"), pane?.label || (booted ? "Pane unavailable" : "Loading pane"));
+  // ...unless the app itself created this pane moments ago and state has yet to catch up,
+  // which is "not yet" too — see awaitingLaunch for why that is a deadline. Once the pane
+  // HAS been seen the record is spent: a window that opens and then closes inside the
+  // grace is an ordinary death, and must not be held on screen by its own birth.
+  if (pane && launched?.id === active) launched = null;
+  // Has the daemon's word on this pane settled? Every "it's gone" wording below turns on
+  // this rather than on `booted` alone, so the grace reads as "still loading" throughout
+  // instead of announcing the pane unavailable on a screen we are deliberately holding.
+  const settled = booted && !awaitingLaunch(launched, active);
+  if (settled && loaded && !pane) { leaveMissingPane(active); return; }
+  text($("pane-title"), pane?.label || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
   $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
   show("overview", view === "summary"); show("terminal", view === "terminal");
-  text($("activity"), pane ? activityLabel(pane) : booted ? "Unavailable" : "Loading");
+  text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
-  const missing = loaded && !pane ? (booted ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
+  const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
   const headline = pane?.headline || pane?.status_line || pane?.session_summary || missing;
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
@@ -632,7 +639,7 @@ async function launchWindow(launcher, button) {
     launched = { id: data.pane_id, at: Date.now() };
     // The exemption expires on a clock, but only a render can act on it, and renders are
     // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
-    // at the deadline is what makes "5 seconds" mean five seconds. No cancellation: an
+    // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
     // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
     // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
     setTimeout(render, LAUNCH_GRACE_MS);

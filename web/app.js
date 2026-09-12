@@ -469,7 +469,7 @@ function activeId() {
     // before the watcher has published it, and syncUrl() below calls straight back in
     // here, so the launcher's jump used to cancel itself in the same task it was made.
     // `unseen` separates the two: an id that wasn't in state when it was PICKED is "not
-    // yet" and keeps its anchor until the 8s timeout below gives up on it, while one
+    // yet" and keeps its anchor for UNSEEN_PICK_MS below before giving up, while one
     // that was there and has since gone is the "pane closed" case and still drops at
     // once. Nothing else can reach here unseen — every other caller picks from the deck.
     if ((!s && !pending.unseen) || Date.now() - pending.ts > (pending.unseen ? UNSEEN_PICK_MS : 8000)) { pending = null; shown = null; }

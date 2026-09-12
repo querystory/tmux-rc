@@ -173,14 +173,16 @@ def _unavailable(command: str) -> str | None:
         words = shlex.split(command, posix=False)
     except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
         return None
-    # `exec claude` is a real launcher config — it replaces the shell with the agent, so
-    # the pane dies with it instead of dropping to a prompt — and `exec` is a BUILTIN, so
-    # judging it would report a working launcher as missing. Strip it; argv[0] is what
-    # follows. (Other builtins as argv[0] don't describe a launcher, and the newline gate
-    # above already covers the way one realistically appears: `cd /tmp` on its own line.)
-    if words and words[0] == "exec":
-        words.pop(0)
-    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+    # Strip the prefix words sh would strip before it has a command to look up: leading
+    # assignments, and `exec` — a real launcher config (`exec claude` replaces the shell
+    # with the agent, so the pane dies with it instead of dropping to a prompt) and a
+    # BUILTIN, so judging it would report a working launcher as missing. One loop rather
+    # than two passes because sh accepts them in either order (`FOO=1 exec codex`,
+    # `exec FOO=1 codex`), and a pass per form would answer wrongly for the other.
+    # (Other builtins as argv[0] don't describe a launcher, and the newline gate above
+    # already covers the way one realistically appears: `cd /tmp` on its own line.)
+    while words and (words[0] == "exec"
+                     or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
         if words.pop(0).startswith("PATH="):
             return None
     if not words or not all(re.fullmatch(r"[\w.@/=+~-]+", w) for w in words):
