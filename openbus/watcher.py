@@ -474,6 +474,12 @@ class Watcher:
             for p in panes:
                 # A pane already classified keeps its last state here, so republishing
                 # for a NEW pane's sake never flickers an existing card back to "unknown".
+                # _state is the right source despite being called a parse cache: the dict
+                # it holds IS the one that went into the deck (_tick_pane stores what it
+                # returns), so the fields merged in later in the tick — events_seq, the
+                # bootstrap's session_summary and title — are on this object too, and a
+                # carried-over card keeps everything the client last saw rather than
+                # appearing to reset its activity log every time some OTHER pane opens.
                 prior = None if p.id in fresh else self._state.get(p.id)
                 s = {"pane_id": p.id, **(dict(prior) if prior else blank)}
                 s["tmux_active"] = p.id == focused

@@ -142,18 +142,32 @@ def test_later_ticks_keep_classified_state_until_replacement(inventory, monkeypa
     assert w.state_version() == version
 
 
+def _parser(w):
+    """Stand in for _tick_pane INCLUDING its side effect: a real parse caches the state
+    it returns (_tick_pane's last line), and the prepublish's carry-over reads that
+    cache. A stub that only returned would leave it empty, so every "an existing card
+    keeps its state" assertion here would hold for the wrong reason — the carry-over
+    branch would never run at all."""
+    def parse(pane):
+        state = parsed(pane)
+        w._state[pane.id] = state
+        return state
+    return parse
+
+
 def _tick_blocked_on(w, monkeypatch, pane_id, inspect):
     """Run one _tick with the classification of `pane_id` held open, run `inspect` while
     it is stuck there, then release it and let the tick finish. That window is where the
     pre-classification publish is observable — and the only place it can be asserted on,
     since by the time the tick returns the real states have overwritten it."""
     entered, release = threading.Event(), threading.Event()
+    parse = _parser(w)
 
     def classify(pane):
         if pane.id == pane_id:
             entered.set()
             assert release.wait(5), "test did not release parser"
-        return parsed(pane)
+        return parse(pane)
 
     monkeypatch.setattr(w, "_tick_pane", classify)
 
@@ -173,7 +187,7 @@ def _tick_blocked_on(w, monkeypatch, pane_id, inspect):
 
 def _classified(w, monkeypatch, panes):
     """Get the fixture past startup: every pane seen, classified, and published."""
-    monkeypatch.setattr(w, "_tick_pane", parsed)
+    monkeypatch.setattr(w, "_tick_pane", _parser(w))
     w._tick()
     assert [s["activity"] for s in w.states] == ["idle"] * len(panes)
 
@@ -197,6 +211,30 @@ def test_new_pane_is_visible_before_it_is_classified(inventory, monkeypatch):
 
     _tick_blocked_on(w, monkeypatch, "%2", while_blocked)
     assert [s["activity"] for s in w.states] == ["idle"] * 3
+
+
+def test_new_pane_does_not_reset_the_other_cards(inventory, monkeypatch):
+    """Opening a window republishes EVERY pane before classifying any of them, and the
+    other cards have to survive that intact — not just their activity but the fields the
+    client acts on, events_seq above all (the phone reads a changed one as "refetch this
+    pane's activity log", so a dropped one would make every card reload its history every
+    time some unrelated window opened). Blocked on the FIRST pane deliberately: that is
+    the only moment the carried-over values are still on screen, since every pane after
+    it is overwritten by its own classification as the tick walks on."""
+    w, panes = inventory
+    w._events_seq.update({"%0": 7, "%1": 3})
+    _classified(w, monkeypatch, panes)
+    assert [s["events_seq"] for s in w.states] == [7, 3]
+    panes.append(W.tmux.Pane("work", "2", "agent-2", "0", "%2", "node", "Task 2",
+                             pid="102", window_active="0", pane_active="0"))
+
+    def while_blocked():
+        # %1 has not been re-classified yet, so this is the carried-over card itself.
+        assert [s["pane_id"] for s in w.states] == ["%0", "%1", "%2"]
+        assert w.states[1]["activity"] == "idle" and w.states[1]["events_seq"] == 3
+        assert w.states[1]["tool"] == "codex"
+
+    _tick_blocked_on(w, monkeypatch, "%0", while_blocked)
 
 
 def test_recycled_pane_id_does_not_prepublish_the_old_occupant(inventory, monkeypatch):
