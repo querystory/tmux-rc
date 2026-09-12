@@ -23,37 +23,34 @@ would. Two consequences follow, and every recommendation below is one of them:
 
 ## Let the agent name itself
 
-You do not have to name anything — *provided the agent says who it is somewhere tmux-rc
-can read it*. It has three sources, in the order a card prefers them: the **terminal
-title** the program sets for itself (Claude Code writes its current task there), a name
-the bootstrap read **generates from the pane's scrollback** the first time it sees a pane,
-and the **session title parsed off the screen** (that is what the `session` field in the
-parser prompt is for). Any of them turns the pane into *Review 4745* or
-*airbyte-value-population* rather than its command, with no help from you.
-
-Which one you actually see depends on the client: the desktop card takes the first
-available of the three, while the phone's card shows only the parsed session title. So an
-agent that sets a terminal title and nothing else reads well on the desktop and falls back
-on mobile. Worth knowing when a name seems not to take; not worth configuring around,
-since an agent that publishes one usually publishes both.
+You do not have to name anything — *provided the agent says who it is on screen*. The
+classifier reads the agent's own session title out of the captured text (that is what the
+`session` field in the parser prompt is for) and it becomes the pane's **label**, so the
+pane reads as *Review 4745* or *airbyte-value-population* rather than as its command.
 
 That is the one setting worth changing for Codex: **include `"thread-title"` in
-`status_line`.** Without it the thread title is never drawn, so there is nothing to parse.
+`status_line`.** Without it the thread title is never drawn and there is nothing to parse.
 
-### When the agent publishes nothing
+(Agents that set the *terminal* title get a second route, but only to the desktop card,
+which renders `title || label` — `title` being the terminal title, or failing that a name
+the bootstrap read generates from the pane's scrollback. The phone's card renders the
+label alone. So a terminal title is a bonus on one client, never a substitute for a name
+the label can carry.)
 
-Then the heading is `Pane.label` (`openbus/tmux.py`): the window name if it looks
+### When nothing is parsed off the screen
+
+The label falls back to `Pane.label` (`openbus/tmux.py`): the window name if it looks
 deliberate, otherwise the session name or cwd basename qualified with the **window
-index**. That qualification is the whole point of the form — session names and cwd
-basenames are shared by every window in the session, so used bare they turn a fleet into a
-column of identical headings.
+index**. That qualification is the point of the form — session names and cwd basenames are
+shared by every window in a session, so used bare they turn a fleet into a column of
+identical headings.
 
 "Looks deliberate" is judged on the name itself, not on who set it. tmux names a window
 after the command that launched it, so the rejected set covers the shells and runtimes
 *and the agent CLIs* (`claude`, `codex`, `gemini`, `aider`): eight agents would otherwise
-be eight rows headed `claude`, and the qualified fallback is uglier but tells them apart.
-The flip side is that `tmux rename-window claude` is rejected too — the check cannot tell
-your rename from tmux's.
+be eight rows headed `claude`, and a qualified coordinate at least tells them apart. The
+flip side is that `tmux rename-window claude` is rejected too — the check cannot tell your
+rename from tmux's.
 
 So name the window something that is not a command name:
 
@@ -117,8 +114,9 @@ Capture is bounded in *rows*, not characters, so a wider pane sends a proportion
 payload to the classifier on every call. Measured across two live panes here: a 178-column
 pane captured ~3.7k characters where a 238-column pane captured ~23.9k. Width is not the
 only factor in that gap — the wide pane also held denser output — but the direction is
-real, and you pay it again every time the pane is classified. (Not every tick: an
-unchanged screen is never re-read, so width taxes activity, not mere existence.)
+real, and you pay it again every time the pane is classified. (Not every tick: on the
+normal path an unchanged screen is not re-read, so width taxes activity rather than mere
+existence. Sending input forces a reparse regardless, which is a cost you asked for.)
 
 The honest tradeoff: this is a reason to prefer a reasonable width, not to cripple your
 terminal. A pane too narrow to render your agent's diffs is worse for you than the token
