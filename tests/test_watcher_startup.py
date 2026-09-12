@@ -140,3 +140,45 @@ def test_later_ticks_keep_classified_state_until_replacement(inventory, monkeypa
     monkeypatch.setattr(w, "_tick_pane", classify)
     w._tick()
     assert w.state_version() == version
+
+
+def test_new_pane_is_visible_before_it_is_classified(inventory, monkeypatch):
+    """A window opened mid-session (the dock's "+") must show up as a known-but-
+    unclassified card at once, not only once the model has finished with it — the same
+    presence-before-parse guarantee startup gets."""
+    w, panes = inventory
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    assert [s["pane_id"] for s in w.states] == ["%0", "%1"]
+
+    fresh = W.tmux.Pane("work", "2", "agent-2", "0", "%2", "node", "Task 2",
+                        pid="102", window_active="0", pane_active="0")
+    panes.append(fresh)
+    entered, release = threading.Event(), threading.Event()
+
+    def classify(pane):
+        if pane.id == "%2":
+            entered.set()
+            assert release.wait(5), "test did not release parser"
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", classify)
+
+    async def scenario():
+        w._evloop = asyncio.get_running_loop()
+        tick = asyncio.create_task(asyncio.to_thread(w._tick))
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            assert not tick.done()  # still classifying
+            # The new pane is already published, with identity, awaiting classification.
+            assert [s["pane_id"] for s in w.states] == ["%0", "%1", "%2"]
+            new = w.states[-1]
+            assert new["activity"] == "unknown" and new["label"] == "agent-2"
+            # ...and the panes already classified did NOT flicker back to unknown.
+            assert [s["activity"] for s in w.states[:2]] == ["idle", "idle"]
+        finally:
+            release.set()
+            await tick
+        assert [s["activity"] for s in w.states] == ["idle"] * 3
+
+    asyncio.run(scenario())

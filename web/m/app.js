@@ -92,8 +92,13 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
     if (!response.ok) {
+      // Carry the server's own explanation (FastAPI puts it in `detail`) on the error.
+      // Without it a caller can only say something generic, which is how a launcher
+      // that isn't on the daemon's PATH used to surface as an unrelated focus error.
+      const detail = await response.json().then((body) => body?.detail, () => null);
       const error = new Error(`Request failed (${response.status})`);
       error.status = response.status;
+      if (typeof detail === "string" && detail) error.detail = detail;
       throw error;
     }
     return await response.json();
@@ -556,9 +561,15 @@ $("new-window").onclick = async () => {
       const button = document.createElement("button");
       const logo = document.createElement("img");
       logo.src = Object.prototype.hasOwnProperty.call(LOGOS, launcher.icon) ? LOGOS[launcher.icon] : launcher.icon || "/tmux-logomark.svg"; logo.alt = "";
-      const label = document.createElement("span"); label.textContent = launcher.label;
-      button.append(logo, label); button.insertAdjacentHTML("beforeend", licon("plus"));
-      button.disabled = !sessions.length;
+      const label = document.createElement("span");
+      const name = document.createElement("strong"); name.textContent = launcher.label; label.append(name);
+      // A launcher whose command the daemon can't find stays VISIBLE — the user
+      // configured it, so hiding it would only be a second mystery — but is disabled and
+      // states the reason, instead of opening a window that dies in milliseconds.
+      if (launcher.unavailable) { const why = document.createElement("small"); why.textContent = launcher.unavailable; label.append(why); }
+      button.append(logo, label);
+      if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
+      button.disabled = !sessions.length || !!launcher.unavailable;
       button.onclick = () => launchWindow(launcher.label);
       return button;
     }));
@@ -573,7 +584,7 @@ async function launchWindow(launcher) {
   try {
     const data = await post("/api/windows", { session: $("launch-session").value, launcher });
     $("launch-dialog").close(); startState(); navigate(data.pane_id);
-  } catch { text($("launch-error"), "Creation could not be confirmed. Check sessions before retrying."); }
+  } catch (error) { text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying."); }
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = false; }); }
 }
 

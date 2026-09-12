@@ -443,31 +443,43 @@ class Watcher:
         if not panes:
             self._publish_states([])
             return
-        initial = not self._booted
-        states = []
-        if initial:
-            # Discovery is cheap; do not make visibility wait for capture, parsing or
-            # scrollback bootstrap. Never seed the parse cache with these placeholders.
-            focused = tmux.active_pane_id()
-            for p in panes:
-                s = {"pane_id": p.id, "tool": "unknown", "activity": "unknown",
-                     "tmux_active": p.id == focused}
-                _stamp_identity(s, p)
-                states.append(s)
-            self._publish_states(states)
         alive = {p.id for p in panes}
+        # Which panes this tick is seeing for the first time — computed BEFORE the birth
+        # bookkeeping below updates _birth (a recycled id counts as new: different pid).
+        fresh = {p.id for p in panes if self._birth.get(p.id) != p.pid}
         # tmux recycles pane ids on close ("%3" freed, reassigned to a new pane). If an
         # id's pid changed, it's a different pane wearing the old id — evict the previous
         # pane's buffers so its snapshots/events don't bleed into the new one. Emit
         # lifecycle telemetry at the two birth transitions: a brand-new id, and a recycled
         # id (which is a removal of the old occupant + a fresh creation).
         for p in panes:
-            if p.id in self._birth and self._birth[p.id] != p.pid:
-                self._forget(p.id)  # emits pane_removed for the old occupant
-                self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
-            elif p.id not in self._birth:
-                self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
+            if p.id not in fresh:
+                continue
+            if p.id in self._birth:
+                self._forget(p.id)  # recycled id: emits pane_removed for the old occupant
+            self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
             self._birth[p.id] = p.pid
+        # Publish identity BEFORE the slow work whenever a pane the phone has never seen
+        # is in this inventory — at startup (every pane is new) and equally when a window
+        # is opened mid-session (#176 generalized). Discovery is cheap; making a brand-new
+        # card wait for capture + classification is what made the dock's "+" feel like it
+        # had done nothing for a second or more. Panes already classified keep their last
+        # state in this pre-publish, so an existing card never flickers back to "unknown".
+        prepublish = not self._booted or bool(fresh)
+        states = []
+        if prepublish:
+            # Never seed the parse cache with these placeholders.
+            focused = tmux.active_pane_id()
+            blank = {"tool": "unknown", "activity": "unknown"}
+            for p in panes:
+                # A pane already classified keeps its last state here, so republishing
+                # for a NEW pane's sake never flickers an existing card back to "unknown".
+                prior = None if p.id in fresh else self._state.get(p.id)
+                s = {"pane_id": p.id, **(dict(prior) if prior else blank)}
+                s["tmux_active"] = p.id == focused
+                _stamp_identity(s, p)
+                states.append(s)
+            self._publish_states(states)
         # Drain the forced-reparse requests for THIS pass in one atomic swap, so a
         # request that arrives mid-tick (handler thread) is never lost to a check-then-
         # discard race in _tick_pane — it either makes this snapshot or stays queued in
@@ -501,7 +513,7 @@ class Watcher:
                     "updated_at": time.time(),
                 }
                 _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
-            if initial:
+            if prepublish:
                 s["tmux_active"] = p.id == focused
                 s["events_seq"] = self._events_seq.get(p.id, 0)
                 states[index] = s

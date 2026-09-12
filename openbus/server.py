@@ -15,6 +15,9 @@ import hashlib
 import json
 import logging
 import os
+import re
+import shlex
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -135,6 +138,35 @@ _DEFAULT_LAUNCHERS = [
     {"label": "Codex", "command": "codex", "icon": "codex"},
     {"label": "Gemini", "command": "gemini", "icon": "gemini"},
 ]
+
+
+# One wording for both the pre-flight reject and the menu's "unavailable" note, so the
+# phone says the same thing whether it asked before or after the tap.
+_NOT_ON_PATH = (
+    "%s is not on the daemon's PATH. Use an absolute path in TMUXRC_LAUNCHERS, or add "
+    "its directory to the service's PATH."
+)
+
+
+def _missing(command: str) -> str | None:
+    """argv[0] if it does NOT resolve against the DAEMON's PATH, else None.
+
+    tmux runs the launcher with the daemon's environment, so a name that resolves in the
+    user's login shell (nvm, ~/bin) may well not resolve here — the systemd unit's PATH
+    is deliberately minimal. Only argv[0] is checked, and a command is a shell string, so
+    leading `VAR=x` assignments are skipped the way sh would; an absolute or relative
+    path is checked as given, which is the escape hatch for anything off PATH. Anything
+    this can't confidently parse (quoting, a pipeline, a bare assignment) is left to the
+    shell rather than guessed at — a false "missing" would block a working launcher."""
+    try:
+        words = shlex.split(command)
+    except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
+        return None
+    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+        words.pop(0)
+    if not words or not all(re.fullmatch(r"[\w.@/=+-]+", w) for w in words):
+        return None  # operators/globs/substitutions: a shell line, not a plain argv
+    return None if shutil.which(words[0]) else words[0]
 
 
 def _launchers() -> list[dict]:
@@ -572,7 +604,18 @@ def send(pane_id: str, body: SendBody, request: Request):
 def launchers():
     """The dock '+' menu's entries — labels/icons only. Commands never leave the daemon:
     the phone posts a label back and the lookup happens server-side (see new_window)."""
-    return {"launchers": [{"label": e["label"], "icon": e["icon"]} for e in _launchers()]}
+    # `unavailable` (absent when the command resolves) lets the dialog say WHY a
+    # configured launcher can't run instead of offering a button that opens a window
+    # which dies in milliseconds. Never hide the entry: the user configured it, so the
+    # reason has to be visible.
+    out = []
+    for e in _launchers():
+        item = {"label": e["label"], "icon": e["icon"]}
+        missing = _missing(e["command"])
+        if missing:
+            item["unavailable"] = _NOT_ON_PATH % missing
+        out.append(item)
+    return {"launchers": out}
 
 
 @app.post("/api/windows")
@@ -590,12 +633,29 @@ def new_window(body: NewWindowBody, request: Request):
     if not any(p.session == body.session for p in tmux.list_panes()):
         _audit(request, "new_window", "-", detail, outcome="rejected: session not found")
         raise HTTPException(404, "session not found")
+    # Check the command EXISTS before opening a window for it. Without this the window
+    # is created, the shell exits instantly ("command not found"), the pane is gone
+    # before the phone can select it, and the only thing the user sees is a bogus
+    # "could not focus this pane" — a third-order symptom of a PATH problem.
+    missing = _missing(entry["command"])
+    if missing:
+        _audit(request, "new_window", "-", detail, outcome="rejected: command not found")
+        raise HTTPException(400, _NOT_ON_PATH % missing)
     try:
         pane_id = tmux.new_window(body.session, entry["label"], entry["command"])
     except Exception as e:
         _audit(request, "new_window", "-", detail, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "new_window", pane_id, detail)
+    # Wake the watcher NOW instead of letting the new pane wait up to a poll interval to
+    # be discovered. The tick that runs publishes the pane's identity before it classifies
+    # it (see watcher._tick), so the card the phone just navigated to appears at once as a
+    # known-but-unclassified pane rather than as a missing pane id. Best-effort: the
+    # window already exists, so a watcher that isn't up must not turn a success into a
+    # 500 — the next ordinary tick finds the pane anyway.
+    watcher = getattr(app.state, "watcher", None)
+    if watcher is not None:
+        watcher.request_reparse(pane_id)
     return {"ok": True, "pane_id": pane_id}
 
 
