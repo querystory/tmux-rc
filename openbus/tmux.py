@@ -309,7 +309,9 @@ def server_path() -> str | None:
         out = _run(["show-environment", "-g", "PATH"]).strip()
     except Exception:  # noqa: BLE001 - no server, old tmux, wedged: just don't know
         return None
-    return out[len("PATH="):] or None if out.startswith("PATH=") else None
+    # An EMPTY value is still an answer ("the server's PATH is empty"), and must not be
+    # folded into None, which means "no answer" and makes the caller decline entirely.
+    return out[len("PATH="):] if out.startswith("PATH=") else None
 
 
 def new_window(session: str, name: str, command: str) -> str:
