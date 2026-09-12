@@ -16,51 +16,52 @@ would. Two consequences follow, and every recommendation below is one of them:
    classified gets re-read. Chrome that *moves on its own* therefore bills you for
    information you already had. See [parse cadence](design/parse-cadence.md) for why the
    trigger is change-based and what the fingerprint already strips.
-2. **If the pane doesn't say who it is, the phone can't either.** A card is headed by the
-   agent's own session title, read off the screen. Without one the card falls back to
-   tmux-side names that were never chosen to tell two agents apart, so a fleet reads as a
-   column of near-identical rows.
+2. **If the pane doesn't say who it is, the phone can't either.** A card is headed by
+   whatever the agent published about itself. Publish nothing and the heading falls back
+   to tmux-side names that were never chosen to tell two agents apart, so a fleet reads as
+   a column of near-identical rows.
 
 ## Let the agent name itself
 
-You do not have to name anything — *provided the agent puts its title on screen*. The
-classifier reads the agent's **own** session title out of the captured text (that is the
-`session` field in the parser prompt) and it becomes the pane's `label`, which is what the
-card is headed by. Claude Code prints its session name just above its status line out of
-the box; Codex shows its thread title only if its status bar is configured to. Where the
-title is visible it is picked up with no help from you, and the pane reads as *Review
-4745* or *airbyte-value-population* rather than as its command.
+You do not have to name anything — *provided the agent says who it is somewhere tmux-rc
+can read it*. It has three sources, in the order a card prefers them: the **terminal
+title** the program sets for itself (Claude Code writes its current task there), a name
+the bootstrap read **generates from the pane's scrollback** the first time it sees a pane,
+and the **session title parsed off the screen** (that is what the `session` field in the
+parser prompt is for). Any of them turns the pane into *Review 4745* or
+*airbyte-value-population* rather than its command, with no help from you.
 
-One caveat on precedence: the desktop card actually renders `title || label`, and `title`
-is the pane's *terminal* title — what the program sets via the escape sequence, which
-tmux-rc keeps only when it is not tmux's hostname default. An agent that publishes a
-useful terminal title (Claude Code writes its current task there) therefore wins over the
-on-screen session name. Both are the agent describing itself, so this is rarely a surprise
-— but it is why renaming a tmux window does not always change what you see.
+Which one you actually see depends on the client: the desktop card takes the first
+available of the three, while the phone's card shows only the parsed session title. So an
+agent that sets a terminal title and nothing else reads well on the desktop and falls back
+on mobile. Worth knowing when a name seems not to take; not worth configuring around,
+since an agent that publishes one usually publishes both.
 
 That is the one setting worth changing for Codex: **include `"thread-title"` in
-`status_line`.** Without it the title is never drawn, so there is nothing to read.
+`status_line`.** Without it the thread title is never drawn, so there is nothing to parse.
 
-The tmux-side fallback only matters when there is no agent title at all. `Pane.label` in
-`openbus/tmux.py` takes a window name you chose outright — it is per-window, so it
-identifies the row on its own — and otherwise falls back to the session name (or the cwd
-basename) qualified with the **window index**. The index is the point of that form:
-session names and cwd basenames are shared by every window in the session, so used bare
-they turn a fleet into a column of identical headings.
+### When the agent publishes nothing
 
-The same logic is why the generic-name set is not just shells and runtimes but the agent
-CLIs themselves (`claude`, `codex`, `gemini`, `aider`). tmux names a window after the
-command that launched it, so without that eight agents are eight rows headed `claude` —
-the qualified fallback is worse-looking and strictly more useful.
+Then the heading is `Pane.label` (`openbus/tmux.py`): the window name if it looks
+deliberate, otherwise the session name or cwd basename qualified with the **window
+index**. That qualification is the whole point of the form — session names and cwd
+basenames are shared by every window in the session, so used bare they turn a fleet into a
+column of identical headings.
 
-Naming a window yourself is still the reliable move for a pane that publishes no title:
+"Looks deliberate" is judged on the name itself, not on who set it. tmux names a window
+after the command that launched it, so the rejected set covers the shells and runtimes
+*and the agent CLIs* (`claude`, `codex`, `gemini`, `aider`): eight agents would otherwise
+be eight rows headed `claude`, and the qualified fallback is uglier but tells them apart.
+The flip side is that `tmux rename-window claude` is rejected too — the check cannot tell
+your rename from tmux's.
+
+So name the window something that is not a command name:
 
     tmux rename-window 'db migration'
 
-Two limits worth knowing. tmux lets two windows share a name, so distinctness is on you.
-And the fallback stops at the window: split panes in one window share a label, so where
-you need a handle that *cannot* be ambiguous — addressing a pane rather than reading a
-card — use the pane id (`%3`) or the numeric `session:window.pane` address.
+Two limits. tmux lets two windows share a name, so distinctness is on you. And the label
+stops at the window: split panes in one window share it, so where you need a handle that
+*cannot* be ambiguous, address the pane by id (`%3`) or numeric `session:window.pane`.
 
 ## Codex: turn off the sparkle animation
 
@@ -139,8 +140,8 @@ first. If you keep such a pane around, scope what the daemon watches:
 The daemon reads this once, at startup, so it has to be in the daemon's own environment by
 then — and how it gets there depends on how you start it. From a shell: `export` it, or
 prefix the command. From the systemd user unit: put it in the repo `.env`, which the
-daemon loads for itself at import (the unit deliberately supplies no environment of its
-own), because a `systemctl --user` service inherits nothing from your shell. Either way a
+daemon loads for itself at import — the unit sets no `TMUXRC_TARGET`, and a
+`systemctl --user` service inherits nothing from your shell. Either way, a
 daemon that is already running keeps its old setting until you restart it
 (`systemctl --user restart tmux-rc`) — otherwise it goes on watching every pane.
 
