@@ -1616,7 +1616,11 @@ function openLaunchMenu(sess, anchor) {
     // stays clickable, the POST comes back 400, and the handler below (which only
     // looks for pane_id) drops the explanation on the floor: exactly the silent
     // nothing-happens this endpoint's `unavailable` exists to end.
-    if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); m.appendChild(b); continue; }
+    // aria-label as well as title, matching the dock icons: a tooltip is a pointer
+    // affordance, and on a DISABLED control it is the least reachable one there is —
+    // keyboard focus skips it, touch has no hover, and AT would otherwise announce the
+    // launcher's name with no hint of why it does nothing.
+    if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); setAttr(b, "aria-label", `${l.label}, unavailable: ${l.unavailable}`); m.appendChild(b); continue; }
     b.onclick = () => {
       closeLaunchMenu();
       fetch("/api/windows", {

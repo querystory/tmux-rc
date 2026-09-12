@@ -142,9 +142,11 @@ def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
     # a builtin, so argv[0] is the word after it, not the one which() would be asked for.
     assert S._unavailable("exec no-such-command-xyz").startswith("no-such-command-xyz")
     assert S._unavailable("exec sh") is None
-    # sh takes the two prefix forms in either order, so neither may hide the other.
+    # Assignments prefix `exec`; a word AFTER it is exec's argument, so `exec FOO=1 sh`
+    # genuinely makes sh hunt for a file called "FOO=1" (verified against sh). Reporting
+    # that is the honest answer — stripping it would wave through a launcher that fails.
     assert S._unavailable("FOO=1 exec sh") is None
-    assert S._unavailable("exec FOO=1 sh") is None
+    assert S._unavailable("exec FOO=1 sh").startswith("FOO=1")
     # A PATH assignment changes the very lookup we would be doing, so don't do it.
     assert S._unavailable("PATH=/opt/x/bin no-such-command-xyz") is None
     # A relative path is resolved by tmux against the SESSION's directory (new_window

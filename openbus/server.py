@@ -173,18 +173,20 @@ def _unavailable(command: str) -> str | None:
         words = shlex.split(command, posix=False)
     except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
         return None
-    # Strip the prefix words sh would strip before it has a command to look up: leading
-    # assignments, and `exec` — a real launcher config (`exec claude` replaces the shell
-    # with the agent, so the pane dies with it instead of dropping to a prompt) and a
-    # BUILTIN, so judging it would report a working launcher as missing. One loop rather
-    # than two passes because sh accepts them in either order (`FOO=1 exec codex`,
-    # `exec FOO=1 codex`), and a pass per form would answer wrongly for the other.
+    # Strip the prefix words sh strips before it has a command to look up: assignments,
+    # then `exec` — a real launcher config (`exec claude` replaces the shell with the
+    # agent, so the pane dies with it instead of dropping to a prompt) and a BUILTIN, so
+    # judging it would report a working launcher as missing. In that order and no other:
+    # assignments are a prefix to `exec` itself, and a word after it is already exec's
+    # ARGUMENT, so `exec FOO=1 sh` really does make sh look for a file named "FOO=1" —
+    # and this then says so, which is the honest answer rather than a lenient one.
     # (Other builtins as argv[0] don't describe a launcher, and the newline gate above
     # already covers the way one realistically appears: `cd /tmp` on its own line.)
-    while words and (words[0] == "exec"
-                     or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
         if words.pop(0).startswith("PATH="):
             return None
+    if words and words[0] == "exec":
+        words.pop(0)
     # argv[0] must be a plain word — it is the thing being resolved, so anything that
     # isn't literally a name or a path (a quoted string, a substitution) is unanswerable.
     # The REST of the line only has to be free of shell syntax, which is a much weaker
