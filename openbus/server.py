@@ -173,6 +173,13 @@ def _unavailable(command: str) -> str | None:
         words = shlex.split(command, posix=False)
     except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
         return None
+    # `exec claude` is a real launcher config — it replaces the shell with the agent, so
+    # the pane dies with it instead of dropping to a prompt — and `exec` is a BUILTIN, so
+    # judging it would report a working launcher as missing. Strip it; argv[0] is what
+    # follows. (Other builtins as argv[0] don't describe a launcher, and the newline gate
+    # above already covers the way one realistically appears: `cd /tmp` on its own line.)
+    if words and words[0] == "exec":
+        words.pop(0)
     while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
         if words.pop(0).startswith("PATH="):
             return None

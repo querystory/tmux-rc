@@ -275,8 +275,11 @@ for launched, pane_id, now, expected in [
     ({"id": "%1", "at": LAUNCH_AT}, "%1", NOW_MS, True),
     # A different pane's launch says nothing about this one.
     ({"id": "%2", "at": LAUNCH_AT}, "%1", NOW_MS, False),
-    # Expired: 5s on, the pane really is not coming.
-    ({"id": "%1", "at": NOW_MS - 6000}, "%1", NOW_MS, False),
+    # Still pending well past a poll interval: the watcher's wake is not an interrupt, so
+    # a tick already classifying holds the publish up for as long as an LLM call takes.
+    ({"id": "%1", "at": NOW_MS - 20000}, "%1", NOW_MS, True),
+    # Expired: the pane really is not coming.
+    ({"id": "%1", "at": NOW_MS - 31000}, "%1", NOW_MS, False),
     # Nothing has been launched this session.
     (None, "%1", NOW_MS, False),
     ({"id": "%1", "at": LAUNCH_AT}, None, NOW_MS, False),

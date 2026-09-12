@@ -642,7 +642,11 @@ async function launchWindow(launcher, button) {
     // The list was a snapshot from the GET; if the daemon has since decided it can't run
     // this one, believe it now rather than leaving a button that only ever re-shows the
     // same refusal. The marker is what `finally` restores from, so setting it is enough.
-    if (button && error.detail) button.dataset.unavailable = error.detail;
+    // ONLY on 400, the preflight's own status: every FastAPI error carries a `detail`, so
+    // a stale session (404) or any other transient refusal would otherwise disable a
+    // perfectly good launcher for the rest of the dialog over something that isn't
+    // about the command at all.
+    if (button && error.status === 400 && error.detail) button.dataset.unavailable = error.detail;
   }
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }

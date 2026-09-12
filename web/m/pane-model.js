@@ -42,10 +42,16 @@ export const stillOnPane = (hash, id) => !!id && new URLSearchParams(String(hash
 // (bad auth, an instant crash — a command that RESOLVES and then exits, which the
 // daemon's pre-flight check deliberately does not try to predict). That has to end at
 // "no longer available", not on a screen that loads forever. Generous next to the
-// watcher's sub-second wake, because the cost of being wrong is asymmetric: a second too
-// long is a beat of "Loading pane", a second too short is being bounced out of the
-// window you just asked for.
-export const LAUNCH_GRACE_MS = 5000;
+// watcher's sub-second wake, because the cost of being wrong is asymmetric: a beat too
+// long is a spinner, a beat too short is being bounced out of the window you just asked
+// for. Hence a number this large: /api/windows wakes the watcher, but the wake is not an
+// interrupt — it only lets the loop start ANOTHER tick, so a tick already in flight runs
+// to completion first, and with classification on that is bounded by the per-request LLM
+// timeout (TMUXRC_LLM_TIMEOUT_MS, 20s by default) rather than by anything quick. Waiting
+// past that costs nothing on the happy path, where the pane is published in milliseconds
+// and simply found; the deadline only decides how long the pathological case — a command
+// that resolves and then dies on its own — spends loading before it says so.
+export const LAUNCH_GRACE_MS = 30000;
 export const awaitingLaunch = (launched, id, nowMs = Date.now()) =>
   !!id && launched?.id === id && nowMs - launched.at < LAUNCH_GRACE_MS;
 

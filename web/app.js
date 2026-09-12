@@ -437,6 +437,15 @@ let pending = null; // {id, ts}
 // session_active — each session's own focused pane — but only within `shown`'s session;
 // focus movement in OTHER sessions is desktop noise, not a signal to switch the view.
 let shown = null;
+// How long an anchor on a pane that was not in state when it was picked survives. Far
+// past the 8s an ordinary select gets, because the two are waiting on different things:
+// a select waits for tmux to confirm focus, while this waits for the watcher to publish
+// a pane that already exists. POST /api/windows wakes the watcher, but the wake is not
+// an interrupt — a tick already in flight finishes first, and with classification on
+// that is bounded by the per-request LLM timeout (20s), not by anything quick. Giving up
+// early doesn't fail gracefully: it drops the anchor and the view snaps back to tmux's
+// global focus, i.e. the window you just created is the one place you don't end up.
+const UNSEEN_PICK_MS = 30000;
 function activeId() {
   if (pending) {
     const s = panesById[pending.id];
@@ -463,7 +472,7 @@ function activeId() {
     // yet" and keeps its anchor until the 8s timeout below gives up on it, while one
     // that was there and has since gone is the "pane closed" case and still drops at
     // once. Nothing else can reach here unseen — every other caller picks from the deck.
-    if ((!s && !pending.unseen) || Date.now() - pending.ts > 8000) { pending = null; shown = null; }
+    if ((!s && !pending.unseen) || Date.now() - pending.ts > (pending.unseen ? UNSEEN_PICK_MS : 8000)) { pending = null; shown = null; }
     else return (shown = pending.id);
   }
   const cur = panesById[shown];
@@ -526,6 +535,12 @@ function setActive(id) {
     ? (fn) => requestAnimationFrame(() => requestAnimationFrame(fn))
     : (fn) => setTimeout(fn, 0);
   soon(() => render(Object.values(panesById)));
+  // A pick on a pane state hasn't shown us yet expires on a clock, but only a render can
+  // notice — and renders follow /api/state, which may be parked on a long poll for longer
+  // than the deadline. One scheduled render is what makes the timeout above real. No
+  // cancellation needed: a spare render is idempotent, and by then the pane has either
+  // arrived (nothing to expire) or the anchor is correctly dropped.
+  if (pending.unseen) setTimeout(() => render(Object.values(panesById)), UNSEEN_PICK_MS);
 }
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded

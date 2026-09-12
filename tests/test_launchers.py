@@ -138,6 +138,10 @@ def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
     # whitespace — so `cd /tmp\nclaude`, a launcher that works, would be judged on the
     # shell builtin `cd` and refused. Control characters are shell syntax, not argv.
     assert S._unavailable("cd /tmp\nclaude") is None
+    # `exec claude` replaces the shell with the agent so the pane dies with it. `exec` is
+    # a builtin, so argv[0] is the word after it, not the one which() would be asked for.
+    assert S._unavailable("exec no-such-command-xyz").startswith("no-such-command-xyz")
+    assert S._unavailable("exec sh") is None
     # A PATH assignment changes the very lookup we would be doing, so don't do it.
     assert S._unavailable("PATH=/opt/x/bin no-such-command-xyz") is None
     # A relative path is resolved by tmux against the SESSION's directory (new_window
