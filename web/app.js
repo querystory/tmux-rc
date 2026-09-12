@@ -1583,7 +1583,11 @@ const filtersEl = document.getElementById("filters"); // pane filters, homed in 
 let launchers = [];
 const loadLaunchers = () => fetch("/api/launchers")
   .then((r) => r.json())
-  .then((d) => { launchers = d.launchers || []; })
+  // Replace the cache only on a real answer. An error body (a FastAPI `detail`, a tunnel's
+  // HTML) parses fine and has no launchers, and taking it would wipe a working menu — on
+  // a re-read, blanking one that is open on screen. A stale list is strictly better: its
+  // entries still launch, and the POST is the authority on whether they can.
+  .then((d) => { if (Array.isArray(d?.launchers)) launchers = d.launchers; })
   .catch(() => {});
 loadLaunchers();
 let launchMenuEl = null;

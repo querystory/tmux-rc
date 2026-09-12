@@ -224,6 +224,13 @@ function renderList() {
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
+  // Once state has shown us the launched pane the grace record is spent — wherever the
+  // user happens to be looking. Keyed on the pane list, not on `active`: a launch the
+  // user navigated away from before the first poll would otherwise keep its exemption,
+  // and coming back to that pane after it had exited would find it still held on screen
+  // by its own birth. Presence is imperfect evidence when tmux recycles an id — see the
+  // note at the eviction below; it is the only evidence the client has.
+  if (launched && panes.some((p) => p.pane_id === launched.id)) launched = null;
   show("sessions", !inPane); show("list-nav", !inPane); show("brand", !inPane);
   show("back", inPane); show("heading", inPane); show("detail", inPane);
   renderList();
@@ -238,14 +245,13 @@ function render() {
   // which is "not yet" too — see awaitingLaunch for why that is a deadline. Once the pane
   // HAS been seen the record is spent: a window that opens and then closes inside the
   // grace is an ordinary death, and must not be held on screen by its own birth.
-  // Presence is the only evidence available here, and it is imperfect: tmux recycles pane
-  // ids, so a launch that reuses one can match the previous occupant's entry in a state
-  // poll that predates it, ending the grace early and showing the dead card for a tick.
-  // Telling the two apart needs a birth token in /api/state that the endpoint can echo
-  // back — a schema change, not a client fix, and not worth it for a window this narrow:
-  // it costs a stale card until the next poll, and the next poll is what it was waiting
-  // for anyway.
-  if (pane && launched?.id === active) launched = null;
+  // Presence is the only evidence the clearing above has, and it is imperfect: tmux
+  // recycles pane ids, so a launch that reuses one can match the previous occupant's
+  // entry in a state poll that predates it, ending the grace early and showing the dead
+  // card for a tick. Telling the two apart needs a birth token in /api/state that the
+  // endpoint can echo back — a schema change, not a client fix, and not worth it for a
+  // window this narrow: it costs a stale card until the next poll, and the next poll is
+  // what it was waiting for anyway.
   // Has the daemon's word on this pane settled? Every "it's gone" wording below turns on
   // this rather than on `booted` alone, so the grace reads as "still loading" throughout
   // instead of announcing the pane unavailable on a screen we are deliberately holding.
