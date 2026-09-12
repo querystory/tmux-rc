@@ -223,7 +223,7 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
         return None
     # Either list will do — see the two-PATH note above. A word with a slash is checked as
     # a file by both calls, so passing `path` is harmless there.
-    if shutil.which(word) or (path and shutil.which(word, path=path)):
+    if shutil.which(word) or (path is not None and shutil.which(word, path=path)):
         return None
     if os.path.isabs(word):
         # A path answers for itself; neither PATH was ever going to be consulted.
