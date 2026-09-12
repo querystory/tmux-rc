@@ -171,4 +171,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 @media (prefers-reduced-motion: no-preference) { dialog[open] { animation: sheet-in .16s ease-out; } @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } }
 @media (min-width: 761px) { #app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
 @media (max-width: 359px) { .app-header { padding-inline: 8px; gap: 4px; } .pane-row { padding-inline: 14px; gap: 8px; } .row-title { flex-wrap: wrap; gap: 2px 8px; } #composer { padding-inline: 8px; } }
-@media (max-height: 500px) { .app-header { min-height: 48px; padding-block: 2px; } #composer { padding-top: 6px; padding-bottom: 4px; } #reply-form .icon-button { height: 40px; } }
+/* Landscape phone: the keyboard leaves almost no vertical room, so the chrome gives some
+   back. The composer buttons need min-height as well as height — the base `button` rule
+   sets min-height: 44px for a thumb target, and that floor wins over a smaller height,
+   so height alone here would compute to 44px and change nothing. */
+@media (max-height: 500px) { .app-header { min-height: 48px; padding-block: 2px; } #composer { padding-top: 6px; padding-bottom: 4px; } #reply-form .icon-button { height: 40px; min-height: 40px; } }

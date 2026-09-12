@@ -36,8 +36,9 @@
       <span id="connection" role="status">Connecting</span>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
       <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
-      <!-- Mirror of the full UI's phone button (#mobile-btn), same slot next to the theme
-           toggle, so the two UIs are each other's escape hatch. In the header rather than
+      <!-- Mirror of the full UI's phone button (#mobile-btn in web/index.html, added in
+           #184), same slot next to the theme toggle, so the two UIs are each other's
+           escape hatch — this is the return leg. In the header rather than
            the composer because the composer only renders on the pane DETAIL screen — from
            the session LIST there was previously no way back to the full UI at all. A plain
            <a href="/">: it works before app.js runs, and with no JS at all. -->

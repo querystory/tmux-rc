@@ -539,7 +539,14 @@ $("reply-form").onsubmit = async (event) => {
 // silently added a blank line instead. Cmd/Ctrl+Enter still sends, for a hardware
 // keyboard and for anyone whose fingers already learned it. isComposing guards IME
 // input: mid-composition Enter commits the candidate word and must not send.
+// The handler is delegated from the FORM, not bound to the editor, because render()
+// swaps in a per-pane editor element — a listener on #reply would die on the first pane
+// switch. Delegation means keydown from the form's other controls lands here too, so it
+// only acts on the editor: without that guard, a keyboard user who tabs to the Keys or
+// attach button and presses Enter gets their draft SENT (preventDefault eats the button
+// activation) instead of the key row or the file picker.
 $("reply-form").onkeydown = (event) => {
+  if (!$("reply").contains(event.target)) return;
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();
   $("reply-form").requestSubmit();
