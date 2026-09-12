@@ -1569,13 +1569,17 @@ const filtersEl = document.getElementById("filters"); // pane filters, homed in 
 // polls rewrite the icon around it.
 // ---- Launcher menu: a new agent window in a session, from the dock's "+"/"+N" ----
 // Entries come from the daemon (GET /api/launchers) so the label→command mapping stays
-// server-side: the phone posts back only the label, never a command string. Fetched
-// once — the config is env-set, so it can't change under a running page.
+// server-side: the phone posts back only the label, never a command string. The CONFIG is
+// env-set and can't change under a running page, but each entry's availability can — it
+// is a live fact about the daemon's PATH, so installing the binary or restarting the unit
+// with a wider PATH makes an entry usable again. Re-read on every open, or the page would
+// go on refusing a launcher that has since been fixed until someone reloads it.
 let launchers = [];
-fetch("/api/launchers")
+const loadLaunchers = () => fetch("/api/launchers")
   .then((r) => r.json())
   .then((d) => { launchers = d.launchers || []; })
   .catch(() => {});
+loadLaunchers();
 let launchMenuEl = null;
 function closeLaunchMenu() {
   if (!launchMenuEl) return;
@@ -1604,47 +1608,54 @@ function openLaunchMenu(sess, anchor) {
   head.setAttribute("role", "presentation");
   setText(head, `New window in ${sess || "this session"}`);
   m.appendChild(head);
-  for (const l of launchers) {
-    const b = document.createElement("button");
-    b.setAttribute("role", "menuitem");
-    const im = document.createElement("img");
-    im.width = im.height = 18;
-    // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
-    // config entry can ship its own glyph without the app changing.
-    setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
-    setAttr(im, "alt", "");
-    b.append(im, document.createTextNode(l.label));
-    // The daemon flags a launcher whose command it can't run (GET /api/launchers).
-    // Show it anyway — the user configured it, so hiding it would only be a second
-    // mystery — but disabled, with the reason as the tooltip. Without this the entry
-    // stays clickable, the POST comes back 400, and the handler below (which only
-    // looks for pane_id) drops the explanation on the floor: exactly the silent
-    // nothing-happens this endpoint's `unavailable` exists to end.
-    // aria-label as well as title, matching the dock icons: a tooltip is a pointer
-    // affordance, and on a DISABLED control it is the least reachable one there is —
-    // keyboard focus skips it, touch has no hover, and AT would otherwise announce the
-    // launcher's name with no hint of why it does nothing.
-    if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); setAttr(b, "aria-label", `${l.label}, unavailable: ${l.unavailable}`); m.appendChild(b); continue; }
-    b.onclick = () => {
-      closeLaunchMenu();
-      fetch("/api/windows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session: sess, launcher: l.label }),
-      })
-        // The disabled entry above is only a snapshot from the one-time /api/launchers
-        // fetch: a binary removed, a chmod, or a daemon restart with a different PATH
-        // since page load all reach here as a 400 carrying the reason. Say it, rather
-        // than falling through to the pane_id check and failing silently — a silent
-        // failure is the exact symptom this endpoint's `detail` was added to end.
-        .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`); return d; })
-        // Jump to the new window's card: the pane exists in tmux the moment the POST
-        // returns, so setActive's select lands; the card fills in on the next poll.
-        .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
-        .catch((e) => barNote(`Could not open a window — ${e.message}`));
-    };
-    m.appendChild(b);
-  }
+  const fill = () => {
+    for (const b of [...m.querySelectorAll("button")]) b.remove();
+    for (const l of launchers) {
+      const b = document.createElement("button");
+      b.setAttribute("role", "menuitem");
+      const im = document.createElement("img");
+      im.width = im.height = 18;
+      // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
+      // config entry can ship its own glyph without the app changing.
+      setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
+      setAttr(im, "alt", "");
+      b.append(im, document.createTextNode(l.label));
+      // The daemon flags a launcher whose command it can't run (GET /api/launchers).
+      // Show it anyway — the user configured it, so hiding it would only be a second
+      // mystery — but disabled, with the reason as the tooltip. Without this the entry
+      // stays clickable, the POST comes back 400, and the handler below (which only
+      // looks for pane_id) drops the explanation on the floor: exactly the silent
+      // nothing-happens this endpoint's `unavailable` exists to end.
+      // aria-label as well as title, matching the dock icons: a tooltip is a pointer
+      // affordance, and on a DISABLED control it is the least reachable one there is —
+      // keyboard focus skips it, touch has no hover, and AT would otherwise announce the
+      // launcher's name with no hint of why it does nothing.
+      if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); setAttr(b, "aria-label", `${l.label}, unavailable: ${l.unavailable}`); m.appendChild(b); continue; }
+      b.onclick = () => {
+        closeLaunchMenu();
+        fetch("/api/windows", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: sess, launcher: l.label }),
+        })
+          // The disabled entry above is only a snapshot from the last /api/launchers read:
+          // a binary removed, a chmod, or a daemon restart with a narrower PATH since the
+          // menu opened all reach here as a 400 carrying the reason. Say it, rather
+          // than falling through to the pane_id check and failing silently — a silent
+          // failure is the exact symptom this endpoint's `detail` was added to end.
+          .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`); return d; })
+          // Jump to the new window's card: the pane exists in tmux the moment the POST
+          // returns, so setActive's select lands; the card fills in on the next poll.
+          .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
+          .catch((e) => barNote(`Could not open a window — ${e.message}`));
+      };
+      m.appendChild(b);
+    }
+  };
+  fill();
+  // Then repaint from a fresh read, so a launcher fixed on the host since this page
+  // loaded stops being refused without anyone having to reload the app.
+  loadLaunchers().then(() => { if (launchMenuEl === m) fill(); });
   document.body.appendChild(m);
   // Under the anchor, clamped into the viewport (a tray's "+" can sit at the right edge).
   const r = anchor.getBoundingClientRect();

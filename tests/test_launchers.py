@@ -138,6 +138,9 @@ def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
     # whitespace — so `cd /tmp\nclaude`, a launcher that works, would be judged on the
     # shell builtin `cd` and refused. Control characters are shell syntax, not argv.
     assert S._unavailable("cd /tmp\nclaude") is None
+    # A backslash escapes, and the non-posix split keeps it as a literal instead — so
+    # this would otherwise split three ways and judge "baz" as the command.
+    assert S._unavailable("FOO=bar\\ baz no-such-command-xyz") is None
     # `exec claude` replaces the shell with the agent so the pane dies with it. `exec` is
     # a builtin, so argv[0] is the word after it, not the one which() would be asked for.
     assert S._unavailable("exec no-such-command-xyz").startswith("no-such-command-xyz")
@@ -170,6 +173,36 @@ def test_unavailable_judges_argv0_despite_ordinary_arguments():
     # Shell syntax anywhere still means this is not a plain argv to judge.
     for line in ("sh --pipe | tee", "sh $(hostname)", "sh *.py", "sh 'quoted'"):
         assert S._unavailable(line) is None, line
+
+
+def test_new_window_wakes_the_watcher_for_the_pane_it_made(monkeypatch):
+    """The latency half of this: without the wake the new pane waits out a poll interval
+    before anything publishes it, which is the delay the endpoint exists to remove."""
+    monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
+    _resolves(monkeypatch)
+    monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
+    monkeypatch.setattr(T, "_run", lambda argv: "%42")
+    asked = []
+    S.app.state.watcher = type("W", (), {"request_reparse": lambda self, pane_id: asked.append(pane_id)})()
+    try:
+        client = TestClient(S.app)
+        assert client.post("/api/windows", json={"session": "work", "launcher": "Claude"}).status_code == 200
+        assert asked == ["%42"]  # the id just created, not the one the user was on
+    finally:
+        del S.app.state.watcher
+
+
+def test_new_window_succeeds_with_no_watcher_running(monkeypatch):
+    """The window already exists by then, so a watcher that isn't up must not turn a
+    success into a 500 — the next ordinary tick finds the pane regardless."""
+    monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
+    _resolves(monkeypatch)
+    monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
+    monkeypatch.setattr(T, "_run", lambda argv: "%42")
+    assert getattr(S.app.state, "watcher", None) is None
+    client = TestClient(S.app)
+    r = client.post("/api/windows", json={"session": "work", "launcher": "Claude"})
+    assert r.status_code == 200 and r.json()["pane_id"] == "%42"
 
 
 def test_unavailable_distinguishes_a_bad_path_from_a_bad_name(tmp_path):

@@ -163,8 +163,13 @@ def _unavailable(command: str) -> str | None:
 
     Returning the reason rather than the word keeps one wording for both callers: the
     phone says the same thing whether it asked before the tap or after it."""
-    if re.search(r"[\x00-\x1f]", command):
-        return None  # a newline is a command separator; shlex would eat it as whitespace
+    # Neither of these survives tokenizing: shlex eats a newline as whitespace, and with
+    # posix=False it keeps a backslash as a literal character rather than as the escape it
+    # is — so `FOO=bar\ baz claude` splits into three words and argv[0] comes out as
+    # "baz", refusing a launcher that works. A newline separates commands and a backslash
+    # escapes; both are shell syntax, so both end the judging before it starts.
+    if re.search(r"[\x00-\x1f\\]", command):
+        return None
     try:
         # posix=False KEEPS the quotes on a quoted word, so the "plain argv" gate below
         # can see them and decline. Stripping them first would hide the one case where
