@@ -231,29 +231,44 @@ def active_pane_id() -> str | None:
 
 
 def list_panes() -> list[Pane]:
-    """All panes across all sessions/windows — ONE entry per pane.
+    """Every (session, pane) row tmux reports.
 
-    tmux session GROUPS (`new-session -t <name>`) let several sessions share one set of
-    windows, and `list-panes -a` reports per session: a pane in a group of N sessions
-    arrives N times, under N session names, all carrying the SAME pane id. That id is the
-    key everything downstream is built on — the watcher's per-pane buffers, the UI's cards,
-    every `select`/`send` target — so the repeats don't just pad the list, they collide.
-    Collapsing here, at the single point where tmux is read, keeps every caller honest
-    rather than leaving each to rediscover that "a pane" can arrive more than once.
-
-    The survivor is the ATTACHED member when the group has one, so a card names the session
-    you would actually land in; otherwise the first row tmux emits. Insertion order is the
-    dict's, so replacing a row keeps the pane's original position and the deck doesn't
-    reshuffle when you attach elsewhere."""
+    A pane in a session GROUP appears once per member — see dedupe_grouped — and that is
+    deliberate here: a grouped session is a real session with a real name, so
+    `find_pane("gtm-1:0")` must resolve and `/api/windows` must accept `session=gtm-1`
+    even when the deck files that pane under `gtm-0`. Callers that show panes to a human
+    want dedupe_grouped(); callers that RESOLVE a name want these rows."""
     out = _run(["list-panes", "-a", "-F", _PANE_FMT])
-    by_id: dict[str, Pane] = {}
+    panes: list[Pane] = []
     for line in out.splitlines():
         if not line.strip():
             continue
         parts = line.split("\t")
         if len(parts) != _PANE_FMT.count("\t") + 1:
             continue
-        pane = Pane(*parts)
+        panes.append(Pane(*parts))
+    return panes
+
+
+def dedupe_grouped(panes: list[Pane]) -> list[Pane]:
+    """One entry per pane, for anything that DISPLAYS panes.
+
+    `tmux new-session -t <name>` does not attach — it creates a session GROUPED with the
+    target, and grouped sessions share their windows. `list-panes -a` reports per session,
+    so a pane in a group of N sessions arrives N times under N session names, every copy
+    carrying the same pane id. That id keys the watcher's per-pane buffers and every card,
+    so on a deck the copies collide rather than merely repeat.
+
+    Applied at the point of display, NOT inside list_panes: the extra rows are not junk,
+    they are how a grouped session is addressable by its own name, and dropping them
+    globally broke `find_pane("gtm-1:0")` and `/api/windows?session=gtm-1`.
+
+    The survivor is the ATTACHED member when the group has one, so a card names the session
+    you would actually land in; otherwise the first row tmux emits. Insertion order is the
+    dict's, so replacing a row keeps the pane's original position and the deck doesn't
+    reshuffle when you attach elsewhere."""
+    by_id: dict[str, Pane] = {}
+    for pane in panes:
         seen = by_id.get(pane.id)
         if seen is None or (pane.is_attached and not seen.is_attached):
             by_id[pane.id] = pane
