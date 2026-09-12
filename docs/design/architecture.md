@@ -158,11 +158,38 @@ Two subtleties that everything downstream depends on:
 
 ## What the phone shows
 
-One pane is the **active card**: headline, activity badge, the pending question rendered
-as tappable buttons, a task list, links, a feed of recent events. The other panes are a
-**dock** of icons across the top; the selected icon joins visually to the card like a
-browser tab. Behind and below the card, the pane's **raw terminal** shows through —
-and that raw view is *live*.
+There are two front ends over the same API. The **wide layout** at `/` puts one pane in
+an **active card**: headline, activity badge, the pending question rendered as tappable
+buttons, a task list, links, a feed of recent events. The other panes are a **dock** of
+icons across the top, grouped by tmux session; the selected icon joins visually to the
+card like a browser tab. Behind and below the card, the pane's **raw terminal** shows
+through — and that raw view is *live*.
+
+![The wide dashboard: a dock of pane icons grouped by tmux session, above the focused pane's card with its summary, sub-agents and activity list, and the live terminal below it](../img/card.png)
+
+Press and hold a session's `+N` fold button and the **launcher** opens, starting a fresh
+agent in a new window in that session — the entries come from `TMUXRC_LAUNCHERS`:
+
+![The launcher menu open over the dashboard, listing Claude, Claude (Sonnet), Claude (Bedrock), Codex and Gemini as the agents available to start](../img/launcher.png)
+
+The **phone layout** at `/m` is built for a thumb rather than a pointer, so it splits the
+same data across two screens instead of layering it. A **session list** groups every pane
+under its tmux session, one row each — agent name, activity badge, and the one-line
+summary — with a search box, a recency sort, and a bottom bar that filters to All,
+Running, Recent, or *Needs you* (the panes blocked on a question). Tapping a row opens
+that pane on its own screen, where **Overview** carries the headline, the summary, the
+model and context remaining, the sub-agents it spawned, and the timestamped activity
+list:
+
+![The phone session list, with panes grouped by tmux session and a bottom filter bar counting All, Running, Recent and Needs you](../img/mobile-list.png)
+![A single pane's Overview on the phone: headline, summary, model and context chips, sub-agents, activity list, and a composer to message the pane](../img/mobile-pane.png)
+
+The **Terminal** tab on that same screen is the live pane, rendered in colour. Because a
+phone keyboard has no Esc, Tab, arrows or Ctrl, a horizontally scrolling **key row** sits
+above the composer and sends them — including the tmux prefix, so the pane's own tmux
+bindings stay reachable:
+
+![The Terminal tab on the phone, showing the live tmux pane in colour above a scrolling row of Esc, Tab, arrow, Enter, Ctrl-C, Ctrl-D and Ctrl-O buttons](../img/mobile-terminal.png)
 
 ```mermaid
 flowchart TD

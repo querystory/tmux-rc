@@ -1,0 +1,25 @@
+{{- /*
+  Image render hook: resolve repo-relative image paths to the built site's URL.
+
+  Images are written GitHub-style — ![alt](../img/card.png) — so they render when the
+  docs are read as raw files on GitHub, the same convention render-link.html keeps for
+  cross-doc links. Hugo would emit that path verbatim, and since pages are served at
+  pretty URLs (/design/architecture/) a "../img/" target resolves one level too shallow
+  and 404s. The files live under the content root's img/ directory, which Hugo copies to
+  <baseURL>/img/, so rewrite any relative path whose remainder is "img/..." to that
+  absolute location — relURL supplies the /docs/ baseURL the production build sets.
+*/ -}}
+{{- $dest := .Destination -}}
+{{- $u := urls.Parse $dest -}}
+{{- $isExternal := in (slice "http" "https") $u.Scheme -}}
+{{- if and (not $isExternal) (not (hasPrefix $dest "/")) -}}
+  {{- $clean := $dest -}}
+  {{- range seq 10 -}}
+    {{- $clean = strings.TrimPrefix "../" $clean -}}
+  {{- end -}}
+  {{- if hasPrefix $clean "img/" -}}
+    {{- $dest = $clean | relURL -}}
+  {{- end -}}
+{{- end -}}
+<img src="{{ $dest | safeURL }}" alt="{{ .Text }}"
+  {{- with .Title }} title="{{ . }}"{{ end }} loading="lazy">
