@@ -168,7 +168,10 @@ The distance between today's prompt-driven bus and the first-class one, in order
 
 1. **Addressing and messaging as primitives.** "Tell window 4 to hand this off" is a
    paragraph of prompt today; make it one cheap, observable operation with a real
-   address. The pane-management session proved the shape; now make it protocol.
+   address. The pane-management session proved the shape; now make it protocol. The
+   third client — a coding agent orchestrating its siblings — is written up in
+   [the agent client](agent-client.md), including what breaks when it has to do this
+   with raw `send-keys`.
 2. **Consent on the peer channel.** An agent that can type into another's pane can
    derail it. Who may address whom, whether messages are announced, what a human can
    veto — extend the tiered-confirmation model (designed for human actions) to agents
