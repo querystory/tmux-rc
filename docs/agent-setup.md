@@ -14,7 +14,7 @@ would. Two consequences follow, and every recommendation below is one of them:
 1. **Repainting costs money.** The daemon decides whether to re-run its LLM classifier by
    fingerprinting the pane text each 1.5s tick; a screen that differs from the one last
    classified gets re-read. Chrome that *moves on its own* therefore bills you for
-   information you already had. See [parse cadence](design/parse-cadence.md) for why the
+   information you already had. See [parse cadence](../design/parse-cadence/) for why the
    trigger is change-based and what the fingerprint already strips.
 2. **If the pane doesn't say who it is, the phone can't either.** A card is headed by
    whatever the agent published about itself. Publish nothing and the heading falls back
