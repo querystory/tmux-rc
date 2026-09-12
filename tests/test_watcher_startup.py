@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from daemon import watcher as W
+from openbus import watcher as W
 
 
 @pytest.fixture

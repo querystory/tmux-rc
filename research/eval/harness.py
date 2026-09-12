@@ -8,8 +8,8 @@ throwaway script each time. This codifies that into standing infra: a committed 
 change or model swap gets the same check every time and CI can gate on it.
 
 WHAT it does: for each sample it runs the SAME code path production uses —
-`daemon.classify.classify(pane, text, llm_fn)` with `llm_fn` calling the real Vertex
-model under `daemon/parser_prompt.txt` — so the candidate output includes the
+`openbus.classify.classify(pane, text, llm_fn)` with `llm_fn` calling the real Vertex
+model under `openbus/parser_prompt.txt` — so the candidate output includes the
 waiting_on / activity overrides that actually drive the UI badge, not just raw model
 JSON. It then scores the candidate against the sample's blessed `expected`:
 
@@ -37,8 +37,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from daemon.classify import classify
-from daemon.tmux import Pane
+from openbus.classify import classify
+from openbus.tmux import Pane
 
 SAMPLES_DIR = Path(__file__).parent / "samples"
 
@@ -46,6 +46,11 @@ SAMPLES_DIR = Path(__file__).parent / "samples"
 # `rewind`, `tasks` are scored by PRESENCE (+ question.answer_style) separately below,
 # because their free-text bodies are prose the judge handles.
 _STRUCT_SCALAR = ("tool", "activity", "waiting_on")
+# `session` becomes the pane's NAME on the phone, so a sample that pins it wants an exact
+# match — but it is read off agent chrome that most screens don't show, so it is scored
+# only when a sample states an expectation (including an explicit null for "must omit").
+# Silently ignoring it would let a naming regression pass with the expectation in place.
+_STRUCT_OPTIONAL = ("session",)
 
 
 @dataclass
@@ -122,6 +127,12 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     answer_style); `rewind`/`tasks` by presence only."""
     diffs = []
     for k in _STRUCT_SCALAR:
+        c, e = candidate.get(k), expected.get(k)
+        if c != e:
+            diffs.append(f"{k}: got {c!r} want {e!r}")
+    for k in _STRUCT_OPTIONAL:
+        if k not in expected:
+            continue  # sample takes no position on this field
         c, e = candidate.get(k), expected.get(k)
         if c != e:
             diffs.append(f"{k}: got {c!r} want {e!r}")

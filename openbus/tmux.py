@@ -87,19 +87,18 @@ class Pane:
     @property
     def label(self) -> str:
         """Human label, best identity first. A window the user named (e.g. "Resolve PR
-        38") wins. Otherwise tmux auto-named the window after its command (bash/node),
-        which is noise — prefer the SESSION name the user deliberately set (e.g.
-        "tmux-rc-dev", shown in the tmux status bar), then the cwd basename, then
-        session:window."""
+        38") wins outright — it is per-window, so it identifies the row on its own.
+
+        Every other source (session name, cwd) is shared by every window in the session,
+        so using one bare turns a fleet into a column of identical headings — the phone's
+        list then names nothing. Qualify those with the window INDEX, the number tmux
+        already shows in the user's own status bar, so the row points at a real window."""
         if _meaningful(self.window_name):
             return self.window_name
-        if _meaningful(self.session):
-            return self.session
-        if self.cwd:
+        base = self.session if _meaningful(self.session) else ""
+        if not base and self.cwd:
             base = self.cwd.rstrip("/").rsplit("/", 1)[-1]
-            if base:
-                return base
-        return f"{self.session}:{self.window_index}"
+        return f"{base or self.session}:{self.window_index}"
 
 
 # tmux auto-assigns these as window names from the running command — not user intent.
@@ -113,6 +112,14 @@ _GENERIC_NAMES = {
     "python3",
     "tmux",
     "ssh",
+    # Agent CLIs. tmux names a window after the command it launched, so a fleet of
+    # agents self-names into a wall of "claude" / "codex" rows that identify nothing.
+    # Someone who genuinely wants a window called "claude" is better served by the
+    # qualified fallback than by three rows sharing one heading.
+    "claude",
+    "codex",
+    "gemini",
+    "aider",
 }
 
 
@@ -234,10 +241,10 @@ def find_pane(target: str | None) -> Pane | None:
 
     Also matched, but derived: `Pane.label`, optionally ".pane_index". The label is a
     precedence chain, not "the window/session name" — it is the window name if that is
-    meaningful (non-empty, not a generic command name, not purely numeric), else the
-    session name under the same test, else the cwd basename, else "session:window_index".
-    So the session name does NOT match on a user-named window, and callers should not
-    have to reason about which rung won: prefer a pane id or numeric address.
+    meaningful (non-empty, not a generic command name, not purely numeric), else
+    "<session or cwd basename>:window_index". So the session name alone does NOT match
+    any window, and callers should not have to reason about which rung won: prefer a
+    pane id or numeric address.
 
     The label preferring a user-named window over the session name is exactly why the
     canonical address is matched separately here — otherwise "work:0.0" resolves to
@@ -285,9 +292,13 @@ def new_window(session: str, name: str, command: str) -> str:
     """Open a new window in `session` running `command`, and return its pane id.
     The trailing ':' pins the target to the session (a bare name could match a window).
     -d: the phone asked, so the phone decides focus — the daemon must not yank the
-    host user's tmux client to the new window."""
+    host user's tmux client to the new window.
+    -c: without it tmux starts the window in the *client's* cwd, and here the client is
+    the daemon (its WorkingDirectory), not the user's session. #{session_path} is the
+    directory the session was created in, which is what a hand-typed `prefix c` gets."""
     return _run(
-        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"{session}:", "-n", name, command]
+        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", "#{session_path}",
+         "-t", f"{session}:", "-n", name, command]
     ).strip()
 
 

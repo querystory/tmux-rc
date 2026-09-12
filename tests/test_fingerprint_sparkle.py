@@ -8,7 +8,7 @@ take 20s, starving the tick that drives the stalled flag).
 Pins the property that matters: frames that differ ONLY by the animation share one
 fingerprint, while a real content change still produces a different one."""
 
-from daemon.watcher import _fingerprint
+from openbus.watcher import _fingerprint
 
 # Real frames, reduced: the input box, its prompt line, and the status bar beneath.
 _FRAME_A = (

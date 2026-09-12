@@ -9,8 +9,8 @@ import json
 
 from fastapi.testclient import TestClient
 
-import daemon.server as S
-import daemon.tmux as T
+import openbus.server as S
+import openbus.tmux as T
 
 
 def test_default_launchers(monkeypatch):
@@ -59,6 +59,7 @@ def test_new_window_runs_configured_command(monkeypatch):
     argv = next(a for a in calls if a[0] == "new-window")
     assert "-d" in argv
     assert argv[argv.index("-t") + 1] == "work:"
+    assert argv[argv.index("-c") + 1] == "#{session_path}"
     assert argv[-1] == "claude"
 
 

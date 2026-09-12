@@ -1,8 +1,8 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
-from daemon.classify import bootstrap, classify
-from daemon.tmux import Pane
+from openbus.classify import bootstrap, classify
+from openbus.tmux import Pane
 
 
 def _pane(cmd="bash"):
@@ -64,7 +64,7 @@ def test_pipes_llm_json_through():
     )
     assert r["tool"] == "claude" and r["headline"] == "Editing models.py"
     assert r["notable"] == ["ran tests", "8 passed"]  # passed straight through
-    assert r["pane_id"] == "%0" and r["label"] == "work"  # merged in (session name)
+    assert r["pane_id"] == "%0" and r["label"] == "work:0"  # merged in (session:window)
 
 
 def test_question_forces_waiting():

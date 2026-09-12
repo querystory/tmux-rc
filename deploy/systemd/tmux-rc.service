@@ -20,7 +20,7 @@ After=network-online.target
 # copy always points at the real clone. The value here is only a placeholder for anyone
 # installing the unit by hand.
 WorkingDirectory=%h/src/tmux-rc
-ExecStart=%h/.local/bin/uv run python -m daemon.server
+ExecStart=%h/.local/bin/uv run python -m openbus.server
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Reload is a dev-loop convenience; under a unit it would restart the daemon (dropping
 # live websockets) whenever a branch checkout touched the tree.

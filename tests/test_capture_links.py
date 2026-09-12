@@ -3,7 +3,7 @@ capture materializes them as markdown ('[label](url)') before stripping the rest
 the escapes: the LLM parser reads markdown natively and the web linkifier renders it
 as a label-only anchor."""
 
-from daemon.tmux import _ANSI, _materialize_links
+from openbus.tmux import _ANSI, _materialize_links
 
 
 def test_osc8_link_materializes_as_markdown():

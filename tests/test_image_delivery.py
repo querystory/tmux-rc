@@ -2,7 +2,7 @@
 clipboard (GNOME blocks unfocused reads), so delivery must fall back to typing the
 staged path; unlocked sessions get the clipboard + Ctrl-V inline embed."""
 
-from daemon import server
+from openbus import server
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"fakepixels"  # magic prefix: skips the Pillow transcode
 
