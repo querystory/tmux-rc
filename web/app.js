@@ -263,6 +263,7 @@ const LUCIDE = {
   // expandall's mirror (chevrons point inward) — same lines, so the toggle reads as
   // one control changing direction, not two different buttons.
   collapseall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 5 3 3 3-3"/><path d="m15 19 3-3 3 3"/>',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -3959,6 +3960,8 @@ const lm = { btn: document.getElementById("lm-btn") };
 // The static buttons get their icons here (their HTML ships empty): mic without the
 // word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
 if (lm.btn) lm.btn.innerHTML = licon("mic", 14) + '<sup class="lm-exp">beta</sup>';
+const mobileBtn = document.getElementById("mobile-btn");
+if (mobileBtn) mobileBtn.innerHTML = licon("smartphone", 14);
 bar.keysToggle.innerHTML = licon("keyboard", 17);
 bar.attach.innerHTML = licon("paperclip", 15);
 // Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
