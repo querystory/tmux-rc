@@ -36,6 +36,7 @@ _PANE_FMT = "\t".join(
         "#{window_active}",
         "#{pane_active}",
         "#{window_activity}",
+        "#{session_attached}",
     ]
 )
 
@@ -67,6 +68,9 @@ class Pane:
     # is the safe one: it can only make a pane look MORE recently active, never park
     # something the user is working in.
     window_activity: str = ""
+    # Whether THIS session (of possibly several sharing the pane — see list_panes) is
+    # attached. Only used to pick which group member's name a shared pane is filed under.
+    session_attached: str = "0"
 
     @property
     def display_title(self) -> str | None:
@@ -218,17 +222,33 @@ def active_pane_id() -> str | None:
 
 
 def list_panes() -> list[Pane]:
-    """All panes across all sessions/windows."""
+    """All panes across all sessions/windows — ONE entry per pane.
+
+    tmux session GROUPS (`new-session -t <name>`) let several sessions share one set of
+    windows, and `list-panes -a` reports per session: a pane in a group of N sessions
+    arrives N times, under N session names, all carrying the SAME pane id. That id is the
+    key everything downstream is built on — the watcher's per-pane buffers, the UI's cards,
+    every `select`/`send` target — so the repeats don't just pad the list, they collide.
+    Collapsing here, at the single point where tmux is read, keeps every caller honest
+    rather than leaving each to rediscover that "a pane" can arrive more than once.
+
+    The survivor is the ATTACHED member when the group has one, so a card names the session
+    you would actually land in; otherwise the first row tmux emits. Insertion order is the
+    dict's, so replacing a row keeps the pane's original position and the deck doesn't
+    reshuffle when you attach elsewhere."""
     out = _run(["list-panes", "-a", "-F", _PANE_FMT])
-    panes: list[Pane] = []
+    by_id: dict[str, Pane] = {}
     for line in out.splitlines():
         if not line.strip():
             continue
         parts = line.split("\t")
         if len(parts) != _PANE_FMT.count("\t") + 1:
             continue
-        panes.append(Pane(*parts))
-    return panes
+        pane = Pane(*parts)
+        seen = by_id.get(pane.id)
+        if seen is None or (pane.session_attached == "1" and seen.session_attached != "1"):
+            by_id[pane.id] = pane
+    return list(by_id.values())
 
 
 def find_pane(target: str | None) -> Pane | None:
