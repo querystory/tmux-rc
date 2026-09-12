@@ -357,9 +357,16 @@
      mode a tap switches TO (app.js keeps glyph + aria-pressed in sync). Padding grows
      the TAP TARGET to finger size; the negative margin cancels it visually so the
      header layout doesn't shift. */
-  #expand-btn, #theme-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
+  #expand-btn, #theme-btn, #mobile-btn { background: transparent; border: 0; padding: 10px; margin: -10px;
     font-size: 12px; line-height: 1; color: var(--fg-faint); cursor: pointer; }
-  #expand-btn:hover, #theme-btn:hover { color: var(--accent); }
+  #expand-btn:hover, #theme-btn:hover, #mobile-btn:hover { color: var(--accent); }
+  /* Always shown. It was behind a max-width:600px query, which hid it on exactly the
+     devices it exists for — a large phone (and any phone in landscape) reports a CSS
+     viewport wider than that, so the escape hatch vanished on the screen that needs it.
+     A viewport width cannot tell you whether you are on a phone; the honest version is
+     to let anyone take the link, since it costs one quiet glyph next to the theme
+     toggle and a desktop user simply never taps it. */
+  #mobile-btn { display: inline-flex; align-items: center; }
   /* overflow-x hidden: swipe gestures park the neighbour card off-screen with transforms,
      and the ghost card sits a full viewport away — without clipping, that overhang becomes
      scrollable width and the WHOLE PAGE slides sideways mid-swipe (dock, card, terminal,
@@ -956,7 +963,7 @@
     border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
     cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
   /* Inline-SVG icon buttons (licon): block display centers the glyph in its button. */
-  .inputwrap .attach svg, #expand-btn svg, #theme-btn svg, .screen-sun svg { display: block; margin: auto; }
+  .inputwrap .attach svg, #expand-btn svg, #theme-btn svg, #mobile-btn svg, .screen-sun svg { display: block; margin: auto; }
   /* "beta" tag: Live Mode is experimental/opt-in — a quiet superscript, not a shout. */
   .lm-exp { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--purple);
     margin-left: 3px; vertical-align: super; letter-spacing: .04em; }
@@ -1089,6 +1096,11 @@
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)"></button>
         <button id="expand-btn" title="Expand card" aria-label="Expand card"></button>
         <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false"></button>
+        <!-- Escape hatch to the phone UI (/m). Hidden on wide viewports: on a desktop the
+             mobile UI isn't wanted and the header is tight (see the docs-link note below).
+             There is deliberately NO auto-redirect — the full UI is a legitimate phone
+             choice (live terminal, Live Mode, image composer), so the jump stays a tap. -->
+        <a id="mobile-btn" href="/m" title="Switch to the phone UI" aria-label="Switch to the phone UI"></a>
         <!-- docs link lives INSIDE the status-dot popover (see showUsage) — the top
              bar is too tight on phones to spend on a rarely-tapped link. -->
         <!-- Status dot doubles as the LLM-telemetry toggle: the stats are dim debug
