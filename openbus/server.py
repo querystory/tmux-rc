@@ -153,7 +153,9 @@ def _unavailable(command: str) -> str | None:
     "unavailable" would block a working launcher, which is worse than the fuzzy failure
     this exists to explain. Hence the three ways of declining to judge:
 
-    - not a plain argv (quoting, a pipeline, a substitution, a bare assignment);
+    - not a plain argv (quoting, a pipeline, a substitution, a newline, a bare
+      assignment) — `cd /tmp\nclaude` runs a working launcher, and answering about its
+      first word would report the shell BUILTIN `cd` as missing and block it;
     - an assignment to PATH, which changes the very search we would be doing;
     - a RELATIVE path, which tmux resolves against the session's directory
       (`new_window -c #{session_path}`) and `shutil.which` would resolve against the
@@ -161,6 +163,8 @@ def _unavailable(command: str) -> str | None:
 
     Returning the reason rather than the word keeps one wording for both callers: the
     phone says the same thing whether it asked before the tap or after it."""
+    if re.search(r"[\x00-\x1f]", command):
+        return None  # a newline is a command separator; shlex would eat it as whitespace
     try:
         # posix=False KEEPS the quotes on a quoted word, so the "plain argv" gate below
         # can see them and decline. Stripping them first would hide the one case where

@@ -455,7 +455,15 @@ function activeId() {
     // `shown` was optimistically set below while pending, and keeping it would leave
     // the view parked in a session tmux never actually switched to. Null falls through
     // to the global-focus branch: resync to tmux's truth, same as before multi-session.
-    if (!s || Date.now() - pending.ts > 8000) { pending = null; shown = null; }
+    // "Not in panesById" is this branch's test for a select that never landed — but a
+    // pane the app JUST created isn't there either: POST /api/windows returns the id
+    // before the watcher has published it, and syncUrl() below calls straight back in
+    // here, so the launcher's jump used to cancel itself in the same task it was made.
+    // `unseen` separates the two: an id that wasn't in state when it was PICKED is "not
+    // yet" and keeps its anchor until the 8s timeout below gives up on it, while one
+    // that was there and has since gone is the "pane closed" case and still drops at
+    // once. Nothing else can reach here unseen — every other caller picks from the deck.
+    if ((!s && !pending.unseen) || Date.now() - pending.ts > 8000) { pending = null; shown = null; }
     else return (shown = pending.id);
   }
   const cur = panesById[shown];
@@ -485,7 +493,7 @@ function setActive(id) {
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
-  pending = { id, ts: Date.now() };
+  pending = { id, ts: Date.now(), unseen: !panesById[id] };
   // The single URL write for every pane change (#162) — dock tap, list row, swipe,
   // launcher jump all land here with listFilter already null: list rows clear it
   // explicitly, the rest (card tap, swipe, answer keys) only fire in card view where it

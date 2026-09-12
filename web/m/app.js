@@ -1,7 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, awaitingLaunch } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -613,14 +613,14 @@ $("new-window").onclick = async () => {
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
       button.disabled = !sessions.length || !!launcher.unavailable;
-      button.onclick = () => launchWindow(launcher.label);
+      button.onclick = () => launchWindow(launcher.label, button);
       return button;
     }));
   } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
 };
 $("close-launch").onclick = () => $("launch-dialog").close();
 let launching = false, launched = null;
-async function launchWindow(launcher) {
+async function launchWindow(launcher, button) {
   if (launching) return;
   launching = true; text($("launch-error"), "Creating window...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
@@ -630,8 +630,20 @@ async function launchWindow(launcher) {
     // hashchange this triggers reaches render() while `panes` is still the previous
     // poll's, without the pane that was created a moment ago. See awaitingLaunch.
     launched = { id: data.pane_id, at: Date.now() };
+    // The exemption expires on a clock, but only a render can act on it, and renders are
+    // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
+    // at the deadline is what makes "5 seconds" mean five seconds. No cancellation: an
+    // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
+    // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
+    setTimeout(render, LAUNCH_GRACE_MS);
     $("launch-dialog").close(); startState(); navigate(data.pane_id);
-  } catch (error) { text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying."); }
+  } catch (error) {
+    text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying.");
+    // The list was a snapshot from the GET; if the daemon has since decided it can't run
+    // this one, believe it now rather than leaving a button that only ever re-shows the
+    // same refusal. The marker is what `finally` restores from, so setting it is enough.
+    if (button && error.detail) button.dataset.unavailable = error.detail;
+  }
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 

@@ -134,6 +134,10 @@ def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
     assert S._unavailable('"unbalanced') is None
     assert S._unavailable("FOO=1") is None
     assert S._unavailable("a | b") is None
+    # A newline separates commands exactly as `;` does, but shlex would eat it as
+    # whitespace — so `cd /tmp\nclaude`, a launcher that works, would be judged on the
+    # shell builtin `cd` and refused. Control characters are shell syntax, not argv.
+    assert S._unavailable("cd /tmp\nclaude") is None
     # A PATH assignment changes the very lookup we would be doing, so don't do it.
     assert S._unavailable("PATH=/opt/x/bin no-such-command-xyz") is None
     # A relative path is resolved by tmux against the SESSION's directory (new_window
