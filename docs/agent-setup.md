@@ -14,7 +14,7 @@ would. Two consequences follow, and every recommendation below is one of them:
 1. **Repainting costs money.** The daemon decides whether to re-run its LLM classifier by
    fingerprinting the pane text each 1.5s tick; a screen that differs from the one last
    classified gets re-read. Chrome that *moves on its own* therefore bills you for
-   information you already had. See [parse cadence](../design/parse-cadence/) for why the
+   information you already had. See [parse cadence](design/parse-cadence.md) for why the
    trigger is change-based and what the fingerprint already strips.
 2. **If the pane doesn't say who it is, the phone can't either.** A card is headed by
    whatever the agent published about itself. Publish nothing and the heading falls back
@@ -34,10 +34,8 @@ line, but that is a single line of transcript — it scrolls away and the pane l
 name again. The status bar is the only place the title stays on screen to be read.
 
 (Agents that set the *terminal* title get a second route, but only to the desktop card,
-which renders `title || label` — `title` being the terminal title, or failing that a name
-the bootstrap read generates from the pane's scrollback. The phone's card renders the
-label alone. So a terminal title is a bonus on one client, never a substitute for a name
-the label can carry.)
+which renders `title || label`. The phone's card renders the label alone, so a terminal
+title is a bonus on one client and never a substitute for a name the label can carry.)
 
 ### When nothing is parsed off the screen
 
