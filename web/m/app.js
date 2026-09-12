@@ -1,7 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -130,8 +130,11 @@ function navigate(id = null, nextView = "summary") {
 // returns to it would land on a dead deep link and bounce straight out again. replaceState
 // drops the dead URL instead of stacking it, and because it fires no hashchange we route
 // synchronously — otherwise `active` stays on the dead pane long enough for route() to
-// POST /select for a pane that no longer exists.
-function leaveMissingPane() {
+// POST /select for a pane that no longer exists. `id` is the pane the caller believes is on
+// screen; stillOnPane rejects the call when the user has already tapped their way somewhere
+// else and only the queued hashchange is late (see pane-model.js).
+function leaveMissingPane(id) {
+  if (!stillOnPane(location.hash, id)) return;
   const hash = hashFor(null);
   history.replaceState(null, "", hash ? `#${hash}` : location.pathname + location.search);
   route();
@@ -226,7 +229,7 @@ function render() {
   // Go back to the list instead, and only once the daemon is authoritative: `booted`
   // false means the inventory is still loading (startup, or a restart), where an absent
   // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
-  if (booted && loaded && !pane) { leaveMissingPane(); return; }
+  if (booted && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), pane?.label || (booted ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
@@ -428,9 +431,9 @@ async function streamTerminal(id, signal) {
         // long poll. Leaving you on a dead pane — stale frame, disabled keys — is a dead
         // end, and render()'s own check cannot fire until the pane list catches up. Only
         // act when this is still the pane on screen; a stale controller must not yank you
-        // out of a pane you have since switched to.
+        // out of a pane you have since switched to, which is leaveMissingPane's own guard.
         text($("terminal-status"), "Pane closed or not found");
-        if (id === active) leaveMissingPane();
+        leaveMissingPane(id);
         return;
       }
       text($("terminal-status"), "Reconnecting...");
