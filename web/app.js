@@ -1231,6 +1231,13 @@ function render(states) {
   applyList(ui.list, states, [], act);
   dock(states, act); // sticky top bar — constant height, content swaps below it
   const a = panesById[act];
+  // `act` can name a pane state has yet to catch up with: the launcher anchors on a window
+  // tmux has already made but the watcher hasn't published (setActive's `unseen`). The
+  // list is hidden above and the deck has no pane to draw, so without a third state here
+  // the page would simply go blank until it lands — a worse answer than the snap-back this
+  // anchor replaced. Reuse the deck's own loading notice, which is exactly what this is.
+  setCls(ui.empty, "hid", !!a);
+  if (!a) { setCls(ui.spinner, "hid", false); setText(ui.emptyText, "Opening window…"); }
   // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
   // remaining viewport AND runs under the bar via its own negative margin, so counting the
   // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
