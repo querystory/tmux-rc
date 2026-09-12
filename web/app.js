@@ -499,14 +499,20 @@ function activeId() {
 // fired by a scroll that merely STARTED on them: `click` requires press and release on
 // the same element and the browser withholds it after a scroll. That is what onTap's
 // `defer` mode was hand-rolling, and it comes for free once nodes are permanent.
-function setActive(id) {
+// `unseen` = state has never shown us this pane, so an absence means "not yet" rather
+// than "gone" (see activeId). Defaulted from the deck for ordinary picks, which are made
+// BY tapping something in it — but passed explicitly by the launcher, because a pane
+// tmux has just created cannot be inferred that way: tmux recycles ids, so the deck may
+// still hold the dead occupant of a reused id and the launch would silently be treated
+// as an ordinary pick of a pane that no longer exists.
+function setActive(id, unseen = !panesById[id]) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
   // pane is active when they hit Send.
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
-  pending = { id, ts: Date.now(), unseen: !panesById[id] };
+  pending = { id, ts: Date.now(), unseen };
   // The single URL write for every pane change (#162) — dock tap, list row, swipe,
   // launcher jump all land here with listFilter already null: list rows clear it
   // explicitly, the rest (card tap, swipe, answer keys) only fire in card view where it
@@ -1593,8 +1599,13 @@ function launchMenuAway(e) {
 function openLaunchMenu(sess, anchor) {
   closeLaunchMenu();
   // Nothing to offer — but a first read that failed or hasn't landed must not disable
-  // "+" for the life of the page, so take this tap as the cue to try again.
-  if (!launchers.length) { loadLaunchers(); return; }
+  // "+" for the life of the page, so take this tap as the cue to try again AND honour it
+  // once entries arrive: a tap that silently does nothing is the symptom this PR exists
+  // to remove. Bounded: the retry only re-enters with a non-empty list, which skips here.
+  if (!launchers.length) {
+    loadLaunchers().then(() => { if (launchers.length) openLaunchMenu(sess, anchor); });
+    return;
+  }
   const m = document.createElement("div");
   m.className = "launch-menu";
   m.setAttribute("role", "menu");
@@ -1648,7 +1659,7 @@ function openLaunchMenu(sess, anchor) {
           .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`); return d; })
           // Jump to the new window's card: the pane exists in tmux the moment the POST
           // returns, so setActive's select lands; the card fills in on the next poll.
-          .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
+          .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id, true); } })
           .catch((e) => barNote(`Could not open a window — ${e.message}`));
       };
       m.appendChild(b);
