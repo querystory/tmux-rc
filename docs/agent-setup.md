@@ -16,7 +16,7 @@ would. Two consequences follow, and every recommendation below is one of them:
    classified gets re-read. Chrome that *moves on its own* therefore bills you for
    information you already had. See [parse cadence](design/parse-cadence.md) for why the
    trigger is change-based and what the fingerprint already strips.
-2. **If the pane doesn't say who it is, the phone can't either.** A card's heading is the
+2. **If the pane doesn't say who it is, the phone can't either.** A card is headed by the
    agent's own session title, read off the screen. Without one the card falls back to
    tmux-side names that were never chosen to tell two agents apart, so a fleet reads as a
    column of near-identical rows.
@@ -24,42 +24,43 @@ would. Two consequences follow, and every recommendation below is one of them:
 ## Let the agent name itself
 
 You do not have to name anything — *provided the agent puts its title on screen*. The
-classifier reads the agent's **own** session title out of the captured text — that is what
-the `session` field in the parser prompt is for — and writes it over the pane's `label`,
-which is the field the card's heading renders. Claude Code prints
-its session name just above its status line out of the box. Codex shows its thread title
-only when its status bar is configured to (see below). Wherever the title is visible it is
-picked up with no help from you, and the pane reads as *Review 4745* or
-*airbyte-value-population* rather than as its command.
+classifier reads the agent's **own** session title out of the captured text (that is the
+`session` field in the parser prompt) and it becomes the pane's `label`, which is what the
+card is headed by. Claude Code prints its session name just above its status line out of
+the box; Codex shows its thread title only if its status bar is configured to. Where the
+title is visible it is picked up with no help from you, and the pane reads as *Review
+4745* or *airbyte-value-population* rather than as its command.
+
+One caveat on precedence: the desktop card actually renders `title || label`, and `title`
+is the pane's *terminal* title — what the program sets via the escape sequence, which
+tmux-rc keeps only when it is not tmux's hostname default. An agent that publishes a
+useful terminal title (Claude Code writes its current task there) therefore wins over the
+on-screen session name. Both are the agent describing itself, so this is rarely a surprise
+— but it is why renaming a tmux window does not always change what you see.
 
 That is the one setting worth changing for Codex: **include `"thread-title"` in
-`status_line`.** Without it the title is never drawn, so there is nothing to read and the
-pane drops to the tmux-side fallback below.
+`status_line`.** Without it the title is never drawn, so there is nothing to read.
 
-The fallback only matters when there is no agent title to find. `Pane.label` in
-`daemon/tmux.py` then takes the first identity it has: the window name, then the session
-name — each skipped only when it looks like a tmux default (empty, a bare number, or a
-command auto-name such as `bash`, `node`, `python`, `ssh`) — then the cwd basename, and
-finally `session:window-index`. That "looks like a default" set is deliberately small,
-because discarding a name the user actually chose is the worse error.
+The tmux-side fallback only matters when there is no agent title at all. `Pane.label` in
+`openbus/tmux.py` takes a window name you chose outright — it is per-window, so it
+identifies the row on its own — and otherwise falls back to the session name (or the cwd
+basename) qualified with the **window index**. The index is the point of that form:
+session names and cwd basenames are shared by every window in the session, so used bare
+they turn a fleet into a column of identical headings.
 
-None of that promises a *distinct* heading, which is the part to know before leaning on
-it. Agent binaries are not in the default-name set, so eight windows tmux auto-named
-`claude` stay eight rows headed `claude`; sibling windows usually share a session name,
-and panes opened in one repo usually share a cwd basename. Nothing is qualified with the
-window index — only the last resort, `session:window-index`, is inherently distinct, and
-you reach it last.
+The same logic is why the generic-name set is not just shells and runtimes but the agent
+CLIs themselves (`claude`, `codex`, `gemini`, `aider`). tmux names a window after the
+command that launched it, so without that eight agents are eight rows headed `claude` —
+the qualified fallback is worse-looking and strictly more useful.
 
-So when an agent publishes no title, name the *window*: it is the field the label prefers,
-and the one you set per window rather than per session.
+Naming a window yourself is still the reliable move for a pane that publishes no title:
 
     tmux rename-window 'db migration'
 
-tmux will happily let two windows share a name, so keeping them distinct is on you. And
-where you need an identifier that *cannot* be ambiguous — addressing a pane rather than
-reading a card — use the pane id (`%3`) or the numeric `session:window.pane` address, not
-a name. When the agent does publish a title, renaming the window buys nothing; the
-on-screen title is already the heading.
+Two limits worth knowing. tmux lets two windows share a name, so distinctness is on you.
+And the fallback stops at the window: split panes in one window share a label, so where
+you need a handle that *cannot* be ambiguous — addressing a pane rather than reading a
+card — use the pane id (`%3`) or the numeric `session:window.pane` address.
 
 ## Codex: turn off the sparkle animation
 
@@ -77,7 +78,7 @@ In `~/.codex/config.toml`, under `[tui]`:
     animations = false
     whimsy = false
 
-**tmux-rc already defends itself against this** — `_fingerprint` in `daemon/watcher.py`
+**tmux-rc already defends itself against this** — `_fingerprint` in `openbus/watcher.py`
 flattens the band of lines the animation plays over, so you are not exposed if you skip
 this. Turn it off anyway if you can: suppressing decoration at the source is strictly
 better than pattern-matching it downstream, and the same reasoning applies to whatever
@@ -135,13 +136,13 @@ first. If you keep such a pane around, scope what the daemon watches:
 
     export TMUXRC_TARGET=%3
 
-The daemon reads this once, at startup, so it has to be in the daemon's own environment
-before it launches — and how it gets there depends on how you start it. From a shell:
-`export` it, or prefix the command. From the systemd user unit: put it in the repo `.env`
-the unit loads, because a `systemctl --user` service does not inherit your shell's exports
-at all. Either way a daemon that is already running keeps its old setting until you
-restart it (`systemctl --user restart tmux-rc`) — otherwise it goes on watching
-every pane.
+The daemon reads this once, at startup, so it has to be in the daemon's own environment by
+then — and how it gets there depends on how you start it. From a shell: `export` it, or
+prefix the command. From the systemd user unit: put it in the repo `.env`, which the
+daemon loads for itself at import (the unit deliberately supplies no environment of its
+own), because a `systemctl --user` service inherits nothing from your shell. Either way a
+daemon that is already running keeps its old setting until you restart it
+(`systemctl --user restart tmux-rc`) — otherwise it goes on watching every pane.
 
 See the `TMUXRC_TARGET` row in the [README](https://github.com/querystory/tmux-rc#config-env)
 for the accepted forms — a pane id is the one that is always unambiguous. Note that this
@@ -152,8 +153,7 @@ fleet plus a stray `top`. Closing the `top` pane is often the better fix.
 ## What this all adds up to
 
 Let your agent put its title on screen (and name the window yourself when it can't) so the
-phone can tell your agents apart; turn off decoration that moves
-on a timer; keep agents off the alternate screen so their history is readable; and don't
+phone can tell your agents apart; turn off decoration that moves on a timer; keep agents off the alternate screen so their history is readable; and don't
 point the watcher at something that repaints forever. The first is about whether tmux-rc
 is *usable* from a phone. The rest are about what it costs you per day, and the numbers
 above are what that bill looks like when nobody is paying attention.
