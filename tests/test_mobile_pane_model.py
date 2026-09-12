@@ -247,6 +247,24 @@ CASES = [
     ),
 ]
 
+# stillOnPane guards every involuntary exit from a pane. `active` lags a tap by one task, so
+# the hash — which moves the instant the user taps — decides whether a pane that vanished is
+# still the one on screen. (current hash, pane the caller thinks is on screen, still on it?)
+for hash_value, pane_id, expected in [
+    ("#pane=%251", "%1", True),
+    ("pane=%251&view=terminal", "%1", True),
+    # The race Copilot flagged: the URL already names the pane just tapped, so the old pane's
+    # disappearance must NOT replace it.
+    ("#pane=%252", "%1", False),
+    ("#filter=attention", "%1", False),
+    ("", "%1", False),
+    ("#pane=%251", None, False),
+]:
+    CASES.append((
+        f"stillOnPane: hash {hash_value!r} against pane {pane_id!r}",
+        "stillOnPane", [hash_value, pane_id], expected,
+    ))
+
 FILTER_NAMES = ["all", "running", "recent", "attention"]
 for invalid_filter in ("__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None):
     CASES.append((
