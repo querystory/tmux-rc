@@ -28,8 +28,10 @@ every session, and the focused pane's card above its live terminal:
   <img src="docs/img/card.png" alt="The desktop dashboard: a dock of pane icons grouped by tmux session, above the focused pane's card with its summary, sub-agents and activity, and the live terminal below" width="620">
 </p>
 
-Press and hold a session's **+N** button to start a new agent in a new window, without
-touching the machine:
+Start a new agent in a new window without touching the machine: tap the **+** at the end
+of a session's dock. When that session has idle panes folded away the slot shows **+N**
+instead, where a tap already means *unfold* — so there the launcher sits behind a press
+and hold:
 
 <p align="center">
   <img src="docs/img/launcher.png" alt="The launcher menu open over the dashboard, listing Claude, Claude (Sonnet), Claude (Bedrock), Codex and Gemini as the agents available to start" width="620">
