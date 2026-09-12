@@ -179,9 +179,10 @@ def _unavailable(command: str) -> str | None:
     except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
         return None
     # Strip the prefix words sh strips before it has a command to look up: assignments,
-    # then `exec` — a real launcher config (`exec claude` replaces the shell with the
-    # agent, so the pane dies with it instead of dropping to a prompt) and a BUILTIN, so
-    # judging it would report a working launcher as missing. In that order and no other:
+    # then a wrapper builtin — `exec claude` is a real launcher config (it replaces the
+    # shell with the agent, so the pane dies with it instead of dropping to a prompt) and
+    # `command` is its neighbour; both are BUILTINS, so resolving one as if it were the
+    # command would report a working launcher as missing. In that order and no other:
     # assignments are a prefix to `exec` itself, and a word after it is already exec's
     # ARGUMENT, so `exec FOO=1 sh` really does make sh look for a file named "FOO=1" —
     # and this then says so, which is the honest answer rather than a lenient one.
@@ -190,10 +191,10 @@ def _unavailable(command: str) -> str | None:
     while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
         if words.pop(0).startswith("PATH="):
             return None
-    if words and words[0] == "exec":
+    if words and words[0] in ("exec", "command"):
         words.pop(0)
         if words and words[0].startswith("-"):
-            return None  # `exec -a name cmd`, `exec -- cmd`: its own options, not argv[0]
+            return None  # `exec -a name cmd`, `command -p cmd`: their options, not argv[0]
     # argv[0] must be a plain word — it is the thing being resolved, so anything that
     # isn't literally a name or a path (a quoted string, a substitution) is unanswerable.
     # The REST of the line only has to be free of shell syntax, which is a much weaker

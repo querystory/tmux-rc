@@ -155,6 +155,8 @@ def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
     # this must never produce — so an option after `exec` ends the judging.
     assert S._unavailable("exec -a agent no-such-command-xyz") is None
     assert S._unavailable("exec -- no-such-command-xyz") is None
+    assert S._unavailable("command no-such-command-xyz").startswith("no-such-command-xyz")
+    assert S._unavailable("command -p sh") is None
     # A PATH assignment changes the very lookup we would be doing, so don't do it.
     assert S._unavailable("PATH=/opt/x/bin no-such-command-xyz") is None
     # A relative path is resolved by tmux against the SESSION's directory (new_window

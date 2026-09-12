@@ -1592,7 +1592,9 @@ function launchMenuAway(e) {
 }
 function openLaunchMenu(sess, anchor) {
   closeLaunchMenu();
-  if (!launchers.length) return; // fetch failed or config empty — nothing to offer
+  // Nothing to offer — but a first read that failed or hasn't landed must not disable
+  // "+" for the life of the page, so take this tap as the cue to try again.
+  if (!launchers.length) { loadLaunchers(); return; }
   const m = document.createElement("div");
   m.className = "launch-menu";
   m.setAttribute("role", "menu");
@@ -1654,8 +1656,15 @@ function openLaunchMenu(sess, anchor) {
   };
   fill();
   // Then repaint from a fresh read, so a launcher fixed on the host since this page
-  // loaded stops being refused without anyone having to reload the app.
-  loadLaunchers().then(() => { if (launchMenuEl === m) fill(); });
+  // loaded stops being refused without anyone having to reload the app. ONLY when the
+  // answer actually changed: rebuilding these buttons between a pointerdown and its
+  // pointerup destroys the element the press landed on, and the browser then withholds
+  // the click — so an unconditional repaint would trade a stale entry for a menu that
+  // silently eats taps. Nothing changed is the overwhelmingly common answer.
+  const before = JSON.stringify(launchers);
+  loadLaunchers().then(() => {
+    if (launchMenuEl === m && JSON.stringify(launchers) !== before) fill();
+  });
   document.body.appendChild(m);
   // Under the anchor, clamped into the viewport (a tray's "+" can sit at the right edge).
   const r = anchor.getBoundingClientRect();
