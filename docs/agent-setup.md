@@ -17,8 +17,9 @@ would. Two consequences follow, and every recommendation below is one of them:
    information you already had. See [parse cadence](design/parse-cadence.md) for why the
    trigger is change-based and what the fingerprint already strips.
 2. **If the pane doesn't say who it is, the phone can't either.** A card's heading is the
-   agent's own session title, read off the screen — so an agent that never puts its title
-   on screen leaves the phone nothing to show but a coordinate.
+   agent's own session title, read off the screen. Without one the card falls back to
+   tmux-side names that were never chosen to tell two agents apart, so a fleet reads as a
+   column of near-identical rows.
 
 ## Let the agent name itself
 
@@ -30,12 +31,9 @@ only when its status bar is configured to (see below). Wherever the title is vis
 picked up with no help from you, and the pane reads as *Review 4745* or
 *airbyte-value-population* rather than as its command.
 
-Two settings make that work, and both are worth having:
-
-- **Codex: include `"thread-title"` in `status_line`.** Without it the title is not on
-  screen at all, so there is nothing to read and the pane falls back to a coordinate.
-- **Leave `automatic-rename` alone** where an agent sets the window title itself. Fighting
-  the agent for it just throws away the better name.
+That is the one setting worth changing for Codex: **include `"thread-title"` in
+`status_line`.** Without it the title is never drawn, so there is nothing to read and the
+pane drops to the tmux-side fallback below.
 
 The fallback only matters when there is no agent title to find. `Pane.label` in
 `daemon/tmux.py` then takes the first identity it has: the window name, then the session
@@ -85,8 +83,11 @@ better than pattern-matching it downstream, and the same reasoning applies to wh
 animated chrome your agent adds next, which tmux-rc will not know about.
 
 The general rule this is an instance of: **anything that repaints on a timer rather than
-on progress is pure cost.** Elapsed timers, token counters, cost readouts and single-cell
-spinners are already stripped from the fingerprint, so those are safe to leave on.
+on progress is pure cost.** Elapsed timers, token counters, cost and context readouts, and
+an enumerated list of spinner glyphs (`_VOLATILE_RE`) are already stripped, so those are
+safe to leave on. Note *enumerated*: a spinner drawn with a glyph nobody has added to that
+list still signs differently every frame — which is the same argument again for
+suppressing decoration at the source rather than relying on it being recognized.
 
 ## Codex: don't use the alternate screen
 
@@ -133,11 +134,13 @@ first. If you keep such a pane around, scope what the daemon watches:
 
     export TMUXRC_TARGET=%3
 
-The daemon reads this once, at startup, so it has to be in the daemon's environment before
-it launches: export it, put it in the `.env` the daemon loads, or prefix the launch
-command. A bare shell assignment reaches nothing — and neither does any of the above while
-tmux-rc is already running, so restart it afterwards (`systemctl --user restart tmux-rc`
-if you installed the service unit) or it goes on watching every pane.
+The daemon reads this once, at startup, so it has to be in the daemon's own environment
+before it launches — and how it gets there depends on how you start it. From a shell:
+`export` it, or prefix the command. From the systemd user unit: put it in the repo `.env`
+the unit loads, because a `systemctl --user` service does not inherit your shell's exports
+at all. Either way a daemon that is already running keeps its old setting until you
+restart it (`systemctl --user restart tmux-rc`) — otherwise it goes on watching
+every pane.
 
 See the `TMUXRC_TARGET` row in the [README](https://github.com/querystory/tmux-rc#config-env)
 for the accepted forms — a pane id is the one that is always unambiguous. Note that this
