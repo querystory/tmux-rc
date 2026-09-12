@@ -36,6 +36,12 @@
       <span id="connection" role="status">Connecting</span>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
       <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
+      <!-- Mirror of the full UI's phone button (#mobile-btn), same slot next to the theme
+           toggle, so the two UIs are each other's escape hatch. In the header rather than
+           the composer because the composer only renders on the pane DETAIL screen — from
+           the session LIST there was previously no way back to the full UI at all. A plain
+           <a href="/">: it works before app.js runs, and with no JS at all. -->
+      <a id="full-ui" class="icon-button" href="/" aria-label="Switch to the full UI" title="Switch to the full UI"></a>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
@@ -64,8 +70,10 @@
       </div>
       <footer id="composer">
         <div id="keys" hidden aria-label="Terminal keys"></div>
-        <form id="reply-form"><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
-        <div class="composer-tools"><button id="keyboard" class="text-button" aria-expanded="false"></button><span id="draft-status" role="status"></span><a id="full-ui" href="/">Full UI</a></div>
+        <!-- Empty until there is something to say ("Draft" / "Sent"), and :empty collapses
+             it to zero height, so the status costs no space on a resting screen. -->
+        <p id="draft-status" role="status"></p>
+        <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
         <input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       </footer>
     </section>

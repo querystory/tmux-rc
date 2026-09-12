@@ -39,6 +39,7 @@ const LUCIDE = {
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -515,8 +516,7 @@ $("attach").onpointerdown = () => { if (active) draft().saveCaret(); };
 $("attach").onclick = () => { fileTarget = active; $("image-file").click(); };
 $("image-file").onchange = () => { if (active === fileTarget && !sending) draft().attach($("image-file").files[0]); $("image-file").value = ""; };
 
-for (const [id, name] of Object.entries({ back: "back", theme: "sun", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
-html($("keyboard"), licon("keyboard", 16) + "<span>Keys</span>");
+for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui": "monitor", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -526,7 +526,19 @@ for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up"
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });
   $("keys").append(button);
 }
-$("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); };
+// Fade the right edge only while the key row actually has more to scroll to. A mask
+// gradient does the drawing (see #keys); this just measures. It must react to scroll,
+// to resize/rotation, and to the row being shown or its buttons changing, so a
+// ResizeObserver on the row covers the last two without a layout-thrashing poll.
+const KEYS_FADE = 24;
+function fadeKeys() {
+  const row = $("keys");
+  const room = row.scrollWidth - row.clientWidth - Math.ceil(row.scrollLeft);
+  row.style.setProperty("--keys-fade", `${room > 1 ? KEYS_FADE : 0}px`);
+}
+$("keys").addEventListener("scroll", fadeKeys, { passive: true });
+new ResizeObserver(fadeKeys).observe($("keys"));
+$("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("back").onclick = () => navigate();
 $("summary-tab").onclick = () => navigate(active, "summary");
 $("terminal-tab").onclick = () => navigate(active, "terminal");

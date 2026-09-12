@@ -36,6 +36,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
 #connection.online::before { background: var(--accent); }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -119,11 +120,21 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 .primary:hover:not(:disabled) { background: var(--accent); filter: brightness(.92); }
 #update-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 16px; background: var(--accent-bg); color: var(--accent); flex: none; font-size: 13px; }
 #reload-update { padding: 0 12px; text-decoration: underline; }
-.composer-tools { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 12px; color: var(--muted); }
-.composer-tools a { margin-left: auto; color: var(--muted); min-height: 36px; display: flex; align-items: center; flex: none; }
-.text-button { display: flex; align-items: center; gap: 6px; padding: 0 6px; color: var(--muted); font-size: 12px; }
-#draft-status { font-size: 11px; }
-#keys { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 10px; scrollbar-width: thin; }
+/* Transient: no row of its own, and :empty collapses it entirely, so "Draft"/"Sent"
+   costs height only while it has something to say. */
+#draft-status { font-size: 11px; color: var(--muted); padding-bottom: 4px; }
+#draft-status:empty { display: none; }
+#keyboard[aria-expanded="true"] { color: var(--accent); background: var(--accent-bg); }
+/* No scrollbar: this is a touch row on a phone, and a visible bar reads as desktop
+   chrome. The bar was also what padding-bottom was reserving room for, so that drops
+   from 10px to 4px (breathing room above the composer only).
+   The overflow edge is signalled by a mask-driven fade instead, sized by --keys-fade.
+   app.js sets it to 0 when the row is not scrollable or is scrolled to the end, so the
+   fade never claims there is more to see when there isn't. */
+#keys { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 4px; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--keys-fade, 0px)), transparent); }
+#keys::-webkit-scrollbar { display: none; }
 #keys button { background: var(--raised); padding: 0 12px; flex: none; min-width: 44px; font-size: 13px; }
 #reply { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; touch-action: manipulation; }
 #reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
@@ -160,4 +171,4 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 @media (prefers-reduced-motion: no-preference) { dialog[open] { animation: sheet-in .16s ease-out; } @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } }
 @media (min-width: 761px) { #app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
 @media (max-width: 359px) { .app-header { padding-inline: 8px; gap: 4px; } .pane-row { padding-inline: 14px; gap: 8px; } .row-title { flex-wrap: wrap; gap: 2px 8px; } #composer { padding-inline: 8px; } }
-@media (max-height: 500px) { .app-header { min-height: 48px; padding-block: 2px; } #composer { padding-top: 6px; padding-bottom: 4px; } .composer-tools { min-height: 28px; } .composer-tools button { min-height: 32px; } }
+@media (max-height: 500px) { .app-header { min-height: 48px; padding-block: 2px; } #composer { padding-top: 6px; padding-bottom: 4px; } #reply-form .icon-button { height: 40px; } }
