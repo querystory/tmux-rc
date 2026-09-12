@@ -35,6 +35,19 @@ def test_the_attached_group_member_names_the_pane(monkeypatch):
     assert [p.session for p in list_panes()] == ["gtm-0"]
 
 
+def test_a_multi_client_session_still_counts_as_attached(monkeypatch):
+    """#{session_attached} is tmux's client COUNT, not a flag — attach a second terminal
+    and it reads "2". Comparing it to "1" filed the pane under the UNATTACHED member."""
+    _tmux(monkeypatch, [_row("gtm-1", "%0"), _row("gtm-0", "%0", attached="2")])
+    assert [p.session for p in list_panes()] == ["gtm-0"]
+
+
+def test_the_first_attached_member_wins(monkeypatch):
+    """Two attached members: keep the first, don't thrash between them."""
+    _tmux(monkeypatch, [_row("gtm-0", "%0", attached="1"), _row("gtm-1", "%0", attached="3")])
+    assert [p.session for p in list_panes()] == ["gtm-0"]
+
+
 def test_an_unattached_group_keeps_the_first_row(monkeypatch):
     """No member attached: pick deterministically rather than arbitrarily."""
     _tmux(monkeypatch, [_row("gtm-1", "%0"), _row("gtm-0", "%0")])

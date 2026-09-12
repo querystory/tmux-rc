@@ -68,8 +68,10 @@ class Pane:
     # is the safe one: it can only make a pane look MORE recently active, never park
     # something the user is working in.
     window_activity: str = ""
-    # Whether THIS session (of possibly several sharing the pane — see list_panes) is
-    # attached. Only used to pick which group member's name a shared pane is filed under.
+    # How many clients THIS session (of possibly several sharing the pane — see
+    # list_panes) is attached to. tmux reports a COUNT, not a flag: attach a second
+    # terminal and it reads "2". Only used to pick which group member's name a shared
+    # pane is filed under, via `is_attached` rather than any comparison to "1".
     session_attached: str = "0"
 
     @property
@@ -79,6 +81,13 @@ class Pane:
         defaults the title to the hostname, which is noise -> None."""
         t = _TITLE_GLYPHS.sub("", self.title).strip()
         return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
+
+    @property
+    def is_attached(self) -> bool:
+        """Does any client have this session open? `session_attached` is tmux's client
+        COUNT, so anything non-zero means attached — comparing it to "1" silently fails
+        the moment a second terminal (or a phone alongside a desktop) attaches."""
+        return self.session_attached not in ("", "0")
 
     @property
     def session_active(self) -> bool:
@@ -246,7 +255,7 @@ def list_panes() -> list[Pane]:
             continue
         pane = Pane(*parts)
         seen = by_id.get(pane.id)
-        if seen is None or (pane.session_attached == "1" and seen.session_attached != "1"):
+        if seen is None or (pane.is_attached and not seen.is_attached):
             by_id[pane.id] = pane
     return list(by_id.values())
 
