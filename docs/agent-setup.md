@@ -40,10 +40,11 @@ the label can carry.)
 ### When nothing is parsed off the screen
 
 The label falls back to `Pane.label` (`openbus/tmux.py`): the window name if it looks
-deliberate, otherwise the session name or cwd basename qualified with the **window
-index**. That qualification is the point of the form — session names and cwd basenames are
-shared by every window in a session, so used bare they turn a fleet into a column of
-identical headings.
+deliberate, otherwise the session name — or the cwd basename, when the session name looks
+like a default too — qualified with the **window index**. That qualification is the point
+of the form: a session name is shared by every window in it, and cwd basenames repeat
+across every pane working in the same checkout, so either one bare turns a fleet into a
+column of identical headings.
 
 "Looks deliberate" is judged on the name itself, not on who set it. tmux names a window
 after the command that launched it, so the rejected set covers the shells and runtimes
