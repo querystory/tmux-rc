@@ -24,8 +24,9 @@ would. Two consequences follow, and every recommendation below is one of them:
 ## Let the agent name itself
 
 You do not have to name anything — *provided the agent puts its title on screen*. The
-classifier reads the agent's **own** session title off the pane and uses it as the card's
-heading; that is what the `session` field in the parser prompt is for. Claude Code prints
+classifier reads the agent's **own** session title out of the captured text — that is what
+the `session` field in the parser prompt is for — and writes it over the pane's `label`,
+which is the field the card's heading renders. Claude Code prints
 its session name just above its status line out of the box. Codex shows its thread title
 only when its status bar is configured to (see below). Wherever the title is visible it is
 picked up with no help from you, and the pane reads as *Review 4745* or

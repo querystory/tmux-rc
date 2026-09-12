@@ -243,8 +243,9 @@ def find_pane(target: str | None) -> Pane | None:
     canonical address is matched separately here — otherwise "work:0.0" resolves to
     nothing on exactly the sessions people name.
 
-    NOTE the UI renders `title || label`, and classify.py may refine `label` to the
-    agent's own session name, so what a card displays is not always resolvable here.
+    NOTE the UI renders `label`, which classify.py may have refined to the agent's own
+    session name read off the screen, so what a card displays is not always resolvable
+    here.
     """
     panes = list_panes()
     if not panes:
