@@ -22,13 +22,15 @@ would. Two consequences follow, and every recommendation below is one of them:
 
 ## Let the agent name itself
 
-You do not have to name anything. The classifier reads the agent's **own** session title
-off the screen and uses it as the card's heading — that is what the `session` field in the
-parser prompt is for. Claude Code prints its session name just above its status line;
-Codex puts its thread title first on its status bar. Both are picked up automatically, so
-a pane reads as *Review 4745* or *airbyte-value-population* rather than as its command.
+You do not have to name anything — *provided the agent puts its title on screen*. The
+classifier reads the agent's **own** session title off the pane and uses it as the card's
+heading; that is what the `session` field in the parser prompt is for. Claude Code prints
+its session name just above its status line out of the box. Codex shows its thread title
+only when its status bar is configured to (see below). Wherever the title is visible it is
+picked up with no help from you, and the pane reads as *Review 4745* or
+*airbyte-value-population* rather than as its command.
 
-Two settings make that work better, and both are worth having:
+Two settings make that work, and both are worth having:
 
 - **Codex: include `"thread-title"` in `status_line`.** Without it the title is not on
   screen at all, so there is nothing to read and the pane falls back to a coordinate.
@@ -42,20 +44,23 @@ command auto-name such as `bash`, `node`, `python`, `ssh`) — then the cwd base
 finally `session:window-index`. That "looks like a default" set is deliberately small,
 because discarding a name the user actually chose is the worse error.
 
-Two things follow that are worth knowing before you rely on it. Agent binaries are *not*
-in that set, so eight windows tmux auto-named `claude` are eight rows headed `claude`.
-And session names and cwd basenames are shared by every window in a session, so those
-collide too — the label is not qualified with the window index. Only the last resort is
-unique, and you rarely reach it.
+None of that promises a *distinct* heading, which is the part to know before leaning on
+it. Agent binaries are not in the default-name set, so eight windows tmux auto-named
+`claude` stay eight rows headed `claude`; sibling windows usually share a session name,
+and panes opened in one repo usually share a cwd basename. Nothing is qualified with the
+window index — only the last resort, `session:window-index`, is inherently distinct, and
+you reach it last.
 
-That is the whole argument for naming a window yourself when an agent publishes no title:
-a window name is per-window and tmux-side, so it is the one identity that cannot collide.
-Useful for a pane that is not an agent at all:
+So when an agent publishes no title, name the *window*: it is the field the label prefers,
+and the one you set per window rather than per session.
 
     tmux rename-window 'db migration'
 
-But for an agent pane it is not the fix for anything; it is a manual override of a name
-the agent already publishes.
+tmux will happily let two windows share a name, so keeping them distinct is on you. And
+where you need an identifier that *cannot* be ambiguous — addressing a pane rather than
+reading a card — use the pane id (`%3`) or the numeric `session:window.pane` address, not
+a name. When the agent does publish a title, renaming the window buys nothing; the
+on-screen title is already the heading.
 
 ## Codex: turn off the sparkle animation
 
@@ -128,9 +133,11 @@ first. If you keep such a pane around, scope what the daemon watches:
 
     export TMUXRC_TARGET=%3
 
-It has to reach the daemon's own environment, so export it (or put it in the `.env` the
-daemon loads, or prefix the launch command) — a bare assignment in your shell is invisible
-to the process you start next, and the daemon goes on watching everything.
+The daemon reads this once, at startup, so it has to be in the daemon's environment before
+it launches: export it, put it in the `.env` the daemon loads, or prefix the launch
+command. A bare shell assignment reaches nothing — and neither does any of the above while
+tmux-rc is already running, so restart it afterwards (`systemctl --user restart tmux-rc`
+if you installed the service unit) or it goes on watching every pane.
 
 See the `TMUXRC_TARGET` row in the [README](https://github.com/querystory/tmux-rc#config-env)
 for the accepted forms — a pane id is the one that is always unambiguous. Note that this
