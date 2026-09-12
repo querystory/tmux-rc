@@ -153,6 +153,18 @@ def test_unavailable_skips_env_assignments_and_gives_up_on_odd_commands():
     assert S._unavailable("./no-such-command-xyz") is None
 
 
+def test_unavailable_judges_argv0_despite_ordinary_arguments():
+    # Only argv[0] is resolved, so only argv[0] has to be a plain word. Holding the rest
+    # to the same spelling meant one colon abandoned the check — and a config with a URL
+    # or a versioned model name in it is exactly the kind whose binary lives off PATH.
+    why = S._unavailable("no-such-command-xyz --endpoint https://api.example.com")
+    assert why and "no-such-command-xyz" in why
+    assert S._unavailable("sh --model claude-3:latest --x=1,2") is None
+    # Shell syntax anywhere still means this is not a plain argv to judge.
+    for line in ("sh --pipe | tee", "sh $(hostname)", "sh *.py", "sh 'quoted'"):
+        assert S._unavailable(line) is None, line
+
+
 def test_unavailable_distinguishes_a_bad_path_from_a_bad_name(tmp_path):
     # Telling someone whose config already holds an absolute path to "use an absolute
     # path" sends them to fix the one thing that isn't wrong.

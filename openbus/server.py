@@ -185,8 +185,17 @@ def _unavailable(command: str) -> str | None:
                      or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
         if words.pop(0).startswith("PATH="):
             return None
-    if not words or not all(re.fullmatch(r"[\w.@/=+~-]+", w) for w in words):
+    # argv[0] must be a plain word — it is the thing being resolved, so anything that
+    # isn't literally a name or a path (a quoted string, a substitution) is unanswerable.
+    # The REST of the line only has to be free of shell syntax, which is a much weaker
+    # requirement: an argument is not resolved, it merely has to not turn the line into
+    # something other than a plain argv. Holding arguments to argv[0]'s spelling meant a
+    # colon was enough to abandon the check — `codex --endpoint https://api.example.com`
+    # got no preflight at all, which is precisely a config whose argv[0] lives off PATH.
+    if not words or not re.fullmatch(r"[\w.@/=+~-]+", words[0]):
         return None
+    if any(re.search(r"""[|&;<>()$`\\"'*?\[\]{}]""", w) for w in words[1:]):
+        return None  # an operator or an expansion later on: a shell line, not a plain argv
     path = os.path.expanduser(words[0])
     if "/" in path and not os.path.isabs(path):
         return None
