@@ -8,17 +8,17 @@ Agent-to-agent handoffs are the third. Memory is the fourth." This is the third 
 written up because it happened by accident before anyone built it.
 
 A Claude Code session orchestrated three sibling Claude Code sessions in adjacent tmux
-windows and drove two PRs to review-ready plus a terraform branch. It worked. Every way
-it failed was the same way, and every one of those failures maps to a primitive openbus
-already computes and the orchestrating session could not reach.
+windows and drove two pull requests to review-ready plus a third branch of changes. It
+worked. Every way it failed was the same way, and every one of those failures maps to a
+primitive openbus already computes and the orchestrating session could not reach.
 
 ## What ran
 
 One session — call it the master, because that is what it was doing, not because the
 word is good — spawned three others in sibling windows of the same tmux session, handed
 each a task, and steered them. The slaves did the work: real branches, real commits, two
-PRs review-ready, a terraform change. The master's own context stayed small, because it
-never read the files the slaves read.
+pull requests review-ready, a third change on its own branch. The master's own context
+stayed small, because it never read the files the slaves read.
 
 That is the narrative's thesis running in the wild. The master was "acting like a person
 at the keyboard, talking to the agents running there": typing a sentence into a pane,
@@ -35,10 +35,12 @@ whole time*. The master looked only when it remembered to.
 This is the finding. Not that things went wrong — things go wrong — but that not one of
 them raised an error anywhere. No exception, no non-zero exit, no warning. The master's
 report of its own progress was confident and wrong, and the human found out by walking
-the windows himself.
+the windows.
 
 Each failure below is first-hand from that session, and each one is followed by the
-primitive that already exists inside the daemon.
+primitive that already exists inside the daemon. The working-around — what to do about
+each one while this doc is still a draft — is
+[orchestrating agents from an agent](../agent-orchestration.md).
 
 **The Enter got dropped.** `send-keys` with the text and `Enter` as one call frequently
 delivered the text and lost the Enter. Prompts sat in input boxes, composed and unsent.
@@ -61,6 +63,12 @@ already reads the pane as a structured screen rather than a bag of characters; t
 "the agent is asking this question" from "the agent answered that question" is the job
 `parser_prompt.txt` exists to do.
 
+Reading the input line alone is the correct version of that check, and `scripts/steer.sh`
+implements it — but two further false-negative sources turned up in it by measurement
+(a transcript line sharing the input glyph, and a non-breaking space padding the empty
+box), which is the argument of this doc in miniature: every fix to a screen-polling
+verifier is one more heuristic, and there is no reason to believe the list is finished.
+
 **A slave sat on the trust prompt for ten minutes.** A freshly spawned session stopped
 on "do you trust the files in this folder" and waited. The master assumed it was working
 and moved on. — This is the single most-exercised path in the product: a pane blocked on
@@ -80,7 +88,7 @@ the pane, which is why every daemon endpoint is keyed on one and why agent-setup
 pane id "the one that is always unambiguous." Addressing a long-lived fleet by index is
 the bug, not the symptom.
 
-**Expiring gcloud credentials took out the master and a slave at the same moment.** The
+**An expiring cloud credential took out the master and a slave at the same moment.** The
 slaves are separate processes with separate context windows, but they share a machine,
 an ambient credential store, and a clock. Isolation in the way that matters for
 reliability is not something sibling panes provide. — Not a bus problem, and openbus
@@ -183,6 +191,11 @@ The limit is worth stating: "landed" is not "understood" and not "accepted." Con
 delivery only closes the first of those three, and it is the only one that was failing
 silently.
 
+What makes this the strongest of the three verbs is that the alternative has already been
+tried: `scripts/steer.sh` is the best version of confirmation-by-polling anyone here has
+written, and it still returns false negatives by design, because a repaint is not a
+receipt. The daemon does not have to infer — it re-parses the pane it just typed into.
+
 **Subscribe to state changes** — exists as `/api/state?v=<version>`, shaped for a deck:
 it wakes on *any* change to *any* pane, because a deck redraws wholesale. An agent wants
 a narrower predicate — this pane stopped working, this pane is asking something, this
@@ -240,7 +253,7 @@ to address.
 
 **What each lacks.** Workers cannot be steered after launch, spend the master's context
 on the way back, are invisible while running, and die with their parent. Slaves return
-prose on a screen, signal nothing on completion, and — per the gcloud failure — are
+prose on a screen, signal nothing on completion, and — per the credential failure — are
 isolated far more shallowly than "separate process" suggests: same machine, same
 credentials, same working tree if you are careless. Panes are not sandboxes and should
 not be sold as such.
@@ -257,8 +270,8 @@ one-line summary per burst are already computed for every pane; the completion s
 a feed to expose, not a mechanism to build.
 
 One caveat, in keeping with the rest of openbus: a status channel derived from the screen
-is *inferred*, not reported. "Idle for ninety seconds, summarized as opened PR #191" is
-strong evidence of completion, not proof of it. That is the same trade the whole system
+is *inferred*, not reported. "Idle for ninety seconds, summarized as opened the pull
+request" is strong evidence of completion, not proof of it. That is the same trade the whole system
 makes — the screen is the only honest view — and it is strictly better than a master
 reading prose, but it is not an exit code and should not be written down as one.
 
