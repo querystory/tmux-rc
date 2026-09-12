@@ -265,6 +265,30 @@ for hash_value, pane_id, expected in [
         "stillOnPane", [hash_value, pane_id], expected,
     ))
 
+# awaitingLaunch exempts a pane the app itself just created from the missing-pane
+# eviction: POST /api/windows returns the id before the watcher has published it, so for
+# a beat the pane the user is being sent to is in no state response. The exemption has to
+# expire, or a launcher that resolves and then dies on its own would strand them on a
+# screen that loads forever. (launch record, pane the caller thinks is on screen, now)
+LAUNCH_AT = NOW_MS - 1000
+for launched, pane_id, now, expected in [
+    ({"id": "%1", "at": LAUNCH_AT}, "%1", NOW_MS, True),
+    # A different pane's launch says nothing about this one.
+    ({"id": "%2", "at": LAUNCH_AT}, "%1", NOW_MS, False),
+    # Still pending well past a poll interval: the watcher's wake is not an interrupt, so
+    # a tick already classifying holds the publish up for as long as an LLM call takes.
+    ({"id": "%1", "at": NOW_MS - 20000}, "%1", NOW_MS, True),
+    # Expired: the pane really is not coming.
+    ({"id": "%1", "at": NOW_MS - 31000}, "%1", NOW_MS, False),
+    # Nothing has been launched this session.
+    (None, "%1", NOW_MS, False),
+    ({"id": "%1", "at": LAUNCH_AT}, None, NOW_MS, False),
+]:
+    CASES.append((
+        f"awaitingLaunch: {launched!r} against pane {pane_id!r}",
+        "awaitingLaunch", [launched, pane_id, now], expected,
+    ))
+
 FILTER_NAMES = ["all", "running", "recent", "attention"]
 for invalid_filter in ("__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None):
     CASES.append((

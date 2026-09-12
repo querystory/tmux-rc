@@ -437,6 +437,15 @@ let pending = null; // {id, ts}
 // session_active — each session's own focused pane — but only within `shown`'s session;
 // focus movement in OTHER sessions is desktop noise, not a signal to switch the view.
 let shown = null;
+// How long an anchor on a pane that was not in state when it was picked survives. Far
+// past the 8s an ordinary select gets, because the two are waiting on different things:
+// a select waits for tmux to confirm focus, while this waits for the watcher to publish
+// a pane that already exists. POST /api/windows wakes the watcher, but the wake is not
+// an interrupt — a tick already in flight finishes first, and with classification on
+// that is bounded by the per-request LLM timeout (20s), not by anything quick. Giving up
+// early doesn't fail gracefully: it drops the anchor and the view snaps back to tmux's
+// global focus, i.e. the window you just created is the one place you don't end up.
+const UNSEEN_PICK_MS = 30000;
 function activeId() {
   if (pending) {
     const s = panesById[pending.id];
@@ -455,7 +464,15 @@ function activeId() {
     // `shown` was optimistically set below while pending, and keeping it would leave
     // the view parked in a session tmux never actually switched to. Null falls through
     // to the global-focus branch: resync to tmux's truth, same as before multi-session.
-    if (!s || Date.now() - pending.ts > 8000) { pending = null; shown = null; }
+    // "Not in panesById" is this branch's test for a select that never landed — but a
+    // pane the app JUST created isn't there either: POST /api/windows returns the id
+    // before the watcher has published it, and syncUrl() below calls straight back in
+    // here, so the launcher's jump used to cancel itself in the same task it was made.
+    // `unseen` separates the two: an id that wasn't in state when it was PICKED is "not
+    // yet" and keeps its anchor for UNSEEN_PICK_MS below before giving up, while one
+    // that was there and has since gone is the "pane closed" case and still drops at
+    // once. Nothing else can reach here unseen — every other caller picks from the deck.
+    if ((!s && !pending.unseen) || Date.now() - pending.ts > (pending.unseen ? UNSEEN_PICK_MS : 8000)) { pending = null; shown = null; }
     else return (shown = pending.id);
   }
   const cur = panesById[shown];
@@ -485,7 +502,7 @@ function setActive(id) {
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
-  pending = { id, ts: Date.now() };
+  pending = { id, ts: Date.now(), unseen: !panesById[id] };
   // The single URL write for every pane change (#162) — dock tap, list row, swipe,
   // launcher jump all land here with listFilter already null: list rows clear it
   // explicitly, the rest (card tap, swipe, answer keys) only fire in card view where it
@@ -518,6 +535,12 @@ function setActive(id) {
     ? (fn) => requestAnimationFrame(() => requestAnimationFrame(fn))
     : (fn) => setTimeout(fn, 0);
   soon(() => render(Object.values(panesById)));
+  // A pick on a pane state hasn't shown us yet expires on a clock, but only a render can
+  // notice — and renders follow /api/state, which may be parked on a long poll for longer
+  // than the deadline. One scheduled render is what makes the timeout above real. No
+  // cancellation needed: a spare render is idempotent, and by then the pane has either
+  // arrived (nothing to expire) or the anchor is correctly dropped.
+  if (pending.unseen) setTimeout(() => render(Object.values(panesById)), UNSEEN_PICK_MS);
 }
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded
@@ -1587,6 +1610,17 @@ function openLaunchMenu(sess, anchor) {
     setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
     setAttr(im, "alt", "");
     b.append(im, document.createTextNode(l.label));
+    // The daemon flags a launcher whose command it can't run (GET /api/launchers).
+    // Show it anyway — the user configured it, so hiding it would only be a second
+    // mystery — but disabled, with the reason as the tooltip. Without this the entry
+    // stays clickable, the POST comes back 400, and the handler below (which only
+    // looks for pane_id) drops the explanation on the floor: exactly the silent
+    // nothing-happens this endpoint's `unavailable` exists to end.
+    // aria-label as well as title, matching the dock icons: a tooltip is a pointer
+    // affordance, and on a DISABLED control it is the least reachable one there is —
+    // keyboard focus skips it, touch has no hover, and AT would otherwise announce the
+    // launcher's name with no hint of why it does nothing.
+    if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); setAttr(b, "aria-label", `${l.label}, unavailable: ${l.unavailable}`); m.appendChild(b); continue; }
     b.onclick = () => {
       closeLaunchMenu();
       fetch("/api/windows", {
@@ -1594,11 +1628,16 @@ function openLaunchMenu(sess, anchor) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session: sess, launcher: l.label }),
       })
-        .then((r) => r.json())
+        // The disabled entry above is only a snapshot from the one-time /api/launchers
+        // fetch: a binary removed, a chmod, or a daemon restart with a different PATH
+        // since page load all reach here as a 400 carrying the reason. Say it, rather
+        // than falling through to the pane_id check and failing silently — a silent
+        // failure is the exact symptom this endpoint's `detail` was added to end.
+        .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`); return d; })
         // Jump to the new window's card: the pane exists in tmux the moment the POST
         // returns, so setActive's select lands; the card fills in on the next poll.
         .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
-        .catch(() => {});
+        .catch((e) => barNote(`Could not open a window — ${e.message}`));
     };
     m.appendChild(b);
   }
