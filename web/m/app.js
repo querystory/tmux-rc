@@ -1,7 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, awaitingLaunch } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -234,7 +234,9 @@ function render() {
   // Go back to the list instead, and only once the daemon is authoritative: `booted`
   // false means the inventory is still loading (startup, or a restart), where an absent
   // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
-  if (booted && loaded && !pane) { leaveMissingPane(active); return; }
+  // ...unless the app itself created this pane moments ago and state has yet to catch
+  // up, which is "not yet" too — see awaitingLaunch for why that is a deadline.
+  if (booted && loaded && !pane && !awaitingLaunch(launched, active)) { leaveMissingPane(active); return; }
   text($("pane-title"), pane?.label || (booted ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
@@ -617,13 +619,17 @@ $("new-window").onclick = async () => {
   } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
 };
 $("close-launch").onclick = () => $("launch-dialog").close();
-let launching = false;
+let launching = false, launched = null;
 async function launchWindow(launcher) {
   if (launching) return;
   launching = true; text($("launch-error"), "Creating window...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
     const data = await post("/api/windows", { session: $("launch-session").value, launcher });
+    // Record the id BEFORE navigating to it: startState only *starts* a fetch, so the
+    // hashchange this triggers reaches render() while `panes` is still the previous
+    // poll's, without the pane that was created a moment ago. See awaitingLaunch.
+    launched = { id: data.pane_id, at: Date.now() };
     $("launch-dialog").close(); startState(); navigate(data.pane_id);
   } catch (error) { text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying."); }
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }

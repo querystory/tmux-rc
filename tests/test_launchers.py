@@ -160,7 +160,10 @@ def test_unavailable_expands_tilde(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     assert S._unavailable("~/codex --yolo") is None
     why = S._unavailable("~/absent")
-    assert why and "~/absent" in why  # quoted as configured, not as expanded
+    assert why and "~/absent" in why  # named as configured, not as expanded
+    # sh does not expand `~` inside quotes, so neither may we: the shell would look for a
+    # literal "~/codex" and fail. Quoting is already a "can't say", and must stay one.
+    assert S._unavailable("'~/codex'") is None
 
 
 def test_launchers_endpoint_flags_unavailable(monkeypatch):

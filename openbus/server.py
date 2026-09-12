@@ -162,7 +162,11 @@ def _unavailable(command: str) -> str | None:
     Returning the reason rather than the word keeps one wording for both callers: the
     phone says the same thing whether it asked before the tap or after it."""
     try:
-        words = shlex.split(command)
+        # posix=False KEEPS the quotes on a quoted word, so the "plain argv" gate below
+        # can see them and decline. Stripping them first would hide the one case where
+        # expanding `~` is wrong: sh does not expand it inside quotes, so `'~/bin/codex'`
+        # is a literal path the shell will fail to find while expanduser reports success.
+        words = shlex.split(command, posix=False)
     except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
         return None
     while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):

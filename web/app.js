@@ -1601,11 +1601,16 @@ function openLaunchMenu(sess, anchor) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session: sess, launcher: l.label }),
       })
-        .then((r) => r.json())
+        // The disabled entry above is only a snapshot from the one-time /api/launchers
+        // fetch: a binary removed, a chmod, or a daemon restart with a different PATH
+        // since page load all reach here as a 400 carrying the reason. Say it, rather
+        // than falling through to the pane_id check and failing silently — a silent
+        // failure is the exact symptom this endpoint's `detail` was added to end.
+        .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`); return d; })
         // Jump to the new window's card: the pane exists in tmux the moment the POST
         // returns, so setActive's select lands; the card fills in on the next poll.
         .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
-        .catch(() => {});
+        .catch((e) => barNote(`Could not open a window — ${e.message}`));
     };
     m.appendChild(b);
   }
