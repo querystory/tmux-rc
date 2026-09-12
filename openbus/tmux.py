@@ -287,6 +287,28 @@ def kill_window(pane_id: str) -> None:
     _run(["kill-window", "-t", pane_id])
 
 
+def server_path() -> str | None:
+    """PATH from the tmux SERVER's global environment — the list a new window's command is
+    actually looked up in — or None if tmux can't say.
+
+    The daemon does NOT start the server; it connects to whatever is already running (the
+    unit only runs the daemon, and the README has the user open `tmux new -s work` first).
+    A server started from a login shell therefore carries that shell's PATH, which is
+    typically far wider than the daemon's own — nvm, ~/bin — and is the difference between
+    a launcher that works and one the daemon would swear does not exist.
+
+    The global environment, not a session's: sessions rarely override PATH, and this is
+    used to DECLINE to report a command missing, where the widest honest list is the safe
+    one. It is still only an approximation — the window's shell runs its rc files and can
+    prepend more — which is exactly why the caller treats a hit here as "can't say it's
+    missing" rather than as proof of anything."""
+    try:
+        out = _run(["show-environment", "-g", "PATH"]).strip()
+    except Exception:  # noqa: BLE001 - no server, old tmux, wedged: just don't know
+        return None
+    return out[len("PATH="):] or None if out.startswith("PATH=") else None
+
+
 def new_window(session: str, name: str, command: str) -> str:
     """Open a new window in `session` running `command`, and return its pane id.
     The trailing ':' pins the target to the session (a bare name could match a window).

@@ -140,16 +140,22 @@ _DEFAULT_LAUNCHERS = [
 ]
 
 
-def _unavailable(command: str) -> str | None:
-    """Why the daemon can't run `command`, or None if it can — or can't tell.
+def _unavailable(command: str, path: str | None = None) -> str | None:
+    """Why nothing here can run `command`, or None if something can — or can't tell.
 
-    tmux runs the launcher with the daemon's environment, so a name that resolves in the
-    user's login shell (nvm, ~/bin) may well not resolve here — the systemd unit's PATH
-    is deliberately minimal. Only argv[0] is checked, and a command is a shell string, so
-    leading `VAR=x` assignments are skipped the way sh would; `~` is expanded because the
-    documented escape hatch (a home-relative path in TMUXRC_LAUNCHERS) is otherwise
-    unresolvable here, though the message quotes the token as configured. Everything this
-    can't confidently decide is left to the shell rather than guessed at — a false
+    A launcher is looked up twice, because there are two PATHs and neither is reliably
+    the one that matters. tmux runs the command from the SERVER's environment (`path`,
+    from tmux.server_path), and the daemon does not start that server — so a session the
+    user opened from a login shell carries nvm and ~/bin, while this unit's own PATH is
+    deliberately minimal. Resolving against either one is enough to stay quiet: the point
+    is to catch a command that exists NOWHERE (the configured `gemini` that was never
+    installed), and a name found in either list is not that.
+
+    Only argv[0] is checked, and a command is a shell string, so leading `VAR=x`
+    assignments are skipped the way sh would; `~` is expanded because the documented
+    escape hatch (a home-relative path in TMUXRC_LAUNCHERS) is otherwise unresolvable
+    here, though the message quotes the token as configured. Everything this can't
+    confidently decide is left to the shell rather than guessed at — a false
     "unavailable" would block a working launcher, which is worse than the fuzzy failure
     this exists to explain. So it declines whenever the answer would be a guess:
 
@@ -162,10 +168,10 @@ def _unavailable(command: str) -> str | None:
       (`new_window -c #{session_path}`) and `shutil.which` would resolve against the
       daemon's own cwd — two different files, so the answer would be meaningless.
 
-    What it does NOT model is a tmux server started outside this unit, whose environment
-    can differ from the daemon's. In this deployment the daemon owns the server, which is
-    the condition the check was verified against; where that doesn't hold, the worst case
-    is the one failure mode above — a launcher refused that tmux could have run.
+    Even two lists is an approximation: the window's shell runs its rc files and can
+    prepend more, so a name found in NEITHER can still turn out to exist. That asymmetry
+    is deliberate — it costs a window that opens and dies, which is the failure this
+    endpoint explains, rather than a refusal to open one that would have worked.
 
     Returning the reason rather than the word keeps one wording for both callers: the
     phone says the same thing whether it asked before the tap or after it."""
@@ -212,15 +218,18 @@ def _unavailable(command: str) -> str | None:
         return None
     if any(re.search(r"""[|&;<>()$`\\"'*?\[\]{}]""", w) for w in words[1:]):
         return None  # an operator or an expansion later on: a shell line, not a plain argv
-    path = os.path.expanduser(words[0])
-    if "/" in path and not os.path.isabs(path):
+    word = os.path.expanduser(words[0])
+    if "/" in word and not os.path.isabs(word):
         return None
-    if shutil.which(path):
+    # Either list will do — see the two-PATH note above. A word with a slash is checked as
+    # a file by both calls, so passing `path` is harmless there.
+    if shutil.which(word) or (path and shutil.which(word, path=path)):
         return None
-    if os.path.isabs(path):
-        return f"{words[0]} does not exist, or the daemon cannot execute it."
-    return (f"{words[0]} is not on the daemon's PATH. Use an absolute path in "
-            "TMUXRC_LAUNCHERS, or add its directory to the service's PATH.")
+    if os.path.isabs(word):
+        return f"{words[0]} does not exist, or is not executable."
+    return (f"{words[0]} is on neither the daemon's PATH nor tmux's. Use an absolute path "
+            "in TMUXRC_LAUNCHERS, or add its directory to the PATH of whichever of the "
+            "two starts your windows.")
 
 
 def _launchers() -> list[dict]:
@@ -663,9 +672,10 @@ def launchers():
     # which dies in milliseconds. Never hide the entry: the user configured it, so the
     # reason has to be visible.
     out = []
+    path = tmux.server_path()  # once: the same answer for every entry
     for e in _launchers():
         item = {"label": e["label"], "icon": e["icon"]}
-        why = _unavailable(e["command"])
+        why = _unavailable(e["command"], path)
         if why:
             item["unavailable"] = why
         out.append(item)
@@ -691,7 +701,7 @@ def new_window(body: NewWindowBody, request: Request):
     # is created, the shell exits instantly ("command not found"), the pane is gone
     # before the phone can select it, and the only thing the user sees is a bogus
     # "could not focus this pane" — a third-order symptom of a PATH problem.
-    why = _unavailable(entry["command"])
+    why = _unavailable(entry["command"], tmux.server_path())
     if why:
         _audit(request, "new_window", "-", detail, outcome="rejected: command not found")
         raise HTTPException(400, why)

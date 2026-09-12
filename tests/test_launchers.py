@@ -53,12 +53,20 @@ def _fake_pane(session="work"):
 # happens to be installed on the runner — green here, red in CI, which installs tmux and
 # nothing else. Tests that are not ABOUT resolution stub it to "everything resolves".
 def _resolves(monkeypatch):
-    monkeypatch.setattr(S.shutil, "which", lambda c: c)
+    monkeypatch.setattr(S.shutil, "which", lambda c, path=None: c)
+
+
+def _no_tmux_path(monkeypatch):
+    """The check also consults the tmux SERVER's PATH, which means shelling out to a real
+    tmux. Pin it: a test about resolution must not depend on whether the machine running
+    it happens to have a server up, or what was on the PATH of whoever started it."""
+    monkeypatch.setattr(T, "server_path", lambda: None)
 
 
 def test_new_window_runs_configured_command(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     _resolves(monkeypatch)
+    _no_tmux_path(monkeypatch)
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
     calls = []
     monkeypatch.setattr(T, "_run", lambda argv: (calls.append(argv), "%42")[1])
@@ -92,6 +100,7 @@ def test_new_window_refuses_unknown_session(monkeypatch):
 def test_launchers_endpoint_omits_commands(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     _resolves(monkeypatch)
+    _no_tmux_path(monkeypatch)
     client = TestClient(S.app)
     got = client.get("/api/launchers").json()["launchers"]
     assert got and all(set(e) == {"label", "icon"} for e in got)
@@ -106,12 +115,42 @@ def test_new_window_refuses_command_not_on_path(monkeypatch):
     monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps(
         [{"label": "Codex", "command": "codex --yolo", "icon": "codex"}]))
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
-    monkeypatch.setattr(S.shutil, "which", lambda _: None)
+    monkeypatch.setattr(S.shutil, "which", lambda c, path=None: None)
+    _no_tmux_path(monkeypatch)
     monkeypatch.setattr(T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run")))
     client = TestClient(S.app)
     r = client.post("/api/windows", json={"session": "work", "launcher": "Codex"})
     assert r.status_code == 400
     assert "codex" in r.json()["detail"] and "PATH" in r.json()["detail"]
+
+
+# The daemon does not start the tmux server, so the two do not share a PATH: a session
+# opened from a login shell can run a launcher the daemon cannot even find. Refusing on
+# the daemon's list alone would block exactly the commands this feature exists to serve.
+def test_new_window_allows_a_command_only_tmux_can_find(monkeypatch):
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps(
+        [{"label": "Codex", "command": "codex", "icon": "codex"}]))
+    monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
+    monkeypatch.setattr(T, "server_path", lambda: "/opt/agents/bin")
+    monkeypatch.setattr(S.shutil, "which",
+                        lambda c, path=None: "/opt/agents/bin/codex" if path else None)
+    opened = []
+    monkeypatch.setattr(T, "_run", lambda argv: (opened.append(argv), "%7")[1])
+    client = TestClient(S.app)
+    r = client.post("/api/windows", json={"session": "work", "launcher": "Codex"})
+    assert r.status_code == 200 and opened, "a launcher tmux can run must not be refused"
+
+
+def test_launchers_endpoint_reads_the_tmux_path_once(monkeypatch):
+    """Three entries, one tmux call: it is the same answer for all of them, and this
+    endpoint is now re-read every time a menu opens."""
+    monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
+    monkeypatch.setattr(S.shutil, "which", lambda c, path=None: c)
+    calls = []
+    monkeypatch.setattr(T, "server_path", lambda: (calls.append(1), "/opt/bin")[1])
+    client = TestClient(S.app)
+    assert len(client.get("/api/launchers").json()["launchers"]) == 3
+    assert len(calls) == 1
 
 
 def test_new_window_allows_absolute_path_that_exists(monkeypatch, tmp_path):
@@ -182,6 +221,7 @@ def test_new_window_wakes_the_watcher_for_the_pane_it_made(monkeypatch):
     before anything publishes it, which is the delay the endpoint exists to remove."""
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     _resolves(monkeypatch)
+    _no_tmux_path(monkeypatch)
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
     monkeypatch.setattr(T, "_run", lambda argv: "%42")
     asked = []
@@ -199,6 +239,7 @@ def test_new_window_succeeds_with_no_watcher_running(monkeypatch):
     success into a 500 — the next ordinary tick finds the pane regardless."""
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     _resolves(monkeypatch)
+    _no_tmux_path(monkeypatch)
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
     monkeypatch.setattr(T, "_run", lambda argv: "%42")
     assert getattr(S.app.state, "watcher", None) is None
