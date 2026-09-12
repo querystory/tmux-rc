@@ -36,11 +36,11 @@ Two settings make that work better, and both are worth having:
   the agent for it just throws away the better name.
 
 The fallback only matters when there is no agent title to find. `Pane.label` in
-`daemon/tmux.py` then takes the first identity that looks user-chosen: the window name,
-then the session name, then the cwd basename, and only if all three are unusable
-`session:window-index`. "Unusable" is a deliberately small set — empty, a bare number, or
-one of tmux's command auto-names (`bash`, `node`, `python`, `ssh`, …) — because guessing
-wrong throws away a name the user meant.
+`daemon/tmux.py` then takes the first identity it has: the window name, then the session
+name — each skipped only when it looks like a tmux default (empty, a bare number, or a
+command auto-name such as `bash`, `node`, `python`, `ssh`) — then the cwd basename, and
+finally `session:window-index`. That "looks like a default" set is deliberately small,
+because discarding a name the user actually chose is the worse error.
 
 Two things follow that are worth knowing before you rely on it. Agent binaries are *not*
 in that set, so eight windows tmux auto-named `claude` are eight rows headed `claude`.
