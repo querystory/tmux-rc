@@ -29,7 +29,9 @@ classifier reads the agent's own session title out of the captured text (that is
 pane reads as *Review 4745* or *airbyte-value-population* rather than as its command.
 
 That is the one setting worth changing for Codex: **include `"thread-title"` in
-`status_line`.** Without it the thread title is never drawn and there is nothing to parse.
+`status_line`.** The parser will also take the title from a `Thread renamed to <name>`
+line, but that is a single line of transcript — it scrolls away and the pane loses its
+name again. The status bar is the only place the title stays on screen to be read.
 
 (Agents that set the *terminal* title get a second route, but only to the desktop card,
 which renders `title || label` — `title` being the terminal title, or failing that a name
