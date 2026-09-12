@@ -40,3 +40,14 @@ export function lastActivity(pane) {
   const since = Number(pane.state_since);
   return pane.activity === "idle" && since > 0 ? Math.min(changed, since) : changed;
 }
+
+// The name a card is headed by, matching the desktop's `s.title || s.label || s.pane_id`.
+// `title` is the agent's OWN name for what it is doing — the terminal title it sets, else
+// the session title parsed off the screen — so it is the only rung that describes the WORK.
+// `label` is a tmux fallback for panes that never named themselves; it identifies a window
+// ("misc-5:1") and nothing about what is in it, which is useless as a heading when a
+// session holds five unrelated projects. The phone used to render `label` alone and threw
+// the agent's name away.
+export function paneName(pane) {
+  return pane.title || pane.label || pane.window_name || pane.pane_id;
+}
