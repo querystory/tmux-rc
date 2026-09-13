@@ -49,14 +49,17 @@ the first one worked, which brings us to the next part.
 
 ## Confirming submission: only the input line is authoritative, and it lies too
 
-The tempting check — grep the pane for the text you just sent — is a **false negative by
-construction**. A *sent* message is echoed into the transcript and stays visible in
-scrollback, so it matches whether the send worked or not. The question is never whether
-the text is present; it is *where* the text is. Still in the input box means unsent;
-scrolled up into the transcript means sent.
+The tempting check — grep the pane for the text you just sent — **cannot fail**, which
+is not the same as working. An *unsent* message is sitting in the composer; a *sent* one
+is echoed into the transcript and stays in scrollback. Both match, so the check reports
+success either way: on a dropped Enter it is a straight false positive, and the rest of
+the time it tells you nothing you did not already know. The question is never whether the
+text is present; it is *where* it is. Still in the input box means unsent; scrolled up
+into the transcript means sent.
 
-So read the input line and check that it is empty. That is the right idea, and it is
-still wrong in three ways worth knowing before you trust it:
+So read the input line and check that it is empty. That is the right idea, and it trades
+a check that always says yes for one that can say no when the answer is yes. Four ways it
+does that, all worth knowing before you trust it:
 
 - **The input glyph is not unique on screen.** At least one popular agent TUI renders
   transcript messages with the *same* glyph its input line uses, so a capture routinely
@@ -66,19 +69,32 @@ still wrong in three ways worth knowing before you trust it:
   with U+00A0, a non-breaking space, which POSIX `[[:space:]]` does not match in most
   locales. Strip the glyph and test for emptiness naively and the box never reads empty,
   so a perfectly good send reports as failed.
+- **A greyed placeholder is not typed input.** Agent TUIs draw hint text after the glyph
+  when the composer is empty ("Press up to edit queued messages" and the like). A
+  plain-text capture keeps the characters and loses the styling that made them grey, so
+  the check reads a hint as a draft and reports a good send as failed. This one is not
+  fixable at this layer: telling grey from typed requires capturing the escape sequences
+  too, which is what the daemon does before marking that run `⟪placeholder⟫`.
 - **The screen is stale until the TUI repaints.** There is no event to wait for, only a
   sleep long enough that you probably saw the redraw. Too short and you get a false
   negative; too long and every steer costs seconds.
 
 `scripts/steer.sh` is a working helper that does all of this: literal text, pause,
-separate Enter, retry, and an input-line check that handles the two gotchas above. Use it
-or copy it. The glyph it matches is overridable (`STEER_GLYPH`) because it is
-harness-specific, which is itself a hint about how far this approach generalises.
+separate Enter, retry, and an input-line check that handles the first two. It refuses to
+type into a composer that is not already empty, because a draft left by an earlier
+dropped Enter would otherwise be concatenated with your message and submitted as one. The
+glyph it matches is overridable (`STEER_GLYPH`) because it is harness-specific, which is
+itself a hint about how far this approach generalises.
 
-**It is still guesswork, and that is the point.** Both of its false-negative sources were
-found by measurement rather than by reading the screen carefully, and there is no reason
-to think a third is not waiting. Polling a terminal to find out whether a keystroke
-arrived is inference about a repaint, not a delivery receipt. The script is best read as
+**Prefer the daemon's endpoint when it is running.** `POST /api/panes/<id>/send`
+serialises sends, records who made them, and re-parses the pane afterwards; typing behind
+the daemon's back leaves its view stale until the next capture and leaves no record at
+all. The helper is for when there is no daemon — and as evidence for the argument below.
+
+**It is still guesswork, and that is the point.** Three of those four were found by
+measurement rather than by reading the screen carefully, and the fourth cannot be fixed
+from a plain capture at all. Polling a terminal to find out whether a keystroke arrived
+is inference about a repaint, not a delivery receipt. The script is best read as
 evidence for [the agent client](design/agent-client.md): a daemon that already watches
 every pane, fingerprints it for change, and re-parses it after every send it makes can
 simply *report* delivery. Nobody has to poll for something another process is already
@@ -105,10 +121,13 @@ Two separate ways to type into the wrong pane:
 - **Window indices renumber when a window closes**, silently retargeting anything that
   addressed a window by number.
 
-Address by **pane id** (`%3`). It is stable for the life of the pane, it is what every
-tmux-rc endpoint is keyed on, and it is the only form that is never ambiguous. See
-[agent-setup](agent-setup.md) for how labels are derived when you want a pane to read
-well on the phone too.
+Address by **pane id** (`%3`). It is what every tmux-rc endpoint is keyed on and the
+only form that is unambiguous while the pane lives — but note that bound: tmux
+*recycles* pane ids, so an id you cached before a pane closed can later name a different
+pane entirely. That is why the daemon pairs the id with the pane's pid. An orchestrator
+holding ids across a long run should re-resolve them rather than assume they still mean
+what they meant. See [agent-setup](agent-setup.md) for how labels are derived when you
+want a pane to read well on the phone too.
 
 ## Sibling panes are not a sandbox
 
