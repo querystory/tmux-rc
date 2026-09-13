@@ -18,8 +18,8 @@
 # evidence for the argument in docs/design/agent-client.md.
 #
 # LIMITATIONS. This says UNCONFIRMED rather than "unsent", because polling a terminal for
-# delivery is inference about a repaint, not a receipt. Three false negatives are known,
-# all found by measuring live panes rather than by reading the screen carefully:
+# delivery is inference about a repaint, not a receipt. Four false negatives are known,
+# three of them found by measuring live panes rather than by reading the screen carefully:
 #   1. a transcript line rendered with the same glyph as the input line (handled: take
 #      the last match, not the first);
 #   2. the empty input box padded with U+00A0, which POSIX [[:space:]] does not strip in
@@ -27,8 +27,12 @@
 #   3. greyed placeholder / hint text drawn after the glyph, which a plain-text capture
 #      cannot distinguish from typed input (NOT handled, and not fixable here — the
 #      daemon captures styled output and marks that run ⟪placeholder⟫; see
-#      _mark_placeholder in openbus/tmux.py).
-# Assume a fourth is waiting.
+#      _mark_placeholder in openbus/tmux.py);
+#   4. the capture racing the repaint. There is no redraw event to wait for, only the
+#      fixed sleep below, so a TUI that takes longer than it reports UNCONFIRMED on a
+#      message that did land (NOT handled — a longer sleep trades one wrong answer for a
+#      slower one, and there is no value that is right for every harness and load).
+# Assume a fifth is waiting.
 set -u
 
 glyph=${STEER_GLYPH:-❯}  # the agent's input-line prompt; differs per harness
@@ -36,6 +40,15 @@ MAX_BYTES=4000           # tmux caps one send-keys near 16KB; the daemon chunks,
 
 [ $# -ge 2 ] || { echo "usage: steer <pane> <message>" >&2; exit 2; }
 pane=$1
+# The draft check and the send below are not one atomic step: two runs against the same
+# pane would each see an empty composer, then interleave their text and Enters into one
+# prompt while both retry loops reported success. An orchestrator steering a fleet in
+# parallel is exactly the caller that hits this, so serialise per pane. It covers other
+# runs of THIS script only — a human at the keyboard, or the daemon's own send path, is
+# outside it. One keystroke path is the real fix, and that is what the daemon provides.
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"${TMPDIR:-/tmp}/steer-${pane//[^A-Za-z0-9]/_}.lock" && flock 9
+fi
 shift
 msg=$*
 [ -n "$msg" ] || { echo "steer: empty message" >&2; exit 2; }

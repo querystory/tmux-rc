@@ -82,9 +82,11 @@ does that, all worth knowing before you trust it:
 `scripts/steer.sh` is a working helper that does all of this: literal text, pause,
 separate Enter, retry, and an input-line check that handles the first two. It refuses to
 type into a composer that is not already empty, because a draft left by an earlier
-dropped Enter would otherwise be concatenated with your message and submitted as one. The
-glyph it matches is overridable (`STEER_GLYPH`) because it is harness-specific, which is
-itself a hint about how far this approach generalises.
+dropped Enter would otherwise be concatenated with your message and submitted as one, and
+it takes a per-pane lock so that two steers of one pane cannot interleave — which an
+orchestrator steering a fleet in parallel will otherwise do. The glyph it matches is
+overridable (`STEER_GLYPH`) because it is harness-specific, which is itself a hint about
+how far this approach generalises.
 
 **Prefer the daemon's endpoint when it is running.** `POST /api/panes/<id>/send`
 serialises sends, records who made them, and re-parses the pane afterwards; typing behind

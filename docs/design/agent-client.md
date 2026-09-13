@@ -316,7 +316,7 @@ solve them and are what the daemon already uses, but an orchestrator thinks in r
 renaming windows is the first thing to get right, and agent-setup's advice (let the
 agent publish its own title) is most of the answer already.
 
-**Consent (item 2).** A orchestrator that can type into a sibling's pane can derail it,
+**Consent (item 2).** An orchestrator that can type into a sibling's pane can derail it,
 and this is no longer hypothetical. Who may address whom; whether a message announces
 that a machine typed it, so a human reading over the pane can tell; whether the human
 can veto mid-flight. Related: two agents that can both perceive and type at each other
