@@ -8,7 +8,7 @@ a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
   <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, a running or idle badge, and a one-line summary of what it is doing" width="280">
-  <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and context left, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
+  <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and how much of its context window is used, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
 </p>
 
 <p align="center"><em>The phone UI at <code>/m</code>. Left: every pane on the tmux server, filtered by All / Running / Recent / Needs&nbsp;you. Right: one pane's Overview — what the agent is doing, and a composer to answer it.</em></p>
@@ -28,8 +28,10 @@ every session, and the focused pane's card above its live terminal:
   <img src="docs/img/card.png" alt="The desktop dashboard: a dock of pane icons grouped by tmux session, above the focused pane's card with its summary, sub-agents and activity, and the live terminal below" width="620">
 </p>
 
-Press and hold a session's **+N** button to start a new agent in a new window, without
-touching the machine:
+Start a new agent in a new window without touching the machine: tap the **+** at the end
+of a session's dock. When that session has idle panes folded away the slot shows **+N**
+instead, where a tap already means *unfold* — so there the launcher sits behind a press
+and hold:
 
 <p align="center">
   <img src="docs/img/launcher.png" alt="The launcher menu open over the dashboard, listing Claude, Claude (Sonnet), Claude (Bedrock), Codex and Gemini as the agents available to start" width="620">

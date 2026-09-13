@@ -14,6 +14,9 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
+import shlex
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -148,6 +151,109 @@ _DEFAULT_LAUNCHERS = [
     {"label": "Codex", "command": "codex", "icon": "codex"},
     {"label": "Gemini", "command": "gemini", "icon": "gemini"},
 ]
+
+
+def _unavailable(command: str, path: str | None = None) -> str | None:
+    """Why nothing here can run `command`, or None if something can — or can't tell.
+
+    A launcher is looked up twice, because there are two PATHs and neither is reliably
+    the one that matters. tmux runs the command from the SERVER's environment (`path`,
+    from tmux.server_path), and the daemon does not start that server — so a session the
+    user opened from a login shell carries nvm and ~/bin, while this unit's own PATH is
+    deliberately minimal. Resolving against either one is enough to stay quiet: the point
+    is to catch a command that exists NOWHERE (the configured `gemini` that was never
+    installed), and a name found in either list is not that.
+
+    Only argv[0] is checked, and a command is a shell string, so leading `VAR=x`
+    assignments are skipped the way sh would; `~` is expanded because the documented
+    escape hatch (a home-relative path in TMUXRC_LAUNCHERS) is otherwise unresolvable
+    here, though the message quotes the token as configured. Everything this can't
+    confidently decide is left to the shell rather than guessed at — a false
+    "unavailable" would block a working launcher, which is worse than the fuzzy failure
+    this exists to explain. So it declines whenever the answer would be a guess:
+
+    - the line isn't a plain argv — a quote, a pipeline, a substitution, a newline, a
+      backslash, a bare assignment. `cd /tmp\nclaude` runs a working launcher, and
+      answering about its first word would report the BUILTIN `cd` as missing;
+    - an assignment to PATH, which changes the very search we would be doing;
+    - an option after `exec`/`command`, which belongs to the builtin, not to us;
+    - a RELATIVE path, which tmux resolves against the session's directory
+      (`new_window -c #{session_path}`) and `shutil.which` would resolve against the
+      daemon's own cwd — two different files, so the answer would be meaningless.
+
+    Even two lists is an approximation: the window's shell runs its rc files and can
+    prepend more, so a name found in NEITHER can still turn out to exist. That asymmetry
+    is deliberate — it costs a window that opens and dies, which is the failure this
+    endpoint explains, rather than a refusal to open one that would have worked.
+
+    Returning the reason rather than the word keeps one wording for both callers: the
+    phone says the same thing whether it asked before the tap or after it."""
+    # Neither of these survives tokenizing: shlex eats a newline as whitespace, and with
+    # posix=False it keeps a backslash as a literal character rather than as the escape it
+    # is — so `FOO=bar\ baz claude` splits into three words and argv[0] comes out as
+    # "baz", refusing a launcher that works. A newline separates commands and a backslash
+    # escapes; both are shell syntax, so both end the judging before it starts.
+    if re.search(r"[\x00-\x1f\\]", command):
+        return None
+    try:
+        # posix=False KEEPS the quotes on a quoted word, so the "plain argv" gate below
+        # can see them and decline. Stripping them first would hide the one case where
+        # expanding `~` is wrong: sh does not expand it inside quotes, so `'~/bin/codex'`
+        # is a literal path the shell will fail to find while expanduser reports success.
+        words = shlex.split(command, posix=False)
+    except ValueError:  # unbalanced quotes — the shell's problem to report, not ours
+        return None
+    # Strip the prefix words sh strips before it has a command to look up: assignments,
+    # then a wrapper builtin — `exec claude` is a real launcher config (it replaces the
+    # shell with the agent, so the pane dies with it instead of dropping to a prompt) and
+    # `command` is its neighbour; both are BUILTINS, so resolving one as if it were the
+    # command would report a working launcher as missing. In that order and no other:
+    # assignments are a prefix to `exec` itself, and a word after it is already exec's
+    # ARGUMENT, so `exec FOO=1 sh` really does make sh look for a file named "FOO=1" —
+    # and this then says so, which is the honest answer rather than a lenient one.
+    # (Other builtins as argv[0] don't describe a launcher, and the newline gate above
+    # already covers the way one realistically appears: `cd /tmp` on its own line.)
+    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+        if words.pop(0).startswith("PATH="):
+            return None
+    if words and words[0] in ("exec", "command"):
+        words.pop(0)
+        if words and words[0].startswith("-"):
+            return None  # `exec -a name cmd`, `command -p cmd`: their options, not argv[0]
+    # argv[0] must be a plain word — it is the thing being resolved, so anything that
+    # isn't literally a name or a path (a quoted string, a substitution) is unanswerable.
+    # The REST of the line only has to be free of shell syntax, which is a much weaker
+    # requirement: an argument is not resolved, it merely has to not turn the line into
+    # something other than a plain argv. Holding arguments to argv[0]'s spelling meant a
+    # colon was enough to abandon the check — `codex --endpoint https://api.example.com`
+    # got no preflight at all, which is precisely a config whose argv[0] lives off PATH.
+    if not words or not re.fullmatch(r"[\w.@/=+~-]+", words[0]):
+        return None
+    if any(re.search(r"""[|&;<>()$`\\"'*?\[\]{}]""", w) for w in words[1:]):
+        return None  # an operator or an expansion later on: a shell line, not a plain argv
+    word = os.path.expanduser(words[0])
+    if "/" in word and not os.path.isabs(word):
+        return None
+    # Either list will do — see the two-PATH note above. A word with a slash is checked as
+    # a file by both calls, so passing `path` is harmless there.
+    if shutil.which(word) or (path is not None and shutil.which(word, path=path)):
+        return None
+    if os.path.isabs(word):
+        # A path answers for itself; neither PATH was ever going to be consulted.
+        return f"{words[0]} does not exist, or is not executable."
+    if path is None:
+        # tmux could not say what its PATH is (no server yet, a wedged one, an old
+        # version). That is half an answer, and half an answer here is the daemon's PATH
+        # alone — the very thing that was wrong before. Not knowing is not evidence.
+        return None
+    # Name WHICH PATH to widen. "Put it on the PATH" is actively misleading here: adding
+    # the directory to the daemon's unit satisfies the first lookup and silences this
+    # message without making the command runnable, because the window inherits the tmux
+    # SERVER's environment. The absolute path is the advice that cannot be misapplied.
+    return (f"{words[0]} is on neither the daemon's PATH nor the tmux server's. An "
+            "absolute path in TMUXRC_LAUNCHERS always works; otherwise put it on the PATH "
+            "of the shell you start tmux FROM — the window inherits the server's "
+            "environment, so widening the daemon's alone would only hide this message.")
 
 
 def _launcher(e: dict) -> dict:
@@ -586,7 +692,19 @@ def send(pane_id: str, body: SendBody, request: Request):
 def launchers():
     """The dock '+' menu's entries — labels/icons only. Commands never leave the daemon:
     the phone posts a label back and the lookup happens server-side (see new_window)."""
-    return {"launchers": [{"label": e["label"], "icon": e["icon"]} for e in _launchers()]}
+    # `unavailable` (absent when the command resolves) lets the dialog say WHY a
+    # configured launcher can't run instead of offering a button that opens a window
+    # which dies in milliseconds. Never hide the entry: the user configured it, so the
+    # reason has to be visible.
+    out = []
+    path = tmux.server_path()  # once: the same answer for every entry
+    for e in _launchers():
+        item = {"label": e["label"], "icon": e["icon"]}
+        why = _unavailable(e["command"], path)
+        if why:
+            item["unavailable"] = why
+        out.append(item)
+    return {"launchers": out}
 
 
 @app.post("/api/windows")
@@ -604,12 +722,29 @@ def new_window(body: NewWindowBody, request: Request):
     if not any(p.session == body.session for p in tmux.list_panes()):
         _audit(request, "new_window", "-", detail, outcome="rejected: session not found")
         raise HTTPException(404, "session not found")
+    # Check the command EXISTS before opening a window for it. Without this the window
+    # is created, the shell exits instantly ("command not found"), the pane is gone
+    # before the phone can select it, and the only thing the user sees is a bogus
+    # "could not focus this pane" — a third-order symptom of a PATH problem.
+    why = _unavailable(entry["command"], tmux.server_path())
+    if why:
+        _audit(request, "new_window", "-", detail, outcome="rejected: command not found")
+        raise HTTPException(400, why)
     try:
         pane_id = tmux.new_window(body.session, entry["label"], entry["command"])
     except Exception as e:
         _audit(request, "new_window", "-", detail, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "new_window", pane_id, detail)
+    # Wake the watcher NOW instead of letting the new pane wait up to a poll interval to
+    # be discovered. The tick that runs publishes the pane's identity before it classifies
+    # it (see watcher._tick), so the card the phone just navigated to appears at once as a
+    # known-but-unclassified pane rather than as a missing pane id. Best-effort: the
+    # window already exists, so a watcher that isn't up must not turn a success into a
+    # 500 — the next ordinary tick finds the pane anyway.
+    watcher = getattr(app.state, "watcher", None)
+    if watcher is not None:
+        watcher.request_reparse(pane_id)
     return {"ok": True, "pane_id": pane_id}
 
 
