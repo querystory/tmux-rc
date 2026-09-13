@@ -148,6 +148,15 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         c, e = bool(candidate.get(k)), bool(expected.get(k))
         if c != e:
             diffs.append(f"{k} present: got {c} want {e}")
+    # `tables` is presence-only like the above, but OPT-IN: most screens have no table and
+    # take no position, and making every existing sample newly assert its absence would
+    # fail them for something they were never blessed against. A sample that names it is
+    # making a claim — the one that matters being "the question refers to a list, so the
+    # list has to travel with it or the phone asks about items it never showed".
+    if "tables" in expected:
+        c, e = bool(candidate.get("tables")), bool(expected.get("tables"))
+        if c != e:
+            diffs.append(f"tables present: got {c} want {e}")
     return (not diffs), diffs
 
 
