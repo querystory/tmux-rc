@@ -439,7 +439,7 @@ class Watcher:
                 )
             panes = [p] if p else []
         else:
-            panes = tmux.list_panes()
+            panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
             self._publish_states([])
             return

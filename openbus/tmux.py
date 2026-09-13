@@ -36,6 +36,7 @@ _PANE_FMT = "\t".join(
         "#{window_active}",
         "#{pane_active}",
         "#{window_activity}",
+        "#{session_attached}",
     ]
 )
 
@@ -67,6 +68,11 @@ class Pane:
     # is the safe one: it can only make a pane look MORE recently active, never park
     # something the user is working in.
     window_activity: str = ""
+    # How many clients THIS session (of possibly several sharing the pane — see
+    # list_panes) is attached to. tmux reports a COUNT, not a flag: attach a second
+    # terminal and it reads "2". Only used to pick which group member's name a shared
+    # pane is filed under, via `is_attached` rather than any comparison to "1".
+    session_attached: str = "0"
 
     @property
     def display_title(self) -> str | None:
@@ -75,6 +81,13 @@ class Pane:
         defaults the title to the hostname, which is noise -> None."""
         t = _TITLE_GLYPHS.sub("", self.title).strip()
         return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
+
+    @property
+    def is_attached(self) -> bool:
+        """Does any client have this session open? `session_attached` is tmux's client
+        COUNT, so anything non-zero means attached — comparing it to "1" silently fails
+        the moment a second terminal (or a phone alongside a desktop) attaches."""
+        return self.session_attached not in ("", "0")
 
     @property
     def session_active(self) -> bool:
@@ -218,7 +231,13 @@ def active_pane_id() -> str | None:
 
 
 def list_panes() -> list[Pane]:
-    """All panes across all sessions/windows."""
+    """Every (session, pane) row tmux reports.
+
+    A pane in a session GROUP appears once per member — see dedupe_grouped — and that is
+    deliberate here: a grouped session is a real session with a real name, so
+    `find_pane("gtm-1:0")` must resolve and `/api/windows` must accept `session=gtm-1`
+    even when the deck files that pane under `gtm-0`. Callers that show panes to a human
+    want dedupe_grouped(); callers that RESOLVE a name want these rows."""
     out = _run(["list-panes", "-a", "-F", _PANE_FMT])
     panes: list[Pane] = []
     for line in out.splitlines():
@@ -229,6 +248,31 @@ def list_panes() -> list[Pane]:
             continue
         panes.append(Pane(*parts))
     return panes
+
+
+def dedupe_grouped(panes: list[Pane]) -> list[Pane]:
+    """One entry per pane, for anything that DISPLAYS panes.
+
+    `tmux new-session -t <name>` does not attach — it creates a session GROUPED with the
+    target, and grouped sessions share their windows. `list-panes -a` reports per session,
+    so a pane in a group of N sessions arrives N times under N session names, every copy
+    carrying the same pane id. That id keys the watcher's per-pane buffers and every card,
+    so on a deck the copies collide rather than merely repeat.
+
+    Applied at the point of display, NOT inside list_panes: the extra rows are not junk,
+    they are how a grouped session is addressable by its own name, and dropping them
+    globally broke `find_pane("gtm-1:0")` and `/api/windows?session=gtm-1`.
+
+    The survivor is the ATTACHED member when the group has one, so a card names the session
+    you would actually land in; otherwise the first row tmux emits. Insertion order is the
+    dict's, so replacing a row keeps the pane's original position and the deck doesn't
+    reshuffle when you attach elsewhere."""
+    by_id: dict[str, Pane] = {}
+    for pane in panes:
+        seen = by_id.get(pane.id)
+        if seen is None or (pane.is_attached and not seen.is_attached):
+            by_id[pane.id] = pane
+    return list(by_id.values())
 
 
 def find_pane(target: str | None) -> Pane | None:
@@ -256,6 +300,13 @@ def find_pane(target: str | None) -> Pane | None:
     panes = list_panes()
     if not panes:
         return None
+    # A pane ID names a PANE, so a shared one must resolve to the same row the deck shows
+    # — the attached group member — or `TMUXRC_TARGET=%3` would stamp its single card with
+    # a session nobody is looking at. A session-qualified address or label names a SESSION,
+    # so those keep matching their own raw row exactly: that is what makes a grouped
+    # session addressable as `gtm-1:0` at all.
+    if target is None or any(p.id == target for p in panes):
+        panes = dedupe_grouped(panes)
     if target is None:
         return panes[0]
     for p in panes:
