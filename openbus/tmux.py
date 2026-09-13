@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 
 _HOST = socket.gethostname()
@@ -487,6 +488,22 @@ def capture_pane(
 # chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
 # must never land inside a multi-byte code point.
 _SEND_CHUNK_BYTES = 4000
+# Pause between the typed text and the Return that submits it.
+#
+# Agent TUIs take multi-line input, so they must decide whether a Return is "submit" or
+# "newline in what I am typing". They decide it by TIMING: bytes arriving in a fast burst
+# are a paste, and a Return inside a paste is a literal newline. `send-keys -l` followed
+# immediately by `send-keys Enter` is exactly that burst, so the Return lands inside the
+# paste window and becomes a newline — the message sits composed in the input box, unsent,
+# and nothing reports an error because tmux delivered every byte it was asked to.
+#
+# Observed from the phone: tapping an answer to a codex approval prompt left the text in
+# the input line with the composer reporting "Sent". So the wait is the fix: it ends the
+# burst, and the Return afterwards arrives as its own keystroke.
+#
+# Paid once per send, and only for literal text that asks for a Return — key-name sends
+# (Escape, C-c, arrows) are single keystrokes with no paste to escape and skip it.
+_ENTER_SETTLE_S = float(os.environ.get("TMUXRC_ENTER_SETTLE_S", "0.3"))
 # One logical send now spans several tmux commands (chunks + Enter); concurrent callers
 # (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste.
 _send_lock = threading.Lock()
@@ -514,6 +531,11 @@ def send_keys(
         else:
             _run(["send-keys", "-t", pane_id, keys])
         if enter and literal:
+            # Let the paste burst end before the Return, or it is read as a newline
+            # rather than a submit (see _ENTER_SETTLE_S). Inside the lock deliberately:
+            # an interleaved send during the gap would put another caller's text in the
+            # box we are about to submit.
+            time.sleep(_ENTER_SETTLE_S)
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
