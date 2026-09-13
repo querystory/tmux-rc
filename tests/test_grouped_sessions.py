@@ -108,3 +108,25 @@ def test_the_watcher_publishes_one_card_per_pane(monkeypatch):
     w._tick()
     assert [s["pane_id"] for s in published[-1]] == ["%0"]
     assert published[-1][0]["session"] == "gtm-0"  # the attached member names it
+
+
+def test_a_pane_id_target_resolves_to_the_attached_member(monkeypatch):
+    """A pane ID names a PANE, so it must land on the same row the deck shows, even when
+    tmux emits the unattached member first — otherwise TMUXRC_TARGET=%0 stamps its single
+    card with a session nobody is looking at."""
+    _tmux(monkeypatch, [_row("gtm-1", "%0"), _row("gtm-0", "%0", attached="1")])
+    assert find_pane("%0").session == "gtm-0"
+
+
+def test_a_session_qualified_target_still_names_its_own_session(monkeypatch):
+    """The other half: an address names a SESSION, so it must keep resolving to that
+    session's row — that is what makes a grouped session addressable at all."""
+    _tmux(monkeypatch, [_row("gtm-1", "%0"), _row("gtm-0", "%0", attached="1")])
+    assert find_pane("gtm-1:0").session == "gtm-1"
+    assert find_pane("gtm-0:0").session == "gtm-0"
+
+
+def test_no_target_picks_the_attached_member(monkeypatch):
+    """Defaulting to the first pane should default to the row the deck would show."""
+    _tmux(monkeypatch, [_row("gtm-1", "%0"), _row("gtm-0", "%0", attached="1")])
+    assert find_pane(None).session == "gtm-0"

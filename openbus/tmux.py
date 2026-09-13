@@ -300,6 +300,13 @@ def find_pane(target: str | None) -> Pane | None:
     panes = list_panes()
     if not panes:
         return None
+    # A pane ID names a PANE, so a shared one must resolve to the same row the deck shows
+    # — the attached group member — or `TMUXRC_TARGET=%3` would stamp its single card with
+    # a session nobody is looking at. A session-qualified address or label names a SESSION,
+    # so those keep matching their own raw row exactly: that is what makes a grouped
+    # session addressable as `gtm-1:0` at all.
+    if target is None or any(p.id == target for p in panes):
+        panes = dedupe_grouped(panes)
     if target is None:
         return panes[0]
     for p in panes:
