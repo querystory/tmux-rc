@@ -303,12 +303,15 @@ def find_pane(target: str | None) -> Pane | None:
     panes = list_panes()
     if not panes:
         return None
-    # A pane ID names a PANE, so a shared one must resolve to the same row the deck shows
-    # — the attached group member — or `TMUXRC_TARGET=%3` would stamp its single card with
-    # a session nobody is looking at. A session-qualified address or label names a SESSION,
-    # so those keep matching their own raw row exactly: that is what makes a grouped
-    # session addressable as `gtm-1:0` at all.
-    if target is None or any(p.id == target for p in panes):
+    # Only a canonical `session:window[.pane]` address NAMES a session, so only it keeps
+    # the raw rows — that is what makes a grouped session addressable as `gtm-1:0`, and it
+    # is unambiguous because the session is spelled out. Everything else (a pane id, a
+    # window label, no target at all) names a PANE or a WINDOW, which a group shares, so it
+    # resolves through the deck's attached-member preference. Otherwise `TMUXRC_TARGET=%3`
+    # or a label would stamp its single card with a session nobody is attached to.
+    addresses = {f"{p.session}:{p.window_index}" for p in panes}
+    addresses |= {f"{p.session}:{p.window_index}.{p.pane_index}" for p in panes}
+    if target not in addresses:
         panes = dedupe_grouped(panes)
     if target is None:
         return panes[0]

@@ -130,3 +130,16 @@ def test_no_target_picks_the_attached_member(monkeypatch):
     """Defaulting to the first pane should default to the row the deck would show."""
     _tmux(monkeypatch, [_row("gtm-1", "%0"), _row("gtm-0", "%0", attached="1")])
     assert find_pane(None).session == "gtm-0"
+
+
+def test_a_label_target_also_follows_the_deck(monkeypatch):
+    """A window LABEL names a window, not a session, and a group shares windows — so a
+    label must resolve to the attached member exactly as a pane id does. Only a
+    session-qualified address spells out which session it means."""
+    rows = ["\t".join([s, "0", "Resolve PR 38", "0", "%0", "node", "t", "/x", "1",
+                       "1", "1", "", a]) for s, a in (("gtm-1", "0"), ("gtm-0", "1"))]
+    _tmux(monkeypatch, rows)
+    assert find_pane("Resolve PR 38").session == "gtm-0"
+    assert find_pane("Resolve PR 38.0").session == "gtm-0"
+    # …while the spelled-out address still names its own session.
+    assert find_pane("gtm-1:0").session == "gtm-1"
