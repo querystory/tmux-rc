@@ -1,7 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, awaitingLaunch, LAUNCH_GRACE_MS, paneName } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -184,7 +184,7 @@ function updateRow(button, pane) {
   const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
   if (logo.getAttribute("src") !== src) logo.src = src;
   logo.alt = pane.tool || "tmux";
-  text(button.querySelector("strong"), pane.label || pane.window_name || pane.pane_id);
+  text(button.querySelector("strong"), paneName(pane));
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
@@ -199,7 +199,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.label, p.window_name, p.pane_id, p.tool, p.model,
+  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.title, p.label, p.window_name, p.pane_id, p.tool, p.model,
     p.question?.prompt, p.headline, p.status_line, p.session_summary, activityLabel(p),
     p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
   const sessions = [...new Set(subset.map((p) => p.session))];
@@ -257,7 +257,7 @@ function render() {
   // instead of announcing the pane unavailable on a screen we are deliberately holding.
   const settled = booted && !awaitingLaunch(launched, active);
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
-  text($("pane-title"), pane?.label || (settled ? "Pane unavailable" : "Loading pane"));
+  text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
   $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
