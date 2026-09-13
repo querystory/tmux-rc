@@ -300,8 +300,10 @@ def emit_live_turn(
     session: str,
     actor: str | None,
     model: str,
+    provider: str,
     in_tokens: int,
     out_tokens: int,
+    cached_tokens: int,
     audio_in_tokens: int,
     audio_out_tokens: int,
     cost: float,
@@ -328,13 +330,14 @@ def emit_live_turn(
         attrs = {
             "kind": "live_turn",
             "model": model,
-            "provider": "vertex",
+            "provider": provider,  # the entry's backend: vertex / gemini-api / openai / azure-openai
             "session": session[:64],
             "turns": turns,
             "duration_s": round(duration_s, 3),
             "final": final,
             "in_tokens": in_tokens,
             "out_tokens": out_tokens,
+            "cached_tokens": cached_tokens,  # subset of in_tokens, billed at the cached rate
             "audio_in_tokens": audio_in_tokens,
             "audio_out_tokens": audio_out_tokens,
             "cost_usd": round(cost, 6),
