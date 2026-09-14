@@ -592,7 +592,7 @@ for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running
 // to a bare shell — EOF to close it, and Claude Code's newline — were unreachable from a
 // phone. The row is overflow-x:auto with flex:none buttons, so it scrolls rather than
 // shrinking them below a thumb-sized target (see #keys in style.css).
-for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
+for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["\u21e7\u2190", "S-Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
   const button = document.createElement("button"); button.title = label; button.setAttribute("aria-label", label);
   if (name) html(button, licon(name, 18)); else text(button, label);
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });

@@ -1,6 +1,7 @@
 """Mobile URLs work behind a TLS-terminating tunnel, with either slash form."""
 
 import os
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -74,3 +75,15 @@ def test_mobile_missing_assets_return_html_404(
     assert "attachment" not in response.headers.get("content-disposition", "")
     if method == "GET":
         assert "Mobile UI assets are not installed" in response.text
+
+
+def test_key_row_can_answer_a_codex_queued_question():
+    """Codex parks follow-up questions behind "shift + ← to answer". Without S-Left in
+    the key row there is NO way to reach that from a phone — the question is visible and
+    unanswerable. tmux sends S-Left as CSI 1;2D, the sequence codex reads, so this needs
+    no new machinery: it is a key NAME, sent literal=false like Esc and Ctrl-C."""
+    row = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    line = next(ln for ln in row.splitlines() if '"Esc", "Escape"' in ln)
+    assert '"S-Left"' in line, "shift+left missing from the mobile key row"
+    # A key NAME, never literal text — literal would type the characters "S-Left".
+    assert 'literal: false' in row
