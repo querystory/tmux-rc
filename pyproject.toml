@@ -109,9 +109,13 @@ ignore = [
   "E701",      # Short guard ladders (`if sec < 60: return ...`) read better aligned
   "N812",      # Tests import modules as single capitals (`import ...watcher as W`)
   "PLW0108",   # `lambda a: f(a)` is the pytest monkeypatch idiom; inlining reads worse
-  "RUF001",    # Ambiguous-unicode: the UI and comments use — ─ ⤢ … deliberately
-  "RUF002",
-  "RUF003",
+  # Ambiguous-unicode, all three variants. The suggested "unambiguous" substitutes are
+  # wrong here: this code reads real terminals, so prompt and TUI glyphs (❯ › ×) are
+  # quoted verbatim in strings, docstrings and comments because they are what the parser
+  # actually matches. Rewriting ❯ to > would document something the code never sees.
+  "RUF001",    # …in strings
+  "RUF002",    # …in docstrings
+  "RUF003",    # …in comments
   "SIM105",    # `try/except/pass` with a comment beats contextlib.suppress for one line
   "TC001",     # Avoid the complexity of TYPE_CHECKING guards (see TC003)
   "TID252",    # openbus ships as a wheel and imports its own modules relatively
