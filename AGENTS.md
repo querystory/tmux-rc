@@ -85,18 +85,20 @@ one off, say why there.
 Two conventions worth knowing before you hit them:
 
 - **No mid-file imports in `openbus/`** (PLC0415). An import inside a function is a real
-  decision — deferring a slow or optional dependency — and needs a `# noqa: PLC0415` with
-  the reason. The ones that are there now defer `google.genai` (~0.9s to import, which
-  would land on daemon startup) and the optional opentelemetry stack. An import that is
-  just far from the top of the file is a bug: hoist it. Test and script files are exempt,
-  so a single case can keep its import next to the code that needs it.
+  decision — deferring a slow or optional dependency — so it needs a `# noqa: PLC0415`,
+  and the reason has to be findable: either on the noqa itself or in the surrounding
+  comment or docstring. The three that exist today defer `google.genai` (~0.9s to import,
+  measured — that would otherwise land on daemon startup), the optional opentelemetry
+  stack, and `uvicorn` in `main()`. An import that is merely far from the top of the file
+  is a bug: hoist it. Test and script files are exempt, so a single case can keep its
+  import next to the code that needs it.
 - **`ruff format` is not used**, and `make fmt` does not run it. The hand-aligned constant
   tables and short guard ladders in this repo are deliberate, and reflowing them would
   bury real diffs under whitespace churn.
 
 Complexity rules (C901, PLR0911/0912/0915) are currently off: six functions exceed them
-today, and the refactor belongs in its own PR rather than inside a lint change. Turn them
-back on when that lands.
+today, and the refactor belongs in its own PR rather than inside a lint change. Tracked in
+issue #205; turn them back on when that lands.
 
 ## Classifier / prompt changes
 

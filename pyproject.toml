@@ -47,23 +47,25 @@ packages = ["openbus"]
 # reason — if a rule is merely inconvenient rather than wrong for us, it stays on.
 [tool.ruff]
 line-length = 100
-exclude = [".git", ".venv", "__pycache__", "build", "dist"]
+# .claude holds nested git worktrees (one checkout per in-flight branch). Linting those
+# would report other branches' violations as this one's. It is excluded here rather than
+# relied on via .git/info/exclude, which is per-machine and never committed — so a fresh
+# clone or CI would otherwise walk straight into them.
+exclude = [".claude", ".git", ".venv", "__pycache__", "build", "dist"]
 
 [tool.ruff.lint]
 select = ["ALL"]
 
-# Disabled rules. Keep alphabetized. Format: "Rule"  # Rationale
+# Disabled rules. Alphabetized within each block, except the complexity group below,
+# which is kept together under its shared note. Format: "Rule"  # Rationale
 ignore = [
   # ── Shared with qs-app ─────────────────────────────────────────────────────
   "A003",      # Attribute shadows a Python builtin (e.g. .type, .id)
-  "ANN003",    # Unnecessary typing for kwargs
-  "ANN204",    # We don't require return types for special methods like __init__
   "ASYNC240",  # Blocking path methods in async functions — too noisy, most are fine
   "B008",      # This rule gets confused by FastAPI Depends
   "B011",      # We assert False to show CLI failures
   "B904",      # Raise without a `from` is fine in most cases
   "COM812",    # Trailing-comma rule can conflict with the formatter
-  "D105",      # Allow missing docstrings in __init__
   "D203",      # Conflicts with D211. Prefer one less line
   "D205",      # We are unopinionated about blank lines after docstrings
   "D213",      # Conflicts with D212. Prefer one less line
@@ -92,7 +94,7 @@ ignore = [
   # Complexity limits. Six functions exceed these today (watcher._tick at 21, ._tick_pane
   # at 15, render.render_png, tmux._mark_dim, live._receiver, live._run_session). Turning
   # them on now would mean either a big refactor buried inside a lint PR or a scatter of
-  # per-function noqa. Left off until the refactor is done on its own; see issue.
+  # per-function noqa. Left off until the refactor is done on its own; see issue #205.
   "C901",      # Cyclomatic complexity
   "PLR0911",   # Too many return statements
   "PLR0912",   # Too many branches
