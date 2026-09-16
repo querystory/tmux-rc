@@ -202,6 +202,7 @@ def test_context_is_quiet_bounded_deduplicated_and_backend_keeps_full_screen():
 
     s, text = asyncio.run(run())
     assert s.ws.sent[0]["item"]["content"][0]["text"] == text
+    assert sum(e["type"] == "response.item.create" for e in s.ws.sent) == 1
     hints = [e for e in s.ws.sent if e["type"] == "session.thinking.append"]
     assert len(hints) == 2  # one change, one removal; no repeat
     assert len(hints[0]["content"].encode()) <= 480
@@ -387,3 +388,21 @@ def test_provider_diagnostic_reaches_browser(monkeypatch):
     monkeypatch.setattr(G, "run_session", fail)
     with TestClient(server.app).websocket_connect("/api/live-mode?model=GPT-Live%201") as ws:
         assert ws.receive_json() == {"type": "error", "message": "GPT-Live: invalid_api_key"}
+
+
+@pytest.mark.parametrize("status,code", [(401, "invalid_api_key"), (403, "permission_denied"), (404, "endpoint_not_found"), (429, "rate_limit_exceeded"), (503, "handshake_failed")])
+def test_http_handshake_error_is_sanitized(monkeypatch, status, code):
+    from websockets.datastructures import Headers
+    from websockets.http11 import Response
+
+    class Connection:
+        async def __aenter__(self):
+            raise G.websockets.exceptions.InvalidStatus(Response(status, "private reason", Headers(), body=b"private body"))
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
+    with pytest.raises(G.ProviderError, match="^GPT-Live: " + code + "$"):
+        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test")))

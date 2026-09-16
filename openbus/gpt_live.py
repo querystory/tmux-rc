@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import websockets
@@ -65,6 +66,27 @@ class ProviderError(RuntimeError):
         if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,64}", code):
             code = "unknown_error"
         super().__init__("GPT-Live: " + code)
+
+
+@asynccontextmanager
+async def _connect(key):
+    try:
+        async with websockets.connect(
+            URL,
+            additional_headers={"Authorization": "Bearer " + key},
+            open_timeout=15,
+            close_timeout=3,
+            max_size=2**22,
+        ) as ws:
+            yield ws
+    except websockets.exceptions.InvalidStatus as exc:
+        code = {
+            401: "invalid_api_key",
+            403: "permission_denied",
+            404: "endpoint_not_found",
+            429: "rate_limit_exceeded",
+        }.get(exc.response.status_code, "handshake_failed")
+        raise ProviderError({"code": code}) from None
 
 
 def tool_definitions():
@@ -165,6 +187,7 @@ class Session:
         self.work = asyncio.Queue(maxsize=16)
         self.caption_end = {}
         self.pane_hints = {}
+        self.last_context = None
 
     async def send(self, event):
         await self.ws.send(json.dumps(event))
@@ -183,19 +206,24 @@ class Session:
         if self.closing:
             return
         text = "\n".join(p.text for p in turns.parts if p.text)
+        # The shared updater coalesces changes (2.5s) and caps active screen tails
+        # at 4,000 chars; skip repeated snapshots too. Live manages long-session
+        # context automatically. Keep current screens so pane answers aren't stale.
         # Full state reaches the reasoning backend. Frontend appends are limited to
         # 500 tokens: a 480-byte UTF-8 prefix is conservatively within that bound even
         # for terminal noise/non-English text. It is only a hint; pane answers delegate.
-        await self.send(
-            {
-                "type": "response.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": text}],
-                },
-            }
-        )
+        if text != self.last_context:
+            await self.send(
+                {
+                    "type": "response.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": text}],
+                    },
+                }
+            )
+            self.last_context = text
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.
         hints = {
@@ -372,13 +400,7 @@ async def run_session(browser, watcher, actor, meter):
         "usage_final": False,
     }
     await browser.send_json({"type": "status", "status": "connecting"})
-    async with websockets.connect(
-        URL,
-        additional_headers={"Authorization": "Bearer " + key},
-        open_timeout=15,
-        close_timeout=3,
-        max_size=2**22,
-    ) as ws:
+    async with _connect(key) as ws:
         session = Session(ws, browser, watcher, actor, meter)
         await session.send(
             {

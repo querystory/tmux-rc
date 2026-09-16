@@ -721,6 +721,7 @@ async def live_mode(websocket: WebSocket) -> None:
         elif not use_gpt and LIVE_MODEL != gpt_live.MODEL and selection in ("", "Default", "Gemini Live"):
             await _run_session(websocket, watcher, actor, meter)
         else:
+            outcome = reason = "error"
             await websocket.send_json({"type": "error", "message": "Unknown or unavailable Live Mode selection; reload the page."})
     except gpt_live.ProviderError as exc:
         outcome = reason = "error"

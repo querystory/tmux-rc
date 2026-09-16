@@ -8,6 +8,7 @@ of Live audio. Requires ffmpeg. Prints only synthetic conversation/test outcomes
 import asyncio
 import base64
 import os
+import re
 import subprocess
 import sys
 import wave
@@ -140,8 +141,14 @@ async def main():
         )
     assert actions == [("%1", "echo hello", True, True)], actions
     assert any(m.get("role") == "user" for m in browser.messages), "No input transcript"
-    assert any(m.get("role") == "model" for m in browser.messages), (
-        "No output transcript"
+    # A pre-action acknowledgment ("on it") alone is not a spoken confirmation.
+    action_at = next(i for i, m in enumerate(browser.messages) if m["type"] == "typed")
+    confirmation = "".join(
+        m.get("text", "") for m in browser.messages[action_at + 1:]
+        if m.get("role") == "model"
+    )
+    assert re.search(r"\b(done|sent|typed|entered|executed|ran|submitted|finished|completed)\b", confirmation, re.I), (
+        "No spoken action confirmation: " + confirmation
     )
     assert meter.usage.in_tokens > 0, "No backend usage received"
     assert meter.usage.final, "Missing final voice usage"
