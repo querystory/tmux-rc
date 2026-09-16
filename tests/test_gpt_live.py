@@ -114,7 +114,7 @@ def test_usage_duration_snapshots_backend_cache_and_duplicate_completion():
 def test_custom_backend_requires_explicit_rates(monkeypatch):
     for name in ("INPUT", "CACHED", "OUTPUT"):
         monkeypatch.delenv(f"TMUXRC_GPT_LIVE_{name}_PER_M", raising=False)
-    with pytest.raises(ValueError, match="INPUT_PER_M"):
+    with pytest.raises(G.ProviderError, match="set_tmuxrc_gpt_live_input_per_m"):
         G.Usage("another-model")
 
 
@@ -406,3 +406,23 @@ def test_http_handshake_error_is_sanitized(monkeypatch, status, code):
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
     with pytest.raises(G.ProviderError, match="^GPT-Live: " + code + "$"):
         asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test")))
+
+
+@pytest.mark.parametrize("rate", ["bad", "nan", "inf", "-1"])
+def test_invalid_backend_rates_have_safe_diagnostics(monkeypatch, rate):
+    monkeypatch.setenv("TMUXRC_GPT_LIVE_INPUT_PER_M", rate)
+    with pytest.raises(G.ProviderError, match="^GPT-Live: set_tmuxrc_gpt_live_input_per_m$"):
+        G.Usage(G.BACKEND)
+
+
+def test_full_tool_queue_reports_overload_without_running_more_actions():
+    s = session([
+        response("response.output_item.done", item=call()),
+        response("response.completed", response={"id": "r1", "output": []}),
+    ])
+    for _ in range(s.work.maxsize):
+        s.work.put_nowait([call()])
+    with pytest.raises(G.ProviderError, match="^GPT-Live: terminal_queue_full$"):
+        asyncio.run(s.receive())
+    assert not s.ws.sent
+    assert s.work.qsize() == s.work.maxsize

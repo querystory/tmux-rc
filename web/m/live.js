@@ -119,10 +119,14 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     const mute = current.capture.createGain(); mute.gain.value = 0;
     const rate = current.capture.sampleRate;
     let pending = new Float32Array(0);
+    current.clearPending = () => { pending = new Float32Array(0); };
     tap.port.onmessage = ({ data }) => {
       if (run !== current || !current.listening || (current.muted && !current.frameMs) || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) { pending = new Float32Array(0); return; }
       const joined = new Float32Array(pending.length + data.length);
-      joined.set(pending); joined.set(data, pending.length); pending = joined;
+      joined.set(pending);
+      // A worklet message captured before the toggle can arrive after mute.
+      if (!current.muted) joined.set(data, pending.length);
+      pending = joined;
       if (pending.length < (current.frameMs ? rate * current.frameMs / 1000 : MIN_FRAME_SAMPLES)) return;
       let samples = pending; pending = new Float32Array(0);
       if (rate !== CAPTURE_RATE) {
@@ -208,6 +212,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   $("voice-mute").onclick = () => {
     if (!run?.stream) return;
     run.muted = !run.muted;
+    run.clearPending?.();
     run.stream.getAudioTracks().forEach((track) => { track.enabled = !run.muted; });
     paint();
   };

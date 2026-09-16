@@ -12,6 +12,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import os
 import re
 from contextlib import asynccontextmanager
@@ -134,9 +135,13 @@ class Usage:
         self.rates = []
         for name, default in zip(("INPUT", "CACHED", "OUTPUT"), defaults):
             value = os.environ.get(f"TMUXRC_GPT_LIVE_{name}_PER_M", default)
-            if value is None:
-                raise ValueError(f"Set TMUXRC_GPT_LIVE_{name}_PER_M for this backend")
-            self.rates.append(float(value))
+            try:
+                rate = float(value)
+                if not math.isfinite(rate) or rate < 0:
+                    raise ValueError("Invalid rate")
+            except (TypeError, ValueError):
+                raise ProviderError({"code": f"set_tmuxrc_gpt_live_{name.lower()}_per_m"}) from None
+            self.rates.append(rate)
 
     def update(self, event):
         if event["type"] in ("session.usage.updated", "session.closed"):
@@ -321,7 +326,12 @@ class Session:
                 ):
                     calls = self.calls.pop(delegation, [])
                     if nk == "response.completed" and calls:
-                        self.work.put_nowait(calls)
+                        try:
+                            self.work.put_nowait(calls)
+                        except asyncio.QueueFull:
+                            # Keep receiving voice while tools run; do not block
+                            # the audio receiver or leave a long delayed-action queue.
+                            raise ProviderError({"code": "terminal_queue_full"}) from None
                     elif nk != "response.completed":
                         await self.browser.send_json(
                             {
