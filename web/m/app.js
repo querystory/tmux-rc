@@ -560,11 +560,17 @@ for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui":
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
-// Same set the full UI's key bar offers. Ctrl-D and Ctrl-O were missing here: this list
-// was written fresh rather than ported, so the two keys you need when a pane has dropped
-// to a bare shell — EOF to close it, and Claude Code's newline — were unreachable from a
-// phone. The row is overflow-x:auto with flex:none buttons, so it scrolls rather than
-// shrinking them below a thumb-sized target (see #keys in style.css).
+// The full UI's key bar, plus one key it does not have. Ctrl-D and Ctrl-O were missing
+// here: this list was written fresh rather than ported, so the two keys you need when a
+// pane has dropped to a bare shell — EOF to close it, and Claude Code's newline — were
+// unreachable from a phone.
+//
+// S-Left is deliberately mobile-ONLY, so this is no longer a mirror of the desktop bar:
+// codex parks follow-up questions behind "shift + ← to answer", which a hardware keyboard
+// just types. Here it is the difference between a question being answerable and not.
+//
+// The row is overflow-x:auto with flex:none buttons, so it scrolls rather than shrinking
+// them below a thumb-sized target (see #keys in style.css).
 for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["\u21e7\u2190", "S-Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
   const button = document.createElement("button"); button.title = label; button.setAttribute("aria-label", label);
   if (name) html(button, licon(name, 18)); else text(button, label);

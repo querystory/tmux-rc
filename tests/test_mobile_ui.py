@@ -82,8 +82,14 @@ def test_key_row_can_answer_a_codex_queued_question():
     the key row there is NO way to reach that from a phone — the question is visible and
     unanswerable. tmux sends S-Left as CSI 1;2D, the sequence codex reads, so this needs
     no new machinery: it is a key NAME, sent literal=false like Esc and Ctrl-C."""
-    row = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
-    line = next(ln for ln in row.splitlines() if '"Esc", "Escape"' in ln)
-    assert '"S-Left"' in line, "shift+left missing from the mobile key row"
-    # A key NAME, never literal text — literal would type the characters "S-Left".
-    assert 'literal: false' in row
+    app = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    lines = app.splitlines()
+    start = next(i for i, ln in enumerate(lines) if '"Esc", "Escape"' in ln)
+    assert '"S-Left"' in lines[start], "shift+left missing from the mobile key row"
+    # The dispatch these buttons SHARE must send a key NAME: literal would type the
+    # characters "S-Left" into the pane. Assert it on the loop body that builds them,
+    # not anywhere in the file — a future special-case handler for this entry has to
+    # break this test rather than slip past a substring match elsewhere.
+    body = "\n".join(lines[start:start + 12])
+    assert "literal: false" in body, "key-row buttons must send key names, not literal text"
+    assert "enter: false" in body, "a key-row press must not append a Return"
