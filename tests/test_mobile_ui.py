@@ -93,3 +93,8 @@ def test_key_row_can_answer_a_codex_queued_question():
     body = "\n".join(lines[start:start + 12])
     assert "literal: false" in body, "key-row buttons must send key names, not literal text"
     assert "enter: false" in body, "a key-row press must not append a Return"
+    # The label is a glyph, so the SPOKEN name has to be carried separately: a screen
+    # reader handed "⇧←" announces two arrow characters or nothing at all, which
+    # is useless for the one key a non-visual user opened this row to press.
+    assert '"Shift+Left"' in lines[start], "S-Left needs a spoken label beside its glyph"
+    assert 'aria-label", aria' in body, "the spoken label must be what reaches aria-label"

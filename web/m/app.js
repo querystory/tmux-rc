@@ -560,19 +560,28 @@ for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui":
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
-// The full UI's key bar, plus one key it does not have. Ctrl-D and Ctrl-O were missing
-// here: this list was written fresh rather than ported, so the two keys you need when a
-// pane has dropped to a bare shell — EOF to close it, and Claude Code's newline — were
-// unreachable from a phone.
+// The keys worth a thumb on a phone. This row SHARES most of the full UI's key bar but
+// is not a copy of it, and diffing the two lists for parity will mislead you: Tab and
+// S-Left are here and not there, and Ctrl-B — a literal prefix byte, for nested tmux —
+// is there and not here. Each row earns its own entries.
 //
-// S-Left is deliberately mobile-ONLY, so this is no longer a mirror of the desktop bar:
-// codex parks follow-up questions behind "shift + ← to answer", which a hardware keyboard
-// just types. Here it is the difference between a question being answerable and not.
+// Ctrl-D and Ctrl-O were missing here at first: this list was written fresh rather than
+// ported, so the two keys you need when a pane has dropped to a bare shell — EOF to
+// close it, and Claude Code's newline — were unreachable from a phone.
+//
+// S-Left is the mobile-only one that matters most: codex parks follow-up questions behind
+// "shift + ← to answer", which a hardware keyboard simply types. Here it is the
+// difference between a question being answerable and not.
 //
 // The row is overflow-x:auto with flex:none buttons, so it scrolls rather than shrinking
 // them below a thumb-sized target (see #keys in style.css).
-for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["\u21e7\u2190", "S-Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
-  const button = document.createElement("button"); button.title = label; button.setAttribute("aria-label", label);
+//
+// Fourth slot is the SPOKEN name, defaulting to the visible label. Only a button labelled
+// with a glyph needs one: a screen reader handed "⇧←" announces two arrow characters,
+// or nothing at all — useless for the very key you opened the row to press. The icon
+// buttons (Up/Down) already carry words, so they need nothing extra.
+for (const [label, key, name, aria = label] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["\u21e7\u2190", "S-Left", null, "Shift+Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
+  const button = document.createElement("button"); button.title = aria; button.setAttribute("aria-label", aria);
   if (name) html(button, licon(name, 18)); else text(button, label);
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });
   $("keys").append(button);
