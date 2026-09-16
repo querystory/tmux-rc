@@ -13,6 +13,7 @@ import base64
 import json
 import logging
 import os
+import re
 from types import SimpleNamespace
 
 import websockets
@@ -54,6 +55,16 @@ Return concise factual results for the voice assistant, not instructions to spea
 or a claim that the user heard you. Never repeat completed actions. A request to
 stop speaking alone does not authorize a keypress or cancel terminal work.
 """
+
+
+class ProviderError(RuntimeError):
+    """A diagnostic safe to display without provider messages or terminal context."""
+
+    def __init__(self, event):
+        code = event.get("error", event).get("code")
+        if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,64}", code):
+            code = "unknown_error"
+        super().__init__("GPT-Live: " + code)
 
 
 def tool_definitions():
@@ -239,11 +250,11 @@ class Session:
                 return
             if kind == "error":
                 # Error messages may quote context; expose codes, not arbitrary content.
-                error = event.get("error", event)
-                raise RuntimeError(
-                    "GPT-Live rejected a command: " + str(error.get("code", "unknown"))
-                )
+                raise ProviderError(event)
             if kind == "session.output_audio.delta":
+                # Live streams continuous audio; it has no Realtime speech-start /
+                # output-done events. Do not infer interruptions from transcripts:
+                # brief user backchannels can intentionally overlap model speech.
                 await self.browser.send_json(
                     {"type": "audio", "data": event["delta"], "sample_rate": 16000}
                 )
@@ -317,6 +328,8 @@ class Session:
             if not self.closing:
                 # All outputs must precede continuation, even if a backend emits
                 # several calls despite parallel_tool_calls=false.
+                # In Live this continues the backend, independent of frontend
+                # speech. Waiting for a voice-response.done event would deadlock.
                 await self.send({"type": "response.create"})
 
     async def close(self):
@@ -397,6 +410,8 @@ async def run_session(browser, watcher, actor, meter):
         )
         async with asyncio.timeout(20):
             event = json.loads(await ws.recv())
+            if event.get("type") == "error":
+                raise ProviderError(event)
             if event.get("type") != "session.started":
                 raise RuntimeError("GPT-Live session startup failed")
         tasks = []

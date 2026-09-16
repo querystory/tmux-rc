@@ -317,3 +317,73 @@ def test_picker_key_gating_and_route_selection(monkeypatch):
     ):
         ws.receive_json()
     assert called == ["gpt"]
+
+
+@pytest.mark.parametrize("code,expected", [("invalid_api_key", "invalid_api_key"), ("secret context!", "unknown_error"), (None, "unknown_error")])
+def test_provider_errors_expose_only_sanitized_code(code, expected):
+    s = session([{"type": "error", "error": {"code": code, "message": "private terminal context"}}])
+    with pytest.raises(G.ProviderError, match="^GPT-Live: " + expected + "$"):
+        asyncio.run(s.receive())
+    assert not s.ws.sent
+
+
+def test_startup_error_preserves_code(monkeypatch):
+    class Connection(Wire):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def recv(self):
+            return json.dumps({"type": "error", "error": {"code": "model_not_found", "message": "private context"}})
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
+    with pytest.raises(G.ProviderError, match="^GPT-Live: model_not_found$"):
+        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test")))
+
+
+@pytest.mark.parametrize("default,selection,key", [
+    (G.MODEL, "Gemini Live", True),
+    (G.MODEL, "Default", False),
+    ("gemini-live-2.5-flash-native-audio", G.LABEL, False),
+])
+def test_unavailable_model_never_connects(monkeypatch, default, selection, key):
+    from urllib.parse import urlencode
+    from fastapi.testclient import TestClient
+    from openbus import server
+
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setattr(L, "LIVE_MODEL", default)
+    if key:
+        monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    else:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
+    monkeypatch.setattr(L._Meter, "finish", lambda s: None)
+
+    async def unexpected(*args):
+        pytest.fail("Unavailable model must not connect")
+
+    monkeypatch.setattr(G, "run_session", unexpected)
+    monkeypatch.setattr(L, "_run_session", unexpected)
+    with TestClient(server.app).websocket_connect("/api/live-mode?" + urlencode({"model": selection})) as ws:
+        assert "unavailable" in ws.receive_json()["message"].lower()
+
+
+def test_provider_diagnostic_reaches_browser(monkeypatch):
+    from fastapi.testclient import TestClient
+    from openbus import server
+
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
+    monkeypatch.setattr(L._Meter, "finish", lambda s: None)
+
+    async def fail(*args):
+        raise G.ProviderError({"error": {"code": "invalid_api_key", "message": "private context"}})
+
+    monkeypatch.setattr(G, "run_session", fail)
+    with TestClient(server.app).websocket_connect("/api/live-mode?model=GPT-Live%201") as ws:
+        assert ws.receive_json() == {"type": "error", "message": "GPT-Live: invalid_api_key"}
