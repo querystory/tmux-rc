@@ -47,11 +47,17 @@ packages = ["openbus"]
 # reason — if a rule is merely inconvenient rather than wrong for us, it stays on.
 [tool.ruff]
 line-length = 100
+# extend-exclude, not exclude: `exclude` REPLACES ruff's built-in list, which would drop
+# .git, .venv, node_modules, .ruff_cache and friends and let a local cache or a generated
+# checkout fail the build with violations that aren't ours. This only adds to it.
+#
 # .claude holds nested git worktrees (one checkout per in-flight branch). Linting those
-# would report other branches' violations as this one's. It is excluded here rather than
+# would report other branches' violations as this one's. It is named here rather than
 # relied on via .git/info/exclude, which is per-machine and never committed — so a fresh
 # clone or CI would otherwise walk straight into them.
-exclude = [".claude", ".git", ".venv", "__pycache__", "build", "dist"]
+# "build" is NOT in ruff's defaults (dist and node_modules are) — hatchling's wheel
+# staging dir lands there, so it is kept explicitly.
+extend-exclude = [".claude", "build"]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -91,10 +97,11 @@ ignore = [
   "UP042",     # str+Enum -> StrEnum needs a migration; revisit later
 
   # ── tmux-rc only ───────────────────────────────────────────────────────────
-  # Complexity limits. Six functions exceed these today (watcher._tick at 21, ._tick_pane
-  # at 15, render.render_png, tmux._mark_dim, live._receiver, live._run_session). Turning
-  # them on now would mean either a big refactor buried inside a lint PR or a scatter of
-  # per-function noqa. Left off until the refactor is done on its own; see issue #205.
+  # Complexity limits. Seven functions exceed these today: watcher._tick (21) and
+  # ._tick_pane (15), docs-site/check-links.main (18), render.render_png, tmux._mark_dim,
+  # live._receiver and live._run_session. Turning them on now would mean either a big
+  # refactor buried inside a lint PR or a scatter of per-function noqa. Left off until
+  # that refactor happens on its own; see issue #205 for the inventory.
   "C901",      # Cyclomatic complexity
   "PLR0911",   # Too many return statements
   "PLR0912",   # Too many branches

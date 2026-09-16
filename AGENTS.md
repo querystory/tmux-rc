@@ -96,9 +96,10 @@ Two conventions worth knowing before you hit them:
   tables and short guard ladders in this repo are deliberate, and reflowing them would
   bury real diffs under whitespace churn.
 
-Complexity rules (C901, PLR0911/0912/0915) are currently off: six functions exceed them
-today, and the refactor belongs in its own PR rather than inside a lint change. Tracked in
-issue #205; turn them back on when that lands.
+Complexity rules (C901, PLR0911/0912/0915) are currently off: seven functions exceed them
+today — the two watcher ticks, `render_png`, `tmux._mark_dim`, two in `live.py`, and the
+docs-site link checker — and that refactor belongs in its own PR rather than inside a lint
+change. Issue #205 has the full inventory; turn the rules back on when it lands.
 
 ## Classifier / prompt changes
 
