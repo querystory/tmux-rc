@@ -2,7 +2,7 @@ r"""renderCaptureLines splits a rendered capture into ONE HTML string per screen
 the terminal paint can diff a streamed frame line-by-line instead of swapping the whole
 subtree (web/app.js paintTerm, and THE RENDER INVARIANT at the top of that file).
 
-The split is not String.split("\\n"): renderCapture emits spans and anchors that STRADDLE
+The split is not String.split("\n"): renderCapture emits spans and anchors that STRADDLE
 newlines (a color run over three rows is one <span>; a URL a TUI hard-wrapped is one <a>
 whose shown text keeps the breaks), so cutting on a newline naively would hand each line
 unbalanced markup. The walker closes the open-tag stack at each newline and reopens it on
