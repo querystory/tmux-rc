@@ -49,3 +49,42 @@ def test_the_wait_follows_the_last_chunk_of_a_long_paste(monkeypatch):
     tmux.send_keys("%1", "x" * (tmux._SEND_CHUNK_BYTES + 10))
     assert [kind for kind, _ in events] == ["send", "send", "sleep", "send"]
     assert events[-1] == ("send", "Enter")
+
+
+def test_the_settle_is_inside_the_send_lock(monkeypatch):
+    """The gap between text and Return is the one moment another caller must NOT get in:
+    its text would land in the draft we are about to submit, and we would send theirs.
+
+    The ordering tests above are single-threaded and the concurrency test runs with the
+    suite-wide settle of 0, so BOTH still pass if this sleep moves outside the lock. This
+    one fails: it holds a real settle open on one thread and proves a second caller cannot
+    interleave during it.
+    """
+    import threading
+
+    monkeypatch.setattr(tmux, "_ENTER_SETTLE_S", 0.2)
+    order, in_settle = [], threading.Event()
+
+    def fake_run(args):
+        order.append(args[-1])
+        return ""
+
+    real_sleep = tmux.time.sleep
+
+    def fake_sleep(seconds):
+        in_settle.set()  # we are in the gap; let the other caller try to barge in
+        real_sleep(seconds)
+
+    monkeypatch.setattr(tmux, "_run", fake_run)
+    monkeypatch.setattr(tmux.time, "sleep", fake_sleep)
+
+    first = threading.Thread(target=tmux.send_keys, args=("%1", "mine"))
+    first.start()
+    assert in_settle.wait(2), "never reached the settle"
+    second = threading.Thread(target=tmux.send_keys, args=("%1", "theirs"))
+    second.start()
+    first.join(5)
+    second.join(5)
+
+    # The interleaving the lock exists to prevent: "theirs" between "mine" and its Return.
+    assert order == ["mine", "Enter", "theirs", "Enter"], order
