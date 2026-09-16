@@ -21,7 +21,7 @@ dependencies = [
 tmux-rc = "openbus.server:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.15.0,<1"]
 
 [build-system]
 requires = ["hatchling"]
