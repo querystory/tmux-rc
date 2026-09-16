@@ -7,6 +7,7 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -15,6 +16,8 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
@@ -546,7 +549,20 @@ def _pane_lock(pane_id: str) -> threading.Lock:
     return _send_locks[hash(pane_id) % _SEND_LOCK_STRIPES]
 
 
-def _settle_before_return(pane_id: str) -> None:
+def pane_pid(pane_id: str) -> str | None:
+    """The PID of the process in `pane_id`, or None if the pane is gone.
+
+    One cheap display-message, used to tell a pane apart from a DIFFERENT pane that has
+    since inherited its id — the same job Pane.pid does in the watcher, for the same
+    reason stated there: tmux recycles "%N" when panes close, so the id alone is not a
+    durable identity."""
+    try:
+        return _run(["display-message", "-p", "-t", pane_id, "#{pane_pid}"]).strip() or None
+    except subprocess.CalledProcessError:
+        return None  # no such pane any more
+
+
+def _settle_before_return(pane_id: str) -> bool:
     """Hold a Return back until the paste before it has aged out of the TUI's window.
 
     The rule the TUI actually applies is about ELAPSED TIME since the burst, so this
@@ -554,10 +570,26 @@ def _settle_before_return(pane_id: str) -> None:
     immediately waits the full _ENTER_SETTLE_S, and one that arrives late enough on its
     own waits not at all. That is what lets a bare `press_key("Enter")` be safe without
     taxing every key-bar Enter tap with a delay it does not need.
+
+    Returns False when the pane changed identity across the wait — the caller must then
+    NOT send the Return.
     """
     remaining = _ENTER_SETTLE_S - (time.monotonic() - _last_paste.get(pane_id, float("-inf")))
-    if remaining > 0:
-        time.sleep(remaining)
+    if remaining <= 0:
+        return True
+    # Waiting is the ONLY point where a send spans real time, so it is the only one where
+    # the pane can close and tmux hand "%N" to a new one underneath us. Submitting into
+    # that pane would press Return on a stranger's half-typed command. Pin the identity
+    # across the gap the way the watcher does — by pid — and abort rather than guess.
+    before = pane_pid(pane_id)
+    time.sleep(remaining)
+    # Not KNOWING the pid is not evidence that the pane changed: if tmux cannot answer,
+    # refusing every submit would break the feature outright to avoid a rare recycle.
+    # Only a pid that actually changed (or a pane that vanished) aborts.
+    if before is None or pane_pid(pane_id) == before:
+        return True
+    logger.warning("pane %s changed identity during the settle; not sending Return", pane_id)
+    return False
 
 
 def send_keys(
@@ -605,15 +637,16 @@ def send_keys(
             # false) and press_key("Enter") in ONE response, which we execute back to
             # back with no round trip between them. So it has to clear the paste window
             # too. Every other key name is a lone keystroke and waits for nothing.
-            if keys == "Enter":
-                _settle_before_return(pane_id)
+            if keys == "Enter" and not _settle_before_return(pane_id):
+                return
             _run(["send-keys", "-t", pane_id, keys])
         if enter and literal:
             # Let the paste burst end before the Return, or it is read as a newline
             # rather than a submit (see _ENTER_SETTLE_S). Inside the lock deliberately:
             # an interleaved send during the gap would put another caller's text in the
             # box we are about to submit.
-            _settle_before_return(pane_id)
+            if not _settle_before_return(pane_id):
+                return
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 

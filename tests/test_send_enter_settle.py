@@ -13,6 +13,15 @@ import pytest
 import openbus.tmux as tmux
 
 
+@pytest.fixture(autouse=True)
+def _stable_pane_identity(monkeypatch):
+    """A Return is withheld if the pane's pid changes across the settle (a recycled "%N").
+    Every test here but the recycle ones is about ORDERING, and a real pane_pid would both
+    shell out to tmux and add its own calls to their recorded sequences — so hold identity
+    steady by default. The recycle tests override this."""
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "1234")
+
+
 def _record(monkeypatch, settle):
     """Capture the ORDER of sends and sleeps — the ordering is the whole behaviour."""
     events = []
@@ -307,3 +316,42 @@ def test_the_paste_clock_forgets_only_what_can_no_longer_matter(monkeypatch):
     for n in range(4, 8):
         tmux.send_keys(f"%{n}", "filler", enter=False)
     assert "%recent" in tmux._last_paste
+
+
+def test_a_recycled_pane_id_does_not_get_the_return(monkeypatch):
+    """The settle is the only send that spans real time, so it is the only window in which
+    the pane can close and tmux hand "%N" to a new one. Pressing Return there would submit
+    a STRANGER'S half-typed command. The watcher already treats a pane id as non-durable
+    for this reason (Pane.pid); so does this."""
+    events = _record(monkeypatch, 0.3)
+    pids = iter(["1234", "9999"])  # different process behind the same id after the wait
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
+
+    tmux.send_keys("%1", "rm -rf something")
+
+    assert ("send", "Enter") not in events, events
+    kinds = [(kind, round(v, 1) if kind == "sleep" else v) for kind, v in events]
+    assert kinds == [("send", "rm -rf something"), ("sleep", 0.3)]
+
+
+def test_a_pane_that_vanished_mid_settle_does_not_get_the_return(monkeypatch):
+    """Same guard, the simpler case: the pane is simply gone."""
+    events = _record(monkeypatch, 0.3)
+    pids = iter(["1234", None])
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
+
+    tmux.send_keys("%1", "anything")
+
+    assert ("send", "Enter") not in events, events
+
+
+def test_an_unreadable_pid_does_not_block_the_return(monkeypatch):
+    """If tmux cannot tell us the pid at all, refusing every submit would be worse than
+    the rare recycle we are guarding: the feature would stop working. Not knowing is not
+    evidence that the pane changed."""
+    events = _record(monkeypatch, 0.3)
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: None)
+
+    tmux.send_keys("%1", "anything")
+
+    assert ("send", "Enter") in events, events
