@@ -143,3 +143,20 @@ def test_a_label_target_also_follows_the_deck(monkeypatch):
     assert find_pane("Resolve PR 38.0").session == "gtm-0"
     # …while the spelled-out address still names its own session.
     assert find_pane("gtm-1:0").session == "gtm-1"
+
+
+def test_the_live_model_check_samples_a_shared_pane_once(monkeypatch):
+    """`verify_model --live` prints panes to a human and pays per classification, so a
+    shared pane must be sampled once. Guarded here because the cost of the regression —
+    duplicate output, duplicate Vertex calls — is invisible until the bill arrives."""
+    import scripts.verify_model as V
+
+    _tmux(monkeypatch, [_row("gtm-1", "%0"), _row("gtm-0", "%0", attached="1")])
+    monkeypatch.setattr(V.tmux, "capture_pane", lambda pane_id, mark_dim=False: "")
+    seen = []
+    monkeypatch.setattr(V, "classify", lambda pane, cap, llm: seen.append(pane) or {})
+    monkeypatch.setattr(V, "CASES", [])
+    monkeypatch.setattr("sys.argv", ["verify_model", "--live"])
+
+    V.main()
+    assert [p.session for p in seen] == ["gtm-0"]
