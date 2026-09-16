@@ -159,12 +159,14 @@ def _launchers() -> list[dict]:
             for e in entries
             if isinstance(e, dict) and e.get("label") and e.get("command")
         ]
-        if good:
-            return good
-        raise ValueError("no valid entries")  # noqa: TRY301 - caught two lines down by design
     except Exception:  # a broken config must not brick the menu
         logger.warning("TMUXRC_LAUNCHERS invalid; using defaults", exc_info=True)
         return _DEFAULT_LAUNCHERS
+    # Parsed, but nothing in it was usable — same outcome as a parse failure, reached by
+    # returning rather than by raising into our own handler.
+    if not good:
+        logger.warning("TMUXRC_LAUNCHERS has no valid entries; using defaults")
+    return good or _DEFAULT_LAUNCHERS
 
 
 class ClientErrorBody(BaseModel):

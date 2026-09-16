@@ -266,7 +266,10 @@ class Watcher:
         The /api/state long-poll returns as soon as this passes the client's version."""
         return self._state_version
 
-    # A state-change wait IS a timeout API; a CancelScope would hide it from callers.
+    # ASYNC109 is suppressed below. The rule wants the caller to wrap this in a cancel
+    # scope instead, but that changes the contract: this returns the current version on
+    # timeout rather than raising, because the HTTP long-poll behind it has to answer
+    # with a version either way.
     async def wait_for_state_change(self, since: int, timeout: float) -> int:  # noqa: ASYNC109
         """Hold until state_version() advances past `since`, or `timeout` elapses; return
         the current version either way. The version is the truth (the Event is only a

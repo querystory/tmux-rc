@@ -120,7 +120,7 @@ class _LiveUsage:
 
 def _audio_tokens(details) -> int:
     """Sum the AUDIO-modality token counts out of a *_tokens_details list; 0 if absent."""
-    from google.genai import types  # noqa: PLC0415
+    types = llm.genai_types()
 
     total = 0
     for d in details or []:
@@ -193,7 +193,7 @@ def _live_client():
     that one pins the classifier's per-request timeout (an anti-wedge guard for one-shot
     parse calls) which would sever a long-lived bidi stream, and defaults to the
     'global' region which Live models don't serve."""
-    from google import genai  # noqa: PLC0415
+    from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
@@ -344,7 +344,7 @@ def _tools():
     control key). Two narrow verbs beat one overloaded one — the model can't accidentally
     fold text and a chord into a single ambiguous call, and press_key's whitelist keeps it
     from inventing arbitrary key sequences."""
-    from google.genai import types  # noqa: PLC0415
+    types = llm.genai_types()
 
     return [
         types.Tool(
@@ -415,7 +415,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     """Route a tool call (type_in_pane / press_key) to the pane and answer Gemini tersely.
     The result NEVER rides back through the FunctionResponse (echo loops — see design doc);
     the model sees the outcome via the post-action ambient refresh instead."""
-    from google.genai import types  # noqa: PLC0415
+    types = llm.genai_types()
 
     async def respond(payload: dict) -> None:
         await session.send_tool_response(
@@ -524,7 +524,7 @@ async def _send_ambient(session, text: str) -> None:
     to the conversation but no model turn fires — the model simply has current state the
     next time the user speaks. This is the whole 'state is just always up to date'
     mechanism; the prompt additionally fences [tmux update] messages off from replies."""
-    from google.genai import types  # noqa: PLC0415
+    types = llm.genai_types()
 
     try:
         await session.send_client_content(
@@ -558,7 +558,7 @@ async def _context_updater(session, watcher) -> None:
 
 async def _forward_audio(websocket: WebSocket, session) -> None:
     """Client → Gemini: base64 16kHz PCM frames until the client says stop."""
-    from google.genai import types  # noqa: PLC0415
+    types = llm.genai_types()
 
     while True:
         data = await websocket.receive_json()
@@ -641,7 +641,7 @@ async def _hold(websocket: WebSocket, seconds: float) -> bool:
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
     """Connect to Gemini Live and run the session; reconnect with backoff on drops."""
-    from google.genai import types  # noqa: PLC0415
+    types = llm.genai_types()
 
     client = _live_client()
 

@@ -22,7 +22,10 @@ _TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
-_PANE_FMT = "\t".join(  # noqa: FLY002 - a field list reads better than one long f-string
+# FLY002 is suppressed below: the suggested single f-string would fuse 12 fields into
+# one unsearchable line. Their ORDER is the wire format _parse_pane unpacks, so they
+# stay one per line.
+_PANE_FMT = "\t".join(  # noqa: FLY002
     [
         "#{session_name}",
         "#{window_index}",

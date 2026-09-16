@@ -18,6 +18,21 @@ from .telemetry import emit_parse
 
 logger = logging.getLogger(__name__)
 
+
+@cache
+def genai_types():
+    """The google.genai `types` module, imported on first use and cached.
+
+    Importing google.genai costs ~0.9s, which would otherwise land on daemon startup for
+    a dependency most requests never touch. One accessor rather than a deferred import in
+    every function that needs a Schema or a Blob: the cost is paid once, on the first call
+    that actually reaches Vertex, and the deferral is stated in one place instead of being
+    re-argued at eleven call sites."""
+    from google.genai import types  # noqa: PLC0415 - the whole point of this function
+
+    return types
+
+
 # Gemini 3.1 Flash Lite — cheap/fast, strong at reading terminal text & screenshots.
 # Override with TMUXRC_GEMINI_MODEL if a newer flash-lite ships.
 _MODEL = os.environ.get("TMUXRC_GEMINI_MODEL", "gemini-3.1-flash-lite")
@@ -93,8 +108,9 @@ if not _trace.handlers:
 @cache
 def _client():
     """Lazily construct the Vertex client once. Cached so we don't rebuild per call."""
-    from google import genai  # noqa: PLC0415
-    from google.genai import types  # noqa: PLC0415
+    from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
+
+    types = genai_types()
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
@@ -172,8 +188,10 @@ def _handle_llm_error(e: Exception) -> str:
         logger.warning("LLM parse failed: %s", short)
     else:
         short = msg[:200]
-        # This IS an exception path; LOG014 misreads the surrounding helper wrapper.
-        logger.warning("LLM parse failed (unexpected)", exc_info=True)  # noqa: LOG014
+        # exc_info=e, not True: this helper is CALLED from the handler rather than being
+        # one, so there is no "current" exception for True to pick up. Passing `e`
+        # explicitly is both what LOG014 asks for and what actually logs the right trace.
+        logger.warning("LLM parse failed (unexpected)", exc_info=e)
     return short
 
 
@@ -218,7 +236,7 @@ def classify_text(
         return None
     t0 = time.time()
     try:
-        from google.genai import types  # noqa: PLC0415
+        types = genai_types()
 
         parts: list = [text]
         if image_png is not None:
@@ -266,7 +284,7 @@ def summarize_events(event_texts: list[str]) -> str | None:
     if not event_texts or _backoff_remaining() > 0:
         return None  # skip while rate-limited — same gate as classify_text
     try:
-        from google.genai import types  # noqa: PLC0415
+        types = genai_types()
 
         joined = "\n".join(f"- {t}" for t in event_texts[-60:])
         resp = _client().models.generate_content(

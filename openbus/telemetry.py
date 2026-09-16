@@ -64,6 +64,9 @@ def _provider():
     off it (see _logger)."""
     if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         return None
+    # PLC0415 on the imports below: they are INSIDE this try on purpose. The except is
+    # what makes a missing or broken OTel SDK degrade to disabled telemetry instead of a
+    # dead daemon, and the env check above skips the import entirely when it is off.
     try:
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (  # noqa: PLC0415
             OTLPLogExporter,
@@ -107,6 +110,7 @@ def _emit_record(body: str, attrs: dict, scope: str = _SCOPE) -> None:
     lg = _logger(scope)
     if lg is None:
         return
+    # PLC0415: same as _provider — deferred so a broken SDK cannot break the daemon.
     try:
         from opentelemetry._logs import LogRecord, SeverityNumber  # noqa: PLC0415
 
@@ -161,7 +165,9 @@ def emit_pane_event(*, event: str, pane_uid: str, label: str, tool: str | None) 
     _emit_record("tmux-rc pane", attrs)
 
 
-# Mirrors one OTel record: grouping the fields into an object would only move the arity.
+# PLR0913 is suppressed below: one argument per field of a single OTel record. The rule
+# guards against confusing positional call sites, but every argument here is keyword-only,
+# and a dataclass would just relocate the same 16 names behind one more indirection.
 def emit_parse(  # noqa: PLR0913
     *,
     model: str,
@@ -299,7 +305,7 @@ def emit_live(
     _emit_record("tmux-rc live", attrs, _LIVE_SCOPE)
 
 
-# Same as emit_parse: one argument per telemetry field.
+# PLR0913 suppressed, as emit_parse above — keyword-only fields of one telemetry record.
 def emit_live_turn(  # noqa: PLR0913
     *,
     session: str,
