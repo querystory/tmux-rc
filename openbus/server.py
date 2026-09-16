@@ -40,6 +40,7 @@ _REPO_ROOT = _PKG_DIR.parent
 # usual upward search from cwd. Either way, real env vars still win (override=False).
 _repo_env = _REPO_ROOT / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
+load_dotenv(Path.home() / ".config/tmux-rc/openai.env")
 
 # Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
 # client that walks AAAA records serially — the Vertex Live websocket handshake times out
@@ -341,7 +342,14 @@ def get_version():
         if p.is_file():
             h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    return {"version": h.hexdigest(), "live_enabled": live.enabled()}
+    from . import gpt_live
+
+    models = []
+    if live.LIVE_MODEL != gpt_live.MODEL:
+        models.append({"label": "Gemini Live", "value": "", "hint": "Vertex"})
+    if os.environ.get("OPENAI_API_KEY"):
+        models.append({"label": gpt_live.LABEL, "hint": "OpenAI · $0.05/min + backend"})
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models), "live_models": models}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
