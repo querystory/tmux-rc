@@ -1,4 +1,4 @@
-.PHONY: dev run test fmt docs docs-dev docs-check docs-clean install-units
+.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -33,9 +33,15 @@ install-units:
 test:
 	uv run pytest -q tests/
 
+# Lint the whole tree against the ruleset in pyproject.toml. Read-only — this is the
+# gate; `make fmt` is the same rules with the safe fixes applied. Deliberately NOT
+# `ruff format`: the repo's hand-aligned tables and guard ladders are intentional, and
+# reflowing them would bury real diffs under whitespace churn.
+lint:
+	uv run --with 'ruff>=0.15' ruff check .
+
 fmt:
-	uv run --with ruff ruff check --fix openbus tests
-	uv run --with ruff ruff format openbus tests
+	uv run --with 'ruff>=0.15' ruff check --fix .
 
 # Build the docs site the daemon serves, into docs-site/serve/ (NOT public/).
 # Needs the EXTENDED Hugo build AND `go` on PATH (Hugo Modules fetches the Hextra

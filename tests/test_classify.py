@@ -269,7 +269,10 @@ def test_copyable_duplicating_a_link_is_dropped():
                 "copyables": [
                     {"label": "PR URL", "text": "https://github.com/o/r/pull/5"},
                     {"label": "PR URL padded", "text": "  https://github.com/o/r/pull/5  "},
-                    {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"},
+                    {
+                        "label": "curl using it",
+                        "text": "curl https://github.com/o/r/pull/5 -H accept:json",
+                    },
                 ],
             }
         ),

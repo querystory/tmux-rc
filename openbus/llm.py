@@ -14,6 +14,8 @@ import os
 import time
 from functools import cache
 
+from .telemetry import emit_parse
+
 logger = logging.getLogger(__name__)
 
 # Gemini 3.1 Flash Lite — cheap/fast, strong at reading terminal text & screenshots.
@@ -91,9 +93,8 @@ if not _trace.handlers:
 @cache
 def _client():
     """Lazily construct the Vertex client once. Cached so we don't rebuild per call."""
-    from google import genai
-
-    from google.genai import types
+    from google import genai  # noqa: PLC0415
+    from google.genai import types  # noqa: PLC0415
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
@@ -171,7 +172,8 @@ def _handle_llm_error(e: Exception) -> str:
         logger.warning("LLM parse failed: %s", short)
     else:
         short = msg[:200]
-        logger.warning("LLM parse failed (unexpected)", exc_info=True)
+        # This IS an exception path; LOG014 misreads the surrounding helper wrapper.
+        logger.warning("LLM parse failed (unexpected)", exc_info=True)  # noqa: LOG014
     return short
 
 
@@ -216,7 +218,7 @@ def classify_text(
         return None
     t0 = time.time()
     try:
-        from google.genai import types
+        from google.genai import types  # noqa: PLC0415
 
         parts: list = [text]
         if image_png is not None:
@@ -264,14 +266,16 @@ def summarize_events(event_texts: list[str]) -> str | None:
     if not event_texts or _backoff_remaining() > 0:
         return None  # skip while rate-limited — same gate as classify_text
     try:
-        from google.genai import types
+        from google.genai import types  # noqa: PLC0415
 
         joined = "\n".join(f"- {t}" for t in event_texts[-60:])
         resp = _client().models.generate_content(
             model=_MODEL,
             contents=[
-                f"Summarize this burst of terminal activity in ONE short sentence "
-                f"(what was accomplished, past tense):\n{joined}"
+                (
+                    "Summarize this burst of terminal activity in ONE short sentence "
+                    f"(what was accomplished, past tense):\n{joined}"
+                )
             ],
             config=types.GenerateContentConfig(temperature=0.0),
         )
@@ -335,8 +339,6 @@ def _emit(
     by the non-streaming google-genai call, so it's left None here (a streaming provider
     path can fill it)."""
     try:
-        from .telemetry import emit_parse
-
         in_tok, cached, out_tok, cost = (
             _tokens_cost(resp) if resp is not None else (0, 0, 0, 0.0)
         )
@@ -358,7 +360,7 @@ def _emit(
             error=error,
             kind=kind,
         )
-    except Exception:  # noqa: BLE001 - telemetry must never break a parse
+    except Exception:  # telemetry must never break a parse
         logger.debug("telemetry emit failed", exc_info=True)  # visible, but never fatal
 
 

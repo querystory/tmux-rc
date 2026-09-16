@@ -70,6 +70,34 @@ pass it through untouched.
 `make test` runs `pytest -q tests/`. There is no JS test harness — browser-side logic is
 verified by hand against real DOM shapes and by live testing on the phone.
 
+## Python lint
+
+`make lint` runs ruff over the whole tree; `make fmt` is the same rules with the safe
+fixes applied. Both must be clean before a PR goes up. The ruleset lives in
+`pyproject.toml` and is inherited from the sibling `qs-app` repo so one Python style
+covers both checkouts.
+
+It is `select = ["ALL"]` plus a curated ignore list, rather than a short opt-in list, so
+that a rule ruff adds later shows up and gets an explicit decision instead of silently
+never running. Every entry in that list carries its reason on the same line; if you turn
+one off, say why there.
+
+Two conventions worth knowing before you hit them:
+
+- **No mid-file imports in `openbus/`** (PLC0415). An import inside a function is a real
+  decision — deferring a slow or optional dependency — and needs a `# noqa: PLC0415` with
+  the reason. The ones that are there now defer `google.genai` (~0.9s to import, which
+  would land on daemon startup) and the optional opentelemetry stack. An import that is
+  just far from the top of the file is a bug: hoist it. Test and script files are exempt,
+  so a single case can keep its import next to the code that needs it.
+- **`ruff format` is not used**, and `make fmt` does not run it. The hand-aligned constant
+  tables and short guard ladders in this repo are deliberate, and reflowing them would
+  bury real diffs under whitespace churn.
+
+Complexity rules (C901, PLR0911/0912/0915) are currently off: six functions exceed them
+today, and the refactor belongs in its own PR rather than inside a lint change. Turn them
+back on when that lands.
+
 ## Classifier / prompt changes
 
 Any change to `openbus/parser_prompt.txt` or the classifier logic (`openbus/classify.py`)

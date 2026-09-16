@@ -1,4 +1,4 @@
-"""renderCaptureLines splits a rendered capture into ONE HTML string per screen line, so
+r"""renderCaptureLines splits a rendered capture into ONE HTML string per screen line, so
 the terminal paint can diff a streamed frame line-by-line instead of swapping the whole
 subtree (web/app.js paintTerm, and THE RENDER INVARIANT at the top of that file).
 

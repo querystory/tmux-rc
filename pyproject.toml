@@ -39,3 +39,97 @@ packages = ["openbus"]
 # tmux-rc`). Bundle it inside the package as openbus/web/; server.py prefers the repo-root
 # copy when present and falls back to this one — same checkout-vs-installed dance as .env.
 "web" = "openbus/web"
+
+# ── Lint ──────────────────────────────────────────────────────────────────────
+# The ruleset is inherited from the sibling qs-app repo so one Python style covers both.
+# `select = ["ALL"]` then curate down: when ruff ships a new rule we see it and decide,
+# rather than never learning it exists. Everything below is an explicit opt-out with a
+# reason — if a rule is merely inconvenient rather than wrong for us, it stays on.
+[tool.ruff]
+line-length = 100
+exclude = [".git", ".venv", "__pycache__", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+
+# Disabled rules. Keep alphabetized. Format: "Rule"  # Rationale
+ignore = [
+  # ── Shared with qs-app ─────────────────────────────────────────────────────
+  "A003",      # Attribute shadows a Python builtin (e.g. .type, .id)
+  "ANN003",    # Unnecessary typing for kwargs
+  "ANN204",    # We don't require return types for special methods like __init__
+  "ASYNC240",  # Blocking path methods in async functions — too noisy, most are fine
+  "B008",      # This rule gets confused by FastAPI Depends
+  "B011",      # We assert False to show CLI failures
+  "B904",      # Raise without a `from` is fine in most cases
+  "COM812",    # Trailing-comma rule can conflict with the formatter
+  "D105",      # Allow missing docstrings in __init__
+  "D203",      # Conflicts with D211. Prefer one less line
+  "D205",      # We are unopinionated about blank lines after docstrings
+  "D213",      # Conflicts with D212. Prefer one less line
+  "D400",      # We don't enforce trailing periods in docstring summaries
+  "D401",      # Requiring imperative mood for docstrings is too nitpicky
+  "D403",      # Would capitalize lowercase proper nouns ("tmux" -> "Tmux")
+  "D415",      # Periods in docstring summaries is too picky
+  "EM101",     # A raw string is fine in exception logs
+  "EM102",     # We are ok with f-strings in exception logs
+  "FBT001",    # Allow boolean positional args
+  "FBT002",    # Similar to FBT001
+  "FIX002",    # We use TODOs for future work
+  "INP001",    # Not every directory needs an __init__.py
+  "PLR2004",   # Magic-number detection is nice in theory, too noisy in practice
+  "PT",        # Too noisy with how we use asserts
+  "PTH",       # The pathlib rules are too opinionated; os.remove/open are fine
+  "PYI034",    # Non-self return type in __enter__ etc. — not relevant outside stubs
+  "RET504",    # Too opinionated about returns
+  "S",         # Too noisy, especially its "secret" scanning
+  "TC003",     # Avoid the complexity of TYPE_CHECKING guards
+  "TRY002",    # It is fine to use the generic Error class
+  "TRY003",    # Banning custom messages on errors is too restrictive
+  "UP042",     # str+Enum -> StrEnum needs a migration; revisit later
+
+  # ── tmux-rc only ───────────────────────────────────────────────────────────
+  # Complexity limits. Six functions exceed these today (watcher._tick at 21, ._tick_pane
+  # at 15, render.render_png, tmux._mark_dim, live._receiver, live._run_session). Turning
+  # them on now would mean either a big refactor buried inside a lint PR or a scatter of
+  # per-function noqa. Left off until the refactor is done on its own; see issue.
+  "C901",      # Cyclomatic complexity
+  "PLR0911",   # Too many return statements
+  "PLR0912",   # Too many branches
+  "PLR0915",   # Too many statements
+
+  "ANN",       # We annotate where it clarifies, not by mandate. The package is small
+               # enough that a blanket rule buys noise rather than safety.
+  "CPY001",    # No per-file copyright headers; the repo is MIT via LICENSE
+  "D1",        # Docstrings explain *why*, on the things that need it — not a checkbox
+               # on every public symbol. See AGENTS.md on documentation.
+  "D209",      # We close short docstrings on the closing line, not a line of their own
+  "E701",      # Short guard ladders (`if sec < 60: return ...`) read better aligned
+  "N812",      # Tests import modules as single capitals (`import ...watcher as W`)
+  "PLW0108",   # `lambda a: f(a)` is the pytest monkeypatch idiom; inlining reads worse
+  "RUF001",    # Ambiguous-unicode: the UI and comments use — ─ ⤢ … deliberately
+  "RUF002",
+  "RUF003",
+  "SIM105",    # `try/except/pass` with a comment beats contextlib.suppress for one line
+  "TC001",     # Avoid the complexity of TYPE_CHECKING guards (see TC003)
+  "TID252",    # openbus ships as a wheel and imports its own modules relatively
+  "TRY300",    # try/except/else restructuring is a style call, not a defect
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests, research probes and one-off scripts trade some rigor for directness on purpose.
+# PLC0415 (mid-file import) is enforced in openbus/ — the shipped package — where a
+# deferred import is a real decision needing a stated reason. Test and script files may
+# import inside a function to keep a single case self-contained.
+"tests/**" = [
+  "A002", "ARG", "ASYNC109", "ERA001", "N806", "PERF401", "PLC0415", "PLW1510",
+  "RET503", "SLF001", "T201",
+]
+"research/**" = [
+  "ARG", "C901", "PLC0415", "PLR09", "PLW1510", "SLF001", "T201",
+]
+"scripts/**" = ["EXE001", "PLC0415", "T201"]
+"docs-site/**" = ["EXE001", "N806", "T201"]
+
+[tool.ruff.lint.pylint]
+max-args = 10
