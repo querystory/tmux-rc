@@ -504,9 +504,60 @@ _SEND_CHUNK_BYTES = 4000
 # Paid once per send, and only for literal text that asks for a Return — key-name sends
 # (Escape, C-c, arrows) are single keystrokes with no paste to escape and skip it.
 _ENTER_SETTLE_S = float(os.environ.get("TMUXRC_ENTER_SETTLE_S", "0.3"))
-# One logical send now spans several tmux commands (chunks + Enter); concurrent callers
-# (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste.
-_send_lock = threading.Lock()
+# One logical send now spans several tmux commands (chunks, the settle, the Return), and
+# concurrent callers (asyncio.to_thread in live.py, parallel HTTP handlers) must not
+# interleave mid-paste.
+#
+# Not one global lock: interleaving can only corrupt the pane being typed into, and the
+# settle now holds the lock for _ENTER_SETTLE_S, so a global lock would queue every other
+# pane's input behind one pane's submit. Not a per-pane lock registry either — that buys
+# perfect separation at the price of a map that has to be grown, garbage-collected against
+# pane lifetimes, and retired without pulling a lock out from under a sender mid-send.
+#
+# So: a fixed set of locks, striped by pane id. A pane always maps to the same lock, which
+# is all the exclusion needs; two panes that happen to collide simply share one, which is
+# the old global behaviour for that pair — slower in a rare case, never wrong. Nothing is
+# ever allocated, evicted or recycled, so there is no lifecycle to get wrong and nothing
+# to leak, whatever the host opens and closes over the daemon's life.
+#
+# Striping is by the pane ID the caller passes, so callers that accept a USER-supplied
+# target must resolve it first: "%3", "work:0.0" and a label can all name one pane, and
+# two spellings would stripe to two different locks and interleave into the same draft.
+# The API resolves at its boundary (it already calls find_pane to validate) and live.py
+# works from watcher pane ids, so every caller is canonical by the time it gets here.
+# Resolving again in this function would put a list-panes subprocess on every keystroke.
+_SEND_LOCK_STRIPES = 64  # >> any realistic pane count, so collisions are vanishingly rare
+_send_locks = [threading.Lock() for _ in range(_SEND_LOCK_STRIPES)]
+# When the last literal chunk went out per pane, so a Return can tell how much of the
+# paste window is left.
+_last_paste: dict[str, float] = {}
+# Pruned by AGE, never by pane lifecycle, and that distinction is the whole point. An
+# entry older than the settle window cannot delay anything — _settle_before_return would
+# compute a non-positive remainder and not sleep — so dropping it is a no-op by
+# construction, safe from any thread at any moment. Tying cleanup to panes instead looks
+# tidier and is a trap: pane ids get recycled, and the watcher learns a pane is gone after
+# the next occupant is already being typed into, so a lifecycle-keyed delete can remove a
+# LIVE pane's clock between its text and its Return — which is exactly the unsent-input
+# bug this module exists to prevent. A slightly stale map is the cheaper mistake.
+_LAST_PASTE_MAX = 256  # panes actually addressed in one settle window; far above real use
+
+
+def _pane_lock(pane_id: str) -> threading.Lock:
+    return _send_locks[hash(pane_id) % _SEND_LOCK_STRIPES]
+
+
+def _settle_before_return(pane_id: str) -> None:
+    """Hold a Return back until the paste before it has aged out of the TUI's window.
+
+    The rule the TUI actually applies is about ELAPSED TIME since the burst, so this
+    measures that rather than sleeping a flat interval: a Return that follows its text
+    immediately waits the full _ENTER_SETTLE_S, and one that arrives late enough on its
+    own waits not at all. That is what lets a bare `press_key("Enter")` be safe without
+    taxing every key-bar Enter tap with a delay it does not need.
+    """
+    remaining = _ENTER_SETTLE_S - (time.monotonic() - _last_paste.get(pane_id, float("-inf")))
+    if remaining > 0:
+        time.sleep(remaining)
 
 
 def send_keys(
@@ -516,26 +567,53 @@ def send_keys(
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
     message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
     key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
-    Return (only meaningful for literal text)."""
-    with _send_lock:
+    Return (only meaningful for literal text).
+
+    `pane_id` must already be a resolved pane id — see _send_locks."""
+    with _pane_lock(pane_id):
         if literal:
             b, i = keys.encode(), 0
-            while True:
+            # An empty literal is not a paste — it is how both composers ask for a bare
+            # submit once their text has gone out in earlier requests. Sending it would be
+            # a tmux call that types nothing, and STAMPING it would be worse: it would
+            # restart the paste clock and make the Return below wait the whole window
+            # again, discarding the elapsed-time measurement at the one call that exists
+            # purely to be measured. Skipping both leaves the real last chunk's time in
+            # place, which is what the Return should be judged against.
+            while b:
                 j = min(i + _SEND_CHUNK_BYTES, len(b))
                 while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
                     j -= 1
                 _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                # Per chunk, not once at the end: if a later chunk raises, the bytes
+                # already delivered are in the pane and a paste really did happen, so a
+                # Return arriving after that failure still has a burst to clear. Stamping
+                # only after the last chunk would leave the half-delivered draft looking
+                # as though nothing had been typed. The final chunk still sets the time
+                # the Return below is judged against.
+                _last_paste[pane_id] = now = time.monotonic()
+                if len(_last_paste) > _LAST_PASTE_MAX:
+                    for dead in [k for k, t in list(_last_paste.items())
+                                 if now - t > _ENTER_SETTLE_S]:
+                        _last_paste.pop(dead, None)
                 i = j
                 if i >= len(b):
                     break
         else:
+            # A Return asked for by NAME is a submit like any other, and the live tools
+            # can produce exactly that: the model may return type_in_pane(press_enter=
+            # false) and press_key("Enter") in ONE response, which we execute back to
+            # back with no round trip between them. So it has to clear the paste window
+            # too. Every other key name is a lone keystroke and waits for nothing.
+            if keys == "Enter":
+                _settle_before_return(pane_id)
             _run(["send-keys", "-t", pane_id, keys])
         if enter and literal:
             # Let the paste burst end before the Return, or it is read as a newline
             # rather than a submit (see _ENTER_SETTLE_S). Inside the lock deliberately:
             # an interleaved send during the gap would put another caller's text in the
             # box we are about to submit.
-            time.sleep(_ENTER_SETTLE_S)
+            _settle_before_return(pane_id)
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
