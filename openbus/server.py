@@ -342,7 +342,7 @@ def get_version():
         if p.is_file():
             h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    from . import gpt_live
+    from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
 
     models = []
     if live.LIVE_MODEL != gpt_live.MODEL:

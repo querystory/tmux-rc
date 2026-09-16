@@ -712,7 +712,7 @@ async def live_mode(websocket: WebSocket) -> None:
     telemetry.emit_action(action="live_session", pane_uid="-", actor=actor, detail="start", keys=None)
     outcome, reason = "ok", "stop"
     try:
-        from . import gpt_live
+        from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
 
         selection = websocket.query_params.get("model", "")
         use_gpt = selection == gpt_live.LABEL or (selection in ("", "Default") and LIVE_MODEL == gpt_live.MODEL)

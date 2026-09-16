@@ -192,7 +192,8 @@ class Session:
         self.work = asyncio.Queue(maxsize=16)
         self.caption_end = {}
         self.pane_hints = {}
-        self.last_context = None
+        self.last_context = {}
+        self.context_lock = asyncio.Lock()
 
     async def send(self, event):
         await self.ws.send(json.dumps(event))
@@ -211,13 +212,19 @@ class Session:
         if self.closing:
             return
         text = "\n".join(p.text for p in turns.parts if p.text)
+        async with self.context_lock:
+            if not self.closing:
+                await self._send_context(text)
+
+    async def _send_context(self, text):
         # The shared updater coalesces changes (2.5s) and caps active screen tails
         # at 4,000 chars; skip repeated snapshots too. Live manages long-session
         # context automatically. Keep current screens so pane answers aren't stale.
         # Full state reaches the reasoning backend. Frontend appends are limited to
         # 500 tokens: a 480-byte UTF-8 prefix is conservatively within that bound even
         # for terminal noise/non-English text. It is only a hint; pane answers delegate.
-        if text != self.last_context:
+        snapshot = text.startswith("[tmux update] current pane state:")
+        if text != self.last_context.get(snapshot):
             await self.send(
                 {
                     "type": "response.item.create",
@@ -228,7 +235,7 @@ class Session:
                     },
                 }
             )
-            self.last_context = text
+            self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.
         hints = {
@@ -402,13 +409,13 @@ async def run_session(browser, watcher, actor, meter):
         return
     backend = os.environ.get("TMUXRC_GPT_LIVE_BACKEND", BACKEND)
     meter.model = MODEL
-    meter.usage = Usage(backend)
     meter.details = {
         "provider": "openai",
         "backend_model": backend,
         "voice_seconds": 0.0,
         "usage_final": False,
     }
+    meter.usage = Usage(backend)
     await browser.send_json({"type": "status", "status": "connecting"})
     async with _connect(key) as ws:
         session = Session(ws, browser, watcher, actor, meter)

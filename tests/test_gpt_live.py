@@ -426,3 +426,38 @@ def test_full_tool_queue_reports_overload_without_running_more_actions():
         asyncio.run(s.receive())
     assert not s.ws.sent
     assert s.work.qsize() == s.work.maxsize
+
+
+def test_invalid_configuration_still_marks_openai_telemetry(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setenv("TMUXRC_GPT_LIVE_INPUT_PER_M", "invalid")
+    meter = L._Meter("test", "test")
+    with pytest.raises(G.ProviderError):
+        asyncio.run(G.run_session(Browser(), Watcher(), "test", meter))
+    assert meter.model == G.MODEL
+    assert meter.details == {
+        "provider": "openai", "backend_model": G.BACKEND,
+        "voice_seconds": 0.0, "usage_final": False,
+    }
+
+
+def test_concurrent_snapshot_dedup_survives_post_action_context():
+    async def run():
+        s = session()
+        original_send = s.ws.send
+
+        async def slow_send(data):
+            await asyncio.sleep(0)
+            await original_send(data)
+
+        s.ws.send = slow_send
+        snapshot = SimpleNamespace(parts=[SimpleNamespace(text="[tmux update] current pane state: same screen")])
+        action = SimpleNamespace(parts=[SimpleNamespace(text="[tmux update] shell (%1) after your input: new screen")])
+        await asyncio.gather(s.send_client_content(turns=snapshot), s.send_client_content(turns=snapshot))
+        await s.send_client_content(turns=action)
+        await s.send_client_content(turns=snapshot)
+        updates = [e for e in s.ws.sent if e['type'] == 'response.item.create']
+        assert len(updates) == 2
+        assert len([e for e in s.ws.sent if e['type'] == 'session.thinking.append']) == 1
+
+    asyncio.run(run())

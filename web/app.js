@@ -3977,6 +3977,7 @@ let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmUp = false, lmTries = 0, lmRetry = null; // session was up; reconnect count + timer
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
+let lmClearPending = null;
 let lmLog = [];                  // rolling conversation: {role, text, done}
 let lmListening = false;         // true only while the daemon reports "listening" — mic
                                  // frames are dropped otherwise so a reconnect (during
@@ -4054,7 +4055,11 @@ async function lmCapture(ws) {
   const src = lmCtx.createMediaStreamSource(lmStream);
   const rate = lmCtx.sampleRate;
   let pend = new Float32Array(0);
+  lmClearPending = () => { pend = new Float32Array(0); };
   const push = (chunk) => {
+    if (!lmListening || lmWs?.readyState !== WebSocket.OPEN) {
+      pend = new Float32Array(0); return;
+    }
     const joined = new Float32Array(pend.length + chunk.length);
     joined.set(pend); joined.set(chunk, pend.length);
     pend = joined;
@@ -4094,6 +4099,7 @@ async function lmCapture(ws) {
 // The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
+  if (!lmListening) lmClearPending?.();
   lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
   if (lmListening) lmTries = 0; // a session that came back resets the retry budget
   lm.btn.classList.toggle("listening", lmListening);
@@ -4224,6 +4230,7 @@ function lmStop() {
     try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
   }
   lmListening = false;
+  lmClearPending?.(); lmClearPending = null;
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
