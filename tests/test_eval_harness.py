@@ -73,6 +73,29 @@ def test_rewind_and_tasks_scored_by_presence():
     assert not ok and any("tasks" in d for d in diffs)
 
 
+def test_tables_is_scored_only_where_a_sample_names_it():
+    """Opt-in presence: a sample that names `tables` asserts it either way, and one that
+    doesn't stays unconstrained — otherwise adding the field would fail every existing
+    sample on a claim it never made."""
+    table = [{"headers": ["#", "edit"], "rows": [["1", "resolve the conflict"]]}]
+    assert not score_structured({}, {"tables": True})[0]          # wanted, absent
+    assert score_structured({"tables": table}, {"tables": True})[0]
+    assert not score_structured({"tables": table}, {"tables": False})[0]  # unwanted
+    # Silent sample: the model may emit tables or not, and neither is a regression.
+    assert score_structured({"tables": table}, {})[0]
+    assert score_structured({}, {})[0]
+
+
+def test_an_unrenderable_tables_value_does_not_count_as_the_list():
+    """Nothing validates the model's `tables` (JSON mime type, no schema), and the phone
+    draws only table objects carrying rows. A truthy-but-undrawable value would otherwise
+    score as "the list travelled" while the screen still shows the question alone."""
+    for junk in ("1. resolve the conflict", {}, [{}], [{"rows": []}], [{"title": "edits"}],
+                 [{"rows": "1. resolve the conflict"}], [{"rows": {"1": "resolve"}}]):
+        ok, diffs = score_structured({"tables": junk}, {"tables": True})
+        assert not ok and any("tables" in d for d in diffs), junk
+
+
 def test_evaluate_pass_requires_both_struct_and_judge():
     s = _sample(tool="claude", activity="idle", headline="idle at prompt")
     good = lambda system, text: {"tool": "claude", "activity": "idle", "headline": "at the box"}  # noqa: E731
