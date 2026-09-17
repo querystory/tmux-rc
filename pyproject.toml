@@ -41,7 +41,7 @@ packages = ["openbus"]
 "web" = "openbus/web"
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
-# The ruleset is inherited from the sibling qs-app repo so one Python style covers both.
+# The ruleset is shared with our other Python codebase so one style covers both.
 # `select = ["ALL"]` then curate down: when ruff ships a new rule we see it and decide,
 # rather than never learning it exists. Everything below is an explicit opt-out with a
 # reason — if a rule is merely inconvenient rather than wrong for us, it stays on.
@@ -65,7 +65,7 @@ select = ["ALL"]
 # Disabled rules. Alphabetized within each block, except the complexity group below,
 # which is kept together under its shared note. Format: "Rule"  # Rationale
 ignore = [
-  # ── Shared with qs-app ─────────────────────────────────────────────────────
+  # ── Shared ruleset ─────────────────────────────────────────────────────────
   "A003",      # Attribute shadows a Python builtin (e.g. .type, .id)
   "ASYNC240",  # Blocking path methods in async functions — too noisy, most are fine
   "B008",      # This rule gets confused by FastAPI Depends

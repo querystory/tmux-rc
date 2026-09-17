@@ -74,8 +74,7 @@ verified by hand against real DOM shapes and by live testing on the phone.
 
 `make lint` runs ruff over the whole tree; `make fmt` is the same rules with the safe
 fixes applied. Both must be clean before a PR goes up. The ruleset lives in
-`pyproject.toml` and is inherited from the sibling `qs-app` repo so one Python style
-covers both checkouts.
+`pyproject.toml` and is shared with our other Python codebase so one style covers both.
 
 It is `select = ["ALL"]` plus a curated ignore list, rather than a short opt-in list, so
 that a rule ruff adds later shows up and gets an explicit decision instead of silently
