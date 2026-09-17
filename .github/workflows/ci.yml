@@ -23,6 +23,10 @@ jobs:
           # pyproject requires >=3.12; uv fetches this itself, no setup-python needed.
           python-version: "3.12"
       - run: uv sync --locked
+      # Lint before the suite: a ruleset nothing enforces is not a gate. Runs in a fresh
+      # clone, which is the case the local .git/info/exclude can't cover. ruff is pinned
+      # in the dev group, so this is the same version everyone runs locally.
+      - run: uv run ruff check .
       # The suite shells out to tmux (find_pane, capture, send-keys).
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: uv run pytest -q tests/

@@ -22,7 +22,10 @@ _TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
-_PANE_FMT = "\t".join(
+# FLY002 is suppressed below: the suggested single f-string would fuse 12 fields into
+# one unsearchable line. Their ORDER is the wire format _parse_pane unpacks, so they
+# stay one per line.
+_PANE_FMT = "\t".join(  # noqa: FLY002
     [
         "#{session_name}",
         "#{window_index}",
@@ -163,9 +166,10 @@ def server_uid() -> str:
     Caching the failed read froze every pane_uid at ':0' for the process's life, silently
     fusing telemetry from unrelated tmux servers together. A pid CHANGE also re-derives:
     same reason the watcher re-keys panes on pid, one tmux server is one identity."""
-    global _server_uid
+    global _server_uid  # noqa: PLW0603 - the documented cache this function exists to fill
     try:
-        boot = open("/proc/sys/kernel/random/boot_id").read().strip()
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            boot = f.read().strip()
     except OSError:
         boot = "nobootid"
     try:
@@ -303,7 +307,11 @@ def new_window(session: str, name: str, command: str) -> str:
 
 # OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show
 # only LABEL; a plain capture (no -e) drops the URL entirely.
-_OSC8 = re.compile(r"\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)(.*?)\x1b\]8;;(?:\x07|\x1b\\)", re.S)
+# The OSC 8 grammar reads worse split across lines.
+_OSC8 = re.compile(
+    r"\x1b\]8;[^;\x07\x1b]*;([^\x07\x1b]*)(?:\x07|\x1b\\)(.*?)\x1b\]8;;(?:\x07|\x1b\\)",
+    re.DOTALL,
+)
 # Everything else escape-shaped, stripped after links are materialized: CSI (colors,
 # cursor), other OSC, and single-char escapes.
 _ANSI = re.compile(r"\x1b\[[0-9;:?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]")

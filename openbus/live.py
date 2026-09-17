@@ -20,7 +20,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import telemetry, tmux
+from . import llm, telemetry, tmux
 from .classify import _load_prompt
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,7 @@ class _LiveUsage:
 
 def _audio_tokens(details) -> int:
     """Sum the AUDIO-modality token counts out of a *_tokens_details list; 0 if absent."""
-    from google.genai import types
+    types = llm.genai_types()
 
     total = 0
     for d in details or []:
@@ -165,8 +165,6 @@ class _Meter:
         """Session ending — emit the final cumulative record and fold cost into the
         status-bar totals. Idempotent-safe to call once in the session's finally."""
         self._emit(final=True)
-        from . import llm
-
         llm.record_live_usage(
             in_tokens=self.usage.in_tokens,
             out_tokens=self.usage.out_tokens,
@@ -195,7 +193,7 @@ def _live_client():
     that one pins the classifier's per-request timeout (an anti-wedge guard for one-shot
     parse calls) which would sever a long-lived bidi stream, and defaults to the
     'global' region which Live models don't serve."""
-    from google import genai
+    from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
@@ -346,7 +344,7 @@ def _tools():
     control key). Two narrow verbs beat one overloaded one — the model can't accidentally
     fold text and a chord into a single ambiguous call, and press_key's whitelist keeps it
     from inventing arbitrary key sequences."""
-    from google.genai import types
+    types = llm.genai_types()
 
     return [
         types.Tool(
@@ -363,7 +361,10 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
+                                description=(
+                                    "Target pane id — the id=%N handle from "
+                                    "the window state, e.g. %5"
+                                ),
                             ),
                             "text": types.Schema(
                                 type=types.Type.STRING,
@@ -391,7 +392,10 @@ def _tools():
                         properties={
                             "pane_id": types.Schema(
                                 type=types.Type.STRING,
-                                description="Target pane id — the id=%N handle from the window state, e.g. %5",
+                                description=(
+                                    "Target pane id — the id=%N handle from "
+                                    "the window state, e.g. %5"
+                                ),
                             ),
                             "key": types.Schema(
                                 type=types.Type.STRING,
@@ -411,7 +415,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     """Route a tool call (type_in_pane / press_key) to the pane and answer Gemini tersely.
     The result NEVER rides back through the FunctionResponse (echo loops — see design doc);
     the model sees the outcome via the post-action ambient refresh instead."""
-    from google.genai import types
+    types = llm.genai_types()
 
     async def respond(payload: dict) -> None:
         await session.send_tool_response(
@@ -429,7 +433,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     # whether it counts as submitted). malformed stays None ⇒ reject below.
     send_args = what = None
     submitted = False
-    if fc.name == "type_in_pane" and isinstance(fc.args, dict) and not (set(args) - {"pane_id", "text", "press_enter"}):
+    if (
+        fc.name == "type_in_pane"
+        and isinstance(fc.args, dict)
+        and not (set(args) - {"pane_id", "text", "press_enter"})
+    ):
         text = str(args.get("text", ""))
         raw_enter = args.get("press_enter", True)
         # Never coerce press_enter: bool("false") is True and would submit an unsent
@@ -437,7 +445,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         if text.strip() and isinstance(raw_enter, bool):
             send_args = (pane_id, text, raw_enter, True)  # literal text
             what, submitted = text, raw_enter
-    elif fc.name == "press_key" and isinstance(fc.args, dict) and not (set(args) - {"pane_id", "key"}):
+    elif (
+        fc.name == "press_key"
+        and isinstance(fc.args, dict)
+        and not (set(args) - {"pane_id", "key"})
+    ):
         key = _KEYS.get(str(args.get("key", "")))
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
@@ -458,7 +470,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     label = labels[pane_id]
     try:
         await asyncio.to_thread(tmux.send_keys, *send_args)
-    except Exception as e:  # noqa: BLE001 - report, don't kill the session
+    except Exception as e:  # report, don't kill the session
         logger.warning("[live] %s failed for %s", fc.name, pane_id, exc_info=True)
         telemetry.emit_action(
             action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
@@ -485,7 +497,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         await asyncio.sleep(POST_TYPE_REFRESH_SECONDS)
         tail = await asyncio.to_thread(_screen_tail, watcher, pane_id)
         if tail:
-            await _send_ambient(session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}")
+            await _send_ambient(
+                session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}"
+            )
 
     task = asyncio.create_task(refresh())
     _background(task)
@@ -510,7 +524,7 @@ async def _send_ambient(session, text: str) -> None:
     to the conversation but no model turn fires — the model simply has current state the
     next time the user speaks. This is the whole 'state is just always up to date'
     mechanism; the prompt additionally fences [tmux update] messages off from replies."""
-    from google.genai import types
+    types = llm.genai_types()
 
     try:
         await session.send_client_content(
@@ -537,13 +551,14 @@ async def _context_updater(session, watcher) -> None:
         await asyncio.sleep(UPDATE_MIN_SECONDS)  # coalesce a burst into one update
         version = watcher.state_version()  # whatever landed during the throttle window
         await _send_ambient(
-            session, f"[tmux update] current pane state:\n\n{_pane_context(watcher, screens='active')}"
+            session,
+            f"[tmux update] current pane state:\n\n{_pane_context(watcher, screens='active')}",
         )
 
 
 async def _forward_audio(websocket: WebSocket, session) -> None:
     """Client → Gemini: base64 16kHz PCM frames until the client says stop."""
-    from google.genai import types
+    types = llm.genai_types()
 
     while True:
         data = await websocket.receive_json()
@@ -589,7 +604,8 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
             sc = response.server_content
             if sc:
                 if sc.input_transcription and sc.input_transcription.text:
-                    if telemetry._QSDEBUG:  # content reaches the journal under the same flag as OTel
+                    # content reaches the journal under the same flag as OTel
+                    if telemetry.QSDEBUG:
                         logger.info("[live] user: %s", sc.input_transcription.text)
                     meter.note("user: " + sc.input_transcription.text)
                     await websocket.send_json(
@@ -597,7 +613,7 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
                          "text": sc.input_transcription.text}
                     )
                 if sc.output_transcription and sc.output_transcription.text:
-                    if telemetry._QSDEBUG:
+                    if telemetry.QSDEBUG:
                         logger.info("[live] model: %s", sc.output_transcription.text)
                     meter.note("model: " + sc.output_transcription.text)
                     await websocket.send_json(
@@ -625,7 +641,7 @@ async def _hold(websocket: WebSocket, seconds: float) -> bool:
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
     """Connect to Gemini Live and run the session; reconnect with backoff on drops."""
-    from google.genai import types
+    types = llm.genai_types()
 
     client = _live_client()
 
@@ -670,13 +686,19 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                     # generator finally awaiting a close handshake on a half-open socket) must not
                     # delay the reconnect / websocket-close this finally gates by an OS TCP timeout.
                     # wait() never raises for task outcomes, so the CancelledError from the cancel
-                    # above is absorbed here rather than escaping as it did under suppress(Exception).
+                    # above is absorbed here rather than escaping as it did under
+                    # suppress(Exception).
                     done, pending = await asyncio.wait(side, timeout=2)
                     for t in pending:
-                        logger.warning("[live] side task %s did not unwind within 2s; abandoning it", t.get_name())
+                        logger.warning(
+                            "[live] side task %s did not unwind within 2s; abandoning it",
+                            t.get_name(),
+                        )
                     for t in done:
                         if not t.cancelled() and (exc := t.exception()) is not None:
-                            logger.warning("[live] side task %s ended in error: %r", t.get_name(), exc)
+                            logger.warning(
+                                "[live] side task %s ended in error: %r", t.get_name(), exc
+                            )
         except WebSocketDisconnect:
             raise  # client gone — nothing to reconnect for
         except Exception:
@@ -706,7 +728,9 @@ async def live_mode(websocket: WebSocket) -> None:
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, actor)
     logger.info("[live] session start (actor=%s, session=%s)", actor, session_id)
-    telemetry.emit_action(action="live_session", pane_uid="-", actor=actor, detail="start", keys=None)
+    telemetry.emit_action(
+        action="live_session", pane_uid="-", actor=actor, detail="start", keys=None
+    )
     outcome, reason = "ok", "stop"
     try:
         await _run_session(websocket, watcher, actor, meter)
@@ -725,7 +749,9 @@ async def live_mode(websocket: WebSocket) -> None:
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         telemetry.emit_action(
             action="live_session", pane_uid="-", actor=actor,
-            detail=f"end ({meter.turns} turns, ${meter.usage.cost():.4f})", keys=None, outcome=outcome,
+            detail=f"end ({meter.turns} turns, ${meter.usage.cost():.4f})",
+            keys=None,
+            outcome=outcome,
         )
         with contextlib.suppress(Exception):
             await websocket.close()

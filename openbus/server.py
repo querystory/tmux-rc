@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import logging
 import os
@@ -53,11 +54,18 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
     )
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import (  # noqa: E402
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles  # noqa: E402
+from PIL import Image  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import tmux  # noqa: E402
+from . import telemetry, tmux  # noqa: E402
+from .llm import last_error, usage_totals  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -151,12 +159,14 @@ def _launchers() -> list[dict]:
             for e in entries
             if isinstance(e, dict) and e.get("label") and e.get("command")
         ]
-        if good:
-            return good
-        raise ValueError("no valid entries")
-    except Exception:  # noqa: BLE001 - a broken config must not brick the menu
+    except Exception:  # a broken config must not brick the menu
         logger.warning("TMUXRC_LAUNCHERS invalid; using defaults", exc_info=True)
         return _DEFAULT_LAUNCHERS
+    # Parsed, but nothing in it was usable — same outcome as a parse failure, reached by
+    # returning rather than by raising into our own handler.
+    if not good:
+        logger.warning("TMUXRC_LAUNCHERS has no valid entries; using defaults")
+    return good or _DEFAULT_LAUNCHERS
 
 
 class ClientErrorBody(BaseModel):
@@ -262,8 +272,6 @@ def _audit(
         "" if outcome == "ok" else f" [{outcome}]",
     )
     try:
-        from . import telemetry
-
         telemetry.emit_action(
             action=action,
             pane_uid=f"{tmux.server_uid()}:{pane_id}",
@@ -272,7 +280,7 @@ def _audit(
             keys=keys if _AUDIT_KEYS else None,
             outcome=outcome,
         )
-    except Exception:  # noqa: BLE001 - audit telemetry must never break the request
+    except Exception:  # audit telemetry must never break the request
         logger.debug("audit emit failed", exc_info=True)
 
 
@@ -357,8 +365,6 @@ async def get_state(v: int | None = None):
     `version`. The client immediately re-holds with that version, so a pane switch shows
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
-    from .llm import last_error, usage_totals
-
     w = app.state.watcher
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
@@ -503,7 +509,7 @@ def _note_live_poll(pane_id: str) -> None:
     break the live stream."""
     try:
         app.state.watcher.note_live_poll(pane_id)
-    except Exception:  # noqa: BLE001 - presence must never break the stream
+    except Exception:  # presence must never break the stream
         logger.debug("live presence stamp failed", exc_info=True)
 
 
@@ -519,8 +525,6 @@ def _emit_live_round(
     path (the response is already decided) and fully swallowed, so it can never break
     or slow the live stream."""
     try:
-        from . import telemetry
-
         w = app.state.watcher
         telemetry.emit_live(
             # Pass through as-is: an absent session (empty string) is left
@@ -535,7 +539,7 @@ def _emit_live_round(
             raw_bytes=raw_bytes,
             actor=_trusted_user(request),
         )
-    except Exception:  # noqa: BLE001 - live telemetry must never break the stream
+    except Exception:  # live telemetry must never break the stream
         logger.debug("live emit failed", exc_info=True)
 
 
@@ -654,8 +658,6 @@ async def client_error(request: Request):
     except Exception:  # noqa: BLE001 - a malformed report is a 400, not a 500
         raise HTTPException(400, "invalid client-error report") from None
     try:
-        from . import telemetry
-
         telemetry.emit_client_error(
             kind=body.kind,
             name=body.name,
@@ -667,7 +669,7 @@ async def client_error(request: Request):
             actor=_trusted_user(request),
             message=body.message,
         )
-    except Exception:  # noqa: BLE001 - the report telemetry must never break the request
+    except Exception:  # the report telemetry must never break the request
         logger.debug("client-error emit failed", exc_info=True)
     return {"ok": True}
 
@@ -774,10 +776,6 @@ def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
 
 def _to_png(data: bytes) -> bytes:
     """Transcode image bytes to PNG (Pillow — already a dependency of the LLM stack)."""
-    import io
-
-    from PIL import Image
-
     buf = io.BytesIO()
     with Image.open(io.BytesIO(data)) as im:
         # Dimension guard BEFORE any pixel decode (open only parses the header):
@@ -805,8 +803,6 @@ if Path(_docs_dir).is_dir():
     # unit test but is load-bearing in production — don't delete it.) Redirect to /docs/.
     @app.get("/docs", include_in_schema=False)
     def _docs_slash():
-        from fastapi.responses import RedirectResponse
-
         return RedirectResponse("/docs/")
 
     app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
@@ -826,7 +822,11 @@ if Path(_docs_dir).is_dir():
 def mobile_ui() -> FileResponse | HTMLResponse:
     entrypoint = WEB_DIR / "m" / "index.html"
     if not entrypoint.is_file():
-        return HTMLResponse("<!doctype html><title>Not found</title><h1>Mobile UI assets are not installed</h1>", status_code=404)
+        return HTMLResponse(
+            "<!doctype html><title>Not found</title>"
+            "<h1>Mobile UI assets are not installed</h1>",
+            status_code=404,
+        )
     return FileResponse(entrypoint)
 
 
@@ -836,7 +836,7 @@ if WEB_DIR.is_dir():
 
 
 def main() -> None:
-    import uvicorn
+    import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 
     # Reload watches the package source and restarts the process on edits (resetting
     # the watcher's in-memory cache — safe, tmux is the source of truth and state

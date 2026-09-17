@@ -266,7 +266,10 @@ for hash_value, pane_id, expected in [
     ))
 
 FILTER_NAMES = ["all", "running", "recent", "attention"]
-for invalid_filter in ("__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None):
+INVALID_FILTERS = (
+    "__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None,
+)
+for invalid_filter in INVALID_FILTERS:
     CASES.append((
         f"matchesFilter: unknown filter {invalid_filter!r} behaves like all",
         "matchesFilter", [IDLE_11_MIN_AGO, invalid_filter, NOW_MS], True,
@@ -299,7 +302,8 @@ const check = (description, actual, expected) => {{
 }};
 
 {checks}
-check("FILTERS exposes exactly the four filter names", () => Object.keys(m.FILTERS).sort(), {json.dumps(sorted(FILTER_NAMES))});
+check("FILTERS exposes exactly the four filter names",
+      () => Object.keys(m.FILTERS).sort(), {json.dumps(sorted(FILTER_NAMES))});
 
 if (failures.length) {{
   console.error(failures.join("\\n\\n"));
