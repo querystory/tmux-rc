@@ -141,6 +141,8 @@ class _Meter:
     def __init__(self, session: str, actor: str | None) -> None:
         self.session = session
         self.actor = actor
+        self.model = LIVE_MODEL
+        self.details = {}
         self.usage = _LiveUsage()
         self.turns = 0
         self.started = time.monotonic()
@@ -175,7 +177,7 @@ class _Meter:
         telemetry.emit_live_turn(
             session=self.session,
             actor=self.actor,
-            model=LIVE_MODEL,
+            model=self.model,
             in_tokens=self.usage.in_tokens,
             out_tokens=self.usage.out_tokens,
             audio_in_tokens=self.usage.audio_in,
@@ -185,6 +187,7 @@ class _Meter:
             duration_s=time.monotonic() - self.started,
             final=final,
             transcript=self._transcript(),
+            **self.details,
         )
 
 
@@ -733,7 +736,20 @@ async def live_mode(websocket: WebSocket) -> None:
     )
     outcome, reason = "ok", "stop"
     try:
-        await _run_session(websocket, watcher, actor, meter)
+        from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
+
+        selection = websocket.query_params.get("model", "")
+        use_gpt = selection == gpt_live.LABEL or (selection in ("", "Default") and LIVE_MODEL == gpt_live.MODEL)
+        if use_gpt and os.environ.get("OPENAI_API_KEY"):
+            await gpt_live.run_session(websocket, watcher, actor, meter)
+        elif not use_gpt and LIVE_MODEL != gpt_live.MODEL and selection in ("", "Default", "Gemini Live"):
+            await _run_session(websocket, watcher, actor, meter)
+        else:
+            outcome = reason = "error"
+            await websocket.send_json({"type": "error", "message": "Unknown or unavailable Live Mode selection; reload the page."})
+    except gpt_live.ProviderError as exc:
+        outcome = reason = "error"
+        await websocket.send_json({"type": "error", "message": str(exc)})
     except WebSocketDisconnect:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
     except Exception:
