@@ -546,7 +546,14 @@ def _emit_live_round(
 @app.post("/api/panes/{pane_id}/send")
 def send(pane_id: str, body: SendBody, request: Request):
     detail = f"enter={body.enter} literal={body.literal}"
-    if tmux.find_pane(pane_id) is None:
+    # Resolve to the pane's own id and send to THAT. "%3", "work:0.0" and a label can all
+    # name one pane, and send_keys locks per pane id — two spellings would take two locks
+    # and interleave into the same draft. The lookup is the validation we already do here,
+    # so canonicalizing costs nothing; doing it inside send_keys would put a list-panes
+    # subprocess on every keystroke. Audits keep the caller's spelling, which is what the
+    # client actually asked for.
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
         # Refused attempts are audited too — probing for pane ids is exactly the
         # traffic a forensic reader wants to see.
         _audit(
@@ -559,7 +566,7 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     try:
-        tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
+        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
     except Exception as e:
         _audit(
             request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
@@ -567,8 +574,11 @@ def send(pane_id: str, body: SendBody, request: Request):
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
     # Input changes the screen — force an immediate re-parse so an answered question /
-    # closed menu reflects on the card within a capture, not a poll interval later.
-    app.state.watcher.request_reparse(pane_id)
+    # closed menu reflects on the card within a capture, not a poll interval later. The
+    # canonical id again: the watcher matches this set against pane.id, so a request
+    # queued under an alias would simply never fire and the card would go stale until the
+    # next poll.
+    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
@@ -685,7 +695,10 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     bug; PNG-always fixes the happy path, and the typed-path fallback means a broken
     graphical session degrades to a working (if less pretty) paste, never a silent
     200. The upload is staged to disk in both modes."""
-    if tmux.find_pane(pane_id) is None:
+    # Canonical pane id for the same reason /send resolves one: _deliver_image types into
+    # the pane, and send_keys locks per pane id.
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
         _audit(request, "paste_image", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
     mime = file.content_type or "image/png"
@@ -740,9 +753,9 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
 
     # Delivery blocks (Pillow decode, subprocess waits): worker thread, so an upload
     # can't stall the event loop's polling.
-    mode = await asyncio.to_thread(_deliver_image, pane_id, data, path)
+    mode = await asyncio.to_thread(_deliver_image, pane.id, data, path)
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    app.state.watcher.request_reparse(pane_id)  # the paste changed the screen
+    app.state.watcher.request_reparse(pane.id)  # the paste changed the screen
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 

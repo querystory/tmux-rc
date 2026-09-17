@@ -3361,7 +3361,23 @@ async function submitComposer(s, presetSegs) {
       if (seg.text != null) await postSend(s, { keys: seg.text, enter: false, literal: true });
       else await uploadStagedImage(s, seg.file);
     }
-    await postSend(s, { keys: "Enter", enter: false, literal: false });
+    // Submit with an EMPTY literal and enter:true rather than a bare "Enter" key name.
+    // Both put a Return in the pane, but only this form goes through the one place that
+    // waits for the paste burst to end first (tmux._ENTER_SETTLE_S). Sent as a key name
+    // the Return skips that wait and lands inside the burst the text segments above just
+    // created, and the TUI reads it as a newline — the composed-but-unsent message this
+    // whole change exists to fix, on the desktop instead of the phone. The mobile
+    // composer has always submitted this way; this makes the two agree.
+    //
+    // This does NOT make the whole submission atomic, and deliberately so. The segments
+    // above are separate requests, so a concurrent sender to the same pane can still get
+    // between them — as it always could; that race predates this change and is not what
+    // the unsent-composer bug was. Closing it properly would mean holding a server-side
+    // pane lock across several client round trips (image uploads included), which trades
+    // a rare interleave for a stalled or backgrounded client wedging a pane until it
+    // times out. The per-send lock protects the gap this change introduces — between the
+    // text and its Return — which is the one it is responsible for.
+    await postSend(s, { keys: "", enter: true, literal: true });
     clearComposer();
     // No burst needed: the visible raw surface streams via liveStream, so the sent
     // text/images show up in the next live frame on their own (docs/design/live-view.md).
