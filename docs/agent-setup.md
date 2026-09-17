@@ -160,3 +160,8 @@ phone can tell your agents apart; turn off decoration that moves on a timer; kee
 point the watcher at something that repaints forever. The first is about whether tmux-rc
 is *usable* from a phone. The rest are about what it costs you per day, and the numbers
 above are what that bill looks like when nobody is paying attention.
+
+All of that is about making a pane *readable*. If you also drive agents from another
+agent — one session typing into its siblings' panes — see
+[orchestrating agents from an agent](agent-orchestration.md), which covers the mechanics
+that fail without telling you.
