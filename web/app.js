@@ -3992,6 +3992,8 @@ fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.liv
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmUp = false, lmTries = 0, lmRetry = null; // session was up; reconnect count + timer
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
+let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
+let lmClearPending = null;
 let lmLog = [];                  // rolling conversation: {role, text, done}
 let lmListening = false;         // true only while the daemon reports "listening" — mic
                                  // frames are dropped otherwise so a reconnect (during
@@ -3999,10 +4001,10 @@ let lmListening = false;         // true only while the daemon reports "listenin
 
 // Transcription arrives as fragments; grow the current entry for that role until the
 // turn completes. Typed actions and errors are single whole entries.
-function lmAdd(role, text) {
+function lmAdd(role, text, newSegment = false) {
   const grow = role === "user" || role === "model";
   const last = lmLog[lmLog.length - 1];
-  if (grow && last && last.role === role && !last.done) last.text += text;
+  if (!newSegment && grow && last && last.role === role && !last.done) last.text += text;
   else lmLog.push({ role, text, done: !grow });
   while (lmLog.length > 8) lmLog.shift();
   lmPaint();
@@ -4033,13 +4035,13 @@ function lmPaint() {
 
 // The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
 // context (created in the button's click handler, satisfying autoplay policy).
-function lmPlayChunk(b64) {
+function lmPlayChunk(b64, sampleRate = 24000) {
   if (!lmPlay) return;
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   const pcm = new Int16Array(bytes.buffer);
-  const buf = lmPlay.createBuffer(1, pcm.length, 24000);
+  const buf = lmPlay.createBuffer(1, pcm.length, sampleRate);
   const ch = buf.getChannelData(0);
   for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
   const src = lmPlay.createBufferSource();
@@ -4069,11 +4071,15 @@ async function lmCapture(ws) {
   const src = lmCtx.createMediaStreamSource(lmStream);
   const rate = lmCtx.sampleRate;
   let pend = new Float32Array(0);
+  lmClearPending = () => { pend = new Float32Array(0); };
   const push = (chunk) => {
+    if (!lmListening || lmWs?.readyState !== WebSocket.OPEN) {
+      pend = new Float32Array(0); return;
+    }
     const joined = new Float32Array(pend.length + chunk.length);
     joined.set(pend); joined.set(chunk, pend.length);
     pend = joined;
-    if (pend.length < 4096) return;
+    if (pend.length < (lmFrameMs ? rate * lmFrameMs / 1000 : 4096)) return;
     let f = pend; pend = new Float32Array(0);
     if (rate !== 16000) { // linear resample to the wire rate
       const n = Math.round(f.length * 16000 / rate), r = new Float32Array(n);
@@ -4109,6 +4115,7 @@ async function lmCapture(ws) {
 // The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
+  if (!lmListening) lmClearPending?.();
   lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
   if (lmListening) lmTries = 0; // a session that came back resets the retry budget
   lm.btn.classList.toggle("listening", lmListening);
@@ -4184,10 +4191,10 @@ function lmConnect() {
   lmWs = ws;
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
-    if (m.type === "status") lmStatus(m.status);
-    else if (m.type === "transcript") lmAdd(m.role, m.text);
+    if (m.type === "status") { lmFrameMs = m.frame_ms; lmStatus(m.status); }
+    else if (m.type === "transcript") lmAdd(m.role, m.text, m.new_segment);
     else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
-    else if (m.type === "audio") lmPlayChunk(m.data);
+    else if (m.type === "audio") lmPlayChunk(m.data, m.sample_rate);
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") lmAdd("err", m.message); // .lm-err red = the signal
@@ -4239,6 +4246,7 @@ function lmStop() {
     try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
   }
   lmListening = false;
+  lmClearPending?.(); lmClearPending = null;
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }

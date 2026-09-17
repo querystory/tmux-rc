@@ -320,6 +320,10 @@ def emit_live_turn(  # noqa: PLR0913
     duration_s: float,
     final: bool,
     transcript: str | None = None,
+    provider: str = "vertex",
+    voice_seconds: float | None = None,
+    usage_final: bool | None = None,
+    backend_model: str | None = None,
 ) -> None:
     """One record per Live Mode voice turn (and a final summary on session end), the
     voice-session analogue of emit_parse.
@@ -339,7 +343,7 @@ def emit_live_turn(  # noqa: PLR0913
         attrs = {
             "kind": "live_turn",
             "model": model,
-            "provider": "vertex",
+            "provider": provider,
             "session": session[:64],
             "turns": turns,
             "duration_s": round(duration_s, 3),
@@ -350,6 +354,12 @@ def emit_live_turn(  # noqa: PLR0913
             "audio_out_tokens": audio_out_tokens,
             "cost_usd": round(cost, 6),
         }
+        if voice_seconds is not None:
+            attrs["voice_seconds"] = voice_seconds
+        if usage_final is not None:
+            attrs["usage_final"] = usage_final
+        if backend_model is not None:
+            attrs["backend_model"] = backend_model
         if actor:
             attrs["actor"] = actor[:200]
         if QSDEBUG and transcript:
