@@ -354,3 +354,15 @@ def test_per_pane_locks_are_retired_only_after_all_users_release_them():
     del first
     gc.collect()
     assert "%lock-test" not in tmux._send_locks
+
+
+@pytest.mark.parametrize("setting,expected", [
+    (None, 0.3), ("", 0.3), ("oops", 0.3), ("nan", 0.3), ("inf", 0.3),
+    ("-inf", 0.3), ("-1", 0.0), ("0", 0.0), ("0.45", 0.45),
+])
+def test_invalid_settle_setting_cannot_break_startup(monkeypatch, setting, expected):
+    if setting is None:
+        monkeypatch.delenv("TMUXRC_ENTER_SETTLE_S", raising=False)
+    else:
+        monkeypatch.setenv("TMUXRC_ENTER_SETTLE_S", setting)
+    assert tmux._enter_settle_seconds() == expected

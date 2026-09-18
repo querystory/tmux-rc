@@ -8,6 +8,7 @@ to the session, so a human can stay attached at the same time.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import shutil
@@ -570,7 +571,22 @@ _SEND_CHUNK_BYTES = 4000
 #
 # Paid once per send, and only for literal text that asks for a Return — key-name sends
 # (Escape, C-c, arrows) are single keystrokes with no paste to escape and skip it.
-_ENTER_SETTLE_S = float(os.environ.get("TMUXRC_ENTER_SETTLE_S", "0.3"))
+def _enter_settle_seconds() -> float:
+    try:
+        value = float(os.environ.get("TMUXRC_ENTER_SETTLE_S", "0.3"))
+    except ValueError:
+        logger.warning("Invalid TMUXRC_ENTER_SETTLE_S; using 0.3 seconds")
+        return 0.3
+    if not math.isfinite(value):
+        logger.warning("Non-finite TMUXRC_ENTER_SETTLE_S; using 0.3 seconds")
+        return 0.3
+    if value < 0:
+        logger.warning("Negative TMUXRC_ENTER_SETTLE_S; disabling the delay")
+        return 0.0
+    return value
+
+
+_ENTER_SETTLE_S = _enter_settle_seconds()
 # One logical send now spans several tmux commands (chunks, the settle, the Return), and
 # concurrent callers (asyncio.to_thread in live.py, parallel HTTP handlers) must not
 # interleave mid-paste.
