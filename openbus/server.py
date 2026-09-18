@@ -738,9 +738,11 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     try:
         path = _stage_image(data, mime)
         # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
-        mode = await asyncio.to_thread(_deliver_image, pane.id, data, path)
+        mode = await asyncio.to_thread(_deliver_image, pane.id, data, path, pane.pid)
     except Exception as error:
         _audit(request, "paste_image", pane_id, outcome=f"error: {error}"[:80])
+        if isinstance(error, tmux.PaneChangedError):
+            raise HTTPException(409, str(error)) from error
         raise
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
     app.state.watcher.request_reparse(pane.id)  # the paste changed the screen
@@ -834,7 +836,7 @@ def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> None:
             if isinstance(segment, str):
                 tmux.send_keys(pane_id, segment, enter=False)
             else:
-                _deliver_image(pane_id, *segment)
+                _deliver_image(pane_id, *segment, identity)
         tmux.check_pane(pane_id, identity)
         tmux.send_keys(pane_id, "", enter=True)
 
@@ -843,9 +845,11 @@ def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> None:
 _image_delivery_lock = threading.Lock()
 
 
-def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
+def _deliver_image(pane_id: str, data: bytes, path: str, expected_pid: str) -> str:
     with tmux.send_transaction(pane_id) as identity, _image_delivery_lock:
-        tmux.check_pane(pane_id, identity)
+        if identity != expected_pid:
+            raise tmux.PaneChangedError("Pane changed while uploading; image was not sent.")
+        tmux.check_pane(pane_id, expected_pid)
         return _deliver_image_locked(pane_id, data, path, identity)
 
 

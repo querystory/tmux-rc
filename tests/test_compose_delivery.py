@@ -145,3 +145,23 @@ def test_unknown_composer_pane_is_audited(client, monkeypatch):
     assert response.status_code == 404
     assert len(audits) == 1
     assert "pane not found" in audits[0]["outcome"]
+
+
+def test_standalone_image_rejects_recycled_pane_after_upload(client, monkeypatch):
+    events = []
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: "replacement")
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args))
+    response = client.post("/api/panes/%1/image",
+                           files=[("file", ("test.png", b"image", "image/png"))])
+    assert response.status_code == 409
+    assert events == []
+
+
+def test_composer_image_keeps_original_identity(monkeypatch):
+    events = []
+    pids = iter(["1234", "1234", "replacement"])
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: next(pids))
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args))
+    with pytest.raises(tmux.PaneChangedError):
+        server._deliver_composer("%1", "1234", [(b"image", "/tmp/test.png")])
+    assert events == []
