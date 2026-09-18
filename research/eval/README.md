@@ -132,6 +132,11 @@ affordances this session actually hit:
 | `15_codex_thread_title` | Codex thread header → the title, not the chrome, names the pane |
 | `16_question_refers_to_list` | question naming "edits 1-4" → the list travels with it (`tables`) |
 
+Sample 16 records a known prompt-compliance failure. Its four-edit content expectation
+is **pending a production Vertex run**; offline tests validate the scorer and judge
+payload, not the model's ability to satisfy it. Do not cite this case as a passing
+production baseline until that external run is authorized and recorded.
+
 ### Committed vs local — what's repo-safe
 
 The corpus is **committed** and runnable by anyone/CI. tmux-rc dogfooding content is
