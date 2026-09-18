@@ -116,3 +116,32 @@ def test_image_failure_never_submits_partial_draft(client, monkeypatch):
             ("text", (None, "before")), ("image", ("test.png", b"image", "image/png")),
         ])
     assert events == ["before"]
+
+
+@pytest.mark.parametrize("endpoint", ["image", "compose"])
+def test_staging_failure_is_audited(client, monkeypatch, endpoint):
+    from fastapi import HTTPException
+
+    audits = []
+    monkeypatch.setattr(server, "_audit", lambda *a, **kw: audits.append(kw))
+
+    def refused(*args):
+        raise HTTPException(500, "unsafe staging directory")
+
+    monkeypatch.setattr(server, "_stage_image", refused)
+    field = "file" if endpoint == "image" else "image"
+    response = client.post(f"/api/panes/%1/{endpoint}",
+                           files=[(field, ("test.png", b"image", "image/png"))])
+    assert response.status_code == 500
+    assert len(audits) == 1
+    assert audits[0]["outcome"].startswith("error:")
+
+
+def test_unknown_composer_pane_is_audited(client, monkeypatch):
+    audits = []
+    monkeypatch.setattr(server, "_audit", lambda *a, **kw: audits.append(kw))
+    monkeypatch.setattr(tmux, "find_pane", lambda p: None)
+    response = client.post("/api/panes/%404/compose", files=[("text", (None, "draft"))])
+    assert response.status_code == 404
+    assert len(audits) == 1
+    assert "pane not found" in audits[0]["outcome"]

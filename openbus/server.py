@@ -735,11 +735,13 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         raise HTTPException(400, "empty upload")
     detail = f"{mime} {len(data)}B"
 
-    path = _stage_image(data, mime)
-
-    # Delivery blocks (Pillow decode, subprocess waits): worker thread, so an upload
-    # can't stall the event loop's polling.
-    mode = await asyncio.to_thread(_deliver_image, pane.id, data, path)
+    try:
+        path = _stage_image(data, mime)
+        # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
+        mode = await asyncio.to_thread(_deliver_image, pane.id, data, path)
+    except Exception as error:
+        _audit(request, "paste_image", pane_id, outcome=f"error: {error}"[:80])
+        raise
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
     app.state.watcher.request_reparse(pane.id)  # the paste changed the screen
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
@@ -778,6 +780,17 @@ def _stage_image(data: bytes, mime: str) -> str:
 
 @app.post("/api/panes/{pane_id}/compose")
 async def compose(pane_id: str, request: Request):
+    """Audit every attempt, including upload validation and staging failures."""
+    try:
+        return await _compose(pane_id, request)
+    except Exception as error:
+        _audit(request, "compose", pane_id, outcome=f"error: {error}"[:80])
+        if isinstance(error, tmux.PaneChangedError):
+            raise HTTPException(409, str(error)) from error
+        raise
+
+
+async def _compose(pane_id: str, request: Request):
     """Receive the entire ordered draft before locking or typing into its pane."""
     pane = tmux.find_pane(pane_id)
     if pane is None:
@@ -805,13 +818,7 @@ async def compose(pane_id: str, request: Request):
                 raise HTTPException(400, "invalid composer segment")
     if not segments:
         raise HTTPException(400, "empty composer")
-    try:
-        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
-    except Exception as e:
-        _audit(request, "compose", pane_id, outcome=f"error: {e}"[:80])
-        if isinstance(e, tmux.PaneChangedError):
-            raise HTTPException(409, str(e)) from e
-        raise
+    await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
     _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
     app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
