@@ -157,4 +157,17 @@ def test_one_valid_table_cannot_hide_rows_that_crash_the_desktop():
         for expected in (True, False):
             ok, diffs = score_structured({"tables": [valid, invalid]}, {"tables": expected})
             assert not ok
-            assert "tables: malformed headers or rows" in diffs
+            assert "tables: malformed headers, rows, or cells" in diffs
+
+
+def test_non_string_table_cells_fail_even_with_a_passing_judge():
+    for cell in ({"text": "edit 1"}, ["edit 1"], None, True, 1):
+        for table in ({"rows": [[cell]]}, {"headers": [cell], "rows": [["edit 1"]]}):
+            sample = _sample(tables=[{"rows": [["edit 1"]]}])
+            result = evaluate(
+                sample, lambda system, text, table=table: {"tables": [table]},
+                lambda system, text: {"verdict": "PASS", "reason": "same edit"},
+            )
+            assert not result.passed
+            assert not result.struct_ok
+            assert "tables: malformed headers, rows, or cells" in result.struct_diffs
