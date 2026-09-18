@@ -41,7 +41,8 @@ export function lastActivity(pane) {
   return pane.activity === "idle" && since > 0 ? Math.min(changed, since) : changed;
 }
 
-// The name a card is headed by, matching the desktop's `s.title || s.label || s.pane_id`.
+// Card heading: title, label, window name, then pane ID. Like the desktop, prefer
+// the agent's title; mobile also accepts window_name when no label is available.
 // `title` is the agent's OWN name for what it is doing — the terminal title it sets, else
 // the session title parsed off the screen — so it is the only rung that describes the WORK.
 // `label` is a tmux fallback for panes that never named themselves; it identifies a window
