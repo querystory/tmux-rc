@@ -113,7 +113,7 @@ def tool_definitions():
             ),
             "strict": False,
         }
-        for tool in live._tools()
+        for tool in live._tools()  # noqa: SLF001 - shared Live adapter internals
         for f in tool.function_declarations
     ]
 
@@ -133,14 +133,14 @@ class Usage:
         # A backend override must carry its own rates, rather than silently use Luna's.
         defaults = ("0.2", "0.02", "1.2") if backend == BACKEND else (None,) * 3
         self.rates = []
-        for name, default in zip(("INPUT", "CACHED", "OUTPUT"), defaults):
+        for name, default in zip(("INPUT", "CACHED", "OUTPUT"), defaults, strict=True):
             value = os.environ.get(f"TMUXRC_GPT_LIVE_{name}_PER_M", default)
             try:
                 rate = float(value)
-                if not math.isfinite(rate) or rate < 0:
-                    raise ValueError("Invalid rate")
             except (TypeError, ValueError):
                 raise ProviderError({"code": f"set_tmuxrc_gpt_live_{name.lower()}_per_m"}) from None
+            if not math.isfinite(rate) or rate < 0:
+                raise ProviderError({"code": f"set_tmuxrc_gpt_live_{name.lower()}_per_m"})
             self.rates.append(rate)
 
     def update(self, event):
@@ -208,7 +208,8 @@ class Session:
                 }
             )
 
-    async def send_client_content(self, *, turns, turn_complete=False):
+    # Match Gemini's interface; GPT-Live delegates turn boundaries to the frontend.
+    async def send_client_content(self, *, turns, turn_complete=False):  # noqa: ARG002
         if self.closing:
             return
         text = "\n".join(p.text for p in turns.parts if p.text)
@@ -239,7 +240,7 @@ class Session:
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.
         hints = {
-            d["pane_id"]: "[tmux update] " + live._pane_block(d, None)
+            d["pane_id"]: "[tmux update] " + live._pane_block(d, None)  # noqa: SLF001 - shared Live adapter internals
             for d in self.watcher.digest()
         }
         for pane, hint in hints.items():
@@ -343,11 +344,12 @@ class Session:
                         await self.browser.send_json(
                             {
                                 "type": "error",
-                                "message": "Voice backend did not finish; no pending terminal actions were run.",
+                                "message": ("Voice backend did not finish; "
+                                            "no pending terminal actions were run."),
                             }
                         )
                     # These are backend completions, not spoken turn boundaries.
-                    self.meter._emit(final=False)
+                    self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
 
     async def execute(self):
         while True:
@@ -367,7 +369,7 @@ class Session:
                     args = None
                 fc = SimpleNamespace(id=cid, name=item.get("name"), args=args)
                 self.meter.note(f"[typed] {args}")
-                await live._handle_tool_call(
+                await live._handle_tool_call(  # noqa: SLF001 - shared Live adapter internals
                     self.browser, self, fc, self.watcher, self.actor
                 )
             if not self.closing:
@@ -435,7 +437,7 @@ async def run_session(browser, watcher, actor, meter):
                         "type": "responses",
                         "responses": {
                             "model": backend,
-                            "instructions": live._system_prompt(watcher)
+                            "instructions": live._system_prompt(watcher)  # noqa: SLF001 - shared Live adapter internals
                             + "\n\n"
                             + BACKEND_PROMPT,
                             "tools": tool_definitions(),
@@ -459,10 +461,10 @@ async def run_session(browser, watcher, actor, meter):
                 {"type": "status", "status": "listening", "frame_ms": 40}
             )
             tasks = [
-                asyncio.create_task(live._forward_audio(browser, session)),
+                asyncio.create_task(live._forward_audio(browser, session)),  # noqa: SLF001 - shared Live adapter internals
                 asyncio.create_task(session.receive()),
                 asyncio.create_task(session.execute()),
-                asyncio.create_task(live._context_updater(session, watcher)),
+                asyncio.create_task(live._context_updater(session, watcher)),  # noqa: SLF001 - shared Live adapter internals
             ]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:

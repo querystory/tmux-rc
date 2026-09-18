@@ -6,15 +6,15 @@ copy carrying the same pane id. That id keys the watcher's buffers and every UI 
 the copies collide rather than merely repeat (issue: a phone deck of identical cards).
 """
 
-import openbus.tmux as tmux
+from openbus import tmux
 from openbus.tmux import Pane, dedupe_grouped, find_pane, list_panes
 
 FIELDS = 13  # _PANE_FMT width; Pane(*parts) is positional
 
 
 def _row(session, pane_id, attached="0", window_index="0"):
-    return "\t".join([session, window_index, "claude", "0", pane_id, "node", "t",
-                      "/home/x/proj", "111", "1", "1", "", attached])
+    return (f"{session}\t{window_index}\tclaude\t0\t{pane_id}\tnode\tt\t"
+            f"/home/x/proj\t111\t1\t1\t\t{attached}")
 
 
 def _tmux(monkeypatch, rows):
@@ -136,8 +136,8 @@ def test_a_label_target_also_follows_the_deck(monkeypatch):
     """A window LABEL names a window, not a session, and a group shares windows — so a
     label must resolve to the attached member exactly as a pane id does. Only a
     session-qualified address spells out which session it means."""
-    rows = ["\t".join([s, "0", "Resolve PR 38", "0", "%0", "node", "t", "/x", "1",
-                       "1", "1", "", a]) for s, a in (("gtm-1", "0"), ("gtm-0", "1"))]
+    rows = [f"{s}\t0\tResolve PR 38\t0\t%0\tnode\tt\t/x\t1\t1\t1\t\t{a}"
+            for s, a in (("gtm-1", "0"), ("gtm-0", "1"))]
     _tmux(monkeypatch, rows)
     assert find_pane("Resolve PR 38").session == "gtm-0"
     assert find_pane("Resolve PR 38.0").session == "gtm-0"

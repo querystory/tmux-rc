@@ -357,7 +357,8 @@ def get_version():
         models.append({"label": "Gemini Live", "value": "", "hint": "Vertex"})
     if os.environ.get("OPENAI_API_KEY"):
         models.append({"label": gpt_live.LABEL, "hint": "OpenAI · $0.05/min + backend"})
-    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models), "live_models": models}
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models),
+            "live_models": models}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).

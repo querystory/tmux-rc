@@ -147,7 +147,10 @@ async def main():
         m.get("text", "") for m in browser.messages[action_at + 1:]
         if m.get("role") == "model"
     )
-    assert re.search(r"\b(done|sent|typed|entered|executed|ran|submitted|finished|completed)\b", confirmation, re.I), (
+    assert re.search(
+        r"\b(done|sent|typed|entered|executed|ran|submitted|finished|completed)\b",
+        confirmation, re.IGNORECASE,
+    ), (
         "No spoken action confirmation: " + confirmation
     )
     assert meter.usage.in_tokens > 0, "No backend usage received"
@@ -160,7 +163,8 @@ async def main():
             output.setframerate(16000)
             output.writeframes(browser.audio)
     print(
-        f"PASS: voice, delegation, one tool action, continuation, final usage; ${meter.usage.cost():.4f}"
+        "PASS: voice, delegation, one tool action, continuation, final usage; "
+        f"${meter.usage.cost():.4f}"
     )
 
 

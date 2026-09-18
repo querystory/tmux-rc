@@ -739,14 +739,20 @@ async def live_mode(websocket: WebSocket) -> None:
         from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
 
         selection = websocket.query_params.get("model", "")
-        use_gpt = selection == gpt_live.LABEL or (selection in ("", "Default") and LIVE_MODEL == gpt_live.MODEL)
+        use_gpt = selection == gpt_live.LABEL or (
+            selection in ("", "Default") and LIVE_MODEL == gpt_live.MODEL
+        )
         if use_gpt and os.environ.get("OPENAI_API_KEY"):
             await gpt_live.run_session(websocket, watcher, actor, meter)
-        elif not use_gpt and LIVE_MODEL != gpt_live.MODEL and selection in ("", "Default", "Gemini Live"):
+        elif (not use_gpt and LIVE_MODEL != gpt_live.MODEL
+              and selection in ("", "Default", "Gemini Live")):
             await _run_session(websocket, watcher, actor, meter)
         else:
             outcome = reason = "error"
-            await websocket.send_json({"type": "error", "message": "Unknown or unavailable Live Mode selection; reload the page."})
+            await websocket.send_json({
+                "type": "error",
+                "message": "Unknown or unavailable Live Mode selection; reload the page.",
+            })
     except gpt_live.ProviderError as exc:
         outcome = reason = "error"
         await websocket.send_json({"type": "error", "message": str(exc)})
