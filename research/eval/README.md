@@ -70,7 +70,8 @@ strictness is correct:
   because nothing validates the model's shape here and a truthy string or `{}` would
   otherwise score as a list that never reached the screen.
 
-All supplied tables must have array rows and array headers (or omitted/null headers);
+All supplied tables must have string-valued cells in array rows and array headers
+(or omitted/null headers);
 one valid table cannot hide malformed siblings or rows that break the desktop renderer.
 A boolean `tables` expectation checks presence only. An expected table list also
 sends the expected and candidate tables to the prose judge, which must confirm every
@@ -132,10 +133,12 @@ affordances this session actually hit:
 | `15_codex_thread_title` | Codex thread header → the title, not the chrome, names the pane |
 | `16_question_refers_to_list` | question naming "edits 1-4" → the list travels with it (`tables`) |
 
-Sample 16 records a known prompt-compliance failure. Its four-edit content expectation
-is **pending a production Vertex run**; offline tests validate the scorer and judge
-payload, not the model's ability to satisfy it. Do not cite this case as a passing
-production baseline until that external run is authorized and recorded.
+Sample 16 records a known prompt-compliance failure. On 2026-09-18, an authorized
+Vertex run using the production prompt and `gemini-3.1-flash-lite` for both classifier
+and content judge **failed both checks**: the candidate omitted the edits table, and
+the judge reported that the required table was missing. The four-edit expectation
+remains desired behavior, not a passing production baseline. This case detects the
+bug; a production prompt/classifier fix is still needed.
 
 ### Committed vs local — what's repo-safe
 
