@@ -42,6 +42,9 @@ def enabled() -> bool:
 # variant). Region likewise: Live models are region-pinned, not "global".
 LIVE_MODEL = os.environ.get("TMUXRC_LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
 LIVE_REGION = os.environ.get("TMUXRC_LIVE_REGION", "us-central1")
+# Picker/routing identifiers stay available when the optional adapter cannot load.
+GPT_LIVE_MODEL = "gpt-live-1"
+GPT_LIVE_LABEL = "GPT-Live 1"
 
 # Ambient [tmux update] messages: at most one per this many seconds, and only when the
 # watcher's state_version moved (the same change signal /api/state long-polls on).
@@ -742,15 +745,15 @@ async def live_mode(websocket: WebSocket) -> None:
     outcome, reason = "ok", "stop"
     gpt_live = None
     try:
-        from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
-
         selection = websocket.query_params.get("model", "")
-        use_gpt = selection == gpt_live.LABEL or (
-            selection in ("", "Default") and LIVE_MODEL == gpt_live.MODEL
+        use_gpt = selection == GPT_LIVE_LABEL or (
+            selection in ("", "Default") and LIVE_MODEL == GPT_LIVE_MODEL
         )
         if use_gpt and os.environ.get("OPENAI_API_KEY"):
+            from . import gpt_live  # noqa: PLC0415 - only this provider needs the optional adapter
+
             await gpt_live.run_session(websocket, watcher, actor, meter)
-        elif (not use_gpt and LIVE_MODEL != gpt_live.MODEL
+        elif (not use_gpt and LIVE_MODEL != GPT_LIVE_MODEL
               and selection in ("", "Default", "Gemini Live")):
             await _run_session(websocket, watcher, actor, meter)
         else:

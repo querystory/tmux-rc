@@ -351,12 +351,15 @@ def get_version():
         if p.is_file():
             h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
+    try:
+        from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
+    except ImportError:
+        gpt_live = None
 
     models = []
-    if live.LIVE_MODEL != gpt_live.MODEL:
+    if live.LIVE_MODEL != live.GPT_LIVE_MODEL:
         models.append({"label": "Gemini Live", "value": "", "hint": "Vertex"})
-    if os.environ.get("OPENAI_API_KEY"):
+    if gpt_live is not None and os.environ.get("OPENAI_API_KEY"):
         models.append({"label": gpt_live.LABEL, "hint": "OpenAI · $0.05/min + backend"})
     return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models),
             "live_models": models}

@@ -62,9 +62,10 @@ class Browser:
         self.messages.append(message)
 
 
-def session(events=()):
+def session(events=(), *, closed=True):
     meter = L._Meter("test", "test")
     meter.usage = G.Usage(G.BACKEND)
+    events = [*events, {"type": "session.closed"}] if closed else events
     return G.Session(Wire(events), Browser(), Watcher(), "test", meter)
 
 
@@ -485,7 +486,8 @@ def test_concurrent_snapshot_dedup_survives_post_action_context():
     asyncio.run(run())
 
 
-def test_adapter_import_failure_reaches_browser(monkeypatch):
+@pytest.mark.parametrize("default", ["gemini-live-2.5-flash-native-audio", G.MODEL])
+def test_adapter_import_failure_reaches_browser(monkeypatch, default):
     import builtins
 
     from fastapi.testclient import TestClient
@@ -503,5 +505,65 @@ def test_adapter_import_failure_reaches_browser(monkeypatch):
     monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
     monkeypatch.setattr(L._Meter, "finish", lambda s: None)
     monkeypatch.setattr(builtins, "__import__", missing)
-    with TestClient(server.app).websocket_connect("/api/live-mode") as ws:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setattr(L, "LIVE_MODEL", default)
+    called = []
+
+    async def gemini(*args):
+        called.append("gemini")
+
+    monkeypatch.setattr(L, "_run_session", gemini)
+    client = TestClient(server.app)
+    version = client.get("/api/version")
+    assert version.status_code == 200
+    models = version.json()["live_models"]
+    assert models == ([] if default == G.MODEL else [
+        {"label": "Gemini Live", "value": "", "hint": "Vertex"},
+    ])
+    assert version.json()["live_enabled"] == bool(models)
+    with client.websocket_connect("/api/live-mode?model=GPT-Live%201") as ws:
         assert ws.receive_json() == {"type": "error", "message": "live session failed"}
+    if default != G.MODEL:
+        with (
+            client.websocket_connect("/api/live-mode") as ws,
+            pytest.raises(WebSocketDisconnect),
+        ):
+            ws.receive_json()
+        assert called == ["gemini"]
+
+
+@pytest.mark.parametrize("closed", [False, True])
+def test_provider_eof_requires_session_closed(closed):
+    s = session(closed=closed)
+    if closed:
+        asyncio.run(s.receive())
+        assert s.meter.usage.final
+    else:
+        with pytest.raises(G.ProviderError, match="connection_closed_without_session_closed"):
+            asyncio.run(s.receive())
+        assert not s.meter.usage.final
+
+
+def test_provider_eof_propagates_from_running_session(monkeypatch):
+    class Connection(Wire):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def recv(self):
+            return json.dumps({"type": "session.started"})
+
+    class Client(Browser):
+        async def receive_json(self):
+            await asyncio.Event().wait()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    wire = Connection()
+    monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: wire)
+    meter = L._Meter("test", "test")
+    with pytest.raises(G.ProviderError, match="connection_closed_without_session_closed"):
+        asyncio.run(G.run_session(Client(), Watcher(), "test", meter))
+    assert not meter.usage.final
+    assert wire.sent[-1]["type"] == "session.close"

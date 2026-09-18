@@ -22,8 +22,8 @@ import websockets
 
 from . import live
 
-MODEL = "gpt-live-1"
-LABEL = "GPT-Live 1"
+MODEL = live.GPT_LIVE_MODEL
+LABEL = live.GPT_LIVE_LABEL
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
 logger = logging.getLogger(__name__)
@@ -350,6 +350,10 @@ class Session:
                         )
                     # These are backend completions, not spoken turn boundaries.
                     self.meter._emit(final=False)  # noqa: SLF001 - shared Live adapter internals
+
+        # Normal WebSocket EOF still means a dropped Live session unless the
+        # provider confirmed session.closed above. Never silently report a stop.
+        raise ProviderError({"code": "connection_closed_without_session_closed"})
 
     async def execute(self):
         while True:
