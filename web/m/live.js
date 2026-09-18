@@ -125,6 +125,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       const joined = new Float32Array(pending.length + data.length);
       joined.set(pending);
       // A worklet message captured before the toggle can arrive after mute.
+      // Float32Array already appended data.length ZERO samples: the buffer still
+      // grows while muted, preserving GPT-Live framing without copying mic audio.
       if (!current.muted) joined.set(data, pending.length);
       pending = joined;
       if (pending.length < (current.frameMs ? rate * current.frameMs / 1000 : MIN_FRAME_SAMPLES)) return;
