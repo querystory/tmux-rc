@@ -483,3 +483,25 @@ def test_concurrent_snapshot_dedup_survives_post_action_context():
         assert len([e for e in s.ws.sent if e["type"] == "session.thinking.append"]) == 1
 
     asyncio.run(run())
+
+
+def test_adapter_import_failure_reaches_browser(monkeypatch):
+    import builtins
+
+    from fastapi.testclient import TestClient
+
+    from openbus import server
+
+    original = builtins.__import__
+
+    def missing(name, globals=None, locals=None, fromlist=(), level=0):
+        if level == 1 and "gpt_live" in fromlist:
+            raise ImportError("optional adapter dependency missing")
+        return original(name, globals, locals, fromlist, level)
+
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
+    monkeypatch.setattr(L._Meter, "finish", lambda s: None)
+    monkeypatch.setattr(builtins, "__import__", missing)
+    with TestClient(server.app).websocket_connect("/api/live-mode") as ws:
+        assert ws.receive_json() == {"type": "error", "message": "live session failed"}

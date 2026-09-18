@@ -735,6 +735,7 @@ async def live_mode(websocket: WebSocket) -> None:
         action="live_session", pane_uid="-", actor=actor, detail="start", keys=None
     )
     outcome, reason = "ok", "stop"
+    gpt_live = None
     try:
         from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
 
@@ -753,16 +754,17 @@ async def live_mode(websocket: WebSocket) -> None:
                 "type": "error",
                 "message": "Unknown or unavailable Live Mode selection; reload the page.",
             })
-    except gpt_live.ProviderError as exc:
-        outcome = reason = "error"
-        await websocket.send_json({"type": "error", "message": str(exc)})
     except WebSocketDisconnect:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
-    except Exception:
+    except Exception as exc:
         outcome = reason = "error"
-        logger.exception("[live] session failed")
+        if gpt_live is not None and isinstance(exc, gpt_live.ProviderError):
+            message = str(exc)  # the adapter sanitizes provider diagnostics
+        else:
+            message = "live session failed"
+            logger.exception("[live] session failed")
         with contextlib.suppress(Exception):
-            await websocket.send_json({"type": "error", "message": "live session failed"})
+            await websocket.send_json({"type": "error", "message": message})
     finally:
         logger.info(
             "[live] session end: %s (%d turns, $%.4f, session=%s)",
