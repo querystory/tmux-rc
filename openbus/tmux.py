@@ -683,8 +683,7 @@ def send_keys(
                 j = min(i + _SEND_CHUNK_BYTES, len(b))
                 while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
                     j -= 1
-                if i:
-                    check_pane(pane_id, identity)
+                check_pane(pane_id, identity)
                 _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
                 # Per chunk, not once at the end: if a later chunk raises, the bytes
                 # already delivered are in the pane and a paste really did happen, so a

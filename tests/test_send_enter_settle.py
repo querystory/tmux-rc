@@ -297,12 +297,10 @@ def test_the_paste_clock_forgets_only_what_can_no_longer_matter(monkeypatch):
 
 
 def test_a_recycled_pane_id_does_not_get_the_return(monkeypatch):
-    """The settle is the only send that spans real time, so it is the only window in which
-    the pane can close and tmux hand "%N" to a new one. Pressing Return there would submit
-    a STRANGER'S half-typed command. The watcher already treats a pane id as non-durable
-    for this reason (Pane.pid); so does this."""
+    """A pane replaced during the settle must not receive the old draft's Return."""
     events = _record(monkeypatch, 0.3)
-    pids = iter(["1234", "1234", "9999"])  # different process behind the same id after the wait
+    # Different process behind the same id after the wait.
+    pids = iter(["1234", "1234", "1234", "9999"])
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
 
     with pytest.raises(tmux.PaneChangedError):
@@ -316,7 +314,7 @@ def test_a_recycled_pane_id_does_not_get_the_return(monkeypatch):
 def test_a_pane_that_vanished_mid_settle_does_not_get_the_return(monkeypatch):
     """Same guard, the simpler case: the pane is simply gone."""
     events = _record(monkeypatch, 0.3)
-    pids = iter(["1234", "1234", None])
+    pids = iter(["1234", "1234", "1234", None])
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
 
     with pytest.raises(tmux.PaneChangedError):
@@ -366,3 +364,15 @@ def test_invalid_settle_setting_cannot_break_startup(monkeypatch, setting, expec
     else:
         monkeypatch.setenv("TMUXRC_ENTER_SETTLE_S", setting)
     assert tmux._enter_settle_seconds() == expected
+
+
+@pytest.mark.parametrize("replacement", [None, "9999"])
+@pytest.mark.parametrize("enter", [False, True])
+def test_pane_replaced_before_first_chunk_receives_no_text(monkeypatch, replacement, enter):
+    events = _record(monkeypatch, 0.3)
+    pids = iter(["1234", replacement])
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "private draft", enter=enter)
+    assert events == []
+    assert tmux._last_paste == {}
