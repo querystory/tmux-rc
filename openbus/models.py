@@ -17,11 +17,40 @@ Tool = Literal["claude", "codex", "gemini", "shell", "unknown"]
 Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
 
 
+# HOW an answer reaches the widget. "text" types the option and hits Enter; "menu"
+# sends one keystroke (a digit / y|n). "cursor" is a highlighted list you ARROW through
+# — neither of the other two works on it, because both a digit and the option's text
+# land in the picker's search box instead of selecting (the /resume bug, issue #206).
+AnswerStyle = Literal["text", "menu", "cursor"]
+
+
+class Keymap(BaseModel):
+    """The key bindings a picker ADVERTISES on its footer ("↑/↓ to navigate · Enter to
+    select · Type to search · Esc to cancel"). Read off the screen rather than assumed,
+    so a widget binding j/k, Tab, or a non-Enter select drives correctly instead of
+    getting our hardcoded guess. Every field is optional: absent ⇒ not advertised, and
+    the UI must not invent one — firing an unadvertised key into a prompt is the exact
+    failure this replaced."""
+
+    next: str | None = None  # tmux key-name to move DOWN one row, e.g. "Down", "j"
+    prev: str | None = None  # tmux key-name to move UP one row
+    select: str | None = None  # commit the highlighted row, e.g. "Enter"
+    # True when the footer advertises type-to-filter ("Type to search"). Lets the UI
+    # jump straight to a row by typing it instead of walking the cursor.
+    search: bool = False
+
+
 class Question(BaseModel):
     """A detected prompt awaiting user input."""
 
     prompt: str
     options: list[str] = []  # empty ⇒ free-text answer expected
+    answer_style: AnswerStyle = "text"
+    # cursor style only: which option the highlight (❯) currently sits on, so the UI can
+    # compute how far to move. None ⇒ unknown; the UI must then NOT walk the cursor
+    # blind, since a wrong anchor silently selects the wrong row.
+    selected: int | None = None
+    keymap: Keymap | None = None  # bindings the footer advertises (cursor style)
 
 
 class Task(BaseModel):

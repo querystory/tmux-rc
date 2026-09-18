@@ -3600,7 +3600,9 @@ function applyQuestion(ui, s, card) {
       if (!cur || !cur.question) return;
       const i = b._optIndex;
       setActive(paneId);
-      answer(cur, keyFor(cur.question, b._optText, i));
+      // A cursor list can't be answered with one keystroke — it needs a verified walk.
+      if (cur.question.answer_style === "cursor") pickCursorRow(paneId, b._optText, i);
+      else answer(cur, keyFor(cur.question, b._optText, i));
     };
     return b;
   }, (b, opt, i) => {
@@ -3618,8 +3620,10 @@ const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|
 // Decide what keystroke represents the chosen option. y/n prompts want a letter;
 // numbered menus want the number; otherwise send the literal option text.
 // What to send when an option is tapped, per answer_style:
-//   "menu"  — a real on-screen widget: options map to keystrokes (digit / y|n letter).
-//   "text"  — a natural-language question (default): TYPE the option's text as a reply.
+//   "menu"   — a real on-screen widget: options map to keystrokes (digit / y|n letter).
+//   "cursor" — a highlighted list you arrow through: NOT keyFor's business, it needs
+//              several keystrokes and a re-read between them (see pickCursorRow).
+//   "text"   — a natural-language question (default): TYPE the option's text as a reply.
 // Getting this wrong is what made tapping option 4 type a stray "4" into a prose
 // question instead of answering it — so default to text unless it's truly a menu.
 function keyFor(question, opt, i) {
@@ -3629,6 +3633,70 @@ function keyFor(question, opt, i) {
     if (question.options.length > 2) return String(i + 1);
   }
   return opt; // text style (default): send the option's literal text
+}
+
+// How many cursor moves we'll walk before giving up. A picker with a long list is
+// better served by its own search box than by 30 keystrokes, and an anchor that's wrong
+// gets more wrong the further we walk.
+const CURSOR_MAX_STEPS = 12;
+
+// Pick a row in a "cursor" picker — a highlighted list where neither a digit nor the
+// row's text selects anything (both land in its search box; that WAS the /resume bug).
+//
+// The widget advertises its own bindings on a footer, and question.keymap is what it
+// advertised, so we drive the contract on screen instead of a hardcoded ↑/↓+Enter guess.
+// Nothing here invents a key: an unadvertised binding means we don't press it.
+//
+// MOVE, VERIFY, THEN SELECT. The anchor (question.selected) comes from a frame that is
+// already stale by the time a tap arrives — the cursor may have moved since. So we step
+// toward the target, let the forced reparse re-read the screen, and only commit once the
+// highlight is confirmed on the row the user actually tapped. Firing move+Enter in one
+// burst would be faster and would silently pick the wrong session whenever the anchor
+// was stale, which is the same class of bug in a new costume.
+async function pickCursorRow(paneId, targetText, targetIndex) {
+  const km = (panesById[paneId] && panesById[paneId].question || {}).keymap || {};
+  for (let step = 0; step < CURSOR_MAX_STEPS; step++) {
+    const q = (panesById[paneId] || {}).question;
+    // The picker closed, or the pane moved on — stop rather than type into whatever
+    // replaced it.
+    if (!q || q.answer_style !== "cursor") return;
+    // Re-find the row BY TEXT each pass: a filtered or scrolled list renumbers itself,
+    // so the index the user tapped is only trustworthy on the first pass.
+    const want = q.options.indexOf(targetText);
+    const at = typeof q.selected === "number" ? q.selected : null;
+    if (want < 0) break; // row no longer on screen — fall back to search below
+    if (at === null) break; // no trustworthy anchor — fall back to search below
+    if (at === want) {
+      if (!km.select) break; // no advertised way to commit — don't guess a key
+      await sendRaw(panesById[paneId], km.select);
+      return;
+    }
+    const key = at < want ? km.next : km.prev;
+    if (!key) break; // widget never advertised this direction — don't invent one
+    await sendRaw(panesById[paneId], key);
+    // Wait for the reparse to re-read the highlight before deciding the next step.
+    if (!(await waitForReparse(paneId))) break;
+  }
+  // Fallbacks: type-to-filter if the widget offers it, else say so rather than firing a
+  // stray key. A silent no-op is the "the button just does nothing" we don't ship.
+  const cur = panesById[paneId];
+  if (cur && km.search) await answer(cur, targetText);
+  else barNote("Can't select that row from here — use the keyboard.");
+}
+
+// Resolve once the pane's reparse lands (the spinner clears), or false on timeout.
+// Bounded so a wedged parse can't strand the walk mid-list holding `sending`.
+function waitForReparse(paneId, ms = 4000) {
+  const started = Date.now();
+  return new Promise((resolve) => {
+    (function poll() {
+      const cur = panesById[paneId];
+      if (!cur) return resolve(false); // pane vanished mid-walk — stop, don't keep typing
+      if (!isReparsing(cur)) return resolve(true);
+      if (Date.now() - started > ms) return resolve(false);
+      setTimeout(poll, 120);
+    })();
+  });
 }
 
 async function answer(s, keys) {

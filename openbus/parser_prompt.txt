@@ -147,7 +147,9 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
              "first on its status bar, before the model (see TOOL above)",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
   "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
-  "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"},
+  "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor",
+               "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
+               "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": true|false}},
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
   "subagents": [{"label": "...", "state": "running"|"done", "elapsed": "...", "tokens": "..."}],
@@ -245,6 +247,17 @@ is about a table/list shown on screen, put that table in "tables" so it renders 
 context above the options.
 Include "question" only when genuinely blocked awaiting input; "rewind" only when the
 restore picker is shown.
+"rewind" vs a "cursor" question — both are ❯-marked scrollable lists of past items, so
+be precise: "rewind" is ONLY Claude Code's Esc-Esc RESTORE-history picker, which rewinds
+the CONVERSATION to an earlier message (its rows are past user messages, each with a
+code-change note like "No code changes" / "README.md +64 -0", under a heading about
+restoring/rewinding to a previous point). Any OTHER picker — /resume's session list,
+a model/theme/permission picker, a file chooser — is NOT a rewind: report it as a
+"question" with answer_style "cursor" and no "rewind". A /resume list whose rows are
+SESSIONS (with timestamps, sizes, repo/PR refs) is a session picker, not a rewind.
+Never emit both for the same widget: when the screen IS the rewind picker, emit "rewind"
+and NO "question" at all (the phone drives rewind through its own control, so a question
+there is a duplicate affordance) — the rewind rows are not question options.
 "tasks" is the agent's OWN plan/checklist — the ☐/☑ (or [ ]/[x], •/✓) TODO list it
 prints and ticks off as it works. Emit a task per visible line with its done state;
 include "tasks" ONLY when such a checklist is on screen. "subagents" is separate: the
@@ -280,10 +293,29 @@ survey at most as a minor event.
   reply (NOT a widget). Options you list are suggested answers; the phone will TYPE the
   chosen option's text and press Enter. Use this for Claude Code's normal conversational
   questions.
-- "menu": the terminal is showing an actual interactive selection widget (a numbered
-  list you press a digit for, or a cursor list you arrow through) — the options map to
-  keystrokes, not typed text. Use this only for a real on-screen menu/picker.
-When unsure, prefer "text" (typing the answer is safe; sending a stray digit is not).
+- "menu": the screen shows a NUMBERED widget — each option is prefixed with its own
+  digit (1. 2. 3.) or is a y/n confirmation — so ONE keystroke picks it. The digit must
+  be visible on screen; do not infer numbering from list order.
+- "cursor": the screen shows a HIGHLIGHTED list you move through — a ❯/> marker or an
+  inverse/colored row — and the rows carry NO digits. Nothing you can type picks a row
+  here: a digit and the row's text both land in the picker's search box. Claude Code's
+  /resume session picker and its model/theme pickers are this shape.
+DIGITS WIN. Many widgets show a ❯ cursor AND numbered rows (Claude Code's permission
+box: "❯ 1. Yes / 2. Yes, and don't ask again / 3. No"). That is "menu", NOT "cursor" —
+a ❯ alone does not make a cursor list. Choose "cursor" ONLY when there is no digit to
+press. When unsure, prefer "text" (typing the answer is safe; sending a stray digit is
+not).
+
+For "cursor" ONLY, two extra fields make the list drivable:
+- "selected": the 0-based index into YOUR "options" array of the row the highlight is
+  currently on. Count within the options you listed, not screen lines. Use null if you
+  genuinely cannot tell which row is highlighted — null is safe (the phone then jumps by
+  searching instead of moving the cursor), a WRONG index silently picks the wrong row.
+- "keymap": the bindings the widget ADVERTISES, usually on a footer/status line like
+  "↑/↓ to navigate · Enter to select · Type to search · Esc to cancel". Report only what
+  is actually advertised; omit a field you don't see rather than assuming a default.
+  Translate to tmux key-names: ↑/k ⇒ "Up", ↓/j ⇒ "Down", enter/return ⇒ "Enter",
+  tab ⇒ "Tab". "search" is true only if the footer offers type-to-filter/search.
 
 WAITING ON — when (and ONLY when) activity is "waiting", say WHOM the pane is blocked on,
 because the phone treats these two very differently: a user-wait is an amber "tap me, I

@@ -1,0 +1,12 @@
+{
+  "description": "Claude Code /resume session picker: a ❯-highlighted cursor list with NO per-row digits, a search box, and a footer advertising its bindings. The trap is scoring this 'menu' — a digit lands in the Search box instead of selecting, which is issue #206. Expected question with answer_style=cursor, waiting_on=user. Real screen (tmux-rc, 2026-09-17).",
+  "current_command": "node",
+  "capture": "  Resume session (1 of 13)\n\n  ┌──────────────────────────────────────────────────────────┐\n  │ ⌕ Search…                                                │\n  └──────────────────────────────────────────────────────────┘\n    tmux-rc\n\n  ❯ Mid-file imports cleanup\n    12 hours ago · HEAD · 4.5MB · querystory/tmux-rc#204\n\n    tmuxrc-live-mode\n    1 day ago · HEAD · 2.7KB\n\n    tmuxrc-dev\n    4 days ago · HEAD · 14.3MB · querystory/tmux-rc#193\n\n    approved-prs\n    4 days ago · HEAD · 976.5KB · querystory/qs-app#4795\n\n    prs\n    5 days ago · HEAD · 1.1MB\n\n  Ctrl+A to show all projects · Ctrl+B to only show current branch · Space to preview · Type to search · Esc to cancel",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": { "present": true, "answer_style": "cursor" },
+    "headline": "Showing the resume-session picker to choose a past session"
+  }
+}
