@@ -9,7 +9,7 @@ import pytest
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_muted_live_audio_keeps_clock_without_leaking_late_samples():
-    script = r'''
+    script = r"""
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
@@ -50,7 +50,7 @@ current.frameMs = null;
 current.clearPending();
 tap.port.onmessage({data: new Float32Array(4096).fill(0.75)});
 assert.equal(sent.length, 2);
-'''
+"""
     module = Path(__file__).resolve().parents[1] / "web/m/live.js"
     result = subprocess.run(["node", "-e", script, str(module)],
                             capture_output=True, text=True, timeout=30)
