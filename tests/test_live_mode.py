@@ -186,6 +186,10 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     # args — that must never reach a terminal.
     for args in (
         {"pane_id": "%1", "text": "x", "status": "typed"},  # extra arg
+        {"pane_id": "%1", "text": {"command": "run"}},
+        {"pane_id": "%1", "text": 42},
+        {"pane_id": 1, "text": "run"},
+        {"pane_id": ["%1"], "text": "run"},
         {"pane_id": "%1", "text": "   "},                   # blank text
         {"pane_id": "%1", "text": "x", "press_enter": "false"},  # non-bool: must not coerce
         {"pane_id": "%1", "text": "x", "press_enter": 1},   # non-bool int
@@ -197,6 +201,16 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     _, _, session, typed = _dispatch(_FC(args="oops"), monkeypatch)
     assert typed == []
     assert session.responses[0].response["status"] == "rejected"
+
+
+
+def test_press_key_requires_string_target_and_key(monkeypatch):
+    for args in ({"pane_id": 1, "key": "Enter"},
+                 {"pane_id": {"id": "%1"}, "key": "Enter"},
+                 {"pane_id": "%1", "key": ["Enter"]}):
+        _, _, session, typed = _dispatch(_FC(name="press_key", args=args), monkeypatch)
+        assert typed == []
+        assert session.responses[0].response["status"] == "rejected"
 
 
 def test_context_updater_skips_timeouts(monkeypatch):

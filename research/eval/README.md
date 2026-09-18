@@ -62,7 +62,20 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
-- `rewind`, `tasks` — compared by *presence* only.
+- `rewind`, `tasks`, `copyables` — compared by *presence* only.
+- `tables` — presence too, but **opt-in**: scored only on a sample whose `expected`
+  names it. Most screens have no table and take no position, so scoring it everywhere
+  would fail existing samples on a field they were never blessed against. "Present"
+  means *renderable* — valid table objects carrying at least one nonempty array row —
+  because nothing validates the model's shape here and a truthy string or `{}` would
+  otherwise score as a list that never reached the screen.
+
+All supplied tables must have string-valued cells in array rows and array headers
+(or omitted/null headers);
+one valid table cannot hide malformed siblings or rows that break the desktop renderer.
+A boolean `tables` expectation checks presence only. An expected table list also
+sends the expected and candidate tables to the prose judge, which must confirm every
+referenced edit is represented. Sample 16 uses this to reject unrelated tables.
 
 A single structured mismatch fails the sample.
 
@@ -98,7 +111,7 @@ loosen the score.
 }
 ```
 
-Coverage (13 samples, quality over quantity) — every state, every tool, and the
+Coverage (16 samples, quality over quantity) — every state, every tool, and the
 affordances this session actually hit:
 
 | sample | asserts |
@@ -116,6 +129,16 @@ affordances this session actually hit:
 | `11_shell_idle` | bare shell prompt → tool=shell, idle |
 | `12_shell_server_gemini_trap` | server log mentioning `gemini-…` → tool=shell (not gemini) |
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
+| `14_copyable_commit_and_command` | a commit SHA + a command on screen → copyables present |
+| `15_codex_thread_title` | Codex thread header → the title, not the chrome, names the pane |
+| `16_question_refers_to_list` | question naming "edits 1-4" → the list travels with it (`tables`) |
+
+Sample 16 records a known prompt-compliance failure. On 2026-09-18, an authorized
+Vertex run using the production prompt and `gemini-3.1-flash-lite` for both classifier
+and content judge **failed both checks**: the candidate omitted the edits table, and
+the judge reported that the required table was missing. The four-edit expectation
+remains desired behavior, not a passing production baseline. This case detects the
+bug; a production prompt/classifier fix is still needed.
 
 ### Committed vs local — what's repo-safe
 
