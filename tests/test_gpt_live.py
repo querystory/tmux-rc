@@ -121,6 +121,8 @@ def test_custom_backend_requires_explicit_rates(monkeypatch):
 def test_completed_calls_survive_empty_response_output_and_all_results_precede_continue(
     monkeypatch,
 ):
+    # Import the optional SDK before starting the one-second protocol deadline.
+    L.llm.genai_types()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
     monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
@@ -270,7 +272,7 @@ def test_stop_or_phone_disconnect_collects_final_usage(monkeypatch, disconnected
     class Client(Browser):
         async def receive_json(self):
             if disconnected:
-                raise WebSocketDisconnect()
+                raise WebSocketDisconnect
             return {"action": "stop"}
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
@@ -320,10 +322,13 @@ def test_picker_key_gating_and_route_selection(monkeypatch):
     assert called == ["gpt"]
 
 
-@pytest.mark.parametrize("code,expected", [("invalid_api_key", "invalid_api_key"), ("secret context!", "unknown_error"), (None, "unknown_error")])
+@pytest.mark.parametrize("code,expected", [
+    ("invalid_api_key", "invalid_api_key"), ("secret context!", "unknown_error"),
+    (None, "unknown_error"),
+])
 def test_provider_errors_expose_only_sanitized_code(code, expected):
     s = session([{"type": "error", "error": {"code": code, "message": "private terminal context"}}])
-    with pytest.raises(G.ProviderError, match="^GPT-Live: " + expected + "$"):
+    with pytest.raises(G.ProviderError, match=r"^GPT-Live: " + expected + "$"):
         asyncio.run(s.receive())
     assert not s.ws.sent
 
@@ -337,11 +342,13 @@ def test_startup_error_preserves_code(monkeypatch):
             pass
 
         async def recv(self):
-            return json.dumps({"type": "error", "error": {"code": "model_not_found", "message": "private context"}})
+            return json.dumps({"type": "error", "error": {
+                "code": "model_not_found", "message": "private context",
+            }})
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
-    with pytest.raises(G.ProviderError, match="^GPT-Live: model_not_found$"):
+    with pytest.raises(G.ProviderError, match=r"^GPT-Live: model_not_found$"):
         asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test")))
 
 
@@ -352,7 +359,9 @@ def test_startup_error_preserves_code(monkeypatch):
 ])
 def test_unavailable_model_never_connects(monkeypatch, default, selection, key):
     from urllib.parse import urlencode
+
     from fastapi.testclient import TestClient
+
     from openbus import server
 
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
@@ -369,12 +378,14 @@ def test_unavailable_model_never_connects(monkeypatch, default, selection, key):
 
     monkeypatch.setattr(G, "run_session", unexpected)
     monkeypatch.setattr(L, "_run_session", unexpected)
-    with TestClient(server.app).websocket_connect("/api/live-mode?" + urlencode({"model": selection})) as ws:
+    url = "/api/live-mode?" + urlencode({"model": selection})
+    with TestClient(server.app).websocket_connect(url) as ws:
         assert "unavailable" in ws.receive_json()["message"].lower()
 
 
 def test_provider_diagnostic_reaches_browser(monkeypatch):
     from fastapi.testclient import TestClient
+
     from openbus import server
 
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
@@ -390,28 +401,33 @@ def test_provider_diagnostic_reaches_browser(monkeypatch):
         assert ws.receive_json() == {"type": "error", "message": "GPT-Live: invalid_api_key"}
 
 
-@pytest.mark.parametrize("status,code", [(401, "invalid_api_key"), (403, "permission_denied"), (404, "endpoint_not_found"), (429, "rate_limit_exceeded"), (503, "handshake_failed")])
+@pytest.mark.parametrize("status,code", [
+    (401, "invalid_api_key"), (403, "permission_denied"), (404, "endpoint_not_found"),
+    (429, "rate_limit_exceeded"), (503, "handshake_failed"),
+])
 def test_http_handshake_error_is_sanitized(monkeypatch, status, code):
     from websockets.datastructures import Headers
     from websockets.http11 import Response
 
     class Connection:
         async def __aenter__(self):
-            raise G.websockets.exceptions.InvalidStatus(Response(status, "private reason", Headers(), body=b"private body"))
+            raise G.websockets.exceptions.InvalidStatus(
+                Response(status, "private reason", Headers(), body=b"private body")
+            )
 
         async def __aexit__(self, *args):
             pass
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
-    with pytest.raises(G.ProviderError, match="^GPT-Live: " + code + "$"):
+    with pytest.raises(G.ProviderError, match=r"^GPT-Live: " + code + "$"):
         asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test")))
 
 
 @pytest.mark.parametrize("rate", ["bad", "nan", "inf", "-1"])
 def test_invalid_backend_rates_have_safe_diagnostics(monkeypatch, rate):
     monkeypatch.setenv("TMUXRC_GPT_LIVE_INPUT_PER_M", rate)
-    with pytest.raises(G.ProviderError, match="^GPT-Live: set_tmuxrc_gpt_live_input_per_m$"):
+    with pytest.raises(G.ProviderError, match=r"^GPT-Live: set_tmuxrc_gpt_live_input_per_m$"):
         G.Usage(G.BACKEND)
 
 
@@ -422,7 +438,7 @@ def test_full_tool_queue_reports_overload_without_running_more_actions():
     ])
     for _ in range(s.work.maxsize):
         s.work.put_nowait([call()])
-    with pytest.raises(G.ProviderError, match="^GPT-Live: terminal_queue_full$"):
+    with pytest.raises(G.ProviderError, match=r"^GPT-Live: terminal_queue_full$"):
         asyncio.run(s.receive())
     assert not s.ws.sent
     assert s.work.qsize() == s.work.maxsize
@@ -451,13 +467,19 @@ def test_concurrent_snapshot_dedup_survives_post_action_context():
             await original_send(data)
 
         s.ws.send = slow_send
-        snapshot = SimpleNamespace(parts=[SimpleNamespace(text="[tmux update] current pane state: same screen")])
-        action = SimpleNamespace(parts=[SimpleNamespace(text="[tmux update] shell (%1) after your input: new screen")])
-        await asyncio.gather(s.send_client_content(turns=snapshot), s.send_client_content(turns=snapshot))
+        snapshot = SimpleNamespace(parts=[
+            SimpleNamespace(text="[tmux update] current pane state: same screen"),
+        ])
+        action = SimpleNamespace(parts=[
+            SimpleNamespace(text="[tmux update] shell (%1) after your input: new screen"),
+        ])
+        await asyncio.gather(
+            s.send_client_content(turns=snapshot), s.send_client_content(turns=snapshot),
+        )
         await s.send_client_content(turns=action)
         await s.send_client_content(turns=snapshot)
-        updates = [e for e in s.ws.sent if e['type'] == 'response.item.create']
+        updates = [e for e in s.ws.sent if e["type"] == "response.item.create"]
         assert len(updates) == 2
-        assert len([e for e in s.ws.sent if e['type'] == 'session.thinking.append']) == 1
+        assert len([e for e in s.ws.sent if e["type"] == "session.thinking.append"]) == 1
 
     asyncio.run(run())
