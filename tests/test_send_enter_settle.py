@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-import openbus.tmux as tmux
+from openbus import tmux
 
 
 @pytest.fixture(autouse=True)
@@ -108,37 +108,15 @@ def test_the_settle_is_inside_the_send_lock(monkeypatch):
     assert order == ["mine", "Enter", "theirs", "Enter"], order
 
 
-def test_both_composers_submit_through_the_settling_path():
-    """The settle lives in ONE place — send_keys' literal+enter branch — so a composer
-    only gets it if it asks for the Return that way. The desktop composer used to submit
-    with a separate `keys: "Enter", literal: false` request: a key-name send, which is
-    deliberately exempt from the wait (a lone keystroke has no paste to escape). That
-    exemption was correct for the key bar and wrong for a submit, so the desktop had the
-    unsent-composer bug the Python fix alone does not reach.
-
-    Both composers now submit the same way the mobile one always has: an empty literal
-    with enter=true, which carries no text and exists purely to take the settling path.
-    """
+def test_both_composers_send_one_complete_draft():
     web = Path(__file__).resolve().parents[1] / "web"
-    lines = (web / "app.js").read_text().splitlines()
-    # Anchor on the segment loop so this reads the DESKTOP COMPOSER's own submit, not a
-    # matching string anywhere in a 3700-line file: the submit is whatever it does once
-    # the segments are in the pane, and that is the request under test.
-    start = next(i for i, ln in enumerate(lines) if "if (seg.text != null) await postSend" in ln)
-    # ...through to where the composer is cleared, so the window is the submit itself
-    # however much comment sits in it, not a fixed and quietly drifting line count.
-    end = next(i for i, ln in enumerate(lines[start:], start) if "clearComposer();" in ln)
-    submit = "\n".join(lines[start:end])
-    assert 'keys: "", enter: true, literal: true' in submit, (
-        "the desktop composer must submit via an empty literal, not a bare Enter key name"
-    )
-    # And globally, in both front ends: a Return asked for as a key NAME is exempt from
-    # the settle by design, so it can never be how a composer submits. No caller has a
-    # reason to write one — the key rows dispatch a variable, not this literal.
-    for name in ("app.js", "m/app.js"):
-        assert 'keys: "Enter"' not in (web / name).read_text(), (
-            f"{name}: a key-name Enter skips the settle — that is the bug, not the fix"
-        )
+    desktop = (web / "app.js").read_text()
+    mobile = (web / "m/app.js").read_text()
+    for source in (desktop, mobile):
+        assert 'form.append("text",' in source
+        assert 'form.append("image",' in source
+    assert "}/compose`" in desktop
+    assert 'paneUrl(id, "compose")' in mobile
 
 
 def test_a_settle_on_one_pane_does_not_stall_another(monkeypatch):
@@ -324,10 +302,11 @@ def test_a_recycled_pane_id_does_not_get_the_return(monkeypatch):
     a STRANGER'S half-typed command. The watcher already treats a pane id as non-durable
     for this reason (Pane.pid); so does this."""
     events = _record(monkeypatch, 0.3)
-    pids = iter(["1234", "9999"])  # different process behind the same id after the wait
+    pids = iter(["1234", "1234", "9999"])  # different process behind the same id after the wait
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
 
-    tmux.send_keys("%1", "rm -rf something")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "rm -rf something")
 
     assert ("send", "Enter") not in events, events
     kinds = [(kind, round(v, 1) if kind == "sleep" else v) for kind, v in events]
@@ -337,21 +316,41 @@ def test_a_recycled_pane_id_does_not_get_the_return(monkeypatch):
 def test_a_pane_that_vanished_mid_settle_does_not_get_the_return(monkeypatch):
     """Same guard, the simpler case: the pane is simply gone."""
     events = _record(monkeypatch, 0.3)
-    pids = iter(["1234", None])
+    pids = iter(["1234", "1234", None])
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: next(pids))
 
-    tmux.send_keys("%1", "anything")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "anything")
 
     assert ("send", "Enter") not in events, events
 
 
-def test_an_unreadable_pid_does_not_block_the_return(monkeypatch):
-    """If tmux cannot tell us the pid at all, refusing every submit would be worse than
-    the rare recycle we are guarding: the feature would stop working. Not knowing is not
-    evidence that the pane changed."""
+def test_an_unreadable_pid_blocks_delivery(monkeypatch):
+    """An unknown identity cannot safely receive text or a submit."""
     events = _record(monkeypatch, 0.3)
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: None)
 
-    tmux.send_keys("%1", "anything")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "anything")
 
-    assert ("send", "Enter") in events, events
+    assert events == []
+
+
+def test_recycled_pane_between_text_and_submit_is_a_failure(monkeypatch):
+    events = _record(monkeypatch, 0.3)
+    tmux.send_keys("%1", "original draft", enter=False)
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "replacement")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "", enter=True)
+    assert events == [("send", "original draft")]
+
+
+def test_per_pane_locks_are_retired_only_after_all_users_release_them():
+    import gc
+
+    first = tmux._pane_lock("%lock-test")
+    assert tmux._pane_lock("%lock-test") is first
+    assert tmux._pane_lock("%other-test") is not first
+    del first
+    gc.collect()
+    assert "%lock-test" not in tmux._send_locks
