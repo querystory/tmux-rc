@@ -429,7 +429,8 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         )
 
     args = fc.args if isinstance(fc.args, dict) else {}
-    pane_id = str(args.get("pane_id", "")).strip()
+    raw_pane_id = args.get("pane_id")
+    pane_id = raw_pane_id.strip() if isinstance(raw_pane_id, str) else ""
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
 
     # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
@@ -439,9 +440,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     if (
         fc.name == "type_in_pane"
         and isinstance(fc.args, dict)
+        and isinstance(raw_pane_id, str)
+        and isinstance(args.get("text"), str)
         and not (set(args) - {"pane_id", "text", "press_enter"})
     ):
-        text = str(args.get("text", ""))
+        text = args["text"]
         raw_enter = args.get("press_enter", True)
         # Never coerce press_enter: bool("false") is True and would submit an unsent
         # command. A non-bool value is malformed.
@@ -451,9 +454,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     elif (
         fc.name == "press_key"
         and isinstance(fc.args, dict)
+        and isinstance(raw_pane_id, str)
+        and isinstance(args.get("key"), str)
         and not (set(args) - {"pane_id", "key"})
     ):
-        key = _KEYS.get(str(args.get("key", "")))
+        key = _KEYS.get(args["key"])
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
