@@ -66,10 +66,12 @@ strictness is correct:
 - `tables` — presence too, but **opt-in**: scored only on a sample whose `expected`
   names it. Most screens have no table and take no position, so scoring it everywhere
   would fail existing samples on a field they were never blessed against. "Present"
-  means *renderable* — a table object carrying at least one nonempty array row —
+  means *renderable* — valid table objects carrying at least one nonempty array row —
   because nothing validates the model's shape here and a truthy string or `{}` would
   otherwise score as a list that never reached the screen.
 
+All supplied tables must have array rows and array headers (or omitted/null headers);
+one valid table cannot hide malformed siblings or rows that break the desktop renderer.
 A boolean `tables` expectation checks presence only. An expected table list also
 sends the expected and candidate tables to the prose judge, which must confirm every
 referenced edit is represented. Sample 16 uses this to reject unrelated tables.

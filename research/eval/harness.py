@@ -159,11 +159,19 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     # mime type, not a schema — so a string, a {} or `rows: "1. do the thing"` would
     # otherwise score as a list that travelled when the phone would show none.
     if "tables" in expected:
-        t = candidate.get("tables")
-        presence["tables"] = [x for x in t if isinstance(x, dict)
-                              and isinstance(x.get("rows"), list)
-                              and any(isinstance(row, list) and row for row in x["rows"])] \
-            if isinstance(t, list) else None
+        tables = candidate.get("tables")
+        valid = tables is None or (isinstance(tables, list) and all(
+            isinstance(table, dict)
+            and (table.get("headers") is None or isinstance(table["headers"], list))
+            and isinstance(table.get("rows"), list)
+            and all(isinstance(row, list) for row in table["rows"])
+            for table in tables
+        ))
+        if not valid:
+            diffs.append("tables: malformed headers or rows")
+        presence["tables"] = valid and any(
+            row for table in (tables or []) for row in table["rows"]
+        )
     for k, got in presence.items():
         c, e = bool(got), bool(expected.get(k))
         if c != e:

@@ -148,3 +148,13 @@ def test_referenced_edits_reach_the_content_judge():
         return {"verdict": "FAIL", "reason": "The four requested edits are missing"}
 
     assert not judge_freetext(sample, unrelated, judge)[0]
+
+
+def test_one_valid_table_cannot_hide_rows_that_crash_the_desktop():
+    valid = {"rows": [["1", "an edit"]]}
+    for invalid in ({"headers": "heading", "rows": [["x"]]},
+                    {"rows": "row"}, {"rows": [["x"], "not a row"]}, "not a table"):
+        for expected in (True, False):
+            ok, diffs = score_structured({"tables": [valid, invalid]}, {"tables": expected})
+            assert not ok
+            assert "tables: malformed headers or rows" in diffs
