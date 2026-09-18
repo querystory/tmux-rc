@@ -22,6 +22,7 @@ JSON. It then scores the candidate against the sample's blessed `expected`:
   FREE-TEXT fields (LLM-as-judge) — `headline` is prose; exact-match would be noise.
   A second Vertex call (temperature 0) rules PASS/FAIL on whether the candidate
   headline captures the SAME situation as the expected one, given the screen.
+  Concrete expected tables also require every referenced edit to survive in the output.
 
   A sample PASSES only if structured fields match AND the judge agrees. Both signals
   are surfaced so a failure tells you which half broke.
@@ -160,7 +161,8 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     if "tables" in expected:
         t = candidate.get("tables")
         presence["tables"] = [x for x in t if isinstance(x, dict)
-                              and isinstance(x.get("rows"), list) and x["rows"]] \
+                              and isinstance(x.get("rows"), list)
+                              and any(isinstance(row, list) and row for row in x["rows"])] \
             if isinstance(t, list) else None
     for k, got in presence.items():
         c, e = bool(got), bool(expected.get(k))
@@ -174,12 +176,16 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
 _JUDGE_SYSTEM = (
     "You are a strict grader for a terminal-pane classifier. You are given the SCREEN "
     "the classifier saw, the EXPECTED classification (blessed by a human), and the "
-    "CANDIDATE classification a model produced. Judge ONLY the free-text 'headline' "
+    "CANDIDATE classification a model produced. Judge the free-text 'headline' "
     "field: does the candidate headline describe the SAME situation on the screen as "
     "the expected one? Be lenient on wording, phrasing, and length — different words "
     "for the same situation PASS. Fail only if the candidate headline is about a "
     "materially DIFFERENT situation, is misleading, or contradicts the screen. If "
-    "neither side has a headline, PASS. Reply with compact JSON only: "
+    "neither side has a headline, that check passes. When expected_tables is provided, "
+    "ALSO check that candidate_tables contains every expected edit with its meaning "
+    "intact. Ignore wording and table layout, but FAIL for missing edits or unrelated "
+    "rows substituted for the referenced edits. Both headline and table content must "
+    "pass. Reply with compact JSON only: "
     '{"verdict":"PASS"|"FAIL","reason":"<one short line>"}.'
 )
 
@@ -188,14 +194,16 @@ def judge_freetext(sample: Sample, candidate: dict, llm_fn) -> tuple[bool, str]:
     """Second opinion on the prose. Returns (passed, reason). `llm_fn(system, text)`
     returns the judge's parsed JSON dict; a malformed/None reply is treated as a FAIL
     (visible, not silently swallowed) with the reason noting it."""
-    payload = json.dumps(
-        {
-            "screen": sample.capture,
-            "expected_headline": sample.expected.get("headline"),
-            "candidate_headline": candidate.get("headline"),
-        },
-        ensure_ascii=False,
-    )
+    fields = {
+        "screen": sample.capture,
+        "expected_headline": sample.expected.get("headline"),
+        "candidate_headline": candidate.get("headline"),
+    }
+    # A boolean asserts presence only; concrete expected tables also assert meaning.
+    if isinstance(sample.expected.get("tables"), list):
+        fields["expected_tables"] = sample.expected["tables"]
+        fields["candidate_tables"] = candidate.get("tables")
+    payload = json.dumps(fields, ensure_ascii=False)
     reply = llm_fn(_JUDGE_SYSTEM, payload)
     if not isinstance(reply, dict) or reply.get("verdict") not in ("PASS", "FAIL"):
         return False, f"judge returned no verdict: {str(reply)[:80]}"

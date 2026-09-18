@@ -91,7 +91,8 @@ def test_an_unrenderable_tables_value_does_not_count_as_the_list():
     draws only table objects carrying rows. A truthy-but-undrawable value would otherwise
     score as "the list travelled" while the screen still shows the question alone."""
     for junk in ("1. resolve the conflict", {}, [{}], [{"rows": []}], [{"title": "edits"}],
-                 [{"rows": "1. resolve the conflict"}], [{"rows": {"1": "resolve"}}]):
+                 [{"rows": "1. resolve the conflict"}], [{"rows": ["not a row"]}],
+                 [{"rows": [{"text": "edit 1"}]}], [{"rows": [[]]}], [{"rows": {"1": "resolve"}}]):
         ok, diffs = score_structured({"tables": junk}, {"tables": True})
         assert not ok and any("tables" in d for d in diffs), junk
 
@@ -125,3 +126,25 @@ def test_corpus_loads_and_is_well_formed():
         if s.expected.get("waiting_on"):
             assert s.expected["activity"] == "waiting", f"{s.name}: waiting_on off a non-wait"
             assert s.expected["waiting_on"] in ("user", "external")
+
+
+def test_referenced_edits_reach_the_content_judge():
+    """An unrelated but renderable table must not satisfy the referenced-list case."""
+    import json
+
+    from research.eval.harness import judge_freetext
+
+    sample = next(s for s in load_corpus() if s.name == "16_question_refers_to_list")
+    rows = sample.expected["tables"][0]["rows"]
+    assert len(rows) == 4
+    unrelated = {"headline": sample.expected["headline"],
+                 "tables": [{"rows": [["1", "Rewrite packaging"]]}]}
+
+    def judge(system, text):
+        payload = json.loads(text)
+        assert payload["expected_tables"] == sample.expected["tables"]
+        assert payload["candidate_tables"] == unrelated["tables"]
+        assert "missing edits" in system
+        return {"verdict": "FAIL", "reason": "The four requested edits are missing"}
+
+    assert not judge_freetext(sample, unrelated, judge)[0]

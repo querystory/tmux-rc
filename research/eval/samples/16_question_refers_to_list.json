@@ -9,7 +9,32 @@
     "question": {
       "answer_style": "text"
     },
-    "tables": true,
+    "tables": [
+      {
+        "headers": [
+          "Edit",
+          "Change"
+        ],
+        "rows": [
+          [
+            "1",
+            "Resolve the merge conflict in app.js."
+          ],
+          [
+            "2",
+            "Clarify that pane IDs are stable only within one tmux server lifetime; reference rekeying."
+          ],
+          [
+            "3",
+            "Document that TMUXRC_TARGET removes the deck as an accepted product cost."
+          ],
+          [
+            "4",
+            "Clarify event and log-row counting; widen OQ4 to cover both."
+          ]
+        ]
+      }
+    ],
     "headline": "Asking whether to make the four minimal edits before the meeting"
   }
 }
