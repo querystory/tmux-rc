@@ -39,7 +39,23 @@ glyph=${STEER_GLYPH:-❯}  # the agent's input-line prompt; differs per harness
 MAX_BYTES=4000           # tmux caps one send-keys near 16KB; the daemon chunks, we refuse
 
 [ $# -ge 2 ] || { echo "usage: steer <pane> <message>" >&2; exit 2; }
-pane=$1
+# A tmux target is not an identity. "%3" and "session:win.0" name the same pane but are
+# different strings, so a lock keyed on the string does not serialise two callers who
+# spell it differently; and tmux REUSES "%3" once that pane dies, so a pane that exits
+# between the composer check and a retrying Enter hands the rest of the message to a
+# stranger. Resolve the target once to the canonical id plus the pane's PID, key
+# everything on that, and re-check it before every keystroke — the daemon's send path
+# makes the same PID check, for the same reason.
+# Check the ANSWER, not the exit status: tmux display-message exits 0 on a target it
+# cannot find and hands back the format with the fields empty. Taking that as success
+# leaves the target empty, and an empty -t is the CURRENT pane — this script would then
+# type into whoever ran it.
+ident() { tmux display-message -p -t "$1" '#{pane_id} #{pane_pid}' 2>/dev/null; }
+who=$(ident "$1")
+pane=${who%% *}
+case $pane in %[0-9]*) ;; *) echo "steer: no such pane: $1" >&2; exit 1 ;; esac
+same() { [ "$(ident "$pane")" = "$who" ] || {
+  echo "steer($pane): pane is gone or was recycled — not sending" >&2; exit 1; }; }
 # The draft check and the send below are not one atomic step: two runs against the same
 # pane would each see an empty composer, then interleave their text and Enters into one
 # prompt while both retry loops reported success. An orchestrator steering a fleet in
@@ -47,8 +63,8 @@ pane=$1
 # runs of THIS script only — a human at the keyboard, or the daemon's own send path, is
 # outside it. One keystroke path is the real fix, and that is what the daemon provides.
 # The lock lives in a per-user runtime dir, not $TMPDIR: the name is derived from the pane
-# and so is guessable, and on a shared /tmp another user can park a symlink there and have
-# this redirection truncate whatever it points at. Missing flock still skips the lock —
+# id and so is guessable, and on a shared /tmp another user can park a symlink there and
+# have this redirection truncate whatever it points at. Missing flock still skips the lock —
 # nothing is lost that was not already unlocked — but a flock that is present and then
 # fails to take the lock is a different thing, and we exit rather than send unserialised.
 if command -v flock >/dev/null 2>&1; then
@@ -87,9 +103,11 @@ inputline() {
 draft=$(inputline) || { echo "steer($pane): no input line found — wrong pane, or wrong STEER_GLYPH?" >&2; exit 1; }
 [ -z "$draft" ] || { echo "steer($pane): composer is not empty, refusing to append to: $draft" >&2; exit 1; }
 
+same
 tmux send-keys -t "$pane" -l "$msg" || exit 1
 for i in 1 2 3; do
   sleep 1
+  same
   tmux send-keys -t "$pane" Enter || exit 1
   sleep 2
   if line=$(inputline) && [ -z "$line" ]; then
