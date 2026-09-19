@@ -526,9 +526,10 @@ async function sendKeys(body, answer = false) {
   return delivered;
 }
 
-// This surface's half of the shared cursor walk. `pendingAnswer` is deliberately not set
-// on the intermediate moves: gating the option buttons on the first Down would disable
-// the very row the walk is still working toward, and the walk is the only thing sending.
+// This surface's half of the shared cursor walk. No send here sets `pendingAnswer`: not
+// the intermediate moves, where gating the option buttons on the first Down would disable
+// the very row the walk is working toward, and not the commit either, since sendKeys' own
+// `sending` flag already blocks a second tap and the picker is gone from the next parse.
 function cursorIO(id) {
   // sendKeys() posts to whatever pane is `active` at the time, not to a captured id, so a
   // pane switch mid-walk would aim the remaining moves at a stranger's picker. Reporting
