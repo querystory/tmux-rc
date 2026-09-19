@@ -17,6 +17,7 @@ from functools import partial
 from . import tmux
 from .classify import bootstrap, classify
 from .llm import backing_off, classify_text, summarize_events
+from .telemetry import emit_pane_event
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +266,11 @@ class Watcher:
         The /api/state long-poll returns as soon as this passes the client's version."""
         return self._state_version
 
-    async def wait_for_state_change(self, since: int, timeout: float) -> int:
+    # ASYNC109 is suppressed below. The rule wants the caller to wrap this in a cancel
+    # scope instead, but that changes the contract: this returns the current version on
+    # timeout rather than raising, because the HTTP long-poll behind it has to answer
+    # with a version either way.
+    async def wait_for_state_change(self, since: int, timeout: float) -> int:  # noqa: ASYNC109
         """Hold until state_version() advances past `since`, or `timeout` elapses; return
         the current version either way. The version is the truth (the Event is only a
         wake nudge). We CLEAR the Event *before* re-checking the version, so a bump that
@@ -281,7 +286,7 @@ class Watcher:
                 break
             try:
                 await asyncio.wait_for(self._state_changed.wait(), timeout=remaining)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
         return self._state_version
 
@@ -358,7 +363,7 @@ class Watcher:
         while True:
             try:
                 await asyncio.to_thread(self._tick)
-            except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
+            except Exception:  # never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
             # Between full ticks, poll ONLY the active pane id on a fast cadence — a single
@@ -375,12 +380,12 @@ class Watcher:
                     await asyncio.wait_for(self._wake.wait(), timeout=min(FAST_POLL, remaining))
                     self._wake.clear()  # a request_reparse wake — do a full tick now
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Fast slice elapsed with no wake: cheap active-pane check, then keep
                     # slicing until the full-tick deadline.
                     try:
                         await asyncio.to_thread(self._check_active_fast)
-                    except Exception:  # noqa: BLE001 - a bad fast check must not kill the loop
+                    except Exception:  # a bad fast check must not kill the loop
                         logger.debug("fast active-pane check failed", exc_info=True)
 
     def _check_active_fast(self) -> None:
@@ -439,7 +444,7 @@ class Watcher:
                 )
             panes = [p] if p else []
         else:
-            panes = tmux.list_panes()
+            panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
             self._publish_states([])
             return
@@ -490,7 +495,7 @@ class Watcher:
                 else:
                     logger.warning("pane %s vanished mid-tick", p.id)
                 s = None
-            except Exception:  # noqa: BLE001 - isolate per-pane failures
+            except Exception:  # isolate per-pane failures
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
                 s = None
             if not isinstance(s, dict):
@@ -637,7 +642,7 @@ class Watcher:
                     tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES, mark_dim=True),
                     llm_fn,
                 )
-            except Exception:  # noqa: BLE001 - one pane must never wedge the watcher
+            except Exception:  # one pane must never wedge the watcher
                 logger.warning("bootstrap failed for %s", p.id, exc_info=True)
                 result = None
             if result and boot is not None:
@@ -722,15 +727,13 @@ class Watcher:
         """Best-effort pane-lifecycle telemetry. server_uid is constant for this daemon
         run, so a departing pane's uid is reconstructable from its id alone."""
         try:
-            from .telemetry import emit_pane_event
-
             emit_pane_event(
                 event=event,
                 pane_uid=f"{tmux.server_uid()}:{pane_id}",
                 label=label,
                 tool=tool,
             )
-        except Exception:  # noqa: BLE001 - telemetry must never break the watcher
+        except Exception:  # telemetry must never break the watcher
             logger.debug("pane-event emit failed", exc_info=True)
 
     def _forget(self, pane_id: str) -> None:

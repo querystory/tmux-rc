@@ -60,10 +60,10 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
-  function add(role, message) {
+  function add(role, message, newSegment = false) {
     const log = $("voice-log"), previous = log.lastElementChild;
     const follow = log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX;
-    const grow = (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
+    const grow = !newSegment && (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
     let row = previous;
     if (!grow) {
       row = document.createElement("div"); row.className = "voice-entry";
@@ -97,10 +97,10 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     }
     status(message); paint();
   }
-  function playAudio(current, data) {
+  function playAudio(current, data, sampleRate = PLAYBACK_RATE) {
     const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
     const pcm = new Int16Array(bytes.buffer);
-    const buffer = current.play.createBuffer(1, pcm.length, PLAYBACK_RATE);
+    const buffer = current.play.createBuffer(1, pcm.length, sampleRate);
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 0x8000;
     const source = current.play.createBufferSource(); source.buffer = buffer;
@@ -119,11 +119,17 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     const mute = current.capture.createGain(); mute.gain.value = 0;
     const rate = current.capture.sampleRate;
     let pending = new Float32Array(0);
+    current.clearPending = () => { pending = new Float32Array(0); };
     tap.port.onmessage = ({ data }) => {
-      if (run !== current || !current.listening || current.muted || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) { pending = new Float32Array(0); return; }
+      if (run !== current || !current.listening || (current.muted && !current.frameMs) || current.ws?.readyState !== WebSocket.OPEN || current.ws.bufferedAmount > MAX_SOCKET_BACKLOG) { pending = new Float32Array(0); return; }
       const joined = new Float32Array(pending.length + data.length);
-      joined.set(pending); joined.set(data, pending.length); pending = joined;
-      if (pending.length < MIN_FRAME_SAMPLES) return;
+      joined.set(pending);
+      // A worklet message captured before the toggle can arrive after mute.
+      // Float32Array already appended data.length ZERO samples: the buffer still
+      // grows while muted, preserving GPT-Live framing without copying mic audio.
+      if (!current.muted) joined.set(data, pending.length);
+      pending = joined;
+      if (pending.length < (current.frameMs ? rate * current.frameMs / 1000 : MIN_FRAME_SAMPLES)) return;
       let samples = pending; pending = new Float32Array(0);
       if (rate !== CAPTURE_RATE) {
         const resampled = new Float32Array(Math.round(samples.length * CAPTURE_RATE / rate));
@@ -157,15 +163,16 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       if (run !== current || current.ws !== ws) return;
       let message; try { message = JSON.parse(data); } catch { return; }
       if (message.type === "status") {
+        current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
         status(current.listening ? `Listening / ${current.model || "Default"}` : message.status === "reconnecting" ? "Reconnecting..." : "Connecting...");
-      } else if (message.type === "transcript") add(message.role, message.text);
+      } else if (message.type === "transcript") add(message.role, message.text, message.new_segment);
       else if (message.type === "turn_complete") [...$("voice-log").children].forEach((row) => { row.dataset.done = "true"; });
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
       else if (message.type === "error") add("error", message.message);
       else if (message.type === "interrupted") silence(current);
-      else if (message.type === "audio") { try { playAudio(current, message.data); } catch { add("error", "Could not play this audio chunk."); } }
+      else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
     ws.onclose = (event) => {
       if (run !== current || current.ws !== ws) return;
@@ -207,6 +214,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   $("voice-mute").onclick = () => {
     if (!run?.stream) return;
     run.muted = !run.muted;
+    run.clearPending?.();
     run.stream.getAudioTracks().forEach((track) => { track.enabled = !run.muted; });
     paint();
   };

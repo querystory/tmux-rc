@@ -22,7 +22,11 @@ def test_default_launchers(monkeypatch):
 def test_launchers_inline_json_override(monkeypatch):
     cfg = [
         {"label": "Claude (Fable)", "command": "claude --model fable", "icon": "claude"},
-        {"label": "Claude (Bedrock)", "command": "CLAUDE_CODE_USE_BEDROCK=1 claude", "icon": "claude"},
+        {
+            "label": "Claude (Bedrock)",
+            "command": "CLAUDE_CODE_USE_BEDROCK=1 claude",
+            "icon": "claude",
+        },
     ]
     monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps(cfg))
     got = S._launchers()
@@ -66,7 +70,9 @@ def test_new_window_runs_configured_command(monkeypatch):
 def test_new_window_refuses_unknown_launcher(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
-    monkeypatch.setattr(T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run")))
+    monkeypatch.setattr(
+        T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run"))
+    )
     client = TestClient(S.app)
     r = client.post("/api/windows", json={"session": "work", "launcher": "rm -rf /"})
     assert r.status_code == 404

@@ -70,6 +70,36 @@ pass it through untouched.
 `make test` runs `pytest -q tests/`. There is no JS test harness — browser-side logic is
 verified by hand against real DOM shapes and by live testing on the phone.
 
+## Python lint
+
+`make lint` runs ruff over the whole tree; `make fmt` is the same rules with the safe
+fixes applied. Both must be clean before a PR goes up. The ruleset lives in
+`pyproject.toml` and is shared with our other Python codebase so one style covers both.
+
+It is `select = ["ALL"]` plus a curated ignore list, rather than a short opt-in list, so
+that a rule ruff adds later shows up and gets an explicit decision instead of silently
+never running. Every entry in that list carries its reason on the same line; if you turn
+one off, say why there.
+
+Two conventions worth knowing before you hit them:
+
+- **No mid-file imports in `openbus/`** (PLC0415). An import inside a function is a real
+  decision — deferring a slow or optional dependency — so it needs a `# noqa: PLC0415`,
+  and the reason has to be findable: either on the noqa itself or in the surrounding
+  comment or docstring. The three that exist today defer `google.genai` (~0.9s to import,
+  measured — that would otherwise land on daemon startup), the optional opentelemetry
+  stack, and `uvicorn` in `main()`. An import that is merely far from the top of the file
+  is a bug: hoist it. Test and script files are exempt, so a single case can keep its
+  import next to the code that needs it.
+- **`ruff format` is not used**, and `make fmt` does not run it. The hand-aligned constant
+  tables and short guard ladders in this repo are deliberate, and reflowing them would
+  bury real diffs under whitespace churn.
+
+Complexity rules (C901, PLR0911/0912/0915) are currently off: seven functions exceed them
+today — the two watcher ticks, `render_png`, `tmux._mark_dim`, two in `live.py`, and the
+docs-site link checker — and that refactor belongs in its own PR rather than inside a lint
+change. Issue #205 has the full inventory; turn the rules back on when it lands.
+
 ## Classifier / prompt changes
 
 Any change to `openbus/parser_prompt.txt` or the classifier logic (`openbus/classify.py`)

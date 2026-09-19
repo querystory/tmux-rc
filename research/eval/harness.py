@@ -226,8 +226,7 @@ def format_table(results: list[Result]) -> str:
             f"{'ok' if r.judge_ok else 'FAIL':>6}  {'PASS' if r.passed else 'FAIL'}"
         )
         if not r.struct_ok:
-            for d in r.struct_diffs:
-                lines.append(f"    struct: {d}")
+            lines.extend(f"    struct: {d}" for d in r.struct_diffs)
         if not r.judge_ok:
             lines.append(f"    judge: {r.judge_reason}")
     passed = sum(r.passed for r in results)
