@@ -23,7 +23,11 @@ def test_default_launchers(monkeypatch):
 def test_launchers_inline_json_override(monkeypatch):
     cfg = [
         {"label": "Claude (Fable)", "command": "claude --model fable", "icon": "claude"},
-        {"label": "Claude (Bedrock)", "command": "CLAUDE_CODE_USE_BEDROCK=1 claude", "icon": "claude"},
+        {
+            "label": "Claude (Bedrock)",
+            "command": "CLAUDE_CODE_USE_BEDROCK=1 claude",
+            "icon": "claude",
+        },
     ]
     monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps(cfg))
     got = S._launchers()
@@ -55,6 +59,14 @@ def _fake_pane(session="work"):
 # nothing else. Tests that are not ABOUT resolution stub it to "everything resolves".
 def _resolves(monkeypatch):
     monkeypatch.setattr(S.shutil, "which", lambda c, path=None: c)
+
+
+# A refusal has to happen BEFORE tmux is touched — a 400/404 that still opened the window
+# would be the bug, not the fix — so the refusal tests make the call itself the failure.
+def _never_runs(monkeypatch):
+    def boom(argv):
+        raise AssertionError("must not run")
+    monkeypatch.setattr(T, "_run", boom)
 
 
 # `_unavailable` is given the tmux server's PATH by its callers and declines outright when
@@ -96,7 +108,7 @@ def test_new_window_runs_configured_command(monkeypatch):
 def test_new_window_refuses_unknown_launcher(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
-    monkeypatch.setattr(T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run")))
+    _never_runs(monkeypatch)
     client = TestClient(S.app)
     r = client.post("/api/windows", json={"session": "work", "launcher": "rm -rf /"})
     assert r.status_code == 404
@@ -128,7 +140,7 @@ def test_new_window_refuses_command_not_on_path(monkeypatch):
         [{"label": "Codex", "command": "codex --yolo", "icon": "codex"}]))
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
     monkeypatch.setattr(S.shutil, "which", lambda c, path=None: None)
-    monkeypatch.setattr(T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run")))
+    _never_runs(monkeypatch)
     client = TestClient(S.app)
     r = client.post("/api/windows", json={"session": "work", "launcher": "Codex"})
     assert r.status_code == 400
@@ -163,7 +175,8 @@ def test_new_window_allows_a_command_when_tmux_cannot_say(monkeypatch):
     monkeypatch.setattr(S.shutil, "which", lambda c, path=None: None)
     monkeypatch.setattr(T, "_run", lambda argv: "%7")
     client = TestClient(S.app)
-    assert client.post("/api/windows", json={"session": "work", "launcher": "Codex"}).status_code == 200
+    r = client.post("/api/windows", json={"session": "work", "launcher": "Codex"})
+    assert r.status_code == 200
     assert "unavailable" not in client.get("/api/launchers").json()["launchers"][0]
 
 
@@ -250,10 +263,12 @@ def test_new_window_wakes_the_watcher_for_the_pane_it_made(monkeypatch):
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
     monkeypatch.setattr(T, "_run", lambda argv: "%42")
     asked = []
-    S.app.state.watcher = type("W", (), {"request_reparse": lambda self, pane_id: asked.append(pane_id)})()
+    S.app.state.watcher = type(
+        "W", (), {"request_reparse": lambda self, pane_id: asked.append(pane_id)})()
     try:
         client = TestClient(S.app)
-        assert client.post("/api/windows", json={"session": "work", "launcher": "Claude"}).status_code == 200
+        r = client.post("/api/windows", json={"session": "work", "launcher": "Claude"})
+        assert r.status_code == 200
         assert asked == ["%42"]  # the id just created, not the one the user was on
     finally:
         del S.app.state.watcher

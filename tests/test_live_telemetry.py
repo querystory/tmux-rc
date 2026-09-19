@@ -13,7 +13,9 @@ def _capture(monkeypatch):
     seen = {}
     monkeypatch.setattr(
         telemetry, "_emit_record",
-        lambda body, attrs, scope=telemetry._SCOPE: seen.update(body=body, attrs=attrs, scope=scope),
+        lambda body, attrs, scope=telemetry._SCOPE: seen.update(
+            body=body, attrs=attrs, scope=scope
+        ),
     )
     return seen
 

@@ -30,7 +30,9 @@ def test_version_bumps_only_on_deck_change():
     w._bump_state_if_changed(_states({**A, "tmux_active": False}, {**B, "tmux_active": True}))
     assert w.state_version() == 2
     # new activity on a pane → bump
-    w._bump_state_if_changed(_states({**A, "tmux_active": False}, {**B, "tmux_active": True, "events_seq": 3}))
+    w._bump_state_if_changed(
+        _states({**A, "tmux_active": False}, {**B, "tmux_active": True, "events_seq": 3})
+    )
     assert w.state_version() == 3
 
 

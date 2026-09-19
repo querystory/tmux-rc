@@ -289,8 +289,28 @@ for launched, pane_id, now, expected in [
         "awaitingLaunch", [launched, pane_id, now], expected,
     ))
 
+# paneName heads every card. The regression: the phone rendered `label` alone — a tmux
+# fallback naming a WINDOW ("misc-5:1") and nothing about the work — while the agent's own
+# title sat unused in the same record. A session holding five unrelated projects gave five
+# cards headed by the session that contains them. (pane, expected heading)
+for pane, expected in [
+    ({"title": "PRs inventory and integration testing", "label": "misc-5:1", "pane_id": "%16"},
+     "PRs inventory and integration testing"),
+    # A plain shell names nothing, so the tmux label is still the best available heading.
+    ({"title": "", "label": "misc-5:1", "pane_id": "%16"}, "misc-5:1"),
+    ({"label": "", "window_name": "bash", "pane_id": "%16"}, "bash"),
+    ({"pane_id": "%16"}, "%16"),
+]:
+    CASES.append((
+        f"paneName: {pane!r}",
+        "paneName", [pane], expected,
+    ))
+
 FILTER_NAMES = ["all", "running", "recent", "attention"]
-for invalid_filter in ("__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None):
+INVALID_FILTERS = (
+    "__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None,
+)
+for invalid_filter in INVALID_FILTERS:
     CASES.append((
         f"matchesFilter: unknown filter {invalid_filter!r} behaves like all",
         "matchesFilter", [IDLE_11_MIN_AGO, invalid_filter, NOW_MS], True,
@@ -323,7 +343,8 @@ const check = (description, actual, expected) => {{
 }};
 
 {checks}
-check("FILTERS exposes exactly the four filter names", () => Object.keys(m.FILTERS).sort(), {json.dumps(sorted(FILTER_NAMES))});
+check("FILTERS exposes exactly the four filter names",
+      () => Object.keys(m.FILTERS).sort(), {json.dumps(sorted(FILTER_NAMES))});
 
 if (failures.length) {{
   console.error(failures.join("\\n\\n"));

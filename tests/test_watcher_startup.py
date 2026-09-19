@@ -92,7 +92,9 @@ def test_empty_discovery_publishes_booted_state(inventory, monkeypatch, running)
 def test_failed_discovery_stays_loading_then_recovers(inventory, monkeypatch):
     w, panes = inventory
     with monkeypatch.context() as patch:
-        patch.setattr(W.tmux, "list_panes", lambda: (_ for _ in ()).throw(RuntimeError("tmux failed")))
+        patch.setattr(
+            W.tmux, "list_panes", lambda: (_ for _ in ()).throw(RuntimeError("tmux failed"))
+        )
         with pytest.raises(RuntimeError, match="tmux failed"):
             w._tick()
     assert not w.booted() and w.states == [] and w.state_version() == 0
@@ -128,7 +130,7 @@ def test_bad_pane_does_not_hide_other_results(inventory, monkeypatch):
 
 
 def test_later_ticks_keep_classified_state_until_replacement(inventory, monkeypatch):
-    w, panes = inventory
+    w, _panes = inventory
     monkeypatch.setattr(w, "_tick_pane", parsed)
     w._tick()
     before = w.states
