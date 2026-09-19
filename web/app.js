@@ -49,6 +49,7 @@
 // Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCaptureLines, linkifyText } from "./terminal.js";
+import { pickCursorRow } from "./cursor-pick.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -3587,7 +3588,7 @@ function applyQuestion(ui, s, card) {
       const i = b._optIndex;
       setActive(paneId);
       // A cursor list can't be answered with one keystroke — it needs a verified walk.
-      if (cur.question.answer_style === "cursor") pickCursorRow(paneId, b._optText, i);
+      if (cur.question.answer_style === "cursor") pickCursorRow(cursorIO(paneId), b._optText, i);
       else answer(cur, keyFor(cur.question, b._optText, i));
     };
     return b;
@@ -3621,80 +3622,29 @@ function keyFor(question, opt, i) {
   return opt; // text style (default): send the option's literal text
 }
 
-// How many cursor moves we'll walk before giving up. A picker with a long list is
-// better served by its own search box than by 30 keystrokes, and an anchor that's wrong
-// gets more wrong the further we walk.
-const CURSOR_MAX_STEPS = 12;
-
-// Pick a row in a "cursor" picker — a highlighted list where neither a digit nor the
-// row's text selects anything (both land in its search box; that WAS the /resume bug).
-//
-// The widget advertises its own bindings on a footer, and question.keymap is what it
-// advertised, so we drive the contract on screen instead of a hardcoded ↑/↓+Enter guess.
-// Nothing here invents a key: an unadvertised binding means we don't press it.
-//
-// MOVE, VERIFY, THEN SELECT. The anchor (question.selected) comes from a frame that is
-// already stale by the time a tap arrives — the cursor may have moved since. So we step
-// toward the target, let the forced reparse re-read the screen, and only commit once the
-// highlight is confirmed on the row the user actually tapped. Firing move+Enter in one
-// burst would be faster and would silently pick the wrong session whenever the anchor
-// was stale, which is the same class of bug in a new costume.
-async function pickCursorRow(paneId, targetText, targetIndex) {
-  const km = (panesById[paneId] && panesById[paneId].question || {}).keymap || {};
-  for (let step = 0; step < CURSOR_MAX_STEPS; step++) {
-    const q = (panesById[paneId] || {}).question;
-    // The picker closed, or the pane moved on — stop rather than type into whatever
-    // replaced it.
-    if (!q || q.answer_style !== "cursor") return;
-    // Re-find the row BY TEXT each pass: a filtered or scrolled list renumbers itself,
-    // so the index the user tapped is only trustworthy on the first pass.
-    const want = q.options.indexOf(targetText);
-    const at = typeof q.selected === "number" ? q.selected : null;
-    if (want < 0) break; // row no longer on screen — fall back to search below
-    if (at === null) break; // no trustworthy anchor — fall back to search below
-    if (at === want) {
-      if (!km.select) break; // no advertised way to commit — don't guess a key
-      await sendRaw(panesById[paneId], km.select);
-      return;
-    }
-    const key = at < want ? km.next : km.prev;
-    if (!key) break; // widget never advertised this direction — don't invent one
-    await sendRaw(panesById[paneId], key);
-    // Wait for the reparse to re-read the highlight before deciding the next step.
-    if (!(await waitForReparse(paneId))) break;
-  }
-  // Fallbacks: type-to-filter if the widget offers it, else say so rather than firing a
-  // stray key. A silent no-op is the "the button just does nothing" we don't ship.
-  const cur = panesById[paneId];
-  if (cur && km.search) await answer(cur, targetText);
-  else barNote("Can't select that row from here — use the keyboard.");
-}
-
-// Resolve once the pane's reparse lands (the spinner clears), or false on timeout.
-// Bounded so a wedged parse can't strand the walk mid-list holding `sending`.
-function waitForReparse(paneId, ms = 4000) {
-  const started = Date.now();
-  return new Promise((resolve) => {
-    (function poll() {
-      const cur = panesById[paneId];
-      if (!cur) return resolve(false); // pane vanished mid-walk — stop, don't keep typing
-      if (!isReparsing(cur)) return resolve(true);
-      if (Date.now() - started > ms) return resolve(false);
-      setTimeout(poll, 120);
-    })();
-  });
+// The cursor walk is shared with the phone (web/cursor-pick.js); everything below is
+// just this surface's plumbing plugged into it. `sleep` is the module's own, and the
+// pane is guaranteed present inside these — see the io contract there.
+function cursorIO(paneId) {
+  return {
+    question: () => (panesById[paneId] || {}).question || null,
+    parsedAt: () => (panesById[paneId] || {}).parsed_at || 0,
+    sendKey: (k) => sendRaw(panesById[paneId], k),
+    sendText: (t) => send(panesById[paneId], { keys: t, enter: false, literal: true }),
+    note: barNote,
+  };
 }
 
 async function answer(s, keys) {
   // A staged image is composer state, sent only by submitComposer — answering a
   // question (option tap / free-text) leaves it queued for the user's own send.
-  await send(s, { keys, enter: true, literal: true });
+  return send(s, { keys, enter: true, literal: true });
 }
 
 // Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter. Leaves
 // any staged image in place (it's flushed only by submitComposer's Send/Enter).
 async function sendRaw(s, keyName) {
-  await send(s, { keys: keyName, enter: false, literal: false });
+  return send(s, { keys: keyName, enter: false, literal: false });
 }
 
 // POST keys to the pane. No burst needed: the visible raw surface streams via
@@ -3728,7 +3678,7 @@ async function send(s, body) {
   // unrelated send lands could answer a different prompt than the one they read. But
   // dropping it silently is exactly the "the button just does nothing" this branch exists
   // to eliminate, so say so.
-  if (sending) return void barNote("Busy sending — that didn't go through. Tap again.");
+  if (sending) { barNote("Busy sending — that didn't go through. Tap again."); return false; }
   sending = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
@@ -3747,9 +3697,14 @@ async function send(s, body) {
     barNote(`Not sent — ${e.message}. Tap again to retry.`);
     reportError("send", e);
     render(Object.values(panesById)); // drop the spinner now, not on the next poll
+    return false;
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
   }
+  // Delivered. The cursor walk (web/cursor-pick.js) treats anything else as "the key did
+  // not land", because a move it wrongly believes happened puts every later step one row
+  // out and commits the wrong row.
+  return true;
 }
 
 // Full-screen live view of the pane (⤢ over the deck): the same long-poll stream as

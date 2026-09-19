@@ -1,6 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
+import { pickCursorRow } from "/cursor-pick.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
@@ -258,6 +259,13 @@ function render() {
       const current = panes.find((p) => p.pane_id === active);
       if (!current?.question || !needsYou(current)) return;
       let keys = button._option.option;
+      // A cursor list answers to neither of the other two styles: the row's text and a
+      // digit both land in the picker's search box. It needs a verified walk, shared with
+      // the desktop so this surface can't drift behind it again (web/cursor-pick.js).
+      if (current.question.answer_style === "cursor") {
+        pickCursorRow(cursorIO(active), keys, button._option.index);
+        return;
+      }
       if (current.question.answer_style === "menu") {
         if (current.question.options.length === 2 && /^(yes|no)$/i.test(keys)) keys = keys[0].toLowerCase();
         else if (current.question.options.length > 2) keys = String(button._option.index + 1);
@@ -495,13 +503,18 @@ function updateComposer() {
   $("attach").disabled = sending || !available;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
 }
+// Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
+// (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
+// step one row out and commits the wrong row.
 async function sendKeys(body, answer = false) {
-  if (sending || !panes.some((p) => p.pane_id === active)) return;
+  if (sending || !panes.some((p) => p.pane_id === active)) return false;
   const id = active;
   const signature = JSON.stringify(panes.find((p) => p.pane_id === id)?.question);
+  let delivered = false;
   sending = true; notice(); render();
   try {
     await post(paneUrl(id, "send"), body);
+    delivered = true;
     if (answer) {
       pendingAnswer = { id, signature };
       setTimeout(() => { if (pendingAnswer?.id === id && pendingAnswer.signature === signature) { pendingAnswer = null; render(); } }, ANSWER_PENDING_MS);
@@ -510,6 +523,21 @@ async function sendKeys(body, answer = false) {
     startState();
   } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
   finally { sending = false; render(); }
+  return delivered;
+}
+
+// This surface's half of the shared cursor walk. `pendingAnswer` is deliberately not set
+// on the intermediate moves: gating the option buttons on the first Down would disable
+// the very row the walk is still working toward, and the walk is the only thing sending.
+function cursorIO(id) {
+  const pane = () => panes.find((p) => p.pane_id === id);
+  return {
+    question: () => pane()?.question || null,
+    parsedAt: () => pane()?.parsed_at || 0,
+    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }),
+    sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }),
+    note: notice,
+  };
 }
 $("reply-form").onsubmit = async (event) => {
   event.preventDefault();
