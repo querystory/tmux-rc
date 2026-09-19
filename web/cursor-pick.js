@@ -85,7 +85,14 @@ async function waitForParse(io, after, ms = PARSE_WAIT_MS) {
 // tap arrives, so each pass re-reads the screen instead of firing move+move+Enter in one
 // burst. That burst would be faster and would silently pick the wrong session whenever
 // the anchor had moved, which is the same class of bug in a new costume.
+// Same rows, same order — i.e. the list has not renumbered under us.
+const sameRows = (a, b) => a.length === b.length && a.every((row, i) => row === b[i]);
+
 async function walk(io, km, targetText, targetIndex) {
+  // The rows as of the previous pass. A long picker shows a WINDOW onto its list and
+  // scrolls it as the highlight leaves the edge, so the options array can renumber between
+  // two passes of this loop — see the identity check below for why that matters.
+  let rows = null;
   // One pass more than the budget, because the budget counts MOVES and the arrival check
   // runs before each one: a row exactly CURSOR_MAX_STEPS away is reached by the last move,
   // and without a final check-only pass the loop spends its whole budget arriving and then
@@ -100,7 +107,16 @@ async function walk(io, km, targetText, targetIndex) {
     // matching, and the row's text is the only identity left — which is no identity at
     // all when two sessions share a title, so that case refuses rather than resuming a
     // coin-flip. Selecting the wrong session confidently is worse than not selecting.
-    const want = q.options[targetIndex] === targetText
+    // The tapped index identifies the row only while the list has not moved under it.
+    // "Same text at the same index" is not proof on its own: two sessions can share a
+    // title, and after a scroll index 2 can be a DIFFERENT session wearing the same name.
+    // Comparing the rows themselves is the proof — unchanged list, index still good;
+    // changed list, the text is all the row has left, and that is nothing at all when it
+    // matches twice. (First pass has nothing to compare against: the tap was made against
+    // that frame, and the text check below is the only corroboration available.)
+    const steady = rows === null || sameRows(rows, q.options);
+    rows = q.options;
+    const want = steady && q.options[targetIndex] === targetText
       ? targetIndex
       : soleIndex(q.options, targetText);
     // `selected` is model JSON too, so "a number" is not enough: -1, 2.5 and an index off
@@ -155,7 +171,11 @@ async function pick(io, targetText, targetIndex) {
   // so a title that matches twice here still matches twice once filtered, and typing it in
   // would leave the user's picker filtered for a walk that was never going to commit.
   const q = picker(io);
-  if (!km.search || !km.select || !q || soleIndex(q.options, targetText) < 0) {
+  // `km.search === true`, not truthy: the field is declared boolean but arrives from the
+  // model unvalidated, and the string "false" is truthy. Typing into a list that does not
+  // filter is stray keystrokes, which is the one thing this file exists to not do — so it
+  // fails closed on anything that is not the literal boolean.
+  if (km.search !== true || !km.select || !q || soleIndex(q.options, targetText) < 0) {
     io.note(STUCK);
     return false;
   }

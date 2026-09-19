@@ -156,6 +156,26 @@ CASES = [
         {"sent": ["gamma", "Enter"], "selected": 0, "notes": []},
     ),
     (
+        # Regression, Copilot: a long picker scrolls its window as the highlight leaves the
+        # edge, so index 2 can become a DIFFERENT session wearing the same title. Same text
+        # at the same index is not proof; an unchanged list is.
+        "a scrolled list gives up the tapped index even with matching text there",
+        {"options": ["beta", "alpha", "beta"], "selected": 0, "keymap": NO_SEARCH_KM,
+         "scroll_after": 1},
+        "beta", 2,
+        {"sent": ["Down"], "selected": 1, "notes": 1},
+    ),
+    (
+        # Regression, Copilot: `search` is declared boolean but arrives unvalidated, and
+        # the string "false" is truthy. Typing into a list that does not filter is exactly
+        # the stray-keystroke failure this module exists to prevent, so it fails closed.
+        "a non-boolean search flag does not unlock the search fallback",
+        {"options": ROWS, "selected": None,
+         "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": "false"}},
+        "gamma", 2,
+        {"sent": [], "selected": None, "notes": 1},
+    ),
+    (
         # Regression, Copilot: after a filter renumbers the list the tapped index is
         # spent, and two rows sharing a title cannot be told apart by text. Refusing is
         # the only honest answer — resuming the wrong session confidently is the failure.
@@ -229,6 +249,9 @@ function fake(spec) {{
     // A filter that renumbers the list without resolving the ambiguity: both rows sharing
     // the title survive, so the tapped index no longer names either of them.
     if (spec.renumber_after === p.sends) p.options = ["beta", "beta"];
+    // A scroll: the window onto the list moves, so the rows renumber while a row with the
+    // tapped text still happens to sit at the tapped index — a DIFFERENT session, though.
+    if (spec.scroll_after === p.sends) p.options = ["beta", "gamma", "beta"];
     return true;
   }};
   p.io = {{

@@ -148,3 +148,15 @@ def test_malformed_keymap_scores_as_a_mismatch_rather_than_exploding():
         {"question": {"answer_style": "cursor", "keymap": "Up/Down to move"}},
         {"question": pinned})
     assert not ok and any("question" in d for d in diffs)
+
+
+def test_a_non_boolean_search_flag_is_not_true():
+    """`search` is declared boolean but the candidate is raw model output, and
+    bool("false") is True — which would let a malformed keymap score as matching a pinned
+    `search: true` and walk straight through the gate it exists to be."""
+    pinned = {"answer_style": "cursor", "keymap": {"select": "Enter", "search": True}}
+    ok, diffs = score_structured(
+        {"question": {"answer_style": "cursor",
+                      "keymap": {"select": "Enter", "search": "false"}}},
+        {"question": pinned})
+    assert not ok and any("question" in d for d in diffs)

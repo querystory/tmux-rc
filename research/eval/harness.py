@@ -113,7 +113,11 @@ def _keymap(km: dict | None) -> tuple:
     # classify.py), so a malformed keymap can be a string or a list, and .get would raise
     # — taking down the whole eval run instead of recording one structured mismatch.
     km = km if isinstance(km, dict) else {}
-    return (km.get("next"), km.get("prev"), km.get("select"), bool(km.get("search")))
+    # `is True`, not bool(): the field is declared boolean but the candidate is raw model
+    # output, and bool("false") is True — which would let a malformed keymap score as
+    # matching a pinned `search: true` and walk straight through the gate. Omitted and
+    # explicitly false still agree, which is the point of normalizing at all.
+    return (km.get("next"), km.get("prev"), km.get("select"), km.get("search") is True)
 
 
 def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
