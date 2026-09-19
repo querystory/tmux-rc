@@ -137,3 +137,14 @@ def test_cursor_fields_scored_only_when_the_sample_pins_them():
         {"question": {"answer_style": "cursor", "keymap": {"select": "Enter", "search": False}}},
         {"question": {"answer_style": "cursor", "keymap": {"select": "Enter"}}})
     assert ok
+
+
+def test_malformed_keymap_scores_as_a_mismatch_rather_than_exploding():
+    """classify() pipes model JSON through unvalidated, so `keymap` can arrive as a
+    string. Reading bindings off that with .get would raise and take down the whole eval
+    run — 15 good samples lost to one bad parse — instead of recording one mismatch."""
+    pinned = {"answer_style": "cursor", "keymap": {"select": "Enter"}}
+    ok, diffs = score_structured(
+        {"question": {"answer_style": "cursor", "keymap": "Up/Down to move"}},
+        {"question": pinned})
+    assert not ok and any("question" in d for d in diffs)

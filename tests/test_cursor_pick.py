@@ -83,12 +83,13 @@ CASES = [
         {"sent": ["Down"] * 12 + ["Enter"], "selected": 12, "notes": []},
     ),
     (
-        "a row beyond the step budget hands over to the search box",
-        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM},
+        # Regression, Copilot: the extra pass that lets a row CURSOR_MAX_STEPS away be
+        # noticed must only look. Allowing it to move too made the real budget 13.
+        "a row beyond the step budget hands over without spending a 13th move",
+        {"options": [f"r{i}" for i in range(20)], "selected": 0, "keymap": FULL_KM,
+         "filters": True},
         "r13", 13,
-        # 13 moves is one past the budget, so the walk stops with the highlight parked
-        # partway and the search box finishes the job.
-        {"sent": ["Down"] * 13 + ["r13", "Enter"], "selected": 13, "notes": []},
+        {"sent": ["Down"] * 12 + ["r13", "Enter"], "selected": 12, "notes": []},
     ),
     (
         # Regression, Copilot: indexOf resolves both duplicates to the first one, so
@@ -154,6 +155,36 @@ CASES = [
         "gamma", 2,
         {"sent": ["gamma", "Enter"], "selected": 0, "notes": []},
     ),
+    (
+        # Regression, Copilot: after a filter renumbers the list the tapped index is
+        # spent, and two rows sharing a title cannot be told apart by text. Refusing is
+        # the only honest answer — resuming the wrong session confidently is the failure.
+        "an ambiguous duplicate after a renumber refuses rather than guessing",
+        {"options": ["beta", "alpha", "beta"], "selected": 0, "keymap": FULL_KM,
+         "renumber_after": 1},
+        "beta", 2,
+        # Not even the search text: filtering can only remove rows, so a title matching
+        # twice here would still match twice filtered.
+        {"sent": ["Down"], "selected": 1, "notes": 1},
+    ),
+    (
+        # Regression, Copilot: walk() can spend seconds waiting, and the pane can move on
+        # to a different prompt in that time. Typing the old row's text and the old
+        # picker's select key into whatever replaced it is worse than doing nothing.
+        "a different question appearing before the fallback blocks the fallback",
+        {"options": ROWS, "selected": 0, "keymap": FULL_KM, "morph_after": 1},
+        "delta", 3,
+        {"sent": ["Down"], "selected": 1, "notes": 1},
+    ),
+    (
+        # Regression, Copilot: classify() pipes model JSON through unvalidated, so a
+        # keymap can arrive as a string. Nothing is advertised then, which is a fine
+        # answer — but it must not throw inside a click handler.
+        "a malformed keymap advertises nothing instead of throwing",
+        {"options": ROWS, "selected": 0, "keymap": "Up/Down"},
+        "gamma", 2,
+        {"sent": [], "selected": 0, "notes": 1},
+    ),
 ]
 
 
@@ -180,6 +211,9 @@ function fake(spec) {{
     p.parsed_at += 1;
     if (spec.close_after === p.sends) p.open = false;
     if (spec.morph_after === p.sends) p.style = "text";
+    // A filter that renumbers the list without resolving the ambiguity: both rows sharing
+    // the title survive, so the tapped index no longer names either of them.
+    if (spec.renumber_after === p.sends) p.options = ["beta", "beta"];
     return true;
   }};
   p.io = {{
@@ -193,8 +227,9 @@ function fake(spec) {{
     sendKey: async (k) => {{
       const moved = deliver(k);
       if (!moved) return false;
-      if (k === p.keymap.next && p.selected !== null) p.selected += 1;
-      if (k === p.keymap.prev && p.selected !== null) p.selected -= 1;
+      const km = typeof p.keymap === "object" ? p.keymap : {{}};
+      if (k === km.next && p.selected !== null) p.selected += 1;
+      if (k === km.prev && p.selected !== null) p.selected -= 1;
       return true;
     }},
     sendText: async (t) => {{
@@ -223,6 +258,35 @@ async function check(description, spec, target, index, want) {{
 for (const [description, spec, target, index, want] of {json.dumps(CASES)}) {{
   await check(description, spec, target, index, want);
 }}
+const ROWS_JS = {json.dumps(ROWS)}, FULL_KM_JS = {json.dumps(FULL_KM)};
+
+// Regression, Copilot: a walk releases each surface's send guard while it waits for the
+// next frame, and a second tap in that gap used to start a rival walk whose moves
+// interleaved with the first's — the committing Enter then landing on whatever row the
+// mix reached. Both walks are started without awaiting the first, which is exactly what
+// two taps do.
+await (async () => {{
+  const p = fake({{ options: ROWS_JS, selected: 0, keymap: FULL_KM_JS }});
+  const [first, second] = await Promise.all([
+    pickCursorRow(p.io, "gamma", 2),
+    pickCursorRow(p.io, "alpha", 0),
+  ]);
+  try {{
+    assert.deepEqual([first, second], [true, false], "only the first walk runs");
+    assert.deepEqual(p.sent, ["Down", "Down", "Enter"], "no interleaved moves");
+    assert.deepEqual(p.notes.length, 1, "the refused tap says so");
+  }} catch (err) {{ failures.push(`concurrent taps: ${{err.message}}`); }}
+}})();
+
+// The lock must be RELEASED on every exit, or one dead end disables picking for the life
+// of the page.
+await (async () => {{
+  const p = fake({{ options: ROWS_JS, selected: 0, keymap: {{}} }});
+  await pickCursorRow(p.io, "gamma", 2);           // refused: nothing advertised
+  await pickCursorRow(p.io, "gamma", 2);           // must be allowed to try again
+  try {{ assert.deepEqual(p.notes.length, 2, "both taps answered"); }}
+  catch (err) {{ failures.push(`lock released on every exit: ${{err.message}}`); }}
+}})();
 
 if (failures.length) {{
   console.error(failures.join("\\n\\n"));

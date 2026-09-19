@@ -506,9 +506,8 @@ function updateComposer() {
 // Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
 // (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
 // step one row out and commits the wrong row.
-async function sendKeys(body, answer = false) {
-  if (sending || !panes.some((p) => p.pane_id === active)) return false;
-  const id = active;
+async function sendKeys(body, answer = false, id = active) {
+  if (sending || !panes.some((p) => p.pane_id === id)) return false;
   const signature = JSON.stringify(panes.find((p) => p.pane_id === id)?.question);
   let delivered = false;
   sending = true; notice(); render();
@@ -526,21 +525,24 @@ async function sendKeys(body, answer = false) {
   return delivered;
 }
 
-// This surface's half of the shared cursor walk. No send here sets `pendingAnswer`: not
-// the intermediate moves, where gating the option buttons on the first Down would disable
-// the very row the walk is working toward, and not the commit either, since sendKeys' own
-// `sending` flag already blocks a second tap and the picker is gone from the next parse.
+// This surface's half of the shared cursor walk. No send here sets `pendingAnswer`:
+// gating the option buttons on the first Down would disable the very row the walk is
+// working toward. What keeps a second tap from starting a rival walk is not this surface
+// at all — `sending` is released between every step — but the module's own one-at-a-time
+// lock, which is where that belongs since both surfaces have the same gap.
 function cursorIO(id) {
-  // sendKeys() posts to whatever pane is `active` at the time, not to a captured id, so a
-  // pane switch mid-walk would aim the remaining moves at a stranger's picker. Reporting
-  // "no question" the moment the user navigates away is what stops that: the walk checks
-  // question() before every single send.
+  // Two separate things, both needed. sendKeys takes the captured id, so no move can ever
+  // be posted to a pane the walk was not started for — it defaults to `active` for every
+  // other caller, but a default resolved at call time is exactly what a multi-second walk
+  // must not rely on. And question() reports nothing once `active` has moved off that
+  // pane, which STOPS the walk: a picker the user has navigated away from should not go on
+  // being driven, let alone committed, out of sight.
   const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
-    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }),
-    sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }),
+    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }, false, id),
+    sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }, false, id),
     note: notice,
   };
 }

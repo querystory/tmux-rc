@@ -25,12 +25,14 @@ AnswerStyle = Literal["text", "menu", "cursor"]
 
 
 class Keymap(BaseModel):
-    """The key bindings a picker ADVERTISES on its footer ("↑/↓ to navigate · Enter to
-    select · Type to search · Esc to cancel"). Read off the screen rather than assumed,
-    so a widget binding j/k, Tab, or a non-Enter select drives correctly instead of
-    getting our hardcoded guess. Every field is optional: absent ⇒ not advertised, and
-    the UI must not invent one — firing an unadvertised key into a prompt is the exact
-    failure this replaced."""
+    """How a picker is driven, read off its footer where it has one ("↑/↓ to navigate ·
+    Enter to select · Type to search · Esc to cancel"). The point is the UNUSUAL widget:
+    one binding j/k, or Tab, or nothing at all to commit with, drives correctly here
+    instead of receiving our hardcoded guess. A plain ❯-list still reports Up/Down/Enter
+    even where the footer omits them — being arrow-driven is what makes it a cursor list
+    — but `search` has no default, since typing into a list that does not filter is just
+    stray keystrokes. Every field is optional, and the UI must not invent one it was not
+    given: firing a key the widget has no binding for is the failure this replaced."""
 
     next: str | None = None  # tmux key-name to move DOWN one row, e.g. "Down", "j"
     prev: str | None = None  # tmux key-name to move UP one row

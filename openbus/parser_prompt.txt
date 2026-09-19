@@ -311,11 +311,18 @@ For "cursor" ONLY, two extra fields make the list drivable:
   currently on. Count within the options you listed, not screen lines. Use null if you
   genuinely cannot tell which row is highlighted — null is safe (the phone then jumps by
   searching instead of moving the cursor), a WRONG index silently picks the wrong row.
-- "keymap": the bindings the widget ADVERTISES, usually on a footer/status line like
-  "↑/↓ to navigate · Enter to select · Type to search · Esc to cancel". Report only what
-  is actually advertised; omit a field you don't see rather than assuming a default.
-  Translate to tmux key-names: ↑/k ⇒ "Up", ↓/j ⇒ "Down", enter/return ⇒ "Enter",
-  tab ⇒ "Tab". "search" is true only if the footer offers type-to-filter/search.
+- "keymap": how the widget is DRIVEN, read off its footer/status line where it has one
+  ("↑/↓ to navigate · Enter to select · Type to search · Esc to cancel"). A ❯/highlight
+  list moves with Up/Down and commits with Enter unless it says otherwise — being
+  arrow-driven is what makes it a cursor list rather than a menu — so report those three
+  for a cursor picker whether or not the footer bothers to spell them out; most do not.
+  What has to be READ rather than assumed is anything UNUSUAL, which is where a guess
+  actually goes wrong: j/k instead of the arrows, Tab instead of Enter, a widget with no
+  commit key at all. An advertised binding always wins over the default; omit a field
+  only when the screen shows a binding you cannot translate. Translate to tmux key-names:
+  ↑/k ⇒ "Up", ↓/j ⇒ "Down", enter/return ⇒ "Enter", tab ⇒ "Tab". "search" is the one
+  field with NO default: set it true only when type-to-filter is actually offered on
+  screen, because typing into a list that does not filter is just stray keystrokes.
 
 WAITING ON — when (and ONLY when) activity is "waiting", say WHOM the pane is blocked on,
 because the phone treats these two very differently: a user-wait is an amber "tap me, I

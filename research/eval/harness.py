@@ -109,7 +109,10 @@ def _keymap(km: dict | None) -> tuple:
     whether type-to-filter was advertised. Both sides go through this so a model that
     omits `search` scores the same as a sample that writes `false`, and so a keymap
     carrying extra prose doesn't fail on fields nothing consumes."""
-    km = km or {}
+    # isinstance, not `or {}`: classify() pipes model JSON through unvalidated (see
+    # classify.py), so a malformed keymap can be a string or a list, and .get would raise
+    # — taking down the whole eval run instead of recording one structured mismatch.
+    km = km if isinstance(km, dict) else {}
     return (km.get("next"), km.get("prev"), km.get("select"), bool(km.get("search")))
 
 

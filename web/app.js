@@ -3574,8 +3574,16 @@ function applyQuestion(ui, s, card) {
   setText(ui.promptText, s.question.prompt);
   setCls(ui.spin, "on", spinning);
   // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
-  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
-  keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
+  // Each survivor carries its index in question.options, NOT its position in this list:
+  // both keyFor's digit and the cursor walk's row identity are indices into that array,
+  // so a dropped pseudo-option ahead of a real row would shift every index after it —
+  // sending the wrong digit to a menu, and costing the cursor walk the tapped-row identity
+  // it uses to tell two same-titled sessions apart. (/m has always kept the source index;
+  // this is the deck catching up.)
+  const realOpts = (s.question.options || [])
+    .map((text, index) => ({ text, index }))
+    .filter(({ text }) => !_FREETEXT_OPT.test(text.trim()));
+  keyedList(ui.opts, realOpts, ({ text, index }) => index + " " + text, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
     b.onclick = () => {
@@ -3592,9 +3600,9 @@ function applyQuestion(ui, s, card) {
       else answer(cur, keyFor(cur.question, b._optText, i));
     };
     return b;
-  }, (b, opt, i) => {
-    b._optText = opt; b._optIndex = i;
-    setText(b, opt);
+  }, (b, { text, index }) => {
+    b._optText = text; b._optIndex = index;
+    setText(b, text);
     // Once an answer is in flight the options disable — a second tap would send a stray
     // keystroke into the agent while the first is still being processed.
     if (b.disabled !== spinning) b.disabled = spinning;

@@ -34,6 +34,31 @@ const POLL_MS = 120;
 // this UI cannot drive that widget — and the alternative to saying it is the silent
 // no-op the whole feature exists to remove.
 const STUCK = "Can't select that row from here — use the keyboard.";
+// A walk spans several seconds and several sends. Each step releases the surface's own
+// send guard while it waits for the next frame, which is exactly the gap a second tap
+// falls into — and two interleaved walks commit on whichever row their mixed moves happen
+// to reach. The surfaces can't cover this for us: the deck's spinner does it by accident
+// (its reparse marker never clears mid-walk, since the prompt never changes) and the
+// phone's does not. One at a time, anywhere, is the whole rule.
+const BUSY = "Still picking a row — wait for that to finish.";
+let walking = false;
+
+// The question as a DRIVABLE cursor picker, or null. Checked before EVERY send, because
+// the pane can move on to a different prompt between two frames and the remaining keys
+// would be typed into whatever replaced it. `options` is guarded too: classify() pipes
+// model JSON through unvalidated, so a malformed question can carry anything at all.
+// The one row carrying this text, or -1 when there is no such row — or two of them, which
+// for the purpose of identifying a row is the same answer. Only ever consulted once the
+// tapped index has stopped naming the row, which a filter or a scroll does immediately.
+function soleIndex(options, text) {
+  const i = options.indexOf(text);
+  return i === options.lastIndexOf(text) ? i : -1;
+}
+
+function picker(io) {
+  const q = io.question();
+  return q && q.answer_style === "cursor" && Array.isArray(q.options) ? q : null;
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -61,27 +86,28 @@ async function waitForParse(io, after, ms = PARSE_WAIT_MS) {
 // burst. That burst would be faster and would silently pick the wrong session whenever
 // the anchor had moved, which is the same class of bug in a new costume.
 async function walk(io, km, targetText, targetIndex) {
-  // `<=` because the budget counts MOVES, and a row exactly CURSOR_MAX_STEPS away is
-  // reached by the last of them: without the extra pass the loop spends its whole budget
-  // arriving and then exits without ever noticing it had arrived, reporting failure while
-  // the highlight sits on the requested row.
+  // One pass more than the budget, because the budget counts MOVES and the arrival check
+  // runs before each one: a row exactly CURSOR_MAX_STEPS away is reached by the last move,
+  // and without a final check-only pass the loop spends its whole budget arriving and then
+  // reports failure with the highlight sitting on the requested row. That last pass may
+  // only LOOK — see the bail below — or the budget would quietly be one larger than the
+  // constant says.
   for (let moves = 0; moves <= CURSOR_MAX_STEPS; moves++) {
-    const q = io.question();
-    // The picker closed, or the pane moved on to something else — stop rather than type
-    // into whatever replaced it.
-    if (!q || q.answer_style !== "cursor" || !Array.isArray(q.options)) return false;
+    const q = picker(io);
+    if (!q) return false;
     // Prefer the index the user actually tapped, for exactly as long as it still names
-    // their row. Two sessions can share a title, and indexOf would resolve both taps to
-    // the first of them — the wrong session, selected confidently. Once a filter or a
-    // scroll has renumbered the list that index stops matching, and the text is then the
-    // only identity the row has left.
+    // their row. Once a filter or a scroll has renumbered the list that index stops
+    // matching, and the row's text is the only identity left — which is no identity at
+    // all when two sessions share a title, so that case refuses rather than resuming a
+    // coin-flip. Selecting the wrong session confidently is worse than not selecting.
     const want = q.options[targetIndex] === targetText
       ? targetIndex
-      : q.options.indexOf(targetText);
+      : soleIndex(q.options, targetText);
     const at = typeof q.selected === "number" ? q.selected : null;
-    if (want < 0) return false; // row is no longer on screen
+    if (want < 0) return false; // gone, or two rows wear the title and neither is "the" one
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
     if (at === want) return km.select ? io.sendKey(km.select) : false;
+    if (moves === CURSOR_MAX_STEPS) return false; // budget spent; this pass only looked
     const key = at < want ? km.next : km.prev;
     if (!key) return false; // the widget never advertised this direction — don't invent one
     const before = io.parsedAt();
@@ -94,18 +120,46 @@ async function walk(io, km, targetText, targetIndex) {
 // Drive the picker to `targetText` and commit it. `targetIndex` is where the row sat in
 // the frame the user tapped.
 export async function pickCursorRow(io, targetText, targetIndex) {
-  const km = (io.question() || {}).keymap || {};
+  if (walking) { io.note(BUSY); return false; }
+  walking = true;
+  try {
+    return await pick(io, targetText, targetIndex);
+  } finally {
+    walking = false;
+  }
+}
+
+async function pick(io, targetText, targetIndex) {
+  const q0 = picker(io);
+  // A keymap is model output too, so it can be absent, a string, or a list. Only null and
+  // undefined need substituting: reading `.next` off a string or an array is undefined,
+  // which is the right answer anyway — every binding is optional and the walk refuses each
+  // one it was not given rather than inventing it.
+  const km = (q0 && q0.keymap) || {};
   if (await walk(io, km, targetText, targetIndex)) return true;
   // Fallback: the widget's own search box. It needs BOTH bindings advertised — typing
   // filters the list but does not commit it, so the obvious shortcut of appending Enter
   // is precisely the unadvertised guess this file exists to stop. A picker that binds Tab
   // to select, or binds nothing, gets told rather than guessed at.
-  if (!km.search || !km.select || !io.question()) { io.note(STUCK); return false; }
+  //
+  // Re-read the picker rather than reusing q0: walk() can have spent seconds waiting, and
+  // if the pane has moved on to a DIFFERENT prompt in that time, typing the old row's text
+  // and the old picker's select key into it is worse than doing nothing.
+  // The ambiguity check applies BEFORE typing, not after: a filter can only remove rows,
+  // so a title that matches twice here still matches twice once filtered, and typing it in
+  // would leave the user's picker filtered for a walk that was never going to commit.
+  const q = picker(io);
+  if (!km.search || !km.select || !q || soleIndex(q.options, targetText) < 0) {
+    io.note(STUCK);
+    return false;
+  }
   const before = io.parsedAt();
   const filtered = await io.sendText(targetText) && await waitForParse(io, before);
-  // Re-walk the filtered list rather than trusting the filter to have landed on the row:
-  // the same title can still match twice, and the commit is verified here like any other.
-  if (filtered && await walk(io, km, targetText, 0)) return true;
+  // Re-walk the filtered list rather than trusting the filter to have landed on the row.
+  // -1, not 0: the filter renumbered everything, so the tapped index is spent and no index
+  // we pass here means anything. An index that can never match says that plainly and sends
+  // walk() down the by-text path, which is the only identity the row still has.
+  if (filtered && await walk(io, km, targetText, -1)) return true;
   io.note(STUCK);
   return false;
 }
