@@ -247,8 +247,46 @@ CASES = [
     ),
 ]
 
+# stillOnPane guards every involuntary exit from a pane. `active` lags a tap by one task, so
+# the hash — which moves the instant the user taps — decides whether a pane that vanished is
+# still the one on screen. (current hash, pane the caller thinks is on screen, still on it?)
+for hash_value, pane_id, expected in [
+    ("#pane=%251", "%1", True),
+    ("pane=%251&view=terminal", "%1", True),
+    # The race Copilot flagged: the URL already names the pane just tapped, so the old pane's
+    # disappearance must NOT replace it.
+    ("#pane=%252", "%1", False),
+    ("#filter=attention", "%1", False),
+    ("", "%1", False),
+    ("#pane=%251", None, False),
+]:
+    CASES.append((
+        f"stillOnPane: hash {hash_value!r} against pane {pane_id!r}",
+        "stillOnPane", [hash_value, pane_id], expected,
+    ))
+
+# paneName heads every card. The regression: the phone rendered `label` alone — a tmux
+# fallback naming a WINDOW ("misc-5:1") and nothing about the work — while the agent's own
+# title sat unused in the same record. A session holding five unrelated projects gave five
+# cards headed by the session that contains them. (pane, expected heading)
+for pane, expected in [
+    ({"title": "PRs inventory and integration testing", "label": "misc-5:1", "pane_id": "%16"},
+     "PRs inventory and integration testing"),
+    # A plain shell names nothing, so the tmux label is still the best available heading.
+    ({"title": "", "label": "misc-5:1", "pane_id": "%16"}, "misc-5:1"),
+    ({"label": "", "window_name": "bash", "pane_id": "%16"}, "bash"),
+    ({"pane_id": "%16"}, "%16"),
+]:
+    CASES.append((
+        f"paneName: {pane!r}",
+        "paneName", [pane], expected,
+    ))
+
 FILTER_NAMES = ["all", "running", "recent", "attention"]
-for invalid_filter in ("__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None):
+INVALID_FILTERS = (
+    "__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None,
+)
+for invalid_filter in INVALID_FILTERS:
     CASES.append((
         f"matchesFilter: unknown filter {invalid_filter!r} behaves like all",
         "matchesFilter", [IDLE_11_MIN_AGO, invalid_filter, NOW_MS], True,
@@ -281,7 +319,8 @@ const check = (description, actual, expected) => {{
 }};
 
 {checks}
-check("FILTERS exposes exactly the four filter names", () => Object.keys(m.FILTERS).sort(), {json.dumps(sorted(FILTER_NAMES))});
+check("FILTERS exposes exactly the four filter names",
+      () => Object.keys(m.FILTERS).sort(), {json.dumps(sorted(FILTER_NAMES))});
 
 if (failures.length) {{
   console.error(failures.join("\\n\\n"));

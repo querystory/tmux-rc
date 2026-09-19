@@ -6,7 +6,7 @@ tool call may touch a real terminal — the context builder and the reject paths
 
 import asyncio
 
-import daemon.live as L
+import openbus.live as L
 
 
 def _run(coro):
@@ -186,6 +186,10 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     # args — that must never reach a terminal.
     for args in (
         {"pane_id": "%1", "text": "x", "status": "typed"},  # extra arg
+        {"pane_id": "%1", "text": {"command": "run"}},
+        {"pane_id": "%1", "text": 42},
+        {"pane_id": 1, "text": "run"},
+        {"pane_id": ["%1"], "text": "run"},
         {"pane_id": "%1", "text": "   "},                   # blank text
         {"pane_id": "%1", "text": "x", "press_enter": "false"},  # non-bool: must not coerce
         {"pane_id": "%1", "text": "x", "press_enter": 1},   # non-bool int
@@ -197,6 +201,16 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     _, _, session, typed = _dispatch(_FC(args="oops"), monkeypatch)
     assert typed == []
     assert session.responses[0].response["status"] == "rejected"
+
+
+
+def test_press_key_requires_string_target_and_key(monkeypatch):
+    for args in ({"pane_id": 1, "key": "Enter"},
+                 {"pane_id": {"id": "%1"}, "key": "Enter"},
+                 {"pane_id": "%1", "key": ["Enter"]}):
+        _, _, session, typed = _dispatch(_FC(name="press_key", args=args), monkeypatch)
+        assert typed == []
+        assert session.responses[0].response["status"] == "rejected"
 
 
 def test_context_updater_skips_timeouts(monkeypatch):
@@ -249,6 +263,7 @@ def test_context_updater_skips_timeouts(monkeypatch):
 class _Connect:
     """Fake `client.aio.live.connect(...)` context manager. `boom` (if set) is raised
     on __aenter__ to simulate a connect that fails before the session is up."""
+
     def __init__(self, session, boom=None):
         self._session, self._boom = session, boom
 
@@ -264,6 +279,7 @@ class _Connect:
 class _FakeClient:
     """Serves the `client.aio.live.connect(...)` chain and counts connect attempts.
     `connects` is one _Connect (or callable returning one) per expected attempt."""
+
     def __init__(self, connects):
         self._connects = list(connects)
         self.attempts = 0
@@ -279,6 +295,7 @@ class _FakeClient:
 class _ScriptedWS(_WS):
     """A _WS whose receive_json replays a script: a dict is returned, an Exception is
     raised (to drive WebSocketDisconnect / EOF paths)."""
+
     def __init__(self, script):
         super().__init__()
         self.script = list(script)
@@ -367,12 +384,15 @@ class _Detail:
 class _Usage:
     """Mimics Gemini Live usage_metadata: cumulative session totals, with per-modality
     breakdowns splitting audio from text."""
+
     def __init__(self, prompt, resp, audio_in=0, audio_out=0):
         from google.genai import types
         self.prompt_token_count = prompt
         self.response_token_count = resp
         self.prompt_tokens_details = [_Detail(types.Modality.AUDIO, audio_in)] if audio_in else []
-        self.response_tokens_details = [_Detail(types.Modality.AUDIO, audio_out)] if audio_out else []
+        self.response_tokens_details = (
+            [_Detail(types.Modality.AUDIO, audio_out)] if audio_out else []
+        )
 
 
 def test_live_usage_splits_modalities_and_costs():
@@ -396,7 +416,7 @@ def test_live_usage_is_cumulative_not_summed():
 
 
 def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
-    import daemon.llm as llm
+    from openbus import llm
     emitted = []
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     folded = {}

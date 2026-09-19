@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import logging
 import os
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -32,7 +34,7 @@ from dotenv import find_dotenv, load_dotenv
 # resolution below. In a source checkout the parent is the repo root; in an installed
 # wheel it's site-packages. Which one we're in is decided by asset existence, not this
 # path alone (see WEB_DIR).
-_PKG_DIR = Path(__file__).resolve().parent  # .../daemon (checkout or site-packages)
+_PKG_DIR = Path(__file__).resolve().parent  # .../openbus (checkout or site-packages)
 _REPO_ROOT = _PKG_DIR.parent
 
 # Prefer the repo-root .env next to the package (the dev/run-from-checkout case); if that
@@ -40,6 +42,7 @@ _REPO_ROOT = _PKG_DIR.parent
 # usual upward search from cwd. Either way, real env vars still win (override=False).
 _repo_env = _REPO_ROOT / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
+load_dotenv(Path.home() / ".config/tmux-rc/openai.env")
 
 # Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
 # client that walks AAAA records serially — the Vertex Live websocket handshake times out
@@ -53,11 +56,18 @@ if os.environ.get("TMUXRC_PREFER_IPV4", "1") != "0":
     )
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile  # noqa: E402
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import (  # noqa: E402
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles  # noqa: E402
+from PIL import Image  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import tmux  # noqa: E402
+from . import telemetry, tmux  # noqa: E402
+from .llm import last_error, usage_totals  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -84,13 +94,13 @@ if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
 logger = logging.getLogger(__name__)
 
 # Key on the actual asset, not a marker file: the repo-root web/ exists only in a source
-# checkout, since the wheel carries the UI bundled at daemon/web/ instead. Its presence is
+# checkout, since the wheel carries the UI bundled at openbus/web/ instead. Its presence is
 # therefore an unambiguous "running from a checkout" signal — a stray pyproject.toml beside
 # the package in a shared venv (or a `pip install --target` into such a dir) can't fake it.
 # Prefer the checkout copy so edits are served live (and /api/version's hash changes, so the
 # client self-reloads); fall back to the bundled copy when installed. Same asset-existence
 # predicate as the .env lookup above. Caveat: a *non-editable* `pip install .` from a
-# checkout has no daemon/-adjacent web/ and serves the bundled install-time snapshot, so
+# checkout has no openbus/-adjacent web/ and serves the bundled install-time snapshot, so
 # later edits to that checkout's web/ won't show — use an editable install or uvx for live
 # edits. _FROM_CHECKOUT reuses this predicate to gate reload in main().
 _repo_web = _REPO_ROOT / "web"
@@ -151,12 +161,14 @@ def _launchers() -> list[dict]:
             for e in entries
             if isinstance(e, dict) and e.get("label") and e.get("command")
         ]
-        if good:
-            return good
-        raise ValueError("no valid entries")
-    except Exception:  # noqa: BLE001 - a broken config must not brick the menu
+    except Exception:  # a broken config must not brick the menu
         logger.warning("TMUXRC_LAUNCHERS invalid; using defaults", exc_info=True)
         return _DEFAULT_LAUNCHERS
+    # Parsed, but nothing in it was usable — same outcome as a parse failure, reached by
+    # returning rather than by raising into our own handler.
+    if not good:
+        logger.warning("TMUXRC_LAUNCHERS has no valid entries; using defaults")
+    return good or _DEFAULT_LAUNCHERS
 
 
 class ClientErrorBody(BaseModel):
@@ -172,7 +184,7 @@ class ClientErrorBody(BaseModel):
 
 
 # Audit lines ride the standard root config above (INFO). Routine records, not warnings.
-_audit_log = logging.getLogger("daemon.server.audit")
+_audit_log = logging.getLogger("openbus.server.audit")
 
 # Key CONTENT in the audit trail is on by default (the operator asked for exactly this
 # visibility) but can be switched off: keys typed via the phone can include no-echo
@@ -262,8 +274,6 @@ def _audit(
         "" if outcome == "ok" else f" [{outcome}]",
     )
     try:
-        from . import telemetry
-
         telemetry.emit_action(
             action=action,
             pane_uid=f"{tmux.server_uid()}:{pane_id}",
@@ -272,7 +282,7 @@ def _audit(
             keys=keys if _AUDIT_KEYS else None,
             outcome=outcome,
         )
-    except Exception:  # noqa: BLE001 - audit telemetry must never break the request
+    except Exception:  # audit telemetry must never break the request
         logger.debug("audit emit failed", exc_info=True)
 
 
@@ -298,7 +308,7 @@ from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
 
 app.add_middleware(GZipMiddleware, minimum_size=512)
 
-# Live Mode (voice): one WebSocket per session — see daemon/live.py and
+# Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
 from . import live  # noqa: E402
 from .live import router as live_router  # noqa: E402
@@ -341,7 +351,18 @@ def get_version():
         if p.is_file():
             h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    return {"version": h.hexdigest(), "live_enabled": live.enabled()}
+    try:
+        from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
+    except ImportError:
+        gpt_live = None
+
+    models = []
+    if live.LIVE_MODEL != live.GPT_LIVE_MODEL:
+        models.append({"label": "Gemini Live", "value": "", "hint": "Vertex"})
+    if gpt_live is not None and os.environ.get("OPENAI_API_KEY"):
+        models.append({"label": gpt_live.LABEL, "hint": "OpenAI · $0.05/min + backend"})
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models),
+            "live_models": models}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -357,8 +378,6 @@ async def get_state(v: int | None = None):
     `version`. The client immediately re-holds with that version, so a pane switch shows
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
-    from .llm import last_error, usage_totals
-
     w = app.state.watcher
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
@@ -503,7 +522,7 @@ def _note_live_poll(pane_id: str) -> None:
     break the live stream."""
     try:
         app.state.watcher.note_live_poll(pane_id)
-    except Exception:  # noqa: BLE001 - presence must never break the stream
+    except Exception:  # presence must never break the stream
         logger.debug("live presence stamp failed", exc_info=True)
 
 
@@ -519,8 +538,6 @@ def _emit_live_round(
     path (the response is already decided) and fully swallowed, so it can never break
     or slow the live stream."""
     try:
-        from . import telemetry
-
         w = app.state.watcher
         telemetry.emit_live(
             # Pass through as-is: an absent session (empty string) is left
@@ -535,14 +552,21 @@ def _emit_live_round(
             raw_bytes=raw_bytes,
             actor=_trusted_user(request),
         )
-    except Exception:  # noqa: BLE001 - live telemetry must never break the stream
+    except Exception:  # live telemetry must never break the stream
         logger.debug("live emit failed", exc_info=True)
 
 
 @app.post("/api/panes/{pane_id}/send")
 def send(pane_id: str, body: SendBody, request: Request):
     detail = f"enter={body.enter} literal={body.literal}"
-    if tmux.find_pane(pane_id) is None:
+    # Resolve to the pane's own id and send to THAT. "%3", "work:0.0" and a label can all
+    # name one pane, and send_keys locks per pane id — two spellings would take two locks
+    # and interleave into the same draft. The lookup is the validation we already do here,
+    # so canonicalizing costs nothing; doing it inside send_keys would put a list-panes
+    # subprocess on every keystroke. Audits keep the caller's spelling, which is what the
+    # client actually asked for.
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
         # Refused attempts are audited too — probing for pane ids is exactly the
         # traffic a forensic reader wants to see.
         _audit(
@@ -555,16 +579,21 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     try:
-        tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
+        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
     except Exception as e:
         _audit(
             request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
         )
+        if isinstance(e, tmux.PaneChangedError):
+            raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
     # Input changes the screen — force an immediate re-parse so an answered question /
-    # closed menu reflects on the card within a capture, not a poll interval later.
-    app.state.watcher.request_reparse(pane_id)
+    # closed menu reflects on the card within a capture, not a poll interval later. The
+    # canonical id again: the watcher matches this set against pane.id, so a request
+    # queued under an alias would simply never fire and the card would go stale until the
+    # next poll.
+    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
@@ -654,8 +683,6 @@ async def client_error(request: Request):
     except Exception:  # noqa: BLE001 - a malformed report is a 400, not a 500
         raise HTTPException(400, "invalid client-error report") from None
     try:
-        from . import telemetry
-
         telemetry.emit_client_error(
             kind=body.kind,
             name=body.name,
@@ -667,7 +694,7 @@ async def client_error(request: Request):
             actor=_trusted_user(request),
             message=body.message,
         )
-    except Exception:  # noqa: BLE001 - the report telemetry must never break the request
+    except Exception:  # the report telemetry must never break the request
         logger.debug("client-error emit failed", exc_info=True)
     return {"ok": True}
 
@@ -683,7 +710,10 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     bug; PNG-always fixes the happy path, and the typed-path fallback means a broken
     graphical session degrades to a working (if less pretty) paste, never a silent
     200. The upload is staged to disk in both modes."""
-    if tmux.find_pane(pane_id) is None:
+    # Canonical pane id for the same reason /send resolves one: _deliver_image types into
+    # the pane, and send_keys locks per pane id.
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
         _audit(request, "paste_image", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
     mime = file.content_type or "image/png"
@@ -708,6 +738,21 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         raise HTTPException(400, "empty upload")
     detail = f"{mime} {len(data)}B"
 
+    try:
+        path = _stage_image(data, mime)
+        # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
+        mode = await asyncio.to_thread(_deliver_image, pane.id, data, path, pane.pid)
+    except Exception as error:
+        _audit(request, "paste_image", pane_id, outcome=f"error: {error}"[:80])
+        if isinstance(error, tmux.PaneChangedError):
+            raise HTTPException(409, str(error)) from error
+        raise
+    _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
+    app.state.watcher.request_reparse(pane.id)  # the paste changed the screen
+    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+
+
+def _stage_image(data: bytes, mime: str) -> str:
     # Stage to disk, prune stale stagings (the pane reads the file right after the
     # paste; a day of slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
@@ -720,7 +765,6 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         or not IMG_DIR.is_dir()
         or IMG_DIR.stat().st_uid != os.getuid()
     ):
-        _audit(request, "paste_image", pane_id, outcome="error: staging dir not ours")
         raise HTTPException(
             500, f"{IMG_DIR} is not a directory we own; refusing to stage"
         )
@@ -736,15 +780,83 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
-    # Delivery blocks (Pillow decode, subprocess waits): worker thread, so an upload
-    # can't stall the event loop's polling.
-    mode = await asyncio.to_thread(_deliver_image, pane_id, data, path)
-    _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    app.state.watcher.request_reparse(pane_id)  # the paste changed the screen
-    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+    return path
 
 
-def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
+@app.post("/api/panes/{pane_id}/compose")
+async def compose(pane_id: str, request: Request):
+    """Audit every attempt, including upload validation and staging failures."""
+    try:
+        return await _compose(pane_id, request)
+    except Exception as error:
+        _audit(request, "compose", pane_id, outcome=f"error: {error}"[:80])
+        if isinstance(error, tmux.PaneChangedError):
+            raise HTTPException(409, str(error)) from error
+        raise
+
+
+async def _compose(pane_id: str, request: Request):
+    """Receive the entire ordered draft before locking or typing into its pane."""
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
+        raise HTTPException(404, "pane not found")
+    segments = []
+    # Multipart parsing finishes before delivery. Limits also bound the time a single
+    # draft can occupy the pane lock; no client round trips happen inside that lock.
+    async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
+        text_bytes = 0
+        for kind, value in form.multi_items():
+            if kind == "text" and isinstance(value, str):
+                text_bytes += len(value.encode())
+                if text_bytes > 256 * 1024:
+                    raise HTTPException(413, "composer text too large")
+                segments.append(value)
+            elif kind == "image" and not isinstance(value, str):
+                mime = value.content_type or "image/png"
+                if mime not in _EXT:
+                    raise HTTPException(415, "unsupported image type")
+                data = await value.read(IMG_MAX_BYTES + 1)
+                if not data or len(data) > IMG_MAX_BYTES:
+                    raise HTTPException(413, "image empty or too large")
+                segments.append((data, _stage_image(data, mime)))
+            else:
+                raise HTTPException(400, "invalid composer segment")
+    if not segments:
+        raise HTTPException(400, "empty composer")
+    await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+    _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
+    app.state.watcher.request_reparse(pane.id)
+    return {"ok": True}
+
+
+def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> None:
+    with tmux.send_transaction(pane_id) as identity:
+        # Include time spent uploading and waiting for the lock in the identity guard.
+        if identity != expected_pid:
+            raise tmux.PaneChangedError("Pane changed while uploading; draft was not sent.")
+        for segment in segments:
+            tmux.check_pane(pane_id, identity)
+            if isinstance(segment, str):
+                tmux.send_keys(pane_id, segment, enter=False)
+            else:
+                _deliver_image(pane_id, *segment, identity)
+        tmux.check_pane(pane_id, identity)
+        tmux.send_keys(pane_id, "", enter=True)
+
+
+# Clipboard ownership is global even when two drafts target different panes.
+_image_delivery_lock = threading.Lock()
+
+
+def _deliver_image(pane_id: str, data: bytes, path: str, expected_pid: str) -> str:
+    with tmux.send_transaction(pane_id) as identity, _image_delivery_lock:
+        if identity != expected_pid:
+            raise tmux.PaneChangedError("Pane changed while uploading; image was not sent.")
+        tmux.check_pane(pane_id, expected_pid)
+        return _deliver_image_locked(pane_id, data, path, identity)
+
+
+def _deliver_image_locked(pane_id: str, data: bytes, path: str, identity: str) -> str:
     """Get the staged image into the pane; returns the mode for audit/response.
     Clipboard-first: normalize to PNG and Ctrl-V for the inline embed. But a LOCKED
     session means the pane's app cannot read the clipboard (GNOME blocks unfocused
@@ -757,6 +869,7 @@ def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
             tools = tmux.set_clipboard_image(png)
         except Exception:  # noqa: BLE001 - undecodable: the path route still works
             pass
+    tmux.check_pane(pane_id, identity)
     if tools:
         tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
         # Claude Code reads + transcodes the pasted image ASYNCHRONOUSLY after C-v,
@@ -774,10 +887,6 @@ def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
 
 def _to_png(data: bytes) -> bytes:
     """Transcode image bytes to PNG (Pillow — already a dependency of the LLM stack)."""
-    import io
-
-    from PIL import Image
-
     buf = io.BytesIO()
     with Image.open(io.BytesIO(data)) as im:
         # Dimension guard BEFORE any pixel decode (open only parses the header):
@@ -805,8 +914,6 @@ if Path(_docs_dir).is_dir():
     # unit test but is load-bearing in production — don't delete it.) Redirect to /docs/.
     @app.get("/docs", include_in_schema=False)
     def _docs_slash():
-        from fastapi.responses import RedirectResponse
-
         return RedirectResponse("/docs/")
 
     app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
@@ -826,7 +933,11 @@ if Path(_docs_dir).is_dir():
 def mobile_ui() -> FileResponse | HTMLResponse:
     entrypoint = WEB_DIR / "m" / "index.html"
     if not entrypoint.is_file():
-        return HTMLResponse("<!doctype html><title>Not found</title><h1>Mobile UI assets are not installed</h1>", status_code=404)
+        return HTMLResponse(
+            "<!doctype html><title>Not found</title>"
+            "<h1>Mobile UI assets are not installed</h1>",
+            status_code=404,
+        )
     return FileResponse(entrypoint)
 
 
@@ -836,7 +947,7 @@ if WEB_DIR.is_dir():
 
 
 def main() -> None:
-    import uvicorn
+    import uvicorn  # noqa: PLC0415 - entrypoint-only; keeps `import openbus.server` cheap
 
     # Reload watches the package source and restarts the process on edits (resetting
     # the watcher's in-memory cache — safe, tmux is the source of truth and state
@@ -857,7 +968,7 @@ def main() -> None:
     # log_config=None: don't install uvicorn's own handlers/formatters — its loggers
     # (uvicorn.access etc.) then propagate to root and share the timestamped format above.
     uvicorn.run(
-        "daemon.server:app" if reload else app,
+        "openbus.server:app" if reload else app,
         proxy_headers=False,
         log_config=None,
         host=os.environ.get("TMUXRC_HOST", "127.0.0.1"),

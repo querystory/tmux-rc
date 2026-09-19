@@ -17,6 +17,7 @@ from functools import partial
 from . import tmux
 from .classify import bootstrap, classify
 from .llm import backing_off, classify_text, summarize_events
+from .telemetry import emit_pane_event
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +83,71 @@ _VOLATILE_RE = re.compile(
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
     r"|\d+\s*(prompts|tools|imgs)|[\d.]+\s*[KMG]B"  # history counters
+    # Codex's own status bar wording for the same drifting metrics Claude Code's
+    # patterns above already cover: "Context 36% left", "4.78M used", "weekly 52% left".
+    r"|Context\s+\d+%\s+\w+|[\d.]+[KMG]\s+used|weekly\s+\d+%\s+left"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     r"|[ \t]+$",  # trailing whitespace
     re.MULTILINE,
 )
 
+# Codex's ambient "sparkle" animation: single-dot braille scattered over the rows around
+# its input box, reshuffled every frame. Unlike the spinners in _VOLATILE_RE it is not one
+# cell in a fixed place — the dots MOVE, so deleting the glyph is not enough: the gap it
+# leaves shifts with it and the same screen still signs differently. Left alone it made
+# every tick look like new content, firing a classification per 1.5s on a pane where
+# nothing was happening (and, with each call free to take 20s, starving the tick that
+# drives the "stalled" flag).
+#
+# ANCHORED to the input box rather than hunting glyphs screen-wide. The animation only
+# ever plays on the input row and the row either side; treating a lone dot as decoration
+# anywhere would erase real single-cell braille (U+2801 is the letter "a", so "⠁"→"⠂" is
+# a genuine change) and would let a stray dot in scrollback drag unrelated rows into the
+# flattened band. Anchoring also keeps the band FIXED as dots come and go: derived from
+# the dots themselves it grew and shrank between frames, so a boundary row was flattened
+# in one and not the next — which reintroduced the very churn this removes.
+_SPARKLE_RE = re.compile(r"[⠁⠂⠄⠈⠐⠠⡀⢀]")
+# Codex's input line: "›" (U+203A) at the left, usually followed by its placeholder.
+# Matched on the prompt glyph alone so it anchors once the user has typed — and so it
+# still anchors when a sparkle lands flush against it ("›⠁Ask"), which is exactly the
+# frame that most needs normalizing.
+_CODEX_INPUT_RE = re.compile(r"^\s*\u203a")
+# Rows either side of the input line that the band covers. The animation was measured at
+# ±1 on every sparkling pane; ±2 is deliberate headroom so the rows immediately outside it
+# — the input box's borders, which carry real spacing — are normalized too. The band MUST
+# be a function of the anchor alone: any term that depends on where the dots are this
+# frame makes it breathe, and a row flattened in one frame and kept verbatim in the next
+# re-creates the exact churn this removes.
+_SPARKLE_RADIUS = 2
+_WS_RUN_RE = re.compile(r"[ \t]+")
+
 
 def _fingerprint(text: str) -> str:
-    """Content signature of a pane, ignoring volatile timer/spinner churn."""
-    return _VOLATILE_RE.sub("", text)
+    """Content signature of a pane, ignoring volatile timer/spinner churn.
+
+    Rows in the sparkle band (Codex's input line ± _SPARKLE_RADIUS) have their dots
+    blanked and their whitespace flattened, so a dot cannot change the signature by
+    moving. The band is fixed by the input line's position, not by where dots happen to
+    be this frame, so it does not breathe between frames. Everywhere else the text is
+    untouched — including single-cell braille, which is real content — because
+    collapsing spacing globally would erase the indentation that distinguishes one
+    screen from another (a diff, a tree, nested output)."""
+    text = _VOLATILE_RE.sub("", text)
+    lines = text.split("\n")
+    anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
+    if not anchors:
+        return text
+    band = {
+        i
+        for a in anchors
+        for i in range(max(0, a - _SPARKLE_RADIUS), min(len(lines), a + _SPARKLE_RADIUS + 1))
+    }
+    for i in band:
+        # Blank, don't delete: a dot can land flush against the text ("›⠁Ask"), and
+        # removing it outright would weld the words together on that frame only.
+        lines[i] = _WS_RUN_RE.sub(" ", _SPARKLE_RE.sub(" ", lines[i])).strip()
+    return "\n".join(lines)
 
 
 def _stamp_identity(s: dict, p: tmux.Pane) -> None:
@@ -209,7 +266,11 @@ class Watcher:
         The /api/state long-poll returns as soon as this passes the client's version."""
         return self._state_version
 
-    async def wait_for_state_change(self, since: int, timeout: float) -> int:
+    # ASYNC109 is suppressed below. The rule wants the caller to wrap this in a cancel
+    # scope instead, but that changes the contract: this returns the current version on
+    # timeout rather than raising, because the HTTP long-poll behind it has to answer
+    # with a version either way.
+    async def wait_for_state_change(self, since: int, timeout: float) -> int:  # noqa: ASYNC109
         """Hold until state_version() advances past `since`, or `timeout` elapses; return
         the current version either way. The version is the truth (the Event is only a
         wake nudge). We CLEAR the Event *before* re-checking the version, so a bump that
@@ -225,7 +286,7 @@ class Watcher:
                 break
             try:
                 await asyncio.wait_for(self._state_changed.wait(), timeout=remaining)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
         return self._state_version
 
@@ -302,7 +363,7 @@ class Watcher:
         while True:
             try:
                 await asyncio.to_thread(self._tick)
-            except Exception:  # noqa: BLE001 - never let one bad tick kill the loop
+            except Exception:  # never let one bad tick kill the loop
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
             # Between full ticks, poll ONLY the active pane id on a fast cadence — a single
@@ -319,12 +380,12 @@ class Watcher:
                     await asyncio.wait_for(self._wake.wait(), timeout=min(FAST_POLL, remaining))
                     self._wake.clear()  # a request_reparse wake — do a full tick now
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Fast slice elapsed with no wake: cheap active-pane check, then keep
                     # slicing until the full-tick deadline.
                     try:
                         await asyncio.to_thread(self._check_active_fast)
-                    except Exception:  # noqa: BLE001 - a bad fast check must not kill the loop
+                    except Exception:  # a bad fast check must not kill the loop
                         logger.debug("fast active-pane check failed", exc_info=True)
 
     def _check_active_fast(self) -> None:
@@ -383,7 +444,7 @@ class Watcher:
                 )
             panes = [p] if p else []
         else:
-            panes = tmux.list_panes()
+            panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
             self._publish_states([])
             return
@@ -434,7 +495,7 @@ class Watcher:
                 else:
                     logger.warning("pane %s vanished mid-tick", p.id)
                 s = None
-            except Exception:  # noqa: BLE001 - isolate per-pane failures
+            except Exception:  # isolate per-pane failures
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
                 s = None
             if not isinstance(s, dict):
@@ -581,7 +642,7 @@ class Watcher:
                     tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES, mark_dim=True),
                     llm_fn,
                 )
-            except Exception:  # noqa: BLE001 - one pane must never wedge the watcher
+            except Exception:  # one pane must never wedge the watcher
                 logger.warning("bootstrap failed for %s", p.id, exc_info=True)
                 result = None
             if result and boot is not None:
@@ -666,15 +727,13 @@ class Watcher:
         """Best-effort pane-lifecycle telemetry. server_uid is constant for this daemon
         run, so a departing pane's uid is reconstructable from its id alone."""
         try:
-            from .telemetry import emit_pane_event
-
             emit_pane_event(
                 event=event,
                 pane_uid=f"{tmux.server_uid()}:{pane_id}",
                 label=label,
                 tool=tool,
             )
-        except Exception:  # noqa: BLE001 - telemetry must never break the watcher
+        except Exception:  # telemetry must never break the watcher
             logger.debug("pane-event emit failed", exc_info=True)
 
     def _forget(self, pane_id: str) -> None:

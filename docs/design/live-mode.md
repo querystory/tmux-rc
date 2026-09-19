@@ -4,6 +4,60 @@ title: "Live Mode (voice)"
 
 # Design: Live Mode — talk to your tmux
 
+## GPT-Live 1
+
+`openbus/gpt_live.py` adds OpenAI's full-duplex voice frontend with managed Responses
+delegation to `gpt-5.6-luna`. It reuses the existing pane-context updater, microphone
+forwarder, tool schemas, and guarded terminal dispatcher. Detailed terminal procedures
+stay in the backend prompt; the voice prompt covers conversation and delegation.
+
+Configure `OPENAI_API_KEY` in `~/.config/tmux-rc/openai.env`, outside every checkout.
+Set `TMUXRC_LIVE_MODE=1` in the daemon environment (or root `.env`) and restart
+the daemon to load both settings. GPT-Live 1 then appears in the mobile voice picker;
+`TMUXRC_LIVE_MODEL=gpt-live-1` also selects it for the desktop/default connection.
+`TMUXRC_GPT_LIVE_VOICE` chooses the voice (default `marin`).
+`TMUXRC_GPT_LIVE_BACKEND` chooses the Responses model; changing it requires explicit
+input/cached/output prices (see `.env.example`). This adapter uses OpenAI directly;
+Azure's distinct endpoint/configuration is not wired here.
+
+The existing browser → daemon WebSocket path remains. GPT-Live negotiates 16 kHz PCM
+in both directions; audio messages carry their playback rate, and the server requests
+40 ms microphone batches. Muting the mobile mic disables the capture track but keeps
+silent audio flowing, so the Live clock and backend speech continue. There is no VAD
+commit, response trigger for audio, or invented spoken-turn completion. Transcript
+timestamps provide display-only gap grouping; overlapping fragments never run tools.
+
+Full pane updates go into backend conversation context. Changed pane digests also
+arrive as quiet `session.thinking.append` hints, conservatively bounded below its
+500-token limit. These hints never authorize actions. Function calls are collected
+from completed output items and run only after successful backend completion; every
+result precedes continuation. A separate worker keeps audio flowing during terminal
+actions. Duplicate call IDs stop the session rather than repeat keystrokes.
+
+Voice billing uses cumulative `usage.seconds` at $0.05/min, including silence; backend
+usage is metered separately, including cached tokens. OTel reports the provider,
+backend model, voice seconds, and whether final usage was confirmed. Backend completions
+produce usage snapshots, not voice-turn counts. Stop/disconnect cancels pending local
+work and drains `session.closed` for up to five seconds. A lost provider connection ends
+the session; the adapter does not replay actions or silently start a fresh conversation.
+Speech interruption alone does not undo an action already sent to a terminal.
+
+Validation: `make test`; the opt-in, billable
+`uv run python research/live-eval/smoke_gpt_live.py /tmp/live-smoke.wav` synthesizes a
+fixed utterance and checks speech → delegation → exactly one guarded action → spoken
+confirmation → final usage. It uses a fake terminal and requires `ffmpeg`. Phone testing
+is still needed for echo, interruptions, mobile backgrounding, and perceived latency.
+
+Protocol references: [WebSockets](https://developers.openai.com/api/docs/guides/voice-websockets?api=live),
+[delegation](https://developers.openai.com/api/docs/guides/live-delegation), and
+[session lifecycle](https://developers.openai.com/api/docs/guides/live-conversations).
+
+## Gemini Live implementation
+
+The remaining architecture, model, and transport details describe the original
+Gemini/Vertex implementation. The OpenAI route and its different wire protocol are
+documented above; shared pane tools and browser transport apply to both.
+
 Status: **v0.1 implemented** (this doc tracks the shipped MVP). Voice-only surface: a
 Live button in the header opens a session where you talk in natural language about — and
 into — every pane at once. The model hears you, sees the live state of all panes, answers
@@ -36,7 +90,7 @@ inherited" below.
   Float32→Int16 PCM frames → base64 over the WebSocket. A gain-0 node keeps the graph
   alive without echoing the mic to the speakers. Playback of the model's voice is the
   reverse: base64 24 kHz PCM chunks → queued `AudioBufferSourceNode`s.
-- **Daemon** (`daemon/live.py`): accepts the WS, builds the system prompt from live
+- **Daemon** (`openbus/live.py`): accepts the WS, builds the system prompt from live
   watcher state, opens `client.aio.live.connect(...)` on Vertex, then runs two
   concurrent coroutines — forward-audio-up and receive-events-down — plus a
   context-updater (below). Session drops reconnect with exponential backoff.

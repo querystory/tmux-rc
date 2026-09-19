@@ -1,7 +1,7 @@
 # Porting the daemon to Go
 
 Status: **draft / for consideration**. Research note weighing a rewrite of the
-tmux-rc daemon (`daemon/*.py`) from Python to Go — the module-by-module port cost, the
+tmux-rc daemon (`openbus/*.py`) from Python to Go — the module-by-module port cost, the
 tmux integration question (shell out vs control mode vs library), the Gemini/Vertex
 story in Go, the sharp edges, and a phased recommendation. No code changes proposed
 here; this is a decision document.

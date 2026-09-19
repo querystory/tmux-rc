@@ -11,7 +11,7 @@ reproducible rather than a manual env var; the actionable auth-expired UI banner
 ## Problem
 
 The tmux-rc daemon classifies panes by calling Gemini Flash Lite on Vertex. It
-authenticates with bare **Application Default Credentials** (`daemon/llm.py` →
+authenticates with bare **Application Default Credentials** (`openbus/llm.py` →
 `genai.Client(vertexai=True, project=…)` with no explicit credentials). Developer ADC is
 short-lived: the access token expires, and the reauth-proof token (RAPT) expires on a
 policy cadence. When it lapses, every classify call fails until a human runs
@@ -112,7 +112,7 @@ residual failure is loud and obvious rather than a silent stale-card freeze.
 4. Add `GOOGLE_APPLICATION_CREDENTIALS=/home/YOU/.config/tmux-rc/vertex-sa.json` to `.env`
    — an **absolute** path, since google-auth does not expand `~` in the env var (the `~` in
    the `gcloud` commands above is fine; the shell expands it there). Document it in
-   `.env.example`. No `daemon/llm.py` change.
+   `.env.example`. No `openbus/llm.py` change.
 5. Verify: unset ADC in a shell, confirm the daemon still classifies (creds come from the
    key, not ADC).
 6. Fold the SA-key launch into the durability work (systemd unit) so it's reproducible, not

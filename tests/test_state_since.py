@@ -4,8 +4,8 @@ pending-question identity changes — NOT on cosmetic screen churn — and it mu
 across unchanged re-parses so the clock keeps climbing (the frozen-idle_seconds bug in
 #88). Time and tmux are mocked; nothing touches the real daemon or an LLM."""
 
-import daemon.watcher as W
-from daemon.watcher import Watcher
+import openbus.watcher as W
+from openbus.watcher import Watcher
 
 
 class _Pane:
@@ -135,7 +135,7 @@ def test_list_panes_populates_window_activity(monkeypatch):
     (and an 11-field line would be dropped by the length guard entirely)."""
     tmux = W.tmux
     fields = ["work", "0", "work", "0", "%1", "bash", "title", "/home/u", "42",
-              "1", "1", "4000"]
+              "1", "1", "4000", "1"]
     monkeypatch.setattr(tmux, "_run", lambda args: "\t".join(fields) + "\n")
     (pane,) = tmux.list_panes()
     assert pane.window_activity == "4000"

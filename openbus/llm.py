@@ -14,7 +14,24 @@ import os
 import time
 from functools import cache
 
+from .telemetry import emit_parse
+
 logger = logging.getLogger(__name__)
+
+
+@cache
+def genai_types():
+    """The google.genai `types` module, imported on first use and cached.
+
+    Importing google.genai costs ~0.9s, which would otherwise land on daemon startup for
+    a dependency most requests never touch. One accessor rather than a deferred import in
+    every function that needs a Schema or a Blob: the cost is paid once, on the first call
+    that actually reaches Vertex, and the deferral is stated in one place instead of being
+    re-argued at eleven call sites."""
+    from google.genai import types  # noqa: PLC0415 - the whole point of this function
+
+    return types
+
 
 # Gemini 3.1 Flash Lite — cheap/fast, strong at reading terminal text & screenshots.
 # Override with TMUXRC_GEMINI_MODEL if a newer flash-lite ships.
@@ -29,7 +46,7 @@ _OUT_PER_M = float(os.environ.get("TMUXRC_OUT_PER_M", "1.50"))
 # so "add it all up / averages" is a real query (and the seed for QueryStory
 # introspection). We had this data in every response's usage_metadata and were throwing
 # it away — now it's recorded. Live totals also kept in-memory (see usage_totals()).
-_metrics = logging.getLogger("daemon.llm.metrics")
+_metrics = logging.getLogger("openbus.llm.metrics")
 if not _metrics.handlers:
     _mpath = os.environ.get("TMUXRC_METRICS_LOG", "/tmp/tmux-rc-metrics.jsonl")
     _mh = logging.FileHandler(_mpath)
@@ -78,7 +95,7 @@ def usage_totals() -> dict:
 
 # Dedicated LLM trace log so we can grep exactly what the model saw and returned.
 # Path override via TMUXRC_LLM_LOG; default alongside the repo. tail -f to watch.
-_trace = logging.getLogger("daemon.llm.trace")
+_trace = logging.getLogger("openbus.llm.trace")
 if not _trace.handlers:
     _path = os.environ.get("TMUXRC_LLM_LOG", "/tmp/tmux-rc-llm.log")
     _h = logging.FileHandler(_path)
@@ -91,9 +108,9 @@ if not _trace.handlers:
 @cache
 def _client():
     """Lazily construct the Vertex client once. Cached so we don't rebuild per call."""
-    from google import genai
+    from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
 
-    from google.genai import types
+    types = genai_types()
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
@@ -171,7 +188,10 @@ def _handle_llm_error(e: Exception) -> str:
         logger.warning("LLM parse failed: %s", short)
     else:
         short = msg[:200]
-        logger.warning("LLM parse failed (unexpected)", exc_info=True)
+        # exc_info=e, not True: this helper is CALLED from the handler rather than being
+        # one, so there is no "current" exception for True to pick up. Passing `e`
+        # explicitly is both what LOG014 asks for and what actually logs the right trace.
+        logger.warning("LLM parse failed (unexpected)", exc_info=e)
     return short
 
 
@@ -216,7 +236,7 @@ def classify_text(
         return None
     t0 = time.time()
     try:
-        from google.genai import types
+        types = genai_types()
 
         parts: list = [text]
         if image_png is not None:
@@ -264,14 +284,16 @@ def summarize_events(event_texts: list[str]) -> str | None:
     if not event_texts or _backoff_remaining() > 0:
         return None  # skip while rate-limited — same gate as classify_text
     try:
-        from google.genai import types
+        types = genai_types()
 
         joined = "\n".join(f"- {t}" for t in event_texts[-60:])
         resp = _client().models.generate_content(
             model=_MODEL,
             contents=[
-                f"Summarize this burst of terminal activity in ONE short sentence "
-                f"(what was accomplished, past tense):\n{joined}"
+                (
+                    "Summarize this burst of terminal activity in ONE short sentence "
+                    f"(what was accomplished, past tense):\n{joined}"
+                )
             ],
             config=types.GenerateContentConfig(temperature=0.0),
         )
@@ -335,8 +357,6 @@ def _emit(
     by the non-streaming google-genai call, so it's left None here (a streaming provider
     path can fill it)."""
     try:
-        from .telemetry import emit_parse
-
         in_tok, cached, out_tok, cost = (
             _tokens_cost(resp) if resp is not None else (0, 0, 0, 0.0)
         )
@@ -358,7 +378,7 @@ def _emit(
             error=error,
             kind=kind,
         )
-    except Exception:  # noqa: BLE001 - telemetry must never break a parse
+    except Exception:  # telemetry must never break a parse
         logger.debug("telemetry emit failed", exc_info=True)  # visible, but never fatal
 
 

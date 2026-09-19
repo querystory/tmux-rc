@@ -1,7 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -39,6 +39,7 @@ const LUCIDE = {
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -113,12 +114,31 @@ function pause(ms, signal) {
 }
 function notice(message = "") { text($("notice"), message); show("notice", !!message); }
 
-function navigate(id = null, nextView = "summary") {
+function hashFor(id, nextView) {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
   if (sort !== "session") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
-  location.hash = params.toString();
+  return params.toString();
+}
+
+function navigate(id = null, nextView = "summary") {
+  location.hash = hashFor(id, nextView);
+}
+
+// Leaving a pane the user did not choose to leave — it closed under them. Unlike
+// navigate() this must NOT push a history entry: the pane is gone, so a Back that
+// returns to it would land on a dead deep link and bounce straight out again. replaceState
+// drops the dead URL instead of stacking it, and because it fires no hashchange we route
+// synchronously — otherwise `active` stays on the dead pane long enough for route() to
+// POST /select for a pane that no longer exists. `id` is the pane the caller believes is on
+// screen; stillOnPane rejects the call when the user has already tapped their way somewhere
+// else and only the queued hashchange is late (see pane-model.js).
+function leaveMissingPane(id) {
+  if (!stillOnPane(location.hash, id)) return;
+  const hash = hashFor(null);
+  history.replaceState(null, "", hash ? `#${hash}` : location.pathname + location.search);
+  route();
 }
 
 function route() {
@@ -160,7 +180,7 @@ function updateRow(button, pane) {
   const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
   if (logo.getAttribute("src") !== src) logo.src = src;
   logo.alt = pane.tool || "tmux";
-  text(button.querySelector("strong"), pane.label || pane.window_name || pane.pane_id);
+  text(button.querySelector("strong"), paneName(pane));
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
@@ -175,7 +195,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.label, p.window_name, p.pane_id, p.tool, p.model,
+  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.title, p.label, p.window_name, p.pane_id, p.tool, p.model,
     p.question?.prompt, p.headline, p.status_line, p.session_summary, activityLabel(p),
     p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
   const sessions = [...new Set(subset.map((p) => p.session))];
@@ -204,7 +224,14 @@ function render() {
   show("back", inPane); show("heading", inPane); show("detail", inPane);
   renderList();
   if (!inPane) return;
-  text($("pane-title"), pane?.label || (booted ? "Pane unavailable" : "Loading pane"));
+  // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
+  // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
+  // still shows the last frame, and every key is disabled — nothing to do but hit back.
+  // Go back to the list instead, and only once the daemon is authoritative: `booted`
+  // false means the inventory is still loading (startup, or a restart), where an absent
+  // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
+  if (booted && loaded && !pane) { leaveMissingPane(active); return; }
+  text($("pane-title"), (pane && paneName(pane)) || (booted ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
   $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
@@ -400,7 +427,14 @@ async function streamTerminal(id, signal) {
     } catch (error) {
       if (signal.aborted) return;
       if (error.status === 404) {
+        // The daemon says this pane is gone, and it is the FIRST thing to know: the live
+        // stream 404s the moment the pane dies, while /api/state may still be holding its
+        // long poll. Leaving you on a dead pane — stale frame, disabled keys — is a dead
+        // end, and render()'s own check cannot fire until the pane list catches up. Only
+        // act when this is still the pane on screen; a stale controller must not yank you
+        // out of a pane you have since switched to, which is leaveMissingPane's own guard.
         text($("terminal-status"), "Pane closed or not found");
+        leaveMissingPane(id);
         return;
       }
       text($("terminal-status"), "Reconnecting...");
@@ -483,40 +517,85 @@ $("reply-form").onsubmit = async (event) => {
   const id = active, value = draft(), segments = value.segments();
   sending = true; notice(); render();
   try {
-    while (segments.length) {
-      const segment = segments[0];
-      if (segment.file) {
-        const form = new FormData(); form.append("file", segment.file);
-        await request(paneUrl(id, "image"), { method: "POST", body: form }, 30000);
-      } else await post(paneUrl(id, "send"), { keys: segment.text, enter: false, literal: true });
-      // Remove only acknowledged segments, so retry never repeats a confirmed upload.
-      segments.shift(); value.pendingEnter = true; value.replace(segments);
+    const form = new FormData();
+    for (const segment of segments) {
+      if (segment.file) form.append("image", segment.file);
+      else form.append("text", segment.text);
     }
-    await post(paneUrl(id, "send"), { keys: "", enter: true, literal: true });
+    await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
+    value.replace([]);
     value.pendingEnter = false;
     if (active === id) text($("draft-status"), "Sent");
     startState();
   } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); }
   finally { sending = false; render(); }
 };
-$("reply-form").onkeydown = (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing) { event.preventDefault(); $("reply-form").requestSubmit(); } };
+// Enter SENDS, Shift+Enter inserts a newline — the same contract as the full UI's
+// composer, which this one is a port of. It shipped requiring Cmd/Ctrl+Enter, a shortcut
+// a phone keyboard cannot type at all, so the most obvious way to send did nothing and
+// silently added a blank line instead. Cmd/Ctrl+Enter still sends, for a hardware
+// keyboard and for anyone whose fingers already learned it. isComposing guards IME
+// input: mid-composition Enter commits the candidate word and must not send.
+// The handler is delegated from the FORM, not bound to the editor, because render()
+// swaps in a per-pane editor element — a listener on #reply would die on the first pane
+// switch. Delegation means keydown from the form's other controls lands here too, so it
+// only acts on the editor: without that guard, a keyboard user who tabs to the Keys or
+// attach button and presses Enter gets their draft SENT (preventDefault eats the button
+// activation) instead of the key row or the file picker.
+$("reply-form").onkeydown = (event) => {
+  if (!$("reply").contains(event.target)) return;
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  $("reply-form").requestSubmit();
+};
 let fileTarget = null;
 $("attach").onpointerdown = () => { if (active) draft().saveCaret(); };
 $("attach").onclick = () => { fileTarget = active; $("image-file").click(); };
 $("image-file").onchange = () => { if (active === fileTarget && !sending) draft().attach($("image-file").files[0]); $("image-file").value = ""; };
 
-for (const [id, name] of Object.entries({ back: "back", theme: "sun", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
-html($("keyboard"), licon("keyboard", 16) + "<span>Keys</span>");
+for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui": "monitor", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
-for (const [label, key, name] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Prefix", "prefix"]]) {
-  const button = document.createElement("button"); button.title = label; button.setAttribute("aria-label", label);
+// The keys worth a thumb on a phone. This row SHARES most of the full UI's key bar but
+// is not a copy of it, and diffing the two lists for parity will mislead you: Tab and
+// S-Left are here and not there, and Ctrl-B — a literal prefix byte, for nested tmux —
+// is there and not here. Each row earns its own entries.
+//
+// Ctrl-D and Ctrl-O were missing here at first: this list was written fresh rather than
+// ported, so the two keys you need when a pane has dropped to a bare shell — EOF to
+// close it, and Claude Code's newline — were unreachable from a phone.
+//
+// S-Left is the mobile-only one that matters most: codex parks follow-up questions behind
+// "shift + ← to answer", which a hardware keyboard simply types. Here it is the
+// difference between a question being answerable and not.
+//
+// The row is overflow-x:auto with flex:none buttons, so it scrolls rather than shrinking
+// them below a thumb-sized target (see #keys in style.css).
+//
+// Fourth slot is the SPOKEN name, defaulting to the visible label. Only a button labelled
+// with a glyph needs one: a screen reader handed "⇧←" announces two arrow characters,
+// or nothing at all — useless for the very key you opened the row to press. The icon
+// buttons (Up/Down) already carry words, so they need nothing extra.
+for (const [label, key, name, aria = label] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["\u21e7\u2190", "S-Left", null, "Shift+Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
+  const button = document.createElement("button"); button.title = aria; button.setAttribute("aria-label", aria);
   if (name) html(button, licon(name, 18)); else text(button, label);
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });
   $("keys").append(button);
 }
-$("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); };
+// Fade the right edge only while the key row actually has more to scroll to. A mask
+// gradient does the drawing (see #keys); this just measures. It must react to scroll,
+// to resize/rotation, and to the row being shown or its buttons changing, so a
+// ResizeObserver on the row covers the last two without a layout-thrashing poll.
+const KEYS_FADE = 24;
+function fadeKeys() {
+  const row = $("keys");
+  const room = row.scrollWidth - row.clientWidth - Math.ceil(row.scrollLeft);
+  row.style.setProperty("--keys-fade", `${room > 1 ? KEYS_FADE : 0}px`);
+}
+$("keys").addEventListener("scroll", fadeKeys, { passive: true });
+new ResizeObserver(fadeKeys).observe($("keys"));
+$("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("back").onclick = () => navigate();
 $("summary-tab").onclick = () => navigate(active, "summary");
 $("terminal-tab").onclick = () => navigate(active, "terminal");

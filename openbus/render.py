@@ -9,6 +9,7 @@ the escape grammar to color a monospace grid, not a full terminal emulator.
 from __future__ import annotations
 
 import re
+from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -30,9 +31,10 @@ _OTHER_ESC_RE = re.compile(r"\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[\[\]][0-9;?]*[
 
 
 def _cell(fg, bold):
-    return _PALETTE[(fg or 7) + (8 if bold and fg is not None and fg < 8 else 0)] if fg is not None else (
-        (255, 255, 255) if bold else _FG
-    )
+    # fg 0 (black) maps to 7 (grey): true black is invisible on the dark canvas.
+    if fg is None:
+        return (255, 255, 255) if bold else _FG
+    return _PALETTE[(fg or 7) + (8 if bold and fg < 8 else 0)]
 
 
 def render_png(ansi_text: str, cols: int = 120) -> bytes:
@@ -82,8 +84,6 @@ def render_png(ansi_text: str, cols: int = 120) -> bytes:
                 draw.text((_PAD + col * _CELL_W, y), ch, font=font, fill=_cell(fg, bold))
             col += 1
             i += 1
-
-    from io import BytesIO
 
     buf = BytesIO()
     img.save(buf, format="PNG")

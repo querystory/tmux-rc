@@ -6,8 +6,8 @@ new events since the last read + cadence elapsed ⇒ re-read replaces the summar
 WITHOUT re-seeding events (a re-seed would duplicate the log); an idle pane never
 re-reads."""
 
-import daemon.watcher as W
-from daemon.watcher import SUMMARY_REFRESH_SECONDS, Watcher, _append_events
+import openbus.watcher as W
+from openbus.watcher import SUMMARY_REFRESH_SECONDS, Watcher, _append_events
 
 
 class _Pane:

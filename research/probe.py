@@ -13,7 +13,8 @@ Model head-to-head (text-only, matching the daemon hot path) over a saved sample
 already-assembled pane text — the same `_parse` call, just parameterized on model id and
 repeated for a median. Used by docs/benchmarks/. `SAMPLE` is either a research/samples
 `.txt` or a JSON with a top-level "pane_text" (an OTel-captured payload):
-    python -m research.probe --sample SAMPLE --models gemini-3.1-flash-lite,gemini-3.5-flash-lite --repeat 3
+    python -m research.probe --sample SAMPLE \
+        --models gemini-3.1-flash-lite,gemini-3.5-flash-lite --repeat 3
 """
 
 from __future__ import annotations
@@ -24,18 +25,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-from daemon import tmux
+from openbus import tmux
+
 # Prices AND the tokens→cost arithmetic come from the daemon (not a copy here): this file
 # used to hardcode 2.5-flash-lite's $0.10/$0.40 long after the move to 3.1, quoting costs
 # ~2.5x low. `_tokens_cost` is the daemon's single source of truth for both.
-from daemon.llm import _MODEL, _client, _parse_json, _tokens_cost
-from daemon.render import render_png
+from openbus.llm import _MODEL, _client, _parse_json, _tokens_cost
+from openbus.render import render_png
 
 SAMPLES = Path(__file__).parent / "samples"
 
 # The parser prompt under test IS the production one — import it (single source of
 # truth) rather than keeping a copy here that silently drifts from what ships.
-from daemon.classify import parser_prompt  # noqa: E402
+from openbus.classify import parser_prompt  # noqa: E402
 
 PROMPT = parser_prompt()
 
@@ -79,7 +81,7 @@ def _parse(parts, model: str = _MODEL) -> dict:
     # a model as failing on output production accepts.
     try:
         result = _parse_json(resp.text)
-    except Exception:
+    except Exception:  # noqa: BLE001 - a probe records unparseable output, it does not raise
         result = {"_raw": resp.text}
     return {"json": result, "in": in_tokens, "cached": cached, "out": out_tokens,
             "latency": latency, "cost": cost}
@@ -101,7 +103,7 @@ def _load_sample_text(path: Path) -> str:
     except json.JSONDecodeError as e:
         sys.exit(f"sample {path} is not valid JSON: {e}")
     except KeyError:
-        sys.exit(f"sample {path} has no top-level \"pane_text\"")
+        sys.exit(f'sample {path} has no top-level "pane_text"')
 
 
 def _bench_models(sample: Path, models: list[str], repeat: int) -> None:
@@ -116,7 +118,9 @@ def _bench_models(sample: Path, models: list[str], repeat: int) -> None:
         # Median every metric over the repeats — the point of --repeat is to smooth
         # run-to-run variance, so tokens/cost are aggregated like latency (not the last
         # run, which would skew the summary if responses vary even at temp=0).
-        med = lambda k: statistics.median(r[k] for r in runs)
+        def med(k, runs=runs):
+            return statistics.median(r[k] for r in runs)
+
         med_lat, cost = med("latency"), med("cost")
         itok, otok = round(med("in")), round(med("out"))
         summary.append((model, itok, otok, med_lat, cost))
@@ -205,7 +209,10 @@ def main() -> None:
     print("===== SUMMARY =====")
     print(f"{'mode':12} {'in':>6} {'out':>5} {'latency':>8} {'$/1k calls':>11}")
     for name, m in rows:
-        print(f"{name:12} {m['in']:>6} {m['out']:>5} {m['latency']:>7.1f}s {m['cost'] * 1000:>10.3f}")
+        print(
+            f"{name:12} {m['in']:>6} {m['out']:>5} "
+            f"{m['latency']:>7.1f}s {m['cost'] * 1000:>10.3f}"
+        )
 
 
 if __name__ == "__main__":

@@ -39,9 +39,9 @@ standing pass/fail harness they were each reaching toward.
 
 ## What it runs — the REAL production path
 
-Each sample goes through `daemon.classify.classify(pane, text, llm_fn)` — the exact
+Each sample goes through `openbus.classify.classify(pane, text, llm_fn)` — the exact
 function the daemon calls — with `llm_fn` hitting the real Vertex model under
-`daemon/parser_prompt.txt` (temperature 0, JSON mime, same as `daemon.llm.classify_text`).
+`openbus/parser_prompt.txt` (temperature 0, JSON mime, same as `openbus.llm.classify_text`).
 That matters: `classify()` applies the `waiting_on` / `activity` overrides
 (question/rewind → `waiting`/`user`; drop stray `waiting_on` off non-waiting panes) that
 actually drive the phone UI. We score the **post-override** output — what the UI sees —
@@ -98,7 +98,7 @@ loosen the score.
 }
 ```
 
-Coverage (17 samples, quality over quantity) — every state, every tool, and the
+Coverage (18 samples, quality over quantity) — every state, every tool, and the
 affordances this session actually hit:
 
 | sample | asserts |
@@ -117,9 +117,10 @@ affordances this session actually hit:
 | `12_shell_server_gemini_trap` | server log mentioning `gemini-…` → tool=shell (not gemini) |
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
 | `14_copyable_commit_and_command` | drafted text and commands surface as copyables |
-| `15_codex_working_chrome` | ordinary Codex tool/progress chrome stays Codex while discussing Claude |
-| `16_codex_idle_custom_footer` | Codex with a custom footer and no model name stays Codex and idle |
-| `17_shell_printed_codex_chrome` | a shell printing saved Codex chrome stays an idle shell |
+| `15_codex_thread_title` | Codex status bar led by a thread title → session picks up the title |
+| `16_codex_working_chrome` | ordinary Codex tool/progress chrome stays Codex while discussing Claude |
+| `17_codex_idle_custom_footer` | Codex with a custom footer and no model name stays Codex and idle |
+| `18_shell_printed_codex_chrome` | a shell printing saved Codex chrome stays an idle shell |
 
 ### Committed vs local — what's repo-safe
 
