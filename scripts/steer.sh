@@ -46,8 +46,16 @@ pane=$1
 # parallel is exactly the caller that hits this, so serialise per pane. It covers other
 # runs of THIS script only — a human at the keyboard, or the daemon's own send path, is
 # outside it. One keystroke path is the real fix, and that is what the daemon provides.
+# The lock lives in a per-user runtime dir, not $TMPDIR: the name is derived from the pane
+# and so is guessable, and on a shared /tmp another user can park a symlink there and have
+# this redirection truncate whatever it points at. Missing flock still skips the lock —
+# nothing is lost that was not already unlocked — but a flock that is present and then
+# fails to take the lock is a different thing, and we exit rather than send unserialised.
 if command -v flock >/dev/null 2>&1; then
-  exec 9>"${TMPDIR:-/tmp}/steer-${pane//[^A-Za-z0-9]/_}.lock" && flock 9
+  lockdir=${XDG_RUNTIME_DIR:-$HOME/.cache}/tmux-rc
+  mkdir -p "$lockdir" || { echo "steer: cannot create $lockdir" >&2; exit 1; }
+  exec 9>"$lockdir/steer-${pane//[^A-Za-z0-9]/_}.lock" || exit 1
+  flock 9 || { echo "steer: could not lock $pane" >&2; exit 1; }
 fi
 shift
 msg=$*

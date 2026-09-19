@@ -225,9 +225,14 @@ receipt. The daemon does not have to infer — it re-parses the pane it just typ
 **Subscribe to state changes** — exists as `/api/state?v=<version>`, shaped for a deck:
 it wakes on *any* change to *any* pane, because a deck redraws wholesale. An agent wants
 a narrower predicate — this pane stopped working, this pane is asking something, this
-pane has been idle past N seconds. Same feed, an agent-shaped filter on top, and the
-long-poll discipline (hold ~25s, return the new version, re-hold) already survives the
-tunnel.
+pane has been idle past N seconds. The first two are a filter over the feed as it
+stands; the third is not, for the reason given above — the version does not bump on the
+idle timers ticking, so no filter over this feed can ever fire on "quiet for ninety
+seconds." That predicate needs either a deadline the client carries itself (hold, time
+out, re-check `idle_seconds`) or a watcher that bumps on a threshold crossing. Worth
+naming which of the two, because it is the difference between a client-side convenience
+and a change to the daemon's notion of what counts as a change. Either way the long-poll
+discipline (hold ~25s, return the new version, re-hold) already survives the tunnel.
 
 ### Why MCP, and what was rejected
 
