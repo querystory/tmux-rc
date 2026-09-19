@@ -530,7 +530,11 @@ async function sendKeys(body, answer = false) {
 // on the intermediate moves: gating the option buttons on the first Down would disable
 // the very row the walk is still working toward, and the walk is the only thing sending.
 function cursorIO(id) {
-  const pane = () => panes.find((p) => p.pane_id === id);
+  // sendKeys() posts to whatever pane is `active` at the time, not to a captured id, so a
+  // pane switch mid-walk would aim the remaining moves at a stranger's picker. Reporting
+  // "no question" the moment the user navigates away is what stops that: the walk checks
+  // question() before every single send.
+  const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
   return {
     question: () => pane()?.question || null,
     parsedAt: () => pane()?.parsed_at || 0,
