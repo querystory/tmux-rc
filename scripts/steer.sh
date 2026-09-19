@@ -37,6 +37,11 @@
 set -u
 
 glyph=${STEER_GLYPH:-❯}  # the agent's input-line prompt; differs per harness
+# U+00A0 as literal bytes. `\xNN` in a sed expression is a GNU extension: BSD/macOS sed
+# matches a literal "x c 2" instead and the NBSP fold below silently stops working, which
+# turns limitation 2 back on and makes the script report UNCONFIRMED on messages that
+# landed. printf's octal escapes are POSIX and mean the same thing everywhere.
+NBSP=$(printf '\302\240')
 MAX_BYTES=4000           # tmux caps one send-keys near 16KB; the daemon chunks, we refuse
 
 [ $# -ge 2 ] || { echo "usage: steer <pane> <message>" >&2; exit 2; }
@@ -94,7 +99,7 @@ inputline() {
   line=$(tmux capture-pane -p -t "$pane" | awk -v g="$glyph" 'index($0, g) == 1' | tail -1) || return 1
   [ -n "$line" ] || return 1
   line=${line#"$glyph"}
-  printf '%s' "$line" | sed 's/\xc2\xa0/ /g; s/[[:space:]]//g'  # fold the NBSP pad, drop spaces
+  printf '%s' "$line" | sed "s/$NBSP/ /g; s/[[:space:]]//g"  # fold the NBSP pad, drop spaces
 }
 
 # A draft left behind by an earlier dropped Enter would be silently concatenated with this
