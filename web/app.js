@@ -3352,16 +3352,16 @@ async function submitComposer(s, presetSegs) {
   // backgrounded tab killing the in-flight fetch, a navigation). The spinner class is
   // the feedback; the guard is the correctness.
   try {
-    // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
-    // submitting now would send the surrounding text without its image and drop the
-    // file. Everything stays in place so the user can retry. Ordering matters: any text
-    // typed into the pane before the failing image is already there, but without the
-    // final Enter it isn't submitted. uploadStagedImage throws on a bad response.
+    // One request keeps another sender out between the first segment and Enter.
+    const form = new FormData();
     for (const seg of segs) {
-      if (seg.text != null) await postSend(s, { keys: seg.text, enter: false, literal: true });
-      else await uploadStagedImage(s, seg.file);
+      if (seg.text != null) form.append("text", seg.text);
+      else form.append("image", seg.file);
     }
-    await postSend(s, { keys: "Enter", enter: false, literal: false });
+    const response = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/compose`, {
+      method: "POST", body: form, signal: timeoutSignal(45000),
+    });
+    if (!response.ok) throw new Error(`delivery failed (${response.status}); check the terminal before retrying`);
     clearComposer();
     // No burst needed: the visible raw surface streams via liveStream, so the sent
     // text/images show up in the next live frame on their own (docs/design/live-view.md).
@@ -3438,20 +3438,6 @@ function composerSegments() {
   run += "\n".repeat(pending); // realize a trailing newline (Shift+Enter at the very end)
   flush();
   return segs;
-}
-
-// POST one staged image to the pane (server stages it to disk and pastes/types it in,
-// no Enter — submitComposer sends the single Enter). Kept separate from send() because
-// it's a multipart body, not the JSON /send shape. Throws on a bad response so
-// submitComposer aborts before the final Enter (see its catch).
-async function uploadStagedImage(s, file) {
-  const fd = new FormData();
-  fd.append("file", file);
-  // Bounded like postSend, but with room for a real upload on a phone connection.
-  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
-    method: "POST", body: fd, signal: timeoutSignal(45000),
-  });
-  if (!r.ok) throw new Error("upload failed: " + r.status);
 }
 
 // The composer's contenteditable DOM IS the buffer: typed text and pasted/attached image

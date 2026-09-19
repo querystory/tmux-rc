@@ -42,6 +42,9 @@ def enabled() -> bool:
 # variant). Region likewise: Live models are region-pinned, not "global".
 LIVE_MODEL = os.environ.get("TMUXRC_LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
 LIVE_REGION = os.environ.get("TMUXRC_LIVE_REGION", "us-central1")
+# Picker/routing identifiers stay available when the optional adapter cannot load.
+GPT_LIVE_MODEL = "gpt-live-1"
+GPT_LIVE_LABEL = "GPT-Live 1"
 
 # Ambient [tmux update] messages: at most one per this many seconds, and only when the
 # watcher's state_version moved (the same change signal /api/state long-polls on).
@@ -429,7 +432,8 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         )
 
     args = fc.args if isinstance(fc.args, dict) else {}
-    pane_id = str(args.get("pane_id", "")).strip()
+    raw_pane_id = args.get("pane_id")
+    pane_id = raw_pane_id.strip() if isinstance(raw_pane_id, str) else ""
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
 
     # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
@@ -439,9 +443,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     if (
         fc.name == "type_in_pane"
         and isinstance(fc.args, dict)
+        and isinstance(raw_pane_id, str)
+        and isinstance(args.get("text"), str)
         and not (set(args) - {"pane_id", "text", "press_enter"})
     ):
-        text = str(args.get("text", ""))
+        text = args["text"]
         raw_enter = args.get("press_enter", True)
         # Never coerce press_enter: bool("false") is True and would submit an unsent
         # command. A non-bool value is malformed.
@@ -451,9 +457,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     elif (
         fc.name == "press_key"
         and isinstance(fc.args, dict)
+        and isinstance(raw_pane_id, str)
+        and isinstance(args.get("key"), str)
         and not (set(args) - {"pane_id", "key"})
     ):
-        key = _KEYS.get(str(args.get("key", "")))
+        key = _KEYS.get(args["key"])
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
@@ -735,28 +743,36 @@ async def live_mode(websocket: WebSocket) -> None:
         action="live_session", pane_uid="-", actor=actor, detail="start", keys=None
     )
     outcome, reason = "ok", "stop"
+    gpt_live = None
     try:
-        from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
-
         selection = websocket.query_params.get("model", "")
-        use_gpt = selection == gpt_live.LABEL or (selection in ("", "Default") and LIVE_MODEL == gpt_live.MODEL)
+        use_gpt = selection == GPT_LIVE_LABEL or (
+            selection in ("", "Default") and LIVE_MODEL == GPT_LIVE_MODEL
+        )
         if use_gpt and os.environ.get("OPENAI_API_KEY"):
+            from . import gpt_live  # noqa: PLC0415 - only this provider needs the optional adapter
+
             await gpt_live.run_session(websocket, watcher, actor, meter)
-        elif not use_gpt and LIVE_MODEL != gpt_live.MODEL and selection in ("", "Default", "Gemini Live"):
+        elif (not use_gpt and LIVE_MODEL != GPT_LIVE_MODEL
+              and selection in ("", "Default", "Gemini Live")):
             await _run_session(websocket, watcher, actor, meter)
         else:
             outcome = reason = "error"
-            await websocket.send_json({"type": "error", "message": "Unknown or unavailable Live Mode selection; reload the page."})
-    except gpt_live.ProviderError as exc:
-        outcome = reason = "error"
-        await websocket.send_json({"type": "error", "message": str(exc)})
+            await websocket.send_json({
+                "type": "error",
+                "message": "Unknown or unavailable Live Mode selection; reload the page.",
+            })
     except WebSocketDisconnect:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
-    except Exception:
+    except Exception as exc:
         outcome = reason = "error"
-        logger.exception("[live] session failed")
+        if gpt_live is not None and isinstance(exc, gpt_live.ProviderError):
+            message = str(exc)  # the adapter sanitizes provider diagnostics
+        else:
+            message = "live session failed"
+            logger.exception("[live] session failed")
         with contextlib.suppress(Exception):
-            await websocket.send_json({"type": "error", "message": "live session failed"})
+            await websocket.send_json({"type": "error", "message": message})
     finally:
         logger.info(
             "[live] session end: %s (%d turns, $%.4f, session=%s)",

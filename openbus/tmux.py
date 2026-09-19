@@ -7,13 +7,20 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import re
 import shutil
 import socket
 import subprocess
 import threading
+import time
+import weakref
+from contextlib import contextmanager
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
@@ -22,9 +29,8 @@ _TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
-# FLY002 is suppressed below: the suggested single f-string would fuse 12 fields into
-# one unsearchable line. Their ORDER is the wire format _parse_pane unpacks, so they
-# stay one per line.
+# FLY002 is suppressed below: keep fields individually searchable and ordered to
+# match the Pane constructor used by list_panes().
 _PANE_FMT = "\t".join(  # noqa: FLY002
     [
         "#{session_name}",
@@ -39,6 +45,7 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
         "#{window_active}",
         "#{pane_active}",
         "#{window_activity}",
+        "#{session_attached}",
     ]
 )
 
@@ -70,6 +77,11 @@ class Pane:
     # is the safe one: it can only make a pane look MORE recently active, never park
     # something the user is working in.
     window_activity: str = ""
+    # How many clients THIS session (of possibly several sharing the pane — see
+    # list_panes) is attached to. tmux reports a COUNT, not a flag: attach a second
+    # terminal and it reads "2". Only used to pick which group member's name a shared
+    # pane is filed under, via `is_attached` rather than any comparison to "1".
+    session_attached: str = "0"
 
     @property
     def display_title(self) -> str | None:
@@ -78,6 +90,13 @@ class Pane:
         defaults the title to the hostname, which is noise -> None."""
         t = _TITLE_GLYPHS.sub("", self.title).strip()
         return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
+
+    @property
+    def is_attached(self) -> bool:
+        """Does any client have this session open? `session_attached` is tmux's client
+        COUNT, so anything non-zero means attached — comparing it to "1" silently fails
+        the moment a second terminal (or a phone alongside a desktop) attaches."""
+        return self.session_attached not in ("", "0")
 
     @property
     def session_active(self) -> bool:
@@ -222,7 +241,13 @@ def active_pane_id() -> str | None:
 
 
 def list_panes() -> list[Pane]:
-    """All panes across all sessions/windows."""
+    """Every (session, pane) row tmux reports.
+
+    A pane in a session GROUP appears once per member — see dedupe_grouped — and that is
+    deliberate here: a grouped session is a real session with a real name, so
+    `find_pane("gtm-1:0")` must resolve and `/api/windows` must accept `session=gtm-1`
+    even when the deck files that pane under `gtm-0`. Callers that show panes to a human
+    want dedupe_grouped(); callers that RESOLVE a name want these rows."""
     out = _run(["list-panes", "-a", "-F", _PANE_FMT])
     panes: list[Pane] = []
     for line in out.splitlines():
@@ -233,6 +258,31 @@ def list_panes() -> list[Pane]:
             continue
         panes.append(Pane(*parts))
     return panes
+
+
+def dedupe_grouped(panes: list[Pane]) -> list[Pane]:
+    """One entry per pane, for anything that DISPLAYS panes.
+
+    `tmux new-session -t <name>` does not attach — it creates a session GROUPED with the
+    target, and grouped sessions share their windows. `list-panes -a` reports per session,
+    so a pane in a group of N sessions arrives N times under N session names, every copy
+    carrying the same pane id. That id keys the watcher's per-pane buffers and every card,
+    so on a deck the copies collide rather than merely repeat.
+
+    Applied at the point of display, NOT inside list_panes: the extra rows are not junk,
+    they are how a grouped session is addressable by its own name, and dropping them
+    globally broke `find_pane("gtm-1:0")` and `/api/windows?session=gtm-1`.
+
+    The survivor is the ATTACHED member when the group has one, so a card names the session
+    you would actually land in; otherwise the first row tmux emits. Insertion order is the
+    dict's, so replacing a row keeps the pane's original position and the deck doesn't
+    reshuffle when you attach elsewhere."""
+    by_id: dict[str, Pane] = {}
+    for pane in panes:
+        seen = by_id.get(pane.id)
+        if seen is None or (pane.is_attached and not seen.is_attached):
+            by_id[pane.id] = pane
+    return list(by_id.values())
 
 
 def find_pane(target: str | None) -> Pane | None:
@@ -260,6 +310,16 @@ def find_pane(target: str | None) -> Pane | None:
     panes = list_panes()
     if not panes:
         return None
+    # Only a canonical `session:window[.pane]` address NAMES a session, so only it keeps
+    # the raw rows — that is what makes a grouped session addressable as `gtm-1:0`, and it
+    # is unambiguous because the session is spelled out. Everything else (a pane id, a
+    # window label, no target at all) names a PANE or a WINDOW, which a group shares, so it
+    # resolves through the deck's attached-member preference. Otherwise `TMUXRC_TARGET=%3`
+    # or a label would stamp its single card with a session nobody is attached to.
+    addresses = {f"{p.session}:{p.window_index}" for p in panes}
+    addresses |= {f"{p.session}:{p.window_index}.{p.pane_index}" for p in panes}
+    if target not in addresses:
+        panes = dedupe_grouped(panes)
     if target is None:
         return panes[0]
     for p in panes:
@@ -495,9 +555,105 @@ def capture_pane(
 # chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
 # must never land inside a multi-byte code point.
 _SEND_CHUNK_BYTES = 4000
-# One logical send now spans several tmux commands (chunks + Enter); concurrent callers
-# (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste.
-_send_lock = threading.Lock()
+# Pause between the typed text and the Return that submits it.
+#
+# Agent TUIs take multi-line input, so they must decide whether a Return is "submit" or
+# "newline in what I am typing". They decide it by TIMING: bytes arriving in a fast burst
+# are a paste, and a Return inside a paste is a literal newline. `send-keys -l` followed
+# immediately by `send-keys Enter` is exactly that burst, so the Return lands inside the
+# paste window and becomes a newline — the message sits composed in the input box, unsent,
+# and nothing reports an error because tmux delivered every byte it was asked to.
+#
+# Observed from the phone: tapping an answer to a codex approval prompt left the text in
+# the input line with the composer reporting "Sent". So the wait is the fix: it ends the
+# burst, and the Return afterwards arrives as its own keystroke.
+#
+# Paid once per send, and only for literal text that asks for a Return — key-name sends
+# (Escape, C-c, arrows) are single keystrokes with no paste to escape and skip it.
+def _enter_settle_seconds() -> float:
+    try:
+        value = float(os.environ.get("TMUXRC_ENTER_SETTLE_S", "0.3"))
+    except ValueError:
+        logger.warning("Invalid TMUXRC_ENTER_SETTLE_S; using 0.3 seconds")
+        return 0.3
+    if not math.isfinite(value):
+        logger.warning("Non-finite TMUXRC_ENTER_SETTLE_S; using 0.3 seconds")
+        return 0.3
+    if value < 0:
+        logger.warning("Negative TMUXRC_ENTER_SETTLE_S; disabling the delay")
+        return 0.0
+    return value
+
+
+_ENTER_SETTLE_S = _enter_settle_seconds()
+# One logical send now spans several tmux commands (chunks, the settle, the Return), and
+# concurrent callers (asyncio.to_thread in live.py, parallel HTTP handlers) must not
+# interleave mid-paste.
+#
+# Weak values retire unused locks without replacing a lock held by a sender/waiter.
+# Every caller keeps a strong reference for its entire `with` block.
+_send_locks = weakref.WeakValueDictionary()
+_send_registry_lock = threading.Lock()
+_last_paste: dict[str, tuple[str, float]] = {}
+_paste_lock = threading.Lock()
+_LAST_PASTE_MAX = 256
+
+
+def _pane_lock(pane_id: str):
+    with _send_registry_lock:
+        lock = _send_locks.get(pane_id)
+        if lock is None:
+            lock = threading.RLock()
+            _send_locks[pane_id] = lock
+        return lock
+
+
+class PaneChangedError(RuntimeError):
+    """Delivery stopped because the original pane can no longer be identified."""
+
+
+def check_pane(pane_id: str, expected: str | None) -> None:
+    if expected is None or pane_pid(pane_id) != expected:
+        raise PaneChangedError(
+            "Pane changed or disappeared; delivery stopped. Check the terminal before retrying."
+        )
+
+
+@contextmanager
+def send_transaction(pane_id: str):
+    """Serialize a complete composer delivery; uploads finish BEFORE taking this lock."""
+    with _pane_lock(pane_id):
+        identity = pane_pid(pane_id)
+        if identity is None:
+            raise PaneChangedError("Pane disappeared before delivery.")
+        yield identity
+
+
+def pane_pid(pane_id: str) -> str | None:
+    """The PID of the process in `pane_id`, or None if the pane is gone.
+
+    One cheap display-message, used to tell a pane apart from a DIFFERENT pane that has
+    since inherited its id — the same job Pane.pid does in the watcher, for the same
+    reason stated there: tmux recycles "%N" when panes close, so the id alone is not a
+    durable identity."""
+    try:
+        return _run(["display-message", "-p", "-t", pane_id, "#{pane_pid}"]).strip() or None
+    except subprocess.CalledProcessError:
+        return None  # no such pane any more
+
+
+def _settle_before_return(pane_id: str) -> None:
+    """Check the pasted-to pane's identity even if its paste has already settled."""
+    with _paste_lock:
+        paste = _last_paste.get(pane_id)
+    if paste is None:
+        return
+    identity, at = paste
+    check_pane(pane_id, identity)
+    remaining = _ENTER_SETTLE_S - (time.monotonic() - at)
+    if remaining > 0:
+        time.sleep(remaining)
+        check_pane(pane_id, identity)
 
 
 def send_keys(
@@ -507,21 +663,58 @@ def send_keys(
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
     message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
     key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
-    Return (only meaningful for literal text)."""
-    with _send_lock:
+    Return (only meaningful for literal text).
+
+    `pane_id` must already be a resolved pane id — see _send_locks."""
+    with _pane_lock(pane_id):
         if literal:
+            identity = pane_pid(pane_id) if keys else None
+            if keys and identity is None:
+                raise PaneChangedError("Pane disappeared before delivery.")
             b, i = keys.encode(), 0
-            while True:
+            # An empty literal is not a paste — it is how both composers ask for a bare
+            # submit once their text has gone out in earlier requests. Sending it would be
+            # a tmux call that types nothing, and STAMPING it would be worse: it would
+            # restart the paste clock and make the Return below wait the whole window
+            # again, discarding the elapsed-time measurement at the one call that exists
+            # purely to be measured. Skipping both leaves the real last chunk's time in
+            # place, which is what the Return should be judged against.
+            while b:
                 j = min(i + _SEND_CHUNK_BYTES, len(b))
                 while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
                     j -= 1
+                check_pane(pane_id, identity)
                 _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                # Per chunk, not once at the end: if a later chunk raises, the bytes
+                # already delivered are in the pane and a paste really did happen, so a
+                # Return arriving after that failure still has a burst to clear. Stamping
+                # only after the last chunk would leave the half-delivered draft looking
+                # as though nothing had been typed. The final chunk still sets the time
+                # the Return below is judged against.
+                with _paste_lock:
+                    _last_paste[pane_id] = (identity, now := time.monotonic())
+                    if len(_last_paste) > _LAST_PASTE_MAX:
+                        for dead in [k for k, (_, at) in _last_paste.items()
+                                     if now - at > _ENTER_SETTLE_S]:
+                            del _last_paste[dead]
                 i = j
                 if i >= len(b):
                     break
         else:
+            # A Return asked for by NAME is a submit like any other, and the live tools
+            # can produce exactly that: the model may return type_in_pane(press_enter=
+            # false) and press_key("Enter") in ONE response, which we execute back to
+            # back with no round trip between them. So it has to clear the paste window
+            # too. Every other key name is a lone keystroke and waits for nothing.
+            if keys == "Enter":
+                _settle_before_return(pane_id)
             _run(["send-keys", "-t", pane_id, keys])
         if enter and literal:
+            # Let the paste burst end before the Return, or it is read as a newline
+            # rather than a submit (see _ENTER_SETTLE_S). Inside the lock deliberately:
+            # an interleaved send during the gap would put another caller's text in the
+            # box we are about to submit.
+            _settle_before_return(pane_id)
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
