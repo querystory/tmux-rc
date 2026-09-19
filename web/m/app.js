@@ -517,16 +517,13 @@ $("reply-form").onsubmit = async (event) => {
   const id = active, value = draft(), segments = value.segments();
   sending = true; notice(); render();
   try {
-    while (segments.length) {
-      const segment = segments[0];
-      if (segment.file) {
-        const form = new FormData(); form.append("file", segment.file);
-        await request(paneUrl(id, "image"), { method: "POST", body: form }, 30000);
-      } else await post(paneUrl(id, "send"), { keys: segment.text, enter: false, literal: true });
-      // Remove only acknowledged segments, so retry never repeats a confirmed upload.
-      segments.shift(); value.pendingEnter = true; value.replace(segments);
+    const form = new FormData();
+    for (const segment of segments) {
+      if (segment.file) form.append("image", segment.file);
+      else form.append("text", segment.text);
     }
-    await post(paneUrl(id, "send"), { keys: "", enter: true, literal: true });
+    await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
+    value.replace([]);
     value.pendingEnter = false;
     if (active === id) text($("draft-status"), "Sent");
     startState();

@@ -12,7 +12,8 @@ forwarder, tool schemas, and guarded terminal dispatcher. Detailed terminal proc
 stay in the backend prompt; the voice prompt covers conversation and delegation.
 
 Configure `OPENAI_API_KEY` in `~/.config/tmux-rc/openai.env`, outside every checkout.
-Restart the daemon to load it. GPT-Live 1 then appears in the mobile voice picker;
+Set `TMUXRC_LIVE_MODE=1` in the daemon environment (or root `.env`) and restart
+the daemon to load both settings. GPT-Live 1 then appears in the mobile voice picker;
 `TMUXRC_LIVE_MODEL=gpt-live-1` also selects it for the desktop/default connection.
 `TMUXRC_GPT_LIVE_VOICE` chooses the voice (default `marin`).
 `TMUXRC_GPT_LIVE_BACKEND` chooses the Responses model; changing it requires explicit
@@ -50,6 +51,12 @@ is still needed for echo, interruptions, mobile backgrounding, and perceived lat
 Protocol references: [WebSockets](https://developers.openai.com/api/docs/guides/voice-websockets?api=live),
 [delegation](https://developers.openai.com/api/docs/guides/live-delegation), and
 [session lifecycle](https://developers.openai.com/api/docs/guides/live-conversations).
+
+## Gemini Live implementation
+
+The remaining architecture, model, and transport details describe the original
+Gemini/Vertex implementation. The OpenAI route and its different wire protocol are
+documented above; shared pane tools and browser transport apply to both.
 
 Status: **v0.1 implemented** (this doc tracks the shipped MVP). Voice-only surface: a
 Live button in the header opens a session where you talk in natural language about — and

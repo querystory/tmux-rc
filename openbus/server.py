@@ -19,6 +19,7 @@ import os
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -350,14 +351,18 @@ def get_version():
         if p.is_file():
             h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
+    try:
+        from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
+    except ImportError:
+        gpt_live = None
 
     models = []
-    if live.LIVE_MODEL != gpt_live.MODEL:
+    if live.LIVE_MODEL != live.GPT_LIVE_MODEL:
         models.append({"label": "Gemini Live", "value": "", "hint": "Vertex"})
-    if os.environ.get("OPENAI_API_KEY"):
+    if gpt_live is not None and os.environ.get("OPENAI_API_KEY"):
         models.append({"label": gpt_live.LABEL, "hint": "OpenAI · $0.05/min + backend"})
-    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models), "live_models": models}
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models),
+            "live_models": models}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -554,7 +559,14 @@ def _emit_live_round(
 @app.post("/api/panes/{pane_id}/send")
 def send(pane_id: str, body: SendBody, request: Request):
     detail = f"enter={body.enter} literal={body.literal}"
-    if tmux.find_pane(pane_id) is None:
+    # Resolve to the pane's own id and send to THAT. "%3", "work:0.0" and a label can all
+    # name one pane, and send_keys locks per pane id — two spellings would take two locks
+    # and interleave into the same draft. The lookup is the validation we already do here,
+    # so canonicalizing costs nothing; doing it inside send_keys would put a list-panes
+    # subprocess on every keystroke. Audits keep the caller's spelling, which is what the
+    # client actually asked for.
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
         # Refused attempts are audited too — probing for pane ids is exactly the
         # traffic a forensic reader wants to see.
         _audit(
@@ -567,16 +579,21 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     try:
-        tmux.send_keys(pane_id, body.keys, enter=body.enter, literal=body.literal)
+        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
     except Exception as e:
         _audit(
             request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
         )
+        if isinstance(e, tmux.PaneChangedError):
+            raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)
     # Input changes the screen — force an immediate re-parse so an answered question /
-    # closed menu reflects on the card within a capture, not a poll interval later.
-    app.state.watcher.request_reparse(pane_id)
+    # closed menu reflects on the card within a capture, not a poll interval later. The
+    # canonical id again: the watcher matches this set against pane.id, so a request
+    # queued under an alias would simply never fire and the card would go stale until the
+    # next poll.
+    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
@@ -693,7 +710,10 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     bug; PNG-always fixes the happy path, and the typed-path fallback means a broken
     graphical session degrades to a working (if less pretty) paste, never a silent
     200. The upload is staged to disk in both modes."""
-    if tmux.find_pane(pane_id) is None:
+    # Canonical pane id for the same reason /send resolves one: _deliver_image types into
+    # the pane, and send_keys locks per pane id.
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
         _audit(request, "paste_image", pane_id, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
     mime = file.content_type or "image/png"
@@ -718,6 +738,21 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         raise HTTPException(400, "empty upload")
     detail = f"{mime} {len(data)}B"
 
+    try:
+        path = _stage_image(data, mime)
+        # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
+        mode = await asyncio.to_thread(_deliver_image, pane.id, data, path, pane.pid)
+    except Exception as error:
+        _audit(request, "paste_image", pane_id, outcome=f"error: {error}"[:80])
+        if isinstance(error, tmux.PaneChangedError):
+            raise HTTPException(409, str(error)) from error
+        raise
+    _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
+    app.state.watcher.request_reparse(pane.id)  # the paste changed the screen
+    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+
+
+def _stage_image(data: bytes, mime: str) -> str:
     # Stage to disk, prune stale stagings (the pane reads the file right after the
     # paste; a day of slack covers "answer later" without growing /tmp forever).
     IMG_DIR.mkdir(parents=True, exist_ok=True)
@@ -730,7 +765,6 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         or not IMG_DIR.is_dir()
         or IMG_DIR.stat().st_uid != os.getuid()
     ):
-        _audit(request, "paste_image", pane_id, outcome="error: staging dir not ours")
         raise HTTPException(
             500, f"{IMG_DIR} is not a directory we own; refusing to stage"
         )
@@ -746,15 +780,83 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
-    # Delivery blocks (Pillow decode, subprocess waits): worker thread, so an upload
-    # can't stall the event loop's polling.
-    mode = await asyncio.to_thread(_deliver_image, pane_id, data, path)
-    _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    app.state.watcher.request_reparse(pane_id)  # the paste changed the screen
-    return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+    return path
 
 
-def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
+@app.post("/api/panes/{pane_id}/compose")
+async def compose(pane_id: str, request: Request):
+    """Audit every attempt, including upload validation and staging failures."""
+    try:
+        return await _compose(pane_id, request)
+    except Exception as error:
+        _audit(request, "compose", pane_id, outcome=f"error: {error}"[:80])
+        if isinstance(error, tmux.PaneChangedError):
+            raise HTTPException(409, str(error)) from error
+        raise
+
+
+async def _compose(pane_id: str, request: Request):
+    """Receive the entire ordered draft before locking or typing into its pane."""
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
+        raise HTTPException(404, "pane not found")
+    segments = []
+    # Multipart parsing finishes before delivery. Limits also bound the time a single
+    # draft can occupy the pane lock; no client round trips happen inside that lock.
+    async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
+        text_bytes = 0
+        for kind, value in form.multi_items():
+            if kind == "text" and isinstance(value, str):
+                text_bytes += len(value.encode())
+                if text_bytes > 256 * 1024:
+                    raise HTTPException(413, "composer text too large")
+                segments.append(value)
+            elif kind == "image" and not isinstance(value, str):
+                mime = value.content_type or "image/png"
+                if mime not in _EXT:
+                    raise HTTPException(415, "unsupported image type")
+                data = await value.read(IMG_MAX_BYTES + 1)
+                if not data or len(data) > IMG_MAX_BYTES:
+                    raise HTTPException(413, "image empty or too large")
+                segments.append((data, _stage_image(data, mime)))
+            else:
+                raise HTTPException(400, "invalid composer segment")
+    if not segments:
+        raise HTTPException(400, "empty composer")
+    await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+    _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
+    app.state.watcher.request_reparse(pane.id)
+    return {"ok": True}
+
+
+def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> None:
+    with tmux.send_transaction(pane_id) as identity:
+        # Include time spent uploading and waiting for the lock in the identity guard.
+        if identity != expected_pid:
+            raise tmux.PaneChangedError("Pane changed while uploading; draft was not sent.")
+        for segment in segments:
+            tmux.check_pane(pane_id, identity)
+            if isinstance(segment, str):
+                tmux.send_keys(pane_id, segment, enter=False)
+            else:
+                _deliver_image(pane_id, *segment, identity)
+        tmux.check_pane(pane_id, identity)
+        tmux.send_keys(pane_id, "", enter=True)
+
+
+# Clipboard ownership is global even when two drafts target different panes.
+_image_delivery_lock = threading.Lock()
+
+
+def _deliver_image(pane_id: str, data: bytes, path: str, expected_pid: str) -> str:
+    with tmux.send_transaction(pane_id) as identity, _image_delivery_lock:
+        if identity != expected_pid:
+            raise tmux.PaneChangedError("Pane changed while uploading; image was not sent.")
+        tmux.check_pane(pane_id, expected_pid)
+        return _deliver_image_locked(pane_id, data, path, identity)
+
+
+def _deliver_image_locked(pane_id: str, data: bytes, path: str, identity: str) -> str:
     """Get the staged image into the pane; returns the mode for audit/response.
     Clipboard-first: normalize to PNG and Ctrl-V for the inline embed. But a LOCKED
     session means the pane's app cannot read the clipboard (GNOME blocks unfocused
@@ -767,6 +869,7 @@ def _deliver_image(pane_id: str, data: bytes, path: str) -> str:
             tools = tmux.set_clipboard_image(png)
         except Exception:  # noqa: BLE001 - undecodable: the path route still works
             pass
+    tmux.check_pane(pane_id, identity)
     if tools:
         tmux.send_keys(pane_id, "C-v", enter=False, literal=False)
         # Claude Code reads + transcodes the pasted image ASYNCHRONOUSLY after C-v,
