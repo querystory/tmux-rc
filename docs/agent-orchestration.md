@@ -37,11 +37,15 @@ and loses the Enter. The TUI has not finished consuming the paste when the Retur
 arrives, so the message sits in the input box, composed and unsent, looking for all the
 world like an agent that is thinking about it.
 
-Send the literal text, pause, then send `Enter` as its own call. tmux delivers
-back-to-back `send-keys` in order, so the separation is reliable in a way the single call
-is not. The daemon's own send path does the same thing for an unrelated reason — it
-chunks literal text under tmux's 16KB message cap and then sends the Return separately —
-which is why input from the phone does not exhibit this.
+Send the literal text, **pause**, then send `Enter` as its own call. The pause is the
+part that does the work: tmux delivers back-to-back `send-keys` in order, but ordering
+only guarantees the Return arrives after the paste, not after the TUI has finished
+reading it — a second `send-keys` issued immediately drops the Enter about as often as
+the single call does. Two calls make the delay expressible; the delay is what makes it
+land. The daemon settles deliberately for this reason (`TMUXRC_ENTER_SETTLE_S`, 0.3s by
+default) on top of the chunking it already does under tmux's 16KB message cap, and
+re-checks the pane's identity across the wait, which is why input from the phone does
+not exhibit this.
 
 Retrying the Enter is safe: a bare Return on an empty input box is a no-op in every agent
 TUI worth driving, so a retry loop cannot double-submit. It can only fail to notice that

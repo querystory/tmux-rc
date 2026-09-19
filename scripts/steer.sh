@@ -5,7 +5,8 @@
 # Why each step is here (the long version is docs/agent-orchestration.md):
 #   * `send-keys 'text' Enter` in ONE call frequently loses the Enter — the TUI has not
 #     consumed the paste when the Return arrives — leaving the message composed but
-#     unsent, with nothing raised anywhere. So: literal text, pause, Enter on its own.
+#     unsent, with nothing raised anywhere. So: literal text, pause, Enter on its own —
+#     and the PAUSE is the load-bearing part; two calls only make it expressible.
 #   * Confirm on the INPUT LINE, never the whole pane: a *sent* message is echoed into
 #     the transcript, so a pane-wide grep matches either way and reports success whether
 #     or not the send worked.
@@ -55,7 +56,7 @@ who=$(ident "$1")
 pane=${who%% *}
 case $pane in %[0-9]*) ;; *) echo "steer: no such pane: $1" >&2; exit 1 ;; esac
 same() { [ "$(ident "$pane")" = "$who" ] || {
-  echo "steer($pane): pane is gone or was recycled — not sending" >&2; exit 1; }; }
+  echo "steer($pane): pane is gone or was recycled — aborting" >&2; exit 1; }; }
 # The draft check and the send below are not one atomic step: two runs against the same
 # pane would each see an empty composer, then interleave their text and Enters into one
 # prompt while both retry loops reported success. An orchestrator steering a fleet in
@@ -110,7 +111,12 @@ for i in 1 2 3; do
   same
   tmux send-keys -t "$pane" Enter || exit 1
   sleep 2
+  # Identity again AFTER the capture, not just before the keystroke: if the pane exited
+  # and tmux handed its id to a replacement, the empty composer we just read is the
+  # replacement's and reporting "submitted" off it would be a false positive about a
+  # message that went nowhere.
   if line=$(inputline) && [ -z "$line" ]; then
+    same
     echo "steer($pane): submitted (attempt $i)"
     exit 0
   fi
