@@ -98,7 +98,7 @@ loosen the score.
 }
 ```
 
-Coverage (18 samples, quality over quantity) — every state, every tool, and the
+Coverage (17 samples, quality over quantity) — every state, every tool, and the
 affordances this session actually hit:
 
 | sample | asserts |
@@ -120,7 +120,6 @@ affordances this session actually hit:
 | `15_codex_thread_title` | Codex status bar led by a thread title → session picks up the title |
 | `16_codex_working_chrome` | ordinary Codex tool/progress chrome stays Codex while discussing Claude |
 | `17_codex_idle_custom_footer` | Codex with a custom footer and no model name stays Codex and idle |
-| `18_shell_printed_codex_chrome` | a shell printing saved Codex chrome stays an idle shell |
 
 ### Committed vs local — what's repo-safe
 
