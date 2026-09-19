@@ -479,6 +479,18 @@ function activeId() {
     // Seeing the pane is what the launch grace was waiting for, so seeing it ends the
     // grace: from here on this is an ordinary pick, and a pane that then vanishes is an
     // ordinary death — it must drop at once rather than be held by its own birth.
+    //
+    // "Seeing" is presence under the id, and tmux recycles ids, so for up to one poll the
+    // entry under a freshly launched id can still be the PREVIOUS occupant — enough to end
+    // the grace early, or, if that dead pane was its session's focused one, to satisfy the
+    // confirm above outright. Both are deliberate: the anchor resolves to the id the
+    // launcher asked for, `shown` is set to that same id, and the next poll rebuilds the
+    // deck with the NEW pane under it — so the user lands exactly where they asked, having
+    // briefly seen the previous occupant's card. There is no bounce in this, which is why
+    // the birth/PID token that would tell the two apart (a /api/state schema change the
+    // endpoint echoes back) is not worth its weight here. The one case it would buy is the
+    // grace collapsing from 30s to 8s, which only matters when discovery is ALSO stalled —
+    // the separate limitation written out next to LAUNCH_GRACE_MS in web/m/pane-model.js.
     if (s) pending.unseen = false;
     if ((!s && !pending.unseen) || Date.now() - pending.ts > (pending.unseen ? UNSEEN_PICK_MS : 8000)) { pending = null; shown = null; }
     else return (shown = pending.id);
