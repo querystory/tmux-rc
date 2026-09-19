@@ -78,6 +78,13 @@ if command -v flock >/dev/null 2>&1; then
   mkdir -p "$lockdir" || { echo "steer: cannot create $lockdir" >&2; exit 1; }
   exec 9>"$lockdir/steer-${pane//[^A-Za-z0-9]/_}.lock" || exit 1
   flock 9 || { echo "steer: could not lock $pane" >&2; exit 1; }
+else
+  # No flock — the default on macOS. Still send, because refusing would take away the
+  # single-caller case (by far the common one) to defend against a race that only a
+  # parallel orchestrator can hit, and because the lock never covered a human or the
+  # daemon anyway. But say so: a helper whose whole argument is that silence proves
+  # nothing must not be silent about running without the guard it advertises.
+  echo "steer($pane): no flock — sending UNSERIALISED; do not run this in parallel" >&2
 fi
 shift
 msg=$*

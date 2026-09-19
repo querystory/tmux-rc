@@ -201,7 +201,15 @@ activity, idle seconds, headline, pending question, the idle summary, and recent
 timestamped history. One caveat for anyone addressing panes by what they return: `title`
 is the agent's self-published title when there is one, but falls back to a name the
 bootstrap model wrote, so it is not an agent-owned identity and two runs need not agree
-on it. The gap otherwise is addressing and filtering convenience, not structure.
+on it. Filtering is convenience. Addressing is not: `/api/digest` hands back `%N` and
+`/api/panes/{id}/send` resolves whatever pane owns that id *now*, so the recycling
+problem from the fleet session survives the round trip — read a digest, take a moment to
+decide, send, and the pane you addressed may have died and left its id to a stranger. The
+daemon already holds the missing half (`Pane` carries the pid, and its own send path
+checks it), so the verb wants an incarnation — an expected-pid the caller echoes back, or
+a token the digest issues — and the choice between those is a real one about whether
+callers should have to understand tmux's identity model. Convenience is what is left
+after that.
 
 **Send input, with delivery confirmation** — the real gap. `/api/panes/{id}/send`
 returns `{"ok": true}` once tmux accepted the keystrokes, which is a true statement about
