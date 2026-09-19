@@ -445,6 +445,10 @@ let shown = null;
 // that is bounded by the per-request LLM timeout (20s), not by anything quick. Giving up
 // early doesn't fail gracefully: it drops the anchor and the view snaps back to tmux's
 // global focus, i.e. the window you just created is the one place you don't end up.
+// Worse than that, even: the new pane is what tmux has focused, so NO published pane
+// carries tmux_active and the fallback below lands on whichever card happens to sort
+// first. Kept a fixed number all the same — see the same decision written out next to
+// LAUNCH_GRACE_MS in web/m/pane-model.js, which is where the reasoning lives.
 const UNSEEN_PICK_MS = 30000;
 function activeId() {
   if (pending) {

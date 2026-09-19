@@ -51,6 +51,19 @@ export const stillOnPane = (hash, id) => !!id && new URLSearchParams(String(hash
 // past that costs nothing on the happy path, where the pane is published in milliseconds
 // and simply found; the deadline only decides how long the pathological case — a command
 // that resolves and then dies on its own — spends loading before it says so.
+//
+// Reviewed and kept at a fixed number, deliberately: a tick classifies panes SERIALLY,
+// so two panes that each burn the whole 20s timeout in one tick outlast even this. That
+// is an LLM outage, not a busy host — a pane is only re-classified when its screen
+// changed, and a 20s timeout means the call hung. Every alternative costs more than the
+// case is worth. A deck version can't replace the clock: a window that opens and dies
+// before any tick sees it never enters a deck at all, so no published inventory ever
+// disagrees with us and a version-gated grace would hold forever — which leaves a
+// two-clock state machine that is worse than this one number. The only fix that removes
+// the guess is server-side: publish the pane INVENTORY on its own cadence, independent of
+// classification, so a hung parse can't hold identity hostage. That is a watcher change
+// (a second publisher racing _publish_states from another thread), not a client one, and
+// it belongs in its own PR — not bolted onto a launcher fix.
 export const LAUNCH_GRACE_MS = 30000;
 export const awaitingLaunch = (launched, id, nowMs = Date.now()) =>
   !!id && launched?.id === id && nowMs - launched.at < LAUNCH_GRACE_MS;
