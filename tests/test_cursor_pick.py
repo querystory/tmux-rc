@@ -177,6 +177,21 @@ CASES = [
         {"sent": ["Down"], "selected": 1, "notes": 1},
     ),
     (
+        # Regression, Copilot: `selected` is model JSON, so "a number" is not enough —
+        # an index off the end of the list would have the walk step a wrong distance in a
+        # confident direction. Out of range is the unknown-anchor case.
+        "an anchor past the end of the list is treated as no anchor",
+        {"options": ROWS, "selected": 9, "keymap": NO_SEARCH_KM},
+        "gamma", 2,
+        {"sent": [], "selected": 9, "notes": 1},
+    ),
+    (
+        "a fractional anchor is treated as no anchor",
+        {"options": ROWS, "selected": 1.5, "keymap": NO_SEARCH_KM},
+        "gamma", 2,
+        {"sent": [], "selected": 1.5, "notes": 1},
+    ),
+    (
         # Regression, Copilot: classify() pipes model JSON through unvalidated, so a
         # keymap can arrive as a string. Nothing is advertised then, which is a fine
         # answer — but it must not throw inside a click handler.

@@ -103,7 +103,13 @@ async function walk(io, km, targetText, targetIndex) {
     const want = q.options[targetIndex] === targetText
       ? targetIndex
       : soleIndex(q.options, targetText);
-    const at = typeof q.selected === "number" ? q.selected : null;
+    // `selected` is model JSON too, so "a number" is not enough: -1, 2.5 and an index off
+    // the end of the list all arrive as numbers and all make the walk step a wrong
+    // distance in a confident direction. Anything that isn't a real row is the
+    // unknown-anchor case, which already has an honest answer below.
+    const at = Number.isInteger(q.selected) && q.selected >= 0 && q.selected < q.options.length
+      ? q.selected
+      : null;
     if (want < 0) return false; // gone, or two rows wear the title and neither is "the" one
     if (at === null) return false; // no trustworthy anchor — walking blind picks a row
     if (at === want) return km.select ? io.sendKey(km.select) : false;
