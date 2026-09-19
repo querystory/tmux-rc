@@ -28,6 +28,7 @@
 // only gets more wrong the further we walk on it.
 export const CURSOR_MAX_STEPS = 12;
 const PARSE_WAIT_MS = 4000; // per move; a wedged parse must not strand the walk
+const SETTLE_MS = 4000;     // after the commit, before the lock is handed back
 const POLL_MS = 120;
 
 // One wording for every dead end. They are all the same thing from the user's side —
@@ -145,7 +146,20 @@ export async function pickCursorRow(io, targetText, targetIndex) {
   if (walking) { io.note(BUSY); return false; }
   walking = true;
   try {
-    return await pick(io, targetText, targetIndex);
+    const done = await pick(io, targetText, targetIndex);
+    // Hold the lock PAST the commit, until a frame arrives that has noticed it. The picker
+    // does not vanish the instant Enter is delivered — the phone goes on rendering the
+    // stale question with live buttons until the next parse — and a second tap in that
+    // window starts a walk against a list that is no longer on screen, firing arrows and
+    // an Enter into whatever the selection just opened. (The deck escapes it only by
+    // accident: its reparse spinner happens to cover the same window.) Bounded, and only
+    // ever best-effort — the row is already selected either way, so a screen that never
+    // settles must not leave picking disabled for the life of the page.
+    if (done) {
+      const deadline = Date.now() + SETTLE_MS;
+      while (Date.now() < deadline && picker(io)) await sleep(POLL_MS);
+    }
+    return done;
   } finally {
     walking = false;
   }

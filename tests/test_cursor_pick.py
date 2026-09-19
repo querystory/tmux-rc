@@ -268,6 +268,10 @@ function fake(spec) {{
       const km = typeof p.keymap === "object" ? p.keymap : {{}};
       if (k === km.next && p.selected !== null) p.selected += 1;
       if (k === km.prev && p.selected !== null) p.selected -= 1;
+      // A committed picker goes away, which is what lets the post-commit hold end. The
+      // exception models the real lag the hold exists for: the pane is still publishing
+      // the old frame for a beat after Enter lands.
+      if (k === km.select && !spec.hold_open) p.open = false;
       return true;
     }},
     sendText: async (t) => {{
@@ -314,6 +318,23 @@ await (async () => {{
     assert.deepEqual(p.sent, ["Down", "Down", "Enter"], "no interleaved moves");
     assert.deepEqual(p.notes.length, 1, "the refused tap says so");
   }} catch (err) {{ failures.push(`concurrent taps: ${{err.message}}`); }}
+}})();
+
+// Regression, Copilot: the commit does not end the exposure. /m clears `sending` and sets
+// no pendingAnswer, so the stale question is still rendered with live buttons until the
+// reparse lands — and a tap in THAT window walks a list that is no longer on screen.
+await (async () => {{
+  const p = fake({{ options: ROWS_JS, selected: 0, keymap: FULL_KM_JS, hold_open: true }});
+  const first = pickCursorRow(p.io, "gamma", 2);
+  // Long enough for the first walk to finish committing (three sends, ~120ms apart) and
+  // be sitting in its post-commit hold with the picker still on screen.
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const second = await pickCursorRow(p.io, "alpha", 0);
+  p.open = false; // the reparse finally lands and the picker goes away
+  try {{
+    assert.deepEqual([await first, second], [true, false], "the commit keeps the lock");
+    assert.deepEqual(p.sent, ["Down", "Down", "Enter"], "nothing sent after the commit");
+  }} catch (err) {{ failures.push(`lock held until the picker clears: ${{err.message}}`); }}
 }})();
 
 // The lock must be RELEASED on every exit, or one dead end disables picking for the life
