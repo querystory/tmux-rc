@@ -156,6 +156,33 @@ CASES = [
         {"sent": ["gamma", "Enter"], "selected": 0, "notes": []},
     ),
     (
+        # Regression, Copilot, and the sharpest of them: keymap is model output read off
+        # TERMINAL CONTENT, and a key name reaches send-keys with literal:false. "C-b"
+        # would arm tmux's prefix and turn the walk's next arrow into a tmux command. Only
+        # the names the parser prompt actually translates into are ever sent.
+        "a control-key binding is not a binding",
+        {"options": ROWS, "selected": 0,
+         "keymap": {"next": "Down", "prev": "Up", "select": "C-b"}},
+        "gamma", 2,
+        {"sent": ["Down", "Down"], "selected": 2, "notes": 1},
+    ),
+    (
+        "an unknown key name is not a binding either",
+        {"options": ROWS, "selected": 0, "keymap": {"next": "j", "prev": "k"}},
+        "gamma", 2,
+        {"sent": [], "selected": 0, "notes": 1},
+    ),
+    (
+        # Regression, Copilot: bindings were captured from the first parse and reused for
+        # every later move, so a list that changed what it advertises went on receiving the
+        # old keys. Re-read each pass — press what the widget says NOW.
+        "a keymap that changes mid-walk is honoured on the next pass",
+        {"options": ROWS, "selected": 0, "keymap": FULL_KM,
+         "keymap_after": {"next": "Down", "prev": "Up", "select": "Tab", "search": True}},
+        "gamma", 2,
+        {"sent": ["Down", "Down", "Tab"], "selected": 2, "notes": []},
+    ),
+    (
         # Regression, Copilot: parsed_at is read BEFORE the POST, so an ordinary watcher
         # tick can land a parse before the key is even accepted. `stale_frames` models
         # exactly that — the frame count advances at once, the highlight only later. A walk
@@ -263,6 +290,8 @@ function fake(spec) {{
     // A scroll: the window onto the list moves, so the rows renumber while a row with the
     // tapped text still happens to sit at the tapped index — a DIFFERENT session, though.
     if (spec.scroll_after === p.sends) p.options = ["beta", "gamma", "beta"];
+    // The same list, now advertising a different commit key.
+    if (spec.keymap_after && p.sends === 1) p.keymap = spec.keymap_after;
     return true;
   }};
   p.io = {{

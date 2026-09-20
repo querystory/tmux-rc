@@ -94,10 +94,37 @@ async function waitForFrame(io, after, changed) {
 // tap arrives, so each pass re-reads the screen instead of firing move+move+Enter in one
 // burst. That burst would be faster and would silently pick the wrong session whenever
 // the anchor had moved, which is the same class of bug in a new costume.
+// The only key names this will ever hand to tmux. `keymap` is model output read off
+// TERMINAL CONTENT, which is attacker-influenced — an agent that cats a hostile file can
+// be talked into reporting whatever that file asks for — and a key name goes to send-keys
+// with literal:false, so it is executed as a key, not typed. "C-c" would interrupt the
+// agent; "C-b" is worse, arming tmux's prefix so that the walk's very next arrow becomes a
+// tmux command. The parser prompt translates every binding it understands into this
+// handful of names, so a value outside the set is not a binding we forgot to support — it
+// is not a binding, and the walk already knows how to proceed without one.
+const KEYS = new Set([
+  "Up", "Down", "Left", "Right", "Enter", "Tab", "BTab",
+  "Space", "Home", "End", "PageUp", "PageDown",
+]);
+
+// What the widget currently advertises, reduced to what is safe and meaningful. Recomputed
+// from the live question on every pass rather than captured once: a reparse can report
+// different bindings for the same list, and the walk should press what the widget says NOW
+// — pressing a binding it has stopped advertising is the failure this file exists to stop.
+// `search` takes the literal boolean only, since it is declared one and bool("false") is
+// true; typing into a list that does not filter is stray keystrokes.
+function bindings(q) {
+  const km = (q && q.keymap) || {};
+  const key = (name) => (KEYS.has(name) ? name : null);
+  return {
+    next: key(km.next), prev: key(km.prev), select: key(km.select), search: km.search === true,
+  };
+}
+
 // Same rows, same order — i.e. the list has not renumbered under us.
 const sameRows = (a, b) => a.length === b.length && a.every((row, i) => row === b[i]);
 
-async function walk(io, km, targetText, targetIndex) {
+async function walk(io, targetText, targetIndex) {
   // The rows as of the previous pass. A long picker shows a WINDOW onto its list and
   // scrolls it as the highlight leaves the edge, so the options array can renumber between
   // two passes of this loop — see the identity check below for why that matters.
@@ -111,18 +138,16 @@ async function walk(io, km, targetText, targetIndex) {
   for (let moves = 0; moves <= CURSOR_MAX_STEPS; moves++) {
     const q = picker(io);
     if (!q) return false;
-    // Prefer the index the user actually tapped, for exactly as long as it still names
-    // their row. Once a filter or a scroll has renumbered the list that index stops
-    // matching, and the row's text is the only identity left — which is no identity at
-    // all when two sessions share a title, so that case refuses rather than resuming a
-    // coin-flip. Selecting the wrong session confidently is worse than not selecting.
+    const km = bindings(q);
     // The tapped index identifies the row only while the list has not moved under it.
     // "Same text at the same index" is not proof on its own: two sessions can share a
     // title, and after a scroll index 2 can be a DIFFERENT session wearing the same name.
     // Comparing the rows themselves is the proof — unchanged list, index still good;
-    // changed list, the text is all the row has left, and that is nothing at all when it
-    // matches twice. (First pass has nothing to compare against: the tap was made against
-    // that frame, and the text check below is the only corroboration available.)
+    // changed list, the row's text is all it has left, and that is nothing at all when it
+    // matches twice, so that case refuses rather than resuming a coin-flip. Selecting the
+    // wrong session confidently is worse than not selecting. (The first pass has nothing
+    // to compare against: the tap was made against that frame, and the text check below is
+    // the only corroboration available.)
     const steady = rows === null || sameRows(rows, q.options);
     rows = q.options;
     const want = steady && q.options[targetIndex] === targetText
@@ -177,30 +202,22 @@ export async function pickCursorRow(io, targetText, targetIndex) {
 }
 
 async function pick(io, targetText, targetIndex) {
-  const q0 = picker(io);
-  // A keymap is model output too, so it can be absent, a string, or a list. Only null and
-  // undefined need substituting: reading `.next` off a string or an array is undefined,
-  // which is the right answer anyway — every binding is optional and the walk refuses each
-  // one it was not given rather than inventing it.
-  const km = (q0 && q0.keymap) || {};
-  if (await walk(io, km, targetText, targetIndex)) return true;
+  if (await walk(io, targetText, targetIndex)) return true;
   // Fallback: the widget's own search box. It needs BOTH bindings advertised — typing
   // filters the list but does not commit it, so the obvious shortcut of appending Enter
   // is precisely the unadvertised guess this file exists to stop. A picker that binds Tab
   // to select, or binds nothing, gets told rather than guessed at.
   //
-  // Re-read the picker rather than reusing q0: walk() can have spent seconds waiting, and
-  // if the pane has moved on to a DIFFERENT prompt in that time, typing the old row's text
-  // and the old picker's select key into it is worse than doing nothing.
+  // Re-read the picker: walk() can have spent seconds waiting, and if the pane has moved
+  // on to a DIFFERENT prompt in that time, typing the old row's text and the old picker's
+  // select key into it is worse than doing nothing.
+  //
   // The ambiguity check applies BEFORE typing, not after: a filter can only remove rows,
   // so a title that matches twice here still matches twice once filtered, and typing it in
   // would leave the user's picker filtered for a walk that was never going to commit.
   const q = picker(io);
-  // `km.search === true`, not truthy: the field is declared boolean but arrives from the
-  // model unvalidated, and the string "false" is truthy. Typing into a list that does not
-  // filter is stray keystrokes, which is the one thing this file exists to not do — so it
-  // fails closed on anything that is not the literal boolean.
-  if (km.search !== true || !km.select || !q || soleIndex(q.options, targetText) < 0) {
+  const km = bindings(q);
+  if (!q || !km.search || !km.select || soleIndex(q.options, targetText) < 0) {
     io.note(STUCK);
     return false;
   }
@@ -215,7 +232,7 @@ async function pick(io, targetText, targetIndex) {
   // -1, not 0: the filter renumbered everything, so the tapped index is spent and no index
   // we pass here means anything. An index that can never match says that plainly and sends
   // walk() down the by-text path, which is the only identity the row still has.
-  if (filtered && await walk(io, km, targetText, -1)) return true;
+  if (filtered && await walk(io, targetText, -1)) return true;
   io.note(STUCK);
   return false;
 }
