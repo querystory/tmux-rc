@@ -156,6 +156,17 @@ CASES = [
         {"sent": ["gamma", "Enter"], "selected": 0, "notes": []},
     ),
     (
+        # Regression, Copilot: parsed_at is read BEFORE the POST, so an ordinary watcher
+        # tick can land a parse before the key is even accepted. `stale_frames` models
+        # exactly that — the frame count advances at once, the highlight only later. A walk
+        # that took "newer" as proof would compute its next step from the old anchor and
+        # overshoot the row.
+        "a frame that predates the keystroke does not count as the move landing",
+        {"options": ROWS, "selected": 0, "keymap": FULL_KM, "stale_frames": 3},
+        "gamma", 2,
+        {"sent": ["Down", "Down", "Enter"], "selected": 2, "notes": []},
+    ),
+    (
         # Regression, Copilot: a long picker scrolls its window as the highlight leaves the
         # edge, so index 2 can become a DIFFERENT session wearing the same title. Same text
         # at the same index is not proof; an unchanged list is.
@@ -255,19 +266,28 @@ function fake(spec) {{
     return true;
   }};
   p.io = {{
-    question: () => p.open
+    question: () => {{
+      if (p.lag && --p.lag.left <= 0) {{ p.selected += p.lag.step; p.lag = null; }}
+      return p.open
       ? {{
         answer_style: p.style, selected: p.selected, keymap: p.keymap,
         options: spec.no_options ? undefined : p.options,
       }}
-      : null,
+      : null;
+    }},
     parsedAt: () => p.parsed_at,
     sendKey: async (k) => {{
       const moved = deliver(k);
       if (!moved) return false;
       const km = typeof p.keymap === "object" ? p.keymap : {{}};
-      if (k === km.next && p.selected !== null) p.selected += 1;
-      if (k === km.prev && p.selected !== null) p.selected -= 1;
+      const step = k === km.next ? 1 : k === km.prev ? -1 : 0;
+      // With `stale_frames`, deliver() has already advanced parsed_at (a watcher tick that
+      // beat our key to the server) but the highlight does not follow until that many
+      // frames have been read — so "newer" is true well before the move has happened.
+      if (step && p.selected !== null) {{
+        if (spec.stale_frames) p.lag = {{ step, left: spec.stale_frames }};
+        else p.selected += step;
+      }}
       // A committed picker goes away, which is what lets the post-commit hold end. The
       // exception models the real lag the hold exists for: the pane is still publishing
       // the old frame for a beat after Enter lands.

@@ -63,19 +63,27 @@ function picker(io) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Wait for a frame NEWER than `after`. A cursor move leaves the question itself
-// unchanged — same picker, same prompt, same options — so the card's ordinary reparse
-// marker is no signal here: it is cleared by the PROMPT changing, which never happens
-// mid-walk, and waiting on it returned false after every single move (the walk stopped
-// after one step and fell straight through to the fallback). parsed_at is the thing that
-// actually moves: the server forces a reparse on every send, and the frame it produces is
-// the new highlight position this walk needs before it can choose the next step.
-async function waitForParse(io, after, ms = PARSE_WAIT_MS) {
-  const deadline = Date.now() + ms;
+// Wait for a frame that is both NEWER than the one we sent from and DIFFERENT in the way
+// this send should have changed things.
+//
+// Newer is needed because the card's ordinary reparse marker is no signal here: it clears
+// when the question's PROMPT changes, which a cursor move never does, so waiting on it
+// returned false after every single move and the walk stopped after one step. parsed_at
+// is what actually moves — the server forces a reparse on every send.
+//
+// Newer is not SUFFICIENT, though, and that is the subtle half. parsed_at is read before
+// the POST, and an ordinary watcher tick can land a parse in the gap before the key is
+// even accepted. Taking that pre-key frame as the answer would have the next step computed
+// from the old anchor: an overshoot at best, and at worst a commit fired on a highlight
+// that has already moved past the row. So each caller also says what its send was supposed
+// to change, and nothing counts until that has happened too.
+async function waitForFrame(io, after, changed) {
+  const deadline = Date.now() + PARSE_WAIT_MS;
   while (Date.now() < deadline) {
     await sleep(POLL_MS);
-    if (!io.question()) return false; // picker closed under us — stop, don't keep typing
-    if (io.parsedAt() > after) return true;
+    const q = picker(io);
+    if (!q) return false; // picker closed under us — stop, don't keep typing
+    if (io.parsedAt() > after && changed(q)) return true;
   }
   return false;
 }
@@ -135,7 +143,10 @@ async function walk(io, km, targetText, targetIndex) {
     if (!key) return false; // the widget never advertised this direction — don't invent one
     const before = io.parsedAt();
     if (!(await io.sendKey(key))) return false; // undelivered: the anchor is now a lie
-    if (!(await waitForParse(io, before))) return false;
+    // A move that landed MOVED the highlight. A frame still reporting the old anchor is
+    // either one that predates the key or a move that did nothing (the end of the list, a
+    // binding the widget doesn't really have) — and both mean this walk cannot continue.
+    if (!(await waitForFrame(io, before, (f) => f.selected !== at))) return false;
   }
   return false;
 }
@@ -194,7 +205,12 @@ async function pick(io, targetText, targetIndex) {
     return false;
   }
   const before = io.parsedAt();
-  const filtered = await io.sendText(targetText) && await waitForParse(io, before);
+  // Typing into the search box changes the LIST, and usually the highlight with it —
+  // either is proof the filter took. Neither changing means the box did not filter, which
+  // is the one thing this fallback assumed and must not commit on.
+  const was = q.options, wasAt = q.selected;
+  const filtered = await io.sendText(targetText)
+    && await waitForFrame(io, before, (f) => !sameRows(was, f.options) || f.selected !== wasAt);
   // Re-walk the filtered list rather than trusting the filter to have landed on the row.
   // -1, not 0: the filter renumbered everything, so the tapped index is spent and no index
   // we pass here means anything. An index that can never match says that plainly and sends

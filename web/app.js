@@ -3631,12 +3631,18 @@ function keyFor(question, opt, i) {
 }
 
 // The cursor walk is shared with the phone (web/cursor-pick.js); everything below is
-// just this surface's plumbing plugged into it. `sleep` is the module's own, and the
-// pane is guaranteed present inside these — see the io contract there.
+// just this surface's plumbing plugged into it. The pane is guaranteed present inside the
+// senders — see the io contract there.
 function cursorIO(paneId) {
+  // Reporting nothing once the view has moved off this pane is what ABORTS the walk: a
+  // multi-second walk outlives a card swipe or a dock tap easily, and going on to move and
+  // commit a row in a picker the user can no longer see is the kind of thing you only
+  // discover afterwards. (The same gate on the phone, for the same reason.) Sends already
+  // go to the captured pane, so this is about consent, not about routing.
+  const pane = () => (shown === paneId ? panesById[paneId] : null) || null;
   return {
-    question: () => (panesById[paneId] || {}).question || null,
-    parsedAt: () => (panesById[paneId] || {}).parsed_at || 0,
+    question: () => pane()?.question || null,
+    parsedAt: () => pane()?.parsed_at || 0,
     sendKey: (k) => sendRaw(panesById[paneId], k),
     sendText: (t) => send(panesById[paneId], { keys: t, enter: false, literal: true }),
     note: barNote,
