@@ -33,9 +33,10 @@ That is the one setting worth changing for Codex: **include `"thread-title"` in
 line, but that is a single line of transcript — it scrolls away and the pane loses its
 name again. The status bar is the only place the title stays on screen to be read.
 
-(Agents that set the *terminal* title get a second route, but only to the desktop card,
-which renders `title || label`. The phone's card renders the label alone, so a terminal
-title is a bonus on one client and never a substitute for a name the label can carry.)
+Agents that set the *terminal* title get a second route on **both desktop and phone**.
+Both prefer `title` over `label`; the phone also falls back to `window_name`, then
+`pane_id`, when neither is available. Keeping a session name on screen still helps
+the classifier identify the work when the agent does not publish a terminal title.
 
 ### When nothing is parsed off the screen
 
