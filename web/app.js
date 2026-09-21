@@ -438,6 +438,19 @@ let pending = null; // {id, ts}
 // session_active — each session's own focused pane — but only within `shown`'s session;
 // focus movement in OTHER sessions is desktop noise, not a signal to switch the view.
 let shown = null;
+// How long an anchor on a pane that was not in state when it was picked survives. Far
+// past the 8s an ordinary select gets, because the two are waiting on different things:
+// a select waits for tmux to confirm focus, while this waits for the watcher to publish
+// a pane that already exists. POST /api/windows wakes the watcher, but the wake is not
+// an interrupt — a tick already in flight finishes first, and with classification on
+// that is bounded by the per-request LLM timeout (20s), not by anything quick. Giving up
+// early doesn't fail gracefully: it drops the anchor and the view snaps back to tmux's
+// global focus, i.e. the window you just created is the one place you don't end up.
+// Worse than that, even: the new pane is what tmux has focused, so NO published pane
+// carries tmux_active and the fallback below lands on whichever card happens to sort
+// first. Kept a fixed number all the same — see the same decision written out next to
+// LAUNCH_GRACE_MS in web/m/pane-model.js, which is where the reasoning lives.
+const UNSEEN_PICK_MS = 30000;
 function activeId() {
   if (pending) {
     const s = panesById[pending.id];
@@ -456,7 +469,31 @@ function activeId() {
     // `shown` was optimistically set below while pending, and keeping it would leave
     // the view parked in a session tmux never actually switched to. Null falls through
     // to the global-focus branch: resync to tmux's truth, same as before multi-session.
-    if (!s || Date.now() - pending.ts > 8000) { pending = null; shown = null; }
+    // "Not in panesById" is this branch's test for a select that never landed — but a
+    // pane the app JUST created isn't there either: POST /api/windows returns the id
+    // before the watcher has published it, and syncUrl() below calls straight back in
+    // here, so the launcher's jump used to cancel itself in the same task it was made.
+    // `unseen` separates the two: an id that wasn't in state when it was PICKED is "not
+    // yet" and keeps its anchor for UNSEEN_PICK_MS below before giving up, while one
+    // that was there and has since gone is the "pane closed" case and still drops at
+    // once. Nothing else can reach here unseen — every other caller picks from the deck.
+    // Seeing the pane is what the launch grace was waiting for, so seeing it ends the
+    // grace: from here on this is an ordinary pick, and a pane that then vanishes is an
+    // ordinary death — it must drop at once rather than be held by its own birth.
+    //
+    // "Seeing" is presence under the id, and tmux recycles ids, so for up to one poll the
+    // entry under a freshly launched id can still be the PREVIOUS occupant — enough to end
+    // the grace early, or, if that dead pane was its session's focused one, to satisfy the
+    // confirm above outright. Both are deliberate: the anchor resolves to the id the
+    // launcher asked for, `shown` is set to that same id, and the next poll rebuilds the
+    // deck with the NEW pane under it — so the user lands exactly where they asked, having
+    // briefly seen the previous occupant's card. There is no bounce in this, which is why
+    // the birth/PID token that would tell the two apart (a /api/state schema change the
+    // endpoint echoes back) is not worth its weight here. The one case it would buy is the
+    // grace collapsing from 30s to 8s, which only matters when discovery is ALSO stalled —
+    // the separate limitation written out next to LAUNCH_GRACE_MS in web/m/pane-model.js.
+    if (s) pending.unseen = false;
+    if ((!s && !pending.unseen) || Date.now() - pending.ts > (pending.unseen ? UNSEEN_PICK_MS : 8000)) { pending = null; shown = null; }
     else return (shown = pending.id);
   }
   const cur = panesById[shown];
@@ -479,14 +516,20 @@ function activeId() {
 // fired by a scroll that merely STARTED on them: `click` requires press and release on
 // the same element and the browser withholds it after a scroll. That is what onTap's
 // `defer` mode was hand-rolling, and it comes for free once nodes are permanent.
-function setActive(id) {
+// `unseen` = state has never shown us this pane, so an absence means "not yet" rather
+// than "gone" (see activeId). Defaulted from the deck for ordinary picks, which are made
+// BY tapping something in it — but passed explicitly by the launcher, because a pane
+// tmux has just created cannot be inferred that way: tmux recycles ids, so the deck may
+// still hold the dead occupant of a reused id and the launch would silently be treated
+// as an ordinary pick of a pane that no longer exists.
+function setActive(id, unseen = !panesById[id]) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
   // pane is active when they hit Send.
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
-  pending = { id, ts: Date.now() };
+  pending = { id, ts: Date.now(), unseen };
   // The single URL write for every pane change (#162) — dock tap, list row, swipe,
   // launcher jump all land here with listFilter already null: list rows clear it
   // explicitly, the rest (card tap, swipe, answer keys) only fire in card view where it
@@ -519,6 +562,12 @@ function setActive(id) {
     ? (fn) => requestAnimationFrame(() => requestAnimationFrame(fn))
     : (fn) => setTimeout(fn, 0);
   soon(() => render(Object.values(panesById)));
+  // A pick on a pane state hasn't shown us yet expires on a clock, but only a render can
+  // notice — and renders follow /api/state, which may be parked on a long poll for longer
+  // than the deadline. One scheduled render is what makes the timeout above real. No
+  // cancellation needed: a spare render is idempotent, and by then the pane has either
+  // arrived (nothing to expire) or the anchor is correctly dropped.
+  if (pending.unseen) setTimeout(() => render(Object.values(panesById)), UNSEEN_PICK_MS);
 }
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded
@@ -1199,6 +1248,13 @@ function render(states) {
   applyList(ui.list, states, [], act);
   dock(states, act); // sticky top bar — constant height, content swaps below it
   const a = panesById[act];
+  // `act` can name a pane state has yet to catch up with: the launcher anchors on a window
+  // tmux has already made but the watcher hasn't published (setActive's `unseen`). The
+  // list is hidden above and the deck has no pane to draw, so without a third state here
+  // the page would simply go blank until it lands — a worse answer than the snap-back this
+  // anchor replaced. Reuse the deck's own loading notice, which is exactly what this is.
+  setCls(ui.empty, "hid", !!a);
+  if (!a) { setCls(ui.spinner, "hid", false); setText(ui.emptyText, "Opening window…"); }
   // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
   // remaining viewport AND runs under the bar via its own negative margin, so counting the
   // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
@@ -1543,13 +1599,21 @@ const filtersEl = document.getElementById("filters"); // pane filters, homed in 
 // polls rewrite the icon around it.
 // ---- Launcher menu: a new agent window in a session, from the dock's "+"/"+N" ----
 // Entries come from the daemon (GET /api/launchers) so the label→command mapping stays
-// server-side: the phone posts back only the label, never a command string. Fetched
-// once — the config is env-set, so it can't change under a running page.
+// server-side: the phone posts back only the label, never a command string. The CONFIG is
+// env-set and can't change under a running page, but each entry's availability can — it
+// is a live fact about the daemon's PATH, so installing the binary or restarting the unit
+// with a wider PATH makes an entry usable again. Re-read on every open, or the page would
+// go on refusing a launcher that has since been fixed until someone reloads it.
 let launchers = [];
-fetch("/api/launchers")
+const loadLaunchers = () => fetch("/api/launchers")
   .then((r) => r.json())
-  .then((d) => { launchers = d.launchers || []; })
+  // Replace the cache only on a real answer. An error body (a FastAPI `detail`, a tunnel's
+  // HTML) parses fine and has no launchers, and taking it would wipe a working menu — on
+  // a re-read, blanking one that is open on screen. A stale list is strictly better: its
+  // entries still launch, and the POST is the authority on whether they can.
+  .then((d) => { if (Array.isArray(d?.launchers)) launchers = d.launchers; })
   .catch(() => {});
+loadLaunchers();
 let launchMenuEl = null;
 function closeLaunchMenu() {
   if (!launchMenuEl) return;
@@ -1562,7 +1626,19 @@ function launchMenuAway(e) {
 }
 function openLaunchMenu(sess, anchor) {
   closeLaunchMenu();
-  if (!launchers.length) return; // fetch failed or config empty — nothing to offer
+  // Nothing to offer — but a first read that failed or hasn't landed must not disable
+  // "+" for the life of the page, so take this tap as the cue to try again AND honour it
+  // once entries arrive: a tap that silently does nothing is the symptom this PR exists
+  // to remove. Bounded: the retry only re-enters with a non-empty list, which skips here.
+  if (!launchers.length) {
+    loadLaunchers().then(() => {
+      if (launchers.length) openLaunchMenu(sess, anchor);
+      // Still nothing: the read failed, or there are no launchers configured. Say so —
+      // a retry that leaves the tap unanswered is the same silence, one round later.
+      else barNote("Could not load launchers. Check the daemon and try again.");
+    });
+    return;
+  }
   const m = document.createElement("div");
   m.className = "launch-menu";
   m.setAttribute("role", "menu");
@@ -1578,31 +1654,61 @@ function openLaunchMenu(sess, anchor) {
   head.setAttribute("role", "presentation");
   setText(head, `New window in ${sess || "this session"}`);
   m.appendChild(head);
-  for (const l of launchers) {
-    const b = document.createElement("button");
-    b.setAttribute("role", "menuitem");
-    const im = document.createElement("img");
-    im.width = im.height = 18;
-    // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
-    // config entry can ship its own glyph without the app changing.
-    setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
-    setAttr(im, "alt", "");
-    b.append(im, document.createTextNode(l.label));
-    b.onclick = () => {
-      closeLaunchMenu();
-      fetch("/api/windows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session: sess, launcher: l.label }),
-      })
-        .then((r) => r.json())
-        // Jump to the new window's card: the pane exists in tmux the moment the POST
-        // returns, so setActive's select lands; the card fills in on the next poll.
-        .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
-        .catch(() => {});
-    };
-    m.appendChild(b);
-  }
+  const fill = () => {
+    for (const b of [...m.querySelectorAll("button")]) b.remove();
+    for (const l of launchers) {
+      const b = document.createElement("button");
+      b.setAttribute("role", "menuitem");
+      const im = document.createElement("img");
+      im.width = im.height = 18;
+      // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
+      // config entry can ship its own glyph without the app changing.
+      setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
+      setAttr(im, "alt", "");
+      b.append(im, document.createTextNode(l.label));
+      // The daemon flags a launcher whose command it can't run (GET /api/launchers).
+      // Show it anyway — the user configured it, so hiding it would only be a second
+      // mystery — but disabled, with the reason as the tooltip. Without this the entry
+      // stays clickable, the POST comes back 400, and the handler below (which only
+      // looks for pane_id) drops the explanation on the floor: exactly the silent
+      // nothing-happens this endpoint's `unavailable` exists to end.
+      // aria-label as well as title, matching the dock icons: a tooltip is a pointer
+      // affordance, and on a DISABLED control it is the least reachable one there is —
+      // keyboard focus skips it, touch has no hover, and AT would otherwise announce the
+      // launcher's name with no hint of why it does nothing.
+      if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); setAttr(b, "aria-label", `${l.label}, unavailable: ${l.unavailable}`); m.appendChild(b); continue; }
+      b.onclick = () => {
+        closeLaunchMenu();
+        fetch("/api/windows", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: sess, launcher: l.label }),
+        })
+          // The disabled entry above is only a snapshot from the last /api/launchers read:
+          // a binary removed, a chmod, or a daemon restart with a narrower PATH since the
+          // menu opened all reach here as a 400 carrying the reason. Say it, rather
+          // than falling through to the pane_id check and failing silently — a silent
+          // failure is the exact symptom this endpoint's `detail` was added to end.
+          .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`); return d; })
+          // Jump to the new window's card: the pane exists in tmux the moment the POST
+          // returns, so setActive's select lands; the card fills in on the next poll.
+          .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id, true); } })
+          .catch((e) => barNote(`Could not open a window — ${e.message}`));
+      };
+      m.appendChild(b);
+    }
+  };
+  fill();
+  // Then repaint from a fresh read, so a launcher fixed on the host since this page
+  // loaded stops being refused without anyone having to reload the app. ONLY when the
+  // answer actually changed: rebuilding these buttons between a pointerdown and its
+  // pointerup destroys the element the press landed on, and the browser then withholds
+  // the click — so an unconditional repaint would trade a stale entry for a menu that
+  // silently eats taps. Nothing changed is the overwhelmingly common answer.
+  const before = JSON.stringify(launchers);
+  loadLaunchers().then(() => {
+    if (launchMenuEl === m && JSON.stringify(launchers) !== before) fill();
+  });
   document.body.appendChild(m);
   // Under the anchor, clamped into the viewport (a tray's "+" can sit at the right edge).
   const r = anchor.getBoundingClientRect();

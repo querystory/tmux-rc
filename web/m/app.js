@@ -2,7 +2,7 @@ import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -94,8 +94,13 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
     if (!response.ok) {
+      // Carry the server's own explanation (FastAPI puts it in `detail`) on the error.
+      // Without it a caller can only say something generic, which is how a launcher
+      // that isn't on the daemon's PATH used to surface as an unrelated focus error.
+      const detail = await response.json().then((body) => body?.detail, () => null);
       const error = new Error(`Request failed (${response.status})`);
       error.status = response.status;
+      if (typeof detail === "string" && detail) error.detail = detail;
       throw error;
     }
     return await response.json();
@@ -221,6 +226,13 @@ function renderList() {
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
+  // Once state has shown us the launched pane the grace record is spent — wherever the
+  // user happens to be looking. Keyed on the pane list, not on `active`: a launch the
+  // user navigated away from before the first poll would otherwise keep its exemption,
+  // and coming back to that pane after it had exited would find it still held on screen
+  // by its own birth. Presence is imperfect evidence when tmux recycles an id — see the
+  // note at the eviction below; it is the only evidence the client has.
+  if (launched && panes.some((p) => p.pane_id === launched.id)) launched = null;
   show("sessions", !inPane); show("list-nav", !inPane); show("brand", !inPane);
   show("back", inPane); show("heading", inPane); show("detail", inPane);
   renderList();
@@ -231,16 +243,31 @@ function render() {
   // Go back to the list instead, and only once the daemon is authoritative: `booted`
   // false means the inventory is still loading (startup, or a restart), where an absent
   // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
-  if (booted && loaded && !pane) { leaveMissingPane(active); return; }
-  text($("pane-title"), (pane && paneName(pane)) || (booted ? "Pane unavailable" : "Loading pane"));
+  // ...unless the app itself created this pane moments ago and state has yet to catch up,
+  // which is "not yet" too — see awaitingLaunch for why that is a deadline. Once the pane
+  // HAS been seen the record is spent: a window that opens and then closes inside the
+  // grace is an ordinary death, and must not be held on screen by its own birth.
+  // Presence is the only evidence the clearing above has, and it is imperfect: tmux
+  // recycles pane ids, so a launch that reuses one can match the previous occupant's
+  // entry in a state poll that predates it, ending the grace early and showing the dead
+  // card for a tick. Telling the two apart needs a birth token in /api/state that the
+  // endpoint can echo back — a schema change, not a client fix, and not worth it for a
+  // window this narrow: it costs a stale card until the next poll, and the next poll is
+  // what it was waiting for anyway.
+  // Has the daemon's word on this pane settled? Every "it's gone" wording below turns on
+  // this rather than on `booted` alone, so the grace reads as "still loading" throughout
+  // instead of announcing the pane unavailable on a screen we are deliberately holding.
+  const settled = booted && !awaitingLaunch(launched, active);
+  if (settled && loaded && !pane) { leaveMissingPane(active); return; }
+  text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
   $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
   show("overview", view === "summary"); show("terminal", view === "terminal");
-  text($("activity"), pane ? activityLabel(pane) : booted ? "Unavailable" : "Loading");
+  text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
-  const missing = loaded && !pane ? (booted ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
+  const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
   const headline = pane?.headline || pane?.status_line || pane?.session_summary || missing;
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
@@ -660,25 +687,54 @@ $("new-window").onclick = async () => {
       const button = document.createElement("button");
       const logo = document.createElement("img");
       logo.src = Object.prototype.hasOwnProperty.call(LOGOS, launcher.icon) ? LOGOS[launcher.icon] : launcher.icon || "/tmux-logomark.svg"; logo.alt = "";
-      const label = document.createElement("span"); label.textContent = launcher.label;
-      button.append(logo, label); button.insertAdjacentHTML("beforeend", licon("plus"));
-      button.disabled = !sessions.length;
-      button.onclick = () => launchWindow(launcher.label);
+      const label = document.createElement("span");
+      const name = document.createElement("strong"); name.textContent = launcher.label; label.append(name);
+      // A launcher whose command the daemon can't find stays VISIBLE — the user
+      // configured it, so hiding it would only be a second mystery — but is disabled and
+      // states the reason, instead of opening a window that dies in milliseconds.
+      // The marker outlives the disabled flag, which launchWindow's `finally` clears on
+      // every button: without it one failed launch would re-arm the entries the daemon
+      // has just told us cannot run.
+      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; const why = document.createElement("small"); why.textContent = launcher.unavailable; label.append(why); }
+      button.append(logo, label);
+      if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
+      button.disabled = !sessions.length || !!launcher.unavailable;
+      button.onclick = () => launchWindow(launcher.label, button);
       return button;
     }));
   } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
 };
 $("close-launch").onclick = () => $("launch-dialog").close();
-let launching = false;
-async function launchWindow(launcher) {
+let launching = false, launched = null;
+async function launchWindow(launcher, button) {
   if (launching) return;
   launching = true; text($("launch-error"), "Creating window...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
     const data = await post("/api/windows", { session: $("launch-session").value, launcher });
+    // Record the id BEFORE navigating to it: startState only *starts* a fetch, so the
+    // hashchange this triggers reaches render() while `panes` is still the previous
+    // poll's, without the pane that was created a moment ago. See awaitingLaunch.
+    launched = { id: data.pane_id, at: Date.now() };
+    // The exemption expires on a clock, but only a render can act on it, and renders are
+    // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
+    // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
+    // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
+    // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
+    setTimeout(render, LAUNCH_GRACE_MS);
     $("launch-dialog").close(); startState(); navigate(data.pane_id);
-  } catch { text($("launch-error"), "Creation could not be confirmed. Check sessions before retrying."); }
-  finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = false; }); }
+  } catch (error) {
+    text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying.");
+    // The list was a snapshot from the GET; if the daemon has since decided it can't run
+    // this one, believe it now rather than leaving a button that only ever re-shows the
+    // same refusal. The marker is what `finally` restores from, so setting it is enough.
+    // ONLY on 400, the preflight's own status: every FastAPI error carries a `detail`, so
+    // a stale session (404) or any other transient refusal would otherwise disable a
+    // perfectly good launcher for the rest of the dialog over something that isn't
+    // about the command at all.
+    if (button && error.status === 400 && error.detail) button.dataset.unavailable = error.detail;
+  }
+  finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 
 function fitViewport() {
