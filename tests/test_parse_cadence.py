@@ -249,3 +249,36 @@ def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     first = w._tick_pane(pane)["parsed_at"]
     w._forced_this_tick = {"%1"}  # phone sent input; screen unchanged
     assert w._tick_pane(pane)["parsed_at"] > first
+
+
+def test_failed_forced_reparse_still_retries(monkeypatch):
+    """Copilot, #210 round 3 — and they were right where I argued otherwise. A forced
+    reparse runs on an UNCHANGED screen (the phone just answered a question), so
+    _prev_fp already matches this text from the earlier successful parse. Declining to
+    SET it on failure was not enough: the stale matching value kept `changed` False, so
+    the retry never came and the answered question sat on the card until the screen
+    moved on its own. That is the same stuck-card failure this PR exists to fix, reached
+    by the path the user actually notices. The failure has to CLEAR the mark."""
+    frame = ["? Proceed?"]
+    w, calls = _harness(monkeypatch, frame)
+    seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+            "question": {"prompt": "Proceed?"}}]
+
+    def then_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if seq:
+            return dict(seq.pop(0))
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", then_fails)
+    pane = _Pane(current_command="node")
+    w._forced_this_tick = set()
+    w._tick_pane(pane)                      # 1: succeeds, retires the screen
+    w._forced_this_tick = {"%1"}
+    w._tick_pane(pane)                      # 2: forced reparse on the SAME screen, fails
+    assert calls["n"] == 2
+    w._forced_this_tick = set()             # 3: an ordinary tick must pick it back up
+    state = w._tick_pane(pane)
+    assert calls["n"] == 3, "a failed forced reparse must leave the screen unread"
+    assert state["question"] == {"prompt": "Proceed?"}, "and the card stays answerable"

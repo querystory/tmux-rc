@@ -1006,7 +1006,16 @@ class Watcher:
         # of the same text on the next tick, which is exactly the retry this needs.
         if state.get("parse_ok", True):
             self._prev_fp[pane.id] = fp
-        elif previous is not None:
+        else:
+            # CLEAR it, don't merely decline to set it. A forced reparse (the phone just
+            # answered a question) runs on an UNCHANGED screen, so _prev_fp already
+            # matches this text from the earlier successful parse. Leaving that value in
+            # place means `changed` stays False and the retry never happens — the
+            # answered question sits on the card until the screen moves on its own,
+            # which is the same stuck-card failure this PR exists to fix, just reached
+            # by the path the user actually notices.
+            self._prev_fp.pop(pane.id, None)
+        if not state.get("parse_ok", True) and previous is not None:
             # An unread screen must not REDACT the card either. classify()'s fallback can
             # only carry `activity` forward, so a waiting pane came back without its
             # `question` — and the phone gates the answer controls on that field
