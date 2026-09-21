@@ -26,7 +26,7 @@ def _harness(monkeypatch, frame_holder, state_holder, clock):
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
     monkeypatch.setattr(W.time, "time", lambda: clock[0])
 
-    def fake_classify(pane, text, llm_fn=None, prior=None, recent_events=None):
+    def fake_classify(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
         s = dict(state_holder[0])  # fresh dict per parse (as the real classify returns)
         s["label"] = pane.label
         return s

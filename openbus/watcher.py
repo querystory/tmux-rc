@@ -34,17 +34,30 @@ FAST_POLL = 0.1
 SNAPSHOT_HISTORY = 200
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
-# `changed` compares against _prev_fp, which is written only on the parse path — so a
+# `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
 # screen drifting slowly, line by line, still eventually differs from what we last
 # parsed and re-parses on content alone. No time-based heartbeat: an unchanged screen
 # (idle prompt, a pane blocked on a question) is byte-identical, so re-parsing it on a
 # timer only burned money (~58% of all parse spend was duplicate input_sha256) and let
 # the non-deterministic model re-roll a stable card's summary for no reason. An agent
 # merely working — spinner/timer/token churn — is stripped from the fingerprint ⇒ no
-# change ⇒ no call.
+# change ⇒ no call. A parse that FAILS (the model returned nothing) leaves _prev_fp
+# unset, so the same screen is retried on the next tick rather than being retired
+# unread. That is tracked separately from _seen_fp, which follows the screen itself and
+# drives the idle clock and the snapshot ring — see the note in _tick_pane.
 # One-time deep read of a pane's scrollback that seeds the card (summary + history)
 # before live watching has accumulated anything. Fat input ⇒ at most ONE per tick,
 # behind the live parses; a few retries with spacing so an LLM hiccup isn't permanent.
+# How many times one pane may re-read the SAME screen after a failed parse before we
+# give up on it and retire the screen unread. The retry exists so a transient failure
+# can't freeze a card, but the failure that is NOT transient is per-pane: a screen whose
+# content reliably makes the model emit junk would otherwise be re-sent every 1.5s tick
+# forever. The service-health failures (quota, auth, timeouts) are braked globally in
+# openbus/llm.py instead — that brake would be wrong here, since one odd screen must not
+# pause the other panes. Three tries then let it rest until the screen next changes: the
+# card keeps its last good contents either way, so the cost of giving up is staleness,
+# not a wrong badge.
+PARSE_RETRIES = 3
 BOOTSTRAP_LINES = 800
 BOOTSTRAP_ATTEMPTS = 3
 BOOTSTRAP_RETRY_SECONDS = 60
@@ -202,6 +215,8 @@ class Watcher:
         ] = {}  # pane_id -> monotonic count of events ever appended (refetch signal)
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
+        self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
+        self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
         # the pending-question identity changes, NOT on cosmetic content churn. The client
@@ -721,6 +736,8 @@ class Watcher:
     def _stores(self):
         return (
             self._prev_fp,
+            self._seen_fp,
+            self._parse_fails,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -842,22 +859,33 @@ class Watcher:
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
         fp = _fingerprint(text)
-        changed = fp != self._prev_fp.get(
-            pane.id
-        )  # real content change (timers stripped)
+        # Two different questions, and conflating them is a bug. `moved` = did the SCREEN
+        # change since we last looked (drives the snapshot ring, the idle clock and
+        # last_activity_at — all of which describe the pane, not our reading of it).
+        # `changed` = is this screen different from the one we last PARSED (drives
+        # whether to spend an LLM call). They come apart exactly when a parse fails: the
+        # screen is unread, so it must still be parsed, but it has not MOVED, so the
+        # timers must keep running. Tracking only _prev_fp made a failing parse re-record
+        # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
+        # "Recent" for as long as the outage lasted.
+        moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
+        self._seen_fp[pane.id] = fp
+        if moved:
+            self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
+        changed = fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")
         if last_activity is None:
             last_activity = min(_activity_ts(pane) or now, now)
-        elif changed:
+        elif moved:
             last_activity = now
-        if changed:
+        if moved:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
 
         # Record a snapshot whenever content changed (bounded ring buffer, for timeline).
-        if changed:
+        if moved:
             hist = self.snapshots.setdefault(pane.id, [])
             hist.append({"id": f"{int(now * 1000)}", "text": text, "ts": now})
             del hist[:-SNAPSHOT_HISTORY]
@@ -926,6 +954,8 @@ class Watcher:
             llm_fn=llm_fn,
             prior=prior,
             recent_events=recent_texts,
+            # What we last knew, so a failed parse holds that instead of guessing.
+            prev_activity=(previous or {}).get("activity"),
         )
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
@@ -981,7 +1011,57 @@ class Watcher:
         state["summary"] = self._summary.get(
             pane.id
         )  # may be None (only set once idle)
-        self._prev_fp[pane.id] = fp
+        # Only a SUCCESSFUL parse retires the screen. The fingerprint is the "we have
+        # read this screen" mark, so advancing it on a failed parse (a 429, a timeout)
+        # told the next tick there was nothing new to look at — and since an unchanged
+        # screen is never re-parsed on a timer, one failure froze the pane's card until
+        # the screen next changed. A finished agent's screen does not change again, so
+        # the freeze was permanent. Leaving the mark unset on failure costs one re-read
+        # of the same text on the next tick, which is exactly the retry this needs.
+        if state.get("parse_ok", True):
+            self._prev_fp[pane.id] = fp
+            self._parse_fails.pop(pane.id, None)
+        elif backing_off():
+            # The SERVICE refused (quota, auth, timeout — llm.py armed the shared brake
+            # and classify_text now returns None without calling). That says nothing
+            # about this screen, so it must not spend this pane's retry budget: the
+            # brake lasts up to 120s and a tick is 1.5s, so counting these would retire
+            # every pane's screen unread ~4.5s into an outage, and when the brake lifted
+            # nothing would re-parse — the same freeze this PR exists to fix, now
+            # fleet-wide. Leave the screen unread; the first post-brake tick retries it.
+            self._prev_fp.pop(pane.id, None)
+        elif self._parse_fails.get(pane.id, 0) + 1 >= PARSE_RETRIES:
+            # Budget spent: retire the screen unread so this pane stops re-sending the
+            # same text every tick. A screen that reliably breaks the parse would
+            # otherwise retry forever — the per-pane half of the storm Copilot flagged,
+            # which the global brake in llm.py must not cover (one odd screen must not
+            # pause the other panes). The card keeps its last good contents, and the
+            # next real content change clears the counter and tries again.
+            self._parse_fails[pane.id] = 0
+            self._prev_fp[pane.id] = fp
+            logger.warning("%s: parse failed %dx, leaving the screen unread",
+                           pane.id, PARSE_RETRIES)
+        else:
+            # CLEAR it, don't merely decline to set it. A forced reparse (the phone just
+            # answered a question) runs on an UNCHANGED screen, so _prev_fp already
+            # matches this text from the earlier successful parse. Leaving that value in
+            # place means `changed` stays False and the retry never happens — the
+            # answered question sits on the card until the screen moves on its own,
+            # which is the same stuck-card failure this PR exists to fix, just reached
+            # by the path the user actually notices.
+            self._parse_fails[pane.id] = self._parse_fails.get(pane.id, 0) + 1
+            self._prev_fp.pop(pane.id, None)
+        if not state.get("parse_ok", True) and previous is not None:
+            # An unread screen must not REDACT the card either. classify()'s fallback can
+            # only carry `activity` forward, so a waiting pane came back without its
+            # `question` — and the phone gates the answer controls on that field
+            # (show("question", !!pane.question && needsYou(pane))). The card kept its
+            # "Needs you" badge while the buttons to answer it silently vanished, which
+            # is worse than a stale card. We failed to read the screen, so the honest
+            # card is the last one we actually read: keep it whole and retry next tick.
+            # Identity, timers and the snapshot id are re-stamped below from live tmux.
+            state = dict(previous)
+        state.pop("parse_ok", None)
 
         # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
         # unmistakable status-line/box, so if it says "shell" it IS a shell — never let
