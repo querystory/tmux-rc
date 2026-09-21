@@ -98,7 +98,7 @@ loosen the score.
 }
 ```
 
-Coverage (21 samples, quality over quantity) — every state, every tool, and the
+Coverage (20 samples, quality over quantity) — every state, every tool, and the
 affordances this session actually hit:
 
 | sample | asserts |
