@@ -1,4 +1,4 @@
-"""429/backoff behavior of the LLM error path (daemon/llm.py).
+"""429/backoff behavior of the LLM error path (openbus/llm.py).
 
 These exercise _handle_llm_error and the backoff gate without any network: the
 google.genai import happens lazily inside the try, and the gate returns before it.
@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from daemon import llm
+from openbus import llm
 
 
 def _reset():

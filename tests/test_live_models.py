@@ -11,8 +11,8 @@ import pytest
 import starlette.websockets
 from fastapi.testclient import TestClient
 
-import daemon.live_providers as P
-from daemon import server
+import openbus.live_providers as P
+from openbus import server
 
 TABLE = [
     {
@@ -106,8 +106,27 @@ def test_version_lists_offered_labels_with_hints(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    # GPT-Live is appended from outside the table when its key is set (it is an adapter,
+    # not a table entry) — keep it out so this covers the TABLE's own contribution.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     got = TestClient(server.app).get("/api/version").json()["live_models"]
     assert got == [{"label": "Gemini 2.5", "hint": "Vertex · $3/$12 per 1M audio"}]
+
+
+def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):
+    """GPT-Live owns a whole session rather than a connection the seam can open, so it is
+    not in TMUXRC_LIVE_MODELS at all. It still has to reach the same menu, under the same
+    "only if its key is set" rule the table entries follow — /api/version is the one list
+    the client picks from, so anything selectable has to appear in it, or the socket would
+    refuse a pick the menu itself offered."""
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    without = TestClient(server.app).get("/api/version").json()["live_models"]
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    with_key = TestClient(server.app).get("/api/version").json()["live_models"]
+    assert [m["label"] for m in with_key] == [m["label"] for m in without] + ["GPT-Live 1"]
 
 
 def _refused(c, path):
@@ -133,6 +152,7 @@ def test_nothing_offered_hides_live_and_names_the_cause(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE[1:]))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # GPT-Live is key-gated the same way
     c = TestClient(server.app)
     v = c.get("/api/version").json()
     assert (v["live_enabled"], v["live_models"]) == (False, [])

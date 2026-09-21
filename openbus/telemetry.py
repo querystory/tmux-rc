@@ -23,7 +23,8 @@ Config (env):
   OTEL_EXPORTER_OTLP_HEADERS    e.g. "authorization=Bearer <token>"
   TMUXRC_QSDEBUG=1              attach raw pane text + output JSON (default: off)
 Get endpoint/token:
-  gcloud run services describe otel-receiver --region "$REGION" --project "$PROJECT" --format 'value(status.url)'
+  gcloud run services describe otel-receiver --region "$REGION" --project "$PROJECT" \
+    --format 'value(status.url)'
   gcloud secrets versions access latest --secret=otel-receiver-token --project="$PROJECT"
 """
 
@@ -50,7 +51,7 @@ _LIVE_SCOPE = "tmux-rc.live"
 # by the client — own scope so "how often does Live Mode fail to get the mic, on what
 # platforms" doesn't fold into parse/live aggregates. See server._api_client_error.
 _CLIENT_SCOPE = "tmux-rc.client"
-_QSDEBUG = os.environ.get("TMUXRC_QSDEBUG") == "1"
+QSDEBUG = os.environ.get("TMUXRC_QSDEBUG") == "1"
 
 
 @cache
@@ -63,11 +64,16 @@ def _provider():
     off it (see _logger)."""
     if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         return None
+    # PLC0415 on the imports below: they are INSIDE this try on purpose. The except is
+    # what makes a missing or broken OTel SDK degrade to disabled telemetry instead of a
+    # dead daemon, and the env check above skips the import entirely when it is off.
     try:
-        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-        from opentelemetry.sdk._logs import LoggerProvider
-        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (  # noqa: PLC0415
+            OTLPLogExporter,
+        )
+        from opentelemetry.sdk._logs import LoggerProvider  # noqa: PLC0415
+        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor  # noqa: PLC0415
+        from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
 
         # otel_opt_in=true is REQUIRED or the receiver strips all attributes + zeroes
         # metrics (privacy-by-default is server-enforced). service.name identifies us.
@@ -81,7 +87,7 @@ def _provider():
         provider = LoggerProvider(resource=resource)
         provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
         return provider
-    except Exception:  # noqa: BLE001 - telemetry setup must never break the daemon
+    except Exception:  # telemetry setup must never break the daemon
         logger.warning("OTLP telemetry setup failed; disabling", exc_info=True)
         return None
 
@@ -104,8 +110,9 @@ def _emit_record(body: str, attrs: dict, scope: str = _SCOPE) -> None:
     lg = _logger(scope)
     if lg is None:
         return
+    # PLC0415: same as _provider — deferred so a broken SDK cannot break the daemon.
     try:
-        from opentelemetry._logs import LogRecord, SeverityNumber
+        from opentelemetry._logs import LogRecord, SeverityNumber  # noqa: PLC0415
 
         now = time.time_ns()
         lg.emit(
@@ -117,7 +124,7 @@ def _emit_record(body: str, attrs: dict, scope: str = _SCOPE) -> None:
                 attributes=attrs,
             )
         )
-    except Exception:  # noqa: BLE001 - never let telemetry break the daemon
+    except Exception:  # never let telemetry break the daemon
         logger.debug("telemetry emit failed", exc_info=True)
 
 
@@ -141,7 +148,7 @@ def emit_action(
     attrs = {"event": action, "pane_uid": pane_uid, "actor": actor, "outcome": outcome}
     if detail:
         attrs["detail"] = detail[:200]
-    if _QSDEBUG and keys is not None:
+    if QSDEBUG and keys is not None:
         attrs["keys"] = keys[:500]
     _emit_record("tmux-rc action", attrs)
 
@@ -158,7 +165,10 @@ def emit_pane_event(*, event: str, pane_uid: str, label: str, tool: str | None) 
     _emit_record("tmux-rc pane", attrs)
 
 
-def emit_parse(
+# PLR0913 is suppressed below: one argument per field of a single OTel record. The rule
+# guards against confusing positional call sites, but every argument here is keyword-only,
+# and a dataclass would just relocate the same 16 names behind one more indirection.
+def emit_parse(  # noqa: PLR0913
     *,
     model: str,
     provider: str,
@@ -224,11 +234,11 @@ def emit_parse(
             attrs["tps"] = round(tps, 1)
         if activity:
             attrs["activity"] = activity
-        if _QSDEBUG:  # accuracy-diff mode: attach the actual content
+        if QSDEBUG:  # accuracy-diff mode: attach the actual content
             attrs["pane_text"] = pane_text
             if output is not None:
                 attrs["output_json"] = json.dumps(output, ensure_ascii=False)
-    except Exception:  # noqa: BLE001 - never let telemetry break a parse
+    except Exception:  # never let telemetry break a parse
         logger.debug("emit_parse attr build failed", exc_info=True)
         return
     _emit_record("tmux-rc parse", attrs)
@@ -289,13 +299,14 @@ def emit_live(
             attrs["raw_bytes"] = raw_bytes
         if actor:
             attrs["actor"] = actor[:200]
-    except Exception:  # noqa: BLE001 - never let telemetry break the live path
+    except Exception:  # never let telemetry break the live path
         logger.debug("emit_live attr build failed", exc_info=True)
         return
     _emit_record("tmux-rc live", attrs, _LIVE_SCOPE)
 
 
-def emit_live_turn(
+# PLR0913 suppressed, as emit_parse above — keyword-only fields of one telemetry record.
+def emit_live_turn(  # noqa: PLR0913
     *,
     session: str,
     actor: str | None,
@@ -311,6 +322,9 @@ def emit_live_turn(
     duration_s: float,
     final: bool,
     transcript: str | None = None,
+    voice_seconds: float | None = None,
+    usage_final: bool | None = None,
+    backend_model: str | None = None,
 ) -> None:
     """One record per Live Mode voice turn (and a final summary on session end), the
     voice-session analogue of emit_parse.
@@ -342,11 +356,17 @@ def emit_live_turn(
             "audio_out_tokens": audio_out_tokens,
             "cost_usd": round(cost, 6),
         }
+        if voice_seconds is not None:
+            attrs["voice_seconds"] = voice_seconds
+        if usage_final is not None:
+            attrs["usage_final"] = usage_final
+        if backend_model is not None:
+            attrs["backend_model"] = backend_model
         if actor:
             attrs["actor"] = actor[:200]
-        if _QSDEBUG and transcript:
+        if QSDEBUG and transcript:
             attrs["transcript"] = transcript[:8000]
-    except Exception:  # noqa: BLE001 - never let telemetry break the live path
+    except Exception:  # never let telemetry break the live path
         logger.debug("emit_live_turn attr build failed", exc_info=True)
         return
     _emit_record("tmux-rc live", attrs, _LIVE_SCOPE)
@@ -384,9 +404,9 @@ def emit_client_error(
             attrs["session"] = session[:64]
         if actor:
             attrs["actor"] = actor[:200]
-        if _QSDEBUG and message:
+        if QSDEBUG and message:
             attrs["message"] = message[:2000]
-    except Exception:  # noqa: BLE001 - never let telemetry break the request
+    except Exception:  # never let telemetry break the request
         logger.debug("emit_client_error attr build failed", exc_info=True)
         return
     _emit_record("tmux-rc client error", attrs, _CLIENT_SCOPE)

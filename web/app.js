@@ -263,6 +263,7 @@ const LUCIDE = {
   // expandall's mirror (chevrons point inward) — same lines, so the toggle reads as
   // one control changing direction, not two different buttons.
   collapseall: '<path d="M3 5h8"/><path d="M3 12h8"/><path d="M3 19h8"/><path d="m15 5 3 3 3-3"/><path d="m15 19 3-3 3 3"/>',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
 };
 const licon = (name, size = 16) =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor"` +
@@ -1895,6 +1896,68 @@ function dock(states, act) {
 // One list row per pane, built once and keyed by pane_id, so the row the user is
 // pressing is still there when their finger lifts.
 //
+// Close the WINDOW behind a pane — the "I'm done with this" control. Destructive: the
+// daemon runs kill-window, taking any process in it. No local state mutation (panesById is
+// server truth): the watcher evicts the pane and the long-poll returns the change, so the
+// row/card disappears on its own within a beat. Only surfaces a note on FAILURE — success is
+// the card vanishing.
+async function closeWindow(paneId) {
+  try {
+    const r = await fetch(`/api/panes/${encodeURIComponent(paneId)}/close`,
+      { method: "POST", signal: timeoutSignal(8000) });
+    // 404 = the window is already gone (closed on the host, or evicted between the last poll
+    // and the tap). That IS the outcome we wanted; a retry could never succeed.
+    if (!r.ok && r.status !== 404) throw new Error("close failed: " + r.status);
+  } catch (e) {
+    barNote(`Couldn't close the window — ${e.message}. Tap again to retry.`);
+    reportError("close", e);
+  }
+}
+
+// Two-step "close window" button, shared by the Orchestrator row and the Agent card. It is
+// destructive, so a single stray tap must never fire it: the first tap ARMS (turns red,
+// reads "Close?"); a second tap within CLOSE_ARM_MS closes; a tap anywhere else, or the
+// timeout, disarms. `getId` reads the CURRENT pane at click time — the card reuses one node
+// across panes (see buildCard), so a captured id would close whichever pane it was built on.
+// Only one button is armed at a time: arming a second disarms the first.
+const CLOSE_ARM_MS = 2200;
+let _armedClose = null;
+function buildCloseBtn(getId) {
+  const b = document.createElement("button");
+  b.className = "row-close";
+  b.type = "button"; // never submit anything
+  const disarm = () => {
+    if (_armedClose === b) _armedClose = null;
+    clearTimeout(b._t);
+    b.classList.remove("armed");
+    b.innerHTML = licon("x", 15);
+    setAttr(b, "aria-label", "Close window");
+    setAttr(b, "title", "Close window");
+    if (b._outside) { document.removeEventListener("pointerdown", b._outside, true); b._outside = null; }
+  };
+  b._disarm = disarm;
+  const arm = () => {
+    if (_armedClose && _armedClose !== b) _armedClose._disarm();
+    _armedClose = b;
+    b.classList.add("armed");
+    b.textContent = "Close?";
+    setAttr(b, "aria-label", "Confirm close window");
+    setAttr(b, "title", "Tap again to close");
+    // Capture-phase so a tap on any other control disarms BEFORE that control acts on it.
+    b._outside = (e) => { if (!b.contains(e.target)) disarm(); };
+    document.addEventListener("pointerdown", b._outside, true);
+    clearTimeout(b._t);
+    b._t = setTimeout(disarm, CLOSE_ARM_MS);
+  };
+  b.onclick = (e) => {
+    e.stopPropagation(); // closing must not also re-select the pane or toggle the drawer
+    if (b.classList.contains("armed")) { const id = getId(); disarm(); if (id) closeWindow(id); }
+    else arm();
+  };
+  disarm(); // seed the resting icon/labels
+  return b;
+}
+
 // The filter switch is INSTANT by design: the old flying-clone animation only existed
 // because rows were deleted before they could animate. Rows persist now, so a future
 // transition would be a genuine FLIP on the surviving nodes (measure, invert, play).
@@ -1940,6 +2003,9 @@ function buildRow(paneId) {
   toggle.className = "badge sub-toggle"; // same pill as the activity badge, agents purple
   toggle.onclick = toggleOpen;
   hdr.right.appendChild(toggle);
+  // Close this window — rightmost in the row's action area. paneId is stable for the life of
+  // this keyed row, so capturing it is safe here (unlike the card).
+  hdr.right.appendChild(buildCloseBtn(() => paneId));
   el._hdr = hdr; el._toggle = toggle; el._body = null; // drawer built lazily on first open
   return el;
 }
@@ -2101,6 +2167,9 @@ function buildCard() {
     cardsCollapsed = !cardsCollapsed;
     render(Object.values(panesById));
   });
+  // Close this window from the card header. The card node is reused across panes, so the
+  // button reads the CURRENT pane (ui.pane, set each applyCard) at click time.
+  ui.hdr.right.appendChild(buildCloseBtn(() => ui.pane));
   el.appendChild(row);
   // Every subview is created ONCE, in its fixed order, and shown/hidden by class. Order
   // matters and is encoded here rather than by append order per render: tables render
@@ -3283,16 +3352,16 @@ async function submitComposer(s, presetSegs) {
   // backgrounded tab killing the in-flight fetch, a navigation). The spinner class is
   // the feedback; the guard is the correctness.
   try {
-    // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
-    // submitting now would send the surrounding text without its image and drop the
-    // file. Everything stays in place so the user can retry. Ordering matters: any text
-    // typed into the pane before the failing image is already there, but without the
-    // final Enter it isn't submitted. uploadStagedImage throws on a bad response.
+    // One request keeps another sender out between the first segment and Enter.
+    const form = new FormData();
     for (const seg of segs) {
-      if (seg.text != null) await postSend(s, { keys: seg.text, enter: false, literal: true });
-      else await uploadStagedImage(s, seg.file);
+      if (seg.text != null) form.append("text", seg.text);
+      else form.append("image", seg.file);
     }
-    await postSend(s, { keys: "Enter", enter: false, literal: false });
+    const response = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/compose`, {
+      method: "POST", body: form, signal: timeoutSignal(45000),
+    });
+    if (!response.ok) throw new Error(`delivery failed (${response.status}); check the terminal before retrying`);
     clearComposer();
     // No burst needed: the visible raw surface streams via liveStream, so the sent
     // text/images show up in the next live frame on their own (docs/design/live-view.md).
@@ -3369,20 +3438,6 @@ function composerSegments() {
   run += "\n".repeat(pending); // realize a trailing newline (Shift+Enter at the very end)
   flush();
   return segs;
-}
-
-// POST one staged image to the pane (server stages it to disk and pastes/types it in,
-// no Enter — submitComposer sends the single Enter). Kept separate from send() because
-// it's a multipart body, not the JSON /send shape. Throws on a bad response so
-// submitComposer aborts before the final Enter (see its catch).
-async function uploadStagedImage(s, file) {
-  const fd = new FormData();
-  fd.append("file", file);
-  // Bounded like postSend, but with room for a real upload on a phone connection.
-  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
-    method: "POST", body: fd, signal: timeoutSignal(45000),
-  });
-  if (!r.ok) throw new Error("upload failed: " + r.status);
 }
 
 // The composer's contenteditable DOM IS the buffer: typed text and pasted/attached image
@@ -3891,6 +3946,8 @@ const lm = { btn: document.getElementById("lm-btn"), sheet: document.getElementB
 // The static buttons get their icons here (their HTML ships empty): mic without the
 // word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
 if (lm.btn) lm.btn.innerHTML = licon("mic", 14) + '<sup class="lm-exp">beta</sup>';
+const mobileBtn = document.getElementById("mobile-btn");
+if (mobileBtn) mobileBtn.innerHTML = licon("smartphone", 14);
 bar.keysToggle.innerHTML = licon("keyboard", 17);
 bar.attach.innerHTML = licon("paperclip", 15);
 // Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
@@ -3911,6 +3968,8 @@ let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmUp = false, lmTries = 0, lmRetry = null; // session was up; reconnect count + timer
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
+let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
+let lmClearPending = null;
 let lmLog = [];                  // rolling conversation: {role, text, done}
 let lmListening = false;         // true only while the daemon reports "listening" — mic
                                  // frames are dropped otherwise so a reconnect (during
@@ -3918,10 +3977,10 @@ let lmListening = false;         // true only while the daemon reports "listenin
 
 // Transcription arrives as fragments; grow the current entry for that role until the
 // turn completes. Typed actions and errors are single whole entries.
-function lmAdd(role, text) {
+function lmAdd(role, text, newSegment = false) {
   const grow = role === "user" || role === "model";
   const last = lmLog[lmLog.length - 1];
-  if (grow && last && last.role === role && !last.done) last.text += text;
+  if (!newSegment && grow && last && last.role === role && !last.done) last.text += text;
   else lmLog.push({ role, text, done: !grow });
   while (lmLog.length > 8) lmLog.shift();
   lmPaint();
@@ -3950,15 +4009,17 @@ function lmPaint() {
   if (box) lmPaintInto(box);
 }
 
-// The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
-// context (created in the button's click handler, satisfying autoplay policy).
-function lmPlayChunk(b64) {
+// The model's voice: base64 PCM16 chunks, scheduled back-to-back on a dedicated context
+// (created in the button's click handler, satisfying autoplay policy). The rate rides on
+// each frame because it is the provider's, not ours — 24 kHz from Gemini and Realtime,
+// 16 kHz from GPT-Live; the default is for a provider that sends none.
+function lmPlayChunk(b64, sampleRate = 24000) {
   if (!lmPlay) return;
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   const pcm = new Int16Array(bytes.buffer);
-  const buf = lmPlay.createBuffer(1, pcm.length, 24000);
+  const buf = lmPlay.createBuffer(1, pcm.length, sampleRate);
   const ch = buf.getChannelData(0);
   for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
   const src = lmPlay.createBufferSource();
@@ -3990,11 +4051,15 @@ async function lmCapture(ws) {
   const src = lmCtx.createMediaStreamSource(lmStream);
   const rate = lmCtx.sampleRate;
   let pend = new Float32Array(0);
+  lmClearPending = () => { pend = new Float32Array(0); };
   const push = (chunk) => {
+    if (!lmListening || lmWs?.readyState !== WebSocket.OPEN) {
+      pend = new Float32Array(0); return;
+    }
     const joined = new Float32Array(pend.length + chunk.length);
     joined.set(pend); joined.set(chunk, pend.length);
     pend = joined;
-    if (pend.length < 4096) return;
+    if (pend.length < (lmFrameMs ? rate * lmFrameMs / 1000 : 4096)) return;
     let f = pend; pend = new Float32Array(0);
     if (rate !== 16000) { // linear resample to the wire rate
       const n = Math.round(f.length * 16000 / rate), r = new Float32Array(n);
@@ -4030,6 +4095,7 @@ async function lmCapture(ws) {
 // The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
+  if (!lmListening) lmClearPending?.();
   lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
   if (lmListening) lmTries = 0; // a session that came back resets the retry budget
   lm.btn.classList.toggle("listening", lmListening);
@@ -4161,10 +4227,12 @@ function lmConnect() {
   ws.onmessage = (ev) => {
     if (lmWs !== ws) return;
     let m; try { m = JSON.parse(ev.data); } catch { return; }
-    if (m.type === "status") lmStatus(m.status);
-    else if (m.type === "transcript") lmAdd(m.role, m.text);
+    if (m.type === "status") { lmFrameMs = m.frame_ms; lmStatus(m.status); }
+    else if (m.type === "transcript") lmAdd(m.role, m.text, m.new_segment);
     else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
-    else if (m.type === "audio") lmPlayChunk(m.data);
+    // Per-frame rate, not a constant: Gemini and Realtime send 24 kHz, GPT-Live 16 kHz,
+    // and the browser is never told which provider answered.
+    else if (m.type === "audio") lmPlayChunk(m.data, m.sample_rate);
     // The user spoke over the model: drop the queued voice so the reply doesn't keep
     // talking through them (the model itself has already stopped generating).
     else if (m.type === "interrupted") { lmQueued.forEach((s) => { try { s.stop(); } catch {} }); lmQueued = []; lmPlayAt = 0; }
@@ -4221,6 +4289,7 @@ function lmStop() {
   lmListening = false;
   lmQueued.forEach((source) => { try { source.stop(); } catch {} });
   lmQueued = []; lmPlayAt = 0;
+  lmClearPending?.(); lmClearPending = null;
   lm.btn.querySelector(".lm-exp").textContent = "beta";
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];

@@ -9,8 +9,8 @@ import logging
 
 import pytest
 
-import daemon.live as L
-import daemon.live_providers as P
+import openbus.live as L
+import openbus.live_providers as P
 
 
 def _run(coro):
@@ -75,7 +75,7 @@ def test_receiver_preserves_transcripts_and_debug_logging(monkeypatch, caplog, d
             yield P.Event("transcript", role="model", text="private model words")
             yield P.Event("interrupted")
 
-    monkeypatch.setattr(L.telemetry, "_QSDEBUG", debug)
+    monkeypatch.setattr(L.telemetry, "QSDEBUG", debug)
     caplog.set_level(logging.INFO, logger=L.logger.name)
     ws = _WS()
     meter = L._Meter("s", "a", P._DEFAULT[0])
@@ -213,6 +213,10 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     # args — that must never reach a terminal.
     for args in (
         {"pane_id": "%1", "text": "x", "status": "typed"},  # extra arg
+        {"pane_id": "%1", "text": {"command": "run"}},
+        {"pane_id": "%1", "text": 42},
+        {"pane_id": 1, "text": "run"},
+        {"pane_id": ["%1"], "text": "run"},
         {"pane_id": "%1", "text": "   "},                   # blank text
         {"pane_id": "%1", "text": "x", "press_enter": "false"},  # non-bool: must not coerce
         {"pane_id": "%1", "text": "x", "press_enter": 1},   # non-bool int
@@ -224,6 +228,16 @@ def test_echoed_or_malformed_call_is_rejected(monkeypatch):
     _, _, session, typed = _dispatch(_FC(args="oops"), monkeypatch)
     assert typed == []
     assert session.responses[0][1]["status"] == "rejected"
+
+
+
+def test_press_key_requires_string_target_and_key(monkeypatch):
+    for args in ({"pane_id": 1, "key": "Enter"},
+                 {"pane_id": {"id": "%1"}, "key": "Enter"},
+                 {"pane_id": "%1", "key": ["Enter"]}):
+        _, _, session, typed = _dispatch(_FC(name="press_key", args=args), monkeypatch)
+        assert typed == []
+        assert session.responses[0][1]["status"] == "rejected"
 
 
 def test_context_updater_skips_timeouts(monkeypatch):
@@ -276,6 +290,7 @@ def test_context_updater_skips_timeouts(monkeypatch):
 class _Connect:
     """Fake provider-session context manager. `boom` (if set) is raised
     on __aenter__ to simulate a connect that fails before the session is up."""
+
     def __init__(self, session, boom=None):
         self._session, self._boom = session, boom
 
@@ -304,6 +319,7 @@ class _FakeClient:
 class _ScriptedWS(_WS):
     """A _WS whose receive_json replays a script: a dict is returned, an Exception is
     raised (to drive WebSocketDisconnect / EOF paths)."""
+
     def __init__(self, script):
         super().__init__()
         self.script = list(script)
@@ -439,7 +455,7 @@ def test_live_usage_is_cumulative_not_summed():
 
 
 def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
-    import daemon.llm as llm
+    from openbus import llm
     emitted = []
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     folded = {}

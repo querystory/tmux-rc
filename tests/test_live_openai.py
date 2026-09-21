@@ -11,7 +11,7 @@ import struct
 
 import pytest
 
-import daemon.live_providers as P
+import openbus.live_providers as P
 
 
 class _WS:

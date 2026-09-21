@@ -4,7 +4,7 @@ instant a pane switch / add / activity change happens instead of on a fixed inte
 
 import asyncio
 
-from daemon.watcher import Watcher
+from openbus.watcher import Watcher
 
 
 def _run(coro):
@@ -30,7 +30,9 @@ def test_version_bumps_only_on_deck_change():
     w._bump_state_if_changed(_states({**A, "tmux_active": False}, {**B, "tmux_active": True}))
     assert w.state_version() == 2
     # new activity on a pane → bump
-    w._bump_state_if_changed(_states({**A, "tmux_active": False}, {**B, "tmux_active": True, "events_seq": 3}))
+    w._bump_state_if_changed(
+        _states({**A, "tmux_active": False}, {**B, "tmux_active": True, "events_seq": 3})
+    )
     assert w.state_version() == 3
 
 
@@ -78,7 +80,7 @@ def test_fast_active_check_ignores_none_focus(monkeypatch):
     # A transient tmux error makes active_pane_id() return None. The fast check must NOT
     # treat that as "no pane focused" and clear tmux_active on every card (which would
     # bump the version and drop the UI's active selection) — it should bail unchanged.
-    from daemon import watcher as watcher_mod
+    from openbus import watcher as watcher_mod
 
     w = Watcher(target=None)
     w.states = _states({**A, "tmux_active": True}, {**B, "tmux_active": False})
@@ -183,13 +185,11 @@ def test_wait_times_out_when_nothing_changes():
     assert got == 1  # timed out → current version unchanged
 
 
-def test_booted_flips_after_first_tick():
-    # booted() is False until a _tick COMPLETES, so an empty deck reads as "loading"
-    # (spinner) not "no panes". It keys off the completion flag, NOT _last_tick — which
-    # _loop stamps even on a tick that raised before producing state.
+def test_booted_flips_after_inventory_publication():
+    # A failed discovery may stamp _last_tick, but it must not claim an empty inventory.
     w = Watcher(target=None)
     assert w.booted() is False
     w._last_tick = 123.0  # a tick that raised still stamps this — must NOT flip booted
     assert w.booted() is False
-    w._booted = True  # what _loop sets after a tick returns normally
+    w._publish_states([])
     assert w.booted() is True

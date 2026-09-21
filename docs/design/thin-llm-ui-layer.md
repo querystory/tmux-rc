@@ -96,7 +96,7 @@ Two properties follow, and they're why this generalizes:
 ## What guardrails this needs
 
 A thin layer is only safe if the code around it stays suspicious. The rules that fell out
-of building this one (see `daemon/classify.py` and `web/app.js`):
+of building this one (see `openbus/classify.py` and `web/app.js`):
 
 - **The model's output is untrusted input, always.** It derives from pane content an
   attacker could control. Labels are bidi-stripped, length-capped, and rendered as

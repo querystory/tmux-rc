@@ -28,8 +28,8 @@ from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(usecwd=True))  # GOOGLE_CLOUD_PROJECT + ADC, as the daemon does
 
-from daemon import llm, tmux  # noqa: E402  (after .env, so llm reads a populated env)
-from daemon.classify import classify  # noqa: E402
+from openbus import llm, tmux  # noqa: E402  (after .env, so llm reads a populated env)
+from openbus.classify import classify  # noqa: E402
 
 # (label, foreground process, pane capture, predicate on the result dict). Captures are
 # dim-MARKED exactly as the watcher sends them, so the placeholder case exercises the real
@@ -50,7 +50,7 @@ CASES = [
     (
         "idle shell ⇒ shell/idle",
         "bash",
-        "$ ls\nREADME.md  daemon  tests\n$ ",
+        "$ ls\nREADME.md  openbus  tests\n$ ",
         lambda r: r.get("tool") == "shell" and r.get("activity") == "idle",
     ),
     (
@@ -93,7 +93,9 @@ def main() -> int:
 
     if args.live:
         print("\n--- live panes ---")
-        for p in tmux.list_panes():
+        # dedupe_grouped: this prints panes to a human, so a pane shared by a session
+        # group must be sampled ONCE — otherwise it is classified (and billed) per member.
+        for p in tmux.dedupe_grouped(tmux.list_panes()):
             cap = tmux.capture_pane(p.id, mark_dim=True)
             r = classify(p, cap, real_llm)
             print(f"  {p.label!r}: {r.get('tool')}/{r.get('activity')} "

@@ -61,12 +61,21 @@ but have distinct signatures. Decide by the evidence on screen:
   command?" with a NUMBERED list "1. Yes  2. Yes, and don't ask again for commands that
   start with X  3. No, and tell Codex what to do differently (esc)"; it refers to itself
   as "Codex". If its OWN chrome (status line, permission prompts, its own responses)
-  names Codex or a GPT/o-series model, it is "codex", NOT "claude". Its bottom line reads "<model> <effort> <mode> · <cwd>", e.g.
-  "gpt-5.5 xhigh fast · ~/src/example-app" — here the MODEL is "gpt-5.5 xhigh" and "fast" is
-  a MODE word, NOT a session name. Do NOT put "fast" (or the cwd) in "session". Codex
-  names its session/thread only when it explicitly says so (e.g. a line like "Thread
-  renamed to <name>" / "resume … then select <name>"); if no such thread name is shown,
-  OMIT "session" — never fall back to a status-line token.
+  names Codex or a GPT/o-series model, it is "codex", NOT "claude". Its bottom line is a
+  "·"-separated status bar, e.g.
+  "Review 4745 · gpt-5.6-sol medium · Context 24% left · 272K used · ~/src/qs/qs-app · Working"
+  or, with no title set, "gpt-5.5 xhigh fast · ~/src/example-app". Read it by SEGMENT, not
+  by position: the MODEL segment is the one naming a GPT/o-series model plus its effort
+  ("gpt-5.6-sol medium"); "fast"/"Ready"/"Working" are MODE words and the "~/..." segment
+  is the cwd — none of those is a session name.
+  Codex's THREAD TITLE, when it has one, is the FIRST segment of that line, before the
+  model — a short human task name it wrote itself ("Review 4745",
+  "airbyte-value-population", "Assess product current state"). Put it in "session": it is
+  the only per-window identity Codex exposes, and without it every Codex pane in one repo
+  looks identical. A "Thread renamed to <name>" line names it too. Take the title ONLY
+  from that leading segment (or an explicit rename); if the line starts straight at the
+  model, there is no title — OMIT "session" rather than promoting a mode word, the cwd, a
+  context/usage readout, or anything from the conversation body.
 - "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
   with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
   "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
@@ -132,9 +141,10 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
                 chip). E.g. a usage-limit readout of limit: 36%/30% 5h/7d becomes the
                 single entry 36%/30% 5h/7d — keep it ONE entry, don't split or
                 restructure it. Never repeat model/context/cost/mode. At most 4.>],
-  "session": "the agent's session name/title if it shows one (Claude Code prints it at "
-             "the far right of the line just above its status bar, e.g. 'tmux-rc-dev') — "
-             "use it as the pane's name; omit if none is shown",
+  "session": "the agent's session name/title if it shows one — use it as the pane's "
+             "name; omit if none is shown. Claude Code prints it at the far right of "
+             "the line just above its status bar (e.g. 'tmux-rc-dev'); Codex puts it "
+             "first on its status bar, before the model (see TOOL above)",
   "working": {"verb": "...", "elapsed": "...", "tokens": "..."},
   "tables": [{"title": "optional caption", "headers": ["col", ...], "rows": [["cell", ...], ...]}],
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"},

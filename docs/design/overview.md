@@ -10,8 +10,9 @@ and rejected. For how the code is laid out, read the source under `tmux-rc/`.
 ## Guiding constraint: the terminal is the interface, not the agent
 
 Every design choice flows from one decision: **observe the terminal, not the agent.**
-We do not integrate with Claude Code's, Codex's, or Gemini CLI's internal protocols.
-We read the rendered text of a tmux pane and send keystrokes back. This is what makes
+We do not integrate with any harness's internal protocols — not Codex's, not Claude
+Code's, not Gemini CLI's, not OpenCode's. We read the rendered text of a tmux pane and
+send keystrokes back. This is what makes
 tmux-rc vendor-agnostic — a raw `psql` prompt and a Claude Code permission dialog
 are the same kind of thing to us: text on a screen, possibly waiting for input.
 

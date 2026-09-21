@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 os.environ.setdefault("TMUXRC_LIVE_MODE", "1")
 from fastapi.testclient import TestClient  # noqa: E402
-from daemon import live, llm, server, telemetry, tmux  # noqa: E402  (server import loads .env + the key file)
+from openbus import live, llm, server, telemetry, tmux  # noqa: E402  (server import loads .env + the key file)
 
 LABEL = sys.argv[1] if len(sys.argv) > 1 else "GPT 2.1 mini"
 UTTERANCE = "Tell the work pane yes."

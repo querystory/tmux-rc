@@ -9,8 +9,8 @@ import json
 
 from fastapi.testclient import TestClient
 
-import daemon.server as S
-import daemon.tmux as T
+import openbus.server as S
+import openbus.tmux as T
 
 
 def test_default_launchers(monkeypatch):
@@ -22,7 +22,11 @@ def test_default_launchers(monkeypatch):
 def test_launchers_inline_json_override(monkeypatch):
     cfg = [
         {"label": "Claude (Fable)", "command": "claude --model fable", "icon": "claude"},
-        {"label": "Claude (Bedrock)", "command": "CLAUDE_CODE_USE_BEDROCK=1 claude", "icon": "claude"},
+        {
+            "label": "Claude (Bedrock)",
+            "command": "CLAUDE_CODE_USE_BEDROCK=1 claude",
+            "icon": "claude",
+        },
     ]
     monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps(cfg))
     got = S._launchers()
@@ -59,13 +63,16 @@ def test_new_window_runs_configured_command(monkeypatch):
     argv = next(a for a in calls if a[0] == "new-window")
     assert "-d" in argv
     assert argv[argv.index("-t") + 1] == "work:"
+    assert argv[argv.index("-c") + 1] == "#{session_path}"
     assert argv[-1] == "claude"
 
 
 def test_new_window_refuses_unknown_launcher(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     monkeypatch.setattr(T, "list_panes", lambda: [_fake_pane()])
-    monkeypatch.setattr(T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run")))
+    monkeypatch.setattr(
+        T, "_run", lambda argv: (_ for _ in ()).throw(AssertionError("must not run"))
+    )
     client = TestClient(S.app)
     r = client.post("/api/windows", json={"session": "work", "launcher": "rm -rf /"})
     assert r.status_code == 404

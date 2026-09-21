@@ -5,7 +5,7 @@ bodies are rejected before parsing so a hostile report can't balloon daemon memo
 
 from fastapi.testclient import TestClient
 
-from daemon import server, telemetry
+from openbus import server, telemetry
 
 
 def _capture(monkeypatch):
@@ -43,7 +43,7 @@ def test_valid_report_forwards_structural_fields(monkeypatch):
 
 
 def test_message_dropped_without_qsdebug(monkeypatch):
-    monkeypatch.setattr(telemetry, "_QSDEBUG", False)
+    monkeypatch.setattr(telemetry, "QSDEBUG", False)
     seen = _capture(monkeypatch)
     telemetry.emit_client_error(
         kind="poll",
@@ -60,7 +60,7 @@ def test_message_dropped_without_qsdebug(monkeypatch):
 
 
 def test_message_included_with_qsdebug(monkeypatch):
-    monkeypatch.setattr(telemetry, "_QSDEBUG", True)
+    monkeypatch.setattr(telemetry, "QSDEBUG", True)
     seen = _capture(monkeypatch)
     telemetry.emit_client_error(
         kind="poll",

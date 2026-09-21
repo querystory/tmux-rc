@@ -1,26 +1,47 @@
 # tmux-rc
 
-Watch and control terminal AI agents (Claude Code, Codex, Gemini CLI — or any
-program) from your phone. A small local service reads a `tmux` pane, figures out
-what's happening, and shows a phone-native dashboard: status at a glance, alerts when
-an agent is blocked on a question, tappable answers, and a snapshot timeline.
+Watch and control whatever runs in a tmux pane — AI coding agents like Codex, Claude
+Code, Gemini CLI and OpenCode, or any other program that prints text — from your
+phone. A small local service reads a `tmux` pane, figures out what's happening, and
+shows a phone-native dashboard: status at a glance, alerts when an agent is blocked on
+a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
-  <img src="docs/img/card.png" alt="The tmux-rc dashboard on a phone, showing the agent dock and the focused agent's card" width="420">
+  <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, a running or idle badge, and a one-line summary of what it is doing" width="280">
+  <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and how much of its context window is used, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
 </p>
 
-<p align="center"><em>Every pane on the tmux server, on your phone. The card summarizes what the agent is doing — here, mid-session on this repo.</em></p>
+<p align="center"><em>The phone UI at <code>/m</code>. Left: every pane on the tmux server, filtered by All / Running / Recent / Needs&nbsp;you. Right: one pane's Overview — what the agent is doing, and a composer to answer it.</em></p>
 
-Tap <strong>+</strong> to start a new agent in a new window, without touching the machine:
+Switch a pane to the **Terminal** tab for the live screen, plus a key row for the
+keystrokes a phone keyboard can't send (Esc, Tab, arrows, Ctrl-C, Ctrl-D, Ctrl-O, and
+the tmux prefix):
 
 <p align="center">
-  <img src="docs/img/launcher.png" alt="The launcher menu open over the dashboard, listing the agents available to start" width="420">
+  <img src="docs/img/mobile-terminal.png" alt="The Terminal tab on the phone, showing the live tmux pane rendered in colour above a horizontally scrolling row of Esc, Tab, arrow, Enter and Ctrl key buttons" width="280">
 </p>
 
-**Why not `/remote-control`?** Claude Code's remote control is locked to the Anthropic
-API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the *terminal*,
-so it's vendor-agnostic on both axes — any agent, any model provider for the
-summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
+The same daemon serves a wider layout for the desktop — a dock of every pane across
+every session, and the focused pane's card above its live terminal:
+
+<p align="center">
+  <img src="docs/img/card.png" alt="The desktop dashboard: a dock of pane icons grouped by tmux session, above the focused pane's card with its summary, sub-agents and activity, and the live terminal below" width="620">
+</p>
+
+Start a new agent in a new window without touching the machine: tap the **+** at the end
+of a session's dock. When that session has idle panes folded away the slot shows **+N**
+instead, where a tap already means *unfold* — so there the launcher sits behind a press
+and hold:
+
+<p align="center">
+  <img src="docs/img/launcher.png" alt="The launcher menu open over the dashboard, listing Claude, Claude (Sonnet), Claude (Bedrock), Codex and Gemini as the agents available to start" width="620">
+</p>
+
+**Why not `/remote-control`?** Every vendor's coordination story stops at its own
+walls, and Claude Code's remote control is the clearest example: it is locked to the
+Anthropic API (no Bedrock/Vertex) and only drives Claude Code. tmux-rc observes the
+*terminal*, so it's vendor-agnostic on both axes — any agent, any model provider for
+the summarization pass. See [`docs/PRD.md`](docs/PRD.md) and [`docs/design/overview.md`](docs/design/overview.md).
 
 > **Status: proof of concept.** The all-pane watch/control slice works end to end,
 > across every pane on the tmux server: watch → classify → phone card → detect a
@@ -44,10 +65,10 @@ cp .env.example .env          # then edit .env: GOOGLE_CLOUD_PROJECT + GOOGLE_AP
 
 # In another terminal, start a tmux session and run an agent in it:
 tmux new -s work
-#   ... run claude / codex / gemini / anything ...
+#   ... run codex / claude / gemini / opencode / anything ...
 
 # Start tmux-rc (config is loaded from .env automatically):
-uv run python -m daemon.server
+uv run python -m openbus.server
 ```
 
 > **The daemon has no authentication, so run it only on a single-user machine.** There is
@@ -147,10 +168,11 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project for Vertex (required for the LLM pass) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | absolute path to the Vertex service-account key (durable auth; see `.env.example`) |
 | `VERTEX_AI_REGION_GEMINI` | `global` | Vertex region |
-| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`) — the window name if you named the window, else the session name, else the cwd basename — so on a named window the session name does *not* match. The card title in the UI is not a valid target either; use a pane id when in doubt |
+| `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`). That is a window name that doesn't look like a tmux default, used *verbatim*; failing that, `<base>:<window_index>` where base is the session name, or the cwd basename when the session name looks like a default too. Only the fallback carries the index, so a bare session or cwd name matches nothing unless a window is actually named that. A card's title in the UI is not reliably a target — it may be the agent's own pane title or an LLM-refined name rather than the label — so use a pane id when in doubt |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
-| `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Claude (Fable)","command":"claude --model fable","icon":"claude"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
+| `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |

@@ -21,7 +21,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import live_providers, telemetry, tmux
+from . import live_providers, llm, telemetry, tmux
 from .classify import _load_prompt
 from .live_providers import KEYS, LiveModel
 
@@ -115,6 +115,10 @@ class _Meter:
         self.turns = 0
         self.started = time.monotonic()
         self._lines: list[str] = []
+        # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
+        # adds voice_seconds / usage_final / backend_model). Empty for the seam's own
+        # providers, which report everything through `usage`.
+        self.details: dict = {}
 
     def note(self, line: str) -> None:
         """Record a transcript fragment (voice in/out, or a typed action). Bounded so a
@@ -135,8 +139,6 @@ class _Meter:
         """Session ending — emit the final cumulative record and fold cost into the
         status-bar totals. Idempotent-safe to call once in the session's finally."""
         self._emit(final=True)
-        from . import llm
-
         llm.record_live_usage(
             in_tokens=self.usage.in_tokens,
             out_tokens=self.usage.out_tokens,
@@ -159,6 +161,7 @@ class _Meter:
             duration_s=time.monotonic() - self.started,
             final=final,
             transcript=self._transcript(),
+            **self.details,
         )
 
 
@@ -295,23 +298,40 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         await session.send_tool_result(fc, payload)
 
     args = fc.args if isinstance(fc.args, dict) else {}
-    pane_id = str(args.get("pane_id", "")).strip()
+    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
+    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
+    # rather than silently accept its repr. A model parroting our own tool response back
+    # as a new call is exactly how a dict arrives here.
+    raw_pane_id = args.get("pane_id")
+    pane_id = str(raw_pane_id or "").strip()
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
 
     # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
     # whether it counts as submitted). malformed stays None ⇒ reject below.
     send_args = what = None
     submitted = False
-    if fc.name == "type_in_pane" and isinstance(fc.args, dict) and not (set(args) - {"pane_id", "text", "press_enter"}):
-        text = str(args.get("text", ""))
+    if (
+        fc.name == "type_in_pane"
+        and isinstance(fc.args, dict)
+        and isinstance(raw_pane_id, str)
+        and isinstance(args.get("text"), str)
+        and not (set(args) - {"pane_id", "text", "press_enter"})
+    ):
+        text = args["text"]
         raw_enter = args.get("press_enter", True)
         # Never coerce press_enter: bool("false") is True and would submit an unsent
         # command. A non-bool value is malformed.
         if text.strip() and isinstance(raw_enter, bool):
             send_args = (pane_id, text, raw_enter, True)  # literal text
             what, submitted = text, raw_enter
-    elif fc.name == "press_key" and isinstance(fc.args, dict) and not (set(args) - {"pane_id", "key"}):
-        key = KEYS.get(str(args.get("key", "")))
+    elif (
+        fc.name == "press_key"
+        and isinstance(fc.args, dict)
+        and isinstance(raw_pane_id, str)
+        and isinstance(args.get("key"), str)
+        and not (set(args) - {"pane_id", "key"})
+    ):
+        key = KEYS.get(args["key"])
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
@@ -331,7 +351,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
     label = labels[pane_id]
     try:
         await asyncio.to_thread(tmux.send_keys, *send_args)
-    except Exception as e:  # noqa: BLE001 - report, don't kill the session
+    except Exception as e:  # report, don't kill the session
         logger.warning("[live] %s failed for %s", fc.name, pane_id, exc_info=True)
         telemetry.emit_action(
             action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
@@ -358,7 +378,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         await asyncio.sleep(POST_TYPE_REFRESH_SECONDS)
         tail = await asyncio.to_thread(_screen_tail, watcher, pane_id)
         if tail:
-            await _send_ambient(session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}")
+            await _send_ambient(
+                session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}"
+            )
 
     task = asyncio.create_task(refresh())
     _background(task)
@@ -408,7 +430,8 @@ async def _context_updater(session, watcher) -> None:
         await asyncio.sleep(UPDATE_MIN_SECONDS)  # coalesce a burst into one update
         version = watcher.state_version()  # whatever landed during the throttle window
         await _send_ambient(
-            session, f"[tmux update] current pane state:\n\n{_pane_context(watcher, screens='active')}"
+            session,
+            f"[tmux update] current pane state:\n\n{_pane_context(watcher, screens='active')}",
         )
 
 
@@ -451,7 +474,7 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
-            if telemetry._QSDEBUG:
+            if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
                 logger.info("[live] %s: %s", ev.role, ev.text)
             meter.note(f"{ev.role}: {ev.text}")
             await websocket.send_json({"type": "transcript", "role": ev.role, "text": ev.text})
@@ -508,10 +531,14 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                     # generator finally awaiting a close handshake on a half-open socket) must not
                     # delay the reconnect / websocket-close this finally gates by an OS TCP timeout.
                     # wait() never raises for task outcomes, so the CancelledError from the cancel
-                    # above is absorbed here rather than escaping as it did under suppress(Exception).
+                    # above is absorbed here rather than escaping as it did under
+                    # suppress(Exception).
                     done, pending = await asyncio.wait(side, timeout=2)
                     for t in pending:
-                        logger.warning("[live] side task %s did not unwind within 2s; abandoning it", t.get_name())
+                        logger.warning(
+                            "[live] side task %s did not unwind within 2s; abandoning it",
+                            t.get_name(),
+                        )
                     for t in done:
                         if not t.cancelled() and (exc := t.exception()) is not None:
                             logger.warning("[live] side task %s ended in error: %r", t.get_name(), exc)
@@ -539,8 +566,16 @@ async def live_mode(websocket: WebSocket) -> None:
     # Label-only, like launchers: the client names an entry from the server's table and
     # never a model id or backend. An unoffered label (unknown, or its key is absent) is
     # refused rather than defaulted — the picker must never lie about who answered.
-    model = live_providers.find(websocket.query_params.get("model"))
-    if model is None:
+    from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
+
+    # GPT-Live owns a whole session rather than a connection the seam can open, so it is
+    # NOT in the provider table and find() returns None for its label by design. Route on
+    # the label before the table gate, or the gate would refuse the one pick the menu in
+    # /api/version just offered — the two lists have to agree on what is selectable.
+    selection = websocket.query_params.get("model", "")
+    use_gpt = selection == gpt_live.LABEL and bool(os.environ.get("OPENAI_API_KEY"))
+    model = None if use_gpt else live_providers.find(selection)
+    if model is None and not use_gpt:
         # Nothing offered at all (every entry key-gated, no key set) is the operator's
         # config problem, not a stale tab's — a reload can't fix it, so don't say so.
         why = "reload the page" if live_providers.available() else "no configured model has its key set"
@@ -552,20 +587,29 @@ async def live_mode(websocket: WebSocket) -> None:
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
+    if use_gpt:
+        model = gpt_live.ENTRY  # the stand-in entry _Meter needs; see gpt_live.ENTRY
     meter = _Meter(session_id, actor, model)
     logger.info("[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label)
     telemetry.emit_action(action="live_session", pane_uid="-", actor=actor, detail="start", keys=None)
     outcome, reason = "ok", "stop"
     try:
-        await _run_session(websocket, watcher, actor, meter)
+        if use_gpt:
+            await gpt_live.run_session(websocket, watcher, actor, meter)
+        else:
+            await _run_session(websocket, watcher, actor, meter)
     except WebSocketDisconnect:
-        reason = "client gone"  # phone lock / tab close / tunnel drop
+        reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
     except Exception as e:
         outcome = reason = "error"
         # A model that can't be reached (bad deployment name, rejected key) says exactly
         # what to fix — the user fixes config, not the retry count. Anything else stays a
-        # generic line so internal detail never reaches the browser.
-        fatal = isinstance(e, live_providers.Unreachable)
+        # generic line so internal detail never reaches the browser. The adapter's
+        # ProviderError is the same promise from the other side of the seam — it has
+        # already sanitized the provider's diagnostics — so it rides this one path rather
+        # than an except clause of its own, which would have skipped the log line and sent
+        # on a socket that may already be gone.
+        fatal = isinstance(e, (live_providers.Unreachable, gpt_live.ProviderError))
         (logger.error if fatal else logger.exception)("[live] session failed%s", f": {e}" if fatal else "")
         with contextlib.suppress(Exception):
             await websocket.send_json({"type": "error", "message": str(e) if fatal else "live session failed"})
@@ -577,7 +621,9 @@ async def live_mode(websocket: WebSocket) -> None:
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         telemetry.emit_action(
             action="live_session", pane_uid="-", actor=actor,
-            detail=f"end ({meter.turns} turns, ${meter.usage.cost():.4f})", keys=None, outcome=outcome,
+            detail=f"end ({meter.turns} turns, ${meter.usage.cost():.4f})",
+            keys=None,
+            outcome=outcome,
         )
         with contextlib.suppress(Exception):
             await websocket.close()

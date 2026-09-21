@@ -6,7 +6,7 @@ in order, each under the cap, with the Enter still last."""
 import threading
 import time
 
-import daemon.tmux as T
+import openbus.tmux as T
 
 
 def test_large_literal_is_chunked_in_order(monkeypatch):
@@ -56,7 +56,7 @@ def test_concurrent_sends_do_not_interleave(monkeypatch):
     # (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste
     calls = []
     monkeypatch.setattr(
-        T, "_run", lambda argv: (time.sleep(0.002), calls.append(argv)) and None
+        T, "_run", lambda argv: (time.sleep(0.002), calls.append(argv), None)[-1]
     )
     ts = [
         threading.Thread(target=T.send_keys, args=("%1", ch * (T._SEND_CHUNK_BYTES * 3)))
