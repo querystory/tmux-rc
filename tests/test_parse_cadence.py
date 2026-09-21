@@ -24,7 +24,7 @@ def _harness(monkeypatch, frame_holder):
     monkeypatch.setattr(W.tmux, "capture_pane", lambda pid, mark_dim=False: frame_holder[0])
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
 
-    def fake_classify(pane, text, llm_fn=None, prior=None, recent_events=None):
+    def fake_classify(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
         calls["n"] += 1  # one call == one LLM parse
         return {"activity": "idle", "events": [], "label": pane.label, "tool": "shell"}
 
@@ -113,3 +113,36 @@ def test_forced_reparse_ignores_unchanged(monkeypatch):
     w._forced_this_tick = {pane.id}
     w._tick_pane(pane)  # forced -> parse 2
     assert calls["n"] == 2
+
+
+def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch):
+    """The permanent-"Running"-badge bug. A parse failure (a 429 returning None) used to
+    advance the pane's fingerprint anyway, which marks the screen read — and since an
+    unchanged screen is never re-parsed, the pane kept whatever the failed parse guessed.
+    A finished agent's screen never changes again, so that guess was final. The failure
+    must leave the screen unread so the next tick picks it up."""
+    frame = ["agent finished · done 10:28 PM"]
+    w, calls = _harness(monkeypatch, frame)
+    outcomes = [None, None, {"activity": "idle", "events": [], "tool": "claude"}]
+
+    def flaky(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        got = outcomes.pop(0) if outcomes else {"activity": "idle", "events": [], "tool": "claude"}
+        if got is None:  # what classify() returns when the model call failed
+            return {"activity": prev_activity or "unknown", "tool": "unknown",
+                    "events": [], "parse_ok": False}
+        return dict(got, label=pane.label)
+
+    monkeypatch.setattr(W, "classify", flaky)
+    pane = _Pane()
+    for _ in range(3):
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+    assert calls["n"] == 3, "each failure must leave the screen unread for the next tick"
+    assert state["activity"] == "idle", "the parse that finally succeeded must win"
+    # And once it HAS been read, the screen is retired again: no heartbeat re-parse.
+    for _ in range(10):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 3
+    assert "parse_ok" not in state, "internal flag must not reach the UI"

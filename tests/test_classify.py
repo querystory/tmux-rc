@@ -162,9 +162,31 @@ def test_no_llm_fallback_idle_shell():
     assert r["tool"] == "shell" and r["activity"] == "idle"
 
 
-def test_no_llm_fallback_running():
-    r = classify(_pane("node"), "streaming output...\nmore", llm_fn=None)
-    assert r["activity"] == "running"
+def test_failed_parse_holds_the_last_known_activity_instead_of_guessing():
+    """A failed parse read NOTHING off the screen, so it must not invent a state. The
+    old fallback said "running" for anything that wasn't a bare shell prompt — which on
+    an agent TUI is everything — so a silent 429 stamped a finished agent "Running", and
+    the watcher's fingerprint retired the screen so it never re-parsed. A pane whose
+    screen never changes again wore that badge forever."""
+    pane = _pane("node")
+    # Nothing known yet: "unknown" (reads as stale in the UI), never a fabricated "running".
+    assert classify(pane, "streaming output...\nmore", llm_fn=None)["activity"] == "unknown"
+    # Known state carries forward, in both directions — the last thing we actually read.
+    for prev in ("running", "idle", "waiting"):
+        r = classify(pane, "streaming output...\nmore", llm_fn=None, prev_activity=prev)
+        assert r["activity"] == prev
+    # A bare shell prompt is still readable without the model, so it still wins.
+    assert classify(_pane(), "user@host:~$ ", llm_fn=None, prev_activity="running")[
+        "activity"
+    ] == "idle"
+
+
+def test_failed_parse_is_flagged_so_the_watcher_can_retry_the_screen():
+    """The watcher retires a screen by advancing its fingerprint, and never re-parses an
+    unchanged one. So a failed parse has to say so, or the failure is committed as if it
+    were a reading."""
+    assert classify(_pane("node"), "x", llm_fn=None)["parse_ok"] is False
+    assert "parse_ok" not in classify(_pane("node"), "x", _llm({"activity": "idle"}))
 
 
 def test_copyables_capped_and_malformed_dropped():

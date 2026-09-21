@@ -115,11 +115,14 @@ def classify(
     llm_fn=None,
     prior: list[str] | None = None,
     recent_events: list[str] | None = None,
+    prev_activity: str | None = None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
-    = events already reported (so the model doesn't repeat them). Returns the model's
-    JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic dict."""
+    = events already reported (so the model doesn't repeat them). `prev_activity` is the
+    pane's last classified activity, held onto when the parse fails (see below). Returns
+    the model's JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic
+    dict."""
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
@@ -127,11 +130,30 @@ def classify(
     payload = f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{payload}"
     result = llm_fn(parser_prompt(), payload) if llm_fn else None
     if not isinstance(result, dict):
+        # A failed parse knows nothing about the screen, so it must not INVENT a state.
+        # `_obvious_idle` only recognizes a bare shell prompt, so on an agent TUI it is
+        # always False and the old `else "running"` fabricated "running" for every
+        # failure — including the silent one that matters, a 429 returning None with
+        # nothing in the log. That guess then stuck: the watcher advances the pane's
+        # fingerprint before this returns, so a screen that never changes again is never
+        # re-parsed, and a finished agent wore a green "Running" badge indefinitely
+        # (and sorted as recent). Carrying the pane's last real classification forward
+        # is the honest answer — the screen did change, but we failed to read it, so the
+        # most recent thing we actually knew stays until a parse succeeds. Only when
+        # there is no prior state (first sight of the pane) do we fall back to the
+        # shell-prompt heuristic, and "unknown" rather than "running" when even that is
+        # silent: an unknown pane reads as stale in the UI, which is what a pane we
+        # cannot classify IS.
         result = {
             "tool": "shell"
             if pane.current_command in ("bash", "zsh", "sh", "fish")
             else "unknown",
-            "activity": "idle" if _obvious_idle(text) else "running",
+            "activity": "idle"
+            if _obvious_idle(text)
+            else (prev_activity or "unknown"),
+            # Tells the watcher this screen was never actually read, so it can leave the
+            # pane's fingerprint unset and try again rather than retiring the screen.
+            "parse_ok": False,
         }
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.

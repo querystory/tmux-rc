@@ -926,6 +926,8 @@ class Watcher:
             llm_fn=llm_fn,
             prior=prior,
             recent_events=recent_texts,
+            # What we last knew, so a failed parse holds that instead of guessing.
+            prev_activity=(previous or {}).get("activity"),
         )
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
@@ -981,7 +983,16 @@ class Watcher:
         state["summary"] = self._summary.get(
             pane.id
         )  # may be None (only set once idle)
-        self._prev_fp[pane.id] = fp
+        # Only a SUCCESSFUL parse retires the screen. The fingerprint is the "we have
+        # read this screen" mark, so advancing it on a failed parse (a 429, a timeout)
+        # told the next tick there was nothing new to look at — and since an unchanged
+        # screen is never re-parsed on a timer, one failure froze the pane's card until
+        # the screen next changed. A finished agent's screen does not change again, so
+        # the freeze was permanent. Leaving the mark unset on failure costs one re-read
+        # of the same text on the next tick, which is exactly the retry this needs.
+        if state.get("parse_ok", True):
+            self._prev_fp[pane.id] = fp
+        state.pop("parse_ok", None)
 
         # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
         # unmistakable status-line/box, so if it says "shell" it IS a shell — never let
