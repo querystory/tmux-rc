@@ -188,3 +188,64 @@ def test_no_llm_shell_prompt_retires_the_screen(monkeypatch):
         state = w._tick_pane(pane)
     assert state["activity"] == "idle"
     assert len(w.snapshots["%1"]) == 1, "an unchanged shell prompt is ONE snapshot"
+
+
+def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
+    """Copilot, #210 round 2: an unread screen must not REDACT the card either.
+    classify()'s fallback can only carry `activity` forward, so a waiting pane came back
+    without its `question` — and the phone gates the answer controls on that field
+    (`show("question", !!pane.question && needsYou(pane))`). The card kept its "Needs
+    you" badge while the buttons to answer it silently vanished, which is worse than a
+    stale card: the user is told to act and given nothing to act with."""
+    frame = ["? Do you want to proceed?  1. Yes  2. No"]
+    w, calls = _harness(monkeypatch, frame)
+    good = {"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+            "headline": "Asking to proceed",
+            "question": {"answer_style": "menu", "prompt": "Proceed?", "options": ["Yes", "No"]}}
+    seq = [good]
+
+    def then_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if seq:
+            return dict(seq.pop(0))
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", then_fails)
+    pane = _Pane(current_command="node")
+    w._forced_this_tick = set()
+    w._tick_pane(pane)
+    # A REAL content change (trailing whitespace is stripped by the fingerprint), so the
+    # pane re-parses — and that parse fails.
+    frame[0] = "? Do you want to proceed?  1. Yes  2. No  3. Later"
+    w._forced_this_tick = set()
+    state = w._tick_pane(pane)
+    assert state["question"] == good["question"], "the answer affordance must survive"
+    assert state["waiting_on"] == "user" and state["activity"] == "waiting"
+    assert state["headline"] == good["headline"] and state["tool"] == "claude"
+    # Still live fields, re-stamped from tmux rather than frozen with the old card.
+    assert state["snapshot_id"] is not None
+    assert "parse_ok" not in state
+
+
+def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
+    """The phone stops spinning an answered control when `parsed_at` advances. A forced
+    reparse that FAILS still has to move it, or the control spins forever."""
+    frame = ["? Proceed?"]
+    w, calls = _harness(monkeypatch, frame)
+    seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+            "question": {"prompt": "Proceed?"}}]
+
+    def then_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if seq:
+            return dict(seq.pop(0))
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", then_fails)
+    pane = _Pane(current_command="node")
+    w._forced_this_tick = set()
+    first = w._tick_pane(pane)["parsed_at"]
+    w._forced_this_tick = {"%1"}  # phone sent input; screen unchanged
+    assert w._tick_pane(pane)["parsed_at"] > first

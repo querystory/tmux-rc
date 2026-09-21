@@ -1006,6 +1006,16 @@ class Watcher:
         # of the same text on the next tick, which is exactly the retry this needs.
         if state.get("parse_ok", True):
             self._prev_fp[pane.id] = fp
+        elif previous is not None:
+            # An unread screen must not REDACT the card either. classify()'s fallback can
+            # only carry `activity` forward, so a waiting pane came back without its
+            # `question` — and the phone gates the answer controls on that field
+            # (show("question", !!pane.question && needsYou(pane))). The card kept its
+            # "Needs you" badge while the buttons to answer it silently vanished, which
+            # is worse than a stale card. We failed to read the screen, so the honest
+            # card is the last one we actually read: keep it whole and retry next tick.
+            # Identity, timers and the snapshot id are re-stamped below from live tmux.
+            state = dict(previous)
         state.pop("parse_ok", None)
 
         # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
