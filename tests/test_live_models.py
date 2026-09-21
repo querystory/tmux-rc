@@ -12,6 +12,7 @@ import starlette.websockets
 from fastapi.testclient import TestClient
 
 import openbus.live_providers as P
+from openbus import live as L
 from openbus import server
 
 TABLE = [
@@ -80,7 +81,7 @@ def test_table_trims_identity_and_round_trips_offered_label(monkeypatch):
     }]))
     offered = TestClient(server.app).get("/api/version").json()["live_models"]
     assert offered[0]["label"] == "Voice test"
-    assert P.find(offered[0]["label"]).model == "model-id"
+    assert L.pick(offered[0]["label"]).model == "model-id"
 
 
 def test_table_rejects_duplicate_normalized_labels(monkeypatch):
@@ -94,12 +95,13 @@ def test_table_rejects_duplicate_normalized_labels(monkeypatch):
 def test_keyless_entry_is_configured_but_not_offered(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # GPT-Live joins the menu, not the table
     assert [m.label for m in P.available()] == ["Gemini 2.5"]
-    assert P.find(None).label == "Gemini 2.5"  # no label → the first offered
-    assert P.find("Gemini 3.1") is None  # configured, keyless: refused, not defaulted
-    assert P.find("rm -rf /") is None
+    assert L.pick(None).label == "Gemini 2.5"  # no label → the first offered
+    assert L.pick("Gemini 3.1") is None  # configured, keyless: refused, not defaulted
+    assert L.pick("rm -rf /") is None
     monkeypatch.setenv("GEMINI_API_KEY", "k")
-    assert P.find("Gemini 3.1").backend == "gemini-api"
+    assert L.pick("Gemini 3.1").backend == "gemini-api"
 
 
 def test_version_lists_offered_labels_with_hints(monkeypatch):
@@ -127,6 +129,39 @@ def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     with_key = TestClient(server.app).get("/api/version").json()["live_models"]
     assert [m["label"] for m in with_key] == [m["label"] for m in without] + ["GPT-Live 1"]
+    # Its own hint, not a rate card: GPT-Live bills voice by the MINUTE, so rendering the
+    # per-1M-audio line every table entry gets would put a number on the picker that
+    # describes nothing the user will be charged.
+    assert with_key[-1]["hint"] == "OpenAI · $0.05/min + backend"
+
+
+@pytest.mark.parametrize("bad", [-1, float("nan"), float("inf")])
+def test_table_rejects_rates_that_cannot_be_money(monkeypatch, bad):
+    """A rate card is multiplied by token counts and summed into the status-bar total, so a
+    negative one SUBTRACTS from the session cost and a NaN poisons it — and the picker
+    advertises the same number. All-or-nothing, like every other malformed field: the
+    operator gets the defaults and a warning, never a silently corrected price."""
+    monkeypatch.setenv(
+        "TMUXRC_LIVE_MODELS", json.dumps([{**TABLE[0], "rates": {"audio_out": bad}}])
+    )
+    assert P.models() == P._DEFAULT
+
+
+def test_a_configured_entry_may_claim_gpt_lives_label_and_wins_it(monkeypatch):
+    """GPT-Live is appended to the menu, not configured into the table, so nothing stops an
+    operator from naming a table entry after it. One menu and one resolver is what keeps
+    that from splitting: the row the picker shows and the model the socket opens are read
+    off the same list, so the configured entry wins BOTH — rather than the menu showing two
+    rows while the gate sent them both to the adapter, leaving the configured one
+    unreachable."""
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([{
+        "label": "GPT-Live 1", "model": "gemini-live-2.5-flash-native-audio",
+    }]))
+    labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]]
+    assert labels == ["GPT-Live 1"]
+    assert L.pick("GPT-Live 1").model == "gemini-live-2.5-flash-native-audio"
 
 
 def _refused(c, path):

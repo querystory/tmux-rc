@@ -559,6 +559,36 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                 return  # client sent stop during the backoff
 
 
+def offered() -> list[live_providers.LiveModel]:
+    """Everything a client may pick, in picker order: the configured table, then GPT-Live
+    when its key is set. ONE list, behind both /api/version's menu and this module's socket
+    gate, because the two saying it separately is exactly how they come to disagree — and a
+    gate that refuses what the menu just offered is indistinguishable from a broken pick.
+
+    GPT-Live is appended rather than configured: the seam opens a CONNECTION and hands it
+    to the shared coroutines, while the adapter owns a whole SESSION, so it cannot be a
+    table entry. The TABLE wins a label collision — an operator who names an entry
+    "GPT-Live 1" gets the entry they configured, not a second row shadowing it."""
+    from . import gpt_live  # noqa: PLC0415 - the adapter imports this module's handlers
+
+    menu = live_providers.available()
+    if os.environ.get("OPENAI_API_KEY") and all(m.label != gpt_live.LABEL for m in menu):
+        menu.append(gpt_live.ENTRY)
+    return menu
+
+
+def pick(label: str | None) -> live_providers.LiveModel | None:
+    """Resolve a client-supplied label against `offered()`. Label-only, like launchers: the
+    client names an entry and never a model id, backend or credential. No label at all is
+    the first entry — what a user who never opens the picker gets. Unknown, or configured
+    but keyless, is None: refused, never defaulted, because silently answering with a
+    different model would make a side-by-side comparison lie."""
+    menu = offered()
+    if not label:
+        return menu[0] if menu else None
+    return next((m for m in menu if m.label == label), None)
+
+
 @router.websocket("/api/live-mode")
 async def live_mode(websocket: WebSocket) -> None:
     if not enabled():
@@ -568,35 +598,25 @@ async def live_mode(websocket: WebSocket) -> None:
         # a current client reads live_enabled from /api/version and hides the button).
         await websocket.close(code=1008, reason="Live Mode is disabled — reload the page")
         return
-    # Label-only, like launchers: the client names an entry from the server's table and
-    # never a model id or backend. An unoffered label (unknown, or its key is absent) is
-    # refused rather than defaulted — the picker must never lie about who answered.
     from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
 
-    # GPT-Live owns a whole session rather than a connection the seam can open, so it is
-    # NOT in the provider table and find() returns None for its label by design. Route on
-    # the label before the table gate, or the gate would refuse the one pick the menu in
-    # /api/version just offered — the two lists have to agree on what is selectable.
-    selection = websocket.query_params.get("model", "")
-    use_gpt = selection == gpt_live.LABEL and bool(os.environ.get("OPENAI_API_KEY"))
-    model = None if use_gpt else live_providers.find(selection)
-    if model is None and not use_gpt:
+    model = pick(websocket.query_params.get("model"))
+    if model is None:
         # Nothing offered at all (every entry key-gated, no key set) is the operator's
         # config problem, not a stale tab's — a reload can't fix it, so don't say so.
-        why = (
-            "reload the page" if live_providers.available()
-            else "no configured model has its key set"
-        )
+        why = "reload the page" if offered() else "no configured model has its key set"
         await websocket.close(code=1008, reason=f"Live model not available — {why}")
         return
+    # Which runner, decided by identity rather than by re-reading the label: `offered()`
+    # already settled who owns this pick, including a table entry that claimed the
+    # adapter's label.
+    use_gpt = model is gpt_live.ENTRY
     await websocket.accept()
     watcher = websocket.app.state.watcher
     actor = _actor(websocket)
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
-    if use_gpt:
-        model = gpt_live.ENTRY  # the stand-in entry _Meter needs; see gpt_live.ENTRY
     meter = _Meter(session_id, actor, model)
     logger.info(
         "[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label

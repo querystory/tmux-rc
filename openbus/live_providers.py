@@ -17,6 +17,7 @@ import base64
 import contextlib
 import json
 import logging
+import math
 import os
 import re
 from collections.abc import AsyncIterator
@@ -85,13 +86,18 @@ class LiveModel:
     def hint(self) -> str:
         """The picker's one-line 'what am I choosing': where it runs and what talking costs
         (audio rates dominate; text is noise by comparison). Rendered here so the client
-        stays a dumb list and the backend vocabulary has one home."""
+        stays a dumb list and the backend vocabulary has one home. An entry may state its
+        own (`hint` in flags) when its price is not a per-1M-token card at all — GPT-Live
+        bills voice BY THE MINUTE, so a rate card would be a fiction dressed as a number."""
+        own = self.flags.get("hint")
+        if isinstance(own, str) and own:
+            return own
         return f"{_BACKEND_NAME[self.backend]} · ${self.rates[2]:g}/${self.rates[3]:g} per 1M audio"
 
     def available(self) -> bool:
         """Offered only when its credential is present. A keyless entry stays in the
         table — so the picker appears the moment the key lands, no config edit — but is
-        never offered, and `find` refuses it if a stale client names it anyway."""
+        never offered, and live.pick refuses it if a stale client names it anyway."""
         return all(os.environ.get(v) for v in self.needs)
 
 
@@ -107,6 +113,13 @@ def _coerce(e: dict) -> LiveModel:
     given = e.get("rates") or {}
     rates = {k: float(given.get(k, d)) for k, d in _RATES_25._asdict().items()}
     rates.update({c: rates[full] for c, full in _CACHED.items() if c not in given})
+    # A rate card is multiplied by token counts and summed into the status bar, so a
+    # negative or non-finite one does not merely look wrong — it SUBTRACTS from the
+    # session total, or poisons it with NaN, and the picker advertises the same number.
+    # Refused here rather than clamped: json_list is all-or-nothing, so the operator gets
+    # a warning and the defaults instead of a silently corrected price.
+    if not all(math.isfinite(v) and v >= 0 for v in rates.values()):
+        raise ValueError("rates must be finite and non-negative")
     return LiveModel(
         label=label.strip(),
         model=model.strip(),
@@ -142,17 +155,6 @@ def models() -> list[LiveModel]:
 
 def available() -> list[LiveModel]:
     return [m for m in models() if m.available()]
-
-
-def find(label: str | None) -> LiveModel | None:
-    """Resolve a client-supplied label against the OFFERED list. No label = the first
-    offered entry (what a user who never touches the picker gets). Unknown, or configured
-    but keyless, = None — refused, never defaulted: silently answering with a different
-    model would make a side-by-side comparison lie."""
-    offered = available()
-    if not label:
-        return offered[0] if offered else None
-    return next((m for m in offered if m.label == label), None)
 
 
 # Named keys press_key can send — a fixed whitelist, mapped to the tmux key names

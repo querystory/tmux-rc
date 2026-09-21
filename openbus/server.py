@@ -405,7 +405,7 @@ app.add_middleware(GZipMiddleware, minimum_size=512)
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
-from . import live, live_providers  # noqa: E402
+from . import live  # noqa: E402
 from .live import router as live_router  # noqa: E402
 
 app.include_router(live_router)
@@ -449,18 +449,10 @@ def get_version():
         if p.is_file():
             h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    # Two sources, one menu. The configured TABLE (live_providers) supplies Gemini and the
-    # Realtime entries, each already filtered to those whose keys are present. GPT-Live is
-    # NOT a table entry: it is a whole session adapter rather than a connection the seam
-    # can open, so it is appended here under the same "only if its key is set" rule.
-    # The label is the only thing the browser ever sends back, so it must be unique across
-    # both sources — gpt_live.LABEL is, and live_providers.find() returning nothing for it
-    # is exactly what routes the pick to the adapter instead of the seam.
-    from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
-
-    offered = [{"label": m.label, "hint": m.hint} for m in live_providers.available()]
-    if os.environ.get("OPENAI_API_KEY"):
-        offered.append({"label": gpt_live.LABEL, "hint": "OpenAI · $0.05/min + backend"})
+    # The menu is live.offered() and nothing else — the same list the socket gates on, so
+    # the picker can never show a row the socket would refuse. The label is the only thing
+    # the browser ever sends back; hints are rendered by the entry (see LiveModel.hint).
+    offered = [{"label": m.label, "hint": m.hint} for m in live.offered()]
     return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered),
             "live_models": offered}
 

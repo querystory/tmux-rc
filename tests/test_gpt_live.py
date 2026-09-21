@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+from pathlib import Path
 
 import pytest
 from fastapi import WebSocketDisconnect
@@ -117,6 +118,17 @@ def test_tools_come_from_the_shared_table_unconverted():
     assert [d["name"] for d in defs] == [t["name"] for t in L.live_providers.TOOLS]
     for d, t in zip(defs, L.live_providers.TOOLS, strict=True):
         assert d["type"] == "function" and d["parameters"] == t["parameters"]
+
+
+def test_the_paid_smoke_script_still_builds_a_meter():
+    """research/live-eval/smoke_gpt_live.py is billable and opt-in, so nothing in CI runs it
+    — which is exactly why a constructor change can rot it unseen. Compile it and check the
+    one call the seam changed, rather than discovering the TypeError with a live session and
+    a bill attached."""
+    path = Path(__file__).resolve().parent.parent / "research" / "live-eval" / "smoke_gpt_live.py"
+    source = path.read_text(encoding="utf-8")
+    compile(source, str(path), "exec")
+    assert 'live._Meter("gpt-live-smoke", "smoke", gpt_live.ENTRY)' in source
 
 
 def test_usage_duration_snapshots_backend_cache_and_duplicate_completion():

@@ -256,9 +256,10 @@ def test_openai_backends_gate_on_their_keys(monkeypatch):
     assert [m.label for m in P.available()] == ["GPT"]
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "h")
     assert [m.label for m in P.available()] == ["GPT", "GPT (Azure)"]
-    assert (
-        P.find("GPT").hint == "OpenAI · $3/$12 per 1M audio"
-    )  # no rates given → 2.5's card, visibly
+    # no rates given → 2.5's card, visibly
+    assert next(m for m in P.available() if m.label == "GPT").hint == (
+        "OpenAI · $3/$12 per 1M audio"
+    )
 
 
 def test_handshake_rejection_is_unreachable_not_retryable(monkeypatch):
