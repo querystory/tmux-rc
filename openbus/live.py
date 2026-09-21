@@ -524,9 +524,28 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                         _context_updater(session, watcher), name="live-context-updater"
                     ),
                 ]
+                # The mic pump is RACED against the side tasks, not awaited alone. A
+                # provider that drops surfaces here as the receiver ending — cleanly, when
+                # its event stream just stops, or with an exception — and awaiting only the
+                # pump meant nobody looked until the browser happened to send another
+                # frame. A muted or backgrounded phone sends none, so the session sat in
+                # "listening" against a dead socket with the reconnect loop one frame away
+                # and never entered. (The GPT-Live adapter already waits on all of its
+                # tasks together; this is the seam saying the same thing.)
+                pump = asyncio.create_task(
+                    _forward_audio(websocket, session), name="live-audio"
+                )
+                side.append(pump)  # so the drain below tears this one down too
                 try:
-                    await _forward_audio(websocket, session)
-                    return  # client sent stop — clean exit
+                    done, _ = await asyncio.wait(side, return_when=asyncio.FIRST_COMPLETED)
+                    if pump in done:
+                        pump.result()  # a WebSocketDisconnect here is the browser going away
+                        return  # client sent stop — clean exit
+                    for t in done:
+                        t.result()  # a real failure, re-raised into the reconnect below
+                    # Nothing raised, so a side task simply ENDED: the provider closed its
+                    # stream. A quiet end is still an end — reconnect rather than sit.
+                    raise ConnectionError("live provider stream ended")
                 finally:
                     for t in side:
                         t.cancel()

@@ -383,6 +383,39 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
     assert _statuses(ws).count("reconnecting") == 1
 
 
+def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
+    """A provider that drops surfaces as the RECEIVER ending, and a phone that is muted or
+    backgrounded sends no audio frame for the mic pump to trip over. Awaiting the pump
+    alone left the session parked in "listening" against a dead socket, with the reconnect
+    loop one frame away and never entered — so the runner races the two, and a side task
+    that simply ends is treated as the end of the connection it was reading."""
+    seen = []
+
+    async def receiver(*args, **kwargs):
+        seen.append(1)
+        if len(seen) == 1:
+            return  # first connection: the provider's event stream just stopped
+        await asyncio.Event().wait()  # second: a healthy session, until the client stops
+
+    monkeypatch.setattr(L, "_receiver", receiver)
+    monkeypatch.setattr(L, "_context_updater", _park)
+    hold = L._hold
+    monkeypatch.setattr(L, "_hold", lambda ws, seconds: hold(ws, 0.01))  # collapse the backoff
+    client = _FakeClient([_Connect(_Session()), _Connect(_Session())])
+    monkeypatch.setattr(L.live_providers, "connect", client.connect)
+
+    # A browser that says nothing at all until it finally stops: the EOF has to be noticed
+    # without its help. wait_for so a runner that goes back to awaiting only the pump fails
+    # here instead of hanging the suite.
+    ws = _ScriptedWS([_SILENT, _SILENT, {"action": "stop"}])
+    _run(asyncio.wait_for(
+        L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])), 5
+    ))
+
+    assert client.attempts == 2  # the dead connection was noticed and replaced
+    assert _statuses(ws).count("reconnecting") == 1
+
+
 def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
     # A gone client (WebSocketDisconnect from receive_json) propagates out — there is
     # nothing to reconnect to, so no second connect attempt is made.
