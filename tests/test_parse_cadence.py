@@ -220,15 +220,14 @@ def test_a_new_screen_clears_the_failure_budget(monkeypatch):
 
     monkeypatch.setattr(W, "classify", always_fails)
     pane = _Pane()
-    for _ in range(5):
+    for _ in range(W.PARSE_RETRIES - 1):  # change the screen MID-budget, not after it
         w._forced_this_tick = set()
         w._tick_pane(pane)
-    assert calls["n"] == W.PARSE_RETRIES
     frame[0] = "screen two — genuinely different content"
     for _ in range(5):
         w._forced_this_tick = set()
         w._tick_pane(pane)
-    assert calls["n"] == 2 * W.PARSE_RETRIES, "a new screen earns a new budget"
+    assert calls["n"] == 2 * W.PARSE_RETRIES - 1, "a new screen earns a FULL new budget"
 
 
 def test_no_llm_shell_prompt_retires_the_screen(monkeypatch):

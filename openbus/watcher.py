@@ -870,6 +870,8 @@ class Watcher:
         # "Recent" for as long as the outage lasted.
         moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
         self._seen_fp[pane.id] = fp
+        if moved:
+            self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
         changed = fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
