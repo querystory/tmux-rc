@@ -34,14 +34,17 @@ FAST_POLL = 0.1
 SNAPSHOT_HISTORY = 200
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
-# `changed` compares against _prev_fp, which is written only on the parse path — so a
+# `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
 # screen drifting slowly, line by line, still eventually differs from what we last
 # parsed and re-parses on content alone. No time-based heartbeat: an unchanged screen
 # (idle prompt, a pane blocked on a question) is byte-identical, so re-parsing it on a
 # timer only burned money (~58% of all parse spend was duplicate input_sha256) and let
 # the non-deterministic model re-roll a stable card's summary for no reason. An agent
 # merely working — spinner/timer/token churn — is stripped from the fingerprint ⇒ no
-# change ⇒ no call.
+# change ⇒ no call. A parse that FAILS (the model returned nothing) leaves _prev_fp
+# unset, so the same screen is retried on the next tick rather than being retired
+# unread. That is tracked separately from _seen_fp, which follows the screen itself and
+# drives the idle clock and the snapshot ring — see the note in _tick_pane.
 # One-time deep read of a pane's scrollback that seeds the card (summary + history)
 # before live watching has accumulated anything. Fat input ⇒ at most ONE per tick,
 # behind the live parses; a few retries with spacing so an LLM hiccup isn't permanent.
@@ -202,6 +205,7 @@ class Watcher:
         ] = {}  # pane_id -> monotonic count of events ever appended (refetch signal)
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
+        self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
         # the pending-question identity changes, NOT on cosmetic content churn. The client
@@ -721,6 +725,7 @@ class Watcher:
     def _stores(self):
         return (
             self._prev_fp,
+            self._seen_fp,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -842,22 +847,31 @@ class Watcher:
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
         fp = _fingerprint(text)
-        changed = fp != self._prev_fp.get(
-            pane.id
-        )  # real content change (timers stripped)
+        # Two different questions, and conflating them is a bug. `moved` = did the SCREEN
+        # change since we last looked (drives the snapshot ring, the idle clock and
+        # last_activity_at — all of which describe the pane, not our reading of it).
+        # `changed` = is this screen different from the one we last PARSED (drives
+        # whether to spend an LLM call). They come apart exactly when a parse fails: the
+        # screen is unread, so it must still be parsed, but it has not MOVED, so the
+        # timers must keep running. Tracking only _prev_fp made a failing parse re-record
+        # a snapshot every tick and pin idle_seconds at 0, so the pane never aged out of
+        # "Recent" for as long as the outage lasted.
+        moved = fp != self._seen_fp.get(pane.id)  # screen changed (timers stripped)
+        self._seen_fp[pane.id] = fp
+        changed = fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")
         if last_activity is None:
             last_activity = min(_activity_ts(pane) or now, now)
-        elif changed:
+        elif moved:
             last_activity = now
-        if changed:
+        if moved:
             self._unchanged_since[pane.id] = now
         idle = int(now - self._unchanged_since.get(pane.id, now))
 
         # Record a snapshot whenever content changed (bounded ring buffer, for timeline).
-        if changed:
+        if moved:
             hist = self.snapshots.setdefault(pane.id, [])
             hist.append({"id": f"{int(now * 1000)}", "text": text, "ts": now})
             del hist[:-SNAPSHOT_HISTORY]

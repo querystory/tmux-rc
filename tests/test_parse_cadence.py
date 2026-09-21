@@ -8,8 +8,9 @@ from openbus.watcher import Watcher
 
 
 class _Pane:
-    def __init__(self, pid="%1", label="work"):
+    def __init__(self, pid="%1", label="work", current_command="bash"):
         self.id = pid
+        self.current_command = current_command  # real classify() anchors tool on this
         self.label = label
         self.display_title = label
         self.session = "work"
@@ -146,3 +147,44 @@ def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch
         w._tick_pane(pane)
     assert calls["n"] == 3
     assert "parse_ok" not in state, "internal flag must not reach the UI"
+
+
+def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
+    """Copilot, #210: the retry must not make a STILL pane look busy. `changed` used to
+    answer two questions at once — "is this screen new to us?" and "did the screen
+    move?" — and leaving the fingerprint unset on failure told both yes. So a sustained
+    LLM outage re-recorded a snapshot every tick and pinned idle_seconds at 0, and the
+    pane never aged out of "Recent" for as long as it lasted."""
+    frame = ["agent finished · done 10:28 PM"]  # an agent TUI: no bare shell prompt
+    w, calls = _harness(monkeypatch, frame)
+
+    def always_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", always_fails)
+    pane = _Pane()
+    for _ in range(6):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 6, "an unread screen must still be retried every tick"
+    assert len(w.snapshots["%1"]) == 1, "a screen that never moved is ONE snapshot"
+
+
+def test_no_llm_shell_prompt_retires_the_screen(monkeypatch):
+    """Copilot, #210: with TMUXRC_NO_LLM=1 every parse takes the fallback, so marking the
+    recognized shell prompt a failure would leave the fingerprint permanently unset —
+    every tick a "change", the snapshot ring filling with one identical screen. The bare
+    prompt is a real read (it is what _obvious_idle is FOR), so it retires the screen."""
+    frame = ["user@host:~$ "]
+    # The real classify(), reached with no llm_fn — exactly what use_llm=False does.
+    monkeypatch.setattr(W.tmux, "capture_pane", lambda pid, mark_dim=False: frame[0])
+    monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
+    w = Watcher(target=None, use_llm=False)
+    pane = _Pane()
+    for _ in range(5):
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+    assert state["activity"] == "idle"
+    assert len(w.snapshots["%1"]) == 1, "an unchanged shell prompt is ONE snapshot"
