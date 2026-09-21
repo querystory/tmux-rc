@@ -49,7 +49,11 @@ def test_success_message_shape_for_auth_and_timeout():
     assert "auth expired" in llm._handle_llm_error(
         Exception("Reauthentication is needed. Please run gcloud ...")
     )
-    assert llm._backoff["until"] == 0.0  # auth errors must NOT arm the 429 backoff
+    # These DO arm the backoff now (#210). They used not to, back when a failed parse
+    # retired the screen and so was tried once; a failed parse now leaves the screen
+    # unread and is retried every tick, and auth/timeout are exactly the failures that
+    # persist — see tests/test_llm_backoff.py.
+    assert llm._backoff["until"] > 0.0
     assert "timed out" in llm._handle_llm_error(TimeoutError("read timed out"))
 
 
@@ -75,4 +79,6 @@ def test_malformed_json_is_expected_single_line_error():
     msg = llm._handle_llm_error(json.JSONDecodeError("Extra data", "{}", 2))
     assert msg.startswith("model returned malformed JSON:")
     assert "Extra data" in msg
-    assert llm._backoff["until"] == 0.0  # not a quota event; must not arm the backoff
+    # Not a quota event, but still an operational one that repeats: a model emitting
+    # junk keeps emitting it, so it brakes like the rest (#210).
+    assert llm._backoff["until"] > 0.0
