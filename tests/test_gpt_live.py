@@ -1,8 +1,8 @@
 """The Live/Responses boundary must not duplicate terminal actions or lose billing."""
 
 import asyncio
+import base64
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastapi import WebSocketDisconnect
@@ -84,6 +84,39 @@ def call(cid="call-1", args=None):
         "name": "type_in_pane",
         "arguments": json.dumps(args or {"pane_id": "%1", "text": "echo hello"}),
     }
+
+
+def test_shared_audio_forwarder_reaches_the_adapter():
+    """The adapter borrows live._forward_audio wholesale rather than growing a second mic
+    path, so it has to answer to the seam's verb BY NAME: a method spelled anything else
+    is an AttributeError on the first spoken frame, and no test of the adapter's own
+    methods would ever reach it. Odd-length frames are dropped rather than forwarded —
+    half a PCM16 sample shifts every sample after it."""
+    script = [
+        {"action": "audio", "data": base64.b64encode(b"\x01\x02\x03\x04").decode()},
+        {"action": "audio", "data": base64.b64encode(b"\x01").decode()},  # odd: dropped
+        {"action": "stop"},
+    ]
+
+    class Mic(Browser):
+        async def receive_json(self):
+            return script.pop(0)
+
+    s = session()
+    asyncio.run(L._forward_audio(Mic(), s))
+    assert [e["type"] for e in s.ws.sent] == ["session.input_audio.append"]
+    assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
+
+
+def test_tools_come_from_the_shared_table_unconverted():
+    """One table, every provider. live_providers.TOOLS is already plain JSON Schema — the
+    seam chose that format precisely because no backend needs it translated — so the
+    adapter only wraps each entry, and the google-genai enum walk this used to do is gone
+    rather than rewritten."""
+    defs = G.tool_definitions()
+    assert [d["name"] for d in defs] == [t["name"] for t in L.live_providers.TOOLS]
+    for d, t in zip(defs, L.live_providers.TOOLS, strict=True):
+        assert d["type"] == "function" and d["parameters"] == t["parameters"]
 
 
 def test_usage_duration_snapshots_backend_cache_and_duplicate_completion():
@@ -382,9 +415,11 @@ def test_unavailable_model_never_connects(monkeypatch, selection, key):
     # that then apologises. Nothing was offered, so there is no session to open and no mic
     # to stream — closing first is what makes "never connects" true rather than merely said.
     url = "/api/live-mode?" + urlencode({"model": selection})
-    with pytest.raises(WebSocketDisconnect) as refused:  # noqa: PT012 - the connect is the act
-        with TestClient(server.app).websocket_connect(url) as ws:
-            ws.receive_json()
+    with (
+        pytest.raises(WebSocketDisconnect) as refused,
+        TestClient(server.app).websocket_connect(url) as ws,
+    ):
+        ws.receive_json()
     assert refused.value.code == 1008
 
 

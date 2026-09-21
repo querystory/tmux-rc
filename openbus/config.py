@@ -25,7 +25,10 @@ def json_list(var: str, default: list, coerce: Callable[[dict], object]) -> list
             raw = Path(raw).read_text(encoding="utf-8")
         good = [coerce(e) for e in json.loads(raw)]  # a non-dict raises inside coerce
         if not good:
-            raise ValueError("no valid entries")
+            # Raised, not returned: "the config parsed to nothing usable" is the same
+            # outcome as "the config did not parse", and routing both through the one
+            # handler keeps one warning and one fallback instead of two of each.
+            raise ValueError("no valid entries")  # noqa: TRY301
         return good
     except Exception:
         logger.warning("%s invalid; using defaults", var, exc_info=True)

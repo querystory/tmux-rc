@@ -344,7 +344,8 @@ def emit_live_turn(  # noqa: PLR0913
         attrs = {
             "kind": "live_turn",
             "model": model,
-            "provider": provider,  # the entry's backend: vertex / gemini-api / openai / azure-openai
+            # the entry's backend: vertex / gemini-api / openai / azure-openai
+            "provider": provider,
             "session": session[:64],
             "turns": turns,
             "duration_s": round(duration_s, 3),

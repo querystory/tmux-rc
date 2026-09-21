@@ -102,3 +102,61 @@ def test_corpus_loads_and_is_well_formed():
         if s.expected.get("waiting_on"):
             assert s.expected["activity"] == "waiting", f"{s.name}: waiting_on off a non-wait"
             assert s.expected["waiting_on"] in ("user", "external")
+
+
+def test_cursor_fields_scored_only_when_the_sample_pins_them():
+    """`selected` and `keymap` steer the phone's cursor walk — a wrong anchor resumes the
+    wrong session, an empty keymap leaves it unable to press anything — so a sample that
+    states them must gate them. Most screens have nothing to say about either, and for
+    those the check has to stay out of the way, exactly like _STRUCT_OPTIONAL."""
+    cursor = {"answer_style": "cursor", "selected": 2,
+              "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": True}}
+    # A sample that pins neither is unmoved by whatever the model reported.
+    ok, _ = score_structured({"question": cursor}, {"question": {"answer_style": "cursor"}})
+    assert ok
+    # A pinned anchor is compared exactly: off by one row is a different session.
+    ok, diffs = score_structured(
+        {"question": cursor}, {"question": {"answer_style": "cursor", "selected": 3}})
+    assert not ok and any("question" in d for d in diffs)
+    ok, _ = score_structured(
+        {"question": cursor}, {"question": {"answer_style": "cursor", "selected": 2}})
+    assert ok
+    # A pinned keymap catches a model that stopped advertising a binding the walk needs.
+    pinned = {"answer_style": "cursor",
+              "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": True}}
+    ok, diffs = score_structured(
+        {"question": {"answer_style": "cursor", "keymap": {"next": "Down", "prev": "Up"}}},
+        {"question": pinned})
+    assert not ok and any("question" in d for d in diffs)
+    # ...and a missing keymap entirely, which is the silent "nothing to press" case.
+    ok, diffs = score_structured({"question": {"answer_style": "cursor"}}, {"question": pinned})
+    assert not ok and any("question" in d for d in diffs)
+    # Both sides normalize through _keymap, so an omitted `search` and an explicit false
+    # are the same answer — otherwise every sample would have to spell out the default.
+    ok, _ = score_structured(
+        {"question": {"answer_style": "cursor", "keymap": {"select": "Enter", "search": False}}},
+        {"question": {"answer_style": "cursor", "keymap": {"select": "Enter"}}})
+    assert ok
+
+
+def test_malformed_keymap_scores_as_a_mismatch_rather_than_exploding():
+    """classify() pipes model JSON through unvalidated, so `keymap` can arrive as a
+    string. Reading bindings off that with .get would raise and take down the whole eval
+    run — 15 good samples lost to one bad parse — instead of recording one mismatch."""
+    pinned = {"answer_style": "cursor", "keymap": {"select": "Enter"}}
+    ok, diffs = score_structured(
+        {"question": {"answer_style": "cursor", "keymap": "Up/Down to move"}},
+        {"question": pinned})
+    assert not ok and any("question" in d for d in diffs)
+
+
+def test_a_non_boolean_search_flag_is_not_true():
+    """`search` is declared boolean but the candidate is raw model output, and
+    bool("false") is True — which would let a malformed keymap score as matching a pinned
+    `search: true` and walk straight through the gate it exists to be."""
+    pinned = {"answer_style": "cursor", "keymap": {"select": "Enter", "search": True}}
+    ok, diffs = score_structured(
+        {"question": {"answer_style": "cursor",
+                      "keymap": {"select": "Enter", "search": "false"}}},
+        {"question": pinned})
+    assert not ok and any("question" in d for d in diffs)

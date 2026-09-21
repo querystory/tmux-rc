@@ -32,6 +32,42 @@ export function matchesFilter(pane, filter, nowMs = Date.now()) {
 // want to be.
 export const stillOnPane = (hash, id) => !!id && new URLSearchParams(String(hash).replace(/^#/, "")).get("pane") === id;
 
+// How long a pane the app just created is allowed to be absent from /api/state before it
+// counts as gone. POST /api/windows returns the id the moment tmux has the window, which
+// is necessarily BEFORE the watcher has published it — so the app navigates to a pane
+// that, for a beat, no state response mentions. Without an exemption the missing-pane
+// eviction above fires on that beat and throws the user straight back to the list: the
+// jump to the new window never happens. A deadline rather than "until it appears"
+// because the other reason a launched pane never shows up is that it died on its own
+// (bad auth, an instant crash — a command that RESOLVES and then exits, which the
+// daemon's pre-flight check deliberately does not try to predict). That has to end at
+// "no longer available", not on a screen that loads forever. Generous next to the
+// watcher's sub-second wake, because the cost of being wrong is asymmetric: a beat too
+// long is a spinner, a beat too short is being bounced out of the window you just asked
+// for. Hence a number this large: /api/windows wakes the watcher, but the wake is not an
+// interrupt — it only lets the loop start ANOTHER tick, so a tick already in flight runs
+// to completion first, and with classification on that is bounded by the per-request LLM
+// timeout (TMUXRC_LLM_TIMEOUT_MS, 20s by default) rather than by anything quick. Waiting
+// past that costs nothing on the happy path, where the pane is published in milliseconds
+// and simply found; the deadline only decides how long the pathological case — a command
+// that resolves and then dies on its own — spends loading before it says so.
+//
+// Reviewed and kept at a fixed number, deliberately: a tick classifies panes SERIALLY,
+// so two panes that each burn the whole 20s timeout in one tick outlast even this. That
+// is an LLM outage, not a busy host — a pane is only re-classified when its screen
+// changed, and a 20s timeout means the call hung. Every alternative costs more than the
+// case is worth. A deck version can't replace the clock: a window that opens and dies
+// before any tick sees it never enters a deck at all, so no published inventory ever
+// disagrees with us and a version-gated grace would hold forever — which leaves a
+// two-clock state machine that is worse than this one number. The only fix that removes
+// the guess is server-side: publish the pane INVENTORY on its own cadence, independent of
+// classification, so a hung parse can't hold identity hostage. That is a watcher change
+// (a second publisher racing _publish_states from another thread), not a client one, and
+// it belongs in its own PR — not bolted onto a launcher fix.
+export const LAUNCH_GRACE_MS = 30000;
+export const awaitingLaunch = (launched, id, nowMs = Date.now()) =>
+  !!id && launched?.id === id && nowMs - launched.at < LAUNCH_GRACE_MS;
+
 // Sort key for "Sort by updated": the parser's timestamp when it has one, else the moment
 // the pane's state last changed, never later than when an idle pane went idle.
 export function lastActivity(pane) {

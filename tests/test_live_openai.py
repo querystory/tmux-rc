@@ -65,7 +65,9 @@ def test_resampler_length_and_values():
     )  # too short to interpolate: pass through
 
 
-@pytest.mark.parametrize("pcm", [b"", b"\xff", _pcm(123), _pcm(123) + b"\xff", _pcm(0, 300) + b"\xff"])
+@pytest.mark.parametrize(
+    "pcm", [b"", b"\xff", _pcm(123), _pcm(123) + b"\xff", _pcm(0, 300) + b"\xff"]
+)
 def test_resampler_discards_incomplete_samples(pcm):
     normalized = pcm[:len(pcm) & ~1]
     result = P.resample_16k_to_24k(pcm)
@@ -230,7 +232,8 @@ def test_openai_endpoint_shapes(monkeypatch):
         )
         assert (
             url
-            == f"wss://{ep.replace('https://', '').split('/')[0]}/openai/v1/realtime?model=gpt-realtime-2.1"
+            == f"wss://{ep.replace('https://', '').split('/')[0]}"
+            "/openai/v1/realtime?model=gpt-realtime-2.1"
         )
         assert hdr == {"api-key": "az-test"}
 

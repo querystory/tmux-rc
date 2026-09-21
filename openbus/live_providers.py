@@ -20,9 +20,8 @@ import logging
 import os
 import re
 from collections.abc import AsyncIterator
-from collections import namedtuple
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 from .config import json_list
 
@@ -51,9 +50,17 @@ _BACKEND_NAME = {
 # severalfold). So every entry carries a six-way card; an entry that omits a rate gets
 # 2.5's — visibly the default, never a silent zero — except the cached rates, which
 # default to the entry's OWN uncached rate: no published discount means no discount.
-Split = namedtuple(
-    "Split", ("text_in", "text_out", "audio_in", "audio_out", "text_cached", "audio_cached")
-)
+class Split(NamedTuple):
+    """Token counts, or USD-per-1M rates, in the same six slots — so a count tuple and a
+    rate tuple multiply position by position and neither can drift from the other."""
+
+    text_in: float
+    text_out: float
+    audio_in: float
+    audio_out: float
+    text_cached: float
+    audio_cached: float
+
 _RATES_25 = Split(0.50, 2.00, 3.00, 12.00, 0.50, 3.00)
 _CACHED = {"text_cached": "text_in", "audio_cached": "audio_in"}
 
@@ -240,7 +247,9 @@ class Event:
     usage: Split | None = None
 
 
-class Unreachable(RuntimeError):
+# Named for how it reads at the call site (`live_providers.Unreachable`), where the
+# conventional Error suffix would only stutter.
+class Unreachable(RuntimeError):  # noqa: N818
     """The model cannot be reached for a reason a retry will never fix — a deployment or
     model id that does not exist, a rejected key. live.py neither reconnects on it nor
     hides the message: the user fixes config, and needs to see which."""
@@ -268,8 +277,10 @@ class _GeminiSession:
     @staticmethod
     @contextlib.asynccontextmanager
     async def open(model: LiveModel, system_prompt: str):
-        from google import genai
-        from google.genai import types
+        # ~0.9s to import, and only the Gemini backends ever need it — a table with no
+        # Gemini entry must not pay for it at daemon start.
+        from google import genai  # noqa: PLC0415
+        from google.genai import types  # noqa: PLC0415
 
         if model.backend == "gemini-api":
             client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -313,7 +324,7 @@ class _GeminiSession:
             yield _GeminiSession(s)
 
     async def send_audio(self, pcm16k: bytes) -> None:
-        from google.genai import types
+        from google.genai import types  # noqa: PLC0415 - deferred; see _GeminiSession.open
 
         await self._s.send_realtime_input(
             audio=types.Blob(data=pcm16k, mime_type="audio/pcm;rate=16000")
@@ -322,7 +333,7 @@ class _GeminiSession:
     async def send_context(self, text: str) -> None:
         """turn_complete=False adds the content to the conversation but no model turn
         fires — the model simply has current state the next time the user speaks."""
-        from google.genai import types
+        from google.genai import types  # noqa: PLC0415 - deferred; see _GeminiSession.open
 
         await self._s.send_client_content(
             turns=types.Content(role="user", parts=[types.Part(text=text)]),
@@ -330,7 +341,7 @@ class _GeminiSession:
         )
 
     async def send_tool_result(self, call: ToolCall, payload: dict) -> None:
-        from google.genai import types
+        from google.genai import types  # noqa: PLC0415 - deferred; see _GeminiSession.open
 
         await self._s.send_tool_response(
             function_responses=[
@@ -372,7 +383,7 @@ def gemini_usage(u) -> Split:
     per-modality details split out audio and anything that isn't audio bills as text.
     prompt_token_count INCLUDES the cached tokens, so those come out of the uncached
     buckets. These are CUMULATIVE session totals, which is what Event.usage promises."""
-    from google.genai import types
+    from google.genai import types  # noqa: PLC0415 - deferred; see _GeminiSession.open
 
     def audio(details) -> int:
         return sum(
@@ -447,7 +458,9 @@ class _OpenAISession:
     @staticmethod
     @contextlib.asynccontextmanager
     async def open(model: LiveModel, system_prompt: str):
-        import websockets
+        # Deferred for symmetry with the genai import above: only the OpenAI backends
+        # speak a raw WebSocket, so the Gemini-only case never loads it.
+        import websockets  # noqa: PLC0415
 
         url, headers = openai_endpoint(model)
         try:

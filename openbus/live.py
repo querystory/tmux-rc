@@ -95,7 +95,7 @@ class _LiveUsage:
         return self.split.text_out + self.split.audio_out
 
     def cost(self) -> float:
-        return sum(n / 1e6 * rate for n, rate in zip(self.split, self.rates))
+        return sum(n / 1e6 * rate for n, rate in zip(self.split, self.rates, strict=True))
 
 
 class _Meter:
@@ -511,7 +511,10 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
             # (ambient [tmux update]s omit them), so reusing a stale one would leave a
             # reconnected session answering/acting on minutes-old screen state.
             async with live_providers.connect(model, _system_prompt(watcher)) as session:
-                logger.info("[live] session up (model=%s via %s, actor=%s)", model.model, model.backend, actor)
+                logger.info(
+                    "[live] session up (model=%s via %s, actor=%s)",
+                    model.model, model.backend, actor,
+                )
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [
                     asyncio.create_task(
@@ -541,7 +544,9 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                         )
                     for t in done:
                         if not t.cancelled() and (exc := t.exception()) is not None:
-                            logger.warning("[live] side task %s ended in error: %r", t.get_name(), exc)
+                            logger.warning(
+                                "[live] side task %s ended in error: %r", t.get_name(), exc
+                            )
         except (WebSocketDisconnect, live_providers.Unreachable):
             raise  # client gone, or a misconfiguration no retry can fix
         except Exception:
@@ -578,7 +583,10 @@ async def live_mode(websocket: WebSocket) -> None:
     if model is None and not use_gpt:
         # Nothing offered at all (every entry key-gated, no key set) is the operator's
         # config problem, not a stale tab's — a reload can't fix it, so don't say so.
-        why = "reload the page" if live_providers.available() else "no configured model has its key set"
+        why = (
+            "reload the page" if live_providers.available()
+            else "no configured model has its key set"
+        )
         await websocket.close(code=1008, reason=f"Live model not available — {why}")
         return
     await websocket.accept()
@@ -590,8 +598,12 @@ async def live_mode(websocket: WebSocket) -> None:
     if use_gpt:
         model = gpt_live.ENTRY  # the stand-in entry _Meter needs; see gpt_live.ENTRY
     meter = _Meter(session_id, actor, model)
-    logger.info("[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label)
-    telemetry.emit_action(action="live_session", pane_uid="-", actor=actor, detail="start", keys=None)
+    logger.info(
+        "[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label
+    )
+    telemetry.emit_action(
+        action="live_session", pane_uid="-", actor=actor, detail="start", keys=None
+    )
     outcome, reason = "ok", "stop"
     try:
         if use_gpt:
@@ -600,7 +612,7 @@ async def live_mode(websocket: WebSocket) -> None:
             await _run_session(websocket, watcher, actor, meter)
     except WebSocketDisconnect:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - the session's last stop: report it, never crash the WS
         outcome = reason = "error"
         # A model that can't be reached (bad deployment name, rejected key) says exactly
         # what to fix — the user fixes config, not the retry count. Anything else stays a
@@ -610,9 +622,13 @@ async def live_mode(websocket: WebSocket) -> None:
         # than an except clause of its own, which would have skipped the log line and sent
         # on a socket that may already be gone.
         fatal = isinstance(e, (live_providers.Unreachable, gpt_live.ProviderError))
-        (logger.error if fatal else logger.exception)("[live] session failed%s", f": {e}" if fatal else "")
+        (logger.error if fatal else logger.exception)(
+            "[live] session failed%s", f": {e}" if fatal else ""
+        )
         with contextlib.suppress(Exception):
-            await websocket.send_json({"type": "error", "message": str(e) if fatal else "live session failed"})
+            await websocket.send_json(
+                {"type": "error", "message": str(e) if fatal else "live session failed"}
+            )
     finally:
         logger.info(
             "[live] session end: %s (%d turns, $%.4f, session=%s)",

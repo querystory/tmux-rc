@@ -306,6 +306,7 @@ class _Connect:
 class _FakeClient:
     """Stands in for live_providers.connect and counts connect attempts. `connects` is
     one _Connect (or callable returning one) per expected attempt."""
+
     def __init__(self, connects):
         self._connects = list(connects)
         self.attempts = 0
@@ -355,7 +356,8 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
     ws = _ScriptedWS([{"action": "stop"}])
-    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))  # must not raise
+    # must not raise
+    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
 
     assert client.attempts == 1  # clean stop → no reconnect
     assert _statuses(ws)[-1:] == ["listening"] or "listening" in _statuses(ws)
@@ -408,14 +410,19 @@ class _Detail:
 class _Usage:
     """Mimics Gemini Live usage_metadata: cumulative session totals, with per-modality
     breakdowns splitting audio from text."""
+
     def __init__(self, prompt, resp, audio_in=0, audio_out=0, cached=0, audio_cached=0):
         from google.genai import types
         self.prompt_token_count = prompt
         self.response_token_count = resp
         self.prompt_tokens_details = [_Detail(types.Modality.AUDIO, audio_in)] if audio_in else []
-        self.response_tokens_details = [_Detail(types.Modality.AUDIO, audio_out)] if audio_out else []
+        self.response_tokens_details = (
+            [_Detail(types.Modality.AUDIO, audio_out)] if audio_out else []
+        )
         self.cached_content_token_count = cached
-        self.cache_tokens_details = [_Detail(types.Modality.AUDIO, audio_cached)] if audio_cached else []
+        self.cache_tokens_details = (
+            [_Detail(types.Modality.AUDIO, audio_cached)] if audio_cached else []
+        )
 
 
 def test_live_usage_splits_modalities_and_costs():
@@ -426,7 +433,10 @@ def test_live_usage_splits_modalities_and_costs():
     assert (u.split.audio_out, u.split.text_out) == (400, 100)
     assert u.in_tokens == 1000 and u.out_tokens == 500 and u.cached == 0
     r = P._RATES_25
-    expected = 200 / 1e6 * r.text_in + 100 / 1e6 * r.text_out + 800 / 1e6 * r.audio_in + 400 / 1e6 * r.audio_out
+    expected = (
+        200 / 1e6 * r.text_in + 100 / 1e6 * r.text_out
+        + 800 / 1e6 * r.audio_in + 400 / 1e6 * r.audio_out
+    )
     assert abs(u.cost() - expected) < 1e-12
 
 
@@ -466,7 +476,9 @@ def test_meter_emits_per_turn_and_folds_into_totals(monkeypatch):
     m.end_turn()
     m.finish()
     assert [e["final"] for e in emitted] == [False, True]  # one per-turn, one final
-    assert (emitted[0]["turns"], emitted[0]["session"], emitted[0]["provider"]) == (1, "sess-abc", "vertex")
+    assert (emitted[0]["turns"], emitted[0]["session"], emitted[0]["provider"]) == (
+        1, "sess-abc", "vertex",
+    )
     assert emitted[-1]["cost"] == m.usage.cost() and emitted[-1]["cached_tokens"] == 0
     # Session cost is folded into the status-bar totals exactly once, at finish().
     assert folded == {"in_tokens": 200, "out_tokens": 80, "cost": m.usage.cost()}
