@@ -1019,6 +1019,15 @@ class Watcher:
         if state.get("parse_ok", True):
             self._prev_fp[pane.id] = fp
             self._parse_fails.pop(pane.id, None)
+        elif backing_off():
+            # The SERVICE refused (quota, auth, timeout — llm.py armed the shared brake
+            # and classify_text now returns None without calling). That says nothing
+            # about this screen, so it must not spend this pane's retry budget: the
+            # brake lasts up to 120s and a tick is 1.5s, so counting these would retire
+            # every pane's screen unread ~4.5s into an outage, and when the brake lifted
+            # nothing would re-parse — the same freeze this PR exists to fix, now
+            # fleet-wide. Leave the screen unread; the first post-brake tick retries it.
+            self._prev_fp.pop(pane.id, None)
         elif self._parse_fails.get(pane.id, 0) + 1 >= PARSE_RETRIES:
             # Budget spent: retire the screen unread so this pane stops re-sending the
             # same text every tick. A screen that reliably breaks the parse would

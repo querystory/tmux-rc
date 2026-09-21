@@ -174,6 +174,38 @@ def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
     assert len(w.snapshots["%1"]) == 1, "a screen that never moved is ONE snapshot"
 
 
+def test_service_backoff_does_not_spend_the_pane_budget(monkeypatch):
+    """Copilot, #210: while llm.py's shared brake is armed, classify_text refuses every
+    call, so each tick is a "failure" for every pane. Counting those would retire every
+    screen unread 4.5s into an outage that lasts up to 120s, and once the brake lifted
+    nothing would re-parse — the frozen-card bug again, fleet-wide. A refused call must
+    leave the budget AND the screen alone; the first post-brake tick retries."""
+    frame = ["agent finished · done 10:28 PM"]
+    w, calls = _harness(monkeypatch, frame)
+    braked = {"on": True}
+    monkeypatch.setattr(W, "backing_off", lambda: braked["on"])
+
+    def refused(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if braked["on"]:
+            return {"activity": prev_activity or "unknown", "tool": "unknown",
+                    "events": [], "parse_ok": False}
+        return {"activity": "idle", "events": [], "tool": "claude", "label": pane.label}
+
+    monkeypatch.setattr(W, "classify", refused)
+    pane = _Pane()
+    for _ in range(3 * W.PARSE_RETRIES):  # far past the per-pane budget
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert "%1" not in w._parse_fails, "a refused call is not this pane's failure"
+    assert "%1" not in w._prev_fp, "the screen stays unread through the outage"
+    braked["on"] = False
+    w._forced_this_tick = set()
+    state = w._tick_pane(pane)
+    assert state["activity"] == "idle", "first tick after the brake lifts re-parses"
+    assert w._prev_fp.get("%1"), "and that read retires the screen"
+
+
 def test_a_new_screen_clears_the_failure_budget(monkeypatch):
     """Giving up is per-SCREEN, not per-pane-forever. Once the content changes, the pane
     gets a fresh budget — otherwise one bad screen would mute a pane for the rest of the
