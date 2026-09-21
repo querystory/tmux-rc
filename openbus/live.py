@@ -588,11 +588,19 @@ def offered() -> list[live_providers.LiveModel]:
     GPT-Live is appended rather than configured: the seam opens a CONNECTION and hands it
     to the shared coroutines, while the adapter owns a whole SESSION, so it cannot be a
     table entry. The TABLE wins a label collision — an operator who names an entry
-    "GPT-Live 1" gets the entry they configured, not a second row shadowing it."""
+    "GPT-Live 1" gets the entry they configured, not a second row shadowing it — and it
+    wins even while that entry is KEYLESS and therefore off the menu. A label is owned by
+    whoever configured it, not by whoever currently has credentials: otherwise a remembered
+    pick would silently change which model answers as keys come and go, which is the one
+    thing label-only selection exists to prevent."""
     from . import gpt_live  # noqa: PLC0415 - the adapter imports this module's handlers
 
-    menu = live_providers.available()
-    if os.environ.get("OPENAI_API_KEY") and all(m.label != gpt_live.LABEL for m in menu):
+    # Read the table ONCE and filter here rather than calling available(): the reservation
+    # above has to see the unoffered half too, and two reads of the same env for one answer
+    # is two chances for the halves to disagree.
+    table = live_providers.models()
+    menu = [m for m in table if m.available()]
+    if os.environ.get("OPENAI_API_KEY") and all(m.label != gpt_live.LABEL for m in table):
         menu.append(gpt_live.ENTRY)
     return menu
 

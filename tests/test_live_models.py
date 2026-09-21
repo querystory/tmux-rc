@@ -164,6 +164,28 @@ def test_a_configured_entry_may_claim_gpt_lives_label_and_wins_it(monkeypatch):
     assert L.pick("GPT-Live 1").model == "gemini-live-2.5-flash-native-audio"
 
 
+def test_a_keyless_entry_still_owns_its_label_against_gpt_live(monkeypatch):
+    """The reservation holds while the configured entry is KEYLESS and therefore off the
+    menu. A label belongs to whoever configured it, not to whoever currently has
+    credentials — otherwise the remembered pick "GPT-Live 1" would answer as the adapter
+    today and as the operator's own model the moment their key landed, which is the one
+    thing label-only selection exists to prevent. Unoffered means refused, not reassigned."""
+    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)  # the operator's entry has no key
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([
+        {"label": "Gemini 2.5", "model": "gemini-live-2.5-flash-native-audio"},
+        {"label": "GPT-Live 1", "model": "gemini-3.1-flash-live-preview",
+         "backend": "gemini-api"},
+    ]))
+    labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]]
+    assert labels == ["Gemini 2.5"]  # neither the keyless entry nor the adapter squatting it
+    assert L.pick("GPT-Live 1") is None
+    # The key lands: the label resolves to the model the operator named, never the adapter.
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    assert L.pick("GPT-Live 1").model == "gemini-3.1-flash-live-preview"
+
+
 def _refused(c, path):
     """Connect and return the 1008 close the route answers an unoffered model with."""
     with pytest.raises(starlette.websockets.WebSocketDisconnect) as ei, c.websocket_connect(path):
