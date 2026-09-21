@@ -16,20 +16,32 @@ def _raise(exc_type_name: str, msg: str):
     L._handle_llm_error(exc)
 
 
-def test_every_operational_failure_arms_the_backoff():
-    """429 always did. The others did not — and they are the ones that persist: expired
-    auth needs a human, and a model emitting junk keeps emitting it. Retrying those
-    every tick is the storm Copilot flagged on #210."""
+def test_service_health_failures_arm_the_backoff():
+    """429 always did. Auth and timeouts did not, and they are the ones that persist:
+    expired auth needs a human, and a dead endpoint is not revived by asking again in
+    1.5s. Retrying those every tick, for every pane, is the storm Copilot flagged."""
     for name, msg in (
         ("RefreshError", "Reauthentication is needed"),
         ("TimeoutError", "deadline timeout exceeded"),
-        ("JSONDecodeError", "Expecting value"),
         ("ClientError", "429 RESOURCE_EXHAUSTED"),
     ):
         _clear()
         _raise(name, msg)
         assert L.backing_off(), f"{name} must arm the backoff"
         assert 0 < L._backoff_remaining() <= 15.0
+    _clear()
+
+
+def test_a_per_pane_content_failure_does_not_pause_every_other_pane():
+    """The backoff is SHARED, so arming it is a claim about the service, not about one
+    screen. Malformed JSON is the opposite: a property of one pane's content and the
+    completion it provoked. Arming on it let a single odd screen stop classification for
+    every other pane for up to two minutes — and under this PR the refusals handed to
+    those panes are themselves failed parses, so they spin unread until the window ends.
+    That pane's own retry is bounded per-pane in the watcher (PARSE_RETRIES) instead."""
+    _clear()
+    _raise("JSONDecodeError", "Expecting value")
+    assert not L.backing_off(), "one pane's junk must not pause the other 26"
     _clear()
 
 

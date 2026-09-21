@@ -168,8 +168,35 @@ def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
     for _ in range(6):
         w._forced_this_tick = set()
         w._tick_pane(pane)
-    assert calls["n"] == 6, "an unread screen must still be retried every tick"
+    # Retried, but BOUNDED: a screen that reliably breaks the parse is retired after
+    # PARSE_RETRIES rather than re-sent every tick forever (Copilot, round 5).
+    assert calls["n"] == W.PARSE_RETRIES, "the retry is bounded per pane"
     assert len(w.snapshots["%1"]) == 1, "a screen that never moved is ONE snapshot"
+
+
+def test_a_new_screen_clears_the_failure_budget(monkeypatch):
+    """Giving up is per-SCREEN, not per-pane-forever. Once the content changes, the pane
+    gets a fresh budget — otherwise one bad screen would mute a pane for the rest of the
+    session."""
+    frame = ["screen one"]
+    w, calls = _harness(monkeypatch, frame)
+
+    def always_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", always_fails)
+    pane = _Pane()
+    for _ in range(5):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == W.PARSE_RETRIES
+    frame[0] = "screen two — genuinely different content"
+    for _ in range(5):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 2 * W.PARSE_RETRIES, "a new screen earns a new budget"
 
 
 def test_no_llm_shell_prompt_retires_the_screen(monkeypatch):

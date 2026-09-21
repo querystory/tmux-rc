@@ -79,6 +79,7 @@ def test_malformed_json_is_expected_single_line_error():
     msg = llm._handle_llm_error(json.JSONDecodeError("Extra data", "{}", 2))
     assert msg.startswith("model returned malformed JSON:")
     assert "Extra data" in msg
-    # Not a quota event, but still an operational one that repeats: a model emitting
-    # junk keeps emitting it, so it brakes like the rest (#210).
-    assert llm._backoff["until"] > 0.0
+    # Still must NOT arm the SHARED backoff (#210): that pause applies to every pane, and
+    # malformed JSON is a property of ONE pane's screen. The retry for that pane is
+    # bounded per-pane in the watcher instead — see PARSE_RETRIES.
+    assert llm._backoff["until"] == 0.0

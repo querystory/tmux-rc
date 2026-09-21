@@ -146,20 +146,24 @@ def _client():
 # while the quota window resets. On failure we stop calling for `delay` seconds (15s
 # doubling to a 2min cap), and any success resets it.
 #
-# It covers every operational failure, not just 429, because a failed parse now leaves
-# the pane's screen UNREAD so the watcher retries it (see openbus/watcher.py). That retry
-# is what makes a stuck card recover — but with no backoff on the non-429 failures it
-# also turns a sustained outage (expired auth, Vertex timing out, the model emitting
-# junk) into a storm: one tick is 1.5s and every pane retries, so a 27-pane server would
-# attempt ~18 calls a second and log a line for each. The retry is the right behavior;
-# it just needs the same brake the quota path already had.
+# It covers the SERVICE-HEALTH failures — quota, expired auth, timeouts — not just 429,
+# because a failed parse now leaves the pane's screen UNREAD so the watcher retries it
+# (see openbus/watcher.py). That retry is what makes a stuck card recover, but with no
+# brake a sustained outage becomes a storm: one tick is 1.5s and every pane retries, so
+# a 27-pane server would attempt ~18 calls a second and log a line for each.
+#
+# The test for arming it is "would every OTHER pane's next call fail the same way?" —
+# which is true of an endpoint that is down, rate-limiting or refusing our credentials,
+# and false of a model that returned junk for one particular screen. A per-pane content
+# failure must not pause the other 26; see the JSONDecodeError branch below.
 _backoff = {"delay": 0.0, "until": 0.0}
 
 
 def _arm_backoff() -> float:
-    """Start (or lengthen) the shared pause after an operational failure, returning the
+    """Start (or lengthen) the shared pause after a SERVICE-HEALTH failure, returning the
     new delay. Doubles 15s → 120s so a long outage settles to one attempt every two
-    minutes; any success resets it (see classify_text)."""
+    minutes; any success resets it (see classify_text). Only for failures that would hit
+    every pane alike — not a per-pane content failure like malformed JSON."""
     delay = min(_backoff["delay"] * 2, 120.0) or 15.0
     _backoff.update(delay=delay, until=time.time() + delay)
     return delay
@@ -203,9 +207,18 @@ def _handle_llm_error(e: Exception) -> str:
     elif "JSONDecodeError" in type(e).__name__:
         # A misbehaving model is the same class of event as a 429 — a state of the
         # world, not a bug in this code. One line, no traceback.
+        #
+        # But it does NOT arm the shared backoff, unlike the failures above. Those are
+        # service health: the endpoint is rate-limiting, unreachable, or unauthenticated,
+        # so every pane's next call would fail the same way and pausing all of them is
+        # right. Malformed JSON is the opposite — it is a property of ONE pane's screen
+        # and the completion it provoked. Arming a global pause on it lets a single odd
+        # screen stop classification for every other pane for up to two minutes, and the
+        # refusals it hands them are themselves failed parses under this PR, so they
+        # spin unread until the window ends. The watcher's own retry is the right
+        # response here: re-read that pane, and leave the others alone.
         short = f"model returned malformed JSON: {msg[:80]}"
         logger.warning("LLM parse failed: %s", short)
-        _arm_backoff()
     else:
         short = msg[:200]
         # exc_info=e, not True: this helper is CALLED from the handler rather than being

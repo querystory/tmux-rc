@@ -48,6 +48,16 @@ SNAPSHOT_HISTORY = 200
 # One-time deep read of a pane's scrollback that seeds the card (summary + history)
 # before live watching has accumulated anything. Fat input ⇒ at most ONE per tick,
 # behind the live parses; a few retries with spacing so an LLM hiccup isn't permanent.
+# How many times one pane may re-read the SAME screen after a failed parse before we
+# give up on it and retire the screen unread. The retry exists so a transient failure
+# can't freeze a card, but the failure that is NOT transient is per-pane: a screen whose
+# content reliably makes the model emit junk would otherwise be re-sent every 1.5s tick
+# forever. The service-health failures (quota, auth, timeouts) are braked globally in
+# openbus/llm.py instead — that brake would be wrong here, since one odd screen must not
+# pause the other panes. Three tries then let it rest until the screen next changes: the
+# card keeps its last good contents either way, so the cost of giving up is staleness,
+# not a wrong badge.
+PARSE_RETRIES = 3
 BOOTSTRAP_LINES = 800
 BOOTSTRAP_ATTEMPTS = 3
 BOOTSTRAP_RETRY_SECONDS = 60
@@ -206,6 +216,7 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
+        self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
         # the pending-question identity changes, NOT on cosmetic content churn. The client
@@ -726,6 +737,7 @@ class Watcher:
         return (
             self._prev_fp,
             self._seen_fp,
+            self._parse_fails,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -1006,6 +1018,18 @@ class Watcher:
         # of the same text on the next tick, which is exactly the retry this needs.
         if state.get("parse_ok", True):
             self._prev_fp[pane.id] = fp
+            self._parse_fails.pop(pane.id, None)
+        elif self._parse_fails.get(pane.id, 0) + 1 >= PARSE_RETRIES:
+            # Budget spent: retire the screen unread so this pane stops re-sending the
+            # same text every tick. A screen that reliably breaks the parse would
+            # otherwise retry forever — the per-pane half of the storm Copilot flagged,
+            # which the global brake in llm.py must not cover (one odd screen must not
+            # pause the other panes). The card keeps its last good contents, and the
+            # next real content change clears the counter and tries again.
+            self._parse_fails[pane.id] = 0
+            self._prev_fp[pane.id] = fp
+            logger.warning("%s: parse failed %dx, leaving the screen unread",
+                           pane.id, PARSE_RETRIES)
         else:
             # CLEAR it, don't merely decline to set it. A forced reparse (the phone just
             # answered a question) runs on an UNCHANGED screen, so _prev_fp already
@@ -1014,6 +1038,7 @@ class Watcher:
             # answered question sits on the card until the screen moves on its own,
             # which is the same stuck-card failure this PR exists to fix, just reached
             # by the path the user actually notices.
+            self._parse_fails[pane.id] = self._parse_fails.get(pane.id, 0) + 1
             self._prev_fp.pop(pane.id, None)
         if not state.get("parse_ok", True) and previous is not None:
             # An unread screen must not REDACT the card either. classify()'s fallback can
