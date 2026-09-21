@@ -44,16 +44,11 @@ _BACKEND_NAME = {
     "azure-openai": "Azure",
 }
 
-# gemini-2.5-flash native-audio published rates, USD per 1M tokens, by Split field. Audio
-# and text bill at very different rates (audio out ≈ 24× text in), and CACHED input at a
-# different rate again (OpenAI Realtime re-bills the whole context on every response, most
-# of it cached at a 97-99% discount — pricing it uncached overstates a long session
-# severalfold). So every entry carries a six-way card; an entry that omits a rate gets
-# 2.5's — visibly the default, never a silent zero — except the cached rates, which
-# default to the entry's OWN uncached rate: no published discount means no discount.
 class Split(NamedTuple):
     """Token counts, or USD-per-1M rates, in the same six slots — so a count tuple and a
-    rate tuple multiply position by position and neither can drift from the other."""
+    rate tuple multiply position by position and neither can drift from the other. Audio
+    and text bill at very different rates (audio out ≈ 24× text in), and CACHED input at a
+    different rate again, which is why the split is six-way and not two."""
 
     text_in: float
     text_out: float
@@ -62,6 +57,13 @@ class Split(NamedTuple):
     text_cached: float
     audio_cached: float
 
+
+# gemini-2.5-flash native-audio's published card, and the default for any rate an entry
+# omits — visibly 2.5's number, never a silent zero. The exception is the cached rates,
+# which default to the entry's OWN uncached rate: no published discount means no discount.
+# Cached matters most on OpenAI, where Realtime re-bills the whole context on every
+# response, most of it cached at a 97-99% discount — pricing that uncached overstates a
+# long session severalfold.
 _RATES_25 = Split(0.50, 2.00, 3.00, 12.00, 0.50, 3.00)
 _CACHED = {"text_cached": "text_in", "audio_cached": "audio_in"}
 
