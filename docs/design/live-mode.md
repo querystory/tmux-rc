@@ -65,7 +65,6 @@ Protocol references: [WebSockets](https://developers.openai.com/api/docs/guides/
 [delegation](https://developers.openai.com/api/docs/guides/live-delegation), and
 [session lifecycle](https://developers.openai.com/api/docs/guides/live-conversations).
 
-
 ## Why voice, why now
 
 tmux-rc already solved *observation* (cards, summaries, the live frame stream) and
