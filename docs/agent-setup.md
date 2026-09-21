@@ -37,6 +37,38 @@ name again. The status bar is the only place the title stays on screen to be rea
 which renders `title || label`. The phone's card renders the label alone, so a terminal
 title is a bonus on one client and never a substitute for a name the label can carry.)
 
+### Keep the model name on screen
+
+Include the model in the status line too. tmux-rc works out *which agent* a pane is
+running from what the pane shows, and the model name is the single most decisive clue:
+OpenAI names (`gpt-…`, `o3`) mean Codex, Anthropic ones (`Opus`, `Sonnet`, `Fable`) mean
+Claude Code. The agents otherwise look alike — both draw a box-framed input, both ask
+permission before running commands — so a pane that never names its model leans on
+weaker signals and can be filed under the wrong agent.
+
+For Codex that is `"model-with-reasoning"` in `status_line`, next to the
+`"thread-title"` above. A `~/.codex/config.toml` carrying both:
+
+```toml
+[tui]
+status_line = [
+  "thread-title",
+  "model-with-reasoning",
+  "context-remaining",
+  "git-branch",
+  "current-dir",
+  "run-state",
+]
+```
+
+Order does not matter to the parser — it reads each segment for what it says rather
+than for where it sits, so segments you add or drop do not shift the meaning of the
+rest. Claude Code prints its model by default; if you have replaced its status line
+with a custom command, keep the model in what you emit.
+
+This also feeds the card's subtitle, so you can see at a glance which model a pane is
+burning tokens on without opening it.
+
 ### When nothing is parsed off the screen
 
 The label falls back to `Pane.label` (`openbus/tmux.py`): the window name if it looks
