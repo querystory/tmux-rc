@@ -61,6 +61,7 @@ SCREEN_BUDGET_CHARS = 24_000
 # pane's app needs a beat to react before a capture shows anything new.
 POST_TYPE_REFRESH_SECONDS = 1.5
 
+
 class _LiveUsage:
     """A session's token Split (text/audio × in/out, plus cached input) and its cost under
     the MODEL's rate card (live_providers.LiveModel.rates) — a single blended price would
