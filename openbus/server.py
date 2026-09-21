@@ -263,6 +263,13 @@ def _launcher(e: dict) -> dict:
 
 
 def _launchers() -> list[dict]:
+    # All-or-nothing, via the shared helper: one malformed entry falls the WHOLE list back
+    # to the defaults rather than being skipped. That is a change from the hand-rolled
+    # filter this replaced, and a deliberate one — a silently missing launcher is a menu
+    # that looks correct and quietly is not, which nobody investigates, whereas a menu that
+    # has visibly reverted sends you to the config and the log line waiting there. The Live
+    # model table needs the same rule for a stronger reason (a mis-parsed entry must never
+    # be offered at a made-up price), and one rule for both is one thing to know.
     return json_list("TMUXRC_LAUNCHERS", _DEFAULT_LAUNCHERS, _launcher)
 
 

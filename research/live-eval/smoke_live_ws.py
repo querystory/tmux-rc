@@ -181,6 +181,11 @@ def main():
         and any(k == "turn_complete" for k in kinds)
     )
     print("PASS" if ok else "FAIL")
+    # Exit status, not just a word: this is the one end-to-end check that talks to a REAL
+    # provider, so it has to be usable from a shell that gates on it. Printing FAIL and
+    # exiting 0 makes a broken provider loop indistinguishable from a working one to
+    # everything except a human reading the scrollback.
+    raise SystemExit(0 if ok else 1)
 
 
 if __name__ == "__main__":
