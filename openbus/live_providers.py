@@ -409,6 +409,14 @@ def gemini_usage(u) -> Split:
     )
 
 
+# The only hosts AZURE_OPENAI_ENDPOINT may name. An optional port is allowed; userinfo is
+# not, because `@` is absent from the character class — `evil.com` cannot hide in front of a
+# legitimate-looking suffix.
+_AZURE_HOST = re.compile(
+    r"[\w.-]+\.(?:openai|cognitiveservices)\.azure\.com(?::\d+)?", re.IGNORECASE
+)
+
+
 def openai_endpoint(model: LiveModel) -> tuple[str, dict[str, str]]:
     """WebSocket URL + auth header. Azure speaks the same v1 Realtime protocol at the
     resource host with an api-key header, `model` being the deployment name; the host may
@@ -418,6 +426,17 @@ def openai_endpoint(model: LiveModel) -> tuple[str, dict[str, str]]:
         host = re.sub(r"^https?://", "", os.environ["AZURE_OPENAI_ENDPOINT"]).split(
             "/"
         )[0]
+        # The API KEY is about to be sent to whatever this names, so the name is checked
+        # against the documented resource domains first. This is operator config rather
+        # than user input, so the realistic failure is a mistyped or pasted host — but that
+        # failure mode is handing a live credential to a stranger, and it cannot be undone
+        # once the request is out. Refusing costs nothing and names the rule. Unreachable,
+        # not a retry: no number of attempts fixes a wrong host.
+        if not _AZURE_HOST.fullmatch(host):
+            raise Unreachable(
+                f"AZURE_OPENAI_ENDPOINT names {host!r}, which is not an Azure resource "
+                "host — expected *.openai.azure.com or *.cognitiveservices.azure.com"
+            )
         return (
             f"wss://{host}/openai/v1/realtime?model={model.model}",
             {"api-key": os.environ["AZURE_OPENAI_API_KEY"]},

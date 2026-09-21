@@ -238,6 +238,26 @@ def test_openai_endpoint_shapes(monkeypatch):
         assert hdr == {"api-key": "az-test"}
 
 
+@pytest.mark.parametrize("ep", [
+    "https://example.com",                       # a plain stranger
+    "https://foo.openai.azure.com.evil.test",    # the real suffix, buried mid-host
+    "https://foo.openai.azure.com@evil.test",    # userinfo hiding the real authority
+    "https://openai.azure.com.example.com/x",    # a path can't rescue a wrong host
+    "foo.azure.com",                             # an Azure domain, but not a resource host
+])
+def test_azure_key_never_leaves_for_a_non_resource_host(monkeypatch, ep):
+    """The api-key is about to be sent to whatever AZURE_OPENAI_ENDPOINT names, so the name
+    is checked against the documented resource domains BEFORE the request exists. It is
+    operator config rather than user input, so the realistic failure is a pasted or mistyped
+    host — but that failure hands a live credential to a stranger and cannot be undone once
+    the request is out. Unreachable, not a retryable error: no attempt count fixes a wrong
+    host, and the message has to name the rule."""
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "az-test")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", ep)
+    with pytest.raises(P.Unreachable, match="not an Azure resource host"):
+        P.openai_endpoint(P.LiveModel("x", "gpt-realtime-2.1", "azure-openai"))
+
+
 def test_openai_backends_gate_on_their_keys(monkeypatch):
     table = [
         {"label": "GPT", "model": "gpt-realtime-2.1", "backend": "openai"},

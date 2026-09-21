@@ -4114,6 +4114,12 @@ let lmQueued = [];               // scheduled-but-unfinished sources, so barge-i
 let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
 let lmClearPending = null;
 let lmLog = [];                  // rolling conversation: {role, text, done}
+// The server sends a fatal diagnostic and THEN closes the socket cleanly, so the red line
+// it paints lives in a card body that lmStop's re-render immediately replaces with the
+// pane's static summary. Showing "deployment 'x' not found" for 200ms is the same as not
+// sending it, and these are the messages that name the config to fix — so the last one is
+// held here and surfaced by lmStop, the way the audio-graph failure already is.
+let lmFatal = "";
 let lmListening = false;         // true only while the daemon reports "listening" — mic
                                  // frames are dropped otherwise so a reconnect (during
                                  // which the server stops reading) can't grow bufferedAmount
@@ -4240,7 +4246,7 @@ function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
   if (!lmListening) lmClearPending?.();
   lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
-  if (lmListening) lmTries = 0; // a session that came back resets the retry budget
+  if (lmListening) { lmTries = 0; lmFatal = ""; } // a session that came back: budget and error clear
   lm.btn.classList.toggle("listening", lmListening);
   // While connected the pill's tag names the model answering — side-by-side testing
   // needs to know WHICH voice this is. "beta" comes back when the session ends.
@@ -4303,7 +4309,7 @@ async function lmStart(label) {
   lmLabel = label || "";
   if (label) { try { localStorage.setItem("tmuxrc-live-model", label); } catch {} }
   lm.btn.classList.add("on");
-  lmLog = [];
+  lmLog = []; lmFatal = "";
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
   // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit
   // rejects getUserMedia with NotAllowedError once the activation has expired, which
@@ -4381,7 +4387,7 @@ function lmConnect() {
     else if (m.type === "interrupted") { lmQueued.forEach((s) => { try { s.stop(); } catch {} }); lmQueued = []; lmPlayAt = 0; }
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
-    else if (m.type === "error") lmAdd("err", m.message); // .lm-err red = the signal
+    else if (m.type === "error") { lmFatal = m.message; lmAdd("err", m.message); } // .lm-err red
   };
   ws.onclose = (e) => {
     if (lmWs !== ws) return;
@@ -4442,6 +4448,10 @@ function lmStop() {
   lm.btn.classList.remove("on", "listening", "reconnecting");
   lm.btn.title = lm.btn.ariaLabel = "Start Live Mode (experimental)";
   render(Object.values(panesById)); // the active card gets its static summary back
+  // ...which has just wiped the error line, so a fatal one is repeated where the render
+  // cannot take it away. Same treatment as the audio-graph failure in ws.onopen: it is
+  // unrecoverable, and the whole value of the message is that the user reads it.
+  if (lmFatal) { const why = lmFatal; lmFatal = ""; alert(`Live Mode stopped:\n${why}`); }
 }
 
 if (lm.btn) lm.btn.onclick = lmTap;
