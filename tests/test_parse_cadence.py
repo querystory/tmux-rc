@@ -8,8 +8,9 @@ from openbus.watcher import Watcher
 
 
 class _Pane:
-    def __init__(self, pid="%1", label="work"):
+    def __init__(self, pid="%1", label="work", current_command="bash"):
         self.id = pid
+        self.current_command = current_command  # real classify() anchors tool on this
         self.label = label
         self.display_title = label
         self.session = "work"
@@ -24,7 +25,7 @@ def _harness(monkeypatch, frame_holder):
     monkeypatch.setattr(W.tmux, "capture_pane", lambda pid, mark_dim=False: frame_holder[0])
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
 
-    def fake_classify(pane, text, llm_fn=None, prior=None, recent_events=None):
+    def fake_classify(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
         calls["n"] += 1  # one call == one LLM parse
         return {"activity": "idle", "events": [], "label": pane.label, "tool": "shell"}
 
@@ -113,3 +114,229 @@ def test_forced_reparse_ignores_unchanged(monkeypatch):
     w._forced_this_tick = {pane.id}
     w._tick_pane(pane)  # forced -> parse 2
     assert calls["n"] == 2
+
+
+def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch):
+    """The permanent-"Running"-badge bug. A parse failure (a 429 returning None) used to
+    advance the pane's fingerprint anyway, which marks the screen read — and since an
+    unchanged screen is never re-parsed, the pane kept whatever the failed parse guessed.
+    A finished agent's screen never changes again, so that guess was final. The failure
+    must leave the screen unread so the next tick picks it up."""
+    frame = ["agent finished · done 10:28 PM"]
+    w, calls = _harness(monkeypatch, frame)
+    outcomes = [None, None, {"activity": "idle", "events": [], "tool": "claude"}]
+
+    def flaky(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        got = outcomes.pop(0) if outcomes else {"activity": "idle", "events": [], "tool": "claude"}
+        if got is None:  # what classify() returns when the model call failed
+            return {"activity": prev_activity or "unknown", "tool": "unknown",
+                    "events": [], "parse_ok": False}
+        return dict(got, label=pane.label)
+
+    monkeypatch.setattr(W, "classify", flaky)
+    pane = _Pane()
+    for _ in range(3):
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+    assert calls["n"] == 3, "each failure must leave the screen unread for the next tick"
+    assert state["activity"] == "idle", "the parse that finally succeeded must win"
+    # And once it HAS been read, the screen is retired again: no heartbeat re-parse.
+    for _ in range(10):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 3
+    assert "parse_ok" not in state, "internal flag must not reach the UI"
+
+
+def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
+    """Copilot, #210: the retry must not make a STILL pane look busy. `changed` used to
+    answer two questions at once — "is this screen new to us?" and "did the screen
+    move?" — and leaving the fingerprint unset on failure told both yes. So a sustained
+    LLM outage re-recorded a snapshot every tick and pinned idle_seconds at 0, and the
+    pane never aged out of "Recent" for as long as it lasted."""
+    frame = ["agent finished · done 10:28 PM"]  # an agent TUI: no bare shell prompt
+    w, calls = _harness(monkeypatch, frame)
+
+    def always_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", always_fails)
+    pane = _Pane()
+    for _ in range(6):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    # Retried, but BOUNDED: a screen that reliably breaks the parse is retired after
+    # PARSE_RETRIES rather than re-sent every tick forever (Copilot, round 5).
+    assert calls["n"] == W.PARSE_RETRIES, "the retry is bounded per pane"
+    assert len(w.snapshots["%1"]) == 1, "a screen that never moved is ONE snapshot"
+
+
+def test_service_backoff_does_not_spend_the_pane_budget(monkeypatch):
+    """Copilot, #210: while llm.py's shared brake is armed, classify_text refuses every
+    call, so each tick is a "failure" for every pane. Counting those would retire every
+    screen unread 4.5s into an outage that lasts up to 120s, and once the brake lifted
+    nothing would re-parse — the frozen-card bug again, fleet-wide. A refused call must
+    leave the budget AND the screen alone; the first post-brake tick retries."""
+    frame = ["agent finished · done 10:28 PM"]
+    w, calls = _harness(monkeypatch, frame)
+    braked = {"on": True}
+    monkeypatch.setattr(W, "backing_off", lambda: braked["on"])
+
+    def refused(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if braked["on"]:
+            return {"activity": prev_activity or "unknown", "tool": "unknown",
+                    "events": [], "parse_ok": False}
+        return {"activity": "idle", "events": [], "tool": "claude", "label": pane.label}
+
+    monkeypatch.setattr(W, "classify", refused)
+    pane = _Pane()
+    for _ in range(3 * W.PARSE_RETRIES):  # far past the per-pane budget
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert "%1" not in w._parse_fails, "a refused call is not this pane's failure"
+    assert "%1" not in w._prev_fp, "the screen stays unread through the outage"
+    braked["on"] = False
+    w._forced_this_tick = set()
+    state = w._tick_pane(pane)
+    assert state["activity"] == "idle", "first tick after the brake lifts re-parses"
+    assert w._prev_fp.get("%1"), "and that read retires the screen"
+
+
+def test_a_new_screen_clears_the_failure_budget(monkeypatch):
+    """Giving up is per-SCREEN, not per-pane-forever. Once the content changes, the pane
+    gets a fresh budget — otherwise one bad screen would mute a pane for the rest of the
+    session."""
+    frame = ["screen one"]
+    w, calls = _harness(monkeypatch, frame)
+
+    def always_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", always_fails)
+    pane = _Pane()
+    for _ in range(W.PARSE_RETRIES - 1):  # change the screen MID-budget, not after it
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    frame[0] = "screen two — genuinely different content"
+    for _ in range(5):
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 2 * W.PARSE_RETRIES - 1, "a new screen earns a FULL new budget"
+
+
+def test_no_llm_shell_prompt_retires_the_screen(monkeypatch):
+    """Copilot, #210: with TMUXRC_NO_LLM=1 every parse takes the fallback, so marking the
+    recognized shell prompt a failure would leave the fingerprint permanently unset —
+    every tick a "change", the snapshot ring filling with one identical screen. The bare
+    prompt is a real read (it is what _obvious_idle is FOR), so it retires the screen."""
+    frame = ["user@host:~$ "]
+    # The real classify(), reached with no llm_fn — exactly what use_llm=False does.
+    monkeypatch.setattr(W.tmux, "capture_pane", lambda pid, mark_dim=False: frame[0])
+    monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
+    w = Watcher(target=None, use_llm=False)
+    pane = _Pane()
+    for _ in range(5):
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+    assert state["activity"] == "idle"
+    assert len(w.snapshots["%1"]) == 1, "an unchanged shell prompt is ONE snapshot"
+
+
+def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
+    """Copilot, #210 round 2: an unread screen must not REDACT the card either.
+    classify()'s fallback can only carry `activity` forward, so a waiting pane came back
+    without its `question` — and the phone gates the answer controls on that field
+    (`show("question", !!pane.question && needsYou(pane))`). The card kept its "Needs
+    you" badge while the buttons to answer it silently vanished, which is worse than a
+    stale card: the user is told to act and given nothing to act with."""
+    frame = ["? Do you want to proceed?  1. Yes  2. No"]
+    w, calls = _harness(monkeypatch, frame)
+    good = {"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+            "headline": "Asking to proceed",
+            "question": {"answer_style": "menu", "prompt": "Proceed?", "options": ["Yes", "No"]}}
+    seq = [good]
+
+    def then_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if seq:
+            return dict(seq.pop(0))
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", then_fails)
+    pane = _Pane(current_command="node")
+    w._forced_this_tick = set()
+    w._tick_pane(pane)
+    # A REAL content change (trailing whitespace is stripped by the fingerprint), so the
+    # pane re-parses — and that parse fails.
+    frame[0] = "? Do you want to proceed?  1. Yes  2. No  3. Later"
+    w._forced_this_tick = set()
+    state = w._tick_pane(pane)
+    assert state["question"] == good["question"], "the answer affordance must survive"
+    assert state["waiting_on"] == "user" and state["activity"] == "waiting"
+    assert state["headline"] == good["headline"] and state["tool"] == "claude"
+    # Still live fields, re-stamped from tmux rather than frozen with the old card.
+    assert state["snapshot_id"] is not None
+    assert "parse_ok" not in state
+
+
+def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
+    """The phone stops spinning an answered control when `parsed_at` advances. A forced
+    reparse that FAILS still has to move it, or the control spins forever."""
+    frame = ["? Proceed?"]
+    w, calls = _harness(monkeypatch, frame)
+    seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+            "question": {"prompt": "Proceed?"}}]
+
+    def then_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if seq:
+            return dict(seq.pop(0))
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", then_fails)
+    pane = _Pane(current_command="node")
+    w._forced_this_tick = set()
+    first = w._tick_pane(pane)["parsed_at"]
+    w._forced_this_tick = {"%1"}  # phone sent input; screen unchanged
+    assert w._tick_pane(pane)["parsed_at"] > first
+
+
+def test_failed_forced_reparse_still_retries(monkeypatch):
+    """Copilot, #210 round 3 — and they were right where I argued otherwise. A forced
+    reparse runs on an UNCHANGED screen (the phone just answered a question), so
+    _prev_fp already matches this text from the earlier successful parse. Declining to
+    SET it on failure was not enough: the stale matching value kept `changed` False, so
+    the retry never came and the answered question sat on the card until the screen
+    moved on its own. That is the same stuck-card failure this PR exists to fix, reached
+    by the path the user actually notices. The failure has to CLEAR the mark."""
+    frame = ["? Proceed?"]
+    w, calls = _harness(monkeypatch, frame)
+    seq = [{"activity": "waiting", "waiting_on": "user", "tool": "claude", "events": [],
+            "question": {"prompt": "Proceed?"}}]
+
+    def then_fails(pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None):
+        calls["n"] += 1
+        if seq:
+            return dict(seq.pop(0))
+        return {"activity": prev_activity or "unknown", "tool": "unknown",
+                "events": [], "parse_ok": False}
+
+    monkeypatch.setattr(W, "classify", then_fails)
+    pane = _Pane(current_command="node")
+    w._forced_this_tick = set()
+    w._tick_pane(pane)                      # 1: succeeds, retires the screen
+    w._forced_this_tick = {"%1"}
+    w._tick_pane(pane)                      # 2: forced reparse on the SAME screen, fails
+    assert calls["n"] == 2
+    w._forced_this_tick = set()             # 3: an ordinary tick must pick it back up
+    state = w._tick_pane(pane)
+    assert calls["n"] == 3, "a failed forced reparse must leave the screen unread"
+    assert state["question"] == {"prompt": "Proceed?"}, "and the card stays answerable"
