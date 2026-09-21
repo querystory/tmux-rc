@@ -49,6 +49,7 @@
 // Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCaptureLines, linkifyText } from "./terminal.js";
+import { pickCursorRow } from "./cursor-pick.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -3573,8 +3574,16 @@ function applyQuestion(ui, s, card) {
   setText(ui.promptText, s.question.prompt);
   setCls(ui.spin, "on", spinning);
   // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
-  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
-  keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
+  // Each survivor carries its index in question.options, NOT its position in this list:
+  // both keyFor's digit and the cursor walk's row identity are indices into that array,
+  // so a dropped pseudo-option ahead of a real row would shift every index after it —
+  // sending the wrong digit to a menu, and costing the cursor walk the tapped-row identity
+  // it uses to tell two same-titled sessions apart. (/m has always kept the source index;
+  // this is the deck catching up.)
+  const realOpts = (s.question.options || [])
+    .map((text, index) => ({ text, index }))
+    .filter(({ text }) => !_FREETEXT_OPT.test(text.trim()));
+  keyedList(ui.opts, realOpts, ({ text, index }) => index + " " + text, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
     b.onclick = () => {
@@ -3586,12 +3595,14 @@ function applyQuestion(ui, s, card) {
       if (!cur || !cur.question) return;
       const i = b._optIndex;
       setActive(paneId);
-      answer(cur, keyFor(cur.question, b._optText, i));
+      // A cursor list can't be answered with one keystroke — it needs a verified walk.
+      if (cur.question.answer_style === "cursor") pickCursorRow(cursorIO(paneId), b._optText, i);
+      else answer(cur, keyFor(cur.question, b._optText, i));
     };
     return b;
-  }, (b, opt, i) => {
-    b._optText = opt; b._optIndex = i;
-    setText(b, opt);
+  }, (b, { text, index }) => {
+    b._optText = text; b._optIndex = index;
+    setText(b, text);
     // Once an answer is in flight the options disable — a second tap would send a stray
     // keystroke into the agent while the first is still being processed.
     if (b.disabled !== spinning) b.disabled = spinning;
@@ -3604,8 +3615,10 @@ const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|
 // Decide what keystroke represents the chosen option. y/n prompts want a letter;
 // numbered menus want the number; otherwise send the literal option text.
 // What to send when an option is tapped, per answer_style:
-//   "menu"  — a real on-screen widget: options map to keystrokes (digit / y|n letter).
-//   "text"  — a natural-language question (default): TYPE the option's text as a reply.
+//   "menu"   — a real on-screen widget: options map to keystrokes (digit / y|n letter).
+//   "cursor" — a highlighted list you arrow through: NOT keyFor's business, it needs
+//              several keystrokes and a re-read between them (see pickCursorRow).
+//   "text"   — a natural-language question (default): TYPE the option's text as a reply.
 // Getting this wrong is what made tapping option 4 type a stray "4" into a prose
 // question instead of answering it — so default to text unless it's truly a menu.
 function keyFor(question, opt, i) {
@@ -3617,16 +3630,35 @@ function keyFor(question, opt, i) {
   return opt; // text style (default): send the option's literal text
 }
 
+// The cursor walk is shared with the phone (web/cursor-pick.js); everything below is
+// just this surface's plumbing plugged into it. The pane is guaranteed present inside the
+// senders — see the io contract there.
+function cursorIO(paneId) {
+  // Reporting nothing once the view has moved off this pane is what ABORTS the walk: a
+  // multi-second walk outlives a card swipe or a dock tap easily, and going on to move and
+  // commit a row in a picker the user can no longer see is the kind of thing you only
+  // discover afterwards. (The same gate on the phone, for the same reason.) Sends already
+  // go to the captured pane, so this is about consent, not about routing.
+  const pane = () => (shown === paneId ? panesById[paneId] : null) || null;
+  return {
+    question: () => pane()?.question || null,
+    parsedAt: () => pane()?.parsed_at || 0,
+    sendKey: (k) => sendRaw(panesById[paneId], k),
+    sendText: (t) => send(panesById[paneId], { keys: t, enter: false, literal: true }),
+    note: barNote,
+  };
+}
+
 async function answer(s, keys) {
   // A staged image is composer state, sent only by submitComposer — answering a
   // question (option tap / free-text) leaves it queued for the user's own send.
-  await send(s, { keys, enter: true, literal: true });
+  return send(s, { keys, enter: true, literal: true });
 }
 
 // Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter. Leaves
 // any staged image in place (it's flushed only by submitComposer's Send/Enter).
 async function sendRaw(s, keyName) {
-  await send(s, { keys: keyName, enter: false, literal: false });
+  return send(s, { keys: keyName, enter: false, literal: false });
 }
 
 // POST keys to the pane. No burst needed: the visible raw surface streams via
@@ -3660,7 +3692,7 @@ async function send(s, body) {
   // unrelated send lands could answer a different prompt than the one they read. But
   // dropping it silently is exactly the "the button just does nothing" this branch exists
   // to eliminate, so say so.
-  if (sending) return void barNote("Busy sending — that didn't go through. Tap again.");
+  if (sending) { barNote("Busy sending — that didn't go through. Tap again."); return false; }
   sending = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
@@ -3679,9 +3711,14 @@ async function send(s, body) {
     barNote(`Not sent — ${e.message}. Tap again to retry.`);
     reportError("send", e);
     render(Object.values(panesById)); // drop the spinner now, not on the next poll
+    return false;
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
   }
+  // Delivered. The cursor walk (web/cursor-pick.js) treats anything else as "the key did
+  // not land", because a move it wrongly believes happened puts every later step one row
+  // out and commits the wrong row.
+  return true;
 }
 
 // Full-screen live view of the pane (⤢ over the deck): the same long-poll stream as

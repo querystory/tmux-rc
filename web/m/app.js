@@ -1,6 +1,7 @@
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
+import { pickCursorRow } from "/cursor-pick.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName } from "/m/pane-model.js";
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
@@ -258,6 +259,13 @@ function render() {
       const current = panes.find((p) => p.pane_id === active);
       if (!current?.question || !needsYou(current)) return;
       let keys = button._option.option;
+      // A cursor list answers to neither of the other two styles: the row's text and a
+      // digit both land in the picker's search box. It needs a verified walk, shared with
+      // the desktop so this surface can't drift behind it again (web/cursor-pick.js).
+      if (current.question.answer_style === "cursor") {
+        pickCursorRow(cursorIO(active), keys, button._option.index);
+        return;
+      }
       if (current.question.answer_style === "menu") {
         if (current.question.options.length === 2 && /^(yes|no)$/i.test(keys)) keys = keys[0].toLowerCase();
         else if (current.question.options.length > 2) keys = String(button._option.index + 1);
@@ -495,13 +503,17 @@ function updateComposer() {
   $("attach").disabled = sending || !available;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
 }
-async function sendKeys(body, answer = false) {
-  if (sending || !panes.some((p) => p.pane_id === active)) return;
-  const id = active;
+// Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
+// (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
+// step one row out and commits the wrong row.
+async function sendKeys(body, answer = false, id = active) {
+  if (sending || !panes.some((p) => p.pane_id === id)) return false;
   const signature = JSON.stringify(panes.find((p) => p.pane_id === id)?.question);
+  let delivered = false;
   sending = true; notice(); render();
   try {
     await post(paneUrl(id, "send"), body);
+    delivered = true;
     if (answer) {
       pendingAnswer = { id, signature };
       setTimeout(() => { if (pendingAnswer?.id === id && pendingAnswer.signature === signature) { pendingAnswer = null; render(); } }, ANSWER_PENDING_MS);
@@ -510,6 +522,29 @@ async function sendKeys(body, answer = false) {
     startState();
   } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
   finally { sending = false; render(); }
+  return delivered;
+}
+
+// This surface's half of the shared cursor walk. No send here sets `pendingAnswer`:
+// gating the option buttons on the first Down would disable the very row the walk is
+// working toward. What keeps a second tap from starting a rival walk is not this surface
+// at all — `sending` is released between every step — but the module's own one-at-a-time
+// lock, which is where that belongs since both surfaces have the same gap.
+function cursorIO(id) {
+  // Two separate things, both needed. sendKeys takes the captured id, so no move can ever
+  // be posted to a pane the walk was not started for — it defaults to `active` for every
+  // other caller, but a default resolved at call time is exactly what a multi-second walk
+  // must not rely on. And question() reports nothing once `active` has moved off that
+  // pane, which STOPS the walk: a picker the user has navigated away from should not go on
+  // being driven, let alone committed, out of sight.
+  const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
+  return {
+    question: () => pane()?.question || null,
+    parsedAt: () => pane()?.parsed_at || 0,
+    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }, false, id),
+    sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }, false, id),
+    note: notice,
+  };
 }
 $("reply-form").onsubmit = async (event) => {
   event.preventDefault();
