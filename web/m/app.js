@@ -250,9 +250,12 @@ function landingRows(id, subset) {
 function renderLanding() {
   const waiting = panes.filter(needsYou);
   text($("landing-title"), panes.length ? "Nothing selected" : "No panes yet");
+  // With no panes there is no session to open a window IN: + is disabled and the server
+  // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
+  // the empty state says where a session actually comes from instead.
   text($("landing-sub"), panes.length
     ? "Pick a session on the left, or start with one of these."
-    : "Start a window with + to see it here.");
+    : "No tmux panes are open. Start a session on the host and it will appear here.");
   reconcile($("landing-stats"), [
     { k: "Panes", n: panes.length },
     { k: "Running", n: panes.filter(isRunning).length },
@@ -334,15 +337,21 @@ divider.addEventListener("pointermove", (e) => {
   // layout ever gains an outer margin.
   setSidebar(e.clientX - $("app").getBoundingClientRect().left);
 });
-// pointerup and pointercancel both land here, and capture guarantees one of them fires
-// even if the pointer leaves the window mid-drag — so the body class cannot stick on.
+// body.resizing kills pointer-events on the main column, so it sticking on would deaden
+// the whole pane. pointerup/pointercancel cover the ordinary endings (capture guarantees
+// one of them even if the pointer leaves the window), and lostpointercapture is the
+// backstop for the rest: crossing the wide breakpoint mid-drag hides #divider, which
+// drops capture without firing either of the other two.
 const endResize = (e) => {
-  if (divider.hasPointerCapture(e.pointerId)) divider.releasePointerCapture(e.pointerId);
+  if (e.pointerId !== undefined && divider.hasPointerCapture(e.pointerId)) {
+    divider.releasePointerCapture(e.pointerId);
+  }
   divider.classList.remove("dragging");
   document.body.classList.remove("resizing");
 };
 divider.addEventListener("pointerup", endResize);
 divider.addEventListener("pointercancel", endResize);
+divider.addEventListener("lostpointercapture", endResize);
 divider.addEventListener("keydown", (e) => {
   const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
   if (!step) return;
