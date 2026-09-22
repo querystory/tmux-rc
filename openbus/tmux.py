@@ -766,23 +766,26 @@ def click(pane_id: str, from_bottom: int, col: int, *,
     if from_bottom < 0 or col < 1:
         return False
     with _pane_lock(pane_id):
-        width, sgr = _run([
-            "display-message", "-p", "-t", pane_id, "#{pane_width} #{mouse_sgr_flag}",
+        width, height, sgr = _run([
+            "display-message", "-p", "-t", pane_id,
+            "#{pane_width} #{pane_height} #{mouse_sgr_flag}",
         ]).split()
         if sgr != "1" or col > int(width):
             return False
-        joined = capture_pane(pane_id, lines=0, keep_colors=True).split("\n")
-        physical = _run(["capture-pane", "-p", "-e", "-t", pane_id, "-S", "-0"])
-        if len(physical.rstrip("\n").split("\n")) != len(joined):
+        # Use one physical capture for BOTH freshness and row geometry. A wrapped
+        # frame differs from the live endpoint's joined capture, so reject it too.
+        raw = _materialize_links(_run([
+            "capture-pane", "-p", "-e", "-t", pane_id, "-S", "-200",
+        ]))
+        frame = raw.rstrip("\n")
+        if not frame or hashlib.md5(frame.encode()).hexdigest() != expected_frame:
             return False
-        row = len(joined) - from_bottom
+        trailing_blanks = len(raw.removesuffix("\n").split("\n")) - len(frame.split("\n"))
+        row = int(height) - trailing_blanks - from_bottom
         if row < 1:
             return False
-        # Reject taps on an old display. This is optimistic: tmux cannot atomically
-        # compare a capture and inject input, but stale browser frames must not act.
-        frame = capture_pane(pane_id, keep_colors=True)
-        if hashlib.md5(frame.encode()).hexdigest() != expected_frame:
-            return False
+        # tmux cannot atomically compare output and inject input; this still rejects
+        # already stale browser frames without mapping them onto a different capture.
         check_pane(pane_id, expected_pid)
         seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
         _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq)])

@@ -15,7 +15,7 @@ def fake_tmux(monkeypatch, screen, sgr="1", physical=None):
 
     def run(argv):
         if argv[0] == "display-message":
-            return f"80 {sgr}\n"
+            return f"80 {len(screen.removesuffix(chr(10)).split(chr(10)))} {sgr}\n"
         if argv[0] == "capture-pane":
             assert argv[-1] in {"-0", "-200"}  # geometry or live-frame freshness
             return physical if "-J" not in argv and physical is not None else screen
