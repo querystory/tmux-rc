@@ -280,18 +280,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .s2 { --state-color: var(--atlas-idle); }
 .s3 { --state-color: var(--line); }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
-.atlas-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 16px; }
-.atlas-island { padding: 20px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); min-width: 0; }
+.atlas-map { display: grid; gap: 12px; }
+.atlas-split { display: grid; gap: 12px; min-width: 0; }
+.atlas-island { padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); min-width: 0; }
 .landing-inner .atlas-island h3, .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
 .atlas-island > p, .atlas-panel > p { font-size: 12px; }
-.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; margin-top: 20px; }
-.atlas-dot { min-width: 0; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.atlas-agent-icon { width: 30px; height: 30px; object-fit: contain; padding: 2px; }
-.atlas-dot.s1 .atlas-agent-icon { border-radius: 8px; animation: atlas-working 2s ease-out infinite; }
-.atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; outline: 2px solid var(--amber); outline-offset: 4px; }
-.atlas-dot-state { font-size: 10px; color: var(--muted); }
-.atlas-dot.s1 .atlas-dot-state { color: var(--accent); }
-.atlas-dot.s0 .atlas-dot-state { color: var(--amber); }
+.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 10px; align-items: start; }
+.atlas-dot { min-width: 0; padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.atlas-agent-icon { width: 26px; height: 26px; object-fit: contain; padding: 2px; }
+.atlas-dot.s1 .atlas-agent-icon { border-radius: 8px; outline: 1px solid var(--accent); outline-offset: 2px; background: var(--accent-bg); animation: atlas-working 2s ease-out infinite; }
+.atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; background: var(--amber-bg); outline: 2px solid var(--amber); outline-offset: 4px; }
 @keyframes atlas-working { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent); } }
 .atlas-dot-name { font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .atlas-lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-top: 16px; }
