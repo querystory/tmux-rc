@@ -34,7 +34,7 @@ export function observeAtlas(panes, now = Date.now()) {
     groups.get(key).n[stateOf(p)]++;
   });
   const sample = { t, n, groups: [...groups.values()] };
-  if (JSON.stringify(history.at(-1)) === JSON.stringify(sample)) return;
+  if (JSON.stringify(history[history.length - 1]) === JSON.stringify(sample)) return;
   history = history.filter(s => s.t > t - LIMIT * STEP && s.t < t);
   history.push(sample);
   if (persistTimer === null) persistTimer = setTimeout(persistHistory, 30_000);
@@ -125,7 +125,7 @@ export function renderAtlas(root, panes, navigate, logos) {
       dot.setAttribute('aria-label', `${paneName(p)} · ${activityLabel(p)}`);
       dot.title = `${paneName(p)}\n${activityLabel(p)}\n${p.session_summary || p.status_line || ''}`;
       const logo = el('img', 'atlas-agent-icon');
-      logo.src = Object.hasOwn(logos, p.tool) ? logos[p.tool] : '/tmux-logomark.svg';
+      logo.src = Object.prototype.hasOwnProperty.call(logos, p.tool) ? logos[p.tool] : '/tmux-logomark.svg';
       logo.alt = p.tool || 'tmux';
       dot.append(logo, el('span', 'atlas-dot-name', paneName(p)));
       dot.onclick = () => navigate(p.pane_id);
@@ -180,7 +180,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   lower.append(topics);
 
   const pulse = el('section', 'atlas-panel');
-  const duration = samples.length ? samples.at(-1).t - samples[0].t : 0;
+  const duration = samples.length ? samples[samples.length - 1].t - samples[0].t : 0;
   const span = duration < 3600000 ? `${Math.round(duration / 60000)} minutes` : `${(duration / 3600000).toFixed(1)} hours`;
   pulse.append(el('h3', '', duration ? `State counts · ${span}` : 'State counts · current snapshot'),
     el('p', 'muted', 'Observed in this browser · 5-minute buckets. Gaps are unobserved.'));

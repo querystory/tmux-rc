@@ -68,12 +68,12 @@ export function atlasCharts() {
     cloud.setAttribute('aria-label', `Topics sized by number of matching panes: ${words.map(([w, n]) => `${w}: ${n}`).join(', ')}. Use the topic selector below to explore.`);
     const indexed = new Map(samples.map(s => [s.t, s]));
     const times = [];
-    for (let t = samples[0]?.t; t <= samples.at(-1)?.t; t += step) times.push(t);
+    for (let t = samples[0]?.t; t <= samples[samples.length - 1]?.t; t += step) times.push(t);
     const single = times.length === 1;
     const order = [1, 0, 2, 3]; // Working at the bottom, idle at the top, like the reference.
     const colors = dark ? ['#f1bd53', '#60c992', '#7e91ab', '#4a5261'] : ['#f2ad32', '#39b978', '#a3b2c7', '#d1d8e2'];
     bars.setAttribute('aria-label', samples.length
-      ? `Pane state counts, ${timeLabel(samples[0].t)} to ${timeLabel(samples.at(-1).t)}. ${samples.length} observations. Latest: ${states.map((s, i) => `${samples.at(-1).n[i]} ${s}`).join(', ')}.`
+      ? `Pane state counts, ${timeLabel(samples[0].t)} to ${timeLabel(samples[samples.length - 1].t)}. ${samples.length} observations. Latest: ${states.map((s, i) => `${samples[samples.length - 1].n[i]} ${s}`).join(', ')}.`
       : 'No observations yet.');
     barChart.setOption({
       animation: false, textStyle: { color: muted, fontFamily: 'sans-serif' },
