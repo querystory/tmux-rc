@@ -718,7 +718,14 @@ def click(pane_id: str, body: ClickBody, request: Request):
     if pane is None:
         _audit(request, "click", pane_id, detail, outcome="rejected: pane not found")
         raise HTTPException(404, "pane not found")
-    sent = tmux.click(pane.id, body.from_bottom, body.col)
+    try:
+        sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid)
+    except subprocess.CalledProcessError as e:
+        _audit(request, "click", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
+        raise _pane_err(e) from e
+    except tmux.PaneChangedError as e:
+        _audit(request, "click", pane_id, detail, outcome="rejected: pane changed")
+        raise HTTPException(409, str(e)) from e
     if sent:
         _audit(request, "click", pane_id, detail)
         app.state.watcher.request_reparse(pane.id)

@@ -745,7 +745,7 @@ def send_keys(
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
-def click(pane_id: str, from_bottom: int, col: int) -> bool:
+def click(pane_id: str, from_bottom: int, col: int, *, expected_pid: str) -> bool:
     """Left-click the cell `from_bottom` lines above the last line of the live frame, at
     1-based `col`. Returns False (nothing sent) when the pane's app has not asked for
     SGR mouse reports — a shell would echo the bytes as garbage — or the line has
@@ -776,6 +776,7 @@ def click(pane_id: str, from_bottom: int, col: int) -> bool:
         row = len(joined) - from_bottom
         if row < 1:
             return False
+        check_pane(pane_id, expected_pid)
         seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
         _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq)])
         return True
