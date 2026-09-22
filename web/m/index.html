@@ -33,7 +33,6 @@
     <header class="app-header">
       <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
-      <div id="heading" hidden><h1 id="pane-title"></h1><p id="pane-location"></p></div>
       <span id="connection" role="status">Connecting</span>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
       <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
@@ -54,7 +53,30 @@
       <div id="pane-list"></div>
       <p id="empty" class="empty" role="status">Loading sessions...</p>
     </section>
+    <!-- Wide-screen only: the main column when no pane is selected. Narrow screens never
+         show it (there the list IS the screen), so it ships hidden and render() decides. -->
+    <section id="landing" aria-label="Overview" hidden>
+      <div class="landing-inner">
+        <h2 id="landing-title"></h2>
+        <p id="landing-sub" class="muted"></p>
+        <div id="landing-stats" class="landing-stats"></div>
+        <section id="landing-attention" hidden>
+          <h3>Needs you</h3>
+          <div id="landing-attention-list"></div>
+        </section>
+        <section id="landing-active" hidden>
+          <h3>Recently active</h3>
+          <div id="landing-active-list"></div>
+        </section>
+      </div>
+    </section>
+    <div id="divider" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" hidden></div>
     <section id="detail" aria-label="Selected pane" hidden>
+      <!-- The pane's identity belongs over the pane, not in the app-wide header: on a wide
+           screen the header spans both columns, so a title there floats above the sidebar
+           it does not describe. Kept as ONE node for both layouts — narrow stacks it above
+           the tabs exactly as the old header row read, wide sits it on the tab line. -->
+      <div id="heading" hidden><h1 id="pane-title"></h1><p id="pane-location"></p></div>
       <nav class="view-tabs" aria-label="Pane view"><button id="summary-tab" aria-pressed="true">Overview</button><button id="terminal-tab" aria-pressed="false">Terminal</button></nav>
       <div id="overview" class="scroller">
         <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>

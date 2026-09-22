@@ -229,6 +229,96 @@ function renderList() {
   $("new-window").disabled = !panes.length;
 }
 
+// The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
+// filter tabs already show — a second count that disagreed with the tabs would be worse
+// than no count — plus the two lists worth acting on: what is blocked on you, and what
+// moved most recently. Rows navigate exactly like sidebar rows.
+function landingRows(id, subset) {
+  show(id, !!subset.length);
+  reconcile($(id + "-list"), subset, (p) => p.pane_id, () => {
+    const b = document.createElement("button");
+    b.className = "landing-row";
+    b.innerHTML = '<span class="t"></span><span class="m"></span>';
+    return b;
+  }, (node, p) => {
+    node.onclick = () => navigate(p.pane_id);
+    text(node.querySelector(".t"), paneName(p));
+    text(node.querySelector(".m"), `${activityLabel(p)} · ${p.session} / ${p.window_name || p.pane_id}`);
+  });
+}
+
+function renderLanding() {
+  const waiting = panes.filter(needsYou);
+  text($("landing-title"), panes.length ? "Nothing selected" : "No panes yet");
+  text($("landing-sub"), panes.length
+    ? "Pick a session on the left, or start with one of these."
+    : "Start a window with + to see it here.");
+  reconcile($("landing-stats"), [
+    { k: "Panes", n: panes.length },
+    { k: "Running", n: panes.filter(isRunning).length },
+    { k: "Recent", n: panes.filter((p) => isRecent(p)).length },
+    { k: "Needs you", n: waiting.length, attention: true },
+  ], (s) => s.k, () => {
+    const d = document.createElement("div");
+    d.innerHTML = '<span class="n"></span><span class="k"></span>';
+    return d;
+  }, (node, stat) => {
+    node.className = "landing-stat" + (stat.attention ? " attention" : "");
+    text(node.querySelector(".n"), stat.n);
+    text(node.querySelector(".k"), stat.k);
+  });
+  landingRows("landing-attention", waiting);
+  // Most recently active first, and never a pane already listed above it.
+  landingRows("landing-active", panes
+    .filter((p) => !needsYou(p))
+    .sort((a, b) => lastActivity(b) - lastActivity(a))
+    .slice(0, 5));
+}
+
+// Drag the seam between the sidebar and the main column. Width is a CSS variable the
+// grid clamps, so a stored value from a wider window can never strand the layout, and
+// persistence is per browser (localStorage) because it is a per-screen preference, not
+// something the daemon should know. Arrow keys move it too: the handle is a focusable
+// separator, and a pointer-only affordance would be unreachable from the keyboard.
+const SIDEBAR_KEY = "tmuxrc-sidebar";
+function setSidebar(px) {
+  const width = Math.round(Math.min(Math.max(px, 260), window.innerWidth * 0.46));
+  document.documentElement.style.setProperty("--sidebar", width + "px");
+  try { localStorage.setItem(SIDEBAR_KEY, String(width)); } catch {}
+  return width;
+}
+try {
+  const stored = Number(localStorage.getItem(SIDEBAR_KEY));
+  if (stored > 0) document.documentElement.style.setProperty("--sidebar", Math.round(stored) + "px");
+} catch {}
+$("divider").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  $("divider").setPointerCapture(e.pointerId);
+  $("divider").classList.add("dragging");
+  document.body.classList.add("resizing");
+});
+$("divider").addEventListener("pointermove", (e) => {
+  if (!$("divider").hasPointerCapture(e.pointerId)) return;
+  // Measured from the app's left edge, not the viewport, so it stays correct if the
+  // layout ever gains an outer margin.
+  setSidebar(e.clientX - $("app").getBoundingClientRect().left);
+});
+const endResize = (e) => {
+  if (e.pointerId !== undefined && $("divider").hasPointerCapture(e.pointerId)) {
+    $("divider").releasePointerCapture(e.pointerId);
+  }
+  $("divider").classList.remove("dragging");
+  document.body.classList.remove("resizing");
+};
+$("divider").addEventListener("pointerup", endResize);
+$("divider").addEventListener("pointercancel", endResize);
+$("divider").addEventListener("keydown", (e) => {
+  const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  setSidebar($("sessions").getBoundingClientRect().width + step);
+});
+
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
@@ -247,8 +337,12 @@ function render() {
   show("sessions", !inPane || wide); show("list-nav", !inPane || wide);
   show("brand", !inPane || wide);
   show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
+  // The main column is never blank on a wide screen: with no pane chosen it answers the
+  // question the sidebar cannot, which is what the whole fleet is doing right now.
+  show("landing", wide && !inPane);
+  show("divider", wide);
   renderList();
-  if (!inPane) return;
+  if (!inPane) { if (wide) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
   // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
   // still shows the last frame, and every key is disabled — nothing to do but hit back.
