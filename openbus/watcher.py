@@ -202,7 +202,8 @@ def _activity_ts(pane) -> float | None:
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
 
-    def __init__(self, target: str | None, use_llm: bool = True):
+    def __init__(self, target: str | None, use_llm: bool = True, history=None):
+        self.history = history
         self.target = target
         self.use_llm = use_llm
         self._warned_no_target = False  # warn once, not every poll
@@ -578,6 +579,8 @@ class Watcher:
         self.states = [dict(s) for s in states]
         self._booted = True
         self._bump_state_if_changed(self.states)
+        if self.history is not None:
+            self.history.record(self.states, tmux.server_uid())
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state

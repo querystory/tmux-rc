@@ -1,4 +1,4 @@
-import { renderAtlas, observeAtlas } from '/m/atlas.js';
+import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
@@ -628,7 +628,7 @@ async function pollState(signal) {
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
-      if (booted && !data.stale) observeAtlas(panes);
+      if (booted) refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);

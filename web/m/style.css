@@ -307,3 +307,5 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 .atlas-insight { font-size: 12px; margin-top: 18px; }
+
+.atlas-range { margin: 10px 0; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 4px 8px; }

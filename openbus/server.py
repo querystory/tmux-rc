@@ -20,6 +20,7 @@ import re
 import shlex
 import shutil
 import socket
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -70,6 +71,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from . import telemetry, tmux  # noqa: E402
+from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
@@ -396,7 +398,12 @@ def _audit(
 async def lifespan(app: FastAPI):
     target = os.environ.get("TMUXRC_TARGET")
     use_llm = os.environ.get("TMUXRC_NO_LLM") != "1"
-    app.state.watcher = Watcher(target=target, use_llm=use_llm)
+    try:
+        app.state.history = History(default_path())
+    except (OSError, sqlite3.Error):
+        logger.warning("Pane history unavailable; recording disabled", exc_info=True)
+        app.state.history = None
+    app.state.watcher = Watcher(target=target, use_llm=use_llm, history=app.state.history)
     app.state.watcher.start()
     yield
     await app.state.watcher.stop()
@@ -474,6 +481,16 @@ def get_version():
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
 # Well under any proxy/tunnel idle timeout, matching the live stream's hold budget.
 STATE_HOLD_SECONDS = 25.0
+
+
+@app.get("/api/history")
+def get_history(window: str = "24h"):
+    if window not in {"1h", "24h", "7d", "all"}:
+        raise HTTPException(status_code=400, detail="window must be 1h, 24h, 7d, or all")
+    history = getattr(app.state, "history", None)
+    if history is None:
+        raise HTTPException(status_code=503, detail="Pane history is unavailable")
+    return history.query(window)
 
 
 @app.get("/api/state")

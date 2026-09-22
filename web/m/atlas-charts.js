@@ -60,6 +60,8 @@ export function atlasCharts() {
     const times = [];
     for (let t = samples[0]?.t; t <= samples.at(-1)?.t; t += step) times.push(t);
     const single = times.length === 1;
+    const label = t => times.length && times.at(-1) - times[0] >= 86400000
+      ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     const order = [1, 0, 2, 3]; // Working at the bottom, idle at the top, like the reference.
     const colors = dark ? ['#f1bd53', '#60c992', '#7e91ab', '#4a5261'] : ['#f2ad32', '#39b978', '#a3b2c7', '#d1d8e2'];
     bars.setAttribute('aria-label', samples.length
@@ -68,18 +70,24 @@ export function atlasCharts() {
     barChart.setOption({
       animation: false, textStyle: { color: muted, fontFamily: 'sans-serif' },
       tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'shadow' },
-        valueFormatter: v => v == null ? 'Not observed' : `${v} panes` },
+        formatter: items => {
+          const sample = indexed.get(times[items[0]?.dataIndex]);
+          if (!sample) return 'No observation';
+          return [label(sample.t), sample.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
+            ...items.map(item => `${item.seriesName}: ${item.value} panes`)].join('\n');
+        } },
       legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: muted, fontSize: 11 } },
       grid: { left: 42, right: 14, top: 55, bottom: 35 },
-      xAxis: { type: 'category', data: times.map(timeLabel), axisTick: { show: false },
+      xAxis: { type: 'category', data: times.map(label), axisTick: { show: false },
         axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, hideOverlap: true } },
       yAxis: { type: 'value', minInterval: 1, name: 'Panes', nameTextStyle: { color: muted },
         splitLine: { lineStyle: { color: line } }, axisLabel: { color: muted } },
       series: order.map(i => ({ name: states[i], type: 'bar', stack: 'panes',
-        barMaxWidth: single ? 100 : 60, barCategoryGap: times.length > 30 ? '0%' : '15%',
+        barMaxWidth: single ? 100 : undefined, barCategoryGap: '0%',
         itemStyle: { color: colors[i] }, emphasis: { focus: 'series' },
         label: { show: times.length < 8, formatter: p => p.value > 0 ? p.value : '', color: dark ? '#101312' : '#243142', fontWeight: 600 },
-        data: times.map(t => indexed.has(t) ? indexed.get(t).n[i] : null),
+        data: times.map(t => indexed.has(t) ? { value: indexed.get(t).n[i],
+          itemStyle: { opacity: indexed.get(t).source === 'logs' ? 0.65 : 1 } } : null),
       })),
     }, true);
     cloudChart.resize(); barChart.resize();
