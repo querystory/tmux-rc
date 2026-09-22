@@ -114,7 +114,10 @@ def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
     assert "matchMedia(" in app and "WIDE" in app
     assert 'show("sessions", !inPane || wide)' in app, "the list must survive on wide screens"
     assert 'show("back", inPane && !wide)' in app, "Back has no sidebar to return to"
+    # Feature-detected: older iOS Safari has only the deprecated addListener, and calling
+    # the modern name unguarded throws at module scope, taking the whole phone UI with it.
     assert 'WIDE.addEventListener("change", render)' in app, "crossing it must re-render"
+    assert 'WIDE.addListener(render)' in app, "and must still re-render on older iOS Safari"
 
     # The CSS breakpoint and the JS one are the same number in two files; a mismatch would
     # show as a sidebar that is hidden in a grid column reserved for it.
