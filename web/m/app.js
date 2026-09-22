@@ -51,12 +51,13 @@ const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", shell: "/bash.png" };
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
-// Wide screens show the list AND the pane at once. This is the ONLY thing the layout
-// mode changes in JS: the CSS grid does the placing, and everything else — routing,
-// `active`, the composer, the terminal — already works per-pane regardless of whether the
-// list happens to be on screen. Kept as a matchMedia rather than a width read so a resize
-// (or rotating a tablet) re-renders instead of stranding the UI in the mode it booted in.
+// The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
+let reviewLayout = "side";
+try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
+const reviewing = () => WIDE.matches && reviewLayout !== "focus";
+const terminalVisible = () => reviewing() || view === "terminal";
+const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let sort = "session";
@@ -361,6 +362,59 @@ divider.addEventListener("keydown", (e) => {
   setSidebar($("sessions").getBoundingClientRect().width + step);
 });
 
+// One seam for both arrangements. Store dimensions separately so rearranging never
+// turns a preferred column width into an implausibly tall overview.
+const reviewSizes = { side: 360, stack: 280 };
+try {
+  for (const mode of Object.keys(reviewSizes)) {
+    const saved = Number(localStorage.getItem(`tmuxrc-review-${mode}`));
+    if (Number.isFinite(saved) && saved > 0) reviewSizes[mode] = saved;
+  }
+} catch {}
+const reviewDivider = $("review-divider");
+function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
+  if (!reviewing()) return;
+  const side = reviewLayout === "side", rect = $("detail").getBoundingClientRect();
+  const min = side ? 240 : 120;
+  const max = Math.max(min, Math.floor(side ? rect.width * .45 : rect.height * .5));
+  const size = Math.round(Math.max(min, Math.min(max, requested)));
+  $("detail").style.setProperty("--review-size", `${size}px`);
+  reviewDivider.setAttribute("aria-orientation", side ? "vertical" : "horizontal");
+  for (const [key, value] of Object.entries({ min, max, now: size })) reviewDivider.setAttribute(`aria-value${key}`, value);
+  if (persist) {
+    reviewSizes[reviewLayout] = size;
+    try { localStorage.setItem(`tmuxrc-review-${reviewLayout}`, String(size)); } catch {}
+  }
+}
+new ResizeObserver(() => sizeReview()).observe($("detail"));
+$("review-layout").onchange = (e) => {
+  reviewLayout = e.target.value;
+  try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
+  restartDetail(); render();
+};
+reviewDivider.onpointerdown = (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault(); reviewDivider.setPointerCapture(e.pointerId);
+  reviewDivider.classList.add("dragging");
+};
+reviewDivider.onpointermove = (e) => {
+  if (!reviewDivider.hasPointerCapture(e.pointerId)) return;
+  const rect = $("detail").getBoundingClientRect();
+  sizeReview(true, reviewLayout === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
+};
+const endReviewResize = (e) => {
+  if (reviewDivider.hasPointerCapture(e.pointerId)) reviewDivider.releasePointerCapture(e.pointerId);
+  reviewDivider.classList.remove("dragging");
+};
+reviewDivider.onpointerup = reviewDivider.onpointercancel = reviewDivider.onlostpointercapture = endReviewResize;
+reviewDivider.onkeydown = (e) => {
+  const steps = reviewLayout === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
+  const step = steps[e.key];
+  if (!step) return;
+  e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
+};
+reviewDivider.ondblclick = () => sizeReview(true, reviewLayout === "side" ? 360 : 280);
+
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
@@ -411,7 +465,12 @@ function render() {
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
   $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
-  show("overview", view === "summary"); show("terminal", view === "terminal");
+  $("detail").dataset.layout = reviewing() ? reviewLayout : "focus";
+  $("review-layout").value = reviewLayout;
+  show("review-divider", reviewing());
+  show("summary-tab", !reviewing()); show("terminal-tab", !reviewing());
+  show("overview", overviewVisible()); show("terminal", terminalVisible());
+  sizeReview(false);
   text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
@@ -421,6 +480,12 @@ function render() {
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
   text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.elapsed].filter(Boolean).join(" / "));
+  const chips = [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost,
+    pane?.elapsed, pane?.tokens ? `${pane.tokens} tokens` : "",
+    ...(Array.isArray(pane?.status_entries) ? pane.status_entries.slice(0, 4) : []),
+    ({ plan: "Plan mode", "accept-edits": "Accept edits", bypass: "Bypass permissions" })[pane?.mode],
+    pane?.agents ? `${pane.agents} agents` : ""].filter(Boolean);
+  reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.prompt || "");
@@ -452,7 +517,7 @@ function render() {
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
-  if (pane && view === "summary") loadEvents(pane);
+  if (pane && overviewVisible()) loadEvents(pane);
 }
 
 function renderRichContent(pane) {
@@ -551,8 +616,8 @@ function restartDetail() {
   }
   if (!active || document.hidden) return;
   const pane = panes.find((p) => p.pane_id === active);
-  if (view === "terminal") streamTerminal(active, detailController.signal);
-  else if (pane) loadEvents(pane);
+  if (terminalVisible()) streamTerminal(active, detailController.signal);
+  if (pane && overviewVisible()) loadEvents(pane);
 }
 
 function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; }
@@ -902,11 +967,12 @@ window.addEventListener("resize", fitViewport);
 // unguarded would throw here and abort the whole module — breaking the phone UI to add
 // a wide-screen affordance those browsers can never show. Same feature test as the
 // desktop app's scheme listener.
-if (WIDE.addEventListener) WIDE.addEventListener("change", render);
-else if (WIDE.addListener) WIDE.addListener(render);
+const resizeWorkspace = () => { restartDetail(); render(); };
+if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
+else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
-document.addEventListener("selectionchange", () => { if (view === "terminal" && captureDirty) paintCapture(); });
+document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { startState(); restartDetail(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
