@@ -112,8 +112,8 @@ def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
     css = (root / "web/m/style.css").read_text()
 
     assert "matchMedia(" in app and "WIDE" in app
-    assert "show(\"sessions\", !inPane || wide)" in app, "the list must survive on wide screens"
-    assert "show(\"back\", inPane && !wide)" in app, "Back has nothing to return to beside a live sidebar"
+    assert 'show("sessions", !inPane || wide)' in app, "the list must survive on wide screens"
+    assert 'show("back", inPane && !wide)' in app, "Back has nothing to return to beside a live sidebar"
     assert 'WIDE.addEventListener("change", render)' in app, "crossing the breakpoint must re-render"
 
     # The CSS breakpoint and the JS one are the same number in two files; a mismatch would
