@@ -67,7 +67,7 @@ from fastapi.responses import (  # noqa: E402
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 from . import telemetry, tmux  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -130,6 +130,11 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+
+
+class ClickBody(BaseModel):
+    from_bottom: int = Field(ge=0)  # lines above the live frame's last line (see tmux.click)
+    col: int = Field(ge=1)  # 1-based
 
 
 class NewWindowBody(BaseModel):
@@ -701,6 +706,30 @@ def send(pane_id: str, body: SendBody, request: Request):
     # next poll.
     app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
+
+
+@app.post("/api/panes/{pane_id}/click")
+def click(pane_id: str, body: ClickBody, request: Request):
+    """A tap on the live terminal, forwarded as a mouse click when the pane's app takes
+    them (tmux.click). `sent: false` is a normal answer — the tap landed on a shell, or
+    on history — so the client just lets it be a tap."""
+    detail = f"from_bottom={body.from_bottom} col={body.col}"
+    try:
+        pane = tmux.find_pane(pane_id)  # canonical id for the per-pane lock, as in send()
+        if pane is None:
+            _audit(request, "click", pane_id, detail, outcome="rejected: pane not found")
+            raise HTTPException(404, "pane not found")
+        sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid)
+    except subprocess.CalledProcessError as e:
+        _audit(request, "click", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
+        raise _pane_err(e) from e
+    except tmux.PaneChangedError as e:
+        _audit(request, "click", pane_id, detail, outcome="rejected: pane changed")
+        raise HTTPException(409, str(e)) from e
+    if sent:
+        _audit(request, "click", pane_id, detail)
+        app.state.watcher.request_reparse(pane.id)
+    return {"sent": sent}
 
 
 @app.get("/api/launchers")

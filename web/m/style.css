@@ -107,9 +107,14 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }
 #terminal-status { flex: 1; font-size: 12px; color: #a1ada6; }
 #font-size { width: 24px; text-align: center; font-size: 12px; }
+#click-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
+/* Hover/focus helper, not a native title: a title never shows on a phone, and here the
+   tap that toggles also hovers, so the new mode explains itself as it switches. */
+#click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
 #capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; }
 #capture a { color: #8ecbff; }
+#capture.clicks { cursor: default; user-select: none; -webkit-user-select: none; }
 #session-summary { margin-top: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
 #links a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
 #links a:last-child { border-bottom: 0; }
