@@ -307,3 +307,34 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 .atlas-insight { font-size: 12px; margin-top: 18px; }
+/* Desktop review workspace. The same overview, stream and composer keep their state
+   when rearranged; each reading surface owns its scroll position. */
+#layout-control { display: none; }
+#session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; border-top: 1px solid #343d38; }
+#session-chips:empty { display: none; }
+#session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #252b28; color: #c6d3cb; overflow-wrap: anywhere; }
+@media (min-width: 1100px) {
+  #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  #detail > .view-tabs { grid-row: 2; grid-column: 1 / -1; align-items: center; min-height: 44px; }
+  #detail > #heading { padding-right: 230px; }
+  #detail:not([data-layout="focus"]) > .view-tabs { display: none; }
+  #layout-control { grid-row: 1; grid-column: 1 / -1; justify-self: end; align-self: center; display: flex; align-items: center; gap: 8px; padding: 4px 30px; color: var(--muted); font-size: 12px; }
+  #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 12px; min-height: 32px; }
+  #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
+  #detail > #composer { grid-row: 4; min-width: 0; }
+  #detail[data-layout="side"] { grid-template-columns: minmax(0, 1fr) clamp(240px, var(--review-size, 360px), 45%); }
+  #detail[data-layout="side"] > #overview { grid-column: 2; grid-row: 3 / 5; border-left: 1px solid var(--line); background: var(--surface); }
+  #detail[data-layout="stack"] { grid-template-rows: auto auto minmax(120px, var(--review-size, 280px)) minmax(0, 1fr) auto; }
+  #detail[data-layout="stack"] > #terminal { grid-row: 4; }
+  #detail[data-layout="stack"] > #composer { grid-row: 5; }
+  #detail[data-layout="stack"] > #overview { background: var(--surface); }
+  #review-divider { z-index: 5; touch-action: none; position: relative; }
+  #detail[data-layout="side"] > #review-divider { grid-column: 2; grid-row: 3 / 5; width: 11px; margin-left: -5px; cursor: col-resize; }
+  #detail[data-layout="stack"] > #review-divider { grid-column: 1; grid-row: 4; height: 11px; margin-top: -5px; cursor: row-resize; }
+  #review-divider::after { content: ""; position: absolute; background: var(--line); }
+  #detail[data-layout="side"] > #review-divider::after { inset: 0 5px; }
+  #detail[data-layout="stack"] > #review-divider::after { inset: 5px 0; }
+  #review-divider:hover::after, #review-divider:focus-visible::after, #review-divider.dragging::after { background: var(--accent); }
+  #review-divider.dragging ~ #overview, #review-divider.dragging ~ #terminal { user-select: none; }
+}
