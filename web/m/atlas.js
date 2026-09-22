@@ -90,7 +90,7 @@ export function renderAtlas(root, panes, navigate, logos) {
       dot.setAttribute('aria-label', `${paneName(p)} · ${activityLabel(p)}`);
       dot.title = `${paneName(p)}\n${activityLabel(p)}\n${p.session_summary || p.status_line || ''}`;
       const logo = el('img', 'atlas-agent-icon');
-      logo.src = Object.hasOwn(logos, p.tool) ? logos[p.tool] : '/tmux-logomark.svg';
+      logo.src = Object.prototype.hasOwnProperty.call(logos, p.tool) ? logos[p.tool] : '/tmux-logomark.svg';
       logo.alt = p.tool || 'tmux';
       dot.append(logo, el('span', 'atlas-dot-name', paneName(p)), el('span', 'atlas-dot-state', activityLabel(p)));
       dot.onclick = () => navigate(p.pane_id);
