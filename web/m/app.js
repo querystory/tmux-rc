@@ -762,7 +762,12 @@ window.addEventListener("resize", fitViewport);
 // Crossing the breakpoint changes which elements are hidden, and only render() knows
 // that. Without this, widening the window leaves the list hidden until the next poll
 // repaints — and narrowing it leaves a sidebar with no room, which is the worse half.
-WIDE.addEventListener("change", render);
+// Older iOS Safari has only the deprecated addListener, and calling the modern name
+// unguarded would throw here and abort the whole module — breaking the phone UI to add
+// a wide-screen affordance those browsers can never show. Same feature test as the
+// desktop app's scheme listener.
+if (WIDE.addEventListener) WIDE.addEventListener("change", render);
+else if (WIDE.addListener) WIDE.addListener(render);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (view === "terminal" && captureDirty) paintCapture(); });
