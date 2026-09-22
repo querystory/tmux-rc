@@ -1,9 +1,13 @@
+import { headerPicker } from "/m/header-picker.js";
 import { renderAtlas, observeAtlas } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+
+const refreshSortPicker = headerPicker(document.getElementById("sort"));
+const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -61,7 +65,7 @@ const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
-let sort = "session";
+let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // Per-line nodes under #capture, in document order; each caches the markup last written
@@ -131,7 +135,7 @@ function notice(message = "") { text($("notice"), message); show("notice", !!mes
 function hashFor(id, nextView) {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
-  if (sort !== "session") params.set("sort", sort);
+  if (sort !== "updated") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
   return params.toString();
 }
@@ -162,8 +166,9 @@ function route() {
   active = next;
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
-  sort = params.get("sort") === "updated" ? "updated" : "session";
+  sort = params.get("sort") === "session" ? "session" : "updated";
   $("sort").value = sort;
+  refreshSortPicker();
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("overview").scrollTop = 0;
@@ -189,6 +194,8 @@ function makeRow(pane) {
   return button;
 }
 function updateRow(button, pane) {
+  if (pane.pane_id === active) button.setAttribute("aria-current", "true");
+  else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", needsYou(pane));
   const logo = button.querySelector(".pane-icon img");
   const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
@@ -233,8 +240,7 @@ function renderList() {
 
 // The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
 // filter tabs already show — a second count that disagreed with the tabs would be worse
-// than no count — plus the two lists worth acting on: what is blocked on you, and what
-// moved most recently. Rows navigate exactly like sidebar rows.
+// than no count — plus panes blocked on you. Rows navigate exactly like sidebar rows.
 function landingRows(id, subset) {
   show(id, !!subset.length);
   reconcile($(id + "-list"), subset, (p) => p.pane_id, () => {
@@ -260,11 +266,6 @@ function renderLanding() {
     : "No tmux panes are open. Start a session on the host and it will appear here.");
   renderAtlas($("session-atlas"), panes, navigate, LOGOS);
   landingRows("landing-attention", waiting);
-  // Most recently active first, and never a pane already listed above it.
-  landingRows("landing-active", panes
-    .filter((p) => !needsYou(p))
-    .sort((a, b) => lastActivity(b) - lastActivity(a))
-    .slice(0, 5));
 }
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the
@@ -376,8 +377,12 @@ function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
 }
 new ResizeObserver(() => sizeReview()).observe($("detail"));
 $("review-layout").onchange = (e) => {
-  reviewLayout = e.target.value;
-  try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
+  const choice = e.target.value;
+  if (WIDE.matches) {
+    reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
+    try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
+  }
+  if (["summary", "terminal"].includes(choice)) { view = choice; navigate(active, view); }
   restartDetail(); render();
 };
 reviewDivider.onpointerdown = (e) => {
@@ -451,12 +456,14 @@ function render() {
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
-  $("summary-tab").setAttribute("aria-pressed", view === "summary");
-  $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
   $("detail").dataset.layout = reviewing() ? reviewLayout : "focus";
-  $("review-layout").value = reviewLayout;
+  const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
+  if (wide) layouts.unshift(["side", "Side by side"], ["stack", "Overview above"]);
+  const picker = $("review-layout");
+  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
+  picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
+  refreshViewPicker();
   show("review-divider", reviewing());
-  show("summary-tab", !reviewing()); show("terminal-tab", !reviewing());
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
   text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
@@ -863,8 +870,6 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("back").onclick = () => navigate();
-$("summary-tab").onclick = () => navigate(active, "summary");
-$("terminal-tab").onclick = () => navigate(active, "terminal");
 $("search").oninput = renderList;
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
 $("list-nav").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
