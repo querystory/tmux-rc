@@ -256,20 +256,10 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   body.resizing #detail, body.resizing #landing { pointer-events: none; }
 }
 
-.landing-inner { padding: 24px 28px; max-width: 760px; }
+.landing-inner { padding: 32px; max-width: 1440px; }
 .landing-inner h2 { margin: 0 0 4px; font-size: 20px; }
 .landing-inner h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase;
                     letter-spacing: 0.04em; color: var(--muted); }
-.landing-stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
-.landing-stat {
-  flex: 1 1 110px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
-}
-.landing-stat .n { display: block; font-size: 24px; font-weight: 600; line-height: 1.1; }
-.landing-stat .k { font-size: 12px; color: var(--muted); }
-/* Amber, not accent: "needs you" is amber everywhere else in this UI (the waiting badge,
-   the needs-you row, the filter tab, the question panel). Green is the running colour. */
-.landing-stat.attention .n { color: var(--amber); }
-.landing-stat.attention { border-color: var(--amber); }
 /* Same affordance as a list row: the whole thing is the target, text stays left-aligned. */
 .landing-row {
   display: block; width: 100%; text-align: left; background: none; cursor: pointer;
@@ -282,6 +272,41 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .landing-row .t { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .landing-row .m { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
 
+/* The atlas inherits both palettes. State always has a text label as well as colour. */
+#session-atlas { --atlas-idle: var(--muted); }
+.atlas-legend { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 24px 0; font-size: 13px; }
+.s0 { --state-color: var(--amber); }
+.s1 { --state-color: var(--accent); }
+.s2 { --state-color: var(--atlas-idle); }
+.s3 { --state-color: var(--line); }
+.atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
+.atlas-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 16px; }
+.atlas-island { padding: 20px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); min-width: 0; }
+.landing-inner .atlas-island h3, .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
+.atlas-island > p, .atlas-panel > p { font-size: 12px; }
+.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; margin-top: 20px; }
+.atlas-dot { min-width: 0; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.atlas-agent-icon { width: 30px; height: 30px; object-fit: contain; padding: 2px; }
+.atlas-dot.s1 .atlas-agent-icon { border-radius: 8px; animation: atlas-working 2s ease-out infinite; }
+.atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; outline: 2px solid var(--amber); outline-offset: 4px; }
+.atlas-dot-state { font-size: 10px; color: var(--muted); }
+.atlas-dot.s1 .atlas-dot-state { color: var(--accent); }
+.atlas-dot.s0 .atlas-dot-state { color: var(--amber); }
+@keyframes atlas-working { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent); } }
+.atlas-dot-name { font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.atlas-lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-top: 16px; }
+.atlas-panel { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+.atlas-cloud { height: 300px; width: 100%; margin-top: 8px; }
+.atlas-topic-picker { width: 100%; border: 1px solid var(--line); border-radius: 8px; min-height: 40px; padding: 6px 10px; background: var(--surface); color: var(--fg); }
+.atlas-matches:not(:empty) { margin-top: 16px; max-height: 220px; overflow-y: auto; }
+.atlas-chart { height: 320px; width: 100%; margin-top: 20px; }
+.atlas-history-note { margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .atlas-dot.s1 .atlas-agent-icon { animation: none; } }
+.atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
+.atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
+.atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
+.atlas-insight { font-size: 12px; margin-top: 18px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
 #layout-control { display: flex; align-items: center; gap: 8px; flex: none; color: var(--muted); font-size: 12px; }
