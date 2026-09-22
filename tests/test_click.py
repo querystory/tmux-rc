@@ -59,7 +59,7 @@ def test_tap_on_history_sends_nothing(monkeypatch):
 def test_wrapped_screen_is_not_safe_to_click(monkeypatch):
     sent = fake_tmux(monkeypatch, "long joined line\nlast", physical="long\njoined line\nlast")
     assert not T.click("%1", expected_pid="1234",
-                       expected_frame=hashlib.md5(b"a\nb").hexdigest(),
+                       expected_frame=hashlib.md5(b"long joined line\nlast").hexdigest(),
                        from_bottom=0, col=1)
     assert sent == []
 
@@ -147,7 +147,8 @@ def test_click_endpoint_rejects_invalid_coordinates(monkeypatch, body):
 
     click = Mock()
     monkeypatch.setattr(T, "click", click)
-    assert TestClient(app).post("/api/panes/%1/click", json=body).status_code == 422
+    response = TestClient(app).post("/api/panes/%1/click", json={"frame": "a" * 32, **body})
+    assert response.status_code == 422
     click.assert_not_called()
 
 
