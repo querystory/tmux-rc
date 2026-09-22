@@ -24,7 +24,8 @@ export function atlasCharts() {
   const cloud = document.createElement('div'), bars = document.createElement('div');
   cloud.className = 'atlas-cloud'; bars.className = 'atlas-chart';
   cloud.setAttribute('role', 'img'); bars.setAttribute('role', 'img');
-  let cloudChart, barChart, latest, wordSignature;
+  let cloudChart, barChart, latest, wordSignature, zoomKey;
+  let zoom = { start: 0, end: 100 };
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
     let echarts;
@@ -35,8 +36,17 @@ export function atlasCharts() {
       cloud.replaceChildren(); bars.replaceChildren();
       cloudChart = echarts.init(cloud); barChart = echarts.init(bars);
       cloudChart.on('click', item => latest.selectWord(item.name));
+      barChart.on('datazoom', event => {
+        const selection = event.batch?.[0] || event;
+        zoom = { start: selection.start, end: selection.end };
+      });
     }
     const { words, samples, states, step } = latest;
+    // Live polls and theme changes preserve the view; a new range/filter starts fresh.
+    if (zoomKey !== latest.zoomKey) {
+      zoomKey = latest.zoomKey;
+      zoom = { start: 0, end: 100 };
+    }
     const css = getComputedStyle(document.documentElement);
     const color = name => css.getPropertyValue(name).trim();
     const muted = color('--muted'), line = color('--line');
@@ -77,7 +87,15 @@ export function atlasCharts() {
             ...items.map(item => `${item.seriesName}: ${item.value} panes`)].join('\n');
         } },
       legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: muted, fontSize: 11 } },
-      grid: { left: 42, right: 14, top: 55, bottom: 35 },
+      grid: { left: 42, right: 14, top: 55, bottom: 78 },
+      dataZoom: [
+        { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 4, height: 24,
+          left: 42, right: 14, showDetail: false, borderColor: line,
+          textStyle: { color: muted }, fillerColor: color('--accent-bg'),
+          handleStyle: { color: color('--accent'), borderColor: color('--accent') } },
+        { type: 'inside', xAxisIndex: 0, ...zoom, zoomOnMouseWheel: 'ctrl',
+          moveOnMouseWheel: false, preventDefaultMouseMove: false },
+      ],
       xAxis: { type: 'category', data: times.map(label), axisTick: { show: false },
         axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, hideOverlap: true } },
       yAxis: { type: 'value', minInterval: 1, name: 'Panes', nameTextStyle: { color: muted },
@@ -98,5 +116,8 @@ export function atlasCharts() {
     else paint();
   }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  return { cloud, bars, update(data) { latest = data; paint(); } };
+  return { cloud, bars, resetZoom() {
+    zoom = { start: 0, end: 100 };
+    barChart?.dispatchAction({ type: 'dataZoom', ...zoom });
+  }, update(data) { latest = data; paint(); } };
 }

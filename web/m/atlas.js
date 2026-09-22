@@ -146,16 +146,24 @@ export function renderAtlas(root, panes, navigate, logos) {
     redraw(); reloadHistory?.();
   };
   const hasLogs = samples.some(s => s.source === 'logs');
-  pulse.append(el('h3', '', 'Pane states over time'), range,
+  const heading = el('div', 'atlas-panel-heading');
+  heading.append(el('h3', '', 'Pane states over time'), range);
+  pulse.append(heading,
     el('p', 'muted', historyError || (historyData
       ? 'Saved by this machine’s daemon. Blank intervals mean no observation.' : 'Loading saved history…')));
-  pulse.append(charts.bars);
+  const zoomControls = el('div', 'atlas-zoom-controls');
+  const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
+  resetZoom.dataset.key = 'reset-zoom';
+  resetZoom.onclick = () => charts.resetZoom();
+  zoomControls.append(el('span', 'muted', 'Drag the handles to zoom · Ctrl + scroll over the chart'), resetZoom);
+  pulse.append(charts.bars, zoomControls);
   if (hasLogs) pulse.append(el('p', 'atlas-history-note muted', historyData.backfill_note));
   if (scope.session && scope.session !== '(historical session unknown)' && history.some(s => s.source === 'logs'))
     pulse.append(el('p', 'atlas-history-note muted', 'Older log records have no tmux session identity; they are excluded from this session filter.'));
   lower.append(pulse); root.append(lower);
   charts.update({ words: topWords.map(([word, members]) => [word, members.length]),
-    samples, states: STATES, step: historyData?.step || 60000, selectWord });
+    samples, states: STATES, step: historyData?.step || 60000,
+    zoomKey: JSON.stringify([historyWindow, scope]), selectWord });
   if (selectedWord) selectWord(selectedWord);
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }
