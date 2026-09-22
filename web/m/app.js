@@ -51,6 +51,12 @@ const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", shell: "/bash.png" };
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
+// Wide screens show the list AND the pane at once. This is the ONLY thing the layout
+// mode changes in JS: the CSS grid does the placing, and everything else — routing,
+// `active`, the composer, the terminal — already works per-pane regardless of whether the
+// list happens to be on screen. Kept as a matchMedia rather than a width read so a resize
+// (or rotating a tablet) re-renders instead of stranding the UI in the mode it booted in.
+const WIDE = matchMedia("(min-width: 1100px)");
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let sort = "session";
@@ -233,8 +239,14 @@ function render() {
   // by its own birth. Presence is imperfect evidence when tmux recycles an id — see the
   // note at the eviction below; it is the only evidence the client has.
   if (launched && panes.some((p) => p.pane_id === launched.id)) launched = null;
-  show("sessions", !inPane); show("list-nav", !inPane); show("brand", !inPane);
-  show("back", inPane); show("heading", inPane); show("detail", inPane);
+  // On a wide screen the list never leaves, so it is not "list OR pane" any more:
+  // the list and the filter tabs stay up, and Back has nothing to go back TO — the
+  // sidebar it would return you to is already there. The brand keeps its slot for the
+  // same reason. Narrow is unchanged.
+  const wide = WIDE.matches;
+  show("sessions", !inPane || wide); show("list-nav", !inPane || wide);
+  show("brand", !inPane || wide);
+  show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
   renderList();
   if (!inPane) return;
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
@@ -747,6 +759,10 @@ function fitViewport() {
 window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
 window.addEventListener("resize", fitViewport);
+// Crossing the breakpoint changes which elements are hidden, and only render() knows
+// that. Without this, widening the window leaves the list hidden until the next poll
+// repaints — and narrowing it leaves a sidebar with no room, which is the worse half.
+WIDE.addEventListener("change", render);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (view === "terminal" && captureDirty) paintCapture(); });

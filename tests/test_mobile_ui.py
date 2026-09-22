@@ -98,3 +98,25 @@ def test_key_row_can_answer_a_codex_queued_question():
     # is useless for the one key a non-visual user opened this row to press.
     assert '"Shift+Left"' in lines[start], "S-Left needs a spoken label beside its glyph"
     assert 'aria-label", aria' in body, "the spoken label must be what reaches aria-label"
+
+
+def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
+    """The phone layout is list-OR-pane; a desktop has room for both. The whole switch is
+    one media query plus not hiding the list — if a second render path ever appears here,
+    the two-UI divergence this direction exists to end has just been recreated inside one
+    UI. So pin the shape: a `wide` read gating the list's visibility, and a re-render when
+    the breakpoint is crossed (without which widening leaves the sidebar hidden until the
+    next poll repaints)."""
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "web/m/app.js").read_text()
+    css = (root / "web/m/style.css").read_text()
+
+    assert "matchMedia(" in app and "WIDE" in app
+    assert "show(\"sessions\", !inPane || wide)" in app, "the list must survive on wide screens"
+    assert "show(\"back\", inPane && !wide)" in app, "Back has nothing to return to beside a live sidebar"
+    assert 'WIDE.addEventListener("change", render)' in app, "crossing the breakpoint must re-render"
+
+    # The CSS breakpoint and the JS one are the same number in two files; a mismatch would
+    # show as a sidebar that is hidden in a grid column reserved for it.
+    assert "min-width: 1100px" in css and "min-width: 1100px)" in app
+    assert "grid-template-columns" in css

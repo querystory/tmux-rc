@@ -179,3 +179,37 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    target on the one row you actually tap, and leave dead space where the button used
    to be. */
 @media (max-height: 500px) { .app-header { min-height: 48px; padding-block: 2px; } #composer { padding-top: 6px; padding-bottom: 4px; } }
+
+/* ── Wide screens: the same UI, side by side ───────────────────────────────────
+   On a phone this is a list that becomes a pane. On a desktop there is room for
+   both at once, and the switch is layout only: #sessions and #detail are already
+   siblings, `active` already decides which pane the detail renders, and the
+   composer already lives inside #detail. So the wide mode adds no second code
+   path — app.js only stops HIDING the list (see WIDE there).
+
+   Grid rather than flex because the header and the notices span both columns
+   while the list and the filter tabs stack in the first one. Rows are placed
+   explicitly so no wrapper element is needed; a DOM change here would have to be
+   mirrored in the phone layout, which is the coupling this whole direction is
+   trying to remove.
+
+   760px was the phone layout's max-width — the point where a single column stops
+   growing. 1100 is where a 380px sidebar plus a terminal wide enough for real
+   output both fit; below it, one column is still the better use of the space. */
+@media (min-width: 1100px) {
+  #app {
+    max-width: none;
+    display: grid;
+    grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    column-gap: 0;
+  }
+  .app-header   { grid-column: 1 / -1; grid-row: 1; }
+  #update-notice{ grid-column: 1 / -1; grid-row: 2; }
+  #notice       { grid-column: 1 / -1; grid-row: 3; }
+  #sessions     { grid-column: 1; grid-row: 4; border-right: 1px solid var(--line); }
+  #list-nav     { grid-column: 1; grid-row: 5; }
+  /* Spans the list's rows AND the filter tabs' row: the terminal should use the
+     full height, not stop where the sidebar's tabs begin. */
+  #detail       { grid-column: 2; grid-row: 4 / span 2; min-height: 0; }
+}
