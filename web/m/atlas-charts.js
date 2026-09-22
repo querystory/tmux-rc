@@ -11,8 +11,8 @@ function loadScript(src) {
 }
 function loadCharts() {
   if (!libraries) libraries = (async () => {
-    if (!window.echarts) await loadScript('/m/vendor/echarts-5.6.0.min.js');
-    await loadScript('/m/vendor/echarts-wordcloud-2.1.0.min.js');
+    if (!window.echarts) await loadScript('/m/vendor/echarts.min.js');
+    await loadScript('/m/vendor/wordcloud.js');
     return window.echarts;
   })().catch(error => { libraries = null; throw error; });
   return libraries;
@@ -24,7 +24,9 @@ export function atlasCharts() {
   const cloud = document.createElement('div'), bars = document.createElement('div');
   cloud.className = 'atlas-cloud'; bars.className = 'atlas-chart';
   cloud.setAttribute('role', 'img'); bars.setAttribute('role', 'img');
-  let cloudChart, barChart, latest, wordSignature, zoomKey;
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'width:100%;height:100%;display:block';
+  let barChart, latest, wordSignature, zoomKey;
   let zoom = { start: 0, end: 100 };
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
@@ -32,10 +34,9 @@ export function atlasCharts() {
     try { echarts = await loadCharts(); }
     catch { cloud.textContent = 'Chart unavailable. Choose a topic below.'; bars.textContent = 'Chart unavailable. Reload to retry.'; return; }
     if (!cloud.clientWidth) return;
-    if (!cloudChart) {
-      cloud.replaceChildren(); bars.replaceChildren();
-      cloudChart = echarts.init(cloud); barChart = echarts.init(bars);
-      cloudChart.on('click', item => latest.selectWord(item.name));
+    if (!barChart) {
+      cloud.replaceChildren(canvas); bars.replaceChildren();
+      barChart = echarts.init(bars);
       barChart.on('datazoom', event => {
         const selection = event.batch?.[0] || event;
         zoom = { start: selection.start, end: selection.end };
@@ -53,17 +54,26 @@ export function atlasCharts() {
     const dark = !document.documentElement.classList.contains('light');
     const palette = dark ? ['#83ddb3', '#8bbdf5', '#bea5ee', '#f1c56a', '#e89f91']
       : ['#176c50', '#2867a0', '#76509e', '#956315', '#a24e41'];
-    const signature = JSON.stringify([words, dark]);
+    const ratio = window.devicePixelRatio || 1;
+    const signature = JSON.stringify([words, dark, cloud.clientWidth, cloud.clientHeight, ratio]);
     if (wordSignature !== signature) {
       wordSignature = signature;
-      cloudChart.setOption({ animation: false, tooltip: { renderMode: 'richText' }, series: [{
-        type: 'wordCloud', shape: 'circle', width: '96%', height: '94%',
-        sizeRange: [14, 54], rotationRange: [0, 0], gridSize: 7,
-        shrinkToFit: true, layoutAnimation: false,
-        textStyle: { fontFamily: 'sans-serif', fontWeight: 600 },
-        emphasis: { textStyle: { shadowBlur: 0, color: color('--fg') } },
-        data: words.map(([name, value], i) => ({ name, value, textStyle: { color: palette[i % palette.length] } })),
-      }] }, true);
+      canvas.width = Math.round(cloud.clientWidth * ratio);
+      canvas.height = Math.round(cloud.clientHeight * ratio);
+      const weights = words.map(([, n]) => n);
+      const min = Math.min(...weights), max = Math.max(...weights);
+      window.WordCloud(canvas, {
+        list: words, fontFamily: 'sans-serif', fontWeight: '600',
+        weightFactor: n => (14 + 40 * (n - min) / Math.max(1, max - min)) * ratio,
+        gridSize: Math.max(4, Math.round(7 * ratio)), rotateRatio: 0,
+        shrinkToFit: true, drawOutOfBound: false, backgroundColor: 'transparent',
+        color: word => palette[words.findIndex(([name]) => name === word) % palette.length],
+        click: item => latest.selectWord(item[0]),
+        hover: item => {
+          canvas.style.cursor = item ? 'pointer' : 'default';
+          canvas.title = item ? `${item[0]} · ${item[1]} panes` : '';
+        },
+      });
     }
     cloud.setAttribute('aria-label', `Topics sized by number of matching panes: ${words.map(([w, n]) => `${w}: ${n}`).join(', ')}. Use the topic selector below to explore.`);
     const indexed = new Map(samples.map(s => [s.t, s]));
@@ -108,12 +118,11 @@ export function atlasCharts() {
           itemStyle: { opacity: indexed.get(t).source === 'logs' ? 0.65 : 1 } } : null),
       })),
     }, true);
-    cloudChart.resize(); barChart.resize();
+    barChart.resize();
   };
   new ResizeObserver(() => {
     if (!cloud.clientWidth) return;
-    if (cloudChart) { cloudChart.resize(); barChart.resize(); }
-    else paint();
+    paint();
   }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   return { cloud, bars, resetZoom() {
