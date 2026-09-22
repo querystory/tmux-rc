@@ -37,7 +37,8 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #back { margin-right: auto; }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
-#heading { min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
+#heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
+.pane-heading-text { min-width: 0; flex: 1; }
 #heading h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #pane-location { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -47,12 +48,12 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
 .search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline-offset: 4px; font-size: 16px; }
-.list-order { display: flex; align-items: center; justify-content: space-between; padding: 0 20px 8px; color: var(--muted); font-size: 12px; }
-#sort { max-width: 180px; min-height: 44px; border: 0; background: var(--bg); padding: 8px 4px; font-size: 16px; }
+#sort { margin-left: auto; min-width: 0; max-width: 130px; min-height: 44px; border: 0; background: var(--bg); color: var(--muted); padding: 8px 0; font-size: 13px; }
+.list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
 .pane-row.needs-you { background: var(--amber-bg); }
@@ -77,9 +78,6 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #list-nav button:last-child[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #detail { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.view-tabs { display: flex; gap: 0; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none; }
-.view-tabs button { border-radius: 0; padding: 10px 20px; color: var(--muted); border-bottom: 2px solid transparent; }
-.view-tabs button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .scroller { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #overview > section { padding: 20px; border-bottom: 1px solid var(--line); }
 .section-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
@@ -229,7 +227,6 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
      tabs keep their place on the left and the identity sits to their right, where it is
      still over the panel it names. Ellipsis rather than wrap so the row cannot grow. */
   #detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
-  #detail > .view-tabs { grid-row: 1; grid-column: 1; }
   #heading {
     grid-row: 1; grid-column: 1; justify-self: end; align-self: center;
     border-bottom: 0; padding: 0 16px; max-width: 60%; text-align: right;
@@ -286,18 +283,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
-#layout-control { display: none; }
+#layout-control { display: flex; align-items: center; gap: 8px; flex: none; color: var(--muted); font-size: 12px; }
+#layout-control > span { display: none; }
+#review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 14px; min-height: 44px; max-width: 150px; }
 #session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; border-top: 1px solid #343d38; }
 #session-chips:empty { display: none; }
 #session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #252b28; color: #c6d3cb; overflow-wrap: anywhere; }
 @media (min-width: 1100px) {
+  #layout-control > span { display: inline; }
   #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; }
   #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--line); }
-  #detail > .view-tabs { grid-row: 2; grid-column: 1 / -1; align-items: center; min-height: 44px; }
-  #detail > #heading { padding-right: 230px; }
-  #detail > .view-tabs { display: none; }
-  #layout-control { grid-row: 1; grid-column: 1 / -1; justify-self: end; align-self: center; display: flex; align-items: center; gap: 8px; padding: 4px 30px; color: var(--muted); font-size: 12px; }
-  #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 12px; min-height: 32px; }
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
   #detail[data-layout="side"] { grid-template-columns: minmax(0, 1fr) clamp(240px, var(--review-size, 360px), 45%); }

@@ -385,9 +385,11 @@ function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
 new ResizeObserver(() => sizeReview()).observe($("detail"));
 $("review-layout").onchange = (e) => {
   const choice = e.target.value;
-  reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
-  if (reviewLayout === "focus") { view = choice; navigate(active, view); }
-  try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
+  if (WIDE.matches) {
+    reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
+    try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
+  }
+  if (["summary", "terminal"].includes(choice)) { view = choice; navigate(active, view); }
   restartDetail(); render();
 };
 reviewDivider.onpointerdown = (e) => {
@@ -461,12 +463,13 @@ function render() {
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
-  $("summary-tab").setAttribute("aria-pressed", view === "summary");
-  $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
   $("detail").dataset.layout = reviewing() ? reviewLayout : "focus";
-  $("review-layout").value = reviewLayout === "focus" ? view : reviewLayout;
+  const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
+  if (wide) layouts.unshift(["side", "Side by side"], ["stack", "Overview above"]);
+  const picker = $("review-layout");
+  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
+  picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
   show("review-divider", reviewing());
-  show("summary-tab", !reviewing()); show("terminal-tab", !reviewing());
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
   text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
@@ -872,8 +875,6 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("back").onclick = () => navigate();
-$("summary-tab").onclick = () => navigate(active, "summary");
-$("terminal-tab").onclick = () => navigate(active, "terminal");
 $("search").oninput = renderList;
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
 $("list-nav").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
