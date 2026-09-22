@@ -292,9 +292,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; }
   #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--line); }
   #detail > .view-tabs { grid-row: 2; grid-column: 1 / -1; align-items: center; min-height: 44px; }
-  #detail:not([data-layout="focus"]) > #heading { padding-right: 230px; }
-  #detail:not([data-layout="focus"]) > .view-tabs { grid-row: 1; justify-self: end; border-bottom: 0; }
-  #layout-control { display: flex; align-items: center; gap: 8px; margin-left: auto; padding: 4px 14px; color: var(--muted); font-size: 12px; }
+  #detail > #heading { padding-right: 230px; }
+  #detail:not([data-layout="focus"]) > .view-tabs { display: none; }
+  #layout-control { grid-row: 1; grid-column: 1 / -1; justify-self: end; align-self: center; display: flex; align-items: center; gap: 8px; padding: 4px 30px; color: var(--muted); font-size: 12px; }
   #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 12px; min-height: 32px; }
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
