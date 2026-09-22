@@ -780,7 +780,7 @@ def click(pane_id: str, from_bottom: int, col: int, *,
         visible = _materialize_links(_run([
             "capture-pane", "-p", "-e", "-t", pane_id, "-S", "-0",
         ])).rstrip("\n")
-        if not visible or not (frame == visible or frame.endswith("\n" + visible)):
+        if not (frame == visible or frame.endswith("\n" + visible)):
             return False
         row = len(visible.split("\n")) - from_bottom
         if row < 1:

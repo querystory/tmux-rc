@@ -194,3 +194,17 @@ def test_changed_visible_capture_does_not_reuse_fresh_frames_geometry(monkeypatc
     assert not T.click("%1", from_bottom=0, col=1, expected_pid="1234",
                        expected_frame=hashlib.md5(b"menu\nitem").hexdigest())
     assert sent == []
+
+
+def test_empty_live_frame_can_click_first_visible_row(monkeypatch):
+    sent = fake_tmux(monkeypatch, "\n\n\n")
+    assert T.click("%1", from_bottom=0, col=1, expected_pid="1234",
+                   expected_frame=hashlib.md5(b"").hexdigest())
+    assert report(sent[0]) == "\x1b[<0;1;1M\x1b[<0;1;1m"
+
+
+def test_blank_screen_with_only_scrollback_does_not_click_history(monkeypatch):
+    sent = fake_tmux(monkeypatch, "\n\n", history="old output\n")
+    assert not T.click("%1", from_bottom=0, col=1, expected_pid="1234",
+                       expected_frame=hashlib.md5(b"old output").hexdigest())
+    assert sent == []
