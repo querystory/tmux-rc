@@ -12,7 +12,7 @@ function loadScript(src) {
 function loadCharts() {
   if (!libraries) libraries = (async () => {
     if (!window.echarts) await loadScript('/m/vendor/echarts.min.js');
-    await loadScript('/m/vendor/wordcloud.js');
+    if (!window.WordCloud) await loadScript('/m/vendor/wordcloud.js');
     return window.echarts;
   })().catch(error => { libraries = null; throw error; });
   return libraries;
