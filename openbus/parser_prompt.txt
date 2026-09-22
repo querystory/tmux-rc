@@ -55,12 +55,12 @@ TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just th
 lines. The choices are "claude", "codex", "gemini", "shell", "unknown" — do NOT default
 to "claude"; different coding agents look similar (box-drawn input, permission prompts)
 but have distinct signatures. Decide by the evidence on screen:
-- "codex" (OpenAI Codex / ChatGPT CLI). The model name decides this one: an OpenAI
-  model means codex, full stop. OpenAI names start "gpt-" or "o"+digit ("gpt-5",
-  "gpt-6-astra", "o3", "o4-mini"); Anthropic names are words ("Opus", "Sonnet", "Haiku",
-  "Fable"). New models ship constantly, so match the FAMILY, never a version you have
-  seen before — an unfamiliar "gpt-…" is codex, not claude. Claude Code never reports a
-  "gpt-…" model, so if you think you see one in Claude chrome, you misread the chrome.
+- "codex" (OpenAI Codex / ChatGPT CLI): an OpenAI model in the pane's OWN live
+  status-bar model slot identifies Codex. OpenAI names start "gpt-" or "o"+digit
+  ("gpt-5", "gpt-6-astra", "o3", "o4-mini"); match that family, not a version list.
+  FIRST distinguish live chrome from printed content: a python/server/log-viewer
+  printing an entire captured Codex footer is still a shell program, even when that
+  quoted footer contains a model, thread title, context usage, and Ready/Working.
   Other Codex tells: it calls itself "Codex"; its input box prompts "Ask Codex to do
   anything"; permission prompts are a NUMBERED list ("1. Yes  2. Yes, and don't ask
   again for commands that start with X  3. No, and tell Codex what to do differently").
@@ -85,14 +85,12 @@ but have distinct signatures. Decide by the evidence on screen:
   "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
   "Fable" + a version like "4.8" — the family grows, so an unfamiliar name in the model
-  slot is claude when the rest of the chrome matches, EXCEPT a "gpt-…"/"o<digit>" name,
-  which is OpenAI and settles the pane as codex); status line shows dir/branch ·
+  slot is claude when the rest of the chrome matches); status line shows dir/branch ·
   model · context% · elapsed · cost · prompts/tools counts; whimsical gerund while
   working (e.g. "Shimmying…"); permission modes "plan mode"/"accept edits"/"bypass
   permissions"; Esc-Esc REWIND picker. The CHROME identifies it — an unrecognized model
-  name inside unmistakable Claude Code chrome is still "claude", UNLESS that name is a
-  GPT/o-series one: no Claude Code status line reports a "gpt-…" model, so seeing one
-  means the chrome was misread and the pane is codex.
+  name inside unmistakable Claude Code chrome is still "claude". GPT names in its
+  conversation, logs, or subagent output do not change the identity of the host agent.
 The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
 not screen content. Agents run as node/claude/codex/gemini processes; a pane whose
 process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
