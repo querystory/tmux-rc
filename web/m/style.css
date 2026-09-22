@@ -287,9 +287,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #layout-control { display: flex; align-items: center; gap: 8px; flex: none; color: var(--muted); font-size: 12px; }
 #layout-control > span { display: none; }
 #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 14px; min-height: 44px; max-width: 150px; }
-#session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; border-top: 1px solid #343d38; }
+#session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; background: var(--bg); color: var(--muted); border-top: 1px solid var(--line); }
 #session-chips:empty { display: none; }
-#session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #252b28; color: #c6d3cb; overflow-wrap: anywhere; }
+#session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--surface); color: inherit; border: 1px solid var(--line); overflow-wrap: anywhere; }
 @media (min-width: 1100px) {
   #layout-control > span { display: inline; }
   #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; }
