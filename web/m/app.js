@@ -281,41 +281,59 @@ function renderLanding() {
 // something the daemon should know. Arrow keys move it too: the handle is a focusable
 // separator, and a pointer-only affordance would be unreachable from the keyboard.
 const SIDEBAR_KEY = "tmuxrc-sidebar";
-function setSidebar(px) {
-  const width = Math.round(Math.min(Math.max(px, 260), window.innerWidth * 0.46));
+// Mirrors the CSS clamp() in style.css. Kept in both places on purpose: the clamp is the
+// guard that must hold even with JS off or a hand-edited localStorage value, and these
+// bounds are what the separator reports to assistive tech.
+const SIDEBAR_MIN = 260, SIDEBAR_MAX = () => window.innerWidth * 0.46;
+// `persist` is false for the boot restore: replaying a stored width must not write it
+// back, or a phone visit (where the 46vw ceiling bites) would overwrite the width the
+// user chose on their desktop.
+function setSidebar(px, persist = true) {
+  const width = Math.round(Math.min(Math.max(px, SIDEBAR_MIN), SIDEBAR_MAX()));
   document.documentElement.style.setProperty("--sidebar", width + "px");
-  try { localStorage.setItem(SIDEBAR_KEY, String(width)); } catch {}
+  // A focusable role="separator" is a widget, so it owes screen readers a value.
+  const handle = $("divider");
+  handle.setAttribute("aria-valuenow", width);
+  handle.setAttribute("aria-valuemin", SIDEBAR_MIN);
+  handle.setAttribute("aria-valuemax", Math.round(SIDEBAR_MAX()));
+  if (persist) { try { localStorage.setItem(SIDEBAR_KEY, String(width)); } catch {} }
   return width;
 }
-try {
-  const stored = Number(localStorage.getItem(SIDEBAR_KEY));
-  if (stored > 0) document.documentElement.style.setProperty("--sidebar", Math.round(stored) + "px");
-} catch {}
-$("divider").addEventListener("pointerdown", (e) => {
+// Through setSidebar, not straight to the property, so a width stored on a wide monitor
+// is re-clamped against THIS window and the separator reports a value from the first
+// paint. A missing or junk entry leaves the CSS default (340px) in place.
+let storedSidebar = 0;
+try { storedSidebar = Number(localStorage.getItem(SIDEBAR_KEY)); } catch {}
+setSidebar(storedSidebar > 0 ? storedSidebar : 340, false);
+
+const divider = $("divider");
+divider.addEventListener("pointerdown", (e) => {
   e.preventDefault();
-  $("divider").setPointerCapture(e.pointerId);
-  $("divider").classList.add("dragging");
+  divider.setPointerCapture(e.pointerId);
+  divider.classList.add("dragging");
   document.body.classList.add("resizing");
 });
-$("divider").addEventListener("pointermove", (e) => {
-  if (!$("divider").hasPointerCapture(e.pointerId)) return;
+divider.addEventListener("pointermove", (e) => {
+  if (!divider.hasPointerCapture(e.pointerId)) return;
   // Measured from the app's left edge, not the viewport, so it stays correct if the
   // layout ever gains an outer margin.
   setSidebar(e.clientX - $("app").getBoundingClientRect().left);
 });
+// pointerup and pointercancel both land here, and capture guarantees one of them fires
+// even if the pointer leaves the window mid-drag — so the body class cannot stick on.
 const endResize = (e) => {
-  if (e.pointerId !== undefined && $("divider").hasPointerCapture(e.pointerId)) {
-    $("divider").releasePointerCapture(e.pointerId);
-  }
-  $("divider").classList.remove("dragging");
+  if (divider.hasPointerCapture(e.pointerId)) divider.releasePointerCapture(e.pointerId);
+  divider.classList.remove("dragging");
   document.body.classList.remove("resizing");
 };
-$("divider").addEventListener("pointerup", endResize);
-$("divider").addEventListener("pointercancel", endResize);
-$("divider").addEventListener("keydown", (e) => {
+divider.addEventListener("pointerup", endResize);
+divider.addEventListener("pointercancel", endResize);
+divider.addEventListener("keydown", (e) => {
   const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
   if (!step) return;
   e.preventDefault();
+  // From the rendered width, not the stored one: the clamp may already be overriding it,
+  // and an arrow press should move the seam the user can actually see.
   setSidebar($("sessions").getBoundingClientRect().width + step);
 });
 

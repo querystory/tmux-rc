@@ -29,6 +29,12 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #app { position: absolute; top: var(--app-top, 0px); left: 0; right: 0; height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .app-header { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
 #brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; }
+/* #heading used to be the header's flex:1 filler, so hiding #brand (narrow, in a pane)
+   still left something to push the status and the buttons right. With the heading moved
+   into #detail, nothing did and they all bunched left. #back is shown in exactly that
+   case (narrow, in a pane), so it takes the slack; hidden, it contributes nothing, and
+   #brand keeps the auto margin on every screen that shows the brand. */
+#back { margin-right: auto; }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
 #heading { min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
@@ -241,7 +247,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
     background: var(--line); transition: background 120ms, width 120ms;
   }
   #divider:hover::after, #divider:focus-visible::after, #divider.dragging::after {
-    background: var(--accent, #16a34a); width: 3px;
+    background: var(--accent); width: 3px;
   }
   #divider:focus-visible { outline: none; }
   /* While dragging, the pointer owns the gesture: no text selection, and the iframe-like
@@ -260,12 +266,15 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 }
 .landing-stat .n { display: block; font-size: 24px; font-weight: 600; line-height: 1.1; }
 .landing-stat .k { font-size: 12px; color: var(--muted); }
-.landing-stat.attention .n { color: var(--accent, #16a34a); }
+/* Amber, not accent: "needs you" is amber everywhere else in this UI (the waiting badge,
+   the needs-you row, the filter tab, the question panel). Green is the running colour. */
+.landing-stat.attention .n { color: var(--amber); }
+.landing-stat.attention { border-color: var(--amber); }
 /* Same affordance as a list row: the whole thing is the target, text stays left-aligned. */
 .landing-row {
   display: block; width: 100%; text-align: left; background: none; cursor: pointer;
   border: 0; border-top: 1px solid var(--line); padding: 10px 2px; font: inherit; color: inherit;
 }
-.landing-row:hover { background: var(--row-hover, rgba(127, 127, 127, 0.08)); }
+.landing-row:hover { background: var(--raised); }
 .landing-row .t { display: block; font-weight: 600; }
 .landing-row .m { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
