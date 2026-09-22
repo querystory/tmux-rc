@@ -320,6 +320,9 @@ addEventListener("resize", () => setSidebar(sidebarWidth, false));
 
 const divider = $("divider");
 divider.addEventListener("pointerdown", (e) => {
+  // Primary button only. A right-click on the seam is a context-menu gesture, not a
+  // resize, and preventDefault() here would swallow it.
+  if (e.button !== 0) return;
   e.preventDefault();
   divider.setPointerCapture(e.pointerId);
   divider.classList.add("dragging");

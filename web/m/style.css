@@ -276,5 +276,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   border: 0; border-top: 1px solid var(--line); padding: 10px 2px; font: inherit; color: inherit;
 }
 .landing-row:hover { background: var(--raised); }
-.landing-row .t { display: block; font-weight: 600; }
-.landing-row .m { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+/* overflow-wrap as everywhere else that renders a pane name: a title or a window name is
+   user-supplied and can be one unbroken run, and these are spans, so the h1/h2/p rule at
+   the top of the file does not reach them. */
+.landing-row .t { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.landing-row .m { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
