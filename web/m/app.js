@@ -188,6 +188,8 @@ function makeRow(pane) {
   return button;
 }
 function updateRow(button, pane) {
+  if (pane.pane_id === active) button.setAttribute("aria-current", "true");
+  else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", needsYou(pane));
   const logo = button.querySelector(".pane-icon img");
   const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
@@ -388,7 +390,9 @@ function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
 }
 new ResizeObserver(() => sizeReview()).observe($("detail"));
 $("review-layout").onchange = (e) => {
-  reviewLayout = e.target.value;
+  const choice = e.target.value;
+  reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
+  if (reviewLayout === "focus") { view = choice; navigate(active, view); }
   try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
   restartDetail(); render();
 };
@@ -466,7 +470,7 @@ function render() {
   $("summary-tab").setAttribute("aria-pressed", view === "summary");
   $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
   $("detail").dataset.layout = reviewing() ? reviewLayout : "focus";
-  $("review-layout").value = reviewLayout;
+  $("review-layout").value = reviewLayout === "focus" ? view : reviewLayout;
   show("review-divider", reviewing());
   show("summary-tab", !reviewing()); show("terminal-tab", !reviewing());
   show("overview", overviewVisible()); show("terminal", terminalVisible());
