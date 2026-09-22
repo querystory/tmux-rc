@@ -714,11 +714,11 @@ def click(pane_id: str, body: ClickBody, request: Request):
     them (tmux.click). `sent: false` is a normal answer — the tap landed on a shell, or
     on history — so the client just lets it be a tap."""
     detail = f"from_bottom={body.from_bottom} col={body.col}"
-    pane = tmux.find_pane(pane_id)  # canonical id for the per-pane lock, as in send()
-    if pane is None:
-        _audit(request, "click", pane_id, detail, outcome="rejected: pane not found")
-        raise HTTPException(404, "pane not found")
     try:
+        pane = tmux.find_pane(pane_id)  # canonical id for the per-pane lock, as in send()
+        if pane is None:
+            _audit(request, "click", pane_id, detail, outcome="rejected: pane not found")
+            raise HTTPException(404, "pane not found")
         sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid)
     except subprocess.CalledProcessError as e:
         _audit(request, "click", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")

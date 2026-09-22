@@ -130,3 +130,25 @@ def test_click_endpoint_rejects_invalid_coordinates(monkeypatch, body):
     monkeypatch.setattr(T, "click", click)
     assert TestClient(app).post("/api/panes/%1/click", json=body).status_code == 422
     click.assert_not_called()
+
+
+@pytest.mark.parametrize(("code", "status"), [(1, 404), (124, 504)])
+def test_click_endpoint_audits_and_maps_preflight_failures(monkeypatch, code, status):
+    import subprocess
+    from unittest.mock import Mock
+
+    from fastapi.testclient import TestClient
+
+    from openbus import server
+
+    lookup = Mock(side_effect=subprocess.CalledProcessError(code, "tmux"))
+    monkeypatch.setattr(T, "find_pane", lookup)
+    click, audit = Mock(), Mock()
+    monkeypatch.setattr(T, "click", click)
+    monkeypatch.setattr(server, "_audit", audit)
+    response = TestClient(server.app).post(
+        "/api/panes/alias/click", json={"from_bottom": 0, "col": 1},
+    )
+    assert response.status_code == status
+    click.assert_not_called()
+    audit.assert_called_once()
