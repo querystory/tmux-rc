@@ -1,3 +1,4 @@
+import { renderAtlas, observeAtlas } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
@@ -252,27 +253,14 @@ function landingRows(id, subset) {
 
 function renderLanding() {
   const waiting = panes.filter(needsYou);
-  text($("landing-title"), panes.length ? "Nothing selected" : "No panes yet");
+  text($("landing-title"), panes.length ? "Session atlas" : "No panes yet");
   // With no panes there is no session to open a window IN: + is disabled and the server
   // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
   // the empty state says where a session actually comes from instead.
   text($("landing-sub"), panes.length
-    ? "Pick a session on the left, or start with one of these."
+    ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
     : "No tmux panes are open. Start a session on the host and it will appear here.");
-  reconcile($("landing-stats"), [
-    { k: "Panes", n: panes.length },
-    { k: "Running", n: panes.filter(isRunning).length },
-    { k: "Recent", n: panes.filter((p) => isRecent(p)).length },
-    { k: "Needs you", n: waiting.length, attention: true },
-  ], (s) => s.k, () => {
-    const d = document.createElement("div");
-    d.innerHTML = '<span class="n"></span><span class="k"></span>';
-    return d;
-  }, (node, stat) => {
-    node.className = "landing-stat" + (stat.attention ? " attention" : "");
-    text(node.querySelector(".n"), stat.n);
-    text(node.querySelector(".k"), stat.k);
-  });
+  renderAtlas($("session-atlas"), panes, navigate, LOGOS);
   landingRows("landing-attention", waiting);
   // Most recently active first, and never a pane already listed above it.
   landingRows("landing-active", panes
@@ -709,6 +697,7 @@ async function pollState(signal) {
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
+      if (booted && !data.stale) observeAtlas(panes);
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
