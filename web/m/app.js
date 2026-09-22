@@ -1,8 +1,12 @@
+import { headerPicker } from "/m/header-picker.js";
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+
+const refreshSortPicker = headerPicker(document.getElementById("sort"));
+const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -163,6 +167,7 @@ function route() {
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
   sort = params.get("sort") === "session" ? "session" : "updated";
   $("sort").value = sort;
+  refreshSortPicker();
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("overview").scrollTop = 0;
@@ -469,6 +474,7 @@ function render() {
   const picker = $("review-layout");
   if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
   picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
+  refreshViewPicker();
   show("review-divider", reviewing());
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);

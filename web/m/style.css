@@ -52,7 +52,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
 .search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline-offset: 4px; font-size: 16px; }
-#sort { margin-left: auto; min-width: 0; max-width: 130px; min-height: 44px; border: 0; background: var(--bg); color: var(--muted); padding: 8px 0; font-size: 13px; }
+#sort-picker { margin-left: auto; color: var(--muted); font-size: 13px; }
+#sort-picker summary { padding: 0; }
 .list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
@@ -310,3 +311,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #review-divider:hover::after, #review-divider:focus-visible::after, #review-divider.dragging::after { background: var(--accent); }
   #review-divider.dragging ~ #overview, #review-divider.dragging ~ #terminal { user-select: none; }
 }
+
+.header-picker { position: relative; min-width: 0; }
+.header-picker summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 5px 8px; cursor: pointer; list-style: none; white-space: nowrap; border-radius: 5px; }
+.header-picker summary::-webkit-details-marker { display: none; }
+.header-picker summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); flex: none; margin-top: -3px; }
+.header-picker summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#review-layout-picker summary { background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
+.header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
+.header-picker-menu label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
+.header-picker-menu input { accent-color: var(--accent); }
+
+.header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
