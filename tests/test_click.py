@@ -10,14 +10,15 @@ import pytest
 import openbus.tmux as T
 
 
-def fake_tmux(monkeypatch, screen, sgr="1", physical=None):
+def fake_tmux(monkeypatch, screen, sgr="1", physical=None, history=""):
     sent = []
 
     def run(argv):
         if argv[0] == "display-message":
-            return f"80 {len(screen.removesuffix(chr(10)).split(chr(10)))} {sgr}\n"
+            return f"80 {sgr}\n"
         if argv[0] == "capture-pane":
             assert argv[-1] in {"-0", "-200"}  # geometry or live-frame freshness
+            if argv[-1] == "-200": return history + screen
             return physical if "-J" not in argv and physical is not None else screen
         sent.append(argv)
         return ""
@@ -178,4 +179,18 @@ def test_changed_frame_never_receives_click(monkeypatch):
     sent = fake_tmux(monkeypatch, "new menu")
     assert not T.click("%1", from_bottom=0, col=1, expected_pid="1234",
                        expected_frame=hashlib.md5(b"old menu").hexdigest())
+    assert sent == []
+
+
+def test_wrapped_scrollback_does_not_disable_visible_clicks(monkeypatch):
+    sent = fake_tmux(monkeypatch, "menu\nitem\n", history="long joined historical line\n")
+    frame = hashlib.md5(b"long joined historical line\nmenu\nitem").hexdigest()
+    assert T.click("%1", from_bottom=0, col=1, expected_pid="1234", expected_frame=frame)
+    assert report(sent[0]) == "\x1b[<0;1;2M\x1b[<0;1;2m"
+
+
+def test_changed_visible_capture_does_not_reuse_fresh_frames_geometry(monkeypatch):
+    sent = fake_tmux(monkeypatch, "menu\nitem", physical="new menu\nother item")
+    assert not T.click("%1", from_bottom=0, col=1, expected_pid="1234",
+                       expected_frame=hashlib.md5(b"menu\nitem").hexdigest())
     assert sent == []
