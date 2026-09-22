@@ -257,7 +257,7 @@ function renderLanding() {
   text($("landing-sub"), panes.length
     ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
     : "No tmux panes are open. Start a session on the host and it will appear here.");
-  renderAtlas($("session-atlas"), panes, navigate);
+  renderAtlas($("session-atlas"), panes, navigate, LOGOS);
   landingRows("landing-attention", waiting);
   // Most recently active first, and never a pane already listed above it.
   landingRows("landing-active", panes
