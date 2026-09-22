@@ -140,7 +140,9 @@ export function renderAtlas(root, panes, navigate, logos) {
     const width = Math.floor(entries[0].contentRect.width);
     if (!width || width === mapWidth || !islands.length) return;
     mapWidth = width;
+    const focused = map.contains(document.activeElement) ? document.activeElement : null;
     map.replaceChildren(packSessions(islands, width));
+    focused?.focus({ preventScroll: true });
   });
   root._mapResize.observe(map);
   if (!panes.length) root.append(el('p', 'muted', 'No current panes match these filters.'));
