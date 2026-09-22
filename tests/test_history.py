@@ -239,3 +239,27 @@ def test_legacy_imports_retained_but_not_used_without_lifetime_proof(tmp_path):
     assert h.query("all", now=700)["samples"][-1]["n"] is None
     with h.connect() as db:
         assert db.execute("SELECT count(*) FROM log_observations").fetchone()[0] == 1
+
+
+def test_database_and_recreated_sidecars_are_private(tmp_path):
+    import stat
+
+    path = tmp_path / "h.db"
+    path.touch(mode=0o644)
+    h = History(path)
+    for value in (1, 2):
+        with h.connect() as db:
+            db.execute("INSERT INTO snapshots VALUES (?, '[]')", (value,))
+            for file in (path, tmp_path / "h.db-wal", tmp_path / "h.db-shm"):
+                assert stat.S_IMODE(file.stat().st_mode) == 0o600
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+
+
+def test_shared_parent_is_rejected_without_changing_its_permissions(tmp_path):
+    import stat
+
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    with pytest.raises(ValueError, match="private directory"):
+        History(shared / "h.db")
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755

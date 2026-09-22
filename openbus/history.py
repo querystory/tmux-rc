@@ -51,6 +51,22 @@ class History:
     def __init__(self, path: Path):
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # A private directory protects files throughout creation/recreation. Do not
+        # chmod an arbitrary override parent (it might be /tmp or a shared directory).
+        if path.parent.stat().st_mode & 0o077:
+            raise ValueError("History requires a private directory (mode 0700)")
+        # SQLite derives new WAL/SHM permissions from the main database. Set its
+        # mode BEFORE the first connection, including an existing database upgrade.
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+        for suffix in ("-wal", "-shm"):
+            try:
+                Path(f"{path}{suffix}").chmod(0o600)
+            except FileNotFoundError:
+                pass
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""

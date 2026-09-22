@@ -7,7 +7,8 @@ fleet therefore has an explicit observation. Browser visits do not affect collec
 
 The database defaults to `$XDG_STATE_HOME/tmux-rc/history.sqlite3` (normally
 `~/.local/state/tmux-rc/history.sqlite3`); `TMUXRC_HISTORY_DB` overrides it. Keep it
-outside checkouts. It is local to one host, contains no terminal text or summaries,
+outside checkouts, in a private directory (mode `0700`); shared override directories
+are rejected rather than chmodded. The database and WAL/SHM sidecars use `0600`. It is local to one host, contains no terminal text or summaries,
 and uses WAL with short transactions. All history is retained; copy the database
 using SQLite's backup API, or stop its writer before copying the database and WAL.
 A second collector should use its own database if it observes a different fleet.
