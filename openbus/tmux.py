@@ -745,6 +745,42 @@ def send_keys(
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
+def click(pane_id: str, from_bottom: int, col: int) -> bool:
+    """Left-click the cell `from_bottom` lines above the last line of the live frame, at
+    1-based `col`. Returns False (nothing sent) when the pane's app has not asked for
+    SGR mouse reports — a shell would echo the bytes as garbage — or the line has
+    scrolled off the visible screen into history, where the app has no cell to hit.
+
+    The client counts lines from the BOTTOM because that is the one edge its frame
+    shares with the screen: the frame starts somewhere in history and loses trailing
+    blank rows to the rstrip. Capturing the visible screen through the same capture_pane
+    path and counting up from its last line puts the row in screen coordinates without
+    the live stream having to carry any geometry. Reject wrapped screens: the joined
+    capture loses their physical row boundaries, so guessing could click another action.
+
+    tmux can't synthesize a mouse event (`send-keys -M` only replays the one that
+    triggered a binding), so we write the report bytes the app would have received:
+    `ESC[<0;col;rowM` press, `…m` release."""
+    if from_bottom < 0 or col < 1:
+        return False
+    with _pane_lock(pane_id):
+        width, sgr = _run([
+            "display-message", "-p", "-t", pane_id, "#{pane_width} #{mouse_sgr_flag}",
+        ]).split()
+        if sgr != "1" or col > int(width):
+            return False
+        joined = capture_pane(pane_id, lines=0, keep_colors=True).split("\n")
+        physical = _run(["capture-pane", "-p", "-e", "-t", pane_id, "-S", "-0"])
+        if len(physical.rstrip("\n").split("\n")) != len(joined):
+            return False
+        row = len(joined) - from_bottom
+        if row < 1:
+            return False
+        seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
+        _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq)])
+        return True
+
+
 _clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping
 _clip_lock = threading.Lock()  # uploads run in worker threads; don't race the list
 

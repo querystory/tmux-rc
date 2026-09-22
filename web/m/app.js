@@ -41,6 +41,8 @@ const LUCIDE = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  pointer: '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
+  cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -890,6 +892,38 @@ $("theme").onclick = () => { const light = !document.documentElement.classList.c
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; };
+// Click mode: a tap on the terminal is a mouse click in the pane (the daemon drops it
+// unless the pane's app asked for mouse reports). Select mode is the plain text view, for
+// copying. Two explicit modes rather than guessing intent from drag-vs-tap, because a tap
+// that meant "place the selection" would otherwise click whatever is under it.
+function setClickMode(on) {
+  $("capture").classList.toggle("clicks", on);
+  html($("click-mode"), `${licon(on ? "pointer" : "cursor", 16)}${on ? "Click" : "Select"}`);
+  $("click-mode").ariaLabel = $("click-mode").dataset.tip = on
+    ? "Click mode: taps click inside the app, like menus and agent rows. Tap to switch to Select for copying text."
+    : "Select mode: drag to select and copy text. Tap to switch to Click to use the app's menus and rows.";
+}
+let storedClickMode = null;
+try { storedClickMode = localStorage.getItem("tmuxrc-click-mode"); } catch {}
+setClickMode(storedClickMode !== "off");
+$("click-mode").onclick = () => { const on = !$("capture").classList.contains("clicks"); setClickMode(on); try { localStorage.setItem("tmuxrc-click-mode", on ? "on" : "off"); } catch {} };
+// The cell comes from monospace geometry, not the tapped node, so blank space right of
+// the text still hits its row. Rows count up from the frame's last line — the edge it
+// shares with the screen (see tmux.click). A tap on a link still follows the link.
+$("capture").onclick = (event) => {
+  const pre = $("capture");
+  if (!active || !captureLines.length || !pre.classList.contains("clicks") || event.target.closest("a")) return;
+  const probe = pre.appendChild(document.createElement("span"));
+  probe.textContent = "0".repeat(100);
+  const cell = probe.getBoundingClientRect().width / 100;
+  probe.remove();
+  const style = getComputedStyle(pre), box = pre.getBoundingClientRect();
+  const top = box.top + parseFloat(style.paddingTop);
+  const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
+  const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
+  if (row < 0 || row >= captureLines.length || col < 1) return;
+  post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col }).catch(() => {});
+};
 
 $("new-window").onclick = async () => {
   $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
