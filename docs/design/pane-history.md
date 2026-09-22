@@ -11,6 +11,13 @@ outside checkouts, in a private directory (mode `0700`); shared override directo
 are rejected rather than chmodded. The database and WAL/SHM sidecars use `0600`. It is local to one host, contains no terminal text or summaries,
 and uses WAL with short transactions. All history is retained; copy the database
 using SQLite's backup API, or stop its writer before copying the database and WAL.
+Identical inventories share one immutable JSON payload. Consecutive heartbeats extend
+one observation interval rather than inserting a full inventory every minute. State
+changes and outages start new intervals; migration preserves existing observations
+and gaps. Storage therefore grows with unique inventories and changes, not minutes
+of an unchanged fleet. All-time history is intentionally retained without a rolling
+expiry; it is not a fixed-size database.
+
 A second collector should use its own database if it observes a different fleet.
 
 The query returns at most roughly 361 buckets. Each bucket represents the latest

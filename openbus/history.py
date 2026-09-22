@@ -71,8 +71,11 @@ class History:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS snapshots (
-                    t REAL PRIMARY KEY, panes TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS inventory_payloads (
+                    id INTEGER PRIMARY KEY, panes TEXT NOT NULL UNIQUE);
+                CREATE TABLE IF NOT EXISTS snapshot_intervals (
+                    t REAL PRIMARY KEY, last_seen REAL NOT NULL,
+                    payload_id INTEGER NOT NULL REFERENCES inventory_payloads(id));
                 CREATE TABLE IF NOT EXISTS log_observations (
                     t REAL NOT NULL, uid TEXT NOT NULL, tool TEXT NOT NULL,
                     state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 3),
@@ -88,10 +91,41 @@ class History:
             host = db.execute("SELECT value FROM metadata WHERE key='host'").fetchone()[0]
             if host != socket.gethostname():
                 raise ValueError("History database belongs to another host")
+            self._migrate_snapshots(db)
         path.chmod(0o600)
         self._last = None
         self._written = 0.0
         self._failed = 0.0
+
+    @staticmethod
+    def _extend(db, now: float, payload_id: int) -> None:
+        last = db.execute(
+            "SELECT t, last_seen, payload_id FROM snapshot_intervals ORDER BY t DESC LIMIT 1",
+        ).fetchone()
+        if last and last[2] == payload_id and last[1] <= now <= last[1] + COVERAGE:
+            db.execute("UPDATE snapshot_intervals SET last_seen=? WHERE t=?", (now, last[0]))
+        else:
+            db.execute("INSERT OR REPLACE INTO snapshot_intervals VALUES (?, ?, ?)",
+                       (now, now, payload_id))
+
+    @classmethod
+    def _migrate_snapshots(cls, db) -> None:
+        # Losslessly compress old heartbeats in one transaction, including outages.
+        legacy = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='snapshots' AND type='table'",
+        ).fetchone()
+        if legacy:
+            db.execute("INSERT OR IGNORE INTO inventory_payloads(panes) "
+                       "SELECT DISTINCT panes FROM snapshots")
+            rows = db.execute(
+                "SELECT s.t, p.id FROM snapshots s JOIN inventory_payloads p "
+                "ON p.panes=s.panes ORDER BY s.t",
+            )
+            for now, payload_id in rows:
+                cls._extend(db, now, payload_id)
+            db.execute("DROP TABLE snapshots")
+        db.execute("CREATE VIEW IF NOT EXISTS snapshots AS SELECT t, last_seen, panes "
+                   "FROM snapshot_intervals JOIN inventory_payloads ON payload_id=id")
 
     @contextmanager
     def connect(self):
@@ -118,7 +152,11 @@ class History:
         if self._failed and now - self._failed < HEARTBEAT: return
         try:
             with self.connect() as db:
-                db.execute("INSERT OR REPLACE INTO snapshots VALUES (?, ?)", (now, payload))
+                db.execute("INSERT OR IGNORE INTO inventory_payloads(panes) VALUES (?)", (payload,))
+                payload_id = db.execute(
+                    "SELECT id FROM inventory_payloads WHERE panes=?", (payload,),
+                ).fetchone()[0]
+                self._extend(db, now, payload_id)
         except (OSError, sqlite3.Error):
             self._failed = now
             logger.warning("Could not persist pane history; retrying in one minute", exc_info=True)
@@ -159,7 +197,8 @@ class History:
             for bucket in range(int(start), int(now) + 1, step):
                 at = min(bucket + step - 0.001, now)
                 live = db.execute(
-                    "SELECT t, panes FROM snapshots WHERE t<=? ORDER BY t DESC LIMIT 1", (at,),
+                    "SELECT last_seen, panes FROM snapshots WHERE t<=? ORDER BY t DESC LIMIT 1",
+                    (at,),
                 ).fetchone()
                 source, panes = "gap", None
                 if live and at - live[0] <= COVERAGE:

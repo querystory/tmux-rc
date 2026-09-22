@@ -249,7 +249,7 @@ def test_database_and_recreated_sidecars_are_private(tmp_path):
     h = History(path)
     for value in (1, 2):
         with h.connect() as db:
-            db.execute("INSERT INTO snapshots VALUES (?, '[]')", (value,))
+            db.execute("INSERT INTO metadata VALUES (?, 'sidecar-test')", (str(value),))
             for file in (path, tmp_path / "h.db-wal", tmp_path / "h.db-shm"):
                 assert stat.S_IMODE(file.stat().st_mode) == 0o600
     assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
@@ -263,3 +263,43 @@ def test_shared_parent_is_rejected_without_changing_its_permissions(tmp_path):
     with pytest.raises(ValueError, match="private directory"):
         History(shared / "h.db")
     assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+
+
+def test_heartbeats_coalesce_without_losing_outages_or_state_changes(tmp_path):
+    h = History(tmp_path / "h.db")
+    for now in range(600, 87000, 60):
+        h.record([pane()], "s", now)
+    with h.connect() as db:
+        assert db.execute("SELECT count(*) FROM inventory_payloads").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 1
+    h.record([pane(activity="idle")], "s", 87000)
+    h.record([pane()], "s", 87060)
+    h.record([pane()], "s", 88000)
+    with h.connect() as db:
+        assert db.execute("SELECT count(*) FROM inventory_payloads").fetchone()[0] == 2
+        assert db.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 4
+    samples = h.query("1h", now=88000)["samples"]
+    assert any(s["source"] == "gap" for s in samples)
+    assert samples[-1]["n"] == [0, 1, 0, 0]
+
+
+def test_legacy_snapshot_migration_preserves_history_and_gaps(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "h.db"
+    payload = json.dumps([{"uid": "s:%1", "session": "work", "tool": "claude", "state": 1}])
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE snapshots (t REAL PRIMARY KEY, panes TEXT NOT NULL)")
+        db.executemany("INSERT INTO snapshots VALUES (?, ?)", [(600, payload), (660, payload),
+                                                             (1000, payload), (1060, "[]")])
+    for _ in range(2):
+        h = History(path)
+        with h.connect() as db:
+            assert db.execute("SELECT t, last_seen FROM snapshots ORDER BY t").fetchall() == [
+                (600, 660), (1000, 1000), (1060, 1060),
+            ]
+            assert db.execute("SELECT count(*) FROM inventory_payloads").fetchone()[0] == 2
+        samples = h.query("all", now=1060)["samples"]
+        assert samples[0]["n"] == [0, 1, 0, 0]
+        assert any(s["source"] == "gap" for s in samples)
+        assert samples[-1]["n"] == [0, 0, 0, 0]
