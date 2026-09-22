@@ -37,7 +37,8 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #back { margin-right: auto; }
 /* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
    same type, the same 16px gutter, its own rule under it. */
-#heading { min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
+#heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
+.pane-heading-text { min-width: 0; flex: 1; }
 #heading h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #pane-location { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -47,15 +48,18 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
 .search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline-offset: 4px; font-size: 16px; }
-.list-order { display: flex; align-items: center; justify-content: space-between; padding: 0 20px 8px; color: var(--muted); font-size: 12px; }
-#sort { max-width: 180px; min-height: 44px; border: 0; background: var(--bg); padding: 8px 4px; font-size: 16px; }
+#sort-picker { margin-left: auto; color: var(--muted); font-size: 13px; }
+#sort-picker summary { padding: 0; }
+.list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
 .pane-row.needs-you { background: var(--amber-bg); }
+.pane-row[aria-current="true"] { background: var(--accent-bg); box-shadow: inset 4px 0 var(--accent); }
+.pane-row[aria-current="true"] .row-title strong { color: var(--accent); }
 .pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; }
 .pane-icon img { object-fit: contain; }
 .needs-you .pane-icon { background: transparent; color: var(--amber); }
@@ -75,9 +79,6 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #list-nav button:last-child[aria-pressed="true"] { background: var(--amber-bg); color: var(--amber); }
 .count { font-size: 11px; font-variant-numeric: tabular-nums; }
 #detail { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.view-tabs { display: flex; gap: 0; padding: 0 16px; border-bottom: 1px solid var(--line); flex: none; }
-.view-tabs button { border-radius: 0; padding: 10px 20px; color: var(--muted); border-bottom: 2px solid transparent; }
-.view-tabs button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .scroller { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 #overview > section { padding: 20px; border-bottom: 1px solid var(--line); }
 .section-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
@@ -102,13 +103,18 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .copy-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .copy-heading strong { font-weight: 500; overflow-wrap: anywhere; }
 .copyable pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--raised); border-radius: 4px; margin: 0; font-size: 12px; max-height: 200px; overflow: auto; }
-#terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #101312; color: #edf2ef; }
+#terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #101312; color: #edf2ef; --raised: #252b28; --accent: #83ddb3; }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }
 #terminal-status { flex: 1; font-size: 12px; color: #a1ada6; }
 #font-size { width: 24px; text-align: center; font-size: 12px; }
+#click-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
+/* Hover/focus helper, not a native title: a title never shows on a phone, and here the
+   tap that toggles also hovers, so the new mode explains itself as it switches. */
+#click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
 #capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; }
 #capture a { color: #8ecbff; }
+#capture.clicks { cursor: default; user-select: none; -webkit-user-select: none; }
 #session-summary { margin-top: 12px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
 #links a { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
 #links a:last-child { border-bottom: 0; }
@@ -227,7 +233,6 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
      tabs keep their place on the left and the identity sits to their right, where it is
      still over the panel it names. Ellipsis rather than wrap so the row cannot grow. */
   #detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
-  #detail > .view-tabs { grid-row: 1; grid-column: 1; }
   #heading {
     grid-row: 1; grid-column: 1; justify-self: end; align-self: center;
     border-bottom: 0; padding: 0 16px; max-width: 60%; text-align: right;
@@ -280,18 +285,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .s2 { --state-color: var(--atlas-idle); }
 .s3 { --state-color: var(--line); }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
-.atlas-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 16px; }
-.atlas-island { padding: 20px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); min-width: 0; }
+.atlas-map { display: grid; gap: 12px; }
+.atlas-split { display: grid; gap: 12px; min-width: 0; }
+.atlas-island { padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); min-width: 0; }
 .landing-inner .atlas-island h3, .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
 .atlas-island > p, .atlas-panel > p { font-size: 12px; }
-.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; margin-top: 20px; }
-.atlas-dot { min-width: 0; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.atlas-agent-icon { width: 30px; height: 30px; object-fit: contain; padding: 2px; }
-.atlas-dot.s1 .atlas-agent-icon { border-radius: 8px; animation: atlas-working 2s ease-out infinite; }
-.atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; outline: 2px solid var(--amber); outline-offset: 4px; }
-.atlas-dot-state { font-size: 10px; color: var(--muted); }
-.atlas-dot.s1 .atlas-dot-state { color: var(--accent); }
-.atlas-dot.s0 .atlas-dot-state { color: var(--amber); }
+.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 10px; align-items: start; }
+.atlas-dot { min-width: 0; padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.atlas-agent-icon { width: 26px; height: 26px; object-fit: contain; padding: 2px; }
+.atlas-dot.s1 .atlas-agent-icon { border-radius: 8px; outline: 1px solid var(--accent); outline-offset: 2px; background: var(--accent-bg); animation: atlas-working 2s ease-out infinite; }
+.atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; background: var(--amber-bg); outline: 2px solid var(--amber); outline-offset: 4px; }
 @keyframes atlas-working { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent); } }
 .atlas-dot-name { font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .atlas-lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-top: 16px; }
@@ -316,18 +319,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-reset-zoom { font-size: 12px; color: var(--accent); padding: 4px 8px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
-#layout-control { display: none; }
-#session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; border-top: 1px solid #343d38; }
+#layout-control { display: flex; align-items: center; gap: 8px; flex: none; color: var(--muted); font-size: 12px; }
+#layout-control > span { display: none; }
+#review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 14px; min-height: 44px; max-width: 150px; }
+#session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; background: var(--bg); color: var(--muted); border-top: 1px solid var(--line); }
 #session-chips:empty { display: none; }
-#session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #252b28; color: #c6d3cb; overflow-wrap: anywhere; }
+#session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--surface); color: inherit; border: 1px solid var(--line); overflow-wrap: anywhere; }
 @media (min-width: 1100px) {
+  #layout-control > span { display: inline; }
   #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; }
   #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--line); }
-  #detail > .view-tabs { grid-row: 2; grid-column: 1 / -1; align-items: center; min-height: 44px; }
-  #detail > #heading { padding-right: 230px; }
-  #detail:not([data-layout="focus"]) > .view-tabs { display: none; }
-  #layout-control { grid-row: 1; grid-column: 1 / -1; justify-self: end; align-self: center; display: flex; align-items: center; gap: 8px; padding: 4px 30px; color: var(--muted); font-size: 12px; }
-  #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 12px; min-height: 32px; }
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
   #detail[data-layout="side"] { grid-template-columns: minmax(0, 1fr) clamp(240px, var(--review-size, 360px), 45%); }
@@ -345,3 +346,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #review-divider:hover::after, #review-divider:focus-visible::after, #review-divider.dragging::after { background: var(--accent); }
   #review-divider.dragging ~ #overview, #review-divider.dragging ~ #terminal { user-select: none; }
 }
+
+.header-picker { position: relative; min-width: 0; }
+.header-picker summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 5px 8px; cursor: pointer; list-style: none; white-space: nowrap; border-radius: 5px; }
+.header-picker summary::-webkit-details-marker { display: none; }
+.header-picker summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); flex: none; margin-top: -3px; }
+.header-picker summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#review-layout-picker summary { background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
+.header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
+.header-picker-menu label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
+.header-picker-menu input { accent-color: var(--accent); }
+
+.header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
