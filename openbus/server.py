@@ -133,6 +133,7 @@ class SendBody(BaseModel):
 
 
 class ClickBody(BaseModel):
+    frame: str = Field(pattern=r"^[0-9a-f]{32}$")
     from_bottom: int = Field(ge=0)  # lines above the live frame's last line (see tmux.click)
     col: int = Field(ge=1)  # 1-based
 
@@ -719,7 +720,8 @@ def click(pane_id: str, body: ClickBody, request: Request):
         if pane is None:
             _audit(request, "click", pane_id, detail, outcome="rejected: pane not found")
             raise HTTPException(404, "pane not found")
-        sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid)
+        sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
+                          expected_frame=body.frame)
     except subprocess.CalledProcessError as e:
         _audit(request, "click", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
         raise _pane_err(e) from e

@@ -7,6 +7,7 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
@@ -745,7 +746,8 @@ def send_keys(
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
-def click(pane_id: str, from_bottom: int, col: int, *, expected_pid: str) -> bool:
+def click(pane_id: str, from_bottom: int, col: int, *,
+          expected_pid: str, expected_frame: str) -> bool:
     """Left-click the cell `from_bottom` lines above the last line of the live frame, at
     1-based `col`. Returns False (nothing sent) when the pane's app has not asked for
     SGR mouse reports — a shell would echo the bytes as garbage — or the line has
@@ -775,6 +777,11 @@ def click(pane_id: str, from_bottom: int, col: int, *, expected_pid: str) -> boo
             return False
         row = len(joined) - from_bottom
         if row < 1:
+            return False
+        # Reject taps on an old display. This is optimistic: tmux cannot atomically
+        # compare a capture and inject input, but stale browser frames must not act.
+        frame = capture_pane(pane_id, keep_colors=True)
+        if hashlib.md5(frame.encode()).hexdigest() != expected_frame:
             return False
         check_pane(pane_id, expected_pid)
         seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
