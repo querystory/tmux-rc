@@ -124,6 +124,9 @@ export function renderAtlas(root, panes, navigate, logos) {
     island.append(dots);
     islands.push({ node: island, weight: members.length + 2 });
   });
+  // Attach tiles before the synchronous focus restoration below; ResizeObserver
+  // runs later, after live updates would otherwise drop keyboard focus.
+  map.append(...islands.map(island => island.node));
   root.append(map);
   let mapWidth = 0;
   root._mapResize = new ResizeObserver(entries => {
@@ -162,7 +165,7 @@ export function renderAtlas(root, panes, navigate, logos) {
     if (!word || !words.has(word)) return;
     const members = words.get(word);
     matches.append(el('p', 'muted', `${word} · ${members.length} panes`));
-    members.forEach(p => { const link = el('button', 'landing-row', paneName(p)); link.onclick = () => navigate(p.pane_id); matches.append(link); });
+    members.forEach(p => { const link = el('button', 'landing-row', paneName(p)); link.dataset.key = `topic-pane:${p.pane_id}`; link.onclick = () => navigate(p.pane_id); matches.append(link); });
   };
   picker.onchange = () => selectWord(picker.value);
   topics.append(charts.cloud, picker, matches);
@@ -194,7 +197,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   zoomControls.append(el('span', 'muted', 'Drag the handles to zoom · Ctrl + scroll over the chart'), resetZoom);
   pulse.append(charts.bars, zoomControls);
   if (hasLogs) pulse.append(el('p', 'atlas-history-note muted', historyData.backfill_note));
-  if (scope.session && scope.session !== '(historical session unknown)' && history.some(s => s.source === 'logs'))
+  if (scope.session && history.some(s => s.source === 'logs'))
     pulse.append(el('p', 'atlas-history-note muted', 'Older log records have no tmux session identity; they are excluded from this session filter.'));
   lower.append(pulse); root.append(lower);
   charts.update({ words: topWords.map(([word, members]) => [word, members.length]),
