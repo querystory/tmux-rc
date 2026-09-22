@@ -280,31 +280,43 @@ function renderLanding() {
 // persistence is per browser (localStorage) because it is a per-screen preference, not
 // something the daemon should know. Arrow keys move it too: the handle is a focusable
 // separator, and a pointer-only affordance would be unreachable from the keyboard.
-const SIDEBAR_KEY = "tmuxrc-sidebar";
-// Mirrors the CSS clamp() in style.css. Kept in both places on purpose: the clamp is the
-// guard that must hold even with JS off or a hand-edited localStorage value, and these
-// bounds are what the separator reports to assistive tech.
+const SIDEBAR_KEY = "tmuxrc-sidebar", SIDEBAR_DEFAULT = 340;
+// Mirrors the CSS clamp() in style.css, which stays the real guard: it holds with JS off
+// and against a hand-edited localStorage value. These bounds exist so the separator can
+// report a truthful value to assistive tech. MAX can fall BELOW MIN on a narrow window
+// (46vw of 390px is 179px), and clamp() resolves that by letting the minimum win — so
+// the order here is min-last, matching CSS, not Math.min(Math.max(...)).
 const SIDEBAR_MIN = 260, SIDEBAR_MAX = () => window.innerWidth * 0.46;
-// `persist` is false for the boot restore: replaying a stored width must not write it
-// back, or a phone visit (where the 46vw ceiling bites) would overwrite the width the
-// user chose on their desktop.
+const clampSidebar = (px) => Math.round(Math.max(Math.min(px, SIDEBAR_MAX()), SIDEBAR_MIN));
+// The width the user chose, unclamped. Kept apart from the rendered value because the
+// clamp is viewport-dependent: narrowing the window must not erase the desktop width, so
+// what we store and replay is always the intent, and the clamp is applied on the way out.
+let sidebarWidth = SIDEBAR_DEFAULT;
+// `persist` is false for the boot restore and for resize: only a drag or an arrow key is
+// the user choosing a width, so a phone visit cannot overwrite the desktop's.
 function setSidebar(px, persist = true) {
-  const width = Math.round(Math.min(Math.max(px, SIDEBAR_MIN), SIDEBAR_MAX()));
+  const width = clampSidebar(px);
+  // A drag or an arrow key records the width the user actually SAW, not the raw pointer
+  // position: over-dragging past the ceiling must not bank a width that a later resize
+  // would suddenly honour. A replay (persist false) keeps the intent it was handed, which
+  // is the whole point of replaying it.
+  sidebarWidth = persist ? width : px;
   document.documentElement.style.setProperty("--sidebar", width + "px");
   // A focusable role="separator" is a widget, so it owes screen readers a value.
   const handle = $("divider");
   handle.setAttribute("aria-valuenow", width);
   handle.setAttribute("aria-valuemin", SIDEBAR_MIN);
-  handle.setAttribute("aria-valuemax", Math.round(SIDEBAR_MAX()));
+  handle.setAttribute("aria-valuemax", Math.max(Math.round(SIDEBAR_MAX()), SIDEBAR_MIN));
   if (persist) { try { localStorage.setItem(SIDEBAR_KEY, String(width)); } catch {} }
   return width;
 }
-// Through setSidebar, not straight to the property, so a width stored on a wide monitor
-// is re-clamped against THIS window and the separator reports a value from the first
-// paint. A missing or junk entry leaves the CSS default (340px) in place.
 let storedSidebar = 0;
 try { storedSidebar = Number(localStorage.getItem(SIDEBAR_KEY)); } catch {}
-setSidebar(storedSidebar > 0 ? storedSidebar : 340, false);
+setSidebar(storedSidebar > 0 ? storedSidebar : SIDEBAR_DEFAULT, false);
+// The clamp moves with the viewport, so replay the intent whenever it changes: a tab that
+// loaded narrow and was widened gets the saved desktop width back rather than the value
+// the narrow clamp had squeezed it to, and aria-valuenow follows the seam it describes.
+addEventListener("resize", () => setSidebar(sidebarWidth, false));
 
 const divider = $("divider");
 divider.addEventListener("pointerdown", (e) => {
