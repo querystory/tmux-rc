@@ -77,7 +77,9 @@
            it does not describe. Kept as ONE node for both layouts — narrow stacks it above
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
       <div id="heading" hidden><h1 id="pane-title"></h1><p id="pane-location"></p></div>
+      <label id="layout-control">Layout <select id="review-layout" aria-label="Session layout"><option value="side">Side by side</option><option value="stack">Overview above</option><option value="focus">Single view</option></select></label>
       <nav class="view-tabs" aria-label="Pane view"><button id="summary-tab" aria-pressed="true">Overview</button><button id="terminal-tab" aria-pressed="false">Terminal</button></nav>
+      <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
       <div id="overview" class="scroller">
         <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
         <section id="question" hidden><h2 id="prompt"></h2><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
@@ -86,11 +88,12 @@
         <section id="task-section" hidden><h2>Tasks <span id="task-count"></span></h2><div id="tasks"></div></section>
         <section id="agent-section" hidden><h2>Agents</h2><div id="agents"></div></section>
         <section id="copy-section" hidden><h2>From the terminal</h2><div id="copyables"></div></section>
-        <section id="event-section"><h2>Activity</h2><div id="events"></div><p id="events-empty" class="muted">Loading activity...</p></section>
+        <section id="event-section"><h2>Activity history</h2><div id="events"></div><p id="events-empty" class="muted">Loading activity...</p></section>
       </div>
       <div id="terminal" hidden>
         <div class="terminal-toolbar"><span id="terminal-status" role="status">Connecting</span><button id="zoom-out" class="icon-button" aria-label="Smaller terminal text" title="Smaller terminal text"></button><output id="font-size">13</output><button id="zoom-in" class="icon-button" aria-label="Larger terminal text" title="Larger terminal text"></button><button id="tail" class="icon-button" aria-label="Latest output" title="Latest output"></button></div>
         <div id="terminal-scroll" tabindex="0" aria-label="Terminal output"><pre id="capture"></pre></div>
+        <div id="session-chips" aria-label="Session status"></div>
       </div>
       <footer id="composer">
         <div id="keys" hidden aria-label="Terminal keys"></div>
