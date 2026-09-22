@@ -479,9 +479,11 @@ function render() {
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
-  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.elapsed].filter(Boolean).join(" / "));
+  const elapsed = pane?.working?.elapsed ?? pane?.elapsed;
+  const tokens = pane?.working?.tokens ?? pane?.tokens;
+  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, elapsed].filter(Boolean).join(" / "));
   const chips = [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost,
-    pane?.elapsed, pane?.tokens ? `${pane.tokens} tokens` : "",
+    elapsed, tokens ? `${tokens} tokens` : "",
     ...(Array.isArray(pane?.status_entries) ? pane.status_entries.slice(0, 4) : []),
     ({ plan: "Plan mode", "accept-edits": "Accept edits", bypass: "Bypass permissions" })[pane?.mode],
     pane?.agents ? `${pane.agents} agents` : ""].filter(Boolean);
