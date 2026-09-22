@@ -29,7 +29,15 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #app { position: absolute; top: var(--app-top, 0px); left: 0; right: 0; height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .app-header { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
 #brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; }
-#heading { min-width: 0; flex: 1; }
+/* #heading used to be the header's flex:1 filler, so hiding #brand (narrow, in a pane)
+   still left something to push the status and the buttons right. With the heading moved
+   into #detail, nothing did and they all bunched left. #back is shown in exactly that
+   case (narrow, in a pane), so it takes the slack; hidden, it contributes nothing, and
+   #brand keeps the auto margin on every screen that shows the brand. */
+#back { margin-right: auto; }
+/* Now inside #detail, above the tabs. Narrow reads as the header row it replaced: the
+   same type, the same 16px gutter, its own rule under it. */
+#heading { min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
 #heading h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #pane-location { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -200,7 +208,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #app {
     max-width: none;
     display: grid;
-    grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+    /* --sidebar is set by the drag handle and persisted; the clamp is the guard, so a
+       stored width from a wider window can never squeeze the list or the terminal out. */
+    grid-template-columns: clamp(260px, var(--sidebar, 340px), 46vw) minmax(0, 1fr);
     grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     column-gap: 0;
   }
@@ -212,4 +222,62 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   /* Spans the list's rows AND the filter tabs' row: the terminal should use the
      full height, not stop where the sidebar's tabs begin. */
   #detail       { grid-column: 2; grid-row: 4 / span 2; min-height: 0; }
+  #landing      { grid-column: 2; grid-row: 4 / span 2; min-height: 0; overflow-y: auto; }
+  /* Wide only: the title shares the tab row instead of costing a band of its own. The
+     tabs keep their place on the left and the identity sits to their right, where it is
+     still over the panel it names. Ellipsis rather than wrap so the row cannot grow. */
+  #detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  #detail > .view-tabs { grid-row: 1; grid-column: 1; }
+  #heading {
+    grid-row: 1; grid-column: 1; justify-self: end; align-self: center;
+    border-bottom: 0; padding: 0 16px; max-width: 60%; text-align: right;
+  }
+  #heading h1 { font-size: 14px; font-weight: 600; }
+  #detail > #overview, #detail > #terminal { grid-row: 2; grid-column: 1; min-height: 0; }
+  #detail > #composer { grid-row: 3; grid-column: 1; }
+  /* Sits ON the column boundary rather than taking a track of its own, so dragging it
+     moves the seam the eye already sees instead of shifting the layout by its width. */
+  #divider {
+    grid-column: 2; grid-row: 4 / span 2;
+    width: 11px; margin-left: -6px; justify-self: start;
+    cursor: col-resize; z-index: 5; touch-action: none;
+  }
+  #divider::after {
+    content: ""; display: block; height: 100%; width: 1px; margin: 0 auto;
+    background: var(--line); transition: background 120ms, width 120ms;
+  }
+  #divider:hover::after, #divider:focus-visible::after, #divider.dragging::after {
+    background: var(--accent); width: 3px;
+  }
+  #divider:focus-visible { outline: none; }
+  /* While dragging, the pointer owns the gesture: no text selection, and the iframe-like
+     terminal must not swallow the pointermove. */
+  body.resizing { user-select: none; cursor: col-resize; }
+  body.resizing #detail, body.resizing #landing { pointer-events: none; }
 }
+
+.landing-inner { padding: 24px 28px; max-width: 760px; }
+.landing-inner h2 { margin: 0 0 4px; font-size: 20px; }
+.landing-inner h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase;
+                    letter-spacing: 0.04em; color: var(--muted); }
+.landing-stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.landing-stat {
+  flex: 1 1 110px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+}
+.landing-stat .n { display: block; font-size: 24px; font-weight: 600; line-height: 1.1; }
+.landing-stat .k { font-size: 12px; color: var(--muted); }
+/* Amber, not accent: "needs you" is amber everywhere else in this UI (the waiting badge,
+   the needs-you row, the filter tab, the question panel). Green is the running colour. */
+.landing-stat.attention .n { color: var(--amber); }
+.landing-stat.attention { border-color: var(--amber); }
+/* Same affordance as a list row: the whole thing is the target, text stays left-aligned. */
+.landing-row {
+  display: block; width: 100%; text-align: left; background: none; cursor: pointer;
+  border: 0; border-top: 1px solid var(--line); padding: 10px 2px; font: inherit; color: inherit;
+}
+.landing-row:hover { background: var(--raised); }
+/* overflow-wrap as everywhere else that renders a pane name: a title or a window name is
+   user-supplied and can be one unbroken run, and these are spans, so the h1/h2/p rule at
+   the top of the file does not reach them. */
+.landing-row .t { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.landing-row .m { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }

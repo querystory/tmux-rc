@@ -229,6 +229,138 @@ function renderList() {
   $("new-window").disabled = !panes.length;
 }
 
+// The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
+// filter tabs already show — a second count that disagreed with the tabs would be worse
+// than no count — plus the two lists worth acting on: what is blocked on you, and what
+// moved most recently. Rows navigate exactly like sidebar rows.
+function landingRows(id, subset) {
+  show(id, !!subset.length);
+  reconcile($(id + "-list"), subset, (p) => p.pane_id, () => {
+    const b = document.createElement("button");
+    b.className = "landing-row";
+    b.innerHTML = '<span class="t"></span><span class="m"></span>';
+    return b;
+  }, (node, p) => {
+    node.onclick = () => navigate(p.pane_id);
+    text(node.querySelector(".t"), paneName(p));
+    text(node.querySelector(".m"), `${activityLabel(p)} · ${p.session} / ${p.window_name || p.pane_id}`);
+  });
+}
+
+function renderLanding() {
+  const waiting = panes.filter(needsYou);
+  text($("landing-title"), panes.length ? "Nothing selected" : "No panes yet");
+  // With no panes there is no session to open a window IN: + is disabled and the server
+  // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
+  // the empty state says where a session actually comes from instead.
+  text($("landing-sub"), panes.length
+    ? "Pick a session on the left, or start with one of these."
+    : "No tmux panes are open. Start a session on the host and it will appear here.");
+  reconcile($("landing-stats"), [
+    { k: "Panes", n: panes.length },
+    { k: "Running", n: panes.filter(isRunning).length },
+    { k: "Recent", n: panes.filter((p) => isRecent(p)).length },
+    { k: "Needs you", n: waiting.length, attention: true },
+  ], (s) => s.k, () => {
+    const d = document.createElement("div");
+    d.innerHTML = '<span class="n"></span><span class="k"></span>';
+    return d;
+  }, (node, stat) => {
+    node.className = "landing-stat" + (stat.attention ? " attention" : "");
+    text(node.querySelector(".n"), stat.n);
+    text(node.querySelector(".k"), stat.k);
+  });
+  landingRows("landing-attention", waiting);
+  // Most recently active first, and never a pane already listed above it.
+  landingRows("landing-active", panes
+    .filter((p) => !needsYou(p))
+    .sort((a, b) => lastActivity(b) - lastActivity(a))
+    .slice(0, 5));
+}
+
+// Drag the seam between the sidebar and the main column. Width is a CSS variable the
+// grid clamps, so a stored value from a wider window can never strand the layout, and
+// persistence is per browser (localStorage) because it is a per-screen preference, not
+// something the daemon should know. Arrow keys move it too: the handle is a focusable
+// separator, and a pointer-only affordance would be unreachable from the keyboard.
+const SIDEBAR_KEY = "tmuxrc-sidebar", SIDEBAR_DEFAULT = 340;
+// Mirrors the CSS clamp() in style.css, which stays the real guard: it holds with JS off
+// and against a hand-edited localStorage value. These bounds exist so the separator can
+// report a truthful value to assistive tech. MAX can fall BELOW MIN on a narrow window
+// (46vw of 390px is 179px), and clamp() resolves that by letting the minimum win — so
+// the order here is min-last, matching CSS, not Math.min(Math.max(...)).
+const SIDEBAR_MIN = 260, SIDEBAR_MAX = () => window.innerWidth * 0.46;
+const clampSidebar = (px) => Math.round(Math.max(Math.min(px, SIDEBAR_MAX()), SIDEBAR_MIN));
+// The width the user chose, unclamped. Kept apart from the rendered value because the
+// clamp is viewport-dependent: narrowing the window must not erase the desktop width, so
+// what we store and replay is always the intent, and the clamp is applied on the way out.
+let sidebarWidth = SIDEBAR_DEFAULT;
+// `persist` is false for the boot restore and for resize: only a drag or an arrow key is
+// the user choosing a width, so a phone visit cannot overwrite the desktop's.
+function setSidebar(px, persist = true) {
+  const width = clampSidebar(px);
+  // A drag or an arrow key records the width the user actually SAW, not the raw pointer
+  // position: over-dragging past the ceiling must not bank a width that a later resize
+  // would suddenly honour. A replay (persist false) keeps the intent it was handed, which
+  // is the whole point of replaying it.
+  sidebarWidth = persist ? width : px;
+  document.documentElement.style.setProperty("--sidebar", width + "px");
+  // A focusable role="separator" is a widget, so it owes screen readers a value.
+  const handle = $("divider");
+  handle.setAttribute("aria-valuenow", width);
+  handle.setAttribute("aria-valuemin", SIDEBAR_MIN);
+  handle.setAttribute("aria-valuemax", Math.max(Math.round(SIDEBAR_MAX()), SIDEBAR_MIN));
+  if (persist) { try { localStorage.setItem(SIDEBAR_KEY, String(width)); } catch {} }
+  return width;
+}
+let storedSidebar = 0;
+try { storedSidebar = Number(localStorage.getItem(SIDEBAR_KEY)); } catch {}
+setSidebar(storedSidebar > 0 ? storedSidebar : SIDEBAR_DEFAULT, false);
+// The clamp moves with the viewport, so replay the intent whenever it changes: a tab that
+// loaded narrow and was widened gets the saved desktop width back rather than the value
+// the narrow clamp had squeezed it to, and aria-valuenow follows the seam it describes.
+addEventListener("resize", () => setSidebar(sidebarWidth, false));
+
+const divider = $("divider");
+divider.addEventListener("pointerdown", (e) => {
+  // Primary button only. A right-click on the seam is a context-menu gesture, not a
+  // resize, and preventDefault() here would swallow it.
+  if (e.button !== 0) return;
+  e.preventDefault();
+  divider.setPointerCapture(e.pointerId);
+  divider.classList.add("dragging");
+  document.body.classList.add("resizing");
+});
+divider.addEventListener("pointermove", (e) => {
+  if (!divider.hasPointerCapture(e.pointerId)) return;
+  // Measured from the app's left edge, not the viewport, so it stays correct if the
+  // layout ever gains an outer margin.
+  setSidebar(e.clientX - $("app").getBoundingClientRect().left);
+});
+// body.resizing kills pointer-events on the main column, so it sticking on would deaden
+// the whole pane. pointerup/pointercancel cover the ordinary endings (capture guarantees
+// one of them even if the pointer leaves the window), and lostpointercapture is the
+// backstop for the rest: crossing the wide breakpoint mid-drag hides #divider, which
+// drops capture without firing either of the other two.
+const endResize = (e) => {
+  if (e.pointerId !== undefined && divider.hasPointerCapture(e.pointerId)) {
+    divider.releasePointerCapture(e.pointerId);
+  }
+  divider.classList.remove("dragging");
+  document.body.classList.remove("resizing");
+};
+divider.addEventListener("pointerup", endResize);
+divider.addEventListener("pointercancel", endResize);
+divider.addEventListener("lostpointercapture", endResize);
+divider.addEventListener("keydown", (e) => {
+  const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  // From the rendered width, not the stored one: the clamp may already be overriding it,
+  // and an arrow press should move the seam the user can actually see.
+  setSidebar($("sessions").getBoundingClientRect().width + step);
+});
+
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
@@ -247,8 +379,12 @@ function render() {
   show("sessions", !inPane || wide); show("list-nav", !inPane || wide);
   show("brand", !inPane || wide);
   show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
+  // The main column is never blank on a wide screen: with no pane chosen it answers the
+  // question the sidebar cannot, which is what the whole fleet is doing right now.
+  show("landing", wide && !inPane);
+  show("divider", wide);
   renderList();
-  if (!inPane) return;
+  if (!inPane) { if (wide) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
   // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
   // still shows the last frame, and every key is disabled — nothing to do but hit back.
