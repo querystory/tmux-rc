@@ -287,8 +287,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; margin-top: 20px; }
 .atlas-dot { min-width: 0; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .atlas-agent-icon { width: 30px; height: 30px; object-fit: contain; padding: 2px; }
-.atlas-dot.s1.atlas-agent-icon { border-radius: 8px; animation: atlas-working 2s ease-out infinite; }
-.atlas-dot.s0.atlas-agent-icon { border-radius: 8px; outline: 2px solid var(--amber); outline-offset: 4px; }
+.atlas-dot.s1 .atlas-agent-icon { border-radius: 8px; animation: atlas-working 2s ease-out infinite; }
+.atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; outline: 2px solid var(--amber); outline-offset: 4px; }
 .atlas-dot-state { font-size: 10px; color: var(--muted); }
 .atlas-dot.s1 .atlas-dot-state { color: var(--accent); }
 .atlas-dot.s0 .atlas-dot-state { color: var(--amber); }
@@ -301,7 +301,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-matches:not(:empty) { margin-top: 16px; max-height: 220px; overflow-y: auto; }
 .atlas-chart { height: 320px; width: 100%; margin-top: 20px; }
 .atlas-history-note { margin-top: 12px; }
-@media (prefers-reduced-motion: reduce) { .atlas-dot.s1.atlas-agent-icon { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .atlas-dot.s1 .atlas-agent-icon { animation: none; } }
 .atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }

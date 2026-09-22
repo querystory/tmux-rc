@@ -14,19 +14,30 @@ try {
       && typeof g.tool === 'string' && validCounts(g.n)) ? s.groups : undefined })).slice(-LIMIT);
 } catch { /* Storage is optional in private windows. */ }
 
+// Coalesce frequent state polls; flush the latest in-memory bucket when leaving.
+let persistTimer = null;
+function persistHistory() {
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  try { localStorage.setItem(KEY, JSON.stringify(history)); } catch { /* Quota/private mode. */ }
+}
+window.addEventListener('pagehide', () => { if (persistTimer !== null) persistHistory(); });
+
 // Observations, not reconstructed history: missing buckets stay blank.
 export function observeAtlas(panes, now = Date.now()) {
   const t = Math.floor(now / STEP) * STEP;
   const n = STATES.map((_, i) => panes.filter(p => stateOf(p) === i).length);
-  history = history.filter(s => s.t > t - LIMIT * STEP && s.t < t);
   const groups = new Map();
   panes.forEach(p => {
     const session = p.session || '', tool = toolOf(p), key = JSON.stringify([session, tool]);
     if (!groups.has(key)) groups.set(key, { session, tool, n: [0, 0, 0, 0] });
     groups.get(key).n[stateOf(p)]++;
   });
-  history.push({ t, n, groups: [...groups.values()] });
-  try { localStorage.setItem(KEY, JSON.stringify(history)); } catch { /* Quota/private mode. */ }
+  const sample = { t, n, groups: [...groups.values()] };
+  if (JSON.stringify(history.at(-1)) === JSON.stringify(sample)) return;
+  history = history.filter(s => s.t > t - LIMIT * STEP && s.t < t);
+  history.push(sample);
+  if (persistTimer === null) persistTimer = setTimeout(persistHistory, 30_000);
 }
 
 function el(tag, cls, text) {
