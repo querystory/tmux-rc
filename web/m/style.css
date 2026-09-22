@@ -280,7 +280,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .s2 { --state-color: var(--atlas-idle); }
 .s3 { --state-color: var(--line); }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
-.atlas-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 12px; align-items: start; }
+.atlas-map { display: grid; gap: 12px; }
+.atlas-split { display: grid; gap: 12px; min-width: 0; }
 .atlas-island { padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); min-width: 0; }
 .landing-inner .atlas-island h3, .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
 .atlas-island > p, .atlas-panel > p { font-size: 12px; }

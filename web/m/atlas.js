@@ -46,6 +46,26 @@ function el(tag, cls, text) {
   if (text != null) node.textContent = text;
   return node;
 }
+// Split contiguous groups near half the pane count; stack when columns get narrow.
+// Nested grids fill the rectangle while retaining session and keyboard order.
+function packSessions(groups, width) {
+  if (groups.length === 1) return groups[0].node;
+  const total = groups.reduce((sum, group) => sum + group.weight, 0);
+  let split = 1, weight = groups[0].weight, best = Math.abs(total / 2 - weight);
+  for (let i = 1, sum = weight; i < groups.length - 1; i++) {
+    sum += groups[i].weight;
+    const distance = Math.abs(total / 2 - sum);
+    if (distance < best) { best = distance; split = i + 1; weight = sum; }
+  }
+  const columns = width >= Math.min(groups.length, 4) * 180;
+  const branch = el('div', `atlas-split ${columns ? 'atlas-split-columns' : 'atlas-split-rows'}`);
+  const fraction = Math.max(160 / width, Math.min(1 - 160 / width, weight / total));
+  if (columns) branch.style.gridTemplateColumns = `minmax(0, ${fraction}fr) minmax(0, ${1 - fraction}fr)`;
+  branch.append(packSessions(groups.slice(0, split), columns ? (width - 12) * fraction : width),
+    packSessions(groups.slice(split), columns ? (width - 12) * (1 - fraction) : width));
+  return branch;
+}
+
 const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
 
 export function renderAtlas(root, panes, navigate, logos) {
@@ -67,6 +87,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   const selectedWord = root._selectedWord;
   const charts = root._charts ||= atlasCharts();
   const focus = root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
+  root._mapResize?.disconnect();
   root.replaceChildren();
   const controls = el('div', 'atlas-controls');
   const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos); };
@@ -93,6 +114,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   const map = el('section', 'atlas-map');
   const groups = new Map();
   panes.forEach(p => { if (!groups.has(p.session)) groups.set(p.session, []); groups.get(p.session).push(p); });
+  const islands = [];
   groups.forEach((members, session) => {
     const island = el('section', 'atlas-island');
     island.append(el('h3', '', session), el('p', 'muted', `${members.length} panes · ${members.filter(needsYou).length} need you`));
@@ -109,9 +131,18 @@ export function renderAtlas(root, panes, navigate, logos) {
       dot.onclick = () => navigate(p.pane_id);
       dots.append(dot);
     });
-    island.append(dots); map.append(island);
+    island.append(dots);
+    islands.push({ node: island, weight: members.length + 2 });
   });
   root.append(map);
+  let mapWidth = 0;
+  root._mapResize = new ResizeObserver(entries => {
+    const width = Math.floor(entries[0].contentRect.width);
+    if (!width || width === mapWidth || !islands.length) return;
+    mapWidth = width;
+    map.replaceChildren(packSessions(islands, width));
+  });
+  root._mapResize.observe(map);
   if (!panes.length) root.append(el('p', 'muted', 'No current panes match these filters.'));
   const busy = panes.filter(isRunning).length, waiting = panes.filter(needsYou).length;
   const insight = el('p', 'atlas-insight muted', `${panes.length} panes across ${groups.size} sessions · ${panes.length ? Math.round(busy / panes.length * 100) : 0}% running · ${waiting} waiting for you`);
