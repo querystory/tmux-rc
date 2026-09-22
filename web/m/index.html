@@ -49,7 +49,7 @@
     <section id="sessions" aria-label="Sessions">
       <div class="list-heading"><h1>Sessions</h1><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
       <label class="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"></label>
-      <div class="list-order"><label for="sort">Sort</label><select id="sort" aria-label="Sort panes"><option value="session">Session order</option><option value="updated">Last updated</option></select></div>
+      <div class="list-order"><label for="sort">Sort</label><select id="sort" aria-label="Sort panes"><option value="updated">Last updated</option><option value="session">Session order</option></select></div>
       <div id="pane-list"></div>
       <p id="empty" class="empty" role="status">Loading sessions...</p>
     </section>
@@ -63,10 +63,6 @@
         <section id="landing-attention" hidden>
           <h3>Needs you</h3>
           <div id="landing-attention-list"></div>
-        </section>
-        <section id="landing-active" hidden>
-          <h3>Recently active</h3>
-          <div id="landing-active-list"></div>
         </section>
       </div>
     </section>

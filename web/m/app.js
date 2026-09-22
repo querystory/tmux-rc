@@ -60,7 +60,7 @@ const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
-let sort = "session";
+let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // Per-line nodes under #capture, in document order; each caches the markup last written
@@ -130,7 +130,7 @@ function notice(message = "") { text($("notice"), message); show("notice", !!mes
 function hashFor(id, nextView) {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
-  if (sort !== "session") params.set("sort", sort);
+  if (sort !== "updated") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
   return params.toString();
 }
@@ -161,7 +161,7 @@ function route() {
   active = next;
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
-  sort = params.get("sort") === "updated" ? "updated" : "session";
+  sort = params.get("sort") === "session" ? "session" : "updated";
   $("sort").value = sort;
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
@@ -234,8 +234,7 @@ function renderList() {
 
 // The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
 // filter tabs already show — a second count that disagreed with the tabs would be worse
-// than no count — plus the two lists worth acting on: what is blocked on you, and what
-// moved most recently. Rows navigate exactly like sidebar rows.
+// than no count — plus panes blocked on you. Rows navigate exactly like sidebar rows.
 function landingRows(id, subset) {
   show(id, !!subset.length);
   reconcile($(id + "-list"), subset, (p) => p.pane_id, () => {
@@ -274,11 +273,6 @@ function renderLanding() {
     text(node.querySelector(".k"), stat.k);
   });
   landingRows("landing-attention", waiting);
-  // Most recently active first, and never a pane already listed above it.
-  landingRows("landing-active", panes
-    .filter((p) => !needsYou(p))
-    .sort((a, b) => lastActivity(b) - lastActivity(a))
-    .slice(0, 5));
 }
 
 // Drag the seam between the sidebar and the main column. Width is a CSS variable the
