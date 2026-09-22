@@ -150,7 +150,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   heading.append(el('h3', '', 'Pane states over time'), range);
   pulse.append(heading,
     el('p', 'muted', historyError || (historyData
-      ? 'Saved by this machine’s daemon. Blank intervals mean no observation.' : 'Loading saved history…')));
+      ? 'Saved by this machine’s daemon. Blank intervals mean no observation. Idle starts hidden; toggle states in the legend.' : 'Loading saved history…')));
   const zoomControls = el('div', 'atlas-zoom-controls');
   const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
   resetZoom.dataset.key = 'reset-zoom';

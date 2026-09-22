@@ -28,6 +28,7 @@ export function atlasCharts() {
   canvas.style.cssText = 'width:100%;height:100%;display:block';
   let barChart, latest, wordSignature, zoomKey;
   let zoom = { start: 0, end: 100 };
+  let selectedStates = { Idle: false };
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
     let echarts;
@@ -37,6 +38,7 @@ export function atlasCharts() {
     if (!barChart) {
       cloud.replaceChildren(canvas); bars.replaceChildren();
       barChart = echarts.init(bars);
+      barChart.on('legendselectchanged', event => { selectedStates = { ...event.selected }; });
       barChart.on('datazoom', event => {
         const selection = event.batch?.[0] || event;
         zoom = { start: selection.start, end: selection.end };
@@ -83,7 +85,7 @@ export function atlasCharts() {
     const label = t => times.length && times.at(-1) - times[0] >= 86400000
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     const order = [1, 0, 2, 3]; // Working at the bottom, idle at the top, like the reference.
-    const colors = dark ? ['#f1bd53', '#60c992', '#7e91ab', '#4a5261'] : ['#f2ad32', '#39b978', '#a3b2c7', '#d1d8e2'];
+    const colors = dark ? ['#f1bd53', '#60c992', '#3f4a55', '#4a5261'] : ['#f2ad32', '#39b978', '#e3e8ed', '#d1d8e2'];
     bars.setAttribute('aria-label', samples.length
       ? `Pane state counts, ${timeLabel(samples[0].t)} to ${timeLabel(samples.at(-1).t)}. ${samples.length} observations. Latest: ${states.map((s, i) => `${samples.at(-1).n[i]} ${s}`).join(', ')}.`
       : 'No observations yet.');
@@ -96,7 +98,7 @@ export function atlasCharts() {
           return [label(sample.t), sample.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
             ...items.map(item => `${item.seriesName}: ${item.value} panes`)].join('\n');
         } },
-      legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: muted, fontSize: 11 } },
+      legend: { selected: selectedStates, top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: muted, fontSize: 11 } },
       grid: { left: 42, right: 14, top: 55, bottom: 78 },
       dataZoom: [
         { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 4, height: 24,
