@@ -136,3 +136,66 @@ def test_history_unavailable_is_explicit(monkeypatch):
 
     monkeypatch.setattr(app.state, "history", None, raising=False)
     assert TestClient(app).get("/api/history").status_code == 503
+
+
+@pytest.mark.parametrize(("code", "message"), [(124, "timeout"), (1, "permission denied")])
+def test_collection_failure_does_not_record_empty_inventory(tmp_path, monkeypatch, code, message):
+    import subprocess
+
+    from openbus import tmux
+    from openbus.watcher import Watcher
+
+    history = History(tmp_path / "h.db")
+    history.record([pane()], "server", 600)
+    watcher = Watcher(None, history=history)
+
+    def fail(_args):
+        raise subprocess.CalledProcessError(code, "tmux", stderr=message)
+
+    monkeypatch.setattr(tmux, "_run", fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        watcher._tick()
+    with history.connect() as db:
+        assert db.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 1
+    assert history.query("all", now=1000)["samples"][-1]["n"] is None
+
+
+def test_confirmed_absent_server_records_empty_inventory(tmp_path, monkeypatch):
+    import subprocess
+
+    from openbus import tmux
+    from openbus.watcher import Watcher
+
+    history = History(tmp_path / "h.db")
+
+    def absent(_args):
+        raise subprocess.CalledProcessError(
+            1, "tmux", stderr="no server running on /tmp/tmux/default",
+        )
+
+    monkeypatch.setattr(tmux, "_run", absent)
+    monkeypatch.setattr(tmux, "server_uid", lambda: "server")
+    Watcher(None, history=history)._tick()
+    assert history.query()["samples"][-1]["n"] == [0, 0, 0, 0]
+
+
+def test_foreign_history_database_does_not_prevent_startup(monkeypatch):
+    import asyncio
+
+    from openbus import server
+
+    def foreign(_path):
+        raise ValueError("host mismatch")
+
+    async def stop(_self):
+        pass
+
+    monkeypatch.setattr(server, "History", foreign)
+    monkeypatch.setattr(server.Watcher, "start", lambda _self: None)
+    monkeypatch.setattr(server.Watcher, "stop", stop)
+
+    async def check():
+        async with server.lifespan(server.app):
+            assert server.app.state.history is None
+
+    asyncio.run(check())

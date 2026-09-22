@@ -17,7 +17,7 @@ export async function refreshAtlasHistory(request, changed, force = false) {
     const data = await request(`/api/history?window=${historyWindow}`, { signal: current.signal });
     if (current.signal.aborted) return;
     historyData = data;
-    history = data.samples.filter(s => s.n !== null);
+    history = data.samples;
     historyError = '';
   } catch {
     if (current.signal.aborted) return;
@@ -42,7 +42,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   const filtered = scope.tool || scope.session;
   const samples = history.filter(s => (!filtered || s.groups) &&
-    !(scope.session && scope.session !== '(historical session unknown)' && s.source === 'logs')).map(s => !filtered ? s : ({ ...s,
+    !(scope.session && scope.session !== '(historical session unknown)' && s.source === 'logs')).map(s => !filtered || s.n === null ? s : ({ ...s,
     n: s.groups.filter(g => (!scope.tool || g.tool === scope.tool) && (!scope.session || g.session === scope.session))
       .reduce((counts, g) => counts.map((n, i) => n + g.n[i]), [0, 0, 0, 0]),
   }));

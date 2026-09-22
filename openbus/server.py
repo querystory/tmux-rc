@@ -400,7 +400,7 @@ async def lifespan(app: FastAPI):
     use_llm = os.environ.get("TMUXRC_NO_LLM") != "1"
     try:
         app.state.history = History(default_path())
-    except (OSError, sqlite3.Error):
+    except (OSError, sqlite3.Error, ValueError):
         logger.warning("Pane history unavailable; recording disabled", exc_info=True)
         app.state.history = None
     app.state.watcher = Watcher(target=target, use_llm=use_llm, history=app.state.history)

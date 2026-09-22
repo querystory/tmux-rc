@@ -211,12 +211,18 @@ def pane_uid(pane: Pane) -> str:
 
 
 def server_running() -> bool:
-    """True if a tmux server is up (avoids noisy errors when nothing is running)."""
+    """False only for a confirmed absent server; collection failures must remain gaps."""
     try:
         _run(["list-sessions"])
         return True
-    except subprocess.CalledProcessError:
-        return False
+    except subprocess.CalledProcessError as error:
+        message = (error.stderr or "").lower()
+        if error.returncode == 1 and (
+            "no server running" in message
+            or ("no such file or directory" in message and "connect" in message)
+        ):
+            return False
+        raise
 
 
 def prefix_key() -> str:
