@@ -777,8 +777,9 @@ def click(pane_id: str, from_bottom: int, col: int, *,
         # Validate physical geometry against the exact visible suffix of the fresh
         # joined frame. Wrapped scrollback is irrelevant; a wrapped or changed screen
         # cannot match this suffix, so never map the tap onto different visible text.
+        # -N -T preserves the same trailing positions as -J without joining rows.
         visible = _materialize_links(_run([
-            "capture-pane", "-p", "-e", "-t", pane_id, "-S", "-0",
+            "capture-pane", "-p", "-e", "-N", "-T", "-t", pane_id, "-S", "-0",
         ])).rstrip("\n")
         if not (frame == visible or frame.endswith("\n" + visible)):
             return False

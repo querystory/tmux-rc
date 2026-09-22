@@ -19,6 +19,7 @@ def fake_tmux(monkeypatch, screen, sgr="1", physical=None, history=""):
         if argv[0] == "capture-pane":
             assert argv[-1] in {"-0", "-200"}  # geometry or live-frame freshness
             if argv[-1] == "-200": return history + screen
+            assert "-N" in argv and "-T" in argv
             return physical if "-J" not in argv and physical is not None else screen
         sent.append(argv)
         return ""
@@ -208,3 +209,10 @@ def test_blank_screen_with_only_scrollback_does_not_click_history(monkeypatch):
     assert not T.click("%1", from_bottom=0, col=1, expected_pid="1234",
                        expected_frame=hashlib.md5(b"old output").hexdigest())
     assert sent == []
+
+
+def test_significant_trailing_spaces_preserve_freshness(monkeypatch):
+    sent = fake_tmux(monkeypatch, "menu  \nitem \n")
+    assert T.click("%1", from_bottom=0, col=1, expected_pid="1234",
+                   expected_frame=hashlib.md5(b"menu  \nitem ").hexdigest())
+    assert report(sent[0]) == "\x1b[<0;1;2M\x1b[<0;1;2m"
