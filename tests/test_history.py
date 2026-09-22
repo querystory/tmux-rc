@@ -92,7 +92,8 @@ def test_backfill_rejects_ambiguity_wrong_host_old_server_and_missing_states(tmp
     wrong_generation = [dict(lifetimes[0], start=t + .01)]
     assert reconstruct(trace, journal, "boot:pid", t - 1, wrong_generation)[0] == []
     overlapping = [lifetimes[0], dict(lifetimes[0], birth="456")]
-    assert reconstruct(trace, journal, "boot:pid", t - 1, overlapping)[0] == []
+    with pytest.raises(ValueError, match="Overlapping"):
+        reconstruct(trace, journal, "boot:pid", t - 1, overlapping)
     assert reconstruct(trace, journal, "boot:pid", t + 10, lifetimes)[0] == []
     assert reconstruct(trace, journal, "otherboot:pid", t - 1, [])[0] == []
     second = dict(row, MESSAGE=row["MESSAGE"].replace("%1:", "%2:"))
@@ -339,3 +340,21 @@ def test_historical_unknown_session_is_not_a_real_session_name(tmp_path):
     samples = h.query("all", now=720)["samples"]
     assert samples[0]["groups"][0]["session"] is None
     assert samples[-1]["groups"][0]["session"] == "(historical session unknown)"
+
+
+@pytest.mark.parametrize("override", [{"birth": None}, {"birth": " "}, {"start": "600"},
+                                      {"start": True}, {"end": None}, {"end": float("nan")},
+                                      {"end": 599}, {"pane_id": 1}])
+def test_backfill_rejects_invalid_interval_fields(tmp_path, override):
+    life = {"server": "s", "pane_id": "%1", "birth": "10", "start": 600, "end": 900}
+    with pytest.raises(ValueError, match="Invalid pane lifetime"):
+        reconstruct(tmp_path / "trace", tmp_path / "journal", "s", 500, [dict(life, **override)])
+
+
+def test_backfill_rejects_overlap_after_an_earlier_observation(tmp_path):
+    lives = [{"server": "s", "pane_id": "%1", "birth": "10", "start": 600, "end": 900},
+             {"server": "s", "pane_id": "%1", "birth": "20", "start": 800, "end": 1000}]
+    # Reject the interval set before reading observations, even one at 700 which
+    # initially matches only the first life but could carry into the second birth.
+    with pytest.raises(ValueError, match="Overlapping"):
+        reconstruct(tmp_path / "trace", tmp_path / "journal", "s", 500, lives)

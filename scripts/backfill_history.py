@@ -29,11 +29,26 @@ def reconstruct(trace: Path, journal: Path, server_uid: str, since: float,
                 lifetimes: list[dict]):
     # Each interval must be evidenced independently (e.g. process start time and a
     # still-live pane PID), never inferred from the state observations being joined.
+    if not isinstance(lifetimes, list):
+        raise TypeError("Pane lifetimes must be a list")
     for life in lifetimes:
-        if (life.get("server") != server_uid or not re.fullmatch(r"%\d+", life.get("pane_id", ""))
-                or not str(life.get("birth", "")) or not math.isfinite(life["start"])
-                or not math.isfinite(life["end"]) or life["start"] >= life["end"]):
+        if not isinstance(life, dict):
+            raise TypeError("Invalid pane lifetime")
+        start, end, birth, pane_id = (life.get(k) for k in ("start", "end", "birth", "pane_id"))
+        if (life.get("server") != server_uid or not isinstance(pane_id, str)
+                or not re.fullmatch(r"%\d+", pane_id)
+                or not isinstance(birth, str) or not birth.strip()
+                or any(isinstance(t, bool) or not isinstance(t, (int, float))
+                       or not math.isfinite(t) for t in (start, end)) or start >= end):
             raise ValueError("Invalid pane lifetime")
+    ends, births = {}, set()
+    for life in sorted(lifetimes, key=lambda life: (life["pane_id"], life["start"])):
+        pane_id = life["pane_id"]
+        identity = (pane_id, life["birth"])
+        if life["start"] < ends.get(pane_id, -math.inf) or identity in births:
+            raise ValueError("Overlapping or duplicate pane lifetimes")
+        ends[pane_id] = life["end"]
+        births.add(identity)
     boot = server_uid.split(":", maxsplit=1)[0].replace("-", "")
     outputs = []
     report = Counter()

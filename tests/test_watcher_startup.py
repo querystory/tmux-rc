@@ -259,3 +259,25 @@ def test_recycled_pane_id_does_not_prepublish_the_old_occupant(inventory, monkey
 
     _tick_blocked_on(w, monkeypatch, "%1", while_blocked)
     assert [s["activity"] for s in w.states] == ["idle", "idle"]
+
+
+def test_failed_pane_tick_does_not_persist_a_partial_inventory(inventory, monkeypatch):
+    import subprocess
+    from unittest.mock import Mock
+
+    w, panes = inventory
+    w.history = Mock()
+    monkeypatch.setattr(W.tmux, "server_uid", lambda: "s")
+
+    def capture(pane):
+        if pane.id == panes[0].id:
+            raise subprocess.CalledProcessError(124, "tmux")
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", capture)
+    w._tick()
+    assert w.states[0]["activity"] == "unknown"
+    w.history.record.assert_not_called()
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    w.history.record.assert_called_once()
