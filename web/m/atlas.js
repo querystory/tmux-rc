@@ -38,7 +38,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
   const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf)])];
-  const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))])].sort();
+  const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   const filtered = scope.tool || scope.session;
   const samples = history.filter(s => (!filtered || s.groups) &&
@@ -47,9 +47,9 @@ export function renderAtlas(root, panes, navigate, logos) {
       .reduce((counts, g) => counts.map((n, i) => n + g.n[i]), [0, 0, 0, 0]),
   }));
   // Preserve focus and pointer targets across unchanged long polls.
-  const signature = JSON.stringify([scope, allPanes.map(p => [p.pane_id, p.session, paneName(p), p.activity,
-    p.waiting_on, p.tool, p.session_summary, p.status_line]), history, historyWindow, historyError, historyData?.step]);
-  if (root._signature === signature) return;
+  const signature = [scope.tool, scope.session, history, historyWindow, historyError, historyData?.step, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+    p.waiting_on, p.tool, p.session_summary, p.status_line])];
+  if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return;
   root._signature = signature;
   const selectedWord = root._selectedWord;
   const charts = root._charts ||= atlasCharts();
