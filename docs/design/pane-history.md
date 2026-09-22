@@ -34,7 +34,7 @@ Export the live service's journal for the current tmux server lifetime:
 journalctl --user -u tmux-rc --since '@<server-start-epoch>' -o json --no-pager > /tmp/tmux-journal.jsonl
 uv run python -m scripts.backfill_history --trace /tmp/tmux-rc-llm.log \
   --journal /tmp/tmux-journal.jsonl --server-uid '<boot-id>:<tmux-server-pid>' \
-  --since <server-start-epoch> --dry-run
+  --since <server-start-epoch> --lifetimes /tmp/pane-lifetimes.json --dry-run
 ```
 
 Verify the report, then omit `--dry-run` to import; rerunning is idempotent. The server
@@ -42,9 +42,19 @@ PID comes from `tmux display-message -p '#{pid}'`; its process creation time and
 `/proc/sys/kernel/random/boot_id` identify the correct lifetime. Don't use the daemon's
 PID or start time: restarting the daemon does not restart tmux.
 
-Reconstructed counts carry each matched state for at most four hours, matching the
-exploratory chart's model. They are partial estimates, shown as lighter bars with an
+The lifetime JSON is an array of `{server, pane_id, birth, start, end}` objects, with
+Unix-second start/end bounds and a unique birth discriminator (PID plus process
+start time). Supply independently verified lifecycle evidence, such as the creation
+time of a still-running pane process. An observation must fall wholly within exactly
+one interval. A server lifetime alone does not prove which generation occupied a pane
+ID; missing or overlapping intervals are rejected. Do not infer lifetimes from the
+state logs themselves. Closed panes without lifecycle evidence cannot be backfilled.
+
+Reconstructed counts carry each matched state for at most four hours and never beyond
+its verified lifetime end. They are partial estimates, shown as lighter bars with an
 explanation. They have tool identity but **unknown historical tmux session**; selecting
 a real session excludes these records. Importing never overwrites live snapshots,
 and estimated states never fill an outage after exact collection has begun. The
-SQLite backfill stores only time, stable pane identity, tool, and folded state.
+SQLite backfill stores only time, pane birth identity, tool, folded state, and the
+verified lifetime end. Legacy imports without lifetime evidence remain on disk but
+are excluded from queries; re-import them with verified intervals to restore coverage.

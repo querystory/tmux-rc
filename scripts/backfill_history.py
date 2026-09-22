@@ -4,7 +4,8 @@
 The old trace omitted pane IDs. A watcher 'dropped re-emitted event' message includes
 one, plus an exact prefix of an event in the model response. Accept only a UNIQUE
 response within two seconds. This recovers partial state observations, not complete
-inventories. Restrict to the current tmux server lifetime to avoid recycling pane IDs.
+inventories. Require independently verified pane lifetimes; a server lifetime alone
+cannot distinguish pane ID reuse or respawn.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import argparse
 import ast
 import bisect
 import json
+import math
 import re
 import socket
 from collections import Counter
@@ -23,7 +25,15 @@ from openbus.history import History, default_path, state_index
 PATTERN = re.compile(r"(%\d+): dropped \d+ re-emitted event\(s\), e.g. (.+)$")
 
 
-def reconstruct(trace: Path, journal: Path, server_uid: str, since: float):
+def reconstruct(trace: Path, journal: Path, server_uid: str, since: float,
+                lifetimes: list[dict]):
+    # Each interval must be evidenced independently (e.g. process start time and a
+    # still-live pane PID), never inferred from the state observations being joined.
+    for life in lifetimes:
+        if (life.get("server") != server_uid or not re.fullmatch(r"%\d+", life.get("pane_id", ""))
+                or not str(life.get("birth", "")) or not math.isfinite(life["start"])
+                or not math.isfinite(life["end"]) or life["start"] >= life["end"]):
+            raise ValueError("Invalid pane lifetime")
     boot = server_uid.split(":", maxsplit=1)[0].replace("-", "")
     outputs = []
     report = Counter()
@@ -73,9 +83,15 @@ def reconstruct(trace: Path, journal: Path, server_uid: str, since: float):
                 report["ambiguous" if candidates else "unmatched"] += 1
                 continue
             index, ot, out = candidates[0]
-            uid = f"{server_uid}:{match[1]}"
+            lives = [life for life in lifetimes if life["pane_id"] == match[1]
+                     and life["start"] <= ot <= t < life["end"]]
+            if len(lives) != 1:
+                report["unverified_lifetime"] += 1
+                continue
+            life = lives[0]
+            uid = f"{server_uid}:{match[1]}:{life['birth']}"
             matches.setdefault(index, {})[uid] = (
-                ot, uid, out.get("tool") or "other", state_index(out),
+                ot, uid, out.get("tool") or "other", state_index(out), life["end"],
             )
     observations = []
     for identities in matches.values():
@@ -94,10 +110,13 @@ def main():
     parser.add_argument("--server-uid", required=True, help="Current tmux boot_id:pid")
     parser.add_argument("--since", type=float, required=True,
                         help="Current tmux server start, Unix seconds")
+    parser.add_argument("--lifetimes", type=Path, required=True,
+                        help="Verified JSON intervals: server, pane_id, birth, start, end")
     parser.add_argument("--db", type=Path, default=default_path())
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    observations, report = reconstruct(args.trace, args.journal, args.server_uid, args.since)
+    observations, report = reconstruct(args.trace, args.journal, args.server_uid, args.since,
+                                       json.loads(args.lifetimes.read_text()))
     report["distinct_panes"] = len({r[1] for r in observations})
     report["first"] = observations[0][0] if observations else None
     report["last"] = observations[-1][0] if observations else None

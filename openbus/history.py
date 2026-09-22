@@ -60,8 +60,14 @@ class History:
                 CREATE TABLE IF NOT EXISTS log_observations (
                     t REAL NOT NULL, uid TEXT NOT NULL, tool TEXT NOT NULL,
                     state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 3),
+                    valid_until REAL,
                     PRIMARY KEY(t, uid));
             """)
+            # Legacy imports lack proof of a pane lifetime. Retain them on disk, but
+            # exclude them from charts until a verified re-import supplies bounds.
+            columns = {r[1] for r in db.execute("PRAGMA table_info(log_observations)")}
+            if "valid_until" not in columns:
+                db.execute("ALTER TABLE log_observations ADD COLUMN valid_until REAL")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('host', ?)", (socket.gethostname(),))
             host = db.execute("SELECT value FROM metadata WHERE key='host'").fetchone()[0]
             if host != socket.gethostname():
@@ -82,10 +88,13 @@ class History:
         finally:
             db.close()
 
-    def record(self, states: list[dict], server: str, now: float | None = None) -> None:
+    def record(self, states: list[dict], server: str, now: float | None = None,
+               *, births: dict[str, str] | None = None) -> None:
         now = time.time() if now is None else now
+        births = births or {}
         panes = sorted(({
-            "uid": f"{server}:{p['pane_id']}", "session": p.get("session") or "",
+            "uid": f"{server}:{p['pane_id']}:{births.get(p['pane_id'], 'unknown')}",
+            "session": p.get("session") or "",
             "tool": p.get("tool") or "other", "state": state_index(p),
         } for p in states), key=lambda p: p["uid"])
         payload = json.dumps(panes, separators=(",", ":"), sort_keys=True)
@@ -105,7 +114,7 @@ class History:
         with self.connect() as db:
             before = db.total_changes
             db.executemany(
-                "INSERT OR IGNORE INTO log_observations VALUES (?, ?, ?, ?)", observations,
+                "INSERT OR IGNORE INTO log_observations VALUES (?, ?, ?, ?, ?)", observations,
             )
             return db.total_changes - before
 
@@ -113,7 +122,9 @@ class History:
         now = time.time() if now is None else now
         with self.connect() as db:
             live_start = db.execute("SELECT min(t) FROM snapshots").fetchone()[0]
-            log_start = db.execute("SELECT min(t) FROM log_observations").fetchone()[0]
+            log_start = db.execute(
+                "SELECT min(t) FROM log_observations WHERE valid_until IS NOT NULL",
+            ).fetchone()[0]
             first = min((t for t in (live_start, log_start) if t is not None), default=now)
             span = {"1h": 3600, "24h": 86400, "7d": 604800, "all": max(60, now - first)}[window]
             start = max(first, now - span)
@@ -124,8 +135,8 @@ class History:
                         math.ceil(desired / 86400) * 86400)
             start = math.floor(start / step) * step
             records = db.execute(
-                "SELECT t, uid, tool, state FROM log_observations "
-                "WHERE t>=? AND t<=? ORDER BY t, uid",
+                "SELECT t, uid, tool, state, valid_until FROM log_observations "
+                "WHERE t>=? AND t<=? AND valid_until IS NOT NULL ORDER BY t, uid",
                 (start - BACKFILL_TTL, min(now, live_start) if live_start else now),
             ).fetchall()
             samples, known, cursor = [], {}, 0
@@ -139,11 +150,13 @@ class History:
                     source, panes = "daemon", json.loads(live[1])
                 elif live_start is None or at < live_start:
                     while cursor < len(records) and records[cursor][0] <= at:
-                        t, uid, tool, state = records[cursor]
+                        t, uid, tool, state, valid_until = records[cursor]
                         known[uid] = {"t": t, "uid": uid, "tool": tool, "state": state,
-                                      "session": "(historical session unknown)"}
+                                      "session": "(historical session unknown)",
+                                      "valid_until": valid_until}
                         cursor += 1
-                    panes = [p for p in known.values() if at - p["t"] <= BACKFILL_TTL]
+                    panes = [p for p in known.values()
+                             if at - p["t"] <= BACKFILL_TTL and at < p["valid_until"]]
                     if panes: source = "logs"
                     else: panes = None
                 counts, groups = grouped(panes) if panes is not None else (None, [])
@@ -153,4 +166,5 @@ class History:
                 "states": STATES, "backfill_ttl": BACKFILL_TTL,
                 "backfill_note": ("Log reconstruction (lighter bars) is partial; "
                                   "matched states carried "
-                                  "forward up to 4 hours. Historical tmux sessions are unknown.")}
+                                  "forward up to 4 hours within verified pane lifetimes. "
+                                  "Historical tmux sessions are unknown.")}

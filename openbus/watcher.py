@@ -580,7 +580,7 @@ class Watcher:
         self._booted = True
         self._bump_state_if_changed(self.states)
         if self.history is not None:
-            self.history.record(self.states, tmux.server_uid())
+            self.history.record(self.states, tmux.server_uid(), births=self._birth)
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state
