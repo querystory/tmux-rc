@@ -40,7 +40,7 @@ def grouped(panes: list[dict]) -> tuple[list[int], list[dict]]:
     groups = {}
     counts = [0, 0, 0, 0]
     for p in panes:
-        key = (p.get("session") or "", p.get("tool") or "other")
+        key = (p.get("session"), p.get("tool") or "other")
         group = groups.setdefault(key, {"session": key[0], "tool": key[1], "n": [0, 0, 0, 0]})
         group["n"][p["state"]] += 1
         counts[p["state"]] += 1
@@ -210,7 +210,7 @@ class History:
                     while cursor < len(records) and records[cursor][0] <= at:
                         t, uid, tool, state, valid_until = records[cursor]
                         known[uid] = {"t": t, "uid": uid, "tool": tool, "state": state,
-                                      "session": "(historical session unknown)",
+                                      "session": None,
                                       "valid_until": valid_until}
                         cursor += 1
                     panes = [p for p in known.values()

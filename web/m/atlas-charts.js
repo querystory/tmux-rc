@@ -82,12 +82,12 @@ export function atlasCharts() {
     const times = [];
     for (let t = samples[0]?.t; t <= samples[samples.length - 1]?.t; t += step) times.push(t);
     const single = times.length === 1;
-    const label = t => times.length && times[times.length - 1] - times[0] >= 86400000
+    const label = t => times.length && new Date(times[0]).toDateString() !== new Date(times[times.length - 1]).toDateString()
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     const order = [1, 0, 2, 3]; // Working at the bottom, idle at the top, like the reference.
     const colors = dark ? ['#f1bd53', '#60c992', '#3f4a55', '#4a5261'] : ['#f2ad32', '#39b978', '#e3e8ed', '#d1d8e2'];
     bars.setAttribute('aria-label', samples.length
-      ? `Pane state counts, ${timeLabel(samples[0].t)} to ${timeLabel(samples[samples.length - 1].t)}. ${samples.length} observations. Latest: ${samples[samples.length - 1].n ? states.map((s, i) => `${samples[samples.length - 1].n[i]} ${s}`).join(', ') : 'No observation'}.`
+      ? `Pane state counts, ${timeLabel(samples[0].t)} to ${timeLabel(samples[samples.length - 1].t)}. ${samples.filter(s => s.n !== null).length} observed buckets. Latest: ${samples[samples.length - 1].n ? states.map((s, i) => `${samples[samples.length - 1].n[i]} ${s}`).join(', ') : 'No observation'}.`
       : 'No observations yet.');
     barChart.setOption({
       animation: false, textStyle: { color: muted, fontFamily: 'sans-serif' },

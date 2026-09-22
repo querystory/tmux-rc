@@ -46,7 +46,7 @@ def test_backfill_is_idempotent_expires_and_never_masks_live_outage(tmp_path):
     sample = h.query("all", now=700)["samples"][-1]
     assert sample["n"] == [1, 1, 0, 0]
     assert sample["source"] == "logs"
-    assert sample["groups"][0]["session"] == "(historical session unknown)"
+    assert sample["groups"][0]["session"] is None
     assert h.query("all", now=700 + BACKFILL_TTL)["samples"][-1]["n"] is None
     h.record([], "s", 720)
     assert h.query("all", now=730)["samples"][-1]["n"] == [0, 0, 0, 0]
@@ -330,3 +330,12 @@ def test_progressive_ui_inventory_is_not_persisted(tmp_path, monkeypatch):
         assert db.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 0
     watcher._publish_states([pane()])
     assert history.query()["samples"][-1]["n"] == [0, 1, 0, 0]
+
+
+def test_historical_unknown_session_is_not_a_real_session_name(tmp_path):
+    h = History(tmp_path / "h.db")
+    h.import_logs([(600, "s:%1:10", "claude", 1, 900)])
+    h.record([pane(session="(historical session unknown)")], "s", 720)
+    samples = h.query("all", now=720)["samples"]
+    assert samples[0]["groups"][0]["session"] is None
+    assert samples[-1]["groups"][0]["session"] == "(historical session unknown)"
