@@ -303,3 +303,30 @@ def test_legacy_snapshot_migration_preserves_history_and_gaps(tmp_path):
         assert samples[0]["n"] == [0, 1, 0, 0]
         assert any(s["source"] == "gap" for s in samples)
         assert samples[-1]["n"] == [0, 0, 0, 0]
+
+
+def test_verified_reimport_restores_legacy_row_without_overwriting_verified_data(tmp_path):
+    h = History(tmp_path / "h.db")
+    with h.connect() as db:
+        db.execute("INSERT INTO log_observations VALUES (600, 's:%1:10', 'claude', 2, NULL)")
+    rows = [(600, "s:%1:10", "claude", 1, 900)]
+    assert h.import_logs(rows) == 1
+    assert h.import_logs(rows) == 0
+    assert h.query("all", now=600)["samples"][-1]["n"] == [0, 1, 0, 0]
+    assert h.import_logs([(600, "s:%1:10", "codex", 0, 999)]) == 0
+    assert h.query("all", now=600)["samples"][-1]["n"] == [0, 1, 0, 0]
+
+
+def test_progressive_ui_inventory_is_not_persisted(tmp_path, monkeypatch):
+    from openbus import tmux
+    from openbus.watcher import Watcher
+
+    monkeypatch.setattr(tmux, "server_uid", lambda: "s")
+    history = History(tmp_path / "h.db")
+    watcher = Watcher(None, history=history)
+    watcher._publish_states([pane(activity="unknown")], record_history=False)
+    assert watcher.states[0]["activity"] == "unknown"
+    with history.connect() as db:
+        assert db.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 0
+    watcher._publish_states([pane()])
+    assert history.query()["samples"][-1]["n"] == [0, 1, 0, 0]

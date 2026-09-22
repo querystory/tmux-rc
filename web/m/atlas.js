@@ -61,11 +61,14 @@ export function renderAtlas(root, panes, navigate, logos) {
   const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   const filtered = scope.tool || scope.session;
-  const samples = history.filter(s => (!filtered || s.groups) &&
-    !(scope.session && scope.session !== '(historical session unknown)' && s.source === 'logs')).map(s => !filtered || s.n === null ? s : ({ ...s,
-    n: s.groups.filter(g => (!scope.tool || g.tool === scope.tool) && (!scope.session || g.session === scope.session))
-      .reduce((counts, g) => counts.map((n, i) => n + g.n[i]), [0, 0, 0, 0]),
-  }));
+  const samples = history.map(s => {
+    if (!filtered || s.n === null) return s;
+    const groups = (s.groups || []).filter(g => (!scope.tool || g.tool === scope.tool) && (!scope.session || g.session === scope.session));
+    // A partial log reconstruction cannot prove a filtered fleet was empty. Keep
+    // its timestamp as a gap, including at either end of the selected range.
+    if (!s.groups || (s.source === 'logs' && !groups.length)) return { ...s, n: null, groups: [], source: 'gap' };
+    return { ...s, groups, n: groups.reduce((counts, g) => counts.map((n, i) => n + g.n[i]), [0, 0, 0, 0]) };
+  });
   // Preserve focus and pointer targets across unchanged long polls.
   const signature = [scope.tool, scope.session, history, historyWindow, historyError, historyData?.step, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.session_summary, p.status_line])];

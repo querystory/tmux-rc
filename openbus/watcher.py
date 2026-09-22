@@ -506,7 +506,7 @@ class Watcher:
                 s["tmux_active"] = p.id == focused
                 _stamp_identity(s, p)
                 states.append(s)
-            self._publish_states(states)
+            self._publish_states(states, record_history=False)
         # Drain the forced-reparse requests for THIS pass in one atomic swap, so a
         # request that arrives mid-tick (handler thread) is never lost to a check-then-
         # discard race in _tick_pane — it either makes this snapshot or stays queued in
@@ -544,7 +544,7 @@ class Watcher:
                 s["tmux_active"] = p.id == focused
                 s["events_seq"] = self._events_seq.get(p.id, 0)
                 states[index] = s
-                self._publish_states(states)
+                self._publish_states(states, record_history=False)
             else:
                 states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
@@ -573,13 +573,15 @@ class Watcher:
         self._publish_states(states)
         self._gc(alive)
 
-    def _publish_states(self, states: list[dict]) -> None:
+    def _publish_states(self, states: list[dict], *, record_history: bool = True) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
         self.states = [dict(s) for s in states]
         self._booted = True
         self._bump_state_if_changed(self.states)
-        if self.history is not None:
+        # Progressive UI publication mixes old and newly parsed pane states. Only
+        # the final inventory for a tick belongs in durable history.
+        if record_history and self.history is not None:
             self.history.record(self.states, tmux.server_uid(), births=self._birth)
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame

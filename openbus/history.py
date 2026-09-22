@@ -168,7 +168,10 @@ class History:
         with self.connect() as db:
             before = db.total_changes
             db.executemany(
-                "INSERT OR IGNORE INTO log_observations VALUES (?, ?, ?, ?, ?)", observations,
+                "INSERT INTO log_observations VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(t, uid) DO UPDATE SET tool=excluded.tool, state=excluded.state, "
+                "valid_until=excluded.valid_until WHERE log_observations.valid_until IS NULL",
+                observations,
             )
             return db.total_changes - before
 
