@@ -141,11 +141,32 @@ def _client():
     )
 
 
-# Shared 429 backoff. Vertex quota errors come in bursts; without a backoff every
-# heartbeat re-parse burns another call (and logged another full traceback) while the
-# quota window resets. On 429 we stop calling for `delay` seconds (15s doubling to a
-# 2min cap), and any success resets it.
+# Shared backoff for OPERATIONAL failures. Vertex quota errors come in bursts; without a
+# backoff every heartbeat re-parse burns another call (and logged another full traceback)
+# while the quota window resets. On failure we stop calling for `delay` seconds (15s
+# doubling to a 2min cap), and any success resets it.
+#
+# It covers the SERVICE-HEALTH failures — quota, expired auth, timeouts — not just 429,
+# because a failed parse now leaves the pane's screen UNREAD so the watcher retries it
+# (see openbus/watcher.py). That retry is what makes a stuck card recover, but with no
+# brake a sustained outage becomes a storm: one tick is 1.5s and every pane retries, so
+# a 27-pane server would attempt ~18 calls a second and log a line for each.
+#
+# The test for arming it is "would every OTHER pane's next call fail the same way?" —
+# which is true of an endpoint that is down, rate-limiting or refusing our credentials,
+# and false of a model that returned junk for one particular screen. A per-pane content
+# failure must not pause the other 26; see the JSONDecodeError branch below.
 _backoff = {"delay": 0.0, "until": 0.0}
+
+
+def _arm_backoff() -> float:
+    """Start (or lengthen) the shared pause after a SERVICE-HEALTH failure, returning the
+    new delay. Doubles 15s → 120s so a long outage settles to one attempt every two
+    minutes; any success resets it (see classify_text). Only for failures that would hit
+    every pane alike — not a per-pane content failure like malformed JSON."""
+    delay = min(_backoff["delay"] * 2, 120.0) or 15.0
+    _backoff.update(delay=delay, until=time.time() + delay)
+    return delay
 
 
 def _backoff_remaining() -> float:
@@ -154,7 +175,7 @@ def _backoff_remaining() -> float:
 
 
 def backing_off() -> bool:
-    """True while the 429 backoff is armed — callers with their own attempt budgets
+    """True while the shared failure backoff is armed — callers with their own attempt budgets
     (e.g. bootstrap retries) should skip rather than burn attempts on calls that
     classify_text will refuse anyway."""
     return _backoff_remaining() > 0
@@ -168,22 +189,34 @@ def _handle_llm_error(e: Exception) -> str:
     for an expected condition is noise that buries real bugs (a 429 burst was dumping
     dozens of 40-line tracebacks into the daemon output). Unknown failures keep
     exc_info so real bugs stay debuggable.
-    A 429 also arms the shared backoff so the watcher stops hammering Vertex."""
+    An operational failure also arms the shared backoff so the watcher stops hammering
+    Vertex while the condition persists."""
     msg = str(e)
     if getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in msg or " 429 " in msg:
-        delay = min(_backoff["delay"] * 2, 120.0) or 15.0
-        _backoff.update(delay=delay, until=time.time() + delay)
+        delay = _arm_backoff()
         short = f"rate limited (429) — backing off {delay:.0f}s"
         logger.warning("LLM %s", short)
     elif "Reauthentication is needed" in msg or "RefreshError" in type(e).__name__:
         short = "Google auth expired — run: gcloud auth application-default login"
         logger.warning("LLM parse failed: %s", short)
+        _arm_backoff()  # nothing will succeed until a human runs gcloud
     elif "timeout" in msg.lower() or "Timeout" in type(e).__name__:
         short = "Vertex request timed out"
         logger.warning("LLM parse failed: %s", short)
+        _arm_backoff()
     elif "JSONDecodeError" in type(e).__name__:
         # A misbehaving model is the same class of event as a 429 — a state of the
         # world, not a bug in this code. One line, no traceback.
+        #
+        # But it does NOT arm the shared backoff, unlike the failures above. Those are
+        # service health: the endpoint is rate-limiting, unreachable, or unauthenticated,
+        # so every pane's next call would fail the same way and pausing all of them is
+        # right. Malformed JSON is the opposite — it is a property of ONE pane's screen
+        # and the completion it provoked. Arming a global pause on it lets a single odd
+        # screen stop classification for every other pane for up to two minutes, and the
+        # refusals it hands them are themselves failed parses under this PR, so they
+        # spin unread until the window ends. The watcher's own retry is the right
+        # response here: re-read that pane, and leave the others alone.
         short = f"model returned malformed JSON: {msg[:80]}"
         logger.warning("LLM parse failed: %s", short)
     else:
@@ -260,13 +293,13 @@ def classify_text(
             kind,
         )  # OTLP benchmark record
         last_error["msg"] = None  # success clears any prior error
-        _backoff.update(delay=0.0, until=0.0)  # healthy again; forget the 429 streak
+        _backoff.update(delay=0.0, until=0.0)  # healthy again; forget the failure streak
         return result
     except Exception as e:  # noqa: BLE001 - parse pass must never break the watcher
         _trace.info("ERROR on IN: %r", text[-500:])
         # Remember WHY (last_error → UI shows "LLM unavailable: <reason>" instead of
         # silently degrading to a blank heuristic card). _handle_llm_error picks the log
-        # fidelity and arms the 429 backoff.
+        # fidelity and arms the shared backoff.
         msg = _handle_llm_error(e)
         last_error["msg"] = msg[:200]
         _totals["errors"] += 1
@@ -300,7 +333,7 @@ def summarize_events(event_texts: list[str]) -> str | None:
         _record(resp)
         return (resp.text or "").strip()[:200] or None
     except Exception as e:  # noqa: BLE001
-        _handle_llm_error(e)  # was fully silent before; now logs + arms 429 backoff
+        _handle_llm_error(e)  # was fully silent before; now logs + arms the backoff
         _totals["errors"] += 1
         return None
 

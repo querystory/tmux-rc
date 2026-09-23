@@ -33,7 +33,6 @@
     <header class="app-header">
       <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
-      <div id="heading" hidden><h1 id="pane-title"></h1><p id="pane-location"></p></div>
       <span id="connection" role="status">Connecting</span>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
       <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
@@ -48,14 +47,34 @@
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
     <section id="sessions" aria-label="Sessions">
-      <div class="list-heading"><h1>Sessions</h1><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
+      <div class="list-heading"><h1>Sessions</h1><select id="sort" aria-label="Sort panes"><option value="updated">Last updated</option><option value="session">Session order</option></select><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
       <label class="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"></label>
-      <div class="list-order"><label for="sort">Sort</label><select id="sort" aria-label="Sort panes"><option value="session">Session order</option><option value="updated">Last updated</option></select></div>
       <div id="pane-list"></div>
       <p id="empty" class="empty" role="status">Loading sessions...</p>
     </section>
+    <!-- Wide-screen only: the main column when no pane is selected. Narrow screens never
+         show it (there the list IS the screen), so it ships hidden and render() decides. -->
+    <section id="landing" aria-label="Overview" hidden>
+      <div class="landing-inner">
+        <h2 id="landing-title"></h2>
+        <p id="landing-sub" class="muted"></p>
+        <div id="session-atlas"></div>
+        <section id="landing-attention" hidden>
+          <h3>Needs you</h3>
+          <div id="landing-attention-list"></div>
+        </section>
+      </div>
+    </section>
+    <div id="divider" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" hidden></div>
     <section id="detail" aria-label="Selected pane" hidden>
-      <nav class="view-tabs" aria-label="Pane view"><button id="summary-tab" aria-pressed="true">Overview</button><button id="terminal-tab" aria-pressed="false">Terminal</button></nav>
+      <!-- The pane's identity belongs over the pane, not in the app-wide header: on a wide
+           screen the header spans both columns, so a title there floats above the sidebar
+           it does not describe. Kept as ONE node for both layouts — narrow stacks it above
+           the tabs exactly as the old header row read, wide sits it on the tab line. -->
+      <div id="heading" hidden><div class="pane-heading-text"><h1 id="pane-title"></h1><p id="pane-location"></p></div>
+        <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><span>Layout</span><select id="review-layout" aria-label="Session view"><option value="side">Side by side</option><option value="stack">Overview above</option><option value="summary">Overview</option><option value="terminal">Terminal</option></select></div>
+      </div>
+      <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
       <div id="overview" class="scroller">
         <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
         <section id="question" hidden><h2 id="prompt"></h2><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
@@ -64,11 +83,12 @@
         <section id="task-section" hidden><h2>Tasks <span id="task-count"></span></h2><div id="tasks"></div></section>
         <section id="agent-section" hidden><h2>Agents</h2><div id="agents"></div></section>
         <section id="copy-section" hidden><h2>From the terminal</h2><div id="copyables"></div></section>
-        <section id="event-section"><h2>Activity</h2><div id="events"></div><p id="events-empty" class="muted">Loading activity...</p></section>
+        <section id="event-section"><h2>Activity history</h2><div id="events"></div><p id="events-empty" class="muted">Loading activity...</p></section>
       </div>
       <div id="terminal" hidden>
-        <div class="terminal-toolbar"><span id="terminal-status" role="status">Connecting</span><button id="zoom-out" class="icon-button" aria-label="Smaller terminal text" title="Smaller terminal text"></button><output id="font-size">13</output><button id="zoom-in" class="icon-button" aria-label="Larger terminal text" title="Larger terminal text"></button><button id="tail" class="icon-button" aria-label="Latest output" title="Latest output"></button></div>
+        <div class="terminal-toolbar"><span id="terminal-status" role="status">Connecting</span><button id="zoom-out" class="icon-button" aria-label="Smaller terminal text" title="Smaller terminal text"></button><output id="font-size">13</output><button id="zoom-in" class="icon-button" aria-label="Larger terminal text" title="Larger terminal text"></button><button id="click-mode" class="icon-button"></button><button id="tail" class="icon-button" aria-label="Latest output" title="Latest output"></button></div>
         <div id="terminal-scroll" tabindex="0" aria-label="Terminal output"><pre id="capture"></pre></div>
+        <div id="session-chips" aria-label="Session status"></div>
       </div>
       <footer id="composer">
         <div id="keys" hidden aria-label="Terminal keys"></div>

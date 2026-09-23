@@ -7,6 +7,7 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
@@ -170,7 +171,7 @@ def _run(args: list[str]) -> str:
 _server_uid: str | None = None
 
 
-def server_uid() -> str:
+def server_uid(*, strict: bool = False) -> str:
     """Stable identity of the tmux SERVER: '<boot_id>:<server_pid>'.
 
     boot_id (a fresh kernel UUID per boot, from /proc) plus the server's pid uniquely
@@ -190,10 +191,12 @@ def server_uid() -> str:
         with open("/proc/sys/kernel/random/boot_id") as f:
             boot = f.read().strip()
     except OSError:
+        if strict: raise
         boot = "nobootid"
     try:
         pid = _run(["display-message", "-p", "#{pid}"]).strip()
     except subprocess.CalledProcessError:
+        if strict: raise
         # No server (yet). Serve the last good identity if we have one rather than
         # inventing a ':0' that would look like a different server to the backend.
         return _server_uid or f"{boot}:0"
@@ -211,12 +214,18 @@ def pane_uid(pane: Pane) -> str:
 
 
 def server_running() -> bool:
-    """True if a tmux server is up (avoids noisy errors when nothing is running)."""
+    """False only for a confirmed absent server; collection failures must remain gaps."""
     try:
         _run(["list-sessions"])
         return True
-    except subprocess.CalledProcessError:
-        return False
+    except subprocess.CalledProcessError as error:
+        message = (error.stderr or "").lower()
+        if error.returncode == 1 and (
+            "no server running" in message
+            or ("no such file or directory" in message and "connect" in message)
+        ):
+            return False
+        raise
 
 
 def prefix_key() -> str:
@@ -743,6 +752,53 @@ def send_keys(
             # box we are about to submit.
             _settle_before_return(pane_id)
             _run(["send-keys", "-t", pane_id, "Enter"])
+
+
+def click(pane_id: str, from_bottom: int, col: int, *,
+          expected_pid: str, expected_frame: str) -> bool:
+    """Left-click the cell `from_bottom` lines above the last line of the live frame, at
+    1-based `col`. Returns False (nothing sent) when the pane's app has not asked for
+    SGR mouse reports — a shell would echo the bytes as garbage — or the line has
+    scrolled off the visible screen into history, where the app has no cell to hit.
+
+    The client counts lines from the BOTTOM because that is the one edge its frame
+    shares with the screen: the frame starts somewhere in history and loses trailing
+    blank rows to the rstrip. Capturing the visible screen through the same capture_pane
+    path and counting up from its last line puts the row in screen coordinates without
+    the live stream having to carry any geometry. Reject wrapped screens: the joined
+    capture loses their physical row boundaries, so guessing could click another action.
+
+    tmux can't synthesize a mouse event (`send-keys -M` only replays the one that
+    triggered a binding), so we write the report bytes the app would have received:
+    `ESC[<0;col;rowM` press, `…m` release."""
+    if from_bottom < 0 or col < 1:
+        return False
+    with _pane_lock(pane_id):
+        width, sgr = _run([
+            "display-message", "-p", "-t", pane_id, "#{pane_width} #{mouse_sgr_flag}",
+        ]).split()
+        if sgr != "1" or col > int(width):
+            return False
+        frame = capture_pane(pane_id, keep_colors=True)
+        if hashlib.md5(frame.encode()).hexdigest() != expected_frame:
+            return False
+        # Validate physical geometry against the exact visible suffix of the fresh
+        # joined frame. Wrapped scrollback is irrelevant; a wrapped or changed screen
+        # cannot match this suffix, so never map the tap onto different visible text.
+        # -N -T preserves the same trailing positions as -J without joining rows.
+        visible = _materialize_links(_run([
+            "capture-pane", "-p", "-e", "-N", "-T", "-t", pane_id, "-S", "-0",
+        ])).rstrip("\n")
+        if not (frame == visible or frame.endswith("\n" + visible)):
+            return False
+        row = len(visible.split("\n")) - from_bottom
+        if row < 1:
+            return False
+        # tmux cannot atomically compare output and inject input.
+        check_pane(pane_id, expected_pid)
+        seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
+        _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq)])
+        return True
 
 
 _clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping

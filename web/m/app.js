@@ -1,8 +1,13 @@
+import { headerPicker } from "/m/header-picker.js";
+import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+
+const refreshSortPicker = headerPicker(document.getElementById("sort"));
+const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -41,6 +46,8 @@ const LUCIDE = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  pointer: '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
+  cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -51,15 +58,23 @@ const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", shell: "/bash.png" };
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
+// The desktop workspace shows context alongside the live terminal; phones retain tabs.
+const WIDE = matchMedia("(min-width: 1100px)");
+let reviewLayout = "side";
+try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
+const reviewing = () => WIDE.matches && reviewLayout !== "focus";
+const terminalVisible = () => reviewing() || view === "terminal";
+const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
-let sort = "session";
+let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
+let latestFrame = "", paintedFrame = "";
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return ""; } // Like desktop SESSION_ID: CSPRNG-random or omitted, never guessed.
@@ -123,7 +138,7 @@ function notice(message = "") { text($("notice"), message); show("notice", !!mes
 function hashFor(id, nextView) {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
-  if (sort !== "session") params.set("sort", sort);
+  if (sort !== "updated") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
   return params.toString();
 }
@@ -154,8 +169,9 @@ function route() {
   active = next;
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
-  sort = params.get("sort") === "updated" ? "updated" : "session";
+  sort = params.get("sort") === "session" ? "session" : "updated";
   $("sort").value = sort;
+  refreshSortPicker();
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("overview").scrollTop = 0;
@@ -181,6 +197,8 @@ function makeRow(pane) {
   return button;
 }
 function updateRow(button, pane) {
+  if (pane.pane_id === active) button.setAttribute("aria-current", "true");
+  else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", needsYou(pane));
   const logo = button.querySelector(".pane-icon img");
   const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
@@ -223,6 +241,182 @@ function renderList() {
   $("new-window").disabled = !panes.length;
 }
 
+// The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
+// filter tabs already show — a second count that disagreed with the tabs would be worse
+// than no count — plus panes blocked on you. Rows navigate exactly like sidebar rows.
+function landingRows(id, subset) {
+  show(id, !!subset.length);
+  reconcile($(id + "-list"), subset, (p) => p.pane_id, () => {
+    const b = document.createElement("button");
+    b.className = "landing-row";
+    b.innerHTML = '<span class="t"></span><span class="m"></span>';
+    return b;
+  }, (node, p) => {
+    node.onclick = () => navigate(p.pane_id);
+    text(node.querySelector(".t"), paneName(p));
+    text(node.querySelector(".m"), `${activityLabel(p)} · ${p.session} / ${p.window_name || p.pane_id}`);
+  });
+}
+
+function renderLanding() {
+  const waiting = panes.filter(needsYou);
+  text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "Session atlas" : "No panes yet");
+  // With no panes there is no session to open a window IN: + is disabled and the server
+  // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
+  // the empty state says where a session actually comes from instead.
+  text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
+    ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
+    : "No tmux panes are open. Start a session on the host and it will appear here.");
+  renderAtlas($("session-atlas"), panes, navigate, LOGOS);
+  landingRows("landing-attention", waiting);
+}
+
+// Drag the seam between the sidebar and the main column. Width is a CSS variable the
+// grid clamps, so a stored value from a wider window can never strand the layout, and
+// persistence is per browser (localStorage) because it is a per-screen preference, not
+// something the daemon should know. Arrow keys move it too: the handle is a focusable
+// separator, and a pointer-only affordance would be unreachable from the keyboard.
+const SIDEBAR_KEY = "tmuxrc-sidebar", SIDEBAR_DEFAULT = 340;
+// Mirrors the CSS clamp() in style.css, which stays the real guard: it holds with JS off
+// and against a hand-edited localStorage value. These bounds exist so the separator can
+// report a truthful value to assistive tech. MAX can fall BELOW MIN on a narrow window
+// (46vw of 390px is 179px), and clamp() resolves that by letting the minimum win — so
+// the order here is min-last, matching CSS, not Math.min(Math.max(...)).
+const SIDEBAR_MIN = 260, SIDEBAR_MAX = () => window.innerWidth * 0.46;
+const clampSidebar = (px) => Math.round(Math.max(Math.min(px, SIDEBAR_MAX()), SIDEBAR_MIN));
+// The width the user chose, unclamped. Kept apart from the rendered value because the
+// clamp is viewport-dependent: narrowing the window must not erase the desktop width, so
+// what we store and replay is always the intent, and the clamp is applied on the way out.
+let sidebarWidth = SIDEBAR_DEFAULT;
+// `persist` is false for the boot restore and for resize: only a drag or an arrow key is
+// the user choosing a width, so a phone visit cannot overwrite the desktop's.
+function setSidebar(px, persist = true) {
+  const width = clampSidebar(px);
+  // A drag or an arrow key records the width the user actually SAW, not the raw pointer
+  // position: over-dragging past the ceiling must not bank a width that a later resize
+  // would suddenly honour. A replay (persist false) keeps the intent it was handed, which
+  // is the whole point of replaying it.
+  sidebarWidth = persist ? width : px;
+  document.documentElement.style.setProperty("--sidebar", width + "px");
+  // A focusable role="separator" is a widget, so it owes screen readers a value.
+  const handle = $("divider");
+  handle.setAttribute("aria-valuenow", width);
+  handle.setAttribute("aria-valuemin", SIDEBAR_MIN);
+  handle.setAttribute("aria-valuemax", Math.max(Math.round(SIDEBAR_MAX()), SIDEBAR_MIN));
+  if (persist) { try { localStorage.setItem(SIDEBAR_KEY, String(width)); } catch {} }
+  return width;
+}
+let storedSidebar = 0;
+try { storedSidebar = Number(localStorage.getItem(SIDEBAR_KEY)); } catch {}
+setSidebar(storedSidebar > 0 ? storedSidebar : SIDEBAR_DEFAULT, false);
+// The clamp moves with the viewport, so replay the intent whenever it changes: a tab that
+// loaded narrow and was widened gets the saved desktop width back rather than the value
+// the narrow clamp had squeezed it to, and aria-valuenow follows the seam it describes.
+addEventListener("resize", () => setSidebar(sidebarWidth, false));
+
+const divider = $("divider");
+divider.addEventListener("pointerdown", (e) => {
+  // Primary button only. A right-click on the seam is a context-menu gesture, not a
+  // resize, and preventDefault() here would swallow it.
+  if (e.button !== 0) return;
+  e.preventDefault();
+  divider.setPointerCapture(e.pointerId);
+  divider.classList.add("dragging");
+  document.body.classList.add("resizing");
+});
+divider.addEventListener("pointermove", (e) => {
+  if (!divider.hasPointerCapture(e.pointerId)) return;
+  // Measured from the app's left edge, not the viewport, so it stays correct if the
+  // layout ever gains an outer margin.
+  setSidebar(e.clientX - $("app").getBoundingClientRect().left);
+});
+// body.resizing kills pointer-events on the main column, so it sticking on would deaden
+// the whole pane. pointerup/pointercancel cover the ordinary endings (capture guarantees
+// one of them even if the pointer leaves the window), and lostpointercapture is the
+// backstop for the rest: crossing the wide breakpoint mid-drag hides #divider, which
+// drops capture without firing either of the other two.
+const endResize = (e) => {
+  if (e.pointerId !== undefined && divider.hasPointerCapture(e.pointerId)) {
+    divider.releasePointerCapture(e.pointerId);
+  }
+  divider.classList.remove("dragging");
+  document.body.classList.remove("resizing");
+};
+divider.addEventListener("pointerup", endResize);
+divider.addEventListener("pointercancel", endResize);
+divider.addEventListener("lostpointercapture", endResize);
+divider.addEventListener("keydown", (e) => {
+  const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  // From the rendered width, not the stored one: the clamp may already be overriding it,
+  // and an arrow press should move the seam the user can actually see.
+  setSidebar($("sessions").getBoundingClientRect().width + step);
+});
+
+// One seam for both arrangements. Store dimensions separately so rearranging never
+// turns a preferred column width into an implausibly tall overview.
+const reviewSizes = { side: 360, stack: 280 };
+try {
+  for (const mode of Object.keys(reviewSizes)) {
+    const saved = Number(localStorage.getItem(`tmuxrc-review-${mode}`));
+    if (Number.isFinite(saved) && saved > 0) reviewSizes[mode] = saved;
+  }
+} catch {}
+const reviewDivider = $("review-divider");
+function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
+  if (!reviewing()) return;
+  const side = reviewLayout === "side", rect = $("detail").getBoundingClientRect();
+  const min = side ? 240 : 120;
+  const max = Math.max(min, Math.floor(side ? rect.width * .45 : rect.height * .5));
+  const size = Math.round(Math.max(min, Math.min(max, requested)));
+  $("detail").style.setProperty("--review-size", `${size}px`);
+  reviewDivider.setAttribute("aria-orientation", side ? "vertical" : "horizontal");
+  for (const [key, value] of Object.entries({ min, max, now: size })) reviewDivider.setAttribute(`aria-value${key}`, value);
+  if (persist) {
+    reviewSizes[reviewLayout] = size;
+    try { localStorage.setItem(`tmuxrc-review-${reviewLayout}`, String(size)); } catch {}
+  }
+}
+new ResizeObserver(() => sizeReview()).observe($("detail"));
+$("mobile-view-toggle").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-view]");
+  if (!button) return;
+  $("review-layout").value = button.dataset.view;
+  $("review-layout").dispatchEvent(new Event("change", { bubbles: true }));
+});
+$("review-layout").onchange = (e) => {
+  const choice = e.target.value;
+  if (WIDE.matches) {
+    reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
+    try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
+  }
+  if (["summary", "terminal"].includes(choice)) { view = choice; navigate(active, view); }
+  restartDetail(); render();
+};
+reviewDivider.onpointerdown = (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault(); reviewDivider.setPointerCapture(e.pointerId);
+  reviewDivider.classList.add("dragging");
+};
+reviewDivider.onpointermove = (e) => {
+  if (!reviewDivider.hasPointerCapture(e.pointerId)) return;
+  const rect = $("detail").getBoundingClientRect();
+  sizeReview(true, reviewLayout === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
+};
+const endReviewResize = (e) => {
+  if (reviewDivider.hasPointerCapture(e.pointerId)) reviewDivider.releasePointerCapture(e.pointerId);
+  reviewDivider.classList.remove("dragging");
+};
+reviewDivider.onpointerup = reviewDivider.onpointercancel = reviewDivider.onlostpointercapture = endReviewResize;
+reviewDivider.onkeydown = (e) => {
+  const steps = reviewLayout === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
+  const step = steps[e.key];
+  if (!step) return;
+  e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
+};
+reviewDivider.ondblclick = () => sizeReview(true, reviewLayout === "side" ? 360 : 280);
+
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
@@ -233,10 +427,20 @@ function render() {
   // by its own birth. Presence is imperfect evidence when tmux recycles an id — see the
   // note at the eviction below; it is the only evidence the client has.
   if (launched && panes.some((p) => p.pane_id === launched.id)) launched = null;
-  show("sessions", !inPane); show("list-nav", !inPane); show("brand", !inPane);
-  show("back", inPane); show("heading", inPane); show("detail", inPane);
+  // On a wide screen the list never leaves, so it is not "list OR pane" any more:
+  // the list and the filter tabs stay up, and Back has nothing to go back TO — the
+  // sidebar it would return you to is already there. The brand keeps its slot for the
+  // same reason. Narrow is unchanged.
+  const wide = WIDE.matches;
+  show("sessions", !inPane || wide); show("list-nav", !inPane || wide);
+  show("brand", !inPane || wide);
+  show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
+  // The main column is never blank on a wide screen: with no pane chosen it answers the
+  // question the sidebar cannot, which is what the whole fleet is doing right now.
+  show("landing", wide && !inPane);
+  show("divider", wide);
   renderList();
-  if (!inPane) return;
+  if (!inPane) { if (wide) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
   // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
   // still shows the last frame, and every key is disabled — nothing to do but hit back.
@@ -261,9 +465,19 @@ function render() {
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
-  $("summary-tab").setAttribute("aria-pressed", view === "summary");
-  $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
-  show("overview", view === "summary"); show("terminal", view === "terminal");
+  $("detail").dataset.layout = reviewing() ? reviewLayout : "focus";
+  const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
+  if (wide) layouts.unshift(["side", "Side by side"], ["stack", "Overview above"]);
+  const picker = $("review-layout");
+  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
+  picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
+  refreshViewPicker();
+  $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.view === view));
+  });
+  show("review-divider", reviewing());
+  show("overview", overviewVisible()); show("terminal", terminalVisible());
+  sizeReview(false);
   text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
@@ -272,7 +486,15 @@ function render() {
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
-  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.elapsed].filter(Boolean).join(" / "));
+  const elapsed = pane?.working?.elapsed ?? pane?.elapsed;
+  const tokens = pane?.working?.tokens ?? pane?.tokens;
+  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, elapsed].filter(Boolean).join(" / "));
+  const chips = [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost,
+    elapsed, tokens ? `${tokens} tokens` : "",
+    ...(Array.isArray(pane?.status_entries) ? pane.status_entries.slice(0, 4) : []),
+    ({ plan: "Plan mode", "accept-edits": "Accept edits", bypass: "Bypass permissions" })[pane?.mode],
+    pane?.agents ? `${pane.agents} agents` : ""].filter(Boolean);
+  reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.prompt || "");
@@ -304,7 +526,7 @@ function render() {
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
-  if (pane && view === "summary") loadEvents(pane);
+  if (pane && overviewVisible()) loadEvents(pane);
 }
 
 function renderRichContent(pane) {
@@ -403,11 +625,11 @@ function restartDetail() {
   }
   if (!active || document.hidden) return;
   const pane = panes.find((p) => p.pane_id === active);
-  if (view === "terminal") streamTerminal(active, detailController.signal);
-  else if (pane) loadEvents(pane);
+  if (terminalVisible()) streamTerminal(active, detailController.signal);
+  if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; }
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; }
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
 // <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
 // the whole frame gave — no extra CSS, and no block children to lose the newlines. The
@@ -444,6 +666,7 @@ function paintCapture() {
   const scroll = $("terminal-scroll");
   const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - FOLLOW_SLACK_PX;
   paintLines(lines);
+  paintedFrame = latestFrame;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
 }
 async function streamTerminal(id, signal) {
@@ -456,7 +679,7 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; paintCapture(); }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {
@@ -482,7 +705,10 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) pollState(stateController.signal);
+  if (!document.hidden) {
+    refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
+    pollState(stateController.signal);
+  }
 }
 async function pollState(signal) {
   let version = null;
@@ -492,6 +718,7 @@ async function pollState(signal) {
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
+      refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -659,8 +886,6 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 $("back").onclick = () => navigate();
-$("summary-tab").onclick = () => navigate(active, "summary");
-$("terminal-tab").onclick = () => navigate(active, "terminal");
 $("search").oninput = renderList;
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
 $("list-nav").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
@@ -675,6 +900,39 @@ $("theme").onclick = () => { const light = !document.documentElement.classList.c
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; };
+// Click mode: a tap on the terminal is a mouse click in the pane (the daemon drops it
+// unless the pane's app asked for mouse reports). Select mode is the plain text view, for
+// copying. Two explicit modes rather than guessing intent from drag-vs-tap, because a tap
+// that meant "place the selection" would otherwise click whatever is under it.
+function setClickMode(on) {
+  $("capture").classList.toggle("clicks", on);
+  $("click-mode").setAttribute("aria-pressed", String(on));
+  html($("click-mode"), `${licon(on ? "pointer" : "cursor", 16)}${on ? "Click" : "Select"}`);
+  $("click-mode").ariaLabel = $("click-mode").dataset.tip = on
+    ? "Click mode: taps click inside the app, like menus and agent rows. Tap to switch to Select for copying text."
+    : "Select mode: drag to select and copy text. Tap to switch to Click to use the app's menus and rows.";
+}
+let storedClickMode = null;
+try { storedClickMode = localStorage.getItem("tmuxrc-click-mode"); } catch {}
+setClickMode(storedClickMode !== "off");
+$("click-mode").onclick = () => { const on = !$("capture").classList.contains("clicks"); setClickMode(on); try { localStorage.setItem("tmuxrc-click-mode", on ? "on" : "off"); } catch {} };
+// The cell comes from monospace geometry, not the tapped node, so blank space right of
+// the text still hits its row. Rows count up from the frame's last line — the edge it
+// shares with the screen (see tmux.click). A tap on a link still follows the link.
+$("capture").onclick = (event) => {
+  const pre = $("capture");
+  if (!active || !paintedFrame || captureDirty || !captureLines.length || !pre.classList.contains("clicks") || event.target.closest("a")) return;
+  const probe = pre.appendChild(document.createElement("span"));
+  probe.textContent = "0".repeat(100);
+  const cell = probe.getBoundingClientRect().width / 100;
+  probe.remove();
+  const style = getComputedStyle(pre), box = pre.getBoundingClientRect();
+  const top = box.top + parseFloat(style.paddingTop);
+  const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
+  const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
+  if (row < 0 || row >= captureLines.length || col < 1) return;
+  post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }).catch(() => {});
+};
 
 $("new-window").onclick = async () => {
   $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
@@ -747,9 +1005,19 @@ function fitViewport() {
 window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
 window.addEventListener("resize", fitViewport);
+// Crossing the breakpoint changes which elements are hidden, and only render() knows
+// that. Without this, widening the window leaves the list hidden until the next poll
+// repaints — and narrowing it leaves a sidebar with no room, which is the worse half.
+// Older iOS Safari has only the deprecated addListener, and calling the modern name
+// unguarded would throw here and abort the whole module — breaking the phone UI to add
+// a wide-screen affordance those browsers can never show. Same feature test as the
+// desktop app's scheme listener.
+const resizeWorkspace = () => { restartDetail(); render(); };
+if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
+else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
-document.addEventListener("selectionchange", () => { if (view === "terminal" && captureDirty) paintCapture(); });
+document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
 document.addEventListener("visibilitychange", () => { startState(); restartDetail(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });

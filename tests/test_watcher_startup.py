@@ -259,3 +259,105 @@ def test_recycled_pane_id_does_not_prepublish_the_old_occupant(inventory, monkey
 
     _tick_blocked_on(w, monkeypatch, "%1", while_blocked)
     assert [s["activity"] for s in w.states] == ["idle", "idle"]
+
+
+def test_failed_pane_tick_does_not_persist_a_partial_inventory(inventory, monkeypatch):
+    import subprocess
+    from unittest.mock import Mock
+
+    w, panes = inventory
+    w.history = Mock()
+    monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "s")
+
+    def capture(pane):
+        if pane.id == panes[0].id:
+            raise subprocess.CalledProcessError(124, "tmux")
+        return parsed(pane)
+
+    monkeypatch.setattr(w, "_tick_pane", capture)
+    w._tick()
+    assert w.states[0]["activity"] == "unknown"
+    w.history.record.assert_not_called()
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    w.history.record.assert_called_once()
+    assert not w.is_stale()
+
+
+def test_restarted_server_during_tick_does_not_record_old_panes(inventory, monkeypatch):
+    from unittest.mock import Mock
+
+    w, _ = inventory
+    w.history = Mock()
+    monkeypatch.setattr(W.tmux, "server_uid", Mock(side_effect=["old", "new"]))
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    assert w.states
+    w.history.record.assert_not_called()
+
+
+def test_unknown_server_identity_leaves_history_gap(inventory, monkeypatch):
+    import subprocess
+    from unittest.mock import Mock
+
+    w, _ = inventory
+    w.history = Mock()
+    lookup = Mock(side_effect=subprocess.CalledProcessError(124, "tmux"))
+    monkeypatch.setattr(W.tmux, "server_uid", lookup)
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    assert w.states
+    w.history.record.assert_not_called()
+
+
+def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, monkeypatch):
+    from unittest.mock import Mock
+
+    w, _ = inventory
+    w.use_llm = False
+    w.history = Mock()
+    monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "s")
+    frame = ["unread screen"]
+    monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: frame[0])
+    monkeypatch.setattr(W, "backing_off", lambda: False)
+    monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
+        "activity": "idle", "tool": "claude", "parse_ok": False,
+    })
+    for _ in range(W.PARSE_RETRIES + 2):
+        w._tick()
+    w.history.record.assert_not_called()
+    assert w.is_stale()
+    frame[0] = "successfully read screen"
+    monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
+        "activity": "idle", "tool": "claude",
+    })
+    w._tick()
+    w.history.record.assert_called_once()
+    assert not w.is_stale()
+
+
+def test_failed_loop_tick_reports_stale_even_with_recent_heartbeat(monkeypatch):
+    async def scenario():
+        w = W.Watcher(None, use_llm=False)
+        failed = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def tick():
+            loop.call_soon_threadsafe(failed.set)
+            raise RuntimeError("collection failed")
+
+        monkeypatch.setattr(w, "_tick", tick)
+        task = asyncio.create_task(w._loop())
+        try:
+            await asyncio.wait_for(failed.wait(), 2)
+            for _ in range(100):
+                if w._last_tick: break
+                await asyncio.sleep(.001)
+            assert w._last_tick > 0
+            assert w.is_stale()
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(scenario())
