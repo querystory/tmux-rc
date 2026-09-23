@@ -1009,8 +1009,9 @@ function fitViewport() {
   const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
   const focused = document.activeElement;
   const editing = focused?.isContentEditable || focused?.matches("input:not([type=radio]):not([type=checkbox]), textarea");
-  // Home-screen WebKit can retain a shorter visual viewport without browser chrome.
-  // Let CSS fill the screen except while an editor needs keyboard-aware sizing.
+  // Home-screen WebKit can report a short visual viewport and short dynamic units.
+  // Anchor to the viewport edges while browsing; editors still follow the keyboard.
+  document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
   if (standalone && !editing) {
     document.documentElement.style.removeProperty("--app-height");
     document.documentElement.style.removeProperty("--app-top");
