@@ -37,10 +37,10 @@ turn boundaries. Existing telemetry is not automatically imported as complete hi
 | Record | Fields and purpose |
 | --- | --- |
 | Conversation | UUID, owner identity, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, conversation ID, start/end times, end reason, selected provider/model, recording mode, heartbeat, daemon-generation/lease owner. One explicit Start-to-End interaction. |
+| Call | UUID, conversation ID, start/end times, end reason, selected provider/model, transcript recording mode, exact-action-payload opt-in (separate persisted fields), heartbeat, daemon-generation/lease owner. One explicit Start-to-End interaction. |
 | Connection | UUID, call ID, provider connection ID when available, model actually used, timestamps, reconnect reason. Transport provenance only; references a separate accounting scope. |
 | Turn | UUID, conversation sequence, call/connection IDs, role, text, start/end times, partial/final/interrupted state, optional provider item ID. |
-| Action | UUID, turn ID when known, tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. Never imply a sent command completed its underlying task. |
+| Action | UUID (daemon-issued action key), call ID, fresh user-request ID, turn ID when known, provider tool-call ID for provenance, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. Unique (call_id, action_key). Never imply a sent command completed its underlying task. |
 | Accounting scope | UUID, owning call, provider scope key when available, counter semantics, start/end, completeness. Stable across transport reconnects that preserve provider counters. |
 | Usage | Accounting-scope ID, connection ID for provenance, source event ID or local sequence, cumulative/delta semantics, input/output tokens split by text/audio/cache when reported, audio duration when reported, final/provisional/completeness flags. |
 | Price snapshot | Provider/model, currency, effective time, units and rates actually used, source/version. Store the rate snapshot used for each estimate. |
@@ -185,7 +185,15 @@ semantic prompt injection; tool authorization remains server-side. Include delim
 breaking transcripts, summaries and action arguments in malicious-history tests.
 Never replay provider tool-call messages, IDs or results as active protocol messages.
 Only a new user request can authorize actions; historical content cannot authorize
-action replay. Require new tool-call validation and current pane-lifetime matching.
+action replay. Persist a server-issued request ID for each fresh authenticated user
+turn and associate the provider response with that request on the server. Bind every
+action receipt to that call/request ID; never accept a provider-supplied request ID as
+authority. Historical/imported turns cannot mint these IDs. Reject or require explicit
+user confirmation for tool calls with no fresh request association, including unsolicited
+calls after loading history. Recheck the request's call/owner, allowed tool/pane scope
+and revocation before dispatch. Test history-only tool calls with a fabricated ID and
+replayed requests from another call. This is a required change to the current automatic
+Live tool execution path, not an existing guarantee. Require new tool-call validation and current pane-lifetime matching.
 Test malicious transcript/argument instructions with current tools enabled.
 
 Provider-native resumption, if supported, is a separate optimization with its own
@@ -209,7 +217,8 @@ before terminal dispatch while holding that lock; stale in-flight actions must f
 A takeover waits for an already-dispatched action to finish recording its outcome,
 and cannot authorize queued actions from the previous generation. Test a paused old
 receiver that resumes after takeover. Policy changes and call termination use the
-same fence. The recording policy comes from the stored call. The `/api/live-mode`
+same fence. Both transcript and exact-payload policies come from their separate stored call fields;
+reconnect restores both, and Continue inherits both unless explicitly changed by the owner. The `/api/live-mode`
 WebSocket handshake must establish the same verified owner as the history APIs before
 accepting Start or attachment. The current client-supplied `session` and logging-only
 `_actor` are not authorization. Fail closed on missing/unverified identity; look up
