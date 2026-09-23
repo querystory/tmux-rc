@@ -387,9 +387,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
 .atlas-tool-filter img { object-fit: contain; }
 
-/* WebKit #254868: standalone vh includes safe areas that dynamic viewport
-   measurements can omit. Keep the outer page in normal flow, without fixed-root
-   clipping; the app owns scrolling and still clips its own content. */
-.standalone-fill, .standalone-fill body { position: static; inset: auto; height: 100vh; overflow: visible; }
+/* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
+   Safari's 100vh includes the opaque status bar (932px vs 873px available on
+   the measured phone); use the visual viewport, with dvh as the CSS fallback. */
+.standalone-fill, .standalone-fill body { position: static; inset: auto; height: var(--app-height, 100dvh); overflow: visible; }
 .standalone-fill body { position: relative; }
-.standalone-fill #app { position: absolute; top: 0; bottom: auto; height: 100vh; }
+.standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: var(--app-height, 100dvh); }
