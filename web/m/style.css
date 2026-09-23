@@ -382,3 +382,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 @media (min-width: 1100px) {
   #list-nav #dashboard-tab { display: none; }
 }
+
+
+.atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
+.atlas-tool-filter img { object-fit: contain; }
