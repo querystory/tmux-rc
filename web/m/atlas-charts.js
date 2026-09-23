@@ -26,7 +26,22 @@ export function atlasCharts() {
   cloud.setAttribute('role', 'img'); bars.setAttribute('role', 'img');
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'width:100%;height:100%;display:block';
-  let barChart, latest, wordSignature;
+  let barChart, latest, wordSignature, zoomKey;
+  let zoom = { start: 0, end: 100 };
+  let selectedStates = { Idle: false };
+  const stateControls = document.createElement('div');
+  stateControls.className = 'atlas-controls';
+  stateControls.setAttribute('role', 'group');
+  stateControls.setAttribute('aria-label', 'Visible pane states');
+  const syncStates = () => [...stateControls.children].forEach(button => {
+    button.setAttribute('aria-pressed', String(selectedStates[button.textContent] !== false));
+  });
+  const setZoom = (start, span) => {
+    span = Math.max(1, Math.min(100, span));
+    start = Math.max(0, Math.min(100 - span, start));
+    zoom = { start, end: start + span };
+    barChart?.dispatchAction({ type: 'dataZoom', ...zoom });
+  };
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
     let echarts;
@@ -36,8 +51,18 @@ export function atlasCharts() {
     if (!barChart) {
       cloud.replaceChildren(canvas); bars.replaceChildren();
       barChart = echarts.init(bars);
+      barChart.on('legendselectchanged', event => { selectedStates = { ...event.selected }; syncStates(); });
+      barChart.on('datazoom', event => {
+        const selection = event.batch?.[0] || event;
+        zoom = { start: selection.start, end: selection.end };
+      });
     }
     const { words, samples, states, step } = latest;
+    // Live polls and theme changes preserve the view; a new range/filter starts fresh.
+    if (zoomKey !== latest.zoomKey) {
+      zoomKey = latest.zoomKey;
+      zoom = { start: 0, end: 100 };
+    }
     const css = getComputedStyle(document.documentElement);
     const color = name => css.getPropertyValue(name).trim();
     const muted = color('--muted'), line = color('--line');
@@ -70,26 +95,42 @@ export function atlasCharts() {
     const times = [];
     for (let t = samples[0]?.t; t <= samples[samples.length - 1]?.t; t += step) times.push(t);
     const single = times.length === 1;
+    const label = t => times.length && new Date(times[0]).toDateString() !== new Date(times[times.length - 1]).toDateString()
+      ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     const order = [1, 0, 2, 3]; // Working at the bottom, idle at the top, like the reference.
-    const colors = dark ? ['#f1bd53', '#60c992', '#7e91ab', '#4a5261'] : ['#f2ad32', '#39b978', '#a3b2c7', '#d1d8e2'];
+    const colors = dark ? ['#f1bd53', '#60c992', '#3f4a55', '#4a5261'] : ['#f2ad32', '#39b978', '#e3e8ed', '#d1d8e2'];
     bars.setAttribute('aria-label', samples.length
-      ? `Pane state counts, ${timeLabel(samples[0].t)} to ${timeLabel(samples[samples.length - 1].t)}. ${samples.length} observations. Latest: ${states.map((s, i) => `${samples[samples.length - 1].n[i]} ${s}`).join(', ')}.`
+      ? `Pane state counts, ${timeLabel(samples[0].t)} to ${timeLabel(samples[samples.length - 1].t)}. ${samples.filter(s => s.n !== null).length} observed buckets. Latest: ${samples[samples.length - 1].n ? states.map((s, i) => `${samples[samples.length - 1].n[i]} ${s}`).join(', ') : 'No observation'}.`
       : 'No observations yet.');
     barChart.setOption({
       animation: false, textStyle: { color: muted, fontFamily: 'sans-serif' },
       tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'shadow' },
-        valueFormatter: v => v == null ? 'Not observed' : `${v} panes` },
-      legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: muted, fontSize: 11 } },
-      grid: { left: 42, right: 14, top: 55, bottom: 35 },
-      xAxis: { type: 'category', data: times.map(timeLabel), axisTick: { show: false },
+        formatter: items => {
+          const sample = indexed.get(times[items[0]?.dataIndex]);
+          if (!sample?.n) return 'No observation';
+          return [label(sample.t), sample.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
+            ...items.map(item => `${item.seriesName}: ${item.value} panes`)].join('\n');
+        } },
+      legend: { selected: selectedStates, top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: muted, fontSize: 11 } },
+      grid: { left: 42, right: 14, top: 55, bottom: 78 },
+      dataZoom: [
+        { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 4, height: 24,
+          left: 42, right: 14, showDetail: false, borderColor: line,
+          textStyle: { color: muted }, fillerColor: color('--accent-bg'),
+          handleStyle: { color: color('--accent'), borderColor: color('--accent') } },
+        { type: 'inside', xAxisIndex: 0, ...zoom, zoomOnMouseWheel: 'ctrl',
+          moveOnMouseWheel: false, preventDefaultMouseMove: false },
+      ],
+      xAxis: { type: 'category', data: times.map(label), axisTick: { show: false },
         axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, hideOverlap: true } },
       yAxis: { type: 'value', minInterval: 1, name: 'Panes', nameTextStyle: { color: muted },
         splitLine: { lineStyle: { color: line } }, axisLabel: { color: muted } },
       series: order.map(i => ({ name: states[i], type: 'bar', stack: 'panes',
-        barMaxWidth: single ? 100 : 60, barCategoryGap: times.length > 30 ? '0%' : '15%',
+        barMaxWidth: single ? 100 : undefined, barCategoryGap: '0%',
         itemStyle: { color: colors[i] }, emphasis: { focus: 'series' },
         label: { show: times.length < 8, formatter: p => p.value > 0 ? p.value : '', color: dark ? '#101312' : '#243142', fontWeight: 600 },
-        data: times.map(t => indexed.has(t) ? indexed.get(t).n[i] : null),
+        data: times.map(t => indexed.get(t)?.n != null ? { value: indexed.get(t).n[i],
+          itemStyle: { opacity: indexed.get(t).source === 'logs' ? 0.65 : 1 } } : null),
       })),
     }, true);
     barChart.resize();
@@ -99,5 +140,25 @@ export function atlasCharts() {
     paint();
   }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  return { cloud, bars, update(data) { latest = data; paint(); } };
+  return { cloud, bars, stateControls, zoomBy(factor) {
+    const span = Math.max(1, Math.min(100, (zoom.end - zoom.start) * factor));
+    setZoom((zoom.start + zoom.end - span) / 2, span);
+  }, shiftZoom(direction) {
+    const span = zoom.end - zoom.start;
+    setZoom(zoom.start + direction * span / 2, span);
+  }, resetZoom() {
+    zoom = { start: 0, end: 100 };
+    barChart?.dispatchAction({ type: 'dataZoom', ...zoom });
+  }, update(data) {
+    latest = data;
+    if (!stateControls.children.length) data.states.forEach(state => {
+      const button = document.createElement('button');
+      button.className = 'atlas-filter'; button.textContent = state;
+      button.dataset.key = `history-state:${state}`;
+      button.onclick = () => { selectedStates[state] = selectedStates[state] === false; syncStates(); paint(); };
+      stateControls.append(button);
+    });
+    syncStates(); paint();
+  } };
+
 }

@@ -202,7 +202,8 @@ def _activity_ts(pane) -> float | None:
 class Watcher:
     """Holds current pane state + snapshot history, refreshed by an async loop."""
 
-    def __init__(self, target: str | None, use_llm: bool = True):
+    def __init__(self, target: str | None, use_llm: bool = True, history=None):
+        self.history = history
         self.target = target
         self.use_llm = use_llm
         self._warned_no_target = False  # warn once, not every poll
@@ -216,6 +217,8 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
+        self._collection_failed = False
+        self._parse_valid: dict[str, bool] = {}
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
@@ -310,7 +313,8 @@ class Watcher:
         the served state is frozen. Surfaced to the UI so a dead loop is VISIBLE
         instead of silently serving stale cards (as happened after a resize/reload)."""
         return (
-            self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS
+            self._collection_failed
+            or (self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS)
         )
 
     def booted(self) -> bool:
@@ -379,6 +383,7 @@ class Watcher:
             try:
                 await asyncio.to_thread(self._tick)
             except Exception:  # never let one bad tick kill the loop
+                self._collection_failed = True
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
             # Between full ticks, poll ONLY the active pane id on a fast cadence — a single
@@ -441,8 +446,15 @@ class Watcher:
 
     def _tick(self) -> None:
         if not tmux.server_running():
+            self._collection_failed = False
             self._publish_states([])
             return
+        history_server = None
+        if self.history is not None:
+            try:
+                history_server = tmux.server_uid(strict=True)
+            except (OSError, subprocess.CalledProcessError):
+                pass  # Publish UI state, but leave history unobserved without proof.
         # Multi-pane: watch every pane (or just the configured target if set). Each
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
         if self.target:
@@ -461,7 +473,9 @@ class Watcher:
         else:
             panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
-            self._publish_states([])
+            self._collection_failed = False
+            self._publish_states([], record_history=history_server is not None,
+                                 history_server=history_server)
             return
         alive = {p.id for p in panes}
         # Which panes this tick is seeing for the first time — computed BEFORE the birth
@@ -505,7 +519,7 @@ class Watcher:
                 s["tmux_active"] = p.id == focused
                 _stamp_identity(s, p)
                 states.append(s)
-            self._publish_states(states)
+            self._publish_states(states, record_history=False)
         # Drain the forced-reparse requests for THIS pass in one atomic swap, so a
         # request that arrives mid-tick (handler thread) is never lost to a check-then-
         # discard race in _tick_pane — it either makes this snapshot or stays queued in
@@ -514,6 +528,7 @@ class Watcher:
         self._force_parse = set()
         # One bad pane must NEVER wedge the whole watcher (that loses all visibility).
         # Tick each pane defensively: on error, degrade to a stub card, keep going.
+        history_complete = True
         for index, p in enumerate(panes):
             try:
                 s = self._tick_pane(p)
@@ -532,6 +547,7 @@ class Watcher:
                 logger.warning("pane tick failed: %s", p.id, exc_info=True)
                 s = None
             if not isinstance(s, dict):
+                history_complete = False
                 s = {
                     "pane_id": p.id,
                     "tool": "unknown",
@@ -539,11 +555,13 @@ class Watcher:
                     "updated_at": time.time(),
                 }
                 _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
+            if not self._parse_valid.get(p.id, True):
+                history_complete = False
             if prepublish:
                 s["tmux_active"] = p.id == focused
                 s["events_seq"] = self._events_seq.get(p.id, 0)
                 states[index] = s
-                self._publish_states(states)
+                self._publish_states(states, record_history=False)
             else:
                 states.append(s)
         # Mark the pane tmux currently has focused, so the phone can default its
@@ -569,15 +587,30 @@ class Watcher:
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
-        self._publish_states(states)
+        self._collection_failed = not history_complete
+        self._publish_states(states, record_history=history_complete and history_server is not None,
+                             history_server=history_server)
         self._gc(alive)
 
-    def _publish_states(self, states: list[dict]) -> None:
+    def _publish_states(self, states: list[dict], *, record_history: bool = True,
+                        history_server: str | None = None) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
         self.states = [dict(s) for s in states]
         self._booted = True
         self._bump_state_if_changed(self.states)
+        # Progressive UI publication mixes old and newly parsed pane states. Only
+        # the final inventory for a tick belongs in durable history.
+        if record_history and self.history is not None:
+            try:
+                current = tmux.server_uid(strict=history_server is not None)
+            except (OSError, subprocess.CalledProcessError):
+                self._collection_failed = True
+                return
+            if history_server is None or current == history_server:
+                self.history.record(self.states, current, births=self._birth)
+            else:
+                self._collection_failed = True
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state
@@ -738,6 +771,7 @@ class Watcher:
             self._prev_fp,
             self._seen_fp,
             self._parse_fails,
+            self._parse_valid,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -957,6 +991,7 @@ class Watcher:
             # What we last knew, so a failed parse holds that instead of guessing.
             prev_activity=(previous or {}).get("activity"),
         )
+        self._parse_valid[pane.id] = state.get("parse_ok", True)
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
         # any cached idle summary — it'll be regenerated when the pane goes idle again.

@@ -103,7 +103,7 @@ def test_the_watcher_publishes_one_card_per_pane(monkeypatch):
     monkeypatch.setattr(w, "_pane_event", lambda *a, **k: None)
     monkeypatch.setattr(w, "_maybe_bootstrap", lambda panes: None)
     published = []
-    monkeypatch.setattr(w, "_publish_states", lambda states: published.append(states))
+    monkeypatch.setattr(w, "_publish_states", lambda states, **_kwargs: published.append(states))
 
     w._tick()
     assert [s["pane_id"] for s in published[-1]] == ["%0"]

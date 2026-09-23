@@ -1,5 +1,5 @@
 import { headerPicker } from "/m/header-picker.js";
-import { renderAtlas, observeAtlas } from '/m/atlas.js';
+import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
@@ -260,11 +260,11 @@ function landingRows(id, subset) {
 
 function renderLanding() {
   const waiting = panes.filter(needsYou);
-  text($("landing-title"), panes.length ? "Session atlas" : "No panes yet");
+  text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "Session atlas" : "No panes yet");
   // With no panes there is no session to open a window IN: + is disabled and the server
   // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
   // the empty state says where a session actually comes from instead.
-  text($("landing-sub"), panes.length
+  text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
     ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
     : "No tmux panes are open. Start a session on the host and it will appear here.");
   renderAtlas($("session-atlas"), panes, navigate, LOGOS);
@@ -696,7 +696,10 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) pollState(stateController.signal);
+  if (!document.hidden) {
+    refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
+    pollState(stateController.signal);
+  }
 }
 async function pollState(signal) {
   let version = null;
@@ -706,7 +709,7 @@ async function pollState(signal) {
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
-      if (booted && !data.stale) observeAtlas(panes);
+      refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);

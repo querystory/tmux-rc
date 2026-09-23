@@ -310,6 +310,13 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
 .atlas-insight { font-size: 12px; margin-top: 18px; }
+
+.atlas-range { margin: 0 0 0 auto; min-height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 4px 8px; }
+
+.atlas-panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
+.landing-inner .atlas-panel-heading h3 { margin: 0; }
+.atlas-zoom-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; font-size: 11px; }
+.atlas-reset-zoom { font-size: 12px; color: var(--accent); padding: 4px 8px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
 #layout-control { display: flex; align-items: center; gap: 8px; flex: none; color: var(--muted); font-size: 12px; }
