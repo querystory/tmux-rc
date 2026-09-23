@@ -179,7 +179,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #voice-models { min-height: 0; overflow-y: auto; }
 #voice-status { padding: 4px 0 12px; color: var(--muted); font-size: 12px; }
 #voice-status:empty, #voice-log:empty { display: none; }
-#voice-log { display: flex; flex-direction: column; gap: 12px; min-height: 100px; max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; padding: 12px 2px; }
+#voice-log { display: flex; flex-direction: column; gap: 12px; min-height: 0; max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; padding: 12px 2px; }
 .voice-entry { flex: none; align-self: flex-start; max-width: 88%; padding: 10px 14px; border-radius: 16px 16px 16px 4px; background: var(--raised); white-space: pre-wrap; overflow-wrap: anywhere; }
 .voice-entry strong { display: block; color: var(--muted); font-size: 11px; font-weight: 500; margin-bottom: 3px; }
 .voice-entry.user { align-self: flex-end; background: var(--accent-bg); border-radius: 16px 16px 4px 16px; }
