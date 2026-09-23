@@ -81,19 +81,84 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     current.queued.forEach((source) => { try { source.stop(); } catch {} });
     current.queued.clear(); current.playAt = 0;
   }
+  async function keepAwake(current) {
+    if (run !== current || document.hidden || !navigator.wakeLock || current.wakePending ||
+        (current.wakeLock && !current.wakeLock.released)) return;
+    current.wakePending = true;
+    try {
+      const lock = await navigator.wakeLock.request("screen");
+      if (run !== current || document.hidden) await lock.release();
+      else current.wakeLock = lock;
+    } catch { /* Optional: low-power mode or browser policy can deny wake locks. */ }
+    finally { current.wakePending = false; }
+  }
+  function audioStatus(current) {
+    if (run !== current) return;
+    const tracks = current.stream?.getAudioTracks() || [];
+    const interrupted = current.capture?.state !== "running" ||
+      tracks.some((track) => track.muted) || current.output?.paused || current.audioSession?.state === "interrupted";
+    if (!interrupted && current.stream) current.resolveReady?.();
+    if (!current.listening && !current.stream) return;
+    status(interrupted ? "Audio interrupted. Return to the app and tap the microphone to resume." :
+      current.muted ? "Microphone muted" : current.listening ? `Listening / ${current.model || "Default"}` : current.connectionStatus || "Connecting...");
+  }
+  function resumeAudio(current, userGesture = false) {
+    audioStatus(current);
+    if (run !== current || (current.resuming && !userGesture) || !current.stream) return;
+    const attempt = {}; current.resuming = attempt;
+    // Try once per lifecycle/state event, including when backgrounded. WebKit
+    // can permit resume while capturing; never spin if the OS denies it.
+    const retries = [];
+    if (current.capture.state !== "running" && current.capture.state !== "closed") retries.push(current.capture.resume());
+    if (current.output.paused) retries.push(current.output.play());
+    Promise.allSettled(retries).finally(() => {
+      if (current.resuming === attempt) current.resuming = null;
+      audioStatus(current);
+    });
+  }
+  function watchAudio(current) {
+    const changed = () => { audioStatus(current); resumeAudio(current); };
+    current.capture.onstatechange = changed;
+    current.output.onpause = changed;
+    current.output.onplaying = changed;
+    for (const track of current.stream.getAudioTracks()) {
+      track.onmute = changed;
+      track.onunmute = changed;
+      track.onended = () => { if (run === current) stop("Microphone disconnected. Start Live Mode again."); };
+      if (track.readyState === "ended") { track.onended(); return; }
+    }
+    current.audioChanged = changed;
+    current.audioSession?.addEventListener("statechange", changed);
+    changed();
+  }
   function stop(message = "Session ended") {
     const current = run; run = null; sequence++;
     if (current) {
       clearTimeout(current.retry); clearTimeout(current.deadline);
+      current.resolveReady?.();
+      current.wakeLock?.release().catch(() => {});
       if (current.ws?.readyState === WebSocket.OPEN) {
         try { current.ws.send(JSON.stringify({ action: "stop" })); } catch {}
       }
       try { current.ws?.close(); } catch {}
-      current.stream?.getTracks().forEach((track) => track.stop());
+      if (current.audioChanged) current.audioSession?.removeEventListener("statechange", current.audioChanged);
+      // Release our audio category without overwriting a change made elsewhere.
+      try {
+        if (current.audioSession?.type === "play-and-record") current.audioSession.type = current.previousAudioType;
+      } catch { /* Audio Session is optional. */ }
+      current.stream?.getTracks().forEach((track) => {
+        track.onmute = track.onunmute = track.onended = null; track.stop();
+      });
+      if (current.capture) current.capture.onstatechange = null;
+      if (current.output) {
+        current.output.onpause = current.output.onplaying = null;
+        current.output.pause(); current.output.srcObject = null;
+      }
+      current.destination?.stream.getTracks().forEach((track) => track.stop());
+      current.destination?.disconnect();
       current.nodes.forEach((node) => { try { node.disconnect(); } catch {} });
       silence(current);
       current.capture?.close().catch(() => {});
-      current.play?.close().catch(() => {});
     }
     status(message); paint();
   }
@@ -104,7 +169,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 0x8000;
     const source = current.play.createBufferSource(); source.buffer = buffer;
-    source.connect(current.play.destination); current.queued.add(source);
+    source.connect(current.destination); current.queued.add(source);
     source.onended = () => current.queued.delete(source);
     current.playAt = Math.max(current.playAt, current.play.currentTime);
     source.start(current.playAt); current.playAt += buffer.duration;
@@ -146,7 +211,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       for (let i = 0; i < bytes.length; i += CHAR_CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHAR_CHUNK));
       current.ws.send(JSON.stringify({ action: "audio", data: btoa(binary) }));
     };
-    source.connect(tap); tap.connect(mute); mute.connect(current.capture.destination);
+    source.connect(tap); tap.connect(mute); mute.connect(current.destination);
     current.nodes = [source, tap, mute];
   }
   function connect(current) {
@@ -158,6 +223,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop("Could not connect to Live Mode."); return; }
     current.ws = ws;
+    clearTimeout(current.deadline);
     current.deadline = setTimeout(() => { if (run === current && !current.listening) stop("Live Mode connection timed out. Try again."); }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {
       if (run !== current || current.ws !== ws) return;
@@ -166,7 +232,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
-        status(current.listening ? `Listening / ${current.model || "Default"}` : message.status === "reconnecting" ? "Reconnecting..." : "Connecting...");
+        current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
+        audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment);
       else if (message.type === "turn_complete") [...$("voice-log").children].forEach((row) => { row.dataset.done = "true"; });
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
@@ -178,7 +245,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       if (run !== current || current.ws !== ws) return;
       clearTimeout(current.deadline); current.listening = false;
       if (event.code !== 1000 && event.code !== 1005 && current.up && current.tries < MAX_RECONNECT_TRIES) {
-        status("Connection lost. Reconnecting...");
+        current.connectionStatus = "Connection lost. Reconnecting...";
+        audioStatus(current);
         current.retry = setTimeout(() => connect(current), 1000 * 2 ** current.tries++);
       } else stop(event.code === 1000 ? "Session ended" : "Live Mode disconnected. Try again.");
     };
@@ -187,28 +255,50 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     const token = ++sequence;
     const current = { model: $("voice-model").value, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; $("voice-log").replaceChildren(); status("Connecting microphone..."); paint();
+    current.deadline = setTimeout(() => {
+      if (run === current) stop("Microphone setup timed out. Start Live Mode again.");
+    }, CONNECT_DEADLINE_MS);
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture requires HTTPS and a supported browser.");
-      // Both contexts are created and resumed within the tap's activation on iOS.
-      current.play = new AudioContext();
-      try { current.capture = new AudioContext({ sampleRate: CAPTURE_RATE }); } catch { current.capture = new AudioContext(); }
-      const resumes = Promise.all([current.play.resume(), current.capture.resume()]);
-      resumes.catch(() => {});
+      // Tell supporting browsers this is a duplex conversation before opening
+      // the mic. This requests appropriate audio focus, not background permission.
+      try {
+        const audioSession = navigator.audioSession;
+        if (audioSession) {
+          const previous = audioSession.type;
+          audioSession.type = "play-and-record";
+          current.audioSession = audioSession; current.previousAudioType = previous;
+        }
+      } catch { /* Browsers without Audio Session keep their default routing. */ }
+      // WebKit's background exemption uses a processing context with a media
+      // stream destination, not the hardware destination (WebKit bug 231105).
+      // One duplex graph drives real assistant playback through an audio element.
+      current.play = current.capture = new AudioContext();
+      current.destination = current.capture.createMediaStreamDestination();
+      current.output = new Audio(); current.output.srcObject = current.destination.stream;
+      // A second resume/play can succeed while an earlier request stays pending.
+      // Observe actual state changes instead of awaiting those original promises.
+      const ready = new Promise((resolve) => { current.resolveReady = resolve; });
+      current.capture.resume().catch(() => audioStatus(current));
+      current.output.play().catch(() => audioStatus(current));
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
       if (sequence !== token) { stream.getTracks().forEach((track) => track.stop()); return; }
-      current.stream = stream; paint();
-      await resumes;
+      current.stream = stream; watchAudio(current);
       if (run !== current) return;
+      paint();
+      keepAwake(current);
       await capture(current);
       if (run !== current) return;
+      await ready;
+      if (run !== current) return;
       try { localStorage.setItem("tmuxrc-live-model", current.model); } catch {}
-      status("Connecting..."); connect(current);
+      audioStatus(current); connect(current);
     } catch (error) {
       if (run !== current) return;
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);
     }
   }
-  $("live-mode").onclick = () => { $("voice-dialog").showModal(); };
+  $("live-mode").onclick = () => { $("voice-dialog").showModal(); if (run) resumeAudio(run, true); };
   $("voice-close").onclick = () => $("voice-dialog").close();
   $("voice-start").onclick = () => run ? stop() : start();
   $("voice-mute").onclick = () => {
@@ -216,11 +306,17 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     run.muted = !run.muted;
     run.clearPending?.();
     run.stream.getAudioTracks().forEach((track) => { track.enabled = !run.muted; });
-    paint();
+    paint(); audioStatus(run); resumeAudio(run, true);
   };
   window.addEventListener("pagehide", () => stop());
   window.addEventListener("online", capabilities);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) capabilities(); });
+  // Switching apps is visibilitychange, not navigation: keep the microphone and
+  // socket alive. pagehide still releases capture when leaving this document.
+  window.addEventListener("pageshow", () => { if (run) { resumeAudio(run); keepAwake(run); } });
+  document.addEventListener("visibilitychange", () => {
+    if (run) { resumeAudio(run); keepAwake(run); }
+    if (!document.hidden) capabilities();
+  });
   capabilities();
   return { isActive: () => !!run, refresh: capabilities };
 }
