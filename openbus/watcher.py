@@ -217,6 +217,7 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
+        self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
@@ -312,7 +313,8 @@ class Watcher:
         the served state is frozen. Surfaced to the UI so a dead loop is VISIBLE
         instead of silently serving stale cards (as happened after a resize/reload)."""
         return (
-            self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS
+            self._collection_failed
+            or (self._last_tick > 0 and (time.time() - self._last_tick) > 5 * POLL_SECONDS)
         )
 
     def booted(self) -> bool:
@@ -381,6 +383,7 @@ class Watcher:
             try:
                 await asyncio.to_thread(self._tick)
             except Exception:  # never let one bad tick kill the loop
+                self._collection_failed = True
                 logger.warning("watcher tick failed", exc_info=True)
             self._last_tick = time.time()
             # Between full ticks, poll ONLY the active pane id on a fast cadence — a single
@@ -443,6 +446,7 @@ class Watcher:
 
     def _tick(self) -> None:
         if not tmux.server_running():
+            self._collection_failed = False
             self._publish_states([])
             return
         history_server = None
@@ -469,6 +473,7 @@ class Watcher:
         else:
             panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
+            self._collection_failed = False
             self._publish_states([], record_history=history_server is not None,
                                  history_server=history_server)
             return
@@ -582,6 +587,7 @@ class Watcher:
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
+        self._collection_failed = not history_complete
         self._publish_states(states, record_history=history_complete and history_server is not None,
                              history_server=history_server)
         self._gc(alive)
@@ -599,9 +605,12 @@ class Watcher:
             try:
                 current = tmux.server_uid(strict=history_server is not None)
             except (OSError, subprocess.CalledProcessError):
+                self._collection_failed = True
                 return
             if history_server is None or current == history_server:
                 self.history.record(self.states, current, births=self._birth)
+            else:
+                self._collection_failed = True
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state

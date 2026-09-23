@@ -281,6 +281,7 @@ def test_failed_pane_tick_does_not_persist_a_partial_inventory(inventory, monkey
     monkeypatch.setattr(w, "_tick_pane", parsed)
     w._tick()
     w.history.record.assert_called_once()
+    assert not w.is_stale()
 
 
 def test_restarted_server_during_tick_does_not_record_old_panes(inventory, monkeypatch):
@@ -325,9 +326,38 @@ def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, mo
     for _ in range(W.PARSE_RETRIES + 2):
         w._tick()
     w.history.record.assert_not_called()
+    assert w.is_stale()
     frame[0] = "successfully read screen"
     monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
         "activity": "idle", "tool": "claude",
     })
     w._tick()
     w.history.record.assert_called_once()
+    assert not w.is_stale()
+
+
+def test_failed_loop_tick_reports_stale_even_with_recent_heartbeat(monkeypatch):
+    async def scenario():
+        w = W.Watcher(None, use_llm=False)
+        failed = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def tick():
+            loop.call_soon_threadsafe(failed.set)
+            raise RuntimeError("collection failed")
+
+        monkeypatch.setattr(w, "_tick", tick)
+        task = asyncio.create_task(w._loop())
+        try:
+            await asyncio.wait_for(failed.wait(), 2)
+            for _ in range(100):
+                if w._last_tick: break
+                await asyncio.sleep(.001)
+            assert w._last_tick > 0
+            assert w.is_stale()
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    asyncio.run(scenario())
