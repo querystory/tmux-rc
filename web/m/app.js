@@ -1008,7 +1008,10 @@ function fitViewport() {
   if (!viewport || viewport.scale !== 1) return;
   const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
   const focused = document.activeElement;
-  const editing = focused?.isContentEditable || focused?.matches("input:not([type=radio]):not([type=checkbox]), textarea");
+  const textInput = focused?.tagName === "INPUT"
+    && ["text", "search", "email", "url", "tel", "number", "password"].includes(focused.type);
+  const editing = focused?.isContentEditable
+    || ((textInput || focused?.tagName === "TEXTAREA") && !focused.readOnly && !focused.disabled);
   // Home-screen WebKit can report a short visual viewport and short dynamic units.
   // Anchor to the viewport edges while browsing; editors still follow the keyboard.
   document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
