@@ -1006,12 +1006,24 @@ function fitViewport() {
   // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
   const viewport = window.visualViewport;
   if (!viewport || viewport.scale !== 1) return;
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  const focused = document.activeElement;
+  const editing = focused?.isContentEditable || focused?.matches("input:not([type=radio]):not([type=checkbox]), textarea");
+  // Home-screen WebKit can retain a shorter visual viewport without browser chrome.
+  // Let CSS fill the screen except while an editor needs keyboard-aware sizing.
+  if (standalone && !editing) {
+    document.documentElement.style.removeProperty("--app-height");
+    document.documentElement.style.removeProperty("--app-top");
+    return;
+  }
   document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
   document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
 }
 window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
 window.addEventListener("resize", fitViewport);
+document.addEventListener("focusin", fitViewport);
+document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // Crossing the breakpoint changes which elements are hidden, and only render() knows
 // that. Without this, widening the window leaves the list hidden until the next poll
 // repaints — and narrowing it leaves a sidebar with no room, which is the worse half.
