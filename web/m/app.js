@@ -166,6 +166,7 @@ function leaveMissingPane(id) {
 }
 
 function route() {
+  const wasDashboardVisible = dashboardVisible();
   const params = new URLSearchParams(location.hash.slice(1));
   const next = params.get("pane");
   const changed = next !== active;
@@ -189,6 +190,9 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
+  if (dashboardVisible() && !wasDashboardVisible) {
+    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
+  }
   if (active && changed) post(paneUrl(active, "select")).catch(() => notice("Could not focus this pane on the host."));
   if (changed && active) $("back").focus({ preventScroll: true });
 }
