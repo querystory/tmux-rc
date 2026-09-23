@@ -1044,6 +1044,8 @@ function reportStandaloneBounds() {
   }, 1200);
 }
 
+document.addEventListener("visibilitychange", () => { if (!document.hidden) reportStandaloneBounds(); });
+
 function fitViewport() {
   reportStandaloneBounds();
   // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
