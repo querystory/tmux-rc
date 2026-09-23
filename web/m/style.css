@@ -389,4 +389,4 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 /* Installed iOS can under-report dvh even after a fresh launch. Fixed edges avoid
    that height measurement; safe-area padding still protects the system controls. */
-.standalone-fill #app { position: fixed; inset: 0; height: auto; }
+.standalone-fill #app { position: fixed; inset: 0; height: var(--standalone-height, auto); margin-top: 0; margin-bottom: 0; }

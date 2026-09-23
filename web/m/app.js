@@ -1013,6 +1013,16 @@ function fitViewport() {
   // Anchor to the viewport edges while browsing; editors still follow the keyboard.
   document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
   if (standalone && !editing) {
+    // Some installed iPhones expose a layout viewport shortened by the status bar
+    // while placing our content at screen y=0. Only compensate that measured case;
+    // do not stretch Android windows, rotation transitions, or keyboard viewports.
+    const safeTop = parseFloat(getComputedStyle($("app")).paddingTop) || 0;
+    const missing = screen.height - window.innerHeight;
+    const statusBarGap = navigator.standalone && safeTop > 0
+      && Math.abs(screen.width - window.innerWidth) <= 1
+      && Math.abs(missing - safeTop) <= 1;
+    document.documentElement.style.setProperty("--standalone-height",
+      statusBarGap ? `${window.innerHeight + safeTop}px` : "auto");
     document.documentElement.style.removeProperty("--app-height");
     document.documentElement.style.removeProperty("--app-top");
     return;
