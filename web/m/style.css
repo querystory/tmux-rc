@@ -370,3 +370,15 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #mobile-view-toggle { display: none; }
   #review-layout-picker { display: block; }
 }
+
+/* Mobile reuses the desktop dashboard without squeezing it into the pane list. */
+@media (max-width: 1099px) {
+  #landing { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #landing .landing-inner { padding: 20px 16px; }
+  #landing .atlas-panel { padding: 16px; }
+  #list-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  #list-nav button { font-size: 11px; }
+}
+@media (min-width: 1100px) {
+  #dashboard-tab { display: none; }
+}

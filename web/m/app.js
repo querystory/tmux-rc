@@ -66,6 +66,8 @@ const reviewing = () => WIDE.matches && reviewLayout !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
+let dashboard = false;
+const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
@@ -140,6 +142,7 @@ function hashFor(id, nextView) {
   if (filter !== "all") params.set("filter", filter);
   if (sort !== "updated") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
+  if (!id && nextView === "dashboard") params.set("view", "dashboard");
   return params.toString();
 }
 
@@ -167,6 +170,7 @@ function route() {
   const next = params.get("pane");
   const changed = next !== active;
   active = next;
+  dashboard = !active && params.get("view") === "dashboard";
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
   sort = params.get("sort") === "session" ? "session" : "updated";
@@ -237,7 +241,8 @@ function renderList() {
   text($("attention-count"), waiting);
   text($("running-count"), panes.filter(isRunning).length);
   text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", filter === button.dataset.filter));
+  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("new-window").disabled = !panes.length;
 }
 
@@ -432,15 +437,15 @@ function render() {
   // sidebar it would return you to is already there. The brand keeps its slot for the
   // same reason. Narrow is unchanged.
   const wide = WIDE.matches;
-  show("sessions", !inPane || wide); show("list-nav", !inPane || wide);
+  show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane || wide);
   show("brand", !inPane || wide);
   show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
-  show("landing", wide && !inPane);
+  show("landing", dashboardVisible());
   show("divider", wide);
   renderList();
-  if (!inPane) { if (wide) renderLanding(); return; }
+  if (!inPane) { if (dashboardVisible()) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
   // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
   // still shows the last frame, and every key is disabled — nothing to do but hit back.
@@ -706,7 +711,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
+    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
     pollState(stateController.signal);
   }
 }
@@ -718,7 +723,7 @@ async function pollState(signal) {
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
-      refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
+      refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -885,10 +890,12 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
+html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
+$("dashboard-tab").onclick = () => navigate(null, "dashboard");
 $("back").onclick = () => navigate();
 $("search").oninput = renderList;
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
-$("list-nav").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
+$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
