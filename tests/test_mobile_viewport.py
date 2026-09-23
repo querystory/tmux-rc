@@ -9,7 +9,7 @@ import pytest
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_installed_viewport_accounts_for_status_bar_mode():
-    script = r'''
+    script = r"""
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -51,7 +51,7 @@ assert.equal(classes['standalone-fill'], false);
 // Pinch zoom must not resize the layout to a zoomed visual viewport.
 viewport.height = 300; viewport.scale = 2; fit();
 assert.equal(properties['--app-height'], '873px');
-'''
+"""
     subprocess.run(
         ["node", "-e", script, str(Path(__file__).parents[1] / "web/m/app.js")],
         check=True, capture_output=True, text=True, timeout=10,
