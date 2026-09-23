@@ -173,17 +173,25 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #launch-error { color: var(--red); margin-top: 12px; font-size: 13px; }
 #live-mode { color: var(--accent); background: var(--accent-bg); }
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
-#voice-status { padding: 16px 0; color: var(--muted); font-size: 13px; }
+/* Keep the conversation scrollable while status and call controls stay visible. */
+#voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); }
+#voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
+#voice-models { min-height: 0; overflow-y: auto; }
+#voice-status { padding: 4px 0 12px; color: var(--muted); font-size: 12px; }
 #voice-status:empty, #voice-log:empty { display: none; }
-#voice-log { min-height: 100px; max-height: 35dvh; overflow: auto; overscroll-behavior: contain; }
-.voice-entry { padding: 12px 0; border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
-.voice-entry strong { display: block; color: var(--muted); font-size: 12px; font-weight: 500; margin-bottom: 4px; }
-.voice-entry.user { color: var(--accent); }
-.voice-entry.error { color: var(--red); }
-.voice-entry.typed { color: var(--amber); }
-.voice-controls { display: flex; gap: 10px; }
-.voice-controls button { margin-top: 16px; }
-#voice-start { flex: 1; min-height: 48px; }
+#voice-log { display: flex; flex-direction: column; gap: 12px; min-height: 100px; max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; padding: 12px 2px; }
+.voice-entry { flex: none; align-self: flex-start; max-width: 88%; padding: 10px 14px; border-radius: 16px 16px 16px 4px; background: var(--raised); white-space: pre-wrap; overflow-wrap: anywhere; }
+.voice-entry strong { display: block; color: var(--muted); font-size: 11px; font-weight: 500; margin-bottom: 3px; }
+.voice-entry.user { align-self: flex-end; background: var(--accent-bg); border-radius: 16px 16px 4px 16px; }
+.voice-entry.user strong { color: var(--accent); }
+.voice-entry.error, .voice-entry.typed { align-self: stretch; max-width: none; background: transparent; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
+.voice-entry.error, .voice-entry.error strong { color: var(--red); }
+.voice-entry.typed, .voice-entry.typed strong { color: var(--amber); }
+.voice-controls { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.voice-controls button { margin: 0; min-height: 44px; }
+#voice-start { flex: none; padding: 0 18px; color: var(--red); background: transparent; border: 1px solid var(--line); border-radius: 24px; }
+#voice-start:hover { background: var(--raised); }
+#voice-mute { border: 1px solid var(--line); border-radius: 50%; }
 #voice-mute[aria-pressed="true"] { color: var(--red); background: var(--raised); }
 @media (prefers-reduced-motion: no-preference) { dialog[open] { animation: sheet-in .16s ease-out; } @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } }
 @media (min-width: 761px) { #app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
