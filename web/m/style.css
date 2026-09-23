@@ -388,8 +388,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-tool-filter img { object-fit: contain; }
 
 /* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
-   Safari's 100vh includes the opaque status bar (932px vs 873px available on
-   the measured phone); use the visual viewport, with dvh as the CSS fallback. */
-.standalone-fill, .standalone-fill body { position: static; inset: auto; height: var(--app-height, 100dvh); overflow: visible; }
+   Include the top safe area for translucent installs; opaque installs report
+   zero. Bare 100vh overflows the opaque case; bare dvh shortens the translucent one. */
+.standalone-fill, .standalone-fill body { position: static; inset: auto; height: var(--app-height, calc(100dvh + env(safe-area-inset-top))); overflow: visible; }
 .standalone-fill body { position: relative; }
-.standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: var(--app-height, 100dvh); }
+.standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: var(--app-height, calc(100dvh + env(safe-area-inset-top))); }
