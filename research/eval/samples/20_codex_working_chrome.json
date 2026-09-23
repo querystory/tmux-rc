@@ -1,0 +1,11 @@
+{
+  "description": "Faithful reproduction of the mobile icon flip: Codex discusses Claude in content without a banner or approval dialog. A generic node process and custom footer must not override its working chrome.",
+  "current_command": "node",
+  "capture": "• The mobile UI integration (#173) is merged. I am reviewing Live Mode providers.\n\n• Explored\n  └ Read live_providers.py\n    Search claude|gemini in parser_prompt.txt\n\n• Ran make test\n  └ 329 passed in 3.69s\n\n› This one is being picked up as Claude.\n\n• I will trace the agent detection without restarting the daemon.\n\n• Running git diff --check\n\n• Working (7m 29s • esc to interrupt)\n\n› Ask Codex to do anything\n\n  gpt-6-astra high · Context 86% left · 1.08M used · ~/src/qs/tmux-rc · weekly 82% left · Working",
+  "expected": {
+    "tool": "codex",
+    "activity": "running",
+    "question": null,
+    "headline": "Investigating agent detection after reviewing Live Mode providers, without restarting the daemon"
+  }
+}
