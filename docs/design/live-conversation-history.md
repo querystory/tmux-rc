@@ -37,7 +37,7 @@ turn boundaries. Existing telemetry is not automatically imported as complete hi
 | Record | Fields and purpose |
 | --- | --- |
 | Conversation | UUID, owner identity, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, conversation ID, start/end times, end reason, selected provider/model, recording mode, heartbeat. One explicit Start-to-End interaction. |
+| Call | UUID, conversation ID, start/end times, end reason, selected provider/model, recording mode, heartbeat, daemon-generation/lease owner. One explicit Start-to-End interaction. |
 | Connection | UUID, call ID, provider connection ID when available, model actually used, timestamps, reconnect reason. Transport provenance only; references a separate accounting scope. |
 | Turn | UUID, conversation sequence, call/connection IDs, role, text, start/end times, partial/final/interrupted state, optional provider item ID. |
 | Action | UUID, turn ID when known, tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. Never imply a sent command completed its underlying task. |
@@ -88,7 +88,10 @@ Define deletion relationships explicitly rather than relying on unenforced REFER
 indexes cover owner/created-at/ID and conversation/sequence. Retain the existing private
 DB/WAL/SHM permissions. A backup must use SQLite's backup API or a stopped writer.
 
-On restart, mark calls whose heartbeat is stale as interrupted, finalize only usage
+On startup, persist a new daemon generation and invalidate all active leases owned
+by prior generations, regardless of heartbeat age, before accepting attachments. Mark
+those calls interrupted; heartbeat staleness handles abandoned calls during normal
+operation, not crash recovery. Test a crash immediately after a heartbeat. Finalize only usage
 actually observed, and leave incomplete turns labeled partial. Disk-full or writer
 failure must surface “History not saving” in the live UI; keep audio usable, retain a
 bounded pending buffer, and retry with backoff. Never silently report a complete saved
@@ -161,6 +164,11 @@ the old live audio stream is restored. Incomplete turns remain visible but are m
 as such in context. Prior tool calls are inert historical data, never executable
 instructions. Serialize transcripts, summaries and action arguments inside a dedicated
 quoted, untrusted-history block, explicitly fenced by the provider system prompt.
+Use structured JSON serialization (including escaping delimiter characters) or a
+length-delimited provider data field; never interpolate raw content into instruction
+or protocol syntax. Treat encoding as structural protection, not a guarantee against
+semantic prompt injection; tool authorization remains server-side. Include delimiter-
+breaking transcripts, summaries and action arguments in malicious-history tests.
 Never replay provider tool-call messages, IDs or results as active protocol messages.
 Only a new user request can authorize actions; historical content cannot authorize
 action replay. Require new tool-call validation and current pane-lifetime matching.
@@ -178,7 +186,7 @@ retry; reusing the key with different arguments returns 409. Create the call and
 active-conversation lease in one transaction. A browser transport reconnect attaches
 to that existing authorized call via its ID; it does not create a new conversation or
 call. Reject cross-owner attachments and supersede the old socket generation so only
-one capture stream can drive the call. A stale lease after daemon restart ends the
+one capture stream can drive the call. A prior-generation lease after daemon restart ends the
 old call as interrupted; continuing creates a new call and billing scope. Recording
 policy comes from the stored call, not reconnect parameters. The `/api/live-mode`
 WebSocket handshake must establish the same verified owner as the history APIs before
@@ -206,7 +214,12 @@ Proposed default: local transcript recording on, visibly labeled before starting
 provide “Don’t save this conversation” and “Metadata only” choices. This default is a
 product decision to approve before implementation. The choice applies server-side
 throughout the call and continuation; telemetry must honor it too, not just SQLite.
-Carry the call-scoped recording policy through every content-bearing emitter:
+Exact action arguments and typed payloads require a separate explicit per-call opt-in,
+independent of ordinary transcript recording. By default all persistence, logs and
+telemetry receive only redacted action summaries, never raw `fc.args` or `keys`.
+Apply this gate as well as the call recording policy before serialization; QSDEBUG
+cannot enable raw payloads. Test transcript-on/payload-off and all-recording-off modes.
+Carry both policies through every content-bearing emitter:
 `_Meter.note`/`emit_live_turn`, tool-handler `telemetry.emit_action` raw arguments and
 typed text, derived summaries, local diagnostic logs and exporters. Process-wide
 `QSDEBUG` must not override a call's opt-out. Enforce suppression before serialization,
