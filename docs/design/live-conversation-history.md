@@ -39,11 +39,13 @@ turn boundaries. Existing telemetry is not automatically imported as complete hi
 | Conversation | UUID, owner identity, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
 | Call | UUID, conversation ID, start/end times, end reason, selected provider/model, transcript recording mode, exact-action-payload opt-in (separate persisted fields), heartbeat, daemon-generation/lease owner. One explicit Start-to-End interaction. |
 | Connection | UUID, call ID, provider connection ID when available, model actually used, timestamps, reconnect reason. Transport provenance only; references a separate accounting scope. |
-| Turn | UUID, conversation sequence, call/connection IDs, role, text, start/end times, partial/final/interrupted state, optional provider item ID. |
+| Turn | UUID, conversation sequence, call/connection IDs, optional fresh request ID foreign key, role, text, start/end times, partial/final/interrupted state, optional provider item ID. |
+| User request | Server-issued UUID, authenticated owner, call ID, user-turn ID, allowed tool/pane scope, creation and revocation times. Unique (call_id, request_id); immutable call/owner association. Imported/history turns cannot create one. |
 | Action | UUID (daemon-issued action key), call ID, fresh user-request ID, turn ID when known, provider tool-call ID for provenance, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. Unique (call_id, action_key). Never imply a sent command completed its underlying task. |
 | Accounting scope | UUID, owning call, provider scope key when available, counter semantics, start/end, completeness. Stable across transport reconnects that preserve provider counters. |
 | Usage | Accounting-scope ID, connection ID for provenance, source event ID or local sequence, cumulative/delta semantics, input/output tokens split by text/audio/cache when reported, audio duration when reported, final/provisional/completeness flags. |
-| Price snapshot | Provider/model, currency, effective time, units and rates actually used, source/version. Store the rate snapshot used for each estimate. |
+| Price snapshot | Provider/model, currency, effective time, units and rates actually used, source/version. Immutable UUID plus the rate snapshot used for each estimate; Estimate references it by foreign key. |
+| Estimate | Immutable UUID/revision, accounting-scope ID, usage revision, price-snapshot ID, currency, integer micro-unit amount, completeness and optional superseded estimate ID. Append a revision when usage changes; never update historical estimates or use current rates implicitly. |
 | Share snapshot | UUID, owner, selected conversation range, redacted export payload, creation/expiry/revocation metadata and access policy. Only if sharing is enabled. |
 
 Store UTC timestamps for display and durable ordering; assign a monotonically
@@ -208,7 +210,12 @@ retry; reusing the key with different arguments returns 409. Create the call and
 active-conversation lease in one transaction. A browser transport reconnect attaches
 to that existing authorized call via its ID; it does not create a new conversation or
 call. Reject cross-owner attachments and supersede the old socket generation so only
-one capture stream can drive the call. A prior-generation lease after daemon restart ends the
+one capture stream can drive the call. Fence every inbound audio/control frame and
+provider send with the current lease/socket generation, using the same per-call
+serialized execution path as takeover. Recheck after awaits before any side effect;
+discard stale queued audio, stop/mute/configuration messages and stale socket cleanup.
+An old handler exiting cannot close or stop the replacement call. Test delayed audio
+and stop frames, plus old-socket finalization, after takeover. A prior-generation lease after daemon restart ends the
 old call as interrupted; continuing creates a new call and billing scope. Recording
 policy comes from the stored call, not reconnect parameters. Serialize socket takeover
 and action dispatch through the same per-call execution lock. Check the persisted
