@@ -73,10 +73,12 @@ document.getElementById = (id) => {
 };
 const window = new EventTarget();
 const audioSession = Object.assign(new EventTarget(), {type: 'auto', state: 'active'});
-const contexts = [], streams = [], sockets = [];
+const contexts = [], streams = [], sockets = [], outputs = [], locks = [], timers = new Set();
+let initialResumePending = false;
 class Context {
   constructor() {
     this.state = 'suspended'; this.calls = 0; this.sampleRate = 16000;
+    this.pending = initialResumePending;
     this.audioWorklet = {addModule: async () => {}}; contexts.push(this);
   }
   async resume() {
@@ -86,6 +88,10 @@ class Context {
     this.state = 'running'; this.onstatechange?.();
   }
   async close() { this.state = 'closed'; }
+  createMediaStreamDestination() {
+    this.destinationTrack = {stopped: false, stop() {this.stopped = true;}};
+    return {stream: {getTracks: () => [this.destinationTrack]}, disconnect() {}};
+  }
   createMediaStreamSource() { return {connect() {}, disconnect() {}}; }
   createGain() { return {gain: {}, connect() {}, disconnect() {}}; }
 }
@@ -96,7 +102,10 @@ class Socket {
   close() { this.readyState = 3; }
 }
 let initiallyEnded = false;
-const navigator = {audioSession, mediaDevices: {getUserMedia: async () => {
+const navigator = {audioSession, wakeLock: {request: async () => {
+  const lock = {released: false, async release() {this.released = true;}};
+  locks.push(lock); return lock;
+}}, mediaDevices: {getUserMedia: async () => {
   const track = {readyState: initiallyEnded ? 'ended' : 'live', muted: false,
     enabled: true, stopped: false, stop() {this.stopped = true;}};
   const stream = {getTracks: () => [track], getAudioTracks: () => [track]};
@@ -104,8 +113,14 @@ const navigator = {audioSession, mediaDevices: {getUserMedia: async () => {
 }}};
 const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: Socket,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
+  Audio: class {
+    constructor() {this.paused = true; outputs.push(this);}
+    async play() {this.paused = false; this.onplaying?.();}
+    pause() {this.paused = true; this.onpause?.();}
+  },
   URLSearchParams, location: {protocol: 'https:', host: 'test'},
-  localStorage: {getItem() {}, setItem() {}}, setTimeout, clearTimeout};
+  localStorage: {getItem() {}, setItem() {}},
+  setTimeout: (fn) => {timers.add(fn); return fn;}, clearTimeout: (fn) => timers.delete(fn)};
 const source = fs.readFileSync(process.argv[1], 'utf8').replace('export function', 'function');
 vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode;', sandbox);
 const live = sandbox.setup({request: async () => {throw Error('offline');}});
@@ -114,28 +129,34 @@ const status = () => document.getElementById('voice-status').textContent;
 (async () => {
   await document.getElementById('voice-start').onclick();
   assert.equal(audioSession.type, 'play-and-record');
+  assert.equal(contexts.length, 1); assert.equal(outputs[0].paused, false);
+  assert.equal(locks.length, 1); assert.equal(locks[0].released, false);
   sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
   assert.match(status(), /Listening/);
   const track = streams[0].getAudioTracks()[0];
   // Background suspension is resumed without releasing the microphone or socket.
-  contexts[1].state = 'suspended'; document.hidden = true;
+  contexts[0].state = 'suspended'; document.hidden = true;
+  await locks[0].release(); // The browser releases screen wake locks when hidden.
   document.dispatchEvent(new Event('visibilitychange')); await flush();
-  assert.equal(contexts[1].state, 'running');
+  assert.equal(contexts[0].state, 'running');
   assert.equal(track.stopped, false); assert.equal(sockets[0].readyState, 1);
   // A platform denial produces no retry loop and never claims to be listening.
-  contexts[1].denied = true; contexts[1].state = 'suspended';
-  contexts[1].onstatechange(); await flush();
-  const calls = contexts[1].calls; await flush();
-  assert.equal(contexts[1].calls, calls); assert.match(status(), /interrupted/);
-  contexts[1].denied = false; document.hidden = false;
+  contexts[0].denied = true; contexts[0].state = 'suspended';
+  contexts[0].onstatechange(); await flush();
+  const calls = contexts[0].calls; await flush();
+  assert.equal(contexts[0].calls, calls); assert.match(status(), /interrupted/);
+  assert.equal(locks.length, 1); // No background wake-lock request.
+  contexts[0].denied = false; document.hidden = false;
   document.dispatchEvent(new Event('visibilitychange')); await flush();
   assert.match(status(), /Listening/);
+  assert.equal(locks.length, 2); assert.equal(locks[1].released, false);
   // WebKit can leave resume pending until a gesture. A tap must still retry.
-  contexts[1].pending = true; contexts[1].state = 'suspended';
-  contexts[1].onstatechange(); await flush();
-  contexts[1].pending = false;
+  contexts[0].pending = true; contexts[0].state = 'suspended';
+  document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.match(status(), /interrupted/);
+  contexts[0].pending = false;
   document.getElementById('live-mode').onclick(); await flush();
-  assert.equal(contexts[1].state, 'running');
+  assert.equal(contexts[0].state, 'running');
   track.muted = true; track.onmute(); assert.match(status(), /interrupted/);
   track.muted = false; track.onunmute(); await flush(); assert.match(status(), /Listening/);
   document.getElementById('voice-mute').onclick(); await flush();
@@ -144,6 +165,9 @@ const status = () => document.getElementById('voice-status').textContent;
   window.dispatchEvent(new Event('pagehide')); await flush();
   assert.equal(live.isActive(), false); assert.equal(track.stopped, true);
   assert.equal(audioSession.type, 'auto'); assert.equal(sockets[0].readyState, 3);
+  assert.equal(outputs[0].paused, true); assert.equal(outputs[0].srcObject, null);
+  assert.equal(contexts[0].destinationTrack.stopped, true);
+  assert.ok(locks.every((lock) => lock.released));
   assert.ok(contexts.every((ctx) => ctx.state === 'closed'));
   document.dispatchEvent(new Event('visibilitychange')); await flush();
   assert.equal(streams.length, 1); // No unexpected microphone reacquisition.
@@ -159,6 +183,22 @@ const status = () => document.getElementById('voice-status').textContent;
   assert.equal(sockets.length, 2); assert.equal(audioSession.type, 'auto');
   assert.ok(contexts.every((ctx) => ctx.state === 'closed'));
   assert.equal(streams[2].getTracks()[0].stopped, true);
+  // A never-settling initial resume must not leave startup pending indefinitely.
+  initiallyEnded = false; initialResumePending = true;
+  document.getElementById('voice-start').onclick(); await flush();
+  assert.equal(live.isActive(), true);
+  for (const timeout of [...timers]) timeout(); await flush();
+  assert.equal(live.isActive(), false); assert.match(status(), /timed out/);
+  assert.equal(streams[3].getTracks()[0].stopped, true);
+  assert.ok(locks.every((lock) => lock.released));
+  // A wake lock acquired after End must be released, never orphaned.
+  initialResumePending = false;
+  let resolveLock;
+  navigator.wakeLock.request = () => new Promise((resolve) => {resolveLock = resolve;});
+  await document.getElementById('voice-start').onclick();
+  document.getElementById('voice-start').onclick();
+  const lateLock = {released: false, async release() {this.released = true;}};
+  resolveLock(lateLock); await flush(); assert.equal(lateLock.released, true);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """
     module = Path(__file__).resolve().parents[1] / "web/m/live.js"
