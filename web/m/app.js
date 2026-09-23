@@ -1063,3 +1063,18 @@ $("reload-update").onclick = () => {
   location.reload();
 };
 setInterval(() => { if (!document.hidden) live.refresh(); }, VERSION_POLL_MS);
+
+// Temporary numeric-only diagnostics for the installed iPhone's bottom gap.
+setTimeout(() => {
+  if (!(navigator.standalone || matchMedia("(display-mode: standalone)").matches)) return;
+  const rect = node => { const r = node.getBoundingClientRect(); return [r.top, r.bottom, r.height].map(Math.round); };
+  const dimensions = {
+    screen: [screen.width, screen.height], inner: [innerWidth, innerHeight],
+    visual: [visualViewport?.height, visualViewport?.offsetTop, visualViewport?.scale],
+    root: rect(document.documentElement), body: rect(document.body),
+    app: rect($("app")), nav: rect($("list-nav")),
+    navPadding: getComputedStyle($("list-nav")).paddingBottom,
+    anchored: document.documentElement.classList.contains("standalone-fill"),
+  };
+  request("/api/version?layout_probe=" + encodeURIComponent(JSON.stringify(dimensions))).catch(() => {});
+}, 3000);
