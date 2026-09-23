@@ -119,10 +119,10 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   function watchAudio(current) {
     const changed = () => { audioStatus(current); resumeAudio(current); };
     current.capture.onstatechange = changed;
-    current.output.onpause = () => audioStatus(current);
+    current.output.onpause = changed;
     current.output.onplaying = changed;
     for (const track of current.stream.getAudioTracks()) {
-      track.onmute = () => audioStatus(current);
+      track.onmute = changed;
       track.onunmute = changed;
       track.onended = () => { if (run === current) stop("Microphone disconnected. Start Live Mode again."); };
       if (track.readyState === "ended") { track.onended(); return; }

@@ -138,6 +138,8 @@ process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pen
   assert.equal(locks.length, 1); assert.equal(locks[0].released, false);
   sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
   assert.match(status(), /Listening/);
+  outputs[0].pause(); await flush();
+  assert.equal(outputs[0].paused, false); assert.match(status(), /Listening/);
   const track = streams[0].getAudioTracks()[0];
   // Background suspension is resumed without releasing the microphone or socket.
   contexts[0].state = 'suspended'; document.hidden = true;
