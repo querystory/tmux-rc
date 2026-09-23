@@ -1,10 +1,11 @@
 {
-  "description": "Claude-like UI chrome must not override the pane’s own OpenAI-family model slot, including a previously unseen GPT model. Synthetic ambiguous chrome covers the fallback conflict in PR 208.",
+  "description": "Claude-like UI chrome must not override the pane\u2019s own OpenAI-family model slot, including a previously unseen GPT model. Synthetic ambiguous chrome covers the fallback conflict in PR 208.",
   "current_command": "node",
   "capture": "Task complete. Updated the configuration and verified the result.\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 >                                           \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n~/src/example-app \u00b7 main \u00b7 gpt-99-example medium \u00b7 30% context \u00b7 $0.12\nbypass permissions on (shift+tab to cycle)",
   "expected": {
     "tool": "codex",
     "activity": "idle",
-    "headline": "Configuration update complete; ready for another request"
+    "headline": "Configuration update complete; ready for another request",
+    "session": null
   }
 }
