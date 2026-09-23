@@ -83,7 +83,19 @@ export function renderAtlas(root, panes, navigate, logos) {
   const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos); };
   ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
     const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
-    const button = el('button', 'atlas-filter', `${tool || 'All tools'} · ${count}`);
+    const button = el('button', 'atlas-filter atlas-tool-filter');
+    const label = `${tool || 'All tools'} · ${count} panes`;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    if (tool) {
+      const logo = el('img');
+      logo.src = Object.prototype.hasOwnProperty.call(logos, tool) ? logos[tool] : '/tmux-logomark.svg';
+      logo.alt = ''; logo.width = 22; logo.height = 22;
+      button.append(logo);
+    } else {
+      button.append(el('span', '', 'All'));
+    }
+    button.append(el('span', 'count', String(count)));
     button.dataset.key = `tool:${tool}`;
     button.setAttribute('aria-pressed', String(scope.tool === tool));
     button.onclick = () => { scope.tool = tool; redraw(); };
