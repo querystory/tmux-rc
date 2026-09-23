@@ -4398,6 +4398,12 @@ function lmConnect() {
     const abnormal = e.code !== 1000 && e.code !== 1005;
     if (abnormal)
       reportError("ws", { name: "close " + e.code, message: e.reason || "" });
+    // A refusal happens BEFORE the accept, so there is no socket to send an error frame
+    // on: the explanation rides on the close itself. Without this the button simply goes
+    // dark — the server has carefully said "reload the page" or "no configured model has
+    // its key set" and nobody reads it. Set before the reconnect branch so it survives one,
+    // and cleared by lmStatus when a session does come back.
+    if (e.code === 1008 && e.reason) lmFatal = e.reason;
     // Dropped MID-SESSION (it was up): almost always the tunnel resetting its relay
     // link, which is back within seconds — hold the mic and reopen with the same session
     // id: 1,2,4,8,16s. A drop before the session was ever up, or a spent budget, stops.

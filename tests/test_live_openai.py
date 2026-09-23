@@ -215,6 +215,34 @@ def test_unparseable_tool_arguments_pass_through_for_rejection():
     assert ev.call.args == "{not json"  # live._handle_tool_call rejects non-dict args
 
 
+def test_gemini_accepts_the_shared_json_schema_unconverted():
+    """The seam keeps ONE tool table in plain JSON Schema, with lowercase `type` values, on
+    the stated grounds that google-genai coerces them — which is the whole reason the
+    adapter has no conversion step and gpt_live could delete its own. That claim is
+    load-bearing and lives in a comment, so it is checked here: google.genai's Type is a
+    CaseInSensitiveEnum today, and if a release ever stops coercing, the default Gemini
+    connection would fail while BUILDING its config, before any socket opens — a failure
+    no OpenAI-side test would see."""
+    from google.genai import types
+
+    # Lowercase at the SOURCE, because OpenAI Realtime takes these verbatim and has no
+    # tolerance; Gemini is the side that coerces. The shared table is therefore written in
+    # the unforgiving format and the forgiving backend adapts, which is the only ordering
+    # that lets one table serve both without a conversion step.
+    assert P.TOOLS[0]["parameters"]["type"] == "object"
+    assert P.TOOLS[0]["parameters"]["properties"]["pane_id"]["type"] == "string"
+
+    declared = [types.FunctionDeclaration(**t) for t in P.TOOLS]
+    assert [f.name for f in declared] == [t["name"] for t in P.TOOLS]
+    schema = declared[0].parameters
+    assert schema.type == types.Type.OBJECT
+    assert schema.properties["pane_id"].type == types.Type.STRING
+    assert schema.properties["press_enter"].type == types.Type.BOOLEAN
+    # press_key's whitelist has to survive the trip too — it is the guardrail that keeps
+    # the model from inventing a chord, so an enum dropped in translation is a real hole.
+    assert declared[1].parameters.properties["key"].enum == list(P.KEYS)
+
+
 def test_openai_endpoint_shapes(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     url, hdr = P.openai_endpoint(P.LiveModel("x", "gpt-realtime-2.1-mini", "openai"))
