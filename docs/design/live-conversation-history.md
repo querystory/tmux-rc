@@ -1,0 +1,193 @@
+# Durable Live Mode conversations
+
+Status: proposal, not an implemented feature. This design is separate from the
+conversation-thread UI and mobile audio lifecycle fixes.
+
+## What the user should be able to do
+
+Open a history of Live Mode conversations, read what was said and which pane actions
+were taken, see duration and estimated cost, and continue an earlier conversation.
+A conversation can span multiple calls and provider connections. Ending a call must
+not erase its transcript. Sharing should create an explicit, reviewable snapshot,
+not expose the daemon or silently publish every future turn.
+
+SQLite is a good fit for the local, single-daemon writer and indexed history reads.
+Use the existing private `history.sqlite3` database and migration mechanism, with
+separate tables from structural pane history. That changes the database's sensitivity:
+currently pane history deliberately contains no terminal text or summaries. The new
+feature adds conversation content, so its recording controls, export behavior, and
+retention must be explicit. No cloud database is needed for local history.
+
+## What exists today
+
+`openbus/history.py` persists structural pane observations in SQLite, outside the
+checkout, with WAL and private file permissions. `openbus/live.py` has a per-call
+UUID, `_Meter`, cumulative usage accounting, a bounded transcript tail, and per-turn
+and final telemetry emission. These are useful collection points, but the transcript
+tail is not a durable conversation archive. `web/m/live.js` renders a bounded,
+in-memory stream of user/model fragments and typed-action notices.
+
+The provider work in PR #170 introduces additional adapters and billing dimensions;
+implementation must reconcile with that PR's eventual main version. This proposal
+makes no assumption that every provider exposes the same usage, resume tokens, or
+turn boundaries. Existing telemetry is not automatically imported as complete history.
+
+## Record these things
+
+| Record | Fields and purpose |
+| --- | --- |
+| Conversation | UUID, owner identity, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
+| Call | UUID, conversation ID, start/end times, end reason, selected provider/model, recording mode, heartbeat. One explicit Start-to-End interaction. |
+| Connection | UUID, call ID, provider connection ID when available, model actually used, timestamps, reconnect reason. Defines the scope of cumulative usage counters. |
+| Turn | UUID, conversation sequence, call/connection IDs, role, text, start/end times, partial/final/interrupted state, optional provider item ID. |
+| Action | UUID, turn ID when known, tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. Never imply a sent command completed its underlying task. |
+| Usage | Connection ID, source event ID or local sequence, cumulative/delta semantics, input/output tokens split by text/audio/cache when reported, audio duration when reported, final/provisional/completeness flags. |
+| Price snapshot | Provider/model, currency, effective time, units and rates actually used, source/version. Store the rate snapshot used for each estimate. |
+| Share snapshot | UUID, owner, selected conversation range, redacted export payload, creation/expiry/revocation metadata and access policy. Only if sharing is enabled. |
+
+Store UTC timestamps for display and durable ordering; assign a monotonically
+increasing sequence per conversation for stable pagination. A provider ID supplements
+our own IDs rather than replacing them. A pane reference includes the tmux server and
+pane lifetime so a reused `%12` cannot point an old action at a new pane.
+
+Do not store raw microphone/audio buffers, credentials, provider resume secrets,
+full terminal screens, or repeated ambient pane snapshots by default. Transcript
+text and commands can still contain secrets: private filesystem permissions are
+necessary but do not make the content safe to publish. First delivery saves a safe
+argument summary for actions; exact typed payloads require an explicit recording option.
+
+## Write path and recovery
+
+Persist at the daemon's provider event boundary, before sending a finalized event to
+the browser. Browser disconnection must not discard records already received by the
+daemon. Normalize provider events once, then feed persistence, telemetry, and the live
+UI from that representation. Reuse `_Meter`'s accounting semantics after auditing its
+reconnect handling; do not build a second independent cost calculator in the browser.
+
+Coalesce streaming text in a bounded buffer. Checkpoint incomplete turns at most once
+per second and flush on turn completion, interruption, and call end. The UI can show
+live deltas immediately; only acknowledged durable records are described as saved.
+Mark the possible last unflushed fragment loss after a crash rather than promising
+exact transcripts. Upsert a stable turn/item ID when a provider revises a transcript;
+do not append the replacement as another utterance. Persist an event deduplication key
+where the provider supplies one; otherwise use connection + receive sequence and do
+not claim deduplication across arbitrary provider replays.
+
+Use short transactions through one serialized writer, off the audio receive loop,
+with a bounded queue. A migration version and foreign keys protect schema changes;
+indexes cover owner/updated-at and conversation/sequence. Retain the existing private
+DB/WAL/SHM permissions. A backup must use SQLite's backup API or a stopped writer.
+
+On restart, mark calls whose heartbeat is stale as interrupted, finalize only usage
+actually observed, and leave incomplete turns labeled partial. Disk-full or writer
+failure must surface “History not saving” in the live UI; keep audio usable, retain a
+bounded pending buffer, and retry with backoff. Never silently report a complete saved
+conversation when events were dropped. Commands must not be replayed to repair a
+missing history row. Deletion of an active call first ends its recording/call so queued
+writes cannot recreate deleted data.
+
+## Usage and cost without double counting
+
+Each adapter declares whether its usage messages are cumulative snapshots or deltas,
+and the exact reset scope. For cumulative messages, replace the latest snapshot for
+that connection; do not sum every turn's snapshot. For deltas, deduplicate event IDs
+and sum once. A reconnect that resumes the same provider accounting scope retains its
+scope key; a genuinely new scope gets a new key. Counter resets without a reliable
+scope signal are flagged as incomplete instead of guessed.
+
+Conversation totals sum disjoint accounting scopes, not call summaries plus their
+turns. A resumed call contributes new usage only. Preserve unknown dimensions as null,
+not zero. Prices are estimates calculated with the saved rate snapshot; changing
+configuration tomorrow must not rewrite yesterday's estimate. Do not count cached
+input twice. Keep voice-service charges, model charges, and optional backend charges
+separate until their billing boundaries are known to avoid adding an inclusive price
+to its own components. Use integer micro-units or decimal amounts, never binary float
+as the authoritative persisted monetary amount.
+
+Initial UI: total calls, active duration, turns, actions, estimated cost, and explicit
+“partial usage” badges. Later: daily cost by provider/model and conversation. Per-turn
+cost is available only when reporting boundaries support it; otherwise show a call
+estimate rather than inventing attribution.
+
+## Browsing and continuing
+
+Add a History entry to Live Mode with paginated conversations, search scoped to the
+current owner, and model/date filters. Opening one shows the message thread, action
+receipts, partial/interrupted markers, and a compact usage summary. Reuse the live
+conversation component so historical and active turns have the same presentation.
+Suggested API contracts (not endpoints that exist today):
+
+- `GET /api/live-conversations?before=…&limit=…` — bounded owner-scoped list.
+- `GET /api/live-conversations/{id}/turns?after=…&limit=…` — stable sequence pagination.
+- `POST /api/live-conversations/{id}/continue` — create a new call, optionally a fork.
+- `PATCH` / `DELETE /api/live-conversations/{id}` — rename/archive or delete.
+- `POST /api/live-conversations/{id}/export` — preview and produce a selected export.
+
+Authenticate and authorize every read/write/export using server-established identity;
+never trust an owner ID supplied in the browser. Local unauthenticated mode needs an
+explicit single-owner policy and must not enable remote sharing implicitly. Existing
+relay identity must be validated against the deployment's trust boundary first.
+
+“Continue” starts a new provider connection and new metering scope. Load a bounded
+summary plus recent finalized turns as conversation context, then refresh the current
+pane inventory. Tell the user that this is a new call with prior context; do not claim
+the old live audio stream is restored. Incomplete turns remain visible but are marked
+as such in context. Prior tool calls are inert historical data, never executable
+instructions. Require new tool-call validation and current pane-lifetime matching.
+
+Provider-native resumption, if supported, is a separate optimization with its own
+expiry and credentials handling; it is not the durable history contract. Never store
+resume secrets in exports. A user may fork an old point or change models; record the
+parent and selected model explicitly. Permit only one active call per conversation
+initially; reject a second with a clear “already active” response or offer a fork.
+
+## Recording, retention, and sharing
+
+Proposed default: local transcript recording on, visibly labeled before starting;
+provide “Don’t save this conversation” and “Metadata only” choices. This default is a
+product decision to approve before implementation. The choice applies server-side
+throughout the call and continuation; telemetry must honor it too, not just SQLite.
+An opted-out transcript must not leak through `_Meter`'s telemetry tail. Continuing a
+non-recorded call cannot reconstruct missing turns and should say so.
+
+Proposed retention: content for 30 days, usage totals for 90 days, with explicit
+“keep” and configurable policies. Run bounded deletion jobs that remove turns,
+actions, derived summaries, search rows, and share snapshots consistently. Deleting
+local data cannot retract downloaded exports or copies in separately retained backups;
+explain that in the deletion UI. SQLite deletion is logical deletion, not a promise of
+forensic erasure. Storage settings should show approximate size and allow clearing
+history without clearing structural pane history.
+
+Phase one sharing is a downloadable Markdown/JSON transcript with a preview: select
+turns, remove pane labels, redact commands and identities, optionally include cost.
+Version the export schema. Exporting does not grant terminal access or allow actions.
+
+Authenticated links are a later phase. The current tunnel is not a public sharing
+service; do not expose the daemon or SQLite to serve an anonymous link. Within an
+existing authenticated deployment, enforce owner/recipient ACLs on an immutable
+snapshot. A future external service requires a separate deployment/access design.
+If bearer links are ever supported, use high-entropy tokens stored hashed, expiration,
+revocation and bounded reads, with explicit disclosure that anyone holding the link
+can read it. Revocation prevents future fetches, not previously downloaded copies.
+An incoming shared conversation may be imported only as inert context into a new,
+private conversation, never as an active session with inherited pane permissions.
+
+## Delivery sequence and acceptance
+
+1. Local schema and normalized event writer; transcript opt-out applies to telemetry;
+   crash/disk-full recovery; no raw audio. Test migrations, idempotent events, partial
+   turns, revisions, queue overflow, permissions and opt-out end to end.
+2. History list/thread and estimated usage. Test pagination during writes, cross-owner
+   denial, cost snapshots, cumulative/delta reconnect accounting, missing usage and
+   retention deletion including derived/search data.
+3. Continue/fork with bounded prior context and fresh pane inventory. Test provider
+   changes, stale pane IDs, concurrent calls, interrupted turns, and no action replay.
+4. Reviewed local exports; then separately approved authenticated sharing. Test field
+   redaction, export opt-out, snapshot immutability, expiry/revocation and ACL denial.
+
+Open decisions: recording default, retention periods, whether metadata-only calls
+appear in history, whether exact typed payload recording is ever needed, and whether
+sharing initially means downloads only or an authenticated deployment feature. No
+historical backfill is promised: old bounded telemetry tails cannot establish complete
+turn sequences or reliable cost scopes. Any importer must label partial provenance
+and remain separate from live collection.
