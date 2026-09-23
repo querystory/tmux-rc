@@ -38,10 +38,11 @@ turn boundaries. Existing telemetry is not automatically imported as complete hi
 | --- | --- |
 | Conversation | UUID, owner identity, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
 | Call | UUID, conversation ID, start/end times, end reason, selected provider/model, recording mode, heartbeat. One explicit Start-to-End interaction. |
-| Connection | UUID, call ID, provider connection ID when available, model actually used, timestamps, reconnect reason. Defines the scope of cumulative usage counters. |
+| Connection | UUID, call ID, provider connection ID when available, model actually used, timestamps, reconnect reason. Transport provenance only; references a separate accounting scope. |
 | Turn | UUID, conversation sequence, call/connection IDs, role, text, start/end times, partial/final/interrupted state, optional provider item ID. |
 | Action | UUID, turn ID when known, tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. Never imply a sent command completed its underlying task. |
-| Usage | Connection ID, source event ID or local sequence, cumulative/delta semantics, input/output tokens split by text/audio/cache when reported, audio duration when reported, final/provisional/completeness flags. |
+| Accounting scope | UUID, owning call, provider scope key when available, counter semantics, start/end, completeness. Stable across transport reconnects that preserve provider counters. |
+| Usage | Accounting-scope ID, connection ID for provenance, source event ID or local sequence, cumulative/delta semantics, input/output tokens split by text/audio/cache when reported, audio duration when reported, final/provisional/completeness flags. |
 | Price snapshot | Provider/model, currency, effective time, units and rates actually used, source/version. Store the rate snapshot used for each estimate. |
 | Share snapshot | UUID, owner, selected conversation range, redacted export payload, creation/expiry/revocation metadata and access policy. Only if sharing is enabled. |
 
@@ -84,7 +85,7 @@ Enable `PRAGMA foreign_keys=ON` on every reader and writer connection before sta
 transactions; verify it is enabled and test orphan rejection and cascade deletion.
 Define deletion relationships explicitly rather than relying on unenforced REFERENCES;
 
-indexes cover owner/updated-at and conversation/sequence. Retain the existing private
+indexes cover owner/created-at/ID and conversation/sequence. Retain the existing private
 DB/WAL/SHM permissions. A backup must use SQLite's backup API or a stopped writer.
 
 On restart, mark calls whose heartbeat is stale as interrupted, finalize only usage
@@ -99,11 +100,16 @@ writes cannot recreate deleted data.
 
 Each adapter declares whether its usage messages are cumulative snapshots or deltas,
 and the exact reset scope. For cumulative messages, replace the latest snapshot for
-that connection; do not sum every turn's snapshot. For deltas, deduplicate event IDs
-and sum once. A reconnect that resumes the same provider accounting scope retains its
+that accounting scope; do not sum every turn's snapshot. For deltas, deduplicate event IDs
+and sum once using a unique (accounting_scope_id, source_event_id) key. Where only
+local receive sequencing exists, retain (connection_id, receive_sequence) provenance
+and mark uncertain cross-connection replay as incomplete, never silently counted twice.
+A reconnect that resumes the same provider accounting scope retains its
 scope key; a genuinely new scope gets a new key. Counter resets without a reliable
 scope signal are flagged as incomplete instead of guessed.
 
+An accounting scope belongs to exactly one call in phase one. Explicit Continue
+starts a fresh provider scope; do not reuse a native billing scope across calls.
 Conversation totals sum disjoint accounting scopes, not call summaries plus their
 turns. A resumed call contributes new usage only. Preserve unknown dimensions as null,
 not zero. Prices are estimates calculated with the saved rate snapshot; changing
@@ -121,7 +127,12 @@ estimate rather than inventing attribution.
 ## Browsing and continuing
 
 Add a History entry to Live Mode with paginated conversations, search scoped to the
-current owner, and model/date filters. Opening one shows the message thread, action
+current owner, and model/date filters. List pages sort by immutable (created_at, UUID),
+not mutable updated-at: sign an owner/filter-bound cursor with the initial creation
+watermark and last key, and exclude later inserts until refresh. Show latest activity
+as a separate field. Deleted rows can disappear; existing rows cannot move between
+pages. Turn pages use immutable conversation sequence, updating partial turns in place.
+Opening one shows the message thread, action
 receipts, partial/interrupted markers, and a compact usage summary. Reuse the live
 conversation component so historical and active turns have the same presentation.
 Suggested API contracts (not endpoints that exist today):
@@ -160,6 +171,21 @@ expiry and credentials handling; it is not the durable history contract. Never s
 resume secrets in exports. A user may fork an old point or change models; record the
 parent and selected model explicitly. Permit only one active call per conversation
 initially; reject a second with a clear “already active” response or offer a fork.
+
+Make Start/Continue/Fork idempotent with a client request UUID scoped to the verified
+owner and a stored request digest. A unique constraint returns the original call on
+retry; reusing the key with different arguments returns 409. Create the call and its
+active-conversation lease in one transaction. A browser transport reconnect attaches
+to that existing authorized call via its ID; it does not create a new conversation or
+call. Reject cross-owner attachments and supersede the old socket generation so only
+one capture stream can drive the call. A stale lease after daemon restart ends the
+old call as interrupted; continuing creates a new call and billing scope. Recording
+policy comes from the stored call, not reconnect parameters.
+
+For tool execution, reserve a unique call/tool-call receipt before sending input to
+tmux and record its outcome afterward. A crash between send and acknowledgment has
+an uncertain outcome: expose that uncertainty and never automatically resend. SQLite
+and tmux are not an atomic transaction, so do not promise exactly-once side effects.
 
 ## Recording, retention, and sharing
 
