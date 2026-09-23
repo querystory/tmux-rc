@@ -180,10 +180,23 @@ to that existing authorized call via its ID; it does not create a new conversati
 call. Reject cross-owner attachments and supersede the old socket generation so only
 one capture stream can drive the call. A stale lease after daemon restart ends the
 old call as interrupted; continuing creates a new call and billing scope. Recording
-policy comes from the stored call, not reconnect parameters.
+policy comes from the stored call, not reconnect parameters. The `/api/live-mode`
+WebSocket handshake must establish the same verified owner as the history APIs before
+accepting Start or attachment. The current client-supplied `session` and logging-only
+`_actor` are not authorization. Fail closed on missing/unverified identity; look up
+requested calls under that owner and reject unauthorized IDs before opening a provider
+connection. Apply the explicit single-owner policy to WebSockets too. Test absent,
+forged and cross-owner identities on both initial connection and reconnect.
 
-For tool execution, reserve a unique call/tool-call receipt before sending input to
-tmux and record its outcome afterward. A crash between send and acknowledgment has
+For tool execution, reserve a unique (call ID, daemon-issued action key) receipt before
+sending input to tmux and record its outcome afterward. Provider tool-call IDs are
+provenance only, not reliable idempotency keys across reconnects. Bind each action key
+to its normalized arguments and pane lifetime; reject reuse with different arguments.
+After a provider reconnect, if an action cannot be tied to an existing action key or a
+new user request, require explicit user confirmation before execution, even if the
+provider supplied a new tool-call ID. Do not deduplicate by argument equality alone:
+the user may intentionally repeat an action. Test replay under both unchanged and
+changed provider IDs, and intentional repetition. A crash between send and acknowledgment has
 an uncertain outcome: expose that uncertainty and never automatically resend. SQLite
 and tmux are not an atomic transaction, so do not promise exactly-once side effects.
 
