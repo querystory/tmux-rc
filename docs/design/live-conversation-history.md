@@ -222,6 +222,17 @@ explain that in the deletion UI. SQLite deletion is logical deletion, not a prom
 forensic erasure. Storage settings should show approximate size and allow clearing
 history without clearing structural pane history.
 
+Deletion must fence queued and in-flight writes. On the serialized writer, atomically
+mark each affected call ID tombstoned and advance its recording epoch before deleting
+content. Producers stop accepting new events for those calls and discard queued
+content; every write checks the persisted tombstone/epoch in its transaction. Events
+carry the epoch captured when accepted, never the current epoch at dequeue time.
+Writes committed before the barrier are deleted; later writes are rejected, including
+retries after restart. Retain minimal ID/epoch tombstones without transcript content,
+never reuse call IDs, and do not let event ingestion recreate a missing parent call.
+The delete response waits for the barrier and deletion commit. Test a delayed writer,
+in-flight checkpoint, producer race and daemon restart against this ordering.
+
 Phase one sharing is a downloadable Markdown/JSON transcript with a preview: select
 turns, remove pane labels, redact commands and identities, optionally include cost.
 Version the export schema. Exporting does not grant terminal access or allow actions.
