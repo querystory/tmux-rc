@@ -352,3 +352,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+
+/* Keep both single-pane views one tap away on narrow screens. */
+#mobile-view-toggle { display: flex; border: 1px solid var(--line); border-radius: 7px; padding: 2px; background: var(--surface); }
+#mobile-view-toggle button { min-height: 40px; padding: 5px 8px; font-size: 12px; border-radius: 4px; }
+#mobile-view-toggle button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+#review-layout-picker { display: none; }
+@media (min-width: 1100px) {
+  #mobile-view-toggle { display: none; }
+  #review-layout-picker { display: block; }
+}

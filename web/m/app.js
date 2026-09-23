@@ -379,6 +379,12 @@ function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
   }
 }
 new ResizeObserver(() => sizeReview()).observe($("detail"));
+$("mobile-view-toggle").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-view]");
+  if (!button) return;
+  $("review-layout").value = button.dataset.view;
+  $("review-layout").dispatchEvent(new Event("change", { bubbles: true }));
+});
 $("review-layout").onchange = (e) => {
   const choice = e.target.value;
   if (WIDE.matches) {
@@ -466,6 +472,9 @@ function render() {
   if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
   picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
   refreshViewPicker();
+  $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.view === view));
+  });
   show("review-divider", reviewing());
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
