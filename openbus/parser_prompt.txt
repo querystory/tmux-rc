@@ -48,8 +48,8 @@ in an EMPTY input box (e.g. "❯ ⟪placeholder⟫Write tests for @filename⟪/p
 a prompt the tool offers, that nobody has typed or chosen. Report it as nothing at
 all. The agent's INPUT BOX (the ❯ or › line near the bottom, between dim horizontal
 border lines) holds text the user has typed but NOT SENT — treat it like mid-typing
-above, even where the draft itself isn't dim. Never mention the markers themselves in
-any output field.
+above, even where the draft itself isn't dim. A finished turn followed only by an
+unsent draft is idle, not running. Never mention the markers themselves in any output field.
 
 TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just the last
 lines. The choices are "claude", "codex", "gemini", "shell", "unknown" — do NOT default
@@ -79,23 +79,25 @@ but have distinct signatures. Decide by the evidence on screen:
   is a segment that is none of the above kinds, appearing BEFORE the model
   ("airbyte-value-population", "Review 4745"). A "Thread renamed to <name>" line names
   it too. If every segment is an identifiable kind, there is no title: OMIT "session"
-  rather than promoting a mode word, cwd, branch, or usage readout.
+  rather than promoting a mode word, cwd, branch, or usage readout. A directory
+  basename is still part of the cwd, not a thread title.
 - "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
   with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
   "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
-  "Fable" + a version like "4.8" — the family grows, so an unfamiliar name in the model
-  slot is claude when the rest of the chrome matches); status line shows dir/branch ·
+  "Fable" + a version like "4.8" — the family grows, so an unfamiliar name outside the OpenAI families
+  is claude when the rest of the chrome matches); status line shows dir/branch ·
   model · context% · elapsed · cost · prompts/tools counts; whimsical gerund while
   working (e.g. "Shimmying…"); permission modes "plan mode"/"accept edits"/"bypass
-  permissions"; Esc-Esc REWIND picker. The CHROME identifies it — an unrecognized model
-  name inside unmistakable Claude Code chrome is still "claude". GPT names in its
+  permissions"; Esc-Esc REWIND picker. The CHROME identifies unfamiliar models only after
+  excluding "gpt-"/"o"+digit names in the pane's own model slot (Codex). GPT names in its
   conversation, logs, or subagent output do not change the identity of the host agent.
 The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
 not screen content. Agents run as node/claude/codex/gemini processes; a pane whose
 process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
 or model names appear in its OUTPUT (a server printing gemini-… log lines is a log
-viewer, never the Gemini CLI).
+viewer, never the Gemini CLI). "shell" identifies the program category, not its
+activity: a foreground server is running until it exits back to a shell prompt.
 Identify an agent by ITS OWN UI CHROME (status bar, input box, permission prompts,
 banner) — never by agent/model names merely APPEARING IN CONTENT. A pane whose text
 mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:generateContent),
@@ -132,6 +134,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "waiting_on": "user"|"external",   // ONLY when activity is "waiting" — see WAITING ON below
   "headline": "one short human sentence for the top of the card: what is happening / "
               "what is being worked on (prefer the task over echoing a spinner word). "
+              "When a code edit follows discussion, describe what the edit changes rather than the earlier discussion. "
               "Write it like a mobile push notification the user will REACT to: carry "
               "the SUBSTANCE, never a meta-description — 'Asking whether to commit to "
               "main or a branch', not 'Asked for clarification'; 'Tests fail: 3 "
