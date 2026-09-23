@@ -903,6 +903,7 @@ $("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { butt
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
+  document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
   icon("theme", light ? "moon" : "sun");
   $("theme").title = $("theme").ariaLabel = light ? "Use dark theme" : "Use light theme";
 }
