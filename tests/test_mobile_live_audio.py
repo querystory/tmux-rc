@@ -74,7 +74,7 @@ document.getElementById = (id) => {
 const window = new EventTarget();
 const audioSession = Object.assign(new EventTarget(), {type: 'auto', state: 'active'});
 const contexts = [], streams = [], sockets = [], outputs = [], locks = [], timers = new Set();
-let initialResumePending = false;
+let initialResumePending = false, initialPlayPending = false;
 class Context {
   constructor() {
     this.state = 'suspended'; this.calls = 0; this.sampleRate = 16000;
@@ -114,8 +114,11 @@ const navigator = {audioSession, wakeLock: {request: async () => {
 const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: Socket,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
   Audio: class {
-    constructor() {this.paused = true; outputs.push(this);}
-    async play() {this.paused = false; this.onplaying?.();}
+    constructor() {this.paused = true; this.pending = initialPlayPending; outputs.push(this);}
+    async play() {
+      if (this.pending) return new Promise(() => {});
+      this.paused = false; this.onplaying?.();
+    }
     pause() {this.paused = true; this.onpause?.();}
   },
   URLSearchParams, location: {protocol: 'https:', host: 'test'},
@@ -126,6 +129,8 @@ vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode;', sandbox);
 const live = sandbox.setup({request: async () => {throw Error('offline');}});
 const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
+let completed = false;
+process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pending promise'));
 (async () => {
   await document.getElementById('voice-start').onclick();
   assert.equal(audioSession.type, 'play-and-record');
@@ -191,6 +196,18 @@ const status = () => document.getElementById('voice-status').textContent;
   assert.equal(live.isActive(), false); assert.match(status(), /timed out/);
   assert.equal(streams[3].getTracks()[0].stopped, true);
   assert.ok(locks.every((lock) => lock.released));
+  // A user retry must finish startup even if its ORIGINAL resume never settles.
+  const startup = document.getElementById('voice-start').onclick(); await flush();
+  const startingContext = contexts.at(-1); startingContext.pending = false;
+  document.getElementById('live-mode').onclick(); await startup; await flush();
+  assert.equal(sockets.length, 3); assert.equal(live.isActive(), true);
+  document.getElementById('voice-start').onclick();
+  initialResumePending = false; initialPlayPending = true;
+  const playbackStartup = document.getElementById('voice-start').onclick(); await flush();
+  outputs.at(-1).pending = false;
+  document.getElementById('live-mode').onclick(); await playbackStartup; await flush();
+  assert.equal(sockets.length, 4); assert.equal(live.isActive(), true);
+  document.getElementById('voice-start').onclick(); initialPlayPending = false;
   // A wake lock acquired after End must be released, never orphaned.
   initialResumePending = false;
   let resolveLock;
@@ -199,6 +216,7 @@ const status = () => document.getElementById('voice-status').textContent;
   document.getElementById('voice-start').onclick();
   const lateLock = {released: false, async release() {this.released = true;}};
   resolveLock(lateLock); await flush(); assert.equal(lateLock.released, true);
+  completed = true;
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """
     module = Path(__file__).resolve().parents[1] / "web/m/live.js"

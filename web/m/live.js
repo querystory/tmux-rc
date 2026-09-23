@@ -93,12 +93,14 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     finally { current.wakePending = false; }
   }
   function audioStatus(current) {
-    if (run !== current || !current.listening) return;
+    if (run !== current) return;
     const tracks = current.stream?.getAudioTracks() || [];
     const interrupted = current.capture?.state !== "running" ||
       tracks.some((track) => track.muted) || current.output?.paused || current.audioSession?.state === "interrupted";
+    if (!interrupted && current.stream) current.resolveReady?.();
+    if (!current.listening && !current.stream) return;
     status(interrupted ? "Audio interrupted. Return to the app and tap the microphone to resume." :
-      current.muted ? "Microphone muted" : `Listening / ${current.model || "Default"}`);
+      current.muted ? "Microphone muted" : current.listening ? `Listening / ${current.model || "Default"}` : "Connecting...");
   }
   function resumeAudio(current, userGesture = false) {
     audioStatus(current);
@@ -118,7 +120,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     const changed = () => { audioStatus(current); resumeAudio(current); };
     current.capture.onstatechange = changed;
     current.output.onpause = () => audioStatus(current);
-    current.output.onplaying = () => audioStatus(current);
+    current.output.onplaying = changed;
     for (const track of current.stream.getAudioTracks()) {
       track.onmute = () => audioStatus(current);
       track.onunmute = changed;
@@ -127,11 +129,13 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     }
     current.audioChanged = changed;
     current.audioSession?.addEventListener("statechange", changed);
+    changed();
   }
   function stop(message = "Session ended") {
     const current = run; run = null; sequence++;
     if (current) {
       clearTimeout(current.retry); clearTimeout(current.deadline);
+      current.resolveReady?.();
       current.wakeLock?.release().catch(() => {});
       if (current.ws?.readyState === WebSocket.OPEN) {
         try { current.ws.send(JSON.stringify({ action: "stop" })); } catch {}
@@ -271,19 +275,20 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       current.play = current.capture = new AudioContext();
       current.destination = current.capture.createMediaStreamDestination();
       current.output = new Audio(); current.output.srcObject = current.destination.stream;
-      const resumed = current.capture.resume(), playing = current.output.play();
-      resumed.catch(() => {}); playing.catch(() => {});
+      // A second resume/play can succeed while an earlier request stays pending.
+      // Observe actual state changes instead of awaiting those original promises.
+      const ready = new Promise((resolve) => { current.resolveReady = resolve; });
+      current.capture.resume().catch(() => audioStatus(current));
+      current.output.play().catch(() => audioStatus(current));
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
       if (sequence !== token) { stream.getTracks().forEach((track) => track.stop()); return; }
       current.stream = stream; watchAudio(current);
       if (run !== current) return;
       paint();
       keepAwake(current);
-      await resumed;
-      if (run !== current) return;
       await capture(current);
       if (run !== current) return;
-      await playing;
+      await ready;
       if (run !== current) return;
       try { localStorage.setItem("tmuxrc-live-model", current.model); } catch {}
       status("Connecting..."); connect(current);
