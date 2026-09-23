@@ -160,3 +160,13 @@ def test_a_non_boolean_search_flag_is_not_true():
                       "keymap": {"select": "Enter", "search": "false"}}},
         {"question": pinned})
     assert not ok and any("question" in d for d in diffs)
+
+
+def test_production_prompt_preserves_candidate_bytes(tmp_path, monkeypatch):
+    from openbus import classify as classifier
+
+    prompt = "\nParser instructions.\n\n"
+    (tmp_path / "parser_prompt.txt").write_text(prompt)
+    monkeypatch.setattr(classifier, "__file__", str(tmp_path / "classify.py"))
+    monkeypatch.setattr(classifier, "_prompts", {})
+    assert classifier.parser_prompt() == prompt
