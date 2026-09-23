@@ -7,6 +7,7 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
@@ -745,7 +746,8 @@ def send_keys(
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
-def click(pane_id: str, from_bottom: int, col: int, *, expected_pid: str) -> bool:
+def click(pane_id: str, from_bottom: int, col: int, *,
+          expected_pid: str, expected_frame: str) -> bool:
     """Left-click the cell `from_bottom` lines above the last line of the live frame, at
     1-based `col`. Returns False (nothing sent) when the pane's app has not asked for
     SGR mouse reports — a shell would echo the bytes as garbage — or the line has
@@ -769,13 +771,22 @@ def click(pane_id: str, from_bottom: int, col: int, *, expected_pid: str) -> boo
         ]).split()
         if sgr != "1" or col > int(width):
             return False
-        joined = capture_pane(pane_id, lines=0, keep_colors=True).split("\n")
-        physical = _run(["capture-pane", "-p", "-e", "-t", pane_id, "-S", "-0"])
-        if len(physical.rstrip("\n").split("\n")) != len(joined):
+        frame = capture_pane(pane_id, keep_colors=True)
+        if hashlib.md5(frame.encode()).hexdigest() != expected_frame:
             return False
-        row = len(joined) - from_bottom
+        # Validate physical geometry against the exact visible suffix of the fresh
+        # joined frame. Wrapped scrollback is irrelevant; a wrapped or changed screen
+        # cannot match this suffix, so never map the tap onto different visible text.
+        # -N -T preserves the same trailing positions as -J without joining rows.
+        visible = _materialize_links(_run([
+            "capture-pane", "-p", "-e", "-N", "-T", "-t", pane_id, "-S", "-0",
+        ])).rstrip("\n")
+        if not (frame == visible or frame.endswith("\n" + visible)):
+            return False
+        row = len(visible.split("\n")) - from_bottom
         if row < 1:
             return False
+        # tmux cannot atomically compare output and inject input.
         check_pane(pane_id, expected_pid)
         seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
         _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq)])

@@ -134,6 +134,9 @@ export function renderAtlas(root, panes, navigate, logos) {
     island.append(dots);
     islands.push({ node: island, weight: members.length + 2 });
   });
+  // Attach tiles before the synchronous focus restoration below; ResizeObserver
+  // runs later, after live updates would otherwise drop keyboard focus.
+  map.append(...islands.map(island => island.node));
   root.append(map);
   let mapWidth = 0;
   root._mapResize = new ResizeObserver(entries => {

@@ -22,6 +22,7 @@ for (const name of ['echarts', 'wordcloud']) {
 for (const name of ['LICENSE', 'NOTICE']) {
   files.set(`echarts.${name}`, await readFile(path.join(root, 'node_modules/echarts', name)));
 }
+files.set('echarts.LICENSE-d3', await readFile(path.join(root, 'node_modules/echarts/licenses/LICENSE-d3')));
 files.set('wordcloud.LICENSE', await readFile(path.join(root, 'node_modules/wordcloud/LICENSE')));
 files.set('versions.json', Buffer.from(`${JSON.stringify(versions, null, 2)}\n`));
 

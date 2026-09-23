@@ -74,6 +74,7 @@ let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
+let latestFrame = "", paintedFrame = "";
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return ""; } // Like desktop SESSION_ID: CSPRNG-random or omitted, never guessed.
@@ -619,7 +620,7 @@ function restartDetail() {
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; }
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; }
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
 // <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
 // the whole frame gave — no extra CSS, and no block children to lose the newlines. The
@@ -656,6 +657,7 @@ function paintCapture() {
   const scroll = $("terminal-scroll");
   const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - FOLLOW_SLACK_PX;
   paintLines(lines);
+  paintedFrame = latestFrame;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
 }
 async function streamTerminal(id, signal) {
@@ -668,7 +670,7 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; paintCapture(); }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {
@@ -892,6 +894,7 @@ $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll"
 // that meant "place the selection" would otherwise click whatever is under it.
 function setClickMode(on) {
   $("capture").classList.toggle("clicks", on);
+  $("click-mode").setAttribute("aria-pressed", String(on));
   html($("click-mode"), `${licon(on ? "pointer" : "cursor", 16)}${on ? "Click" : "Select"}`);
   $("click-mode").ariaLabel = $("click-mode").dataset.tip = on
     ? "Click mode: taps click inside the app, like menus and agent rows. Tap to switch to Select for copying text."
@@ -906,7 +909,7 @@ $("click-mode").onclick = () => { const on = !$("capture").classList.contains("c
 // shares with the screen (see tmux.click). A tap on a link still follows the link.
 $("capture").onclick = (event) => {
   const pre = $("capture");
-  if (!active || !captureLines.length || !pre.classList.contains("clicks") || event.target.closest("a")) return;
+  if (!active || !paintedFrame || captureDirty || !captureLines.length || !pre.classList.contains("clicks") || event.target.closest("a")) return;
   const probe = pre.appendChild(document.createElement("span"));
   probe.textContent = "0".repeat(100);
   const cell = probe.getBoundingClientRect().width / 100;
@@ -916,7 +919,7 @@ $("capture").onclick = (event) => {
   const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
   const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
   if (row < 0 || row >= captureLines.length || col < 1) return;
-  post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col }).catch(() => {});
+  post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }).catch(() => {});
 };
 
 $("new-window").onclick = async () => {
