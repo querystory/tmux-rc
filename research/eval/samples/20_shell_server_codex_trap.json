@@ -1,0 +1,10 @@
+{
+  "description": "A Python server logs OpenAI model names and captured Codex chrome. Only the pane own process and chrome identify the tool, not model names printed in log content.",
+  "current_command": "python",
+  "capture": "INFO: Uvicorn running on http://127.0.0.1:18030 (Press CTRL+C to quit)\nINFO: POST https://api.openai.com/v1/responses model=gpt-6-astra 200\nDEBUG: captured agent footer: Review changes \u00b7 gpt-6-astra medium \u00b7 Context 71% left \u00b7 Ready\nINFO: classified pane as codex/running\nINFO: POST https://api.openai.com/v1/responses model=o3 200\nINFO: polling agent status...",
+  "expected": {
+    "tool": "shell",
+    "activity": "running",
+    "headline": "Server running and logging OpenAI requests and agent status"
+  }
+}

@@ -38,7 +38,9 @@ def _load_prompt(name: str) -> str:
     mtime = path.stat().st_mtime_ns  # ns: coarse mtime can miss rapid edits
     cached = _prompts.get(name)
     if cached is None or cached[0] != mtime:
-        _prompts[name] = (mtime, path.read_text(encoding="utf-8").strip())
+        # Preserve the exact candidate bytes used by the eval harness. Boundary
+        # whitespace changes tokenization too; production must not silently strip it.
+        _prompts[name] = (mtime, path.read_text(encoding="utf-8"))
     return _prompts[name][1]
 
 
