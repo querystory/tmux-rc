@@ -107,6 +107,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       track.onmute = () => audioStatus(current);
       track.onunmute = changed;
       track.onended = () => { if (run === current) stop("Microphone disconnected. Start Live Mode again."); };
+      if (track.readyState === "ended") { track.onended(); return; }
     }
     current.audioChanged = changed;
     current.audioSession?.addEventListener("statechange", changed);
@@ -119,7 +120,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
         try { current.ws.send(JSON.stringify({ action: "stop" })); } catch {}
       }
       try { current.ws?.close(); } catch {}
-      current.audioSession?.removeEventListener("statechange", current.audioChanged);
+      if (current.audioChanged) current.audioSession?.removeEventListener("statechange", current.audioChanged);
       // Release our audio category without overwriting a change made elsewhere.
       try {
         if (current.audioSession?.type === "play-and-record") current.audioSession.type = current.previousAudioType;
@@ -246,7 +247,9 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       resumes.catch(() => {});
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
       if (sequence !== token) { stream.getTracks().forEach((track) => track.stop()); return; }
-      current.stream = stream; watchAudio(current); paint();
+      current.stream = stream; watchAudio(current);
+      if (run !== current) return;
+      paint();
       await resumes;
       if (run !== current) return;
       await capture(current);

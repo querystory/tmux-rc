@@ -95,8 +95,10 @@ class Socket {
   send() {}
   close() { this.readyState = 3; }
 }
+let initiallyEnded = false;
 const navigator = {audioSession, mediaDevices: {getUserMedia: async () => {
-  const track = {muted: false, enabled: true, stopped: false, stop() {this.stopped = true;}};
+  const track = {readyState: initiallyEnded ? 'ended' : 'live', muted: false,
+    enabled: true, stopped: false, stop() {this.stopped = true;}};
   const stream = {getTracks: () => [track], getAudioTracks: () => [track]};
   streams.push(stream); return stream;
 }}};
@@ -150,6 +152,13 @@ const status = () => document.getElementById('voice-status').textContent;
   await document.getElementById('voice-start').onclick();
   streams[1].getAudioTracks()[0].onended(); await flush();
   assert.equal(live.isActive(), false); assert.match(status(), /disconnected/);
+  // A track can end before getUserMedia resolves, so no future event arrives.
+  initiallyEnded = true; navigator.audioSession = audioSession;
+  await document.getElementById('voice-start').onclick(); await flush();
+  assert.equal(live.isActive(), false); assert.match(status(), /disconnected/);
+  assert.equal(sockets.length, 2); assert.equal(audioSession.type, 'auto');
+  assert.ok(contexts.every((ctx) => ctx.state === 'closed'));
+  assert.equal(streams[2].getTracks()[0].stopped, true);
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """
     module = Path(__file__).resolve().parents[1] / "web/m/live.js"
