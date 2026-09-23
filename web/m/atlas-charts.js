@@ -29,6 +29,19 @@ export function atlasCharts() {
   let barChart, latest, wordSignature, zoomKey;
   let zoom = { start: 0, end: 100 };
   let selectedStates = { Idle: false };
+  const stateControls = document.createElement('div');
+  stateControls.className = 'atlas-controls';
+  stateControls.setAttribute('role', 'group');
+  stateControls.setAttribute('aria-label', 'Visible pane states');
+  const syncStates = () => [...stateControls.children].forEach(button => {
+    button.setAttribute('aria-pressed', String(selectedStates[button.textContent] !== false));
+  });
+  const setZoom = (start, span) => {
+    span = Math.max(1, Math.min(100, span));
+    start = Math.max(0, Math.min(100 - span, start));
+    zoom = { start, end: start + span };
+    barChart?.dispatchAction({ type: 'dataZoom', ...zoom });
+  };
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
     let echarts;
@@ -38,7 +51,7 @@ export function atlasCharts() {
     if (!barChart) {
       cloud.replaceChildren(canvas); bars.replaceChildren();
       barChart = echarts.init(bars);
-      barChart.on('legendselectchanged', event => { selectedStates = { ...event.selected }; });
+      barChart.on('legendselectchanged', event => { selectedStates = { ...event.selected }; syncStates(); });
       barChart.on('datazoom', event => {
         const selection = event.batch?.[0] || event;
         zoom = { start: selection.start, end: selection.end };
@@ -127,8 +140,25 @@ export function atlasCharts() {
     paint();
   }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  return { cloud, bars, resetZoom() {
+  return { cloud, bars, stateControls, zoomBy(factor) {
+    const span = Math.max(1, Math.min(100, (zoom.end - zoom.start) * factor));
+    setZoom((zoom.start + zoom.end - span) / 2, span);
+  }, shiftZoom(direction) {
+    const span = zoom.end - zoom.start;
+    setZoom(zoom.start + direction * span / 2, span);
+  }, resetZoom() {
     zoom = { start: 0, end: 100 };
     barChart?.dispatchAction({ type: 'dataZoom', ...zoom });
-  }, update(data) { latest = data; paint(); } };
+  }, update(data) {
+    latest = data;
+    if (!stateControls.children.length) data.states.forEach(state => {
+      const button = document.createElement('button');
+      button.className = 'atlas-filter'; button.textContent = state;
+      button.dataset.key = `history-state:${state}`;
+      button.onclick = () => { selectedStates[state] = selectedStates[state] === false; syncStates(); paint(); };
+      stateControls.append(button);
+    });
+    syncStates(); paint();
+  } };
+
 }

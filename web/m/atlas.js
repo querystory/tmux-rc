@@ -189,13 +189,22 @@ export function renderAtlas(root, panes, navigate, logos) {
   heading.append(el('h3', '', 'Pane states over time'), range);
   pulse.append(heading,
     el('p', 'muted', historyError || (historyData
-      ? 'Saved by this machine’s daemon. Blank intervals mean no observation. Idle starts hidden; toggle states in the legend.' : 'Loading saved history…')));
+      ? 'Saved by this machine’s daemon. Blank intervals mean no observation. Idle starts hidden; use the state buttons or legend to show it.' : 'Loading saved history…')));
   const zoomControls = el('div', 'atlas-zoom-controls');
   const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
   resetZoom.dataset.key = 'reset-zoom';
   resetZoom.onclick = () => charts.resetZoom();
   zoomControls.append(el('span', 'muted', 'Drag the handles to zoom · Ctrl + scroll over the chart'), resetZoom);
-  pulse.append(charts.bars, zoomControls);
+  const keyboardZoom = el('div', 'atlas-controls');
+  keyboardZoom.setAttribute('role', 'group');
+  keyboardZoom.setAttribute('aria-label', 'History chart zoom');
+  [['Zoom in', () => charts.zoomBy(0.5)], ['Zoom out', () => charts.zoomBy(2)],
+    ['Earlier', () => charts.shiftZoom(-1)], ['Later', () => charts.shiftZoom(1)]].forEach(([label, action]) => {
+    const button = el('button', 'atlas-filter', label);
+    button.dataset.key = `history-zoom:${label}`;
+    button.onclick = action; keyboardZoom.append(button);
+  });
+  pulse.append(charts.stateControls, charts.bars, keyboardZoom, zoomControls);
   if (hasLogs) pulse.append(el('p', 'atlas-history-note muted', historyData.backfill_note));
   if (scope.session && history.some(s => s.source === 'logs'))
     pulse.append(el('p', 'atlas-history-note muted', 'Older log records have no tmux session identity; they are excluded from this session filter.'));

@@ -307,3 +307,27 @@ def test_unknown_server_identity_leaves_history_gap(inventory, monkeypatch):
     w._tick()
     assert w.states
     w.history.record.assert_not_called()
+
+
+def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, monkeypatch):
+    from unittest.mock import Mock
+
+    w, _ = inventory
+    w.use_llm = False
+    w.history = Mock()
+    monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "s")
+    frame = ["unread screen"]
+    monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: frame[0])
+    monkeypatch.setattr(W, "backing_off", lambda: False)
+    monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
+        "activity": "idle", "tool": "claude", "parse_ok": False,
+    })
+    for _ in range(W.PARSE_RETRIES + 2):
+        w._tick()
+    w.history.record.assert_not_called()
+    frame[0] = "successfully read screen"
+    monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
+        "activity": "idle", "tool": "claude",
+    })
+    w._tick()
+    w.history.record.assert_called_once()

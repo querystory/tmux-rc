@@ -217,6 +217,7 @@ class Watcher:
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
+        self._parse_valid: dict[str, bool] = {}
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
@@ -549,6 +550,8 @@ class Watcher:
                     "updated_at": time.time(),
                 }
                 _stamp_identity(s, p)  # no tmux_label yet ⇒ stamps label too
+            if not self._parse_valid.get(p.id, True):
+                history_complete = False
             if prepublish:
                 s["tmux_active"] = p.id == focused
                 s["events_seq"] = self._events_seq.get(p.id, 0)
@@ -759,6 +762,7 @@ class Watcher:
             self._prev_fp,
             self._seen_fp,
             self._parse_fails,
+            self._parse_valid,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -978,6 +982,7 @@ class Watcher:
             # What we last knew, so a failed parse holds that instead of guessing.
             prev_activity=(previous or {}).get("activity"),
         )
+        self._parse_valid[pane.id] = state.get("parse_ok", True)
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
         # any cached idle summary — it'll be regenerated when the pane goes idle again.
