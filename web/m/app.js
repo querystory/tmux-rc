@@ -1007,7 +1007,45 @@ async function launchWindow(launcher, button) {
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 
+// Temporary dimension-only probe for the Safari-installed clipping report.
+// Remove after comparing installed-app viewport geometry on the physical phone.
+let layoutProbeTimer, layoutProbeCount = 0;
+function reportStandaloneBounds() {
+  if (layoutProbeCount >= 3 || !(navigator.standalone || matchMedia("(display-mode: standalone)").matches)) return;
+  clearTimeout(layoutProbeTimer);
+  layoutProbeTimer = setTimeout(() => {
+    if (document.hidden) return;
+    layoutProbeCount++;
+    const rect = (element) => {
+      if (!element) return null;
+      const r = element.getBoundingClientRect(), style = getComputedStyle(element);
+      return [r.top, r.bottom, r.height, style.paddingTop, style.paddingBottom];
+    };
+    const sizes = {};
+    for (const unit of ["vh", "dvh", "svh", "lvh"]) {
+      const probe = document.createElement("div");
+      probe.style.cssText = `position:fixed;top:0;width:0;height:100${unit};visibility:hidden;pointer-events:none`;
+      document.body.append(probe); sizes[unit] = probe.getBoundingClientRect().height; probe.remove();
+    }
+    const vv = window.visualViewport;
+    const dimensions = {
+      version: 1, sample: layoutProbeCount, time: Date.now(),
+      inner: [innerWidth, innerHeight], screen: [screen.width, screen.height, screen.availHeight],
+      visual: vv ? [vv.width, vv.height, vv.offsetTop, vv.pageTop, vv.scale] : null,
+      root: [document.documentElement.clientHeight, document.scrollingElement?.scrollTop],
+      sizes, body: rect(document.body), app: rect($("app")),
+      composer: rect($("composer")), nav: rect($("list-nav")),
+      standaloneFill: document.documentElement.classList.contains("standalone-fill"),
+      statusBar: document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content,
+    };
+    // Existing access logs capture the bounded, numeric diagnostic query. No pane
+    // text, input contents, URL, account data, or new server endpoint is involved.
+    fetch(`/api/version?${new URLSearchParams({layout_probe: JSON.stringify(dimensions)})}`).catch(() => {});
+  }, 1200);
+}
+
 function fitViewport() {
+  reportStandaloneBounds();
   // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
   const viewport = window.visualViewport;
   if (!viewport || viewport.scale !== 1) return;
