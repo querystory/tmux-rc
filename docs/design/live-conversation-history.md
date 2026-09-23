@@ -104,7 +104,11 @@ writes cannot recreate deleted data.
 Each adapter declares whether its usage messages are cumulative snapshots or deltas,
 and the exact reset scope. For cumulative messages, replace the latest snapshot for
 that accounting scope; do not sum every turn's snapshot. For deltas, deduplicate event IDs
-and sum once using a unique (accounting_scope_id, source_event_id) key. Where only
+and sum once using a unique (accounting_scope_id, event_namespace, source_event_id)
+key. Adapters declare whether IDs are scope-wide or connection-local; use connection
+ID as the namespace unless scope-wide uniqueness is documented. A connection-local
+ID cannot prove replay identity across reconnects; mark ambiguous totals incomplete
+rather than claiming exact deduplication. Test reused IDs on new connections. Where only
 local receive sequencing exists, retain (connection_id, receive_sequence) provenance
 and mark uncertain cross-connection replay as incomplete, never silently counted twice.
 A reconnect that resumes the same provider accounting scope retains its
@@ -131,7 +135,11 @@ estimate rather than inventing attribution.
 
 Add a History entry to Live Mode with paginated conversations, search scoped to the
 current owner, and model/date filters. List pages sort by immutable (created_at, UUID),
-not mutable updated-at: sign an owner/filter-bound cursor with the initial creation
+not mutable updated-at. For search or other mutable filters, materialize the matching
+conversation IDs in a bounded, expiring owner-scoped pagination snapshot at the first
+request; later title/turn changes cannot change its membership. Recheck ownership and
+deletion on each page (deleted items disappear), and require a fresh search after cursor
+expiry. Sign an owner/filter-bound cursor with the snapshot ID and initial creation
 watermark and last key, and exclude later inserts until refresh. Show latest activity
 as a separate field. Deleted rows can disappear; existing rows cannot move between
 pages. Turn pages use immutable conversation sequence, updating partial turns in place.
@@ -188,7 +196,14 @@ to that existing authorized call via its ID; it does not create a new conversati
 call. Reject cross-owner attachments and supersede the old socket generation so only
 one capture stream can drive the call. A prior-generation lease after daemon restart ends the
 old call as interrupted; continuing creates a new call and billing scope. Recording
-policy comes from the stored call, not reconnect parameters. The `/api/live-mode`
+policy comes from the stored call, not reconnect parameters. Serialize socket takeover
+and action dispatch through the same per-call execution lock. Check the persisted
+lease and socket generation immediately before receipt reservation and immediately
+before terminal dispatch while holding that lock; stale in-flight actions must fail.
+A takeover waits for an already-dispatched action to finish recording its outcome,
+and cannot authorize queued actions from the previous generation. Test a paused old
+receiver that resumes after takeover. Policy changes and call termination use the
+same fence. The recording policy comes from the stored call. The `/api/live-mode`
 WebSocket handshake must establish the same verified owner as the history APIs before
 accepting Start or attachment. The current client-supplied `session` and logging-only
 `_actor` are not authorization. Fail closed on missing/unverified identity; look up
