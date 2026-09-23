@@ -81,6 +81,36 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     current.queued.forEach((source) => { try { source.stop(); } catch {} });
     current.queued.clear(); current.playAt = 0;
   }
+  function audioStatus(current) {
+    if (run !== current || !current.listening) return;
+    const tracks = current.stream?.getAudioTracks() || [];
+    const interrupted = current.capture?.state !== "running" || current.play?.state !== "running" ||
+      tracks.some((track) => track.muted) || current.audioSession?.state === "interrupted";
+    status(interrupted ? "Audio interrupted. Return to the app and tap the microphone to resume." :
+      current.muted ? "Microphone muted" : `Listening / ${current.model || "Default"}`);
+  }
+  function resumeAudio(current) {
+    if (run !== current || current.resuming || !current.stream) return;
+    current.resuming = true;
+    // Try once per lifecycle/state event, including when backgrounded. WebKit
+    // can permit resume while capturing; never spin if the OS denies it.
+    const contexts = [current.capture, current.play].filter((ctx) => ctx && ctx.state !== "running" && ctx.state !== "closed");
+    Promise.allSettled(contexts.map((ctx) => ctx.resume())).finally(() => {
+      current.resuming = false;
+      audioStatus(current);
+    });
+  }
+  function watchAudio(current) {
+    const changed = () => { audioStatus(current); resumeAudio(current); };
+    current.capture.onstatechange = current.play.onstatechange = changed;
+    for (const track of current.stream.getAudioTracks()) {
+      track.onmute = () => audioStatus(current);
+      track.onunmute = changed;
+      track.onended = () => { if (run === current) stop("Microphone disconnected. Start Live Mode again."); };
+    }
+    current.audioChanged = changed;
+    current.audioSession?.addEventListener("statechange", changed);
+  }
   function stop(message = "Session ended") {
     const current = run; run = null; sequence++;
     if (current) {
@@ -89,7 +119,16 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
         try { current.ws.send(JSON.stringify({ action: "stop" })); } catch {}
       }
       try { current.ws?.close(); } catch {}
-      current.stream?.getTracks().forEach((track) => track.stop());
+      current.audioSession?.removeEventListener("statechange", current.audioChanged);
+      // Release our audio category without overwriting a change made elsewhere.
+      try {
+        if (current.audioSession?.type === "play-and-record") current.audioSession.type = current.previousAudioType;
+      } catch { /* Audio Session is optional. */ }
+      current.stream?.getTracks().forEach((track) => {
+        track.onmute = track.onunmute = track.onended = null; track.stop();
+      });
+      if (current.capture) current.capture.onstatechange = null;
+      if (current.play) current.play.onstatechange = null;
       current.nodes.forEach((node) => { try { node.disconnect(); } catch {} });
       silence(current);
       current.capture?.close().catch(() => {});
@@ -166,7 +205,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
-        status(current.listening ? `Listening / ${current.model || "Default"}` : message.status === "reconnecting" ? "Reconnecting..." : "Connecting...");
+        if (current.listening) audioStatus(current);
+        else status(message.status === "reconnecting" ? "Reconnecting..." : "Connecting...");
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment);
       else if (message.type === "turn_complete") [...$("voice-log").children].forEach((row) => { row.dataset.done = "true"; });
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
@@ -189,6 +229,16 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     run = current; $("voice-log").replaceChildren(); status("Connecting microphone..."); paint();
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone capture requires HTTPS and a supported browser.");
+      // Tell supporting browsers this is a duplex conversation before opening
+      // the mic. This requests appropriate audio focus, not background permission.
+      try {
+        const audioSession = navigator.audioSession;
+        if (audioSession) {
+          const previous = audioSession.type;
+          audioSession.type = "play-and-record";
+          current.audioSession = audioSession; current.previousAudioType = previous;
+        }
+      } catch { /* Browsers without Audio Session keep their default routing. */ }
       // Both contexts are created and resumed within the tap's activation on iOS.
       current.play = new AudioContext();
       try { current.capture = new AudioContext({ sampleRate: CAPTURE_RATE }); } catch { current.capture = new AudioContext(); }
@@ -196,7 +246,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       resumes.catch(() => {});
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
       if (sequence !== token) { stream.getTracks().forEach((track) => track.stop()); return; }
-      current.stream = stream; paint();
+      current.stream = stream; watchAudio(current); paint();
       await resumes;
       if (run !== current) return;
       await capture(current);
@@ -208,7 +258,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);
     }
   }
-  $("live-mode").onclick = () => { $("voice-dialog").showModal(); };
+  $("live-mode").onclick = () => { $("voice-dialog").showModal(); if (run) resumeAudio(run); };
   $("voice-close").onclick = () => $("voice-dialog").close();
   $("voice-start").onclick = () => run ? stop() : start();
   $("voice-mute").onclick = () => {
@@ -216,11 +266,17 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     run.muted = !run.muted;
     run.clearPending?.();
     run.stream.getAudioTracks().forEach((track) => { track.enabled = !run.muted; });
-    paint();
+    paint(); audioStatus(run); resumeAudio(run);
   };
   window.addEventListener("pagehide", () => stop());
   window.addEventListener("online", capabilities);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) capabilities(); });
+  // Switching apps is visibilitychange, not navigation: keep the microphone and
+  // socket alive. pagehide still releases capture when leaving this document.
+  window.addEventListener("pageshow", () => { if (run) resumeAudio(run); });
+  document.addEventListener("visibilitychange", () => {
+    if (run) resumeAudio(run);
+    if (!document.hidden) capabilities();
+  });
   capabilities();
   return { isActive: () => !!run, refresh: capabilities };
 }

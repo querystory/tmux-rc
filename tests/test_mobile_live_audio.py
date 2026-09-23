@@ -55,3 +55,97 @@ assert.equal(sent.length, 2);
     result = subprocess.run(["node", "-e", script, str(module)],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_live_audio_background_resume_and_cleanup():
+    script = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const elements = new Map();
+const element = () => ({classList: {toggle() {}}, setAttribute() {}, replaceChildren() {},
+  showModal() {}, close() {}, value: '', children: []});
+const document = new EventTarget();
+document.getElementById = (id) => {
+  if (!elements.has(id)) elements.set(id, element());
+  return elements.get(id);
+};
+const window = new EventTarget();
+const audioSession = Object.assign(new EventTarget(), {type: 'auto', state: 'active'});
+const contexts = [], streams = [], sockets = [];
+class Context {
+  constructor() {
+    this.state = 'suspended'; this.calls = 0; this.sampleRate = 16000;
+    this.audioWorklet = {addModule: async () => {}}; contexts.push(this);
+  }
+  async resume() {
+    this.calls++;
+    if (this.denied) throw Error('background denied');
+    this.state = 'running'; this.onstatechange?.();
+  }
+  async close() { this.state = 'closed'; }
+  createMediaStreamSource() { return {connect() {}, disconnect() {}}; }
+  createGain() { return {gain: {}, connect() {}, disconnect() {}}; }
+}
+class Socket {
+  static OPEN = 1;
+  constructor() { this.readyState = 1; sockets.push(this); }
+  send() {}
+  close() { this.readyState = 3; }
+}
+const navigator = {audioSession, mediaDevices: {getUserMedia: async () => {
+  const track = {muted: false, enabled: true, stopped: false, stop() {this.stopped = true;}};
+  const stream = {getTracks: () => [track], getAudioTracks: () => [track]};
+  streams.push(stream); return stream;
+}}};
+const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: Socket,
+  AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
+  URLSearchParams, location: {protocol: 'https:', host: 'test'},
+  localStorage: {getItem() {}, setItem() {}}, setTimeout, clearTimeout};
+const source = fs.readFileSync(process.argv[1], 'utf8').replace('export function', 'function');
+vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode;', sandbox);
+const live = sandbox.setup({request: async () => {throw Error('offline');}});
+const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
+const status = () => document.getElementById('voice-status').textContent;
+(async () => {
+  await document.getElementById('voice-start').onclick();
+  assert.equal(audioSession.type, 'play-and-record');
+  sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
+  assert.match(status(), /Listening/);
+  const track = streams[0].getAudioTracks()[0];
+  // Background suspension is resumed without releasing the microphone or socket.
+  contexts[1].state = 'suspended'; document.hidden = true;
+  document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.equal(contexts[1].state, 'running');
+  assert.equal(track.stopped, false); assert.equal(sockets[0].readyState, 1);
+  // A platform denial produces no retry loop and never claims to be listening.
+  contexts[1].denied = true; contexts[1].state = 'suspended';
+  contexts[1].onstatechange(); await flush();
+  const calls = contexts[1].calls; await flush();
+  assert.equal(contexts[1].calls, calls); assert.match(status(), /interrupted/);
+  contexts[1].denied = false; document.hidden = false;
+  document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.match(status(), /Listening/);
+  track.muted = true; track.onmute(); assert.match(status(), /interrupted/);
+  track.muted = false; track.onunmute(); await flush(); assert.match(status(), /Listening/);
+  document.getElementById('voice-mute').onclick(); await flush();
+  assert.equal(track.enabled, false); assert.match(status(), /muted/);
+  // Leaving the document explicitly releases all hardware and the audio category.
+  window.dispatchEvent(new Event('pagehide')); await flush();
+  assert.equal(live.isActive(), false); assert.equal(track.stopped, true);
+  assert.equal(audioSession.type, 'auto'); assert.equal(sockets[0].readyState, 3);
+  assert.ok(contexts.every((ctx) => ctx.state === 'closed'));
+  document.dispatchEvent(new Event('visibilitychange')); await flush();
+  assert.equal(streams.length, 1); // No unexpected microphone reacquisition.
+  // Unsupported browsers still start; an ended mic cannot leave a Listening label.
+  delete navigator.audioSession;
+  await document.getElementById('voice-start').onclick();
+  streams[1].getAudioTracks()[0].onended(); await flush();
+  assert.equal(live.isActive(), false); assert.match(status(), /disconnected/);
+})().catch((error) => {console.error(error); process.exitCode = 1;});
+"""
+    module = Path(__file__).resolve().parents[1] / "web/m/live.js"
+    result = subprocess.run(["node", "-e", script, str(module)],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
