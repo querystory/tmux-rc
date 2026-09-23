@@ -267,7 +267,7 @@ def test_failed_pane_tick_does_not_persist_a_partial_inventory(inventory, monkey
 
     w, panes = inventory
     w.history = Mock()
-    monkeypatch.setattr(W.tmux, "server_uid", lambda: "s")
+    monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "s")
 
     def capture(pane):
         if pane.id == panes[0].id:
@@ -281,3 +281,29 @@ def test_failed_pane_tick_does_not_persist_a_partial_inventory(inventory, monkey
     monkeypatch.setattr(w, "_tick_pane", parsed)
     w._tick()
     w.history.record.assert_called_once()
+
+
+def test_restarted_server_during_tick_does_not_record_old_panes(inventory, monkeypatch):
+    from unittest.mock import Mock
+
+    w, _ = inventory
+    w.history = Mock()
+    monkeypatch.setattr(W.tmux, "server_uid", Mock(side_effect=["old", "new"]))
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    assert w.states
+    w.history.record.assert_not_called()
+
+
+def test_unknown_server_identity_leaves_history_gap(inventory, monkeypatch):
+    import subprocess
+    from unittest.mock import Mock
+
+    w, _ = inventory
+    w.history = Mock()
+    lookup = Mock(side_effect=subprocess.CalledProcessError(124, "tmux"))
+    monkeypatch.setattr(W.tmux, "server_uid", lookup)
+    monkeypatch.setattr(w, "_tick_pane", parsed)
+    w._tick()
+    assert w.states
+    w.history.record.assert_not_called()

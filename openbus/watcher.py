@@ -444,6 +444,12 @@ class Watcher:
         if not tmux.server_running():
             self._publish_states([])
             return
+        history_server = None
+        if self.history is not None:
+            try:
+                history_server = tmux.server_uid(strict=True)
+            except (OSError, subprocess.CalledProcessError):
+                pass  # Publish UI state, but leave history unobserved without proof.
         # Multi-pane: watch every pane (or just the configured target if set). Each
         # pane's per-tick work is keyed by pane.id, so panes are fully independent.
         if self.target:
@@ -462,7 +468,8 @@ class Watcher:
         else:
             panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
-            self._publish_states([])
+            self._publish_states([], record_history=history_server is not None,
+                                 history_server=history_server)
             return
         alive = {p.id for p in panes}
         # Which panes this tick is seeing for the first time — computed BEFORE the birth
@@ -572,10 +579,12 @@ class Watcher:
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
-        self._publish_states(states, record_history=history_complete)
+        self._publish_states(states, record_history=history_complete and history_server is not None,
+                             history_server=history_server)
         self._gc(alive)
 
-    def _publish_states(self, states: list[dict], *, record_history: bool = True) -> None:
+    def _publish_states(self, states: list[dict], *, record_history: bool = True,
+                        history_server: str | None = None) -> None:
         # Publish a fresh snapshot so replacing/enriching the next startup result does
         # not mutate the deck already visible to HTTP handlers between version bumps.
         self.states = [dict(s) for s in states]
@@ -584,7 +593,12 @@ class Watcher:
         # Progressive UI publication mixes old and newly parsed pane states. Only
         # the final inventory for a tick belongs in durable history.
         if record_history and self.history is not None:
-            self.history.record(self.states, tmux.server_uid(), births=self._birth)
+            try:
+                current = tmux.server_uid(strict=history_server is not None)
+            except (OSError, subprocess.CalledProcessError):
+                return
+            if history_server is None or current == history_server:
+                self.history.record(self.states, current, births=self._birth)
 
     # Fields the phone's DECK renders (order matters — it drives swipe/list). Live frame
     # text is NOT here (that's /api/live's job); a spinner tick must not wake the state

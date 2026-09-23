@@ -170,7 +170,7 @@ def _run(args: list[str]) -> str:
 _server_uid: str | None = None
 
 
-def server_uid() -> str:
+def server_uid(*, strict: bool = False) -> str:
     """Stable identity of the tmux SERVER: '<boot_id>:<server_pid>'.
 
     boot_id (a fresh kernel UUID per boot, from /proc) plus the server's pid uniquely
@@ -190,10 +190,12 @@ def server_uid() -> str:
         with open("/proc/sys/kernel/random/boot_id") as f:
             boot = f.read().strip()
     except OSError:
+        if strict: raise
         boot = "nobootid"
     try:
         pid = _run(["display-message", "-p", "#{pid}"]).strip()
     except subprocess.CalledProcessError:
+        if strict: raise
         # No server (yet). Serve the last good identity if we have one rather than
         # inventing a ':0' that would look like a different server to the backend.
         return _server_uid or f"{boot}:0"

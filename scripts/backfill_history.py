@@ -70,7 +70,7 @@ def reconstruct(trace: Path, journal: Path, server_uid: str, since: float,
             outputs.append((t, data))
     outputs.sort(key=lambda row: row[0])
     times = [r[0] for r in outputs]
-    matches = {}
+    matches, matched_panes = {}, {}
     with journal.open() as stream:
         for line in stream:
             try:
@@ -94,6 +94,8 @@ def reconstruct(trace: Path, journal: Path, server_uid: str, since: float,
                 if any(isinstance(e, dict) and str(e.get("text", ""))[:80] == example
                        for e in events):
                     candidates.append((index, ot, out))
+            for index, _ot, _out in candidates:
+                matched_panes.setdefault(index, set()).add(match[1])
             if len(candidates) != 1:
                 report["ambiguous" if candidates else "unmatched"] += 1
                 continue
@@ -109,9 +111,9 @@ def reconstruct(trace: Path, journal: Path, server_uid: str, since: float,
                 ot, uid, out.get("tool") or "other", state_index(out), life["end"],
             )
     observations = []
-    for identities in matches.values():
-        if len(identities) != 1:
-            report["ambiguous_identity"] += len(identities)
+    for index, identities in matches.items():
+        if len(matched_panes[index]) != 1 or len(identities) != 1:
+            report["ambiguous_identity"] += len(matched_panes[index])
             continue
         observations.extend(identities.values())
     report["matched"] = len(observations)

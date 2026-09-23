@@ -99,6 +99,8 @@ def test_backfill_rejects_ambiguity_wrong_host_old_server_and_missing_states(tmp
     second = dict(row, MESSAGE=row["MESSAGE"].replace("%1:", "%2:"))
     journal.write_text(json.dumps(row) + "\n" + json.dumps(second) + "\n")
     assert reconstruct(trace, journal, "boot:pid", t - 1, lifetimes)[1]["ambiguous_identity"] == 2
+    # A second identity is ambiguous even when only the first has lifetime proof.
+    assert reconstruct(trace, journal, "boot:pid", t - 1, lifetimes[:1])[0] == []
     journal.write_text(json.dumps(row) + "\n")
     trace.write_text(trace.read_text() * 2)
     assert reconstruct(trace, journal, "boot:pid", t - 1, lifetimes)[1]["ambiguous"] == 1
@@ -128,7 +130,7 @@ def test_watcher_publishes_full_inventory_to_history(tmp_path, monkeypatch):
     from openbus import tmux
     from openbus.watcher import Watcher
 
-    monkeypatch.setattr(tmux, "server_uid", lambda: "server")
+    monkeypatch.setattr(tmux, "server_uid", lambda **_kwargs: "server")
     history = History(tmp_path / "h.db")
     watcher = Watcher(None, history=history)
     watcher._publish_states([pane()])
@@ -182,7 +184,7 @@ def test_confirmed_absent_server_records_empty_inventory(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(tmux, "_run", absent)
-    monkeypatch.setattr(tmux, "server_uid", lambda: "server")
+    monkeypatch.setattr(tmux, "server_uid", lambda **_kwargs: "server")
     Watcher(None, history=history)._tick()
     assert history.query()["samples"][-1]["n"] == [0, 0, 0, 0]
 
@@ -322,7 +324,7 @@ def test_progressive_ui_inventory_is_not_persisted(tmp_path, monkeypatch):
     from openbus import tmux
     from openbus.watcher import Watcher
 
-    monkeypatch.setattr(tmux, "server_uid", lambda: "s")
+    monkeypatch.setattr(tmux, "server_uid", lambda **_kwargs: "s")
     history = History(tmp_path / "h.db")
     watcher = Watcher(None, history=history)
     watcher._publish_states([pane(activity="unknown")], record_history=False)
