@@ -81,6 +81,7 @@ class Context {
   }
   async resume() {
     this.calls++;
+    if (this.pending) return new Promise(() => {});
     if (this.denied) throw Error('background denied');
     this.state = 'running'; this.onstatechange?.();
   }
@@ -127,6 +128,12 @@ const status = () => document.getElementById('voice-status').textContent;
   contexts[1].denied = false; document.hidden = false;
   document.dispatchEvent(new Event('visibilitychange')); await flush();
   assert.match(status(), /Listening/);
+  // WebKit can leave resume pending until a gesture. A tap must still retry.
+  contexts[1].pending = true; contexts[1].state = 'suspended';
+  contexts[1].onstatechange(); await flush();
+  contexts[1].pending = false;
+  document.getElementById('live-mode').onclick(); await flush();
+  assert.equal(contexts[1].state, 'running');
   track.muted = true; track.onmute(); assert.match(status(), /interrupted/);
   track.muted = false; track.onunmute(); await flush(); assert.match(status(), /Listening/);
   document.getElementById('voice-mute').onclick(); await flush();

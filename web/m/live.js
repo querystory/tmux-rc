@@ -89,14 +89,14 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     status(interrupted ? "Audio interrupted. Return to the app and tap the microphone to resume." :
       current.muted ? "Microphone muted" : `Listening / ${current.model || "Default"}`);
   }
-  function resumeAudio(current) {
-    if (run !== current || current.resuming || !current.stream) return;
-    current.resuming = true;
+  function resumeAudio(current, userGesture = false) {
+    if (run !== current || (current.resuming && !userGesture) || !current.stream) return;
+    const attempt = {}; current.resuming = attempt;
     // Try once per lifecycle/state event, including when backgrounded. WebKit
     // can permit resume while capturing; never spin if the OS denies it.
     const contexts = [current.capture, current.play].filter((ctx) => ctx && ctx.state !== "running" && ctx.state !== "closed");
     Promise.allSettled(contexts.map((ctx) => ctx.resume())).finally(() => {
-      current.resuming = false;
+      if (current.resuming === attempt) current.resuming = null;
       audioStatus(current);
     });
   }
@@ -258,7 +258,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);
     }
   }
-  $("live-mode").onclick = () => { $("voice-dialog").showModal(); if (run) resumeAudio(run); };
+  $("live-mode").onclick = () => { $("voice-dialog").showModal(); if (run) resumeAudio(run, true); };
   $("voice-close").onclick = () => $("voice-dialog").close();
   $("voice-start").onclick = () => run ? stop() : start();
   $("voice-mute").onclick = () => {
@@ -266,7 +266,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     run.muted = !run.muted;
     run.clearPending?.();
     run.stream.getAudioTracks().forEach((track) => { track.enabled = !run.muted; });
-    paint(); audioStatus(run); resumeAudio(run);
+    paint(); audioStatus(run); resumeAudio(run, true);
   };
   window.addEventListener("pagehide", () => stop());
   window.addEventListener("online", capabilities);
