@@ -1007,6 +1007,18 @@ async function launchWindow(launcher, button) {
   finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 
+// Temporary bounded geometry sample: distinguish install-time status-bar modes.
+// Remove once both installed copies have been measured.
+setTimeout(() => {
+  if (document.hidden || !(navigator.standalone || matchMedia("(display-mode: standalone)").matches)) return;
+  const app = $("app"), rect = app.getBoundingClientRect(), vv = window.visualViewport;
+  const n = (value) => Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
+  const metrics = [innerHeight, screen.height, vv?.height, vv?.offsetTop,
+    rect.top, rect.height, parseFloat(getComputedStyle(app).paddingTop),
+    parseFloat(getComputedStyle($("list-nav")).paddingBottom)].map(n);
+  fetch(`/api/version?layout_probe2=${metrics.join(",")}`).catch(() => {});
+}, 1500);
+
 function fitViewport() {
   // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
   const viewport = window.visualViewport;
