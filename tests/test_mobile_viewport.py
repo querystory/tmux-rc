@@ -23,9 +23,9 @@ const root = {style: {setProperty: (key, value) => properties[key] = value},
 const viewport = {height: 873, offsetTop: 0, scale: 1};
 const document = {documentElement: root, activeElement: null};
 const navigator = {standalone: true};
-let topInset = '0px';
+let topInset = '0px', displayModeStandalone = false;
 const sandbox = {document, navigator, window: {visualViewport: viewport},
-  matchMedia: () => ({matches: false}), $: () => ({}),
+  matchMedia: () => ({matches: displayModeStandalone}), $: () => ({}),
   getComputedStyle: () => ({paddingTop: topInset})};
 vm.createContext(sandbox);
 vm.runInContext(source.slice(start, end), sandbox);
@@ -35,6 +35,10 @@ fit(); assert.equal(properties['--app-height'], '873px');
 assert.equal(classes['standalone-fill'], true);
 // Older translucent installation: same reported viewport, plus 59px safe area.
 topInset = '59px'; fit(); assert.equal(properties['--app-height'], '932px');
+// The standards-based installation path must work without Apple's property.
+navigator.standalone = false; displayModeStandalone = true; fit();
+assert.equal(properties['--app-height'], '932px');
+assert.equal(classes['standalone-fill'], true);
 // Keyboard follows the visual viewport without the browsing compensation.
 document.activeElement = {tagName: 'TEXTAREA'};
 viewport.height = 440; viewport.offsetTop = 12;
@@ -45,7 +49,7 @@ assert.equal(classes['standalone-fill'], false);
 document.activeElement = null; viewport.height = 873; viewport.offsetTop = 0;
 fit(); assert.equal(properties['--app-height'], '932px');
 // Normal browser tabs never receive standalone compensation.
-navigator.standalone = false; fit();
+navigator.standalone = false; displayModeStandalone = false; fit();
 assert.equal(properties['--app-height'], '873px');
 assert.equal(classes['standalone-fill'], false);
 // Pinch zoom must not resize the layout to a zoomed visual viewport.
