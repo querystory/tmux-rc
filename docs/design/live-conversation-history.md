@@ -12,7 +12,7 @@ not erase its transcript. Sharing should create an explicit, reviewable snapshot
 not expose the daemon or silently publish every future turn.
 
 SQLite is a good fit for the local, single-daemon writer and indexed history reads.
-Use the existing private `history.sqlite3` database and migration mechanism, with
+Use the existing private `history.sqlite3` database, introducing versioned migrations, with
 separate tables from structural pane history. That changes the database's sensitivity:
 currently pane history deliberately contains no terminal text or summaries. The new
 feature adds conversation content, so its recording controls, export behavior, and
@@ -74,7 +74,16 @@ where the provider supplies one; otherwise use connection + receive sequence and
 not claim deduplication across arbitrary provider replays.
 
 Use short transactions through one serialized writer, off the audio receive loop,
-with a bounded queue. A migration version and foreign keys protect schema changes;
+with a bounded queue. Existing `History` migrations are ad hoc: introduce a shared
+schema-version table and ordered transactional migrations before adding these tables.
+Test upgrades from each supported version, interrupted upgrades and preservation of
+pane history. Refuse a database newer than the running binary; roll back via a verified
+backup rather than destructive automatic downgrades.
+
+Enable `PRAGMA foreign_keys=ON` on every reader and writer connection before starting
+transactions; verify it is enabled and test orphan rejection and cascade deletion.
+Define deletion relationships explicitly rather than relying on unenforced REFERENCES;
+
 indexes cover owner/updated-at and conversation/sequence. Retain the existing private
 DB/WAL/SHM permissions. A backup must use SQLite's backup API or a stopped writer.
 
@@ -127,13 +136,24 @@ Authenticate and authorize every read/write/export using server-established iden
 never trust an owner ID supplied in the browser. Local unauthenticated mode needs an
 explicit single-owner policy and must not enable remote sharing implicitly. Existing
 relay identity must be validated against the deployment's trust boundary first.
+Missing or unverified identity fails closed for every history endpoint, including
+listing, continuation, deletion and export; it must never fall back to another owner.
+`_trusted_user` currently returns None for direct/LAN callers, so implement this gate
+before exposing history. A separately configured single-owner mode must bind to
+loopback or require its own authenticated local credential; a LAN request does not
+become the local owner merely because it reached the daemon.
 
 “Continue” starts a new provider connection and new metering scope. Load a bounded
 summary plus recent finalized turns as conversation context, then refresh the current
 pane inventory. Tell the user that this is a new call with prior context; do not claim
 the old live audio stream is restored. Incomplete turns remain visible but are marked
 as such in context. Prior tool calls are inert historical data, never executable
-instructions. Require new tool-call validation and current pane-lifetime matching.
+instructions. Serialize transcripts, summaries and action arguments inside a dedicated
+quoted, untrusted-history block, explicitly fenced by the provider system prompt.
+Never replay provider tool-call messages, IDs or results as active protocol messages.
+Only a new user request can authorize actions; historical content cannot authorize
+action replay. Require new tool-call validation and current pane-lifetime matching.
+Test malicious transcript/argument instructions with current tools enabled.
 
 Provider-native resumption, if supported, is a separate optimization with its own
 expiry and credentials handling; it is not the durable history contract. Never store
@@ -147,6 +167,11 @@ Proposed default: local transcript recording on, visibly labeled before starting
 provide “Don’t save this conversation” and “Metadata only” choices. This default is a
 product decision to approve before implementation. The choice applies server-side
 throughout the call and continuation; telemetry must honor it too, not just SQLite.
+Carry the call-scoped recording policy through every content-bearing emitter:
+`_Meter.note`/`emit_live_turn`, tool-handler `telemetry.emit_action` raw arguments and
+typed text, derived summaries, local diagnostic logs and exporters. Process-wide
+`QSDEBUG` must not override a call's opt-out. Enforce suppression before serialization,
+not merely before inserting SQLite rows, and test each path with QSDEBUG enabled.
 An opted-out transcript must not leak through `_Meter`'s telemetry tail. Continuing a
 non-recorded call cannot reconstruct missing turns and should say so.
 
