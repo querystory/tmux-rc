@@ -103,7 +103,13 @@ writes cannot recreate deleted data.
 
 Each adapter declares whether its usage messages are cumulative snapshots or deltas,
 and the exact reset scope. For cumulative messages, replace the latest snapshot for
-that accounting scope; do not sum every turn's snapshot. For deltas, deduplicate event IDs
+that accounting scope; do not sum every turn's snapshot. Order samples by a documented
+provider revision/sequence within the scope, not arrival time. Ignore older revisions;
+conflicting equal revisions make the estimate incomplete. Without a reliable ordering,
+retain per-dimension monotonic maxima for documented cumulative counters and mark
+unexplained decreases/resets incomplete; never overwrite with smaller delayed samples.
+Keep provider corrections separate when their revision semantics cannot be verified.
+Test delayed pre-reconnect samples arriving after newer counters. For deltas, deduplicate event IDs
 and sum once using a unique (accounting_scope_id, event_namespace, source_event_id)
 key. Adapters declare whether IDs are scope-wide or connection-local; use connection
 ID as the namespace unless scope-wide uniqueness is documented. A connection-local
@@ -250,7 +256,14 @@ explain that in the deletion UI. SQLite deletion is logical deletion, not a prom
 forensic erasure. Storage settings should show approximate size and allow clearing
 history without clearing structural pane history.
 
-Deletion must fence queued and in-flight writes. On the serialized writer, atomically
+Deletion must fence queued and in-flight writes. Persist a conversation tombstone and
+epoch in the same serialized transaction as the deletion barrier, before enumerating
+its calls. Every create/continue/fork/attachment transaction checks the parent/source
+conversation epoch atomically; a deleted source cannot authorize a new call or fork.
+Concurrent operations either commit before the barrier (and are included in its
+scope) or fail afterward. A fork committed before deletion is an independent explicit
+copy, disclosed alongside exports; it is not silently recreated by retries. Idempotent
+retries recheck tombstones instead of returning deleted records. Test these races. On the serialized writer, atomically
 mark each affected call ID tombstoned and advance its recording epoch before deleting
 content. Producers stop accepting new events for those calls and discard queued
 content; every write checks the persisted tombstone/epoch in its transaction. Events
