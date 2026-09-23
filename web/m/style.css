@@ -389,7 +389,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 /* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
    Include the top safe area for translucent installs; opaque installs report
-   zero. Bare 100vh overflows the opaque case; bare dvh shortens the translucent one. */
-.standalone-fill, .standalone-fill body { position: static; inset: auto; height: var(--app-height, calc(100dvh + env(safe-area-inset-top))); overflow: visible; }
+   zero. Bare 100vh overflows the opaque case; bare dvh shortens the translucent one.
+   Cap the correction at 100vh: WebKit may expand visualViewport after the root grows. */
+.standalone-fill, .standalone-fill body { position: static; inset: auto; height: min(100vh, var(--app-height, calc(100dvh + env(safe-area-inset-top)))); overflow: visible; }
 .standalone-fill body { position: relative; }
-.standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: var(--app-height, calc(100dvh + env(safe-area-inset-top))); }
+.standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: min(100vh, var(--app-height, calc(100dvh + env(safe-area-inset-top)))); }
