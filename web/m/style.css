@@ -380,5 +380,5 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #list-nav button { font-size: 11px; }
 }
 @media (min-width: 1100px) {
-  #dashboard-tab { display: none; }
+  #list-nav #dashboard-tab { display: none; }
 }
