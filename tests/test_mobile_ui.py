@@ -112,7 +112,7 @@ def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
     css = (root / "web/m/style.css").read_text()
 
     assert "matchMedia(" in app and "WIDE" in app
-    assert 'show("sessions", !inPane || wide)' in app, "the list must survive on wide screens"
+    assert 'show("sessions", (!inPane && !dashboard) || wide)' in app, "the list must survive on wide screens"
     assert 'show("back", inPane && !wide)' in app, "Back has no sidebar to return to"
     # Feature-detected: older iOS Safari has only the deprecated addListener, and calling
     # the modern name unguarded throws at module scope, taking the whole phone UI with it.
@@ -141,7 +141,8 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     css = (root / "web/m/style.css").read_text()
     html = (root / "web/m/index.html").read_text()
 
-    assert 'show("landing", wide && !inPane)' in app, "no pane picked must not mean a blank column"
+    assert 'show("landing", dashboardVisible())' in app
+    assert "!active && (WIDE.matches || dashboard)" in app, "desktop dashboard remains visible without a pane"
     assert "renderLanding()" in app
     # The same helpers the tabs count with — not a parallel definition that can drift.
     assert "panes.filter(needsYou)" in app and "panes.filter(isRunning)" in app
