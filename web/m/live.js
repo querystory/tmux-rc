@@ -100,7 +100,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     if (!interrupted && current.stream) current.resolveReady?.();
     if (!current.listening && !current.stream) return;
     status(interrupted ? "Audio interrupted. Return to the app and tap the microphone to resume." :
-      current.muted ? "Microphone muted" : current.listening ? `Listening / ${current.model || "Default"}` : "Connecting...");
+      current.muted ? "Microphone muted" : current.listening ? `Listening / ${current.model || "Default"}` : current.connectionStatus || "Connecting...");
   }
   function resumeAudio(current, userGesture = false) {
     audioStatus(current);
@@ -232,8 +232,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
-        if (current.listening) audioStatus(current);
-        else status(message.status === "reconnecting" ? "Reconnecting..." : "Connecting...");
+        current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
+        audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment);
       else if (message.type === "turn_complete") [...$("voice-log").children].forEach((row) => { row.dataset.done = "true"; });
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
@@ -245,7 +245,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       if (run !== current || current.ws !== ws) return;
       clearTimeout(current.deadline); current.listening = false;
       if (event.code !== 1000 && event.code !== 1005 && current.up && current.tries < MAX_RECONNECT_TRIES) {
-        status("Connection lost. Reconnecting...");
+        current.connectionStatus = "Connection lost. Reconnecting...";
+        audioStatus(current);
         current.retry = setTimeout(() => connect(current), 1000 * 2 ** current.tries++);
       } else stop(event.code === 1000 ? "Session ended" : "Live Mode disconnected. Try again.");
     };
@@ -291,7 +292,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       await ready;
       if (run !== current) return;
       try { localStorage.setItem("tmuxrc-live-model", current.model); } catch {}
-      status("Connecting..."); connect(current);
+      audioStatus(current); connect(current);
     } catch (error) {
       if (run !== current) return;
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);

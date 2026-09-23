@@ -165,7 +165,16 @@ process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pen
   document.getElementById('live-mode').onclick(); await flush();
   assert.equal(contexts[0].state, 'running');
   track.muted = true; track.onmute(); assert.match(status(), /interrupted/);
-  track.muted = false; track.onunmute(); await flush(); assert.match(status(), /Listening/);
+  // Remote status and socket loss cannot hide the local resume instruction.
+  for (const remote of ['connecting', 'reconnecting', 'listening']) {
+    sockets[0].onmessage({data: JSON.stringify({type: 'status', status: remote})});
+    assert.match(status(), /interrupted/);
+  }
+  sockets[0].onclose({code: 1006}); assert.match(status(), /interrupted/);
+  track.muted = false; track.onunmute(); await flush();
+  assert.match(status(), /Connection lost. Reconnecting/);
+  sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
+  assert.match(status(), /Listening/);
   document.getElementById('voice-mute').onclick(); await flush();
   assert.equal(track.enabled, false); assert.match(status(), /muted/);
   // Leaving the document explicitly releases all hardware and the audio category.
