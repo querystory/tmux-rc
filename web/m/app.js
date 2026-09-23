@@ -241,7 +241,7 @@ function renderList() {
   text($("attention-count"), waiting);
   text($("running-count"), panes.filter(isRunning).length);
   text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
+  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", (!dashboard || WIDE.matches) && filter === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("new-window").disabled = !panes.length;
 }
