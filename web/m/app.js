@@ -65,6 +65,7 @@ try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "
 function effectiveLayout() {
   if (!WIDE.matches) return "focus";
   if (reviewLayout !== "auto") return reviewLayout;
+  if (view === "terminal") return "focus"; // Honor an explicit terminal deep link.
   const { width, height } = document.getElementById("detail").getBoundingClientRect();
   if (width >= 900 && height >= 480) return "side";
   if (width >= 480 && height >= 720) return "stack";
@@ -79,6 +80,7 @@ const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
+let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
@@ -396,7 +398,7 @@ function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()])
   }
 }
 new ResizeObserver(() => {
-  if (active && $("detail").dataset.layout !== effectiveLayout()) {
+  if (active && streamedLayout !== effectiveLayout()) {
     restartDetail(); render();
   } else sizeReview();
 }).observe($("detail"));
@@ -640,6 +642,9 @@ async function loadEvents(pane) {
 function restartDetail() {
   detailController?.abort();
   detailController = new AbortController();
+  // A previously hidden detail may only get its real dimensions after render().
+  // The resize observer restarts streams if that changes the resolved layout.
+  streamedLayout = effectiveLayout();
   eventsKey = null;
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
