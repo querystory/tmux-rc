@@ -248,7 +248,12 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
         current.connectionStatus = "Connection lost. Reconnecting...";
         audioStatus(current);
         current.retry = setTimeout(() => connect(current), 1000 * 2 ** current.tries++);
-      } else stop(event.code === 1000 ? "Session ended" : "Live Mode disconnected. Try again.");
+      // 1008 is a refusal before the accept — no socket to send an error frame on, so the
+      // explanation rides on the close itself, and it is the only thing that says whether
+      // to reload the tab or go set a key. "Try again" is worse than nothing there: it
+      // names the one action that cannot help.
+      } else if (event.code === 1008 && event.reason) stop(event.reason);
+      else stop(event.code === 1000 ? "Session ended" : "Live Mode disconnected. Try again.");
     };
   }
   async function start() {

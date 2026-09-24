@@ -1,8 +1,9 @@
 """The Live/Responses boundary must not duplicate terminal actions or lose billing."""
 
 import asyncio
+import base64
 import json
-from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 from fastapi import WebSocketDisconnect
@@ -63,7 +64,7 @@ class Browser:
 
 
 def session(events=(), *, closed=True):
-    meter = L._Meter("test", "test")
+    meter = L._Meter("test", "test", G.ENTRY)
     meter.usage = G.Usage(G.BACKEND)
     events = [*events, {"type": "session.closed"}] if closed else events
     return G.Session(Wire(events), Browser(), Watcher(), "test", meter)
@@ -84,6 +85,50 @@ def call(cid="call-1", args=None):
         "name": "type_in_pane",
         "arguments": json.dumps(args or {"pane_id": "%1", "text": "echo hello"}),
     }
+
+
+def test_shared_audio_forwarder_reaches_the_adapter():
+    """The adapter borrows live._forward_audio wholesale rather than growing a second mic
+    path, so it has to answer to the seam's verb BY NAME: a method spelled anything else
+    is an AttributeError on the first spoken frame, and no test of the adapter's own
+    methods would ever reach it. Odd-length frames are dropped rather than forwarded —
+    half a PCM16 sample shifts every sample after it."""
+    script = [
+        {"action": "audio", "data": base64.b64encode(b"\x01\x02\x03\x04").decode()},
+        {"action": "audio", "data": base64.b64encode(b"\x01").decode()},  # odd: dropped
+        {"action": "stop"},
+    ]
+
+    class Mic(Browser):
+        async def receive_json(self):
+            return script.pop(0)
+
+    s = session()
+    asyncio.run(L._forward_audio(Mic(), s))
+    assert [e["type"] for e in s.ws.sent] == ["session.input_audio.append"]
+    assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
+
+
+def test_tools_come_from_the_shared_table_unconverted():
+    """One table, every provider. live_providers.TOOLS is already plain JSON Schema — the
+    seam chose that format precisely because no backend needs it translated — so the
+    adapter only wraps each entry, and the google-genai enum walk this used to do is gone
+    rather than rewritten."""
+    defs = G.tool_definitions()
+    assert [d["name"] for d in defs] == [t["name"] for t in L.live_providers.TOOLS]
+    for d, t in zip(defs, L.live_providers.TOOLS, strict=True):
+        assert d["type"] == "function" and d["parameters"] == t["parameters"]
+
+
+def test_the_paid_smoke_script_still_builds_a_meter():
+    """research/live-eval/smoke_gpt_live.py is billable and opt-in, so nothing in CI runs it
+    — which is exactly why a constructor change can rot it unseen. Compile it and check the
+    one call the seam changed, rather than discovering the TypeError with a live session and
+    a bill attached."""
+    path = Path(__file__).resolve().parent.parent / "research" / "live-eval" / "smoke_gpt_live.py"
+    source = path.read_text(encoding="utf-8")
+    compile(source, str(path), "exec")
+    assert 'live._Meter("gpt-live-smoke", "smoke", gpt_live.ENTRY)' in source
 
 
 def test_usage_duration_snapshots_backend_cache_and_duplicate_completion():
@@ -122,8 +167,6 @@ def test_custom_backend_requires_explicit_rates(monkeypatch):
 def test_completed_calls_survive_empty_response_output_and_all_results_precede_continue(
     monkeypatch,
 ):
-    # Import the optional SDK before starting the one-second protocol deadline.
-    L.llm.genai_types()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
     monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
@@ -196,11 +239,10 @@ def test_context_is_quiet_bounded_deduplicated_and_backend_keeps_full_screen():
         s = session()
         s.watcher.digest = lambda: [{"pane_id": "%1", "label": "界" * 1000}]
         text = "[tmux update] " + "界" * 4000
-        content = SimpleNamespace(parts=[SimpleNamespace(text=text)])
-        await s.send_client_content(turns=content)
-        await s.send_client_content(turns=content)
+        await s.send_context(text)
+        await s.send_context(text)
         s.watcher.digest = list
-        await s.send_client_content(turns=content)
+        await s.send_context(text)
         return s, text
 
     s, text = asyncio.run(run())
@@ -279,7 +321,7 @@ def test_stop_or_phone_disconnect_collects_final_usage(monkeypatch, disconnected
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     wire = Connection()
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: wire)
-    meter = L._Meter("test", "test")
+    meter = L._Meter("test", "test", G.ENTRY)
 
     async def run():
         try:
@@ -291,7 +333,7 @@ def test_stop_or_phone_disconnect_collects_final_usage(monkeypatch, disconnected
     assert meter.usage.final and meter.usage.seconds == 10
     assert wire.sent[0]["type"] == "session.start"
     assert wire.sent[-1]["type"] == "session.close"
-    assert meter.details["provider"] == "openai"
+    assert meter.model.backend == "openai"
 
 
 def test_picker_key_gating_and_route_selection(monkeypatch):
@@ -300,7 +342,6 @@ def test_picker_key_gating_and_route_selection(monkeypatch):
     from openbus import server
 
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
-    monkeypatch.setattr(L, "LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert all(m["label"] != G.LABEL for m in server.get_version()["live_models"])
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
@@ -350,15 +391,19 @@ def test_startup_error_preserves_code(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: model_not_found$"):
-        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test")))
+        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test", G.ENTRY)))
 
 
-@pytest.mark.parametrize("default,selection,key", [
-    (G.MODEL, "Gemini Live", True),
-    (G.MODEL, "Default", False),
-    ("gemini-live-2.5-flash-native-audio", G.LABEL, False),
+# Selection is by LABEL against the offered menu now, not by a TMUXRC_LIVE_MODEL default:
+# live_providers.find() answers for the table's entries and GPT-Live is routed by its own
+# label, only when its key is present. The safety property these cases were written for is
+# unchanged — a pick the server never offered must not open a session.
+@pytest.mark.parametrize("selection,key", [
+    (G.LABEL, False),          # GPT-Live with no key: offered by neither source
+    ("No Such Model", False),  # a label from neither source
+    ("No Such Model", True),
 ])
-def test_unavailable_model_never_connects(monkeypatch, default, selection, key):
+def test_unavailable_model_never_connects(monkeypatch, selection, key):
     from urllib.parse import urlencode
 
     from fastapi.testclient import TestClient
@@ -366,7 +411,6 @@ def test_unavailable_model_never_connects(monkeypatch, default, selection, key):
     from openbus import server
 
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
-    monkeypatch.setattr(L, "LIVE_MODEL", default)
     if key:
         monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     else:
@@ -379,9 +423,16 @@ def test_unavailable_model_never_connects(monkeypatch, default, selection, key):
 
     monkeypatch.setattr(G, "run_session", unexpected)
     monkeypatch.setattr(L, "_run_session", unexpected)
+    # Refused BEFORE the accept: a 1008 close carrying the reason, not an accepted socket
+    # that then apologises. Nothing was offered, so there is no session to open and no mic
+    # to stream — closing first is what makes "never connects" true rather than merely said.
     url = "/api/live-mode?" + urlencode({"model": selection})
-    with TestClient(server.app).websocket_connect(url) as ws:
-        assert "unavailable" in ws.receive_json()["message"].lower()
+    with (
+        pytest.raises(WebSocketDisconnect) as refused,
+        TestClient(server.app).websocket_connect(url) as ws,
+    ):
+        ws.receive_json()
+    assert refused.value.code == 1008
 
 
 def test_provider_diagnostic_reaches_browser(monkeypatch):
@@ -422,7 +473,7 @@ def test_http_handshake_error_is_sanitized(monkeypatch, status, code):
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: " + code + "$"):
-        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test")))
+        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test", G.ENTRY)))
 
 
 @pytest.mark.parametrize("rate", ["bad", "nan", "inf", "-1"])
@@ -446,16 +497,27 @@ def test_full_tool_queue_reports_overload_without_running_more_actions():
 
 
 def test_invalid_configuration_still_marks_openai_telemetry(monkeypatch):
+    """Even a session that dies in configuration is billed to the right provider — and it
+    must be EMITTABLE, which is the part only a real turn boundary used to exercise. The
+    adapter rides the seam's one emit path, so its stand-in entry supplies model/provider
+    and `details` may carry only fields that path has no parameter for: a `details` key
+    shadowing a real parameter is a duplicate-kwarg TypeError, and a bare string left in
+    meter.model an AttributeError — both invisible until a live call."""
+    emitted = []
+    monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **k: emitted.append(k))
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     monkeypatch.setenv("TMUXRC_GPT_LIVE_INPUT_PER_M", "invalid")
-    meter = L._Meter("test", "test")
+    meter = L._Meter("test", "test", G.ENTRY)
     with pytest.raises(G.ProviderError):
         asyncio.run(G.run_session(Browser(), Watcher(), "test", meter))
-    assert meter.model == G.MODEL
+    assert meter.model is G.ENTRY  # the adapter must not replace it with a bare id
     assert meter.details == {
-        "provider": "openai", "backend_model": G.BACKEND,
-        "voice_seconds": 0.0, "usage_final": False,
+        "backend_model": G.BACKEND, "voice_seconds": 0.0, "usage_final": False,
     }
+    meter._emit(final=True)
+    assert emitted[0]["provider"] == "openai"
+    assert emitted[0]["model"] == G.MODEL
+    assert emitted[0]["backend_model"] == G.BACKEND
 
 
 def test_concurrent_snapshot_dedup_survives_post_action_context():
@@ -468,68 +530,16 @@ def test_concurrent_snapshot_dedup_survives_post_action_context():
             await original_send(data)
 
         s.ws.send = slow_send
-        snapshot = SimpleNamespace(parts=[
-            SimpleNamespace(text="[tmux update] current pane state: same screen"),
-        ])
-        action = SimpleNamespace(parts=[
-            SimpleNamespace(text="[tmux update] shell (%1) after your input: new screen"),
-        ])
-        await asyncio.gather(
-            s.send_client_content(turns=snapshot), s.send_client_content(turns=snapshot),
-        )
-        await s.send_client_content(turns=action)
-        await s.send_client_content(turns=snapshot)
+        snapshot = "[tmux update] current pane state: same screen"
+        action = "[tmux update] shell (%1) after your input: new screen"
+        await asyncio.gather(s.send_context(snapshot), s.send_context(snapshot))
+        await s.send_context(action)
+        await s.send_context(snapshot)
         updates = [e for e in s.ws.sent if e["type"] == "response.item.create"]
         assert len(updates) == 2
         assert len([e for e in s.ws.sent if e["type"] == "session.thinking.append"]) == 1
 
     asyncio.run(run())
-
-
-@pytest.mark.parametrize("default", ["gemini-live-2.5-flash-native-audio", G.MODEL])
-def test_adapter_import_failure_reaches_browser(monkeypatch, default):
-    import builtins
-
-    from fastapi.testclient import TestClient
-
-    from openbus import server
-
-    original = builtins.__import__
-
-    def missing(name, globals=None, locals=None, fromlist=(), level=0):
-        if level == 1 and "gpt_live" in fromlist:
-            raise ImportError("optional adapter dependency missing")
-        return original(name, globals, locals, fromlist, level)
-
-    monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
-    monkeypatch.setattr(server.app.state, "watcher", Watcher(), raising=False)
-    monkeypatch.setattr(L._Meter, "finish", lambda s: None)
-    monkeypatch.setattr(builtins, "__import__", missing)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
-    monkeypatch.setattr(L, "LIVE_MODEL", default)
-    called = []
-
-    async def gemini(*args):
-        called.append("gemini")
-
-    monkeypatch.setattr(L, "_run_session", gemini)
-    client = TestClient(server.app)
-    version = client.get("/api/version")
-    assert version.status_code == 200
-    models = version.json()["live_models"]
-    assert models == ([] if default == G.MODEL else [
-        {"label": "Gemini Live", "value": "", "hint": "Vertex"},
-    ])
-    assert version.json()["live_enabled"] == bool(models)
-    with client.websocket_connect("/api/live-mode?model=GPT-Live%201") as ws:
-        assert ws.receive_json() == {"type": "error", "message": "live session failed"}
-    if default != G.MODEL:
-        with (
-            client.websocket_connect("/api/live-mode") as ws,
-            pytest.raises(WebSocketDisconnect),
-        ):
-            ws.receive_json()
-        assert called == ["gemini"]
 
 
 @pytest.mark.parametrize("closed", [False, True])
@@ -562,7 +572,7 @@ def test_provider_eof_propagates_from_running_session(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     wire = Connection()
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: wire)
-    meter = L._Meter("test", "test")
+    meter = L._Meter("test", "test", G.ENTRY)
     with pytest.raises(G.ProviderError, match="connection_closed_without_session_closed"):
         asyncio.run(G.run_session(Client(), Watcher(), "test", meter))
     assert not meter.usage.final

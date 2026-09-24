@@ -20,10 +20,22 @@ from types import SimpleNamespace
 
 import websockets
 
-from . import live
+from . import live, live_providers
 
-MODEL = live.GPT_LIVE_MODEL
-LABEL = live.GPT_LIVE_LABEL
+MODEL = "gpt-live-1"
+LABEL = "GPT-Live 1"
+# GPT-Live's stand-in table entry. The adapter owns a whole SESSION, not the connection
+# the seam knows how to open, so it is deliberately not in the configured table — but
+# live.offered() appends it to the one menu the picker and the socket share, and _Meter is
+# constructed from a table entry, so it needs to BE one. It lives here beside the label and
+# id it is built from rather than repeating those two strings in live.py. The rate card is
+# never consulted — the adapter installs its own Usage, which prices voice by duration —
+# so the entry states its own hint rather than letting a per-1M card be rendered for a
+# model that does not bill that way.
+ENTRY = live_providers.LiveModel(
+    label=LABEL, model=MODEL, backend="openai",
+    flags={"hint": "OpenAI · $0.05/min + backend"},
+)
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
 logger = logging.getLogger(__name__)
@@ -91,37 +103,26 @@ async def _connect(key):
 
 
 def tool_definitions():
-    """Reuse the existing schemas; the Google enum spelling is the only conversion."""
+    """The session's tools in OpenAI's shape, from the one table every provider shares.
 
-    def schema(value):
-        if isinstance(value, dict):
-            return {
-                k: str(v).lower() if k == "type" else schema(v)
-                for k, v in value.items()
-            }
-        if isinstance(value, list):
-            return [schema(v) for v in value]
-        return value
-
-    return [
-        {
-            "type": "function",
-            "name": f.name,
-            "description": f.description,
-            "parameters": schema(
-                f.parameters.model_dump(mode="json", exclude_none=True)
-            ),
-            "strict": False,
-        }
-        for tool in live._tools()  # noqa: SLF001 - shared Live adapter internals
-        for f in tool.function_declarations
-    ]
+    live_providers.TOOLS is already plain JSON Schema — the seam settled on that precisely
+    because it is what every backend accepts unconverted — so there is nothing left to
+    translate. This used to walk google-genai Tool objects and lowercase their enum
+    spellings; that conversion existed only because the schemas lived in Gemini's types,
+    and it went away with them."""
+    return [{"type": "function", "strict": False, **tool} for tool in live_providers.TOOLS]
 
 
 class Usage:
     """Voice duration snapshots + backend usage per response; never price seconds as tokens."""
 
-    audio_in = audio_out = 0
+    # _Meter emits from one usage surface whatever the provider is. GPT-Live prices voice
+    # by DURATION rather than audio tokens, and its backend reports no cached input, so
+    # these are zeros rather than absent: a missing attribute would crash the shared emit
+    # path, while a zero is the honest number. The seconds it does bill travel in
+    # meter.details.
+    audio_in = audio_out = cached = 0
+    split = live_providers.Split(*[0] * len(live_providers.Split._fields))
 
     def __init__(self, backend):
         self.seconds = 0.0
@@ -198,21 +199,24 @@ class Session:
     async def send(self, event):
         await self.ws.send(json.dumps(event))
 
-    async def send_realtime_input(self, *, audio):
-        # Match the browser's 16 kHz directly; output uses the same negotiated rate.
-        if not self.closing and audio.data and len(audio.data) % 2 == 0:
+    async def send_audio(self, pcm16k: bytes) -> None:
+        # The seam's audio verb: raw 16 kHz PCM16 as the browser captured it. GPT-Live
+        # negotiates that rate directly (output comes back at it too), so unlike the
+        # Realtime adapter there is nothing to resample — only an odd-length frame to
+        # drop, which would otherwise cut a sample in half.
+        if not self.closing and pcm16k and len(pcm16k) % 2 == 0:
             await self.send(
                 {
                     "type": "session.input_audio.append",
-                    "audio": base64.b64encode(audio.data).decode(),
+                    "audio": base64.b64encode(pcm16k).decode(),
                 }
             )
 
-    # Match Gemini's interface; GPT-Live delegates turn boundaries to the frontend.
-    async def send_client_content(self, *, turns, turn_complete=False):  # noqa: ARG002
+    async def send_context(self, text):
+        """The seam's ambient-context verb. No turn_complete to pass on: GPT-Live delegates
+        turn boundaries to the frontend, so context never fires a response by itself."""
         if self.closing:
             return
-        text = "\n".join(p.text for p in turns.parts if p.text)
         async with self.context_lock:
             if not self.closing:
                 await self._send_context(text)
@@ -262,19 +266,23 @@ class Session:
             )
         self.pane_hints = hints
 
-    async def send_tool_response(self, *, function_responses):
-        for result in function_responses:
-            if not self.closing:
-                await self.send(
-                    {
-                        "type": "response.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": result.id,
-                            "output": json.dumps(result.response),
-                        },
-                    }
-                )
+    async def send_tool_result(self, call, payload: dict) -> None:
+        """The seam's tool-result verb. live._handle_tool_call is shared with the seam's
+        own providers and calls this, so the adapter answers to that name and shape rather
+        than the genai-flavoured send_tool_response it started with. call.id must ride
+        back or the session wedges — the same inherited lesson the Gemini adapter records."""
+        if self.closing:
+            return
+        await self.send(
+            {
+                "type": "response.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call.id,
+                    "output": json.dumps(payload),
+                },
+            }
+        )
 
     def account(self, event):
         self.meter.usage.update(event)
@@ -414,13 +422,10 @@ async def run_session(browser, watcher, actor, meter):
         )
         return
     backend = os.environ.get("TMUXRC_GPT_LIVE_BACKEND", BACKEND)
-    meter.model = MODEL
-    meter.details = {
-        "provider": "openai",
-        "backend_model": backend,
-        "voice_seconds": 0.0,
-        "usage_final": False,
-    }
+    # meter.model is already ENTRY (live.live_mode built the meter from it), and the
+    # provider it names is what the shared emit path reports — passing "provider" here
+    # too would collide with that keyword argument.
+    meter.details = {"backend_model": backend, "voice_seconds": 0.0, "usage_final": False}
     meter.usage = Usage(backend)
     await browser.send_json({"type": "status", "status": "connecting"})
     async with _connect(key) as ws:

@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
-import json
 import logging
 import os
 import re
@@ -46,7 +45,10 @@ _REPO_ROOT = _PKG_DIR.parent
 # usual upward search from cwd. Either way, real env vars still win (override=False).
 _repo_env = _REPO_ROOT / ".env"
 load_dotenv(_repo_env if _repo_env.exists() else find_dotenv(usecwd=True))
-load_dotenv(Path.home() / ".config/tmux-rc/openai.env")
+# Live Mode provider keys (OpenAI, Azure, AI Studio) live in ONE mode-600 file outside
+# every checkout, so a worktree's .env or a commit can never carry them. Same
+# override=False rule; silently a no-op when the file is absent.
+load_dotenv(Path.home() / ".config" / "tmux-rc" / "openai.env")
 
 # Networks with an advertised-but-dead IPv6 route (common behind home routers) hang any
 # client that walks AAAA records serially — the Vertex Live websocket handshake times out
@@ -71,6 +73,7 @@ from PIL import Image  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 from . import telemetry, tmux  # noqa: E402
+from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
 from .watcher import Watcher  # noqa: E402
@@ -261,28 +264,21 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
             "environment, so widening the daemon's alone would only hide this message.")
 
 
+def _launcher(e: dict) -> dict:
+    if not (e.get("label") and e.get("command")):
+        raise ValueError("launcher needs label and command")
+    return {"label": str(e["label"]), "command": str(e["command"]), "icon": str(e.get("icon", ""))}
+
+
 def _launchers() -> list[dict]:
-    raw = os.environ.get("TMUXRC_LAUNCHERS", "").strip()
-    if not raw:
-        return _DEFAULT_LAUNCHERS
-    try:
-        if not raw.startswith("["):
-            raw = Path(raw).read_text(encoding="utf-8")
-        entries = json.loads(raw)
-        good = [
-            {"label": str(e["label"]), "command": str(e["command"]),
-             "icon": str(e.get("icon", ""))}
-            for e in entries
-            if isinstance(e, dict) and e.get("label") and e.get("command")
-        ]
-    except Exception:  # a broken config must not brick the menu
-        logger.warning("TMUXRC_LAUNCHERS invalid; using defaults", exc_info=True)
-        return _DEFAULT_LAUNCHERS
-    # Parsed, but nothing in it was usable — same outcome as a parse failure, reached by
-    # returning rather than by raising into our own handler.
-    if not good:
-        logger.warning("TMUXRC_LAUNCHERS has no valid entries; using defaults")
-    return good or _DEFAULT_LAUNCHERS
+    # All-or-nothing, via the shared helper: one malformed entry falls the WHOLE list back
+    # to the defaults rather than being skipped. That is a change from the hand-rolled
+    # filter this replaced, and a deliberate one — a silently missing launcher is a menu
+    # that looks correct and quietly is not, which nobody investigates, whereas a menu that
+    # has visibly reverted sends you to the config and the log line waiting there. The Live
+    # model table needs the same rule for a stronger reason (a mis-parsed entry must never
+    # be offered at a made-up price), and one rule for both is one thing to know.
+    return json_list("TMUXRC_LAUNCHERS", _DEFAULT_LAUNCHERS, _launcher)
 
 
 class ClientErrorBody(BaseModel):
@@ -464,24 +460,21 @@ async def no_cache(request, call_next):
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
     (see app.js). Cheap to recompute per call — the web dir is tiny. Also reports
-    server feature flags the client gates UI on (live_enabled → shows the mic button)."""
+    server feature flags the client gates UI on (live_enabled → shows the mic button;
+    live_models → the labels the model picker offers, shown only when there are ≥2).
+    live_enabled is false when nothing is offered (every entry key-gated, no key set) even
+    with the flag on, so the client never shows a button the socket would only refuse."""
     h = hashlib.md5()
     for p in sorted(WEB_DIR.rglob("*")):
         if p.is_file():
             h.update(p.relative_to(WEB_DIR).as_posix().encode())
             h.update(str(p.stat().st_mtime_ns).encode())
-    try:
-        from . import gpt_live  # noqa: PLC0415 - defer the adapter/shared-live import cycle
-    except ImportError:
-        gpt_live = None
-
-    models = []
-    if live.LIVE_MODEL != live.GPT_LIVE_MODEL:
-        models.append({"label": "Gemini Live", "value": "", "hint": "Vertex"})
-    if gpt_live is not None and os.environ.get("OPENAI_API_KEY"):
-        models.append({"label": gpt_live.LABEL, "hint": "OpenAI · $0.05/min + backend"})
-    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(models),
-            "live_models": models}
+    # The menu is live.offered() and nothing else — the same list the socket gates on, so
+    # the picker can never show a row the socket would refuse. The label is the only thing
+    # the browser ever sends back; hints are rendered by the entry (see LiveModel.hint).
+    offered = [{"label": m.label, "hint": m.hint} for m in live.offered()]
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered),
+            "live_models": offered}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).

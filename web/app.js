@@ -4017,8 +4017,8 @@ syncBadgeTick(); // live-tick idle/waiting durations while visible (paused when 
 let _ver = null;
 setInterval(async () => {
   try {
-    const { version, live_enabled } = await (await fetch("/api/version")).json();
-    applyLiveEnabled(!!live_enabled);  // sync the mic button to the server flag
+    const { version, live_enabled, live_models } = await (await fetch("/api/version")).json();
+    applyLiveEnabled(!!live_enabled, live_models);  // sync the mic button + model menu to the server
     if (_ver === null) _ver = version;
     else if (version !== _ver) {
       if (composerEmpty()) location.reload();
@@ -4088,7 +4088,7 @@ if (window.visualViewport && barEl) {
 // every keystroke the model puts into a pane. Nothing overlays the app: the pulsing 🎙
 // header pill is the status, and the rolling conversation renders in the active card's
 // summary slot (see applyCard's `lmOwns`). Design: docs/design/live-mode.md.
-const lm = { btn: document.getElementById("lm-btn") };
+const lm = { btn: document.getElementById("lm-btn"), sheet: document.getElementById("lm-sheet") };
 // The static buttons get their icons here (their HTML ships empty): mic without the
 // word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
 if (lm.btn) lm.btn.innerHTML = licon("mic", 14) + '<sup class="lm-exp">beta</sup>';
@@ -4099,18 +4099,30 @@ bar.attach.innerHTML = licon("paperclip", 15);
 // Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
 // the server reports it enabled — one source of truth, so a stale tab can't offer a
 // button the /api/live-mode route will just refuse. Hidden until confirmed.
-function applyLiveEnabled(on) {
+// The same reply carries the model menu: [{label, hint}] for every model the SERVER has a
+// credential for. Labels are all the client ever sends back (?model=<label>) — never a
+// model id or backend, same rule as launchers.
+let lmModels = [];
+function applyLiveEnabled(on, models) {
   if (lm.btn) lm.btn.hidden = !on;
+  if (models) lmModels = models;
 }
 applyLiveEnabled(false);
 // Resolve the flag immediately on load (the 5s version poll also keeps it in sync).
-fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled)).catch(() => {});
+fetch("/api/version").then((r) => r.json()).then((d) => applyLiveEnabled(!!d.live_enabled, d.live_models)).catch(() => {});
 let lmWs = null, lmCtx = null, lmStream = null, lmNodes = [];
 let lmUp = false, lmTries = 0, lmRetry = null; // session was up; reconnect count + timer
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
+let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
 let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
 let lmClearPending = null;
 let lmLog = [];                  // rolling conversation: {role, text, done}
+// The server sends a fatal diagnostic and THEN closes the socket cleanly, so the red line
+// it paints lives in a card body that lmStop's re-render immediately replaces with the
+// pane's static summary. Showing "deployment 'x' not found" for 200ms is the same as not
+// sending it, and these are the messages that name the config to fix — so the last one is
+// held here and surfaced by lmStop, the way the audio-graph failure already is.
+let lmFatal = "";
 let lmListening = false;         // true only while the daemon reports "listening" — mic
                                  // frames are dropped otherwise so a reconnect (during
                                  // which the server stops reading) can't grow bufferedAmount
@@ -4149,8 +4161,10 @@ function lmPaint() {
   if (box) lmPaintInto(box);
 }
 
-// The model's voice: base64 24kHz PCM16 chunks, scheduled back-to-back on a dedicated
-// context (created in the button's click handler, satisfying autoplay policy).
+// The model's voice: base64 PCM16 chunks, scheduled back-to-back on a dedicated context
+// (created in the button's click handler, satisfying autoplay policy). The rate rides on
+// each frame because it is the provider's, not ours — 24 kHz from Gemini and Realtime,
+// 16 kHz from GPT-Live; the default is for a provider that sends none.
 function lmPlayChunk(b64, sampleRate = 24000) {
   if (!lmPlay) return;
   const bin = atob(b64);
@@ -4161,6 +4175,8 @@ function lmPlayChunk(b64, sampleRate = 24000) {
   const ch = buf.getChannelData(0);
   for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
   const src = lmPlay.createBufferSource();
+  lmQueued.push(src);
+  src.onended = () => { lmQueued = lmQueued.filter((s) => s !== src); };
   src.buffer = buf;
   src.connect(lmPlay.destination);
   lmPlayAt = Math.max(lmPlayAt, lmPlay.currentTime) ;
@@ -4233,18 +4249,70 @@ function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
   if (!lmListening) lmClearPending?.();
   lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
-  if (lmListening) lmTries = 0; // a session that came back resets the retry budget
+  if (lmListening) { lmTries = 0; lmFatal = ""; } // a session that came back: budget and error clear
   lm.btn.classList.toggle("listening", lmListening);
+  // While connected the pill's tag names the model answering — side-by-side testing
+  // needs to know WHICH voice this is. "beta" comes back when the session ends.
+  if (lmListening && lmLabel) lm.btn.querySelector(".lm-exp").textContent = lmLabel;
   lm.btn.classList.toggle("reconnecting", s === "reconnecting");
 }
 
-let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
+// Tap Live: stop a running session, else start one. With one model on the menu that is
+// the whole story (the single-model experience is unchanged); with several, the bottom
+// sheet picks — one thumb-sized row per model, the remembered choice ticked — and the
+// tapped row starts the session at once.
+function lmTap() {
+  if (lmWs || lmRetry) return lmStop();
+  if (lmModels.length < 2) return lmStart(lmModels[0]?.label);
+  lmSheet(true);
+}
+const lmChoice = () => { try { return localStorage.getItem("tmuxrc-live-model") || ""; } catch { return ""; } };
+function lmSheet(open) {
+  lm.sheet.hidden = !open;
+  if (!open) return lm.btn.focus(); // hand focus back so keyboard/AT users aren't stranded on <body>
+  const cur = lmChoice();
+  const row = (label, hint, ticked, cls) => {
+    const b = document.createElement("button");
+    b.className = "lm-row" + (cls ? " " + cls : "");
+    const main = document.createElement("span"); main.className = "lm-row-main";
+    const l = document.createElement("span"); l.className = "lm-row-label"; l.textContent = label;
+    main.append(l);
+    if (hint) { const h = document.createElement("span"); h.className = "lm-row-hint"; h.textContent = hint; main.append(h); }
+    b.append(main);
+    if (ticked) b.insertAdjacentHTML("beforeend", licon("check", 18));
+    return b;
+  };
+  const head = document.createElement("div"); head.className = "lm-sheet-head";
+  head.textContent = "Live Mode — pick a model";
+  const rows = lmModels.map((m) => {
+    const b = row(m.label, m.hint, m.label === cur);
+    b.onclick = () => { lmSheet(false); lmStart(m.label); };
+    return b;
+  });
+  const close = row("Close", "", false, "close");
+  close.onclick = () => lmSheet(false);
+  lm.sheet.firstElementChild.replaceChildren(head, ...rows, close);
+  rows[Math.max(0, lmModels.findIndex((m) => m.label === cur))].focus(); // land on the remembered choice
+}
+if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
+if (lm.sheet) lm.sheet.onkeydown = (e) => {
+  if (e.key === "Escape") return lmSheet(false);
+  if (e.key !== "Tab") return;
+  // Wrap Tab within the sheet — aria-modal promises the page behind it is unreachable.
+  const b = lm.sheet.querySelectorAll("button"), first = b[0], last = b[b.length - 1];
+  if (e.target === (e.shiftKey ? first : last)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+};
 
-async function lmStart() {
+let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
+let lmLabel = "";       // the label this session was started with (shown in the pill)
+
+async function lmStart(label) {
   if (lmStarting) return; // re-tap while the permission prompt is up: not a stop request
   lmStarting = true;
+  lmLabel = label || "";
+  if (label) { try { localStorage.setItem("tmuxrc-live-model", label); } catch {} }
   lm.btn.classList.add("on");
-  lmLog = [];
+  lmLog = []; lmFatal = "";
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
   // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit
   // rejects getUserMedia with NotAllowedError once the activation has expired, which
@@ -4291,10 +4359,13 @@ function lmConnect() {
   lmRetry = null;
   // Same page-load session id as the live-view stream, so voice cost and screen
   // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
-  const q = SESSION_ID ? `?session=${encodeURIComponent(SESSION_ID)}` : "";
+  const q = new URLSearchParams();
+  if (SESSION_ID) q.set("session", SESSION_ID);
+  if (lmLabel) q.set("model", lmLabel);  // a label from the server's own menu, nothing else
+  const qs = q.toString();
   let ws;
   try {
-    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${q}`);
+    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode${qs ? "?" + qs : ""}`);
   } catch (e) {
     // A sync constructor throw (bad URL, environment restriction) lands AFTER the mic
     // was acquired — without this, the stream and both contexts leak and the pill
@@ -4306,14 +4377,20 @@ function lmConnect() {
   }
   lmWs = ws;
   ws.onmessage = (ev) => {
+    if (lmWs !== ws) return;
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.type === "status") { lmFrameMs = m.frame_ms; lmStatus(m.status); }
     else if (m.type === "transcript") lmAdd(m.role, m.text, m.new_segment);
     else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
+    // Per-frame rate, not a constant: Gemini and Realtime send 24 kHz, GPT-Live 16 kHz,
+    // and the browser is never told which provider answered.
     else if (m.type === "audio") lmPlayChunk(m.data, m.sample_rate);
+    // The user spoke over the model: drop the queued voice so the reply doesn't keep
+    // talking through them (the model itself has already stopped generating).
+    else if (m.type === "interrupted") { lmQueued.forEach((s) => { try { s.stop(); } catch {} }); lmQueued = []; lmPlayAt = 0; }
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
-    else if (m.type === "error") lmAdd("err", m.message); // .lm-err red = the signal
+    else if (m.type === "error") { lmFatal = m.message; lmAdd("err", m.message); } // .lm-err red
   };
   ws.onclose = (e) => {
     if (lmWs !== ws) return;
@@ -4324,6 +4401,12 @@ function lmConnect() {
     const abnormal = e.code !== 1000 && e.code !== 1005;
     if (abnormal)
       reportError("ws", { name: "close " + e.code, message: e.reason || "" });
+    // A refusal happens BEFORE the accept, so there is no socket to send an error frame
+    // on: the explanation rides on the close itself. Without this the button simply goes
+    // dark — the server has carefully said "reload the page" or "no configured model has
+    // its key set" and nobody reads it. Set before the reconnect branch so it survives one,
+    // and cleared by lmStatus when a session does come back.
+    if (e.code === 1008 && e.reason) lmFatal = e.reason;
     // Dropped MID-SESSION (it was up): almost always the tunnel resetting its relay
     // link, which is back within seconds — hold the mic and reopen with the same session
     // id: 1,2,4,8,16s. A drop before the session was ever up, or a spent budget, stops.
@@ -4362,7 +4445,10 @@ function lmStop() {
     try { ws.close(); } catch {} // CONNECTING: abort so a late open can't start capture
   }
   lmListening = false;
+  lmQueued.forEach((source) => { try { source.stop(); } catch {} });
+  lmQueued = []; lmPlayAt = 0;
   lmClearPending?.(); lmClearPending = null;
+  lm.btn.querySelector(".lm-exp").textContent = "beta";
   lmNodes.forEach((n) => { try { n.disconnect(); } catch {} });
   lmNodes = [];
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
@@ -4371,6 +4457,10 @@ function lmStop() {
   lm.btn.classList.remove("on", "listening", "reconnecting");
   lm.btn.title = lm.btn.ariaLabel = "Start Live Mode (experimental)";
   render(Object.values(panesById)); // the active card gets its static summary back
+  // ...which has just wiped the error line, so a fatal one is repeated where the render
+  // cannot take it away. Same treatment as the audio-graph failure in ws.onopen: it is
+  // unrecoverable, and the whole value of the message is that the user reads it.
+  if (lmFatal) { const why = lmFatal; lmFatal = ""; alert(`Live Mode stopped:\n${why}`); }
 }
 
-if (lm.btn) lm.btn.onclick = () => (lmWs || lmRetry ? lmStop() : lmStart());
+if (lm.btn) lm.btn.onclick = lmTap;
