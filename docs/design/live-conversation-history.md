@@ -40,9 +40,9 @@ blocked on the separate dispatch-authorization work in #236. Everything that was
 
 | Record | Fields and purpose |
 | --- | --- |
-| Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
-| Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID. Usage references this turn when known but is stored independently below. |
+| Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
+| Call | UUID, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation, deleted-at tombstone and recording epoch, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
+| Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID, persisted namespaced event keys for accepted revisions (unique within call). Usage references this turn when known but is stored independently below. |
 | Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
 | Action | UUID, call ID, turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. Never imply a sent command completed its task. |
 
@@ -72,7 +72,13 @@ Mark the possible last unflushed fragment loss after a crash rather than promisi
 exact transcripts. Upsert a stable turn/item ID when a provider revises a transcript;
 do not append the replacement as another utterance. Persist an event deduplication key
 where the provider supplies one; otherwise use connection + receive sequence and do
-not claim deduplication across arbitrary provider replays.
+not claim deduplication across arbitrary provider replays. Persist the namespaced event
+key for every accepted revision on its turn, including fallback connection/receive
+sequence keys, with call-scoped uniqueness. Allocate the fallback connection UUID once
+per receiver and retain the original key on queue retries; never mint a new key when
+retrying a write. Commit the key and turn update atomically, so a duplicate is a no-op.
+This bounds deduplication to events already accepted by this daemon, not unseen provider
+replays on a new connection.
 
 Use short transactions through one serialized writer, off the audio receive loop,
 with a bounded queue. Existing `History` migrations are ad hoc: introduce a shared
@@ -95,7 +101,13 @@ operation, not crash recovery. Test a crash immediately after a heartbeat. Final
 actually observed, and leave incomplete turns labeled partial. Disk-full or writer
 failure must surface “History not saving” in the live UI; keep audio usable, retain a
 bounded pending buffer, and retry with backoff. Never silently report a complete saved
-conversation when events were dropped. Commands must not be replayed to repair a
+conversation when events were dropped. Calls persist recording completeness and loss
+intervals (start/end observation sequence and epoch). Mark a call incomplete at creation;
+only a clean end after its accepted events are flushed may mark it complete. Queue loss
+marks it incomplete before normal processing resumes. If storage failure prevents a loss
+marker write, keep the call incomplete and prohibit successful finalization until the
+marker is durable; a crash leaves an incomplete call even without exact gap boundaries.
+History shows both known gaps and unknown loss ranges. Commands must not be replayed to repair a
 missing history row. Deletion of an active call first ends its recording/call so queued
 writes cannot recreate deleted data.
 
@@ -266,7 +278,12 @@ content. Producers stop accepting new events for those calls and discard queued
 content; every write checks the persisted tombstone/epoch in its transaction. Events
 carry the epoch captured when accepted, never the current epoch at dequeue time.
 Writes committed before the barrier are deleted; later writes are rejected, including
-retries after restart. Retain minimal ID/epoch tombstones without transcript content,
+retries after restart. Conversation and Call rows themselves retain the tombstones: clear content and optional
+references, keep their owner-scoped UUIDs, deleted-at and epoch (plus the call retry
+fields). Index by owner/UUID and deleted-at; all ingestion checks both parent and call
+rows. Retain these minimal tombstone rows indefinitely while late writes or request UUIDs
+can be accepted; automatic content/usage expiry must not cascade-delete them. They do
+not appear in history reads. Retain minimal ID/epoch tombstones without transcript content,
 never reuse call IDs, and do not let event ingestion recreate a missing parent call.
 The delete response waits for the barrier and deletion commit. Test a delayed writer,
 in-flight checkpoint, producer race and daemon restart against this ordering.
