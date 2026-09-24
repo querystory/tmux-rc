@@ -34,15 +34,16 @@ turn boundaries. Existing telemetry is not automatically imported as complete hi
 
 ## Record these things
 
-Four records. This feature answers *what happened*; it does not decide what Live Mode
-is allowed to do, so nothing here gates dispatch, mints authority, or changes a code
-path that runs today. Everything that was only bookkeeping became a column.
+Five records. This feature answers *what happened*; it does not decide what Live Mode
+is allowed to do, so storage does not gate dispatch or mint authority. Continuation is a later phase
+blocked on the separate dispatch-authorization work in #236. Everything that was only bookkeeping became a column.
 
 | Record | Fields and purpose |
 | --- | --- |
 | Conversation | UUID, owner, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
 | Call | UUID, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation. One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
-| Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID. Usage lives here as columns: tokens split by text/audio/cache and audio duration as the provider reports them, each tagged cumulative-or-delta with a provider revision for ordering. |
+| Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID. Usage references this turn when known but is stored independently below. |
+| Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
 | Action | UUID, call ID, turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. Never imply a sent command completed its task. |
 
 Store UTC timestamps for display and durable ordering; assign a monotonically
@@ -107,16 +108,26 @@ double-counting that machinery then has to prevent. Rates live in configuration 
 the model list, versioned with the code; a displayed cost names the rate version it used.
 
 Each adapter declares whether its usage messages are cumulative snapshots or deltas, and
-the reset scope. For cumulative messages, replace the latest snapshot for that call; do
+the reset scope. For cumulative messages, retain the latest snapshot per call/component/reset key; do
 not sum every turn's snapshot. Order samples by the provider's revision/sequence, not
 arrival time. Ignore older revisions; conflicting equal revisions mark usage incomplete.
 Without reliable ordering, show usage as provisional rather than inventing a total.
 
 A call with independently billed components — voice seconds plus backend model tokens —
-records each under its own provider/model key on the turn. They are summed for display
-and never folded into one another, so an inclusive voice charge and a token charge
-cannot be mistaken for the same money. A component with no known rate shows as unpriced
+records each under its own provider/model and charge-component key on Usage. Adapters
+mark components as independently billable or included in another component; sum only
+independently billable components, never an inclusive charge plus its included tokens. A component with no known rate shows as unpriced
 rather than estimated at zero.
+
+Usage persists even when its optional turn is absent or deleted (ON DELETE SET NULL).
+A reconnect retains the accounting reset key only if the provider continues its counters;
+a confirmed reset creates a new key. Never infer a reset merely from a smaller delayed
+sample. Delta samples require stable event IDs within that key for deduplication; if
+unavailable, flag replay ambiguity as incomplete. A component uses one accounting basis:
+its cumulative total replaces covered deltas, rather than being added to them. Persist
+final call-level samples even during silence or before the first completed turn. Missing
+final samples remain incomplete. Test no-turn calls, reconnect resets, delayed revisions,
+duplicate deltas and inclusive voice/backend pricing without double counting.
 
 ## Browsing and continuing
 
@@ -165,13 +176,16 @@ or protocol syntax. Treat encoding as structural protection, not a guarantee aga
 semantic prompt injection; tool authorization remains server-side. Include delimiter-
 breaking transcripts, summaries and action arguments in malicious-history tests.
 Never replay provider tool-call messages, IDs or results as active protocol messages.
-Historical content must never be able to cause an action. Loading history is a read:
+Serialization alone cannot guarantee that historical content will not induce a new
+provider tool call. Ship browsing and recording independently, but do not enable
+Continue/Fork or imported-history context until #236 provides and tests server-side
+authorization for tool dispatch from resumed context. Loading history is a read:
 prior tool calls are replayed to the model as inert transcript text, never as protocol
 tool-call messages, tool results or IDs, so the provider cannot treat them as pending
 work to resume. Imported or shared conversations are context only and are marked as
-such. If a provider emits a tool call immediately after history is loaded and it
-corresponds to a historical action rather than anything the user just said, that is a
-history bug: the fix is in how context is serialized, not a new check before dispatch.
+such. A history-induced tool call must be rejected by that dispatch layer, not merely
+assumed impossible because the context was serialized correctly. The integration tests
+must prove this before continuation is enabled; historical text is never authority.
 Test history-only tool calls with a fabricated ID, malicious transcripts that imitate
 protocol syntax, and delimiter-breaking summaries and action arguments.
 
@@ -194,7 +208,8 @@ resumed.
 Out of scope, deliberately. Live Mode's existing authorization, socket takeover and
 tool-dispatch behavior are unchanged by this feature: today `openbus/live.py` dispatches
 provider tool calls to `tmux.send_keys` without binding them to a fresh user turn, and
-this design neither adds that binding nor relies on it. Recording an action is not
+this storage design does not implement that binding. Its continuation phase depends
+on that separate work; recording and read-only browsing do not. Recording an action is not
 permission to take one, and no record defined here is consulted before input is sent to
 a pane. Tightening that path is a behavior change to Live Mode and belongs in its own
 change, against its own tests; see issue #236. Keeping it out means this PR can
@@ -220,7 +235,13 @@ An opted-out transcript must not leak through `_Meter`'s telemetry tail. Continu
 non-recorded call cannot reconstruct missing turns and should say so.
 
 Proposed retention: content for 30 days, usage totals for 90 days, with explicit
-“keep” and configurable policies. Run bounded deletion jobs that remove turns,
+“keep” and configurable policies. Usage rows and minimal owner-scoped Call/Conversation
+parents survive automatic content expiry until day 90; remove transcript text, action
+payloads, titles and derived content at day 30. Usage has no text payload and its optional
+turn link is cleared. Explicit user deletion removes usage as well, irrespective of
+the automatic retention periods. At day 90, remove expired usage and unneeded parent
+metadata. Test totals after day 30 and removal at day 90 and on explicit deletion.
+Run bounded deletion jobs that remove turns,
 actions, derived summaries, search rows, and share snapshots consistently. Deleting
 local data cannot retract downloaded exports or copies in separately retained backups;
 explain that in the deletion UI. SQLite deletion is logical deletion, not a promise of
@@ -265,9 +286,9 @@ private conversation, never as an active session with inherited pane permissions
    crash/disk-full recovery; no raw audio. Test migrations, idempotent events, partial
    turns, revisions, queue overflow, permissions and opt-out end to end.
 2. History list/thread and estimated usage. Test pagination during writes, cross-owner
-   denial, cost snapshots, cumulative/delta reconnect accounting, missing usage and
+   denial, versioned read-time rates, cumulative/delta reconnect accounting, missing usage and
    retention deletion including derived/search data.
-3. Continue/fork with bounded prior context and fresh pane inventory. Test provider
+3. After #236 is implemented and its authorization tests pass, Continue/fork with bounded prior context and fresh pane inventory. Test provider
    changes, stale pane IDs, concurrent calls, interrupted turns, and no action replay.
 4. Reviewed local exports; then separately approved authenticated sharing. Test field
    redaction, export opt-out, snapshot immutability, expiry/revocation and ACL denial.
