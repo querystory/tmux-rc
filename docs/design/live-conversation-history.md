@@ -100,7 +100,7 @@ and `UNIQUE(owner, start_request_uuid)` on Call, including tombstones. Ownership
 change through a call update. Test concurrent retries and cross-owner parent mismatch.
 
 Enable `PRAGMA foreign_keys=ON` on every reader and writer connection before starting
-transactions; verify it is enabled and test orphan rejection and cascade deletion.
+transactions; verify it is enabled and test orphan rejection, RESTRICT parent deletion and SET NULL optional links.
 Relationship policies: Conversation→Call and Call→Turn/Action/Usage use ON DELETE
 RESTRICT: parent tombstones are retained, never cascade-deleted. Action.turn_id and
 Usage.turn_id use ON DELETE SET NULL. Conversation.parent_id and fork-point turn links
