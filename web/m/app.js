@@ -60,9 +60,18 @@ const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.sv
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
-let reviewLayout = "side";
-try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
-const reviewing = () => WIDE.matches && reviewLayout !== "focus";
+let reviewLayout = "auto";
+try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
+function effectiveLayout() {
+  if (!WIDE.matches) return "focus";
+  if (reviewLayout !== "auto") return reviewLayout;
+  if (view === "terminal") return "focus"; // Honor an explicit terminal deep link.
+  const { width, height } = document.getElementById("detail").getBoundingClientRect();
+  if (width >= 900 && height >= 480) return "side";
+  if (width >= 480 && height >= 720) return "stack";
+  return "focus";
+}
+const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
@@ -71,6 +80,7 @@ const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
+let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
@@ -379,9 +389,9 @@ try {
   }
 } catch {}
 const reviewDivider = $("review-divider");
-function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
+function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()]) {
   if (!reviewing()) return;
-  const side = reviewLayout === "side", rect = $("detail").getBoundingClientRect();
+  const mode = effectiveLayout(), side = mode === "side", rect = $("detail").getBoundingClientRect();
   const min = side ? 240 : 120;
   const max = Math.max(min, Math.floor(side ? rect.width * .45 : rect.height * .5));
   const size = Math.round(Math.max(min, Math.min(max, requested)));
@@ -389,11 +399,15 @@ function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
   reviewDivider.setAttribute("aria-orientation", side ? "vertical" : "horizontal");
   for (const [key, value] of Object.entries({ min, max, now: size })) reviewDivider.setAttribute(`aria-value${key}`, value);
   if (persist) {
-    reviewSizes[reviewLayout] = size;
-    try { localStorage.setItem(`tmuxrc-review-${reviewLayout}`, String(size)); } catch {}
+    reviewSizes[mode] = size;
+    try { localStorage.setItem(`tmuxrc-review-${mode}`, String(size)); } catch {}
   }
 }
-new ResizeObserver(() => sizeReview()).observe($("detail"));
+new ResizeObserver(() => {
+  if (active && streamedLayout !== effectiveLayout()) {
+    restartDetail(); render();
+  } else sizeReview();
+}).observe($("detail"));
 $("mobile-view-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
   if (!button) return;
@@ -406,6 +420,7 @@ $("review-layout").onchange = (e) => {
     reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
     try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
   }
+  if (choice === "auto") { view = "summary"; navigate(active, view); }
   if (["summary", "terminal"].includes(choice)) { view = choice; navigate(active, view); }
   restartDetail(); render();
 };
@@ -417,7 +432,7 @@ reviewDivider.onpointerdown = (e) => {
 reviewDivider.onpointermove = (e) => {
   if (!reviewDivider.hasPointerCapture(e.pointerId)) return;
   const rect = $("detail").getBoundingClientRect();
-  sizeReview(true, reviewLayout === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
+  sizeReview(true, effectiveLayout() === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
 };
 const endReviewResize = (e) => {
   if (reviewDivider.hasPointerCapture(e.pointerId)) reviewDivider.releasePointerCapture(e.pointerId);
@@ -425,12 +440,12 @@ const endReviewResize = (e) => {
 };
 reviewDivider.onpointerup = reviewDivider.onpointercancel = reviewDivider.onlostpointercapture = endReviewResize;
 reviewDivider.onkeydown = (e) => {
-  const steps = reviewLayout === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
+  const steps = effectiveLayout() === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
   const step = steps[e.key];
   if (!step) return;
   e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
 };
-reviewDivider.ondblclick = () => sizeReview(true, reviewLayout === "side" ? 360 : 280);
+reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
@@ -480,9 +495,9 @@ function render() {
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
-  $("detail").dataset.layout = reviewing() ? reviewLayout : "focus";
+  $("detail").dataset.layout = effectiveLayout();
   const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
-  if (wide) layouts.unshift(["side", "Side by side"], ["stack", "Overview above"]);
+  if (wide) layouts.unshift(["auto", "Auto"], ["side", "Side by side"], ["stack", "Overview above"]);
   const picker = $("review-layout");
   if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
   picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
@@ -633,6 +648,9 @@ async function loadEvents(pane) {
 function restartDetail() {
   detailController?.abort();
   detailController = new AbortController();
+  // A previously hidden detail may only get its real dimensions after render().
+  // The resize observer restarts streams if that changes the resolved layout.
+  streamedLayout = effectiveLayout();
   eventsKey = null;
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
