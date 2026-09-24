@@ -41,10 +41,10 @@ blocked on the separate dispatch-authorization work in #236. Everything that was
 | Record | Fields and purpose |
 | --- | --- |
 | Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, owner, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation, deleted-at tombstone and recording epoch, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
+| Call | UUID, owner, conversation ID, start/end times, end reason, provider/model, transcript recording mode and separate exact-payload opt-in, lifecycle state (active/ended/interrupted), heartbeat, daemon generation, deleted-at tombstone and recording epoch, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
 | Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID, persisted namespaced event keys for accepted revisions (unique within call). Usage references this turn when known but is stored independently below. |
 | Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
-| Action | UUID, call ID, turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. Never imply a sent command completed its task. |
+| Action | UUID, call ID, turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, separate nullable exact payload and payload-recorded flag bound to the stored Call opt-in, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. Never imply a sent command completed its task. |
 
 Store UTC timestamps for display; assign a monotonically
 increasing sequence per conversation for stable pagination. A provider ID supplements
@@ -94,7 +94,15 @@ change through a call update. Test concurrent retries and cross-owner parent mis
 
 Enable `PRAGMA foreign_keys=ON` on every reader and writer connection before starting
 transactions; verify it is enabled and test orphan rejection and cascade deletion.
-Define deletion relationships explicitly rather than relying on unenforced REFERENCES;
+Relationship policies: Conversation→Call and Call→Turn/Action/Usage use ON DELETE
+RESTRICT: parent tombstones are retained, never cascade-deleted. Action.turn_id and
+Usage.turn_id use ON DELETE SET NULL. Conversation.parent_id and fork-point turn links
+also use SET NULL, so independent forks survive source content expiry. Cross-call turn
+links are forbidden: validate linked turns belong to the same call transactionally.
+Within the deletion barrier, delete Action and Usage rows for explicit deletion, then
+Turn rows, then scrub Call/Conversation content while retaining tombstone fields.
+Automatic content expiry deletes Actions and Turns but retains Usage until day 90;
+Usage expiry deletes those rows separately. Test each FK edge and both retention paths.
 
 indexes cover owner/creation-ordinal and conversation/sequence. Retain the existing private
 DB/WAL/SHM permissions. A backup must use SQLite's backup API or a stopped writer.
@@ -184,7 +192,12 @@ relay identity must be validated against the deployment's trust boundary first.
 Missing or unverified identity fails closed for every history endpoint, including
 listing, continuation, deletion and export; it must never fall back to another owner.
 `_trusted_user` currently returns None for direct/LAN callers, so implement this gate
-before exposing history. A separately configured single-owner mode must bind to
+before exposing history. The same verified-owner gate applies at `/api/live-mode`
+recording Start and reconnect, before creating or attaching any durable Call. Neither
+client session IDs nor `_actor`/unverified `x-tunnel-user` strings establish ownership.
+If identity is absent, disable durable recording and clearly label that state; existing
+unrecorded Live Mode may continue, but cannot attach to stored calls or read history.
+A separately configured single-owner mode must bind to
 loopback or require its own authenticated local credential; a LAN request does not
 become the local owner merely because it reached the daemon.
 
@@ -226,8 +239,12 @@ opening a second one. Persist those fields on Call with an owner/request-UUID un
 constraint, and reject reuse with a different digest. After deletion, keep only the
 minimal owner/request-UUID/digest tombstone alongside the call tombstone; retries
 return deleted rather than creating a new call. Tombstones do not expire while request
-UUIDs are accepted, and contain no transcript or raw request arguments. Create the call and its active-conversation lease in one
-transaction. A browser transport reconnect attaches to that existing call by ID; it does
+UUIDs are accepted, and contain no transcript or raw request arguments. Create a new Conversation (for Start), its Call and active-conversation lease in one
+transaction after looking up the owner/request UUID. Rollback all creation on a duplicate
+race and return the existing owner-scoped call; never leave an orphan Conversation.
+Call lifecycle state, daemon generation and heartbeat are the lease fields; a partial
+UNIQUE index on conversation ID WHERE lifecycle_state = active enforces one active call.
+End/restart recovery changes state transactionally to release that lease. A browser transport reconnect attaches to that existing call by ID; it does
 not create a new conversation or call. Recording policy comes from the stored call, not
 from reconnect parameters, and Continue inherits it unless the owner changes it. On
 daemon restart, a prior-generation lease marks its call interrupted and continuing
@@ -251,6 +268,10 @@ provide “Don’t save this conversation” and “Metadata only” choices. Th
 product decision to approve before implementation. The choice applies server-side
 throughout the call and continuation; telemetry must honor it too, not just SQLite.
 Exact action arguments and typed payloads require a separate explicit per-call opt-in,
+stored on Call; only that policy can populate Action.exact_payload/payload_recorded.
+Otherwise exact_payload is NULL and payload_recorded is false. Exports omit the exact
+field unless separately selected in the preview; content expiry clears both fields.
+The opt-in remains
 independent of ordinary transcript recording. By default all persistence, logs and
 telemetry receive only redacted action summaries, never raw `fc.args` or `keys`.
 Apply this gate as well as the call recording policy before serialization; QSDEBUG
