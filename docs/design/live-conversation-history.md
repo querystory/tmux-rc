@@ -40,7 +40,7 @@ blocked on the separate dispatch-authorization work in #236. Everything that was
 
 | Record | Fields and purpose |
 | --- | --- |
-| Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
+| Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, content/usage retention deadlines and owner-set keep flag, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
 | Call | UUID, owner, conversation ID, start/end times, end reason, provider/model, transcript recording mode and separate exact-payload opt-in, lifecycle state (active/ended/interrupted), heartbeat, daemon generation, deleted-at tombstone and recording epoch, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
 | Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID, persisted namespaced event keys for accepted revisions (unique within call). Usage references this turn when known but is stored independently below. |
 | Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
@@ -56,6 +56,13 @@ full terminal screens, or repeated ambient pane snapshots by default. Transcript
 text and commands can still contain secrets: private filesystem permissions are
 necessary but do not make the content safe to publish. First delivery saves a safe
 argument summary for actions; exact typed payloads require an explicit recording option.
+The default argument summary is a fixed metadata allowlist: server-known verb, stable
+pane ID, character count, and boolean submit/key-operation flags. It contains no input
+text, literal key arguments, provider descriptions, argument snippets or hashes of typed
+secrets. Never use truncation or model-generated paraphrases as redaction. Unknown tool
+arguments are omitted. Apply transcript and exact-payload recording policies before any
+serialization, including logs/telemetry, and test secret-bearing text and key arguments
+with QSDEBUG enabled and exact-payload opt-in disabled.
 
 ## Write path and recovery
 
@@ -285,7 +292,13 @@ An opted-out transcript must not leak through `_Meter`'s telemetry tail. Continu
 non-recorded call cannot reconstruct missing turns and should say so.
 
 Proposed retention: content for 30 days, usage totals for 90 days, with explicit
-“keep” and configurable policies. Usage rows and minimal owner-scoped Call/Conversation
+“keep” and configurable policies. Persist content/usage deadlines and the keep flag on
+Conversation under its owner. Keep suspends both expiry jobs, including day-90 usage;
+removing it restores deadlines based on original content/usage age, with a warning if
+already expired. Explicit deletion overrides Keep. Cleanup and policy changes share the
+serialized writer and recheck the current policy transactionally before deleting; test
+restart and cleanup/Keep races. These settings cannot recover previously expired data.
+Usage rows and minimal owner-scoped Call/Conversation
 parents survive automatic content expiry until day 90; remove transcript text, action
 payloads, titles and derived content at day 30. Usage has no text payload and its optional
 turn link is cleared. Explicit user deletion removes usage as well, irrespective of
