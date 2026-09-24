@@ -142,6 +142,7 @@ export function atlasCharts() {
   }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   bars.tabIndex = 0;
+  bars.dataset.key = 'history-chart';
   bars.addEventListener('keydown', event => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     const span = zoom.end - zoom.start;
