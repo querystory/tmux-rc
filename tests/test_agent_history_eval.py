@@ -10,3 +10,11 @@ def test_worker_expectations_are_opt_in_and_keep_multiplicity():
     assert not score_structured(candidate, {"agents": 2})[0]
     assert not score_structured(candidate, {"subagent_states": ["running", "running"]})[0]
     assert not score_structured({}, {"subagent_states": ["waiting"]})[0]
+
+
+def test_shared_worker_model_accepts_every_observed_state():
+    from openbus.models import SubAgent
+
+    for state in ("running", "waiting", "idle", "compacting", "unknown", "done"):
+        assert SubAgent(label="Worker", state=state).state == state
+    assert SubAgent(label="Worker").state == "unknown"
