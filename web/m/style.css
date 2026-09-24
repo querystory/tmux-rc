@@ -53,6 +53,9 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
 .search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline: none; font-size: 16px; }
 .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+@media (forced-colors: active) {
+  .search:focus-within { outline: 2px solid Highlight; outline-offset: 2px; }
+}
 #sort-picker { margin-left: auto; color: var(--muted); font-size: 13px; }
 #sort-picker summary { padding: 0; }
 .list-heading h1, #new-window { flex-shrink: 0; }
