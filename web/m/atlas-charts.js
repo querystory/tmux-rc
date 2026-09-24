@@ -90,7 +90,7 @@ export function atlasCharts() {
         },
       });
     }
-    cloud.setAttribute('aria-label', `Topics sized by number of matching panes: ${words.map(([w, n]) => `${w}: ${n}`).join(', ')}. Use the topic selector below to explore.`);
+    cloud.setAttribute('aria-label', `Topics sized by number of matching panes: ${words.map(([w, n]) => `${w}: ${n}`).join(', ')}. Click a word to explore, or Tab to its topic button.`);
     const indexed = new Map(samples.map(s => [s.t, s]));
     const times = [];
     for (let t = samples[0]?.t; t <= samples[samples.length - 1]?.t; t += step) times.push(t);
@@ -141,13 +141,19 @@ export function atlasCharts() {
     paint();
   }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  return { cloud, bars, stateControls, zoomBy(factor) {
-    const span = Math.max(1, Math.min(100, (zoom.end - zoom.start) * factor));
-    setZoom((zoom.start + zoom.end - span) / 2, span);
-  }, shiftZoom(direction) {
+  bars.tabIndex = 0;
+  bars.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     const span = zoom.end - zoom.start;
-    setZoom(zoom.start + direction * span / 2, span);
-  }, resetZoom() {
+    if (event.key === '+' || event.key === '=') setZoom(zoom.start + span / 4, span / 2);
+    else if (event.key === '-') setZoom(zoom.start - span / 2, span * 2);
+    else if (event.key === 'ArrowLeft') setZoom(zoom.start - span / 2, span);
+    else if (event.key === 'ArrowRight') setZoom(zoom.start + span / 2, span);
+    else return;
+    event.preventDefault();
+  });
+  bars.title = 'Drag the range handles to zoom. Keyboard: + or − to zoom, left or right arrows to pan.';
+  return { cloud, bars, stateControls, resetZoom() {
     zoom = { start: 0, end: 100 };
     barChart?.dispatchAction({ type: 'dataZoom', ...zoom });
   }, update(data) {

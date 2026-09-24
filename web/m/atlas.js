@@ -55,7 +55,7 @@ function packSessions(groups, width) {
 
 const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
 
-export function renderAtlas(root, panes, navigate, logos) {
+export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
   const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(Boolean))];
@@ -80,13 +80,12 @@ export function renderAtlas(root, panes, navigate, logos) {
     p.waiting_on, p.tool, p.session_summary, p.status_line])];
   if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return;
   root._signature = signature;
-  const selectedWord = root._selectedWord;
   const charts = root._charts ||= atlasCharts();
   const focus = root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
   root._mapResize?.disconnect();
   root.replaceChildren();
   const controls = el('div', 'atlas-controls');
-  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos); };
+  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic); };
   ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
     const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
     const button = el('button', 'atlas-filter atlas-tool-filter');
@@ -162,31 +161,22 @@ export function renderAtlas(root, panes, navigate, logos) {
   root.append(insight);
 
   const lower = el('div', 'atlas-lower');
-  const topics = el('section', 'atlas-panel');
-  topics.append(el('h3', '', 'What’s on the radar'), el('p', 'muted', 'Words shared by pane titles and summaries. Pick one to explore.'));
+  const topics = el('section', 'atlas-panel atlas-topics');
+  topics.append(el('h3', '', 'What’s on the radar'), el('p', 'muted', 'Click a word to search your sessions.'));
   const words = new Map();
   panes.forEach(p => {
     const tokens = new Set(`${paneName(p)} ${p.session_summary || p.status_line || ''}`.toLowerCase().match(/[\p{L}][\p{L}\p{N}-]{2,24}/gu) || []);
     tokens.forEach(w => { if (!STOP.has(w)) { if (!words.has(w)) words.set(w, []); words.get(w).push(p); } });
   });
-  const matches = el('div', 'atlas-matches');
   const topWords = [...words].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])).slice(0, 40);
-  const picker = el('select', 'atlas-topic-picker');
-  picker.dataset.key = 'topic-picker';
-  picker.setAttribute('aria-label', 'Explore a topic');
-  picker.append(new Option('Explore a topic…', ''));
-  topWords.forEach(([word, members]) => picker.append(new Option(`${word} · ${members.length} panes`, word)));
-  const selectWord = word => {
-    root._selectedWord = word;
-    picker.value = word;
-    matches.replaceChildren();
-    if (!word || !words.has(word)) return;
-    const members = words.get(word);
-    matches.append(el('p', 'muted', `${word} · ${members.length} panes`));
-    members.forEach(p => { const link = el('button', 'landing-row', paneName(p)); link.dataset.key = `topic-pane:${p.pane_id}`; link.onclick = () => navigate(p.pane_id); matches.append(link); });
-  };
-  picker.onchange = () => selectWord(picker.value);
-  topics.append(charts.cloud, picker, matches);
+  // Canvas words are clickable; expose the same topics when navigating by keyboard.
+  const topicLinks = el('div', 'atlas-topic-links');
+  topWords.forEach(([word, members]) => {
+    const button = el('button', '', `${word} · ${members.length} panes`);
+    button.onclick = () => searchTopic(word);
+    topicLinks.append(button);
+  });
+  topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
   lower.append(topics);
 
@@ -221,17 +211,9 @@ export function renderAtlas(root, panes, navigate, logos) {
   const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
   resetZoom.dataset.key = 'reset-zoom';
   resetZoom.onclick = () => charts.resetZoom();
-  zoomControls.append(el('span', 'muted', 'Drag the handles to zoom · Ctrl + scroll over the chart'), resetZoom);
-  const keyboardZoom = el('div', 'atlas-controls');
-  keyboardZoom.setAttribute('role', 'group');
-  keyboardZoom.setAttribute('aria-label', 'History chart zoom');
-  [['Zoom in', () => charts.zoomBy(0.5)], ['Zoom out', () => charts.zoomBy(2)],
-    ['Earlier', () => charts.shiftZoom(-1)], ['Later', () => charts.shiftZoom(1)]].forEach(([label, action]) => {
-    const button = el('button', 'atlas-filter', label);
-    button.dataset.key = `history-zoom:${label}`;
-    button.onclick = action; keyboardZoom.append(button);
-  });
-  pulse.append(pickers, charts.stateControls, charts.bars, keyboardZoom, zoomControls);
+  zoomControls.append(el('span', 'muted atlas-zoom-desktop', 'Drag to pan · Ctrl + scroll to zoom'),
+    el('span', 'muted atlas-zoom-touch', 'Pinch to zoom · Drag to pan'), resetZoom);
+  pulse.append(pickers, charts.stateControls, charts.bars, zoomControls);
   pulse.append(el('p', 'atlas-history-note muted', metric === 'panes'
     ? 'Older history grouped compacting and external waits under Running.'
     : 'Observed coding agents only; shells and log tails are excluded. Main agents and their visible background workers are counted separately. Waiting includes review and CI waits. Hidden workers may be missed; this is not CPU or token utilization. Older history has no agent counts.'));
@@ -242,7 +224,6 @@ export function renderAtlas(root, panes, navigate, logos) {
   lower.append(pulse); root.append(lower);
   charts.update({ words: topWords.map(([word, members]) => [word, members.length]),
     samples: chartSamples, states: STATES, unit: metric === 'panes' ? 'Panes' : 'Agents', step: historyData?.step || 60000,
-    zoomKey: JSON.stringify([historyWindow, scope]), selectWord });
-  if (selectedWord) selectWord(selectedWord);
+    zoomKey: JSON.stringify([historyWindow, scope]), selectWord: searchTopic });
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }

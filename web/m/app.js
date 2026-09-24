@@ -276,7 +276,13 @@ function renderLanding() {
   text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
     ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
     : "No tmux panes are open. Start a session on the host and it will appear here.");
-  renderAtlas($("session-atlas"), panes, navigate, LOGOS);
+  renderAtlas($("session-atlas"), panes, navigate, LOGOS, term => {
+    $("search").value = term;
+    filter = "all";
+    renderList();
+    navigate();
+    $("sessions").scrollTop = 0;
+  });
   landingRows("landing-attention", waiting);
 }
 
