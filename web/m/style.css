@@ -51,7 +51,11 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
-.search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline-offset: 4px; font-size: 16px; }
+.search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline: none; font-size: 16px; }
+.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+@media (forced-colors: active) {
+  .search:focus-within { outline: 2px solid Highlight; outline-offset: 2px; }
+}
 #sort-picker { margin-left: auto; color: var(--muted); font-size: 13px; }
 #sort-picker summary { padding: 0; }
 .list-heading h1, #new-window { flex-shrink: 0; }
@@ -312,6 +316,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-chart { height: 320px; width: 100%; margin-top: 20px; }
 .atlas-history-note { margin-top: 12px; }
 @media (prefers-reduced-motion: reduce) { .atlas-dot.s1 .atlas-agent-icon { animation: none; } }
+/* The state legend is also the keyboard/touch filter; avoid duplicate controls. */
+.atlas-history-pickers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.atlas-history-pickers select { min-width: 0; max-width: 100%; flex: 1; }
+.atlas-state-legend { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 12px; }
+.atlas-state-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0 2px; min-height: 44px; font-size: 12px; color: var(--muted); }
+.atlas-state-toggle::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--state-color); border: 1px solid var(--state-color); }
+.atlas-state-toggle[aria-pressed="false"]::before { background: transparent; }
+.atlas-state-toggle[aria-pressed="false"] { text-decoration: line-through; }
 .atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
@@ -404,3 +416,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 /* Compacting remains busy, but is distinct from running work. */
 .atlas-dot.s4 .atlas-agent-icon { border-radius: 8px; outline: 1px solid var(--state-color); outline-offset: 2px; animation: atlas-working 2s ease-out infinite; }
 @media (prefers-reduced-motion: reduce) { .atlas-dot.s4 .atlas-agent-icon { animation: none; } }
+
+/* Fill the topic panel with the cloud instead of stretching empty space below it. */
+.atlas-topics { display: flex; flex-direction: column; }
+.atlas-topics .atlas-cloud { flex: 1; min-height: 300px; }
+.atlas-topic-links { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.atlas-topic-links:focus-within { position: static; width: auto; height: auto; overflow: visible; clip-path: none; display: flex; flex-wrap: wrap; }
+.atlas-topic-links button { padding: 4px 8px; }
+.atlas-chart { touch-action: pan-y; }
+.atlas-zoom-touch { display: none; }
+@media (pointer: coarse) {
+  .atlas-zoom-touch { display: inline; }
+  .atlas-zoom-desktop { display: none; }
+}

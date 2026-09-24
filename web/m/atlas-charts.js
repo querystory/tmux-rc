@@ -30,7 +30,7 @@ export function atlasCharts() {
   let zoom = { start: 0, end: 100 };
   let selectedStates = { Idle: false };
   const stateControls = document.createElement('div');
-  stateControls.className = 'atlas-controls';
+  stateControls.className = 'atlas-state-legend';
   stateControls.setAttribute('role', 'group');
   stateControls.setAttribute('aria-label', 'Visible history states');
   const syncStates = () => [...stateControls.children].forEach(button => {
@@ -90,7 +90,7 @@ export function atlasCharts() {
         },
       });
     }
-    cloud.setAttribute('aria-label', `Topics sized by number of matching panes: ${words.map(([w, n]) => `${w}: ${n}`).join(', ')}. Use the topic selector below to explore.`);
+    cloud.setAttribute('aria-label', `Topics sized by number of matching panes: ${words.map(([w, n]) => `${w}: ${n}`).join(', ')}. Click a word to explore, or Tab to its topic button.`);
     const indexed = new Map(samples.map(s => [s.t, s]));
     const times = [];
     for (let t = samples[0]?.t; t <= samples[samples.length - 1]?.t; t += step) times.push(t);
@@ -99,6 +99,7 @@ export function atlasCharts() {
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     const order = [1, 4, 0, 5, 2, 3]; // Working at the bottom, idle at the top, like the reference.
     const colors = dark ? ['#f1bd53', '#60c992', '#3f4a55', '#4a5261', '#bea5ee', '#8bbdf5'] : ['#f2ad32', '#39b978', '#e3e8ed', '#d1d8e2', '#9363c4', '#729cc1'];
+    [...stateControls.children].forEach((button, i) => button.style.setProperty('--state-color', colors[i]));
     bars.setAttribute('aria-label', samples.length
       ? ` ${unit} by state, ${timeLabel(samples[0].t)} to ${timeLabel(samples[samples.length - 1].t)}. ${samples.filter(s => s.n !== null).length} observed buckets. Latest: ${samples[samples.length - 1].n ? states.map((s, i) => `${samples[samples.length - 1].n[i]} ${s}`).join(', ') : 'No observation'}.`
       : 'No observations yet.');
@@ -111,8 +112,8 @@ export function atlasCharts() {
           return [label(sample.t), sample.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
             ...items.map(item => `${item.seriesName}: ${item.value} ${unit.toLowerCase()}`)].join('\n');
         } },
-      legend: { selected: selectedStates, top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: muted, fontSize: 11 } },
-      grid: { left: 42, right: 14, top: 55, bottom: 78 },
+      legend: { show: false, selected: selectedStates },
+      grid: { left: 42, right: 14, top: 28, bottom: 78 },
       dataZoom: [
         { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 4, height: 24,
           left: 42, right: 14, showDetail: false, borderColor: line,
@@ -140,20 +141,28 @@ export function atlasCharts() {
     paint();
   }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  return { cloud, bars, stateControls, zoomBy(factor) {
-    const span = Math.max(1, Math.min(100, (zoom.end - zoom.start) * factor));
-    setZoom((zoom.start + zoom.end - span) / 2, span);
-  }, shiftZoom(direction) {
+  bars.tabIndex = 0;
+  bars.dataset.key = 'history-chart';
+  bars.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     const span = zoom.end - zoom.start;
-    setZoom(zoom.start + direction * span / 2, span);
-  }, resetZoom() {
+    if (event.key === '+' || event.key === '=') setZoom(zoom.start + span / 4, span / 2);
+    else if (event.key === '-') setZoom(zoom.start - span / 2, span * 2);
+    else if (event.key === 'ArrowLeft') setZoom(zoom.start - span / 2, span);
+    else if (event.key === 'ArrowRight') setZoom(zoom.start + span / 2, span);
+    else return;
+    event.preventDefault();
+  });
+  bars.title = 'Drag the range handles to zoom. Keyboard: + or − to zoom, left or right arrows to pan.';
+  return { cloud, bars, stateControls, resetZoom() {
     zoom = { start: 0, end: 100 };
     barChart?.dispatchAction({ type: 'dataZoom', ...zoom });
   }, update(data) {
     latest = data;
     if (!stateControls.children.length) data.states.forEach(state => {
       const button = document.createElement('button');
-      button.className = 'atlas-filter'; button.textContent = state;
+      button.className = 'atlas-state-toggle'; button.textContent = state;
+      button.title = `Show or hide ${state.toLowerCase()} history`;
       button.dataset.key = `history-state:${state}`;
       button.onclick = () => { selectedStates[state] = selectedStates[state] === false; syncStates(); paint(); };
       stateControls.append(button);
