@@ -34,19 +34,16 @@ turn boundaries. Existing telemetry is not automatically imported as complete hi
 
 ## Record these things
 
+Four records. This feature answers *what happened*; it does not decide what Live Mode
+is allowed to do, so nothing here gates dispatch, mints authority, or changes a code
+path that runs today. Everything that was only bookkeeping became a column.
+
 | Record | Fields and purpose |
 | --- | --- |
-| Conversation | UUID, owner identity, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, conversation ID, start/end times, end reason, selected provider/model, transcript recording mode, exact-action-payload opt-in (separate persisted fields), heartbeat, daemon-generation/lease owner. One explicit Start-to-End interaction. |
-| Connection | UUID, call ID, provider connection ID when available, model actually used, timestamps, reconnect reason. Transport provenance only; references a separate accounting scope. |
-| Turn | UUID, conversation sequence, call/connection IDs, optional fresh request ID foreign key, role, text, start/end times, partial/final/interrupted state, optional provider item ID. |
-| User request | Server-issued UUID, authenticated owner, call ID, user-turn ID, allowed tool/pane scope, creation and revocation times. Unique (call_id, request_id); immutable call/owner association. Imported/history turns cannot create one. |
-| Action | UUID (daemon-issued action key), call ID, fresh user-request ID, turn ID when known, provider tool-call ID for provenance, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. Unique (call_id, action_key). Never imply a sent command completed its underlying task. |
-| Accounting scope | UUID, owning call, provider scope key when available, counter semantics, start/end, completeness. Stable across transport reconnects that preserve provider counters. |
-| Usage | Accounting-scope ID, connection ID for provenance, source event ID or local sequence, cumulative/delta semantics, input/output tokens split by text/audio/cache when reported, audio duration when reported, final/provisional/completeness flags. |
-| Price snapshot | Provider/model, currency, effective time, units and rates actually used, source/version. Immutable UUID plus the rate snapshot used for each estimate; Estimate references it by foreign key. |
-| Estimate | Immutable UUID/revision, accounting-scope ID, usage revision, price-snapshot ID, currency, integer micro-unit amount, completeness and optional superseded estimate ID. Append a revision when usage changes; never update historical estimates or use current rates implicitly. |
-| Share snapshot | UUID, owner, selected conversation range, redacted export payload, creation/expiry/revocation metadata and access policy. Only if sharing is enabled. |
+| Conversation | UUID, owner, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
+| Call | UUID, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation. One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
+| Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID. Usage lives here as columns: tokens split by text/audio/cache and audio duration as the provider reports them, each tagged cumulative-or-delta with a provider revision for ordering. |
+| Action | UUID, call ID, turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. Never imply a sent command completed its task. |
 
 Store UTC timestamps for display and durable ordering; assign a monotonically
 increasing sequence per conversation for stable pagination. A provider ID supplements
@@ -103,41 +100,23 @@ writes cannot recreate deleted data.
 
 ## Usage and cost without double counting
 
-Each adapter declares whether its usage messages are cumulative snapshots or deltas,
-and the exact reset scope. For cumulative messages, replace the latest snapshot for
-that accounting scope; do not sum every turn's snapshot. Order samples by a documented
-provider revision/sequence within the scope, not arrival time. Ignore older revisions;
-conflicting equal revisions make the estimate incomplete. Without a reliable ordering,
-retain per-dimension monotonic maxima for documented cumulative counters and mark
-unexplained decreases/resets incomplete; never overwrite with smaller delayed samples.
-Keep provider corrections separate when their revision semantics cannot be verified.
-Test delayed pre-reconnect samples arriving after newer counters. For deltas, deduplicate event IDs
-and sum once using a unique (accounting_scope_id, event_namespace, source_event_id)
-key. Adapters declare whether IDs are scope-wide or connection-local; use connection
-ID as the namespace unless scope-wide uniqueness is documented. A connection-local
-ID cannot prove replay identity across reconnects; mark ambiguous totals incomplete
-rather than claiming exact deduplication. Test reused IDs on new connections. Where only
-local receive sequencing exists, retain (connection_id, receive_sequence) provenance
-and mark uncertain cross-connection replay as incomplete, never silently counted twice.
-A reconnect that resumes the same provider accounting scope retains its
-scope key; a genuinely new scope gets a new key. Counter resets without a reliable
-scope signal are flagged as incomplete instead of guessed.
+Record what the provider reported; compute money when someone looks. No price-snapshot
+table, no estimate-revision chain, no accounting-scope entity: this is a cost readout,
+not a billing ledger, and a stored pre-aggregated estimate is what would create the
+double-counting that machinery then has to prevent. Rates live in configuration beside
+the model list, versioned with the code; a displayed cost names the rate version it used.
 
-An accounting scope belongs to exactly one call in phase one. Explicit Continue
-starts a fresh provider scope; do not reuse a native billing scope across calls.
-Conversation totals sum disjoint accounting scopes, not call summaries plus their
-turns. A resumed call contributes new usage only. Preserve unknown dimensions as null,
-not zero. Prices are estimates calculated with the saved rate snapshot; changing
-configuration tomorrow must not rewrite yesterday's estimate. Do not count cached
-input twice. Keep voice-service charges, model charges, and optional backend charges
-separate until their billing boundaries are known to avoid adding an inclusive price
-to its own components. Use integer micro-units or decimal amounts, never binary float
-as the authoritative persisted monetary amount.
+Each adapter declares whether its usage messages are cumulative snapshots or deltas, and
+the reset scope. For cumulative messages, replace the latest snapshot for that call; do
+not sum every turn's snapshot. Order samples by the provider's revision/sequence, not
+arrival time. Ignore older revisions; conflicting equal revisions mark usage incomplete.
+Without reliable ordering, show usage as provisional rather than inventing a total.
 
-Initial UI: total calls, active duration, turns, actions, estimated cost, and explicit
-“partial usage” badges. Later: daily cost by provider/model and conversation. Per-turn
-cost is available only when reporting boundaries support it; otherwise show a call
-estimate rather than inventing attribution.
+A call with independently billed components — voice seconds plus backend model tokens —
+records each under its own provider/model key on the turn. They are summed for display
+and never folded into one another, so an inclusive voice charge and a token charge
+cannot be mistaken for the same money. A component with no known rate shows as unpriced
+rather than estimated at zero.
 
 ## Browsing and continuing
 
@@ -151,8 +130,8 @@ expiry. Sign an owner/filter-bound cursor with the snapshot ID and initial creat
 watermark and last key, and exclude later inserts until refresh. Show latest activity
 as a separate field. Deleted rows can disappear; existing rows cannot move between
 pages. Turn pages use immutable conversation sequence, updating partial turns in place.
-Opening one shows the message thread, action
-receipts, partial/interrupted markers, and a compact usage summary. Reuse the live
+Opening one shows the message thread, action records,
+partial/interrupted markers, and a compact usage summary. Reuse the live
 conversation component so historical and active turns have the same presentation.
 Suggested API contracts (not endpoints that exist today):
 
@@ -186,17 +165,15 @@ or protocol syntax. Treat encoding as structural protection, not a guarantee aga
 semantic prompt injection; tool authorization remains server-side. Include delimiter-
 breaking transcripts, summaries and action arguments in malicious-history tests.
 Never replay provider tool-call messages, IDs or results as active protocol messages.
-Only a new user request can authorize actions; historical content cannot authorize
-action replay. Persist a server-issued request ID for each fresh authenticated user
-turn and associate the provider response with that request on the server. Bind every
-action receipt to that call/request ID; never accept a provider-supplied request ID as
-authority. Historical/imported turns cannot mint these IDs. Reject or require explicit
-user confirmation for tool calls with no fresh request association, including unsolicited
-calls after loading history. Recheck the request's call/owner, allowed tool/pane scope
-and revocation before dispatch. Test history-only tool calls with a fabricated ID and
-replayed requests from another call. This is a required change to the current automatic
-Live tool execution path, not an existing guarantee. Require new tool-call validation and current pane-lifetime matching.
-Test malicious transcript/argument instructions with current tools enabled.
+Historical content must never be able to cause an action. Loading history is a read:
+prior tool calls are replayed to the model as inert transcript text, never as protocol
+tool-call messages, tool results or IDs, so the provider cannot treat them as pending
+work to resume. Imported or shared conversations are context only and are marked as
+such. If a provider emits a tool call immediately after history is loaded and it
+corresponds to a historical action rather than anything the user just said, that is a
+history bug: the fix is in how context is serialized, not a new check before dispatch.
+Test history-only tool calls with a fabricated ID, malicious transcripts that imitate
+protocol syntax, and delimiter-breaking summaries and action arguments.
 
 Provider-native resumption, if supported, is a separate optimization with its own
 expiry and credentials handling; it is not the durable history contract. Never store
@@ -205,45 +182,23 @@ parent and selected model explicitly. Permit only one active call per conversati
 initially; reject a second with a clear “already active” response or offer a fork.
 
 Make Start/Continue/Fork idempotent with a client request UUID scoped to the verified
-owner and a stored request digest. A unique constraint returns the original call on
-retry; reusing the key with different arguments returns 409. Create the call and its
-active-conversation lease in one transaction. A browser transport reconnect attaches
-to that existing authorized call via its ID; it does not create a new conversation or
-call. Reject cross-owner attachments and supersede the old socket generation so only
-one capture stream can drive the call. Fence every inbound audio/control frame and
-provider send with the current lease/socket generation, using the same per-call
-serialized execution path as takeover. Recheck after awaits before any side effect;
-discard stale queued audio, stop/mute/configuration messages and stale socket cleanup.
-An old handler exiting cannot close or stop the replacement call. Test delayed audio
-and stop frames, plus old-socket finalization, after takeover. A prior-generation lease after daemon restart ends the
-old call as interrupted; continuing creates a new call and billing scope. Recording
-policy comes from the stored call, not reconnect parameters. Serialize socket takeover
-and action dispatch through the same per-call execution lock. Check the persisted
-lease and socket generation immediately before receipt reservation and immediately
-before terminal dispatch while holding that lock; stale in-flight actions must fail.
-A takeover waits for an already-dispatched action to finish recording its outcome,
-and cannot authorize queued actions from the previous generation. Test a paused old
-receiver that resumes after takeover. Policy changes and call termination use the
-same fence. Both transcript and exact-payload policies come from their separate stored call fields;
-reconnect restores both, and Continue inherits both unless explicitly changed by the owner. The `/api/live-mode`
-WebSocket handshake must establish the same verified owner as the history APIs before
-accepting Start or attachment. The current client-supplied `session` and logging-only
-`_actor` are not authorization. Fail closed on missing/unverified identity; look up
-requested calls under that owner and reject unauthorized IDs before opening a provider
-connection. Apply the explicit single-owner policy to WebSockets too. Test absent,
-forged and cross-owner identities on both initial connection and reconnect.
+owner and a stored request digest, so a retried tap resumes the original call instead of
+opening a second one. Create the call and its active-conversation lease in one
+transaction. A browser transport reconnect attaches to that existing call by ID; it does
+not create a new conversation or call. Recording policy comes from the stored call, not
+from reconnect parameters, and Continue inherits it unless the owner changes it. On
+daemon restart, a prior-generation lease marks its call interrupted and continuing
+starts a new call — history has to show the seam rather than pretend the old call
+resumed.
 
-For tool execution, reserve a unique (call ID, daemon-issued action key) receipt before
-sending input to tmux and record its outcome afterward. Provider tool-call IDs are
-provenance only, not reliable idempotency keys across reconnects. Bind each action key
-to its normalized arguments and pane lifetime; reject reuse with different arguments.
-After a provider reconnect, if an action cannot be tied to an existing action key or a
-new user request, require explicit user confirmation before execution, even if the
-provider supplied a new tool-call ID. Do not deduplicate by argument equality alone:
-the user may intentionally repeat an action. Test replay under both unchanged and
-changed provider IDs, and intentional repetition. A crash between send and acknowledgment has
-an uncertain outcome: expose that uncertainty and never automatically resend. SQLite
-and tmux are not an atomic transaction, so do not promise exactly-once side effects.
+Out of scope, deliberately. Live Mode's existing authorization, socket takeover and
+tool-dispatch behavior are unchanged by this feature: today `openbus/live.py` dispatches
+provider tool calls to `tmux.send_keys` without binding them to a fresh user turn, and
+this design neither adds that binding nor relies on it. Recording an action is not
+permission to take one, and no record defined here is consulted before input is sent to
+a pane. Tightening that path is a behavior change to Live Mode and belongs in its own
+change, against its own tests; see issue #236. Keeping it out means this PR can
+be judged on whether it stores the right things.
 
 ## Recording, retention, and sharing
 
