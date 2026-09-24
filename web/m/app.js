@@ -585,7 +585,7 @@ function renderTasks(pane) {
       const node = document.createElement("div"); node.innerHTML = "<span></span><span></span>"; return node;
     }, (node, value) => {
       const done = value.done || value.state === "done";
-      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}`;
+      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}${id === "agents" && value.state === "compacting" ? " compacting" : ""}`;
       html(node.firstChild, licon(done ? "check" : "circle", 16));
       text(node.lastChild, [value.text || value.label, id === "agents" ? value.state : null, value.elapsed].filter(Boolean).join(" / "));
     });

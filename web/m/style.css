@@ -2,13 +2,13 @@
   color-scheme: dark;
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c;
-  --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696;
+  --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696; --purple: #a371f7;
 }
 :root.light {
   color-scheme: light;
   --bg: #f5f7f6; --surface: #fff; --raised: #e7ede9; --line: #ccd7d0;
   --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7;
-  --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36;
+  --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36; --purple: #8250df;
 }
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
@@ -70,7 +70,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .row-meta { color: var(--muted); font-size: 11px; margin-top: 6px; }
 .badge { font-size: 11px; line-height: 1.6; font-weight: 600; white-space: nowrap; color: var(--muted); }
 .badge.waiting { color: var(--amber); }
-.badge.running, .badge.compacting { color: var(--accent); }
+.badge.running { color: var(--accent); }
+.badge.compacting { color: var(--purple); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
 #list-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 8px max(8px, env(safe-area-inset-bottom)); gap: 4px; }
 #list-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; padding: 6px 2px; font-size: 12px; color: var(--muted); }
@@ -93,6 +94,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #task-count { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .task, .agent { display: flex; align-items: flex-start; gap: 10px; padding-top: 12px; overflow-wrap: anywhere; }
 .task svg, .agent svg { margin-top: 3px; color: var(--accent); }
+.agent.compacting svg { color: var(--purple); }
 .task.done { color: var(--muted); }
 .event { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .event:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -287,7 +289,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .s1 { --state-color: var(--accent); }
 .s2 { --state-color: var(--atlas-idle); }
 .s3 { --state-color: var(--line); }
-.s4 { --state-color: #9363c4; }
+.s4 { --state-color: var(--purple); }
 .s5 { --state-color: #729cc1; }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
 .atlas-map { display: grid; gap: 12px; }
