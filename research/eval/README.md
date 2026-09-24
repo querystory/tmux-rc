@@ -59,6 +59,8 @@ So we split the fields by how the UI uses them:
 **Structured fields — exact match (strict).** These drive the badge and behavior, so
 strictness is correct:
 - `tool`, `activity`, `waiting_on` — compared by value.
+- `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
+  background count and the sorted multiset of worker states (including duplicates).
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.

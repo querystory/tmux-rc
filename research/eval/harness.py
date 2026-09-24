@@ -50,7 +50,7 @@ _STRUCT_SCALAR = ("tool", "activity", "waiting_on")
 # match — but it is read off agent chrome that most screens don't show, so it is scored
 # only when a sample states an expectation (including an explicit null for "must omit").
 # Silently ignoring it would let a naming regression pass with the expectation in place.
-_STRUCT_OPTIONAL = ("session",)
+_STRUCT_OPTIONAL = ("session", "agents")
 
 
 @dataclass
@@ -162,6 +162,12 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         c, e = candidate.get(k), expected.get(k)
         if c != e:
             diffs.append(f"{k}: got {c!r} want {e!r}")
+    if "subagent_states" in expected:
+        subs = candidate.get("subagents")
+        states = (sorted(str(a.get("state")) for a in subs if isinstance(a, dict))
+                  if isinstance(subs, list) else [])
+        if states != sorted(expected["subagent_states"]):
+            diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
     # question — presence + answer_style, plus whichever cursor fields the sample pins
     want_q = expected.get("question")
     extra = tuple(k for k in ("selected", "keymap") if isinstance(want_q, dict) and k in want_q)

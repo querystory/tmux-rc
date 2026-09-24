@@ -249,6 +249,7 @@ const logoFor = (tool) => (has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO);
 // the emoji they replace rendered as platform-colored glyphs that clashed with the
 // chrome (and differed per device). Same inline-SVG approach as the ⤢ fsbtn.
 const LUCIDE = {
+  circle: '<circle cx="12" cy="12" r="10"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -3091,9 +3092,11 @@ function applySubagents(ui, subs) {
   keyedList(ui.list, subs, (a, i) => i + "|" + (a.label || ""), buildTask, (d, a) => {
     const done = a.state === "done";
     setCls(d, "done", done);
-    setText(d._tickText, done ? "✓" : "");
-    setCls(d._pulse, "on", !done);
-    setText(d._label, a.label || "");
+    const busy = ["running", "compacting"].includes(a.state);
+    setHtml(d._tickText, done ? licon("check", 12) : busy ? "" : licon("circle", 12));
+    setCls(d, "b-compacting", a.state === "compacting");
+    setCls(d._pulse, "on", busy);
+    setText(d._label, [a.label, a.state].filter(Boolean).join(" · "));
     setText(d._meter, [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).join(" "));
   });
 }

@@ -136,19 +136,12 @@ def test_stray_waiting_on_dropped_when_not_waiting():
     assert "waiting_on" not in r
 
 
-def test_agents_count_matches_ui_not_done_rule():
-    # The dock badge count must agree with subagentsView, which pulses on state != "done".
-    # So any non-"done" state (running, missing, paused, a stray uppercase) counts as one
-    # running agent; only exactly "done" is excluded.
-    subs = [
-        {"state": "running"},
-        {"state": "done"},
-        {},  # missing state → running
-        {"state": "paused"},  # not "done" → still counted (matches the pulse)
-        {"state": "Running"},  # stray case → not "done" → counted
-    ]
+def test_agents_count_only_observed_busy_workers():
+    subs = [{"state": state} for state in
+            ("running", "done", "waiting", "idle", "compacting", "unknown")]
+    subs.extend([{}, {"state": "Running"}, "malformed"])
     r = classify(_pane(), "…", _llm({"activity": "running", "subagents": subs}))
-    assert r["agents"] == 4
+    assert r["agents"] == 2
 
 
 def test_agents_count_defaults_zero_without_subagents():
@@ -302,3 +295,22 @@ def test_copyable_duplicating_a_link_is_dropped():
     assert r["copyables"] == [
         {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"}
     ]
+
+
+def test_background_terminal_hint_is_scoped_to_current_section():
+    from openbus.classify import parser_prompt
+
+    prompts = []
+
+    def capture_prompt(system, _text):
+        prompts.append(system)
+        return {"tool": "codex", "activity": "idle"}
+
+    classify(_pane("node"), "Background terminals:\n exec session 1: tail -f log", capture_prompt)
+    assert "AGENT COUNTS:" in prompts[-1]
+    classify(_pane("node"), "  1 background terminal running · /ps to view", capture_prompt)
+    assert "AGENT COUNTS:" in prompts[-1]
+    classify(_pane("node"), "Background agents:\n review: running", capture_prompt)
+    assert prompts[-1] == parser_prompt()
+    classify(_pane("node"), "Ready", capture_prompt, prior=["Background terminals:\n old command"])
+    assert prompts[-1] == parser_prompt()

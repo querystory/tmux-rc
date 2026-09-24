@@ -66,14 +66,12 @@ class Task(BaseModel):
 class SubAgent(BaseModel):
     """A background agent THIS agent spawned to run in parallel (e.g. Claude Code's
     `general-purpose  <task>  Nm  ↓Nk tokens` rows, or a "waiting for N background
-    agents" line). Not a checklist item — it's a running/finished worker, so it carries
+    agents" line). Not a checklist item — it is an independently observed worker with
     a live `state` and whatever cheap on-screen signal (elapsed/tokens) is shown."""
 
     label: str  # what the sub-agent is doing, e.g. "In-depth review PR 4012"
-    # The CONTRACT is running|done (default running). Consumers stay lenient on
-    # violations: classify's count and the UI both treat anything that isn't exactly
-    # "done" as running — a stray value degrades to "still working", never to dropped.
-    state: Literal["running", "done"] = "running"
+    # Unknown is not proof of active work. Only running/compacting are busy.
+    state: Literal["running", "waiting", "idle", "compacting", "unknown", "done"] = "unknown"
     elapsed: str | None = None  # e.g. "2m", if the row shows it
     tokens: str | None = None  # e.g. "88.7k", if the row shows it
 
