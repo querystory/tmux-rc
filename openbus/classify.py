@@ -180,14 +180,11 @@ def classify(
             result["waiting_on"] = "user"
     else:
         result.pop("waiting_on", None)
-    # Derive the running-subagent count from subagents[] so the UI (dock badge) has one
-    # number to read and the model never has to keep a separate count in sync. ALWAYS
-    # set it (default 0) — never let a legacy/non-numeric `agents` the model might emit
-    # leak through to the UI. "Running" == the UI's rule: anything not "done" is running
-    # (subagentsView pulses on state !== "done"), so both read one definition.
+    # Count only workers observed running; waiting/idle/unknown are not active work.
+    # Compacting has its own history state but still counts as busy in the dock.
     subs = result.get("subagents")
     result["agents"] = (
-        sum(1 for a in subs if isinstance(a, dict) and a.get("state") != "done")
+        sum(1 for a in subs if isinstance(a, dict) and a.get("state") in ("running", "compacting"))
         if isinstance(subs, list)
         else 0
     )

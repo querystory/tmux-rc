@@ -587,7 +587,7 @@ function renderTasks(pane) {
       const done = value.done || value.state === "done";
       node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}`;
       html(node.firstChild, licon(done ? "check" : "circle", 16));
-      text(node.lastChild, [value.text || value.label, value.elapsed].filter(Boolean).join(" / "));
+      text(node.lastChild, [value.text || value.label, id === "agents" ? value.state : null, value.elapsed].filter(Boolean).join(" / "));
     });
   }
   reconcile($("copyables"), copyables, (value, i) => `${i}:${value.label}`, () => {

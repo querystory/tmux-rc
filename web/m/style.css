@@ -287,6 +287,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .s1 { --state-color: var(--accent); }
 .s2 { --state-color: var(--atlas-idle); }
 .s3 { --state-color: var(--line); }
+.s4 { --state-color: #9363c4; }
+.s5 { --state-color: #729cc1; }
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
 .atlas-map { display: grid; gap: 12px; }
 .atlas-split { display: grid; gap: 12px; min-width: 0; }
@@ -396,3 +398,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .standalone-fill, .standalone-fill body { position: static; inset: auto; height: 100vh; overflow: visible; }
 .standalone-fill body { position: relative; }
 .standalone-fill #app { position: absolute; top: 0; bottom: auto; height: 100vh; }
+
+/* Compacting remains busy, but is distinct from running work. */
+.atlas-dot.s4 .atlas-agent-icon { border-radius: 8px; outline: 1px solid var(--state-color); outline-offset: 2px; animation: atlas-working 2s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .atlas-dot.s4 .atlas-agent-icon { animation: none; } }

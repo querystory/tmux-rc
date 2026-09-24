@@ -3092,8 +3092,8 @@ function applySubagents(ui, subs) {
     const done = a.state === "done";
     setCls(d, "done", done);
     setText(d._tickText, done ? "✓" : "");
-    setCls(d._pulse, "on", !done);
-    setText(d._label, a.label || "");
+    setCls(d._pulse, "on", ["running", "compacting"].includes(a.state));
+    setText(d._label, [a.label, a.state].filter(Boolean).join(" · "));
     setText(d._meter, [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).join(" "));
   });
 }

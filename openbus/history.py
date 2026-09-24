@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 HEARTBEAT = 60
 COVERAGE = 120
 BACKFILL_TTL = 4 * 3600
-STATES = ("Needs you", "Running", "Idle", "Unknown")
+STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
+AGENT_TOOLS = {"claude", "codex", "gemini"}
 
 
 def default_path() -> Path:
@@ -31,19 +32,51 @@ def default_path() -> Path:
 def state_index(pane: dict) -> int:
     activity = pane.get("activity")
     if activity == "waiting" and pane.get("waiting_on") != "external": return 0
-    if activity in {"running", "compacting", "waiting"}: return 1
+    if activity == "running": return 1
+    if activity == "compacting": return 4
+    if activity == "waiting": return 5
     if activity == "idle": return 2
     return 3
 
 
+def agent_counts(pane: dict) -> dict:
+    """Observed agents, not processes or CPU utilization; completed workers are gone."""
+    foreground, background = [0] * len(STATES), [0] * len(STATES)
+    if pane.get("tool") in AGENT_TOOLS:
+        foreground[state_index(pane)] = 1
+        subs = pane.get("subagents", [])
+        if not isinstance(subs, list):
+            background = None
+        else:
+            for agent in subs:
+                if not isinstance(agent, dict) or agent.get("state") == "done":
+                    continue
+                background[state_index({"activity": agent.get("state"),
+                                        "waiting_on": agent.get("waiting_on", "external")})] += 1
+    return {"foreground": foreground, "background": background}
+
+
+def sum_counts(rows: list[dict], key: str) -> list[int] | None:
+    # Missing legacy fields mean unmeasured, not zero. Empty inventories ARE zero.
+    if any(row.get(key) is None for row in rows):
+        return None
+    return [sum(row[key][i] for row in rows) for i in range(len(STATES))]
+
+
 def grouped(panes: list[dict]) -> tuple[list[int], list[dict]]:
     groups = {}
-    counts = [0, 0, 0, 0]
+    counts = [0] * len(STATES)
     for p in panes:
         key = (p.get("session"), p.get("tool") or "other")
-        group = groups.setdefault(key, {"session": key[0], "tool": key[1], "n": [0, 0, 0, 0]})
+        group = groups.setdefault(key, {"session": key[0], "tool": key[1],
+                                       "n": [0] * len(STATES), "members": []})
         group["n"][p["state"]] += 1
+        group["members"].append(p)
         counts[p["state"]] += 1
+    for group in groups.values():
+        members = group.pop("members")
+        for key in ("foreground", "background"):
+            group[key] = sum_counts(members, key)
     return counts, list(groups.values())
 
 
@@ -78,7 +111,7 @@ class History:
                     payload_id INTEGER NOT NULL REFERENCES inventory_payloads(id));
                 CREATE TABLE IF NOT EXISTS log_observations (
                     t REAL NOT NULL, uid TEXT NOT NULL, tool TEXT NOT NULL,
-                    state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 3),
+                    state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 5),
                     valid_until REAL,
                     PRIMARY KEY(t, uid));
             """)
@@ -87,6 +120,20 @@ class History:
             columns = {r[1] for r in db.execute("PRAGMA table_info(log_observations)")}
             if "valid_until" not in columns:
                 db.execute("ALTER TABLE log_observations ADD COLUMN valid_until REAL")
+            # Expand the legacy constraint without rewriting or reinterpreting observations.
+            schema = db.execute(
+                "SELECT sql FROM sqlite_master WHERE name='log_observations'",
+            ).fetchone()[0]
+            if "BETWEEN 0 AND 3" in schema:
+                if not db.in_transaction:
+                    db.execute("BEGIN")
+                db.execute("ALTER TABLE log_observations RENAME TO old_log_observations")
+                db.execute("CREATE TABLE log_observations (t REAL NOT NULL, uid TEXT NOT NULL, "
+                           "tool TEXT NOT NULL, state INTEGER NOT NULL "
+                           "CHECK(state BETWEEN 0 AND 5), "
+                           "valid_until REAL, PRIMARY KEY(t, uid))")
+                db.execute("INSERT INTO log_observations SELECT * FROM old_log_observations")
+                db.execute("DROP TABLE old_log_observations")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('host', ?)", (socket.gethostname(),))
             host = db.execute("SELECT value FROM metadata WHERE key='host'").fetchone()[0]
             if host != socket.gethostname():
@@ -146,6 +193,7 @@ class History:
             "uid": f"{server}:{p['pane_id']}:{births.get(p['pane_id'], 'unknown')}",
             "session": p.get("session") or "",
             "tool": p.get("tool") or "other", "state": state_index(p),
+            **agent_counts(p),
         } for p in states), key=lambda p: p["uid"])
         payload = json.dumps(panes, separators=(",", ":"), sort_keys=True)
         if payload == self._last and now - self._written < HEARTBEAT: return
@@ -219,7 +267,9 @@ class History:
                     else: panes = None
                 counts, groups = grouped(panes) if panes is not None else (None, [])
                 samples.append({"t": bucket * 1000, "n": counts,
-                                "groups": groups, "source": source})
+                                "groups": groups, "source": source,
+                                **{key: sum_counts(groups, key) if panes is not None else None
+                                   for key in ("foreground", "background")}})
         return {"samples": samples, "step": step * 1000, "first": first * 1000,
                 "states": STATES, "backfill_ttl": BACKFILL_TTL,
                 "backfill_note": ("Log reconstruction (lighter bars) is partial; "

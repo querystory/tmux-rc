@@ -136,19 +136,12 @@ def test_stray_waiting_on_dropped_when_not_waiting():
     assert "waiting_on" not in r
 
 
-def test_agents_count_matches_ui_not_done_rule():
-    # The dock badge count must agree with subagentsView, which pulses on state != "done".
-    # So any non-"done" state (running, missing, paused, a stray uppercase) counts as one
-    # running agent; only exactly "done" is excluded.
-    subs = [
-        {"state": "running"},
-        {"state": "done"},
-        {},  # missing state → running
-        {"state": "paused"},  # not "done" → still counted (matches the pulse)
-        {"state": "Running"},  # stray case → not "done" → counted
-    ]
+def test_agents_count_only_observed_busy_workers():
+    subs = [{"state": state} for state in
+            ("running", "done", "waiting", "idle", "compacting", "unknown")]
+    subs.extend([{}, {"state": "Running"}, "malformed"])
     r = classify(_pane(), "…", _llm({"activity": "running", "subagents": subs}))
-    assert r["agents"] == 4
+    assert r["agents"] == 2
 
 
 def test_agents_count_defaults_zero_without_subagents():
