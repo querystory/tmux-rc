@@ -40,13 +40,13 @@ blocked on the separate dispatch-authorization work in #236. Everything that was
 
 | Record | Fields and purpose |
 | --- | --- |
-| Conversation | UUID, owner, editable title, created/updated times, archive state, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation. One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
+| Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, optional parent conversation and fork point. Stable across calls. |
+| Call | UUID, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
 | Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID. Usage references this turn when known but is stored independently below. |
 | Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
 | Action | UUID, call ID, turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. Never imply a sent command completed its task. |
 
-Store UTC timestamps for display and durable ordering; assign a monotonically
+Store UTC timestamps for display; assign a monotonically
 increasing sequence per conversation for stable pagination. A provider ID supplements
 our own IDs rather than replacing them. A pane reference includes the tmux server and
 pane lifetime so a reused `%12` cannot point an old action at a new pane.
@@ -85,7 +85,7 @@ Enable `PRAGMA foreign_keys=ON` on every reader and writer connection before sta
 transactions; verify it is enabled and test orphan rejection and cascade deletion.
 Define deletion relationships explicitly rather than relying on unenforced REFERENCES;
 
-indexes cover owner/created-at/ID and conversation/sequence. Retain the existing private
+indexes cover owner/creation-ordinal and conversation/sequence. Retain the existing private
 DB/WAL/SHM permissions. A backup must use SQLite's backup API or a stopped writer.
 
 On startup, persist a new daemon generation and invalidate all active leases owned
@@ -132,8 +132,9 @@ duplicate deltas and inclusive voice/backend pricing without double counting.
 ## Browsing and continuing
 
 Add a History entry to Live Mode with paginated conversations, search scoped to the
-current owner, and model/date filters. List pages sort by immutable (created_at, UUID),
-not mutable updated-at. For search or other mutable filters, materialize the matching
+current owner, and model/date filters. List pages sort by an immutable, monotonically allocated database creation ordinal,
+not wall-clock or mutable updated-at. Ordinals are never reused, including after deletion;
+a clock rollback cannot insert a new conversation into an existing cursor window. For search or other mutable filters, materialize the matching
 conversation IDs in a bounded, expiring owner-scoped pagination snapshot at the first
 request; later title/turn changes cannot change its membership. Recheck ownership and
 deletion on each page (deleted items disappear), and require a fresh search after cursor
@@ -197,7 +198,11 @@ initially; reject a second with a clear “already active” response or offer a
 
 Make Start/Continue/Fork idempotent with a client request UUID scoped to the verified
 owner and a stored request digest, so a retried tap resumes the original call instead of
-opening a second one. Create the call and its active-conversation lease in one
+opening a second one. Persist those fields on Call with an owner/request-UUID unique
+constraint, and reject reuse with a different digest. After deletion, keep only the
+minimal owner/request-UUID/digest tombstone alongside the call tombstone; retries
+return deleted rather than creating a new call. Tombstones do not expire while request
+UUIDs are accepted, and contain no transcript or raw request arguments. Create the call and its active-conversation lease in one
 transaction. A browser transport reconnect attaches to that existing call by ID; it does
 not create a new conversation or call. Recording policy comes from the stored call, not
 from reconnect parameters, and Continue inherits it unless the owner changes it. On
