@@ -27,8 +27,9 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   function paint() {
     $("live-mode").classList.toggle("active", !!run);
     $("live-mode").title = $("live-mode").ariaLabel = run ? "Live Mode active" : "Live Mode";
-    $("voice-start").textContent = run ? "End Live Mode" : "Start Live Mode";
+    $("voice-start").textContent = run ? "End conversation" : "Start Live Mode";
     $("voice-start").hidden = !run;
+    $("voice-controls").hidden = !run;
     $("voice-models").hidden = !!run;
     $("voice-mute").hidden = !run?.stream;
     $("voice-mute").setAttribute("aria-pressed", !!run?.muted);
