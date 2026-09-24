@@ -173,6 +173,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const topicLinks = el('div', 'atlas-topic-links');
   topWords.forEach(([word, members]) => {
     const button = el('button', '', `${word} · ${members.length} panes`);
+    button.dataset.key = `topic:${word}`;
     button.onclick = () => searchTopic(word);
     topicLinks.append(button);
   });
