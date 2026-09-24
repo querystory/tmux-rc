@@ -41,7 +41,7 @@ blocked on the separate dispatch-authorization work in #236. Everything that was
 | Record | Fields and purpose |
 | --- | --- |
 | Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation, deleted-at tombstone and recording epoch, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
+| Call | UUID, owner, conversation ID, start/end times, end reason, provider/model, recording mode, heartbeat, daemon generation, deleted-at tombstone and recording epoch, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
 | Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID, persisted namespaced event keys for accepted revisions (unique within call). Usage references this turn when known but is stored independently below. |
 | Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
 | Action | UUID, call ID, turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. Never imply a sent command completed its task. |
@@ -87,6 +87,11 @@ Test upgrades from each supported version, interrupted upgrades and preservation
 pane history. Refuse a database newer than the running binary; roll back via a verified
 backup rather than destructive automatic downgrades.
 
+Call duplicates the verified Conversation owner; enforce a composite foreign key
+`Call(owner, conversation_id)` to `Conversation(owner, UUID)` backed by a UNIQUE index,
+and `UNIQUE(owner, start_request_uuid)` on Call, including tombstones. Ownership cannot
+change through a call update. Test concurrent retries and cross-owner parent mismatch.
+
 Enable `PRAGMA foreign_keys=ON` on every reader and writer connection before starting
 transactions; verify it is enabled and test orphan rejection and cascade deletion.
 Define deletion relationships explicitly rather than relying on unenforced REFERENCES;
@@ -108,7 +113,14 @@ marks it incomplete before normal processing resumes. If storage failure prevent
 marker write, keep the call incomplete and prohibit successful finalization until the
 marker is durable; a crash leaves an incomplete call even without exact gap boundaries.
 History shows both known gaps and unknown loss ranges. Commands must not be replayed to repair a
-missing history row. Deletion of an active call first ends its recording/call so queued
+missing history row. Action recording is best-effort after dispatch, not an exactly-once
+audit: a crash between pane send and commit may leave no Action row at all. Every call
+still active at crash is durably incomplete on recovery, with “actions may have been
+sent without a saved record.” A known post-send write failure sets the same loss status;
+clean finalization must drain action writes and must never clear a loss flag. If even
+that flag cannot be written, the already-persisted incomplete state remains. Test a
+crash immediately after send and a failed action commit followed by normal call end.
+Do not invent an unsent result or resend to fill the gap. Deletion of an active call first ends its recording/call so queued
 writes cannot recreate deleted data.
 
 ## Usage and cost without double counting
@@ -287,6 +299,15 @@ not appear in history reads. Retain minimal ID/epoch tombstones without transcri
 never reuse call IDs, and do not let event ingestion recreate a missing parent call.
 The delete response waits for the barrier and deletion commit. Test a delayed writer,
 in-flight checkpoint, producer race and daemon restart against this ordering.
+
+Derived summaries, search membership snapshots and export previews are ephemeral in
+phase one, regenerated from retained owner-scoped rows rather than stored as extra
+content records. Cache entries carry conversation ID/epoch and expiry; deletion and
+retention invalidate them, and every response rechecks the epoch after generation.
+No completed preview can bypass this check after its source is deleted. A downloaded
+export is an explicit external copy; the daemon retains no share snapshot. Persisted
+authenticated share snapshots require their own ownership, ACL, expiry and deletion
+schema in the later sharing design before that phase can ship.
 
 Phase one sharing is a downloadable Markdown/JSON transcript with a preview: select
 turns, remove pane labels, redact commands and identities, optionally include cost.
