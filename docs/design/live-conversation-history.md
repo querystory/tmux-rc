@@ -41,7 +41,7 @@ blocked on the separate dispatch-authorization work in #236. Everything that was
 | Record | Fields and purpose |
 | --- | --- |
 | Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, content/usage retention deadlines and owner-set keep flag, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, owner, immutable database-assigned creation ordinal, conversation ID, start/end times, end reason, provider/model, transcript recording mode and separate exact-payload opt-in, lifecycle state (active/ended/interrupted), heartbeat, daemon generation, deleted-at tombstone and recording epoch, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
+| Call | UUID, owner, immutable database-assigned creation ordinal, conversation ID, start/end times, end reason, provider/model, transcript recording mode and separate exact-payload opt-in, lifecycle state (active/ended/interrupted), heartbeat, daemon generation, deleted-at tombstone and recording epoch, content epoch and content-expired flag, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
 | Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID, persisted namespaced event keys for accepted revisions (unique within call). Usage references this turn when known but is stored independently below. |
 | Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
 | Action | UUID, call ID, observed-at UTC timestamp and per-call monotonic action sequence allocated by the serialized writer (unique per call, never reused), turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, separate nullable exact payload and payload-recorded flag bound to the stored Call opt-in, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. History and exports order actions by call creation ordinal then action sequence, using observed-at for display; multiple actions on one turn stay distinct. Never imply a sent command completed its task. |
@@ -104,7 +104,13 @@ transactions; verify it is enabled and test orphan rejection, RESTRICT parent de
 Relationship policies: Conversation→Call and Call→Turn/Action/Usage use ON DELETE
 RESTRICT: parent tombstones are retained, never cascade-deleted. Action.turn_id and
 Usage.turn_id use ON DELETE SET NULL. Conversation.parent_id and fork-point turn links
-also use SET NULL, so independent forks survive source content expiry. Cross-call turn
+also use SET NULL, so independent forks survive source content expiry. Parent and fork
+point are set only by one owner-scoped transaction: the parent must have the same owner,
+and the fork turn must belong to that parent via its Call. Validate these relationships
+before any insert/update/import and before loading context; reject cross-owner IDs,
+mismatched parent/turn pairs and tombstoned sources. Test concurrent deletes and forged
+cross-owner parent/fork links; imported external content receives new private IDs and
+never retains foreign database references. Cross-call turn
 links are forbidden: validate linked turns belong to the same call transactionally.
 Within the deletion barrier, delete Action and Usage rows for explicit deletion, then
 Turn rows, then scrub Call/Conversation content while retaining tombstone fields.
@@ -304,6 +310,16 @@ payloads, titles and derived content at day 30. Usage has no text payload and it
 turn link is cleared. Explicit user deletion removes usage as well, irrespective of
 the automatic retention periods. At day 90, remove expired usage and unneeded parent
 metadata. Test totals after day 30 and removal at day 90 and on explicit deletion.
+Automatic content expiry also advances each affected Call.content_epoch and sets its
+content-expired flag durably in the cleanup transaction before deleting content. Every
+Turn/Action write carries its captured content epoch and checks that it still matches,
+the call is not expired, and the deadline has not passed under the current Keep policy.
+Discard queued/late content on mismatch, including after restart. Usage writes check
+recording/deletion epochs and their separate usage deadline, so usage can continue after
+content expiry. At usage expiry, reject late usage too. Keep cannot undo a committed
+expiry or reactivate an expired call; new recording requires a new Call with its own
+epoch and deadline. End the expired call if still active and clearly surface that state.
+Test automatic expiry racing checkpoints, action writes, usage writes and Keep updates.
 Run bounded deletion jobs that remove turns,
 actions, derived summaries, search rows, and share snapshots consistently. Deleting
 local data cannot retract downloaded exports or copies in separately retained backups;
