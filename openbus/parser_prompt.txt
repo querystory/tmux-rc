@@ -275,9 +275,7 @@ reports finished, and pass through "elapsed"/"tokens" if the row shows them. Giv
 "↓" and label, so any arrow or trailing word here would double up. These are
 workers, NOT checklist items — a delegated-job row never goes in "tasks", and a plan
 line never goes in "subagents". Include "subagents" ONLY when such spawned-agent rows
-are visibly on screen. Background shell commands/terminals (exec sessions, sleeps,
-log tails) are NOT subagents, even if the CLI calls them background tasks.
-Classify each worker independently: explicit Copilot/CI/timer
+are visibly on screen. Classify each worker independently: explicit Copilot/CI/timer
 waits are "waiting", idle/paused is "idle", context compaction is "compacting",
 and unclear is "unknown". Elapsed time alone does not mean working. The parent
 waiting for children does not imply its children are waiting.
@@ -374,8 +372,3 @@ names printed in conversation, captured output, server logs, or subagent content
 For code edits, the headline must name the changed behavior and the relevant flag,
 function, or API visible in the diff. Do not substitute an earlier discussed error
 for the change shown in the added/removed lines.
-
-AGENT COUNTS: a background process is not a background coding agent. In particular,
-Codex's "Background terminals" / "exec session" rows describe shell commands it ran,
-not delegated agents. A screen containing only "exec session 1: tail -f ... (running)"
-must omit subagents (or emit []). Only include actual spawned-agent contexts.

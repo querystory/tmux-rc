@@ -295,3 +295,22 @@ def test_copyable_duplicating_a_link_is_dropped():
     assert r["copyables"] == [
         {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"}
     ]
+
+
+def test_background_terminal_hint_is_scoped_to_current_section():
+    from openbus.classify import parser_prompt
+
+    prompts = []
+
+    def capture_prompt(system, _text):
+        prompts.append(system)
+        return {"tool": "codex", "activity": "idle"}
+
+    classify(_pane("node"), "Background terminals:\n exec session 1: tail -f log", capture_prompt)
+    assert "AGENT COUNTS:" in prompts[-1]
+    classify(_pane("node"), "  1 background terminal running · /ps to view", capture_prompt)
+    assert "AGENT COUNTS:" in prompts[-1]
+    classify(_pane("node"), "Background agents:\n review: running", capture_prompt)
+    assert prompts[-1] == parser_prompt()
+    classify(_pane("node"), "Ready", capture_prompt, prior=["Background terminals:\n old command"])
+    assert prompts[-1] == parser_prompt()

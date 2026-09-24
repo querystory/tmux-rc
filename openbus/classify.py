@@ -24,6 +24,15 @@ from .tmux import Pane
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 
+# A concrete CLI section cue needs a local clarification, not more rules applied
+# to every unrelated pane. The model still identifies and classifies the workers.
+_BACKGROUND_TERMINALS_HINT = """
+AGENT COUNTS: a background process is not a background coding agent. In particular,
+Codex's "Background terminals" / "exec session" rows describe shell commands it ran,
+not delegated agents. A screen containing only "exec session 1: tail -f ... (running)"
+must omit subagents (or emit []). Only include actual spawned-agent contexts.
+"""
+
 # The production parser prompt lives in parser_prompt.txt (a load-bearing ~120-line
 # artifact — kept as its own file so it can be edited/diffed as prose, not wrangled
 # inside a Python string). Stable between edits ⇒ hits Gemini's context cache.
@@ -130,7 +139,14 @@ def classify(
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
     payload = f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{payload}"
-    result = llm_fn(parser_prompt(), payload) if llm_fn else None
+    result = None
+    if llm_fn:
+        prompt = parser_prompt()
+        if re.search(
+            r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
+        ):
+            prompt += _BACKGROUND_TERMINALS_HINT
+        result = llm_fn(prompt, payload)
     if not isinstance(result, dict):
         # A failed parse knows nothing about the screen, so it must not INVENT a state.
         # `_obvious_idle` only recognizes a bare shell prompt, so on an agent TUI it is

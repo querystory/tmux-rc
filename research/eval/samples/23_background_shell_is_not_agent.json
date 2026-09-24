@@ -1,7 +1,7 @@
 {
   "description": "Codex background shell terminals are processes, not spawned coding agents. Do not inflate worker concurrency with a long-running log tail.",
   "current_command": "node",
-  "capture": "OpenAI Codex\nModel: gpt-6-sol\n\nStarted tail -f /tmp/tmux-rc-build.log in a background terminal. The setup task is complete.\n\nBackground terminals:\n  exec session 1: tail -f /tmp/tmux-rc-build.log (running, 12m 34s)\n\nWorked for 15s\n\n\u203a\n\n~/src/tmux-rc \u00b7 gpt-6-sol medium \u00b7 30% context left",
+  "capture": "OpenAI Codex\nModel: gpt-6-sol\n\nStarted tail -f /tmp/tmux-rc-build.log in a background terminal. The setup task is complete.\n\nWorked for 15s\n\n  1 background terminal running \u00b7 /ps to view \u00b7 /stop to close\n\n\u203a Ask Codex to do anything\n\n~/src/tmux-rc \u00b7 gpt-6-sol medium \u00b7 30% context left",
   "expected": {
     "tool": "codex",
     "activity": "idle",
