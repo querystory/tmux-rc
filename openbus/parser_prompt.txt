@@ -374,3 +374,8 @@ names printed in conversation, captured output, server logs, or subagent content
 For code edits, the headline must name the changed behavior and the relevant flag,
 function, or API visible in the diff. Do not substitute an earlier discussed error
 for the change shown in the added/removed lines.
+
+AGENT COUNTS: a background process is not a background coding agent. In particular,
+Codex's "Background terminals" / "exec session" rows describe shell commands it ran,
+not delegated agents. A screen containing only "exec session 1: tail -f ... (running)"
+must omit subagents (or emit []). Only include actual spawned-agent contexts.
