@@ -204,20 +204,19 @@ export function renderAtlas(root, panes, navigate, logos) {
   };
   const hasLogs = samples.some(s => s.source === 'logs');
   const heading = el('div', 'atlas-panel-heading');
-  heading.append(el('h3', '', metric === 'panes' ? 'Pane states over time' : 'Agent states over time'), range);
-  const metricControls = el('div', 'atlas-controls');
-  metricControls.setAttribute('role', 'group');
+  heading.append(el('h3', '', 'Activity over time'));
+  const metricControls = el('select', 'atlas-range');
   metricControls.setAttribute('aria-label', 'History population');
-  [['panes', 'Panes'], ['agents', 'All agents'], ['foreground', 'Main agents'], ['background', 'Background agents']].forEach(([value, label]) => {
-    const button = el('button', 'atlas-filter', label);
-    button.dataset.key = `history-metric:${value}`;
-    button.setAttribute('aria-pressed', String(metric === value));
-    button.onclick = () => { root._metric = value; redraw(); };
-    metricControls.append(button);
-  });
+  metricControls.dataset.key = 'history-metric';
+  [['panes', 'Panes'], ['agents', 'All agents'], ['foreground', 'Main agents'], ['background', 'Background agents']]
+    .forEach(([value, label]) => metricControls.append(new Option(label, value)));
+  metricControls.value = metric;
+  metricControls.onchange = () => { root._metric = metricControls.value; redraw(); };
+  const pickers = el('div', 'atlas-history-pickers');
+  pickers.append(metricControls, range);
   pulse.append(heading,
     el('p', 'muted', historyError || (historyData
-      ? 'Saved by this machine’s daemon. Blank intervals mean no observation. Idle starts hidden; use the state buttons or legend to show it.' : 'Loading saved history…')));
+      ? 'Saved by this machine’s daemon. Gaps mean no observation.' : 'Loading saved history…')));
   const zoomControls = el('div', 'atlas-zoom-controls');
   const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
   resetZoom.dataset.key = 'reset-zoom';
@@ -232,7 +231,7 @@ export function renderAtlas(root, panes, navigate, logos) {
     button.dataset.key = `history-zoom:${label}`;
     button.onclick = action; keyboardZoom.append(button);
   });
-  pulse.append(metricControls, charts.stateControls, charts.bars, keyboardZoom, zoomControls);
+  pulse.append(pickers, charts.stateControls, charts.bars, keyboardZoom, zoomControls);
   pulse.append(el('p', 'atlas-history-note muted', metric === 'panes'
     ? 'Older history grouped compacting and external waits under Running.'
     : 'Observed coding agents only; shells and log tails are excluded. Main agents and their visible background workers are counted separately. Waiting includes review and CI waits. Hidden workers may be missed; this is not CPU or token utilization. Older history has no agent counts.'));
