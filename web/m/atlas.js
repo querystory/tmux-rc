@@ -243,7 +243,7 @@ export function renderAtlas(root, panes, navigate, logos) {
   lower.append(pulse); root.append(lower);
   charts.update({ words: topWords.map(([word, members]) => [word, members.length]),
     samples: chartSamples, states: STATES, unit: metric === 'panes' ? 'Panes' : 'Agents', step: historyData?.step || 60000,
-    zoomKey: JSON.stringify([historyWindow, scope, metric]), selectWord });
+    zoomKey: JSON.stringify([historyWindow, scope]), selectWord });
   if (selectedWord) selectWord(selectedWord);
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }
