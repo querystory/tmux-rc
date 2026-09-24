@@ -59,7 +59,7 @@ def test_identity_and_dimensions_are_structural_only(tmp_path):
     with h.connect() as db:
         payload = db.execute("SELECT panes FROM snapshots").fetchone()[0]
     assert "SECRET" not in payload
-    assert json.loads(payload)[0]["uid"] == "boot:pid:%1:unknown"
+    assert json.loads(payload)["panes"][0]["uid"] == "boot:pid:%1:unknown"
     assert h.query(now=600)["samples"][-1]["groups"] == [
         {"session": "new", "tool": "codex", "n": [0, 1, 0, 0, 0, 0],
          "foreground": [0, 1, 0, 0, 0, 0], "background": [0, 0, 0, 0, 0, 0]},
@@ -218,7 +218,9 @@ def test_recycled_pane_records_identity_change_before_heartbeat(tmp_path):
     h.record([pane()], "server", 601, births={"%1": "101"})
     with h.connect() as db:
         rows = db.execute("SELECT panes FROM snapshots ORDER BY t").fetchall()
-    assert [json.loads(row[0])[0]["uid"] for row in rows] == ["server:%1:100", "server:%1:101"]
+    assert [json.loads(row[0])["panes"][0]["uid"] for row in rows] == [
+        "server:%1:100", "server:%1:101",
+    ]
 
 
 def test_log_state_never_crosses_verified_lifetime_end(tmp_path):
@@ -307,6 +309,13 @@ def test_legacy_snapshot_migration_preserves_history_and_gaps(tmp_path):
         assert samples[0]["n"] == [0, 1, 0, 0, 0, 0]
         assert any(s["source"] == "gap" for s in samples)
         assert samples[-1]["n"] == [0, 0, 0, 0, 0, 0]
+        assert samples[-1]["foreground"] is None
+        assert samples[-1]["background"] is None
+    # A newly measured empty fleet must not extend the legacy empty interval.
+    h.record([], "s", 1120)
+    samples = History(path).query("all", now=1120)["samples"]
+    assert samples[-2]["background"] is None
+    assert samples[-1]["foreground"] == samples[-1]["background"] == [0] * 6
 
 
 def test_verified_reimport_restores_legacy_row_without_overwriting_verified_data(tmp_path):

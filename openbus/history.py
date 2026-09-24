@@ -195,7 +195,9 @@ class History:
             "tool": p.get("tool") or "other", "state": state_index(p),
             **agent_counts(p),
         } for p in states), key=lambda p: p["uid"])
-        payload = json.dumps(panes, separators=(",", ":"), sort_keys=True)
+        # Version the inventory itself so even an empty observation records capability.
+        payload = json.dumps({"version": 2, "panes": panes},
+                             separators=(",", ":"), sort_keys=True)
         if payload == self._last and now - self._written < HEARTBEAT: return
         if self._failed and now - self._failed < HEARTBEAT: return
         try:
@@ -251,9 +253,11 @@ class History:
                     "SELECT last_seen, panes FROM snapshots WHERE t<=? ORDER BY t DESC LIMIT 1",
                     (at,),
                 ).fetchone()
-                source, panes = "gap", None
+                source, panes, versioned = "gap", None, False
                 if live and at - live[0] <= COVERAGE:
-                    source, panes = "daemon", json.loads(live[1])
+                    source, payload = "daemon", json.loads(live[1])
+                    versioned = isinstance(payload, dict) and payload.get("version") == 2
+                    panes = payload["panes"] if versioned else payload
                 elif live_start is None or at < live_start:
                     while cursor < len(records) and records[cursor][0] <= at:
                         t, uid, tool, state, valid_until = records[cursor]
@@ -268,7 +272,7 @@ class History:
                 counts, groups = grouped(panes) if panes is not None else (None, [])
                 samples.append({"t": bucket * 1000, "n": counts,
                                 "groups": groups, "source": source,
-                                **{key: sum_counts(groups, key) if panes is not None else None
+                                **{key: sum_counts(groups, key) if panes or versioned else None
                                    for key in ("foreground", "background")}})
         return {"samples": samples, "step": step * 1000, "first": first * 1000,
                 "states": STATES, "backfill_ttl": BACKFILL_TTL,
