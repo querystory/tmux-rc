@@ -40,14 +40,21 @@ blocked on the separate dispatch-authorization work in #236. Everything that was
 
 | Record | Fields and purpose |
 | --- | --- |
-| Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, content/usage retention deadlines and owner-set keep flag, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
-| Call | UUID, owner, immutable database-assigned creation ordinal, conversation ID, start/end times, end reason, provider/model, transcript recording mode and separate exact-payload opt-in, lifecycle state (active/ended/interrupted), heartbeat, daemon generation, deleted-at tombstone and recording epoch, content epoch and content-expired flag, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
-| Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID, persisted namespaced event keys for accepted revisions (unique within call). Usage references this turn when known but is stored independently below. |
+| Conversation | UUID, owner, editable title, created/updated times, immutable database-assigned creation ordinal, archive state, durable next-turn-sequence counter, content/usage retention deadlines and owner-set keep flag, deleted-at tombstone and recording epoch, optional parent conversation and fork point. Stable across calls. |
+| Call | UUID, owner, immutable database-assigned creation ordinal, conversation ID, start/end times, end reason, provider/model, transcript recording mode and separate exact-payload opt-in, lifecycle state (active/ended/interrupted), heartbeat, daemon generation, deleted-at tombstone and recording epoch, content epoch and content-expired flag, durable next-action-sequence counter, recording completeness and loss intervals keyed by epoch, start request UUID and request digest (unique per owner/request UUID). One Start-to-End interaction. Transport details (provider connection ID, model actually used, reconnect reason) are columns here: a reconnect rewrites them and keeps appending to the same call, because a new socket is not a new thing to reason about. |
+| Turn | UUID, conversation sequence, call ID, role, text, start/end times, partial/final/interrupted state, optional provider item ID and persisted item revision/watermark, persisted namespaced event keys for accepted revisions (unique within call). Usage references this turn when known but is stored independently below. |
 | Usage | Call ID, optional turn ID, provider/model and charge-component key, accounting reset key, sample ID/revision, cumulative-or-delta kind, counters (text/audio/cache tokens and audio duration), completeness. Independent of transcript rows; silence and calls without a finalized turn still produce usage. |
 | Action | UUID, call ID, observed-at UTC timestamp and per-call monotonic action sequence allocated by the serialized writer (unique per call, never reused), turn ID when known, provider tool-call ID, verb, stable pane identity and label snapshot, argument summary, separate nullable exact payload and payload-recorded flag bound to the stored Call opt-in, outcome, submitted flag. A descriptive record of what Live Mode typed, written after the fact. It imposes no uniqueness constraint on dispatch and is never consulted before sending input. History and exports order actions by call creation ordinal then action sequence, using observed-at for display; multiple actions on one turn stay distinct. Never imply a sent command completed its task. |
 
 Store UTC timestamps for display; assign a monotonically
-increasing sequence per conversation for stable pagination. A provider ID supplements
+increasing sequence per conversation for stable pagination. Conversation/Call creation
+ordinals use SQLite INTEGER PRIMARY KEY AUTOINCREMENT, never plain reusable ROWID;
+UUID remains a separate unique identity. Turn.sequence is a stored integer with
+UNIQUE(conversation_id, sequence), allocated by incrementing Conversation.next_turn_sequence
+in the same transaction as insert. Actions use Call.next_action_sequence the same way.
+Retain counters through content expiry/tombstoning; never compute MAX from remaining
+children or reset sqlite_sequence. Test newest-row delete/recreate and later calls after
+all old turns expire against existing cursors. A provider ID supplements
 our own IDs rather than replacing them. A pane reference includes the tmux server and
 pane lifetime so a reused `%12` cannot point an old action at a new pane.
 
@@ -77,7 +84,14 @@ per second and flush on turn completion, interruption, and call end. The UI can 
 live deltas immediately; only acknowledged durable records are described as saved.
 Mark the possible last unflushed fragment loss after a crash rather than promising
 exact transcripts. Upsert a stable turn/item ID when a provider revises a transcript;
-do not append the replacement as another utterance. Persist an event deduplication key
+do not append the replacement as another utterance. Persist a provider revision or
+adapter-declared monotonic item watermark and compare it transactionally on every
+upsert. Older revisions are ignored; equal revision/conflicting content marks the turn
+incomplete without overwriting accepted text. With no trustworthy cross-connection
+ordering, preserve the existing finalized text and flag an ambiguous replay instead of
+using arrival order. Partial deltas may accumulate only within the adapter-declared
+ordered stream; final-to-partial regression is rejected. Test delayed older revisions,
+reconnect replays and conflicting equal revisions. Persist an event deduplication key
 where the provider supplies one; otherwise use connection + receive sequence and do
 not claim deduplication across arbitrary provider replays. Persist the namespaced event
 key for every accepted revision on its turn, including fallback connection/receive
@@ -197,6 +211,14 @@ Suggested API contracts (not endpoints that exist today):
 - `POST /api/live-conversations/{id}/continue` — create a new call, optionally a fork.
 - `PATCH` / `DELETE /api/live-conversations/{id}` — rename/archive or delete.
 - `POST /api/live-conversations/{id}/export` — preview and produce a selected export.
+
+Protect browser state-changing POST/PATCH/DELETE routes and recording WebSocket
+handshakes against CSRF: require an exact configured same-origin Origin (or validated
+same-origin Referer when Origin is absent), rejecting missing, null, ambiguous or
+untrusted origins. Validate against configured external origins, not attacker-supplied
+forwarded headers; cookies/owner identity alone do not suffice. Any non-browser API
+exception requires a separate non-cookie credential and explicit API policy. Test
+cross-site deletion/continuation/export and WebSocket attempts with valid cookies.
 
 Authenticate and authorize every read/write/export using server-established identity;
 never trust an owner ID supplied in the browser. Local unauthenticated mode needs an
@@ -353,8 +375,15 @@ in-flight checkpoint, producer race and daemon restart against this ordering.
 Derived summaries, search membership snapshots and export previews are ephemeral in
 phase one, regenerated from retained owner-scoped rows rather than stored as extra
 content records. Cache entries carry conversation ID/epoch and expiry; deletion and
-retention invalidate them, and every response rechecks the epoch after generation.
-No completed preview can bypass this check after its source is deleted. A downloaded
+retention invalidate them. Generate a bounded immutable response from one SQLite read
+snapshot, then authorize release under the same serialized gate as deletion/retention:
+recheck owner, source epochs and expiry and commit a response-release decision. That
+decision is the read linearization point. If deletion wins the gate, discard the response;
+if release wins, it is an already-authorized download and may finish after deletion,
+including buffered network bytes. Do not claim DELETE can recall released data. Never
+stream additional database content after release: the whole bounded snapshot is fixed.
+Test both orderings and slow downloads; exports exceeding the bound require narrower
+selection rather than an unbounded read or long-held database lock. A downloaded
 export is an explicit external copy; the daemon retains no share snapshot. Persisted
 authenticated share snapshots require their own ownership, ACL, expiry and deletion
 schema in the later sharing design before that phase can ship.
