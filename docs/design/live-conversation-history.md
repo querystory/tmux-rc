@@ -1,17 +1,20 @@
-# Save Live Mode conversations
+# Save conversations and pane input history
 
 Proposal only. Let someone reopen a previous Live Mode conversation, read the message
 thread, and see roughly how long it ran and what it cost. Use the existing private
-SQLite database. This does not change how Live Mode sends commands to panes.
+SQLite database. Also keep a continuous history of inputs sent to each pane. This
+does not change how Live Mode or the composer sends commands to panes. The main
+interaction goal is one assistant conversation that can move between voice and text.
 
 ## Two tables
 
 | Table | Columns |
 | --- | --- |
-| `live_conversations` | Integer ID, owner, title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
-| `live_entries` | Conversation ID, entry number, timestamp, kind (`user`, `assistant`, `action`, `notice`), text, optional metadata JSON. |
+| `conversations` | Integer ID, owner, kind (`live` or `pane`), optional pane lifetime key, title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
+| `conversation_entries` | Conversation ID, entry number, timestamp, kind (`user`, `assistant`, `input`, `action`, `notice`), text, optional metadata JSON. |
 
-A conversation is the thread the user sees. There is no separate Call, Turn, Action,
+A conversation is the thread the user sees: either a Live Mode conversation or the
+ongoing input history of a pane. These share storage, not lifecycle or recording policy. There is no separate Call, Turn, Action,
 Connection, or Usage entity. A spoken message, an action notice, and “connection lost”
 are simply different kinds of entries in that thread.
 
@@ -26,16 +29,103 @@ or typed secrets. They describe what was sent, not whether the command finished.
 Provider connection IDs and transcript-fragment bookkeeping stay in the live handler;
 they do not need their own durable records.
 
+## Keep chatting when voice is inconvenient
+
+Put a text composer in the Live Mode thread. The user can switch to **Text mode** in a
+crowded room or meeting: stop microphone capture, stop current playback and suppress
+new spoken replies, while keeping the assistant conversation open. Responses remain
+visible as text. Switching back to Voice explicitly reacquires the microphone and
+enables spoken replies. Closing the keyboard or sending text never unmutes audio.
+
+Typing here sends a user message to the assistant, not directly to the selected pane.
+The assistant can act on panes through the existing tools and show action notices in
+the thread. The existing pane composer remains a distinct “send to pane” action.
+
+This needs no new tables or conversation type. Voice transcripts and typed messages
+are both `user` entries, with `input_mode: voice|text` in metadata; replies are
+`assistant` entries regardless of whether they were spoken. Switching modes does not
+end the conversation, reset usage, or create a Call. Text mode is a UI/audio preference,
+not another durable lifecycle. A reopened thread starts with audio off until requested.
+
+Route submitted text into the active provider conversation. Confirm each adapter can
+accept text and produce visible replies while local audio is disabled; do not recreate
+the provider session just to hide audio controls. If a provider requires a new session,
+say it is reconnecting and restore bounded context explicitly rather than silently
+starting from scratch. Never present an outgoing local text bubble as acknowledged
+until accepted; show pending/failed sends and make retry reuse that message entry.
+Mode switches neither resend inputs nor replay tool calls. If a reply is interrupted,
+keep the partial text labeled as such; already-sent pane actions are not undone.
+
+Prioritize this within an active conversation before restart-time Continue, sharing or
+pane-history imports. Saving the thread should make the same conversation available
+later, but a seamless voice/text switch must work without durable recording enabled.
+Test voice→text during playback, no microphone/audio in Text mode, one typed message
+per send/retry, preserved assistant context, visible tool actions, and explicit return
+to Voice. Resuming after a disconnected provider remains the separate Continue work.
+
+## Continuous pane history
+
+One pane thread per owner and pane lifetime, surviving browser visits, Live Mode calls,
+renames and daemon restarts. Use the existing tmux server/pane identity and confirmed
+pane creation/removal boundaries; `%52` or a display label alone is not an identity.
+If the lifetime cannot be established, start a new thread rather than merge unrelated
+panes. A closed pane stays readable. Starting another agent inside the same pane adds a
+boundary notice when detected; it does not silently erase or replace the pane history.
+
+An `input` entry represents a logical send, not every keyboard event:
+
+| Value | Where it lives |
+| --- | --- |
+| Submitted text and timestamp | Entry text and timestamp. |
+| Source: composer, Live Mode, or API | Entry metadata, assigned by the server. |
+| Delivery: sent, failed, or unknown; Enter submitted or not | Entry metadata. Sent means handed to tmux, not processed by the agent. |
+| Context at send time | Metadata snapshot: pane/session/window label, working directory, tool/model, agent session ID and branch when known, plus observation time. Missing or stale information stays labeled as such. |
+| Originating Live Mode message | Optional `(conversation_id, entry_number)` reference, only when that association is known and both threads have the same owner. |
+
+For example: pane input #42 says “address the review comments,” sent from Live Mode at
+14:32, to the Codex session in the repo directory on a particular branch. Its origin
+link opens the voice discussion explaining which comments. An independently typed
+composer message has the same shape without that link. Do not invent a causal link to
+the latest voice message when the provider did not establish one.
+
+Record at the logical dispatch boundary used by composer/API/Live Mode, not each low-level
+`send_keys` call: one composer submission may paste several segments and press Enter.
+Store the combined text with attachment labels/availability, not image bytes or promises
+that temporary upload files will survive. Key-only operations can be short notices.
+Unsubmitted fragments stay marked unsubmitted; do not pretend they form a full prompt.
+Never automatically resend input to repair a missing history row.
+
+This initially covers inputs sent through tmux-rc. Direct typing in another tmux client
+and complete agent replies need a reliable harness/event source later. Screen captures
+are observations, not exact messages. The UI must call this input history, not imply a
+complete two-way transcript. Imported events, if added later, must identify their source.
+
+The ordered entries provide durable context. Current running/idle/waiting state still
+comes from the existing watcher; an input is not evidence that work is running or done.
+If useful later, a thread can have one derived summary and a `through_entry` number so
+new inputs can be appended to its context. No extra state-machine or summary table is
+needed. Reading history never replays commands; using it as agent context is a separate
+explicit feature with the same safeguards as Continue.
+
+Pane input recording has its own visible opt-in because exact submitted text may contain
+secrets. Live-origin text is saved only when both pane-input recording and Live Mode
+content recording allow it. With recording off, keep at most a content-free notice.
+Keep exact input text in the pane entry, not duplicated in Live Mode action summaries.
+Origin links are optional navigation, not permission to read: recheck ownership, and a
+deleted source becomes unavailable without deleting the independently saved pane input.
+Make that independence clear in deletion UI; users can delete either or both threads.
+
 ## Saving and reading
 
-Create the conversation when saved Live Mode starts. The existing live handler builds
+For Live Mode, create the conversation when saved listening starts. For pane history,
+explicitly enabling recording creates or opens that pane thread. The existing live handler builds
 each message from streaming fragments; save the finished message, not every fragment.
 Use one bounded writer queue off the audio loop. Assign a message its entry number
 once and reuse it on a database retry. Do not replay provider history on reconnect or
 try to reconstruct missed fragments after a daemon crash.
 
 A browser reconnect to a still-running handler keeps the same conversation. A daemon
-restart marks previously active conversations interrupted; a new Live Mode start
+restart marks previously active Live Mode conversations interrupted; a new Live Mode start
 creates a new conversation. Starting history is explicit, not a side effect of an
 incoming message: late writes may insert entries only under an existing active parent.
 
@@ -70,7 +160,8 @@ rates change; we are not promising invoice reconciliation or historical billing 
 Provide a visible Save conversation toggle before starting. When off, do not persist
 transcript content or send it through content-bearing telemetry/logging, including
 QSDEBUG paths. Do not save microphone audio, provider credentials, or exact action
-payloads. The saved transcript itself may contain sensitive things the user said.
+payloads in Live Mode action entries. Exact text belongs only in opted-in pane input
+entries as described above. The saved transcript itself may contain sensitive things the user said.
 
 Use the same server-verified owner for recording and history access. Unverified clients
 can use existing unsaved Live Mode but cannot create/read saved conversations. Check
@@ -79,7 +170,7 @@ same-origin checks. IDs are lookup keys, not permission to read a conversation.
 
 Keep a conversation until the user deletes it in the first version. Delete its entries
 and usage together; no separate retention periods, keep overrides, or tombstones.
-Deletion stops that conversation's recording and runs through the same serialized
+Deletion stops that thread's recording and runs through the same serialized
 writer as inserts. Writes queued afterward fail the active-parent check; no write path
 recreates the parent. Test deletion racing a pending write and restart. Downloads or
 backups already taken cannot be recalled by deleting the local conversation.
@@ -100,7 +191,11 @@ backups already taken cannot be recalled by deleting the local conversation.
 
 Add the two tables with a migration that preserves existing pane history, then wire
 finished messages, action notices and meter totals into the writer. Add list/read/delete
-UI. Test message ordering/retries, reconnect without duplication, crash/write failure,
-usage without messages, recording opt-out, owner isolation and deletion races. No
+UI. Pane input history can follow using the same tables and shared writer, with composer,
+API and Live Mode logical sends covered together. Test message ordering/retries, reconnect without duplication, crash/write failure,
+usage without messages, pane identity/restarts, send-time context, missing origin links,
+recording opt-out, owner isolation and deletion races. No
 backfill and no changes to provider tool dispatch. Review that small implementation
-before designing continuation or sharing.
+before designing restart-time continuation or sharing. In parallel, add the Live Mode
+text composer and explicit Voice/Text control using the existing assistant session;
+that interaction should not wait on the pane-history implementation.
