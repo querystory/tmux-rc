@@ -418,12 +418,12 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-tool-filter { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 6px 10px; }
 .atlas-tool-filter img { object-fit: contain; }
 
-/* WebKit #254868: standalone vh includes safe areas that dynamic viewport
-   measurements can omit. Keep the outer page in normal flow, without fixed-root
-   clipping; the app owns scrolling and still clips its own content. */
-.standalone-fill, .standalone-fill body { position: static; inset: auto; height: 100vh; overflow: visible; }
+/* Keep the standalone root in normal flow to avoid WebKit fixed-root clipping.
+   Include the top safe area for translucent installs; opaque installs report
+   zero. Bare 100vh overflows the opaque case; bare dvh shortens the translucent one.
+   Cap the correction at 100vh: WebKit may expand visualViewport after the root grows. */
+.standalone-fill, .standalone-fill body { position: static; inset: auto; height: min(100vh, var(--app-height, calc(100dvh + env(safe-area-inset-top)))); overflow: visible; }
 .standalone-fill body { position: relative; }
-.standalone-fill #app { position: absolute; top: 0; bottom: auto; height: 100vh; }
 
 /* Compacting remains busy, but is distinct from running work. */
 .atlas-dot.s4 .atlas-agent-icon { border-radius: 8px; outline: 1px solid var(--state-color); outline-offset: 2px; animation: atlas-working 2s ease-out infinite; }
@@ -441,3 +441,4 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   .atlas-zoom-touch { display: inline; }
   .atlas-zoom-desktop { display: none; }
 }
+.standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: min(100vh, var(--app-height, calc(100dvh + env(safe-area-inset-top)))); }

@@ -1044,12 +1044,10 @@ function fitViewport() {
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
   document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
-  if (standalone && !editing) {
-    document.documentElement.style.removeProperty("--app-height");
-    document.documentElement.style.removeProperty("--app-top");
-    return;
-  }
-  document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
+  // Translucent installs expose a top safe area excluded from visualViewport;
+  // opaque-status-bar installs report zero. Preserve both without sniffing the installer.
+  const topInset = standalone && !editing ? parseFloat(getComputedStyle($("app")).paddingTop) || 0 : 0;
+  document.documentElement.style.setProperty("--app-height", `${viewport.height + topInset}px`);
   document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
 }
 window.visualViewport?.addEventListener("resize", fitViewport);
