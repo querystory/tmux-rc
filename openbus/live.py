@@ -1,10 +1,11 @@
-"""Live Mode: talk to every pane at once over a Gemini Live voice session.
+"""Live Mode: talk to every pane at once over a voice-model session (Gemini Live or
+OpenAI Realtime — the adapters live in live_providers.py).
 
 One WebSocket (`/api/live-mode`) per session. The browser streams mic PCM up; the
-daemon owns the Gemini Live connection, feeds it the watcher's always-current pane
-state, streams the model's voice + transcripts back, and executes the session's tools —
-type_in_pane and press_key — through the same send_keys primitive every other input
-path uses.
+daemon owns the model connection (live_providers.py), feeds it the watcher's
+always-current pane state, streams the model's voice + transcripts back, and executes
+the session's tools — type_in_pane and press_key — through the same send_keys primitive
+every other input path uses.
 Design + prompting rationale: docs/design/live-mode.md.
 """
 
@@ -20,8 +21,9 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import llm, telemetry, tmux
+from . import live_providers, llm, telemetry, tmux
 from .classify import _load_prompt
+from .live_providers import KEYS, LiveModel
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +39,6 @@ def enabled() -> bool:
     os.environ per-call (not cached) so an env change is picked up without a code edit."""
     return os.environ.get("TMUXRC_LIVE_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
-
-# The Live-capable model — NOT the flash-lite classifier model (which has no live/bidi
-# variant). Region likewise: Live models are region-pinned, not "global".
-LIVE_MODEL = os.environ.get("TMUXRC_LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
-LIVE_REGION = os.environ.get("TMUXRC_LIVE_REGION", "us-central1")
-# Picker/routing identifiers stay available when the optional adapter cannot load.
-GPT_LIVE_MODEL = "gpt-live-1"
-GPT_LIVE_LABEL = "GPT-Live 1"
 
 # Ambient [tmux update] messages: at most one per this many seconds, and only when the
 # watcher's state_version moved (the same change signal /api/state long-polls on).
@@ -67,69 +61,42 @@ SCREEN_BUDGET_CHARS = 24_000
 # pane's app needs a beat to react before a capture shows anything new.
 POST_TYPE_REFRESH_SECONDS = 1.5
 
-# Native-audio Live pricing (USD per 1M tokens). Audio and text bill at very different
-# rates, so we price the two modalities separately rather than with one blended number.
-# Overridable in case the rate card moves. Defaults are the gemini-2.5-flash native-audio
-# published rates; TEXT covers the system prompt + [tmux update] context we send as text.
-_LIVE_TEXT_IN_PER_M = float(os.environ.get("TMUXRC_LIVE_TEXT_IN_PER_M", "0.50"))
-_LIVE_TEXT_OUT_PER_M = float(os.environ.get("TMUXRC_LIVE_TEXT_OUT_PER_M", "2.00"))
-_LIVE_AUDIO_IN_PER_M = float(os.environ.get("TMUXRC_LIVE_AUDIO_IN_PER_M", "3.00"))
-_LIVE_AUDIO_OUT_PER_M = float(os.environ.get("TMUXRC_LIVE_AUDIO_OUT_PER_M", "12.00"))
-
 
 class _LiveUsage:
-    """Accumulates a session's token usage from Gemini Live usage_metadata messages.
+    """A session's token Split (text/audio × in/out, plus cached input) and its cost under
+    the MODEL's rate card (live_providers.LiveModel.rates) — a single blended price would
+    be badly wrong because audio out is ~24× text in and cached input is ~30× cheaper
+    again, and one global card would be wrong the moment a second model is on the menu.
+    Providers report CONNECTION-cumulative totals (live_providers.Event.usage), so the
+    last event always carries the totals and cost() is always current."""
 
-    Live reports usage per server message; we keep the latest per-modality split (in vs
-    out, text vs audio) and derive cost with the four-way rate card above — a single
-    blended price would be badly wrong because audio out is ~24× text in. Cumulative:
-    the last message of a session carries the session totals, so cost() is always current.
-    Cheap and allocation-free in the hot receive loop (plain int adds)."""
+    def __init__(self, rates: live_providers.Split) -> None:
+        self.rates = rates
+        self.split = live_providers.Split(*[0] * len(rates))
 
-    def __init__(self) -> None:
-        self.text_in = self.text_out = self.audio_in = self.audio_out = 0
+    def set(self, split: live_providers.Split) -> None:
+        """Take the provider's latest CUMULATIVE Split — overwrite, don't sum: the last
+        event of a connection carries its totals."""
+        self.split = live_providers.Split(*split)
 
-    def add(self, usage) -> None:
-        """Fold one usage_metadata into the running split. Prompt = input, response =
-        output; per-modality details break each into text/audio (anything not audio is
-        billed as text)."""
-        if usage is None:
-            return
-        prompt = getattr(usage, "prompt_token_count", 0) or 0
-        resp = getattr(usage, "response_token_count", 0) or 0
-        a_in = _audio_tokens(getattr(usage, "prompt_tokens_details", None))
-        a_out = _audio_tokens(getattr(usage, "response_tokens_details", None))
-        # These messages carry CUMULATIVE session totals, so overwrite, don't sum.
-        self.audio_in, self.audio_out = a_in, a_out
-        self.text_in = max(prompt - a_in, 0)
-        self.text_out = max(resp - a_out, 0)
+    @property
+    def cached(self) -> int:
+        return self.split.text_cached + self.split.audio_cached
+
+    @property
+    def audio_in(self) -> int:
+        return self.split.audio_in + self.split.audio_cached
 
     @property
     def in_tokens(self) -> int:
-        return self.text_in + self.audio_in
+        return self.split.text_in + self.split.text_cached + self.audio_in
 
     @property
     def out_tokens(self) -> int:
-        return self.text_out + self.audio_out
+        return self.split.text_out + self.split.audio_out
 
     def cost(self) -> float:
-        return (
-            self.text_in / 1e6 * _LIVE_TEXT_IN_PER_M
-            + self.text_out / 1e6 * _LIVE_TEXT_OUT_PER_M
-            + self.audio_in / 1e6 * _LIVE_AUDIO_IN_PER_M
-            + self.audio_out / 1e6 * _LIVE_AUDIO_OUT_PER_M
-        )
-
-
-def _audio_tokens(details) -> int:
-    """Sum the AUDIO-modality token counts out of a *_tokens_details list; 0 if absent."""
-    types = llm.genai_types()
-
-    total = 0
-    for d in details or []:
-        if getattr(d, "modality", None) == types.Modality.AUDIO:
-            total += getattr(d, "token_count", 0) or 0
-    return total
+        return sum(n / 1e6 * rate for n, rate in zip(self.split, self.rates, strict=True))
 
 
 class _Meter:
@@ -141,15 +108,18 @@ class _Meter:
     `session` is a per-session UUID — the summable key shared with emit_live's watch-time
     rounds, so a query can join a voice session's cost to its screen-view time."""
 
-    def __init__(self, session: str, actor: str | None) -> None:
+    def __init__(self, session: str, actor: str | None, model: LiveModel) -> None:
         self.session = session
         self.actor = actor
-        self.model = LIVE_MODEL
-        self.details = {}
-        self.usage = _LiveUsage()
+        self.model = model
+        self.usage = _LiveUsage(model.rates)
         self.turns = 0
         self.started = time.monotonic()
         self._lines: list[str] = []
+        # Extra OTel fields a provider adapter wants folded into each record (GPT-Live
+        # adds voice_seconds / usage_final / backend_model). Empty for the seam's own
+        # providers, which report everything through `usage`.
+        self.details: dict = {}
 
     def note(self, line: str) -> None:
         """Record a transcript fragment (voice in/out, or a typed action). Bounded so a
@@ -180,11 +150,13 @@ class _Meter:
         telemetry.emit_live_turn(
             session=self.session,
             actor=self.actor,
-            model=self.model,
+            model=self.model.model,
+            provider=self.model.backend,
             in_tokens=self.usage.in_tokens,
             out_tokens=self.usage.out_tokens,
+            cached_tokens=self.usage.cached,
             audio_in_tokens=self.usage.audio_in,
-            audio_out_tokens=self.usage.audio_out,
+            audio_out_tokens=self.usage.split.audio_out,
             cost=self.usage.cost(),
             turns=self.turns,
             duration_s=time.monotonic() - self.started,
@@ -192,19 +164,6 @@ class _Meter:
             transcript=self._transcript(),
             **self.details,
         )
-
-
-def _live_client():
-    """A dedicated Vertex client for Live sessions. Deliberately NOT llm._client():
-    that one pins the classifier's per-request timeout (an anti-wedge guard for one-shot
-    parse calls) which would sever a long-lived bidi stream, and defaults to the
-    'global' region which Live models don't serve."""
-    from google import genai  # noqa: PLC0415 - same ~0.9s import as genai_types
-
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if not project:
-        raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set; cannot reach Vertex.")
-    return genai.Client(vertexai=True, project=project, location=LIVE_REGION)
 
 
 def _screen_tail(watcher, pane_id: str) -> str:
@@ -331,109 +290,21 @@ def _actor(websocket: WebSocket) -> str:
     return f"local:{peer}"
 
 
-# Named keys press_key can send — a fixed whitelist, mapped to the tmux key names
-# send_keys(literal=False) understands. Bounded on purpose: the model can only press
-# keys that make sense for terminal UIs (cancel, interrupt, menu nav, submit), never an
-# arbitrary key string that could be a chord we didn't vet.
-_KEYS = {
-    "Escape": "Escape",   # cancel / reject the current prompt
-    "Enter": "Enter",     # accept / continue with no text
-    "Up": "Up", "Down": "Down", "Left": "Left", "Right": "Right",  # menu navigation
-    "Tab": "Tab",         # cycle / complete
-    "C-c": "C-c",         # interrupt what's running
-    "C-d": "C-d",         # EOF / exit a REPL
-}
-
-
-def _tools():
-    """The session's tools: type_in_pane (types a string) and press_key (sends one named
-    control key). Two narrow verbs beat one overloaded one — the model can't accidentally
-    fold text and a chord into a single ambiguous call, and press_key's whitelist keeps it
-    from inventing arbitrary key sequences."""
-    types = llm.genai_types()
-
-    return [
-        types.Tool(
-            function_declarations=[
-                types.FunctionDeclaration(
-                    name="type_in_pane",
-                    description=(
-                        "Type text into one tmux pane, exactly as if the user typed "
-                        "it at that terminal. Use only when the user clearly asks "
-                        "you to type, run, answer, or tell a pane something."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "pane_id": types.Schema(
-                                type=types.Type.STRING,
-                                description=(
-                                    "Target pane id — the id=%N handle from "
-                                    "the window state, e.g. %5"
-                                ),
-                            ),
-                            "text": types.Schema(
-                                type=types.Type.STRING,
-                                description="The exact text to type",
-                            ),
-                            "press_enter": types.Schema(
-                                type=types.Type.BOOLEAN,
-                                description="Submit with Enter after typing (default true)",
-                            ),
-                        },
-                        required=["pane_id", "text"],
-                    ),
-                ),
-                types.FunctionDeclaration(
-                    name="press_key",
-                    description=(
-                        "Press ONE control key in a pane (no text) — to cancel, "
-                        "interrupt, navigate a menu, or continue. Escape cancels/rejects "
-                        "the current prompt; C-c interrupts what's running; Up/Down then "
-                        "Enter picks a menu item; Enter alone accepts/continues; Tab "
-                        "cycles or completes; C-d sends EOF."
-                    ),
-                    parameters=types.Schema(
-                        type=types.Type.OBJECT,
-                        properties={
-                            "pane_id": types.Schema(
-                                type=types.Type.STRING,
-                                description=(
-                                    "Target pane id — the id=%N handle from "
-                                    "the window state, e.g. %5"
-                                ),
-                            ),
-                            "key": types.Schema(
-                                type=types.Type.STRING,
-                                enum=list(_KEYS),
-                                description="One of: " + ", ".join(_KEYS),
-                            ),
-                        },
-                        required=["pane_id", "key"],
-                    ),
-                ),
-            ]
-        )
-    ]
-
-
 async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: str) -> None:
-    """Route a tool call (type_in_pane / press_key) to the pane and answer Gemini tersely.
-    The result NEVER rides back through the FunctionResponse (echo loops — see design doc);
+    """Route a tool call (type_in_pane / press_key) to the pane and answer the model tersely.
+    The result NEVER rides back through the tool response (echo loops — see design doc);
     the model sees the outcome via the post-action ambient refresh instead."""
-    types = llm.genai_types()
 
     async def respond(payload: dict) -> None:
-        await session.send_tool_response(
-            function_responses=[
-                # fc.id must ride back or the session wedges (inherited lesson).
-                types.FunctionResponse(id=fc.id, name=fc.name, response=payload)
-            ]
-        )
+        await session.send_tool_result(fc, payload)
 
     args = fc.args if isinstance(fc.args, dict) else {}
+    # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
+    # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
+    # rather than silently accept its repr. A model parroting our own tool response back
+    # as a new call is exactly how a dict arrives here.
     raw_pane_id = args.get("pane_id")
-    pane_id = raw_pane_id.strip() if isinstance(raw_pane_id, str) else ""
+    pane_id = str(raw_pane_id or "").strip()
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
 
     # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
@@ -461,7 +332,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         and isinstance(args.get("key"), str)
         and not (set(args) - {"pane_id", "key"})
     ):
-        key = _KEYS.get(args["key"])
+        key = KEYS.get(args["key"])
         if key:
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
@@ -531,21 +402,19 @@ def _background(task: asyncio.Task) -> None:
 
 
 async def _send_ambient(session, text: str) -> None:
-    """Inject context WITHOUT prompting a response: turn_complete=False adds the content
-    to the conversation but no model turn fires — the model simply has current state the
-    next time the user speaks. This is the whole 'state is just always up to date'
+    """Inject context WITHOUT prompting a response — the model simply has current state
+    the next time the user speaks. This is the whole 'state is just always up to date'
     mechanism; the prompt additionally fences [tmux update] messages off from replies."""
-    types = llm.genai_types()
-
     try:
-        await session.send_client_content(
-            turns=types.Content(role="user", parts=[types.Part(text=text)]),
-            turn_complete=False,
-        )
-    except Exception:
-        # A dropped session is the reconnect loop's job, but a PERSISTENT non-transport
-        # failure would otherwise freeze the model's pane view with no signal.
-        logger.warning("[live] ambient context update failed", exc_info=True)
+        await session.send_context(text)
+    except Exception as e:
+        # A closed socket here is the normal stop/reconnect race (the updater lost to the
+        # client's stop, or the session dropped — the reconnect loop's job); log it quietly.
+        # A PERSISTENT non-transport failure is different: it would freeze the model's pane
+        # view with no signal, so that keeps the warning + traceback.
+        closed = type(e).__name__.startswith("ConnectionClosed")
+        logger.log(logging.DEBUG if closed else logging.WARNING,
+                   "[live] ambient context update skipped: %s", e, exc_info=not closed)
 
 
 async def _context_updater(session, watcher) -> None:
@@ -568,9 +437,7 @@ async def _context_updater(session, watcher) -> None:
 
 
 async def _forward_audio(websocket: WebSocket, session) -> None:
-    """Client → Gemini: base64 16kHz PCM frames until the client says stop."""
-    types = llm.genai_types()
-
+    """Client → model: base64 16kHz PCM frames until the client says stop."""
     while True:
         data = await websocket.receive_json()
         action = data.get("action")
@@ -582,9 +449,7 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
                 audio = base64.b64decode(raw)
             except Exception:  # noqa: BLE001 - skip one bad frame, keep streaming
                 continue
-            await session.send_realtime_input(
-                audio=types.Blob(data=audio, mime_type="audio/pcm;rate=16000")
-            )
+            await session.send_audio(audio)
         elif action == "stop":
             return
         else:
@@ -592,48 +457,33 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
 
 
 async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _Meter) -> None:
-    """Gemini → client: voice audio, both transcripts, and tool calls. Also meters the
-    session — folds each message's usage_metadata into `meter` and emits a per-turn OTel
-    record at every turn boundary."""
-    while True:
-        async for response in session.receive():
-            if response.usage_metadata:
-                meter.usage.add(response.usage_metadata)
-            if response.tool_call and response.tool_call.function_calls:
-                for fc in response.tool_call.function_calls:
-                    # Log the verb + target only, never the payload — typed text can
-                    # carry secrets, and logs aren't gated by TMUXRC_QSDEBUG the way
-                    # telemetry/meter content is.
-                    pane = (fc.args or {}).get("pane_id") if isinstance(fc.args, dict) else None
-                    logger.info("[live] tool call: %s -> %s", fc.name, pane)
-                    meter.note(f"[typed] {fc.args}")
-                    await _handle_tool_call(websocket, session, fc, watcher, actor)
-            if response.data:
-                await websocket.send_json(
-                    {"type": "audio", "data": base64.b64encode(response.data).decode()}
-                )
-            sc = response.server_content
-            if sc:
-                if sc.input_transcription and sc.input_transcription.text:
-                    # content reaches the journal under the same flag as OTel
-                    if telemetry.QSDEBUG:
-                        logger.info("[live] user: %s", sc.input_transcription.text)
-                    meter.note("user: " + sc.input_transcription.text)
-                    await websocket.send_json(
-                        {"type": "transcript", "role": "user",
-                         "text": sc.input_transcription.text}
-                    )
-                if sc.output_transcription and sc.output_transcription.text:
-                    if telemetry.QSDEBUG:
-                        logger.info("[live] model: %s", sc.output_transcription.text)
-                    meter.note("model: " + sc.output_transcription.text)
-                    await websocket.send_json(
-                        {"type": "transcript", "role": "model",
-                         "text": sc.output_transcription.text}
-                    )
-                if sc.turn_complete:
-                    meter.end_turn()
-                    await websocket.send_json({"type": "turn_complete"})
+    """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
+    the session — takes each usage event into `meter` and emits a per-turn OTel record
+    at every turn boundary."""
+    async for ev in session.events():
+        if ev.kind == "usage":
+            meter.usage.set(ev.usage)
+        elif ev.kind == "tool_call":
+            fc = ev.call
+            # Log the verb + target only, never the payload — typed text can carry
+            # secrets, and logs aren't gated by TMUXRC_QSDEBUG the way telemetry/meter
+            # content is.
+            pane = fc.args.get("pane_id") if isinstance(fc.args, dict) else None
+            logger.info("[live] tool call: %s -> %s", fc.name, pane)
+            meter.note(f"[typed] {fc.args}")
+            await _handle_tool_call(websocket, session, fc, watcher, actor)
+        elif ev.kind == "audio":
+            await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
+        elif ev.kind == "transcript":
+            if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
+                logger.info("[live] %s: %s", ev.role, ev.text)
+            meter.note(f"{ev.role}: {ev.text}")
+            await websocket.send_json({"type": "transcript", "role": ev.role, "text": ev.text})
+        elif ev.kind == "turn_complete":
+            meter.end_turn()
+            await websocket.send_json({"type": "turn_complete"})
+        elif ev.kind == "interrupted":
+            await websocket.send_json({"type": "interrupted"})
 
 
 async def _hold(websocket: WebSocket, seconds: float) -> bool:
@@ -651,33 +501,21 @@ async def _hold(websocket: WebSocket, seconds: float) -> bool:
 
 
 async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
-    """Connect to Gemini Live and run the session; reconnect with backoff on drops."""
-    types = llm.genai_types()
-
-    client = _live_client()
-
-    def _config():
-        # Rebuilt per connect attempt so a RECONNECT gets a fresh pane snapshot in its
-        # system prompt — the connect snapshot is the only place full screens are sent
-        # (ambient [tmux update]s omit them), so reusing a stale one would leave a
-        # reconnected session answering/acting on minutes-old screen state.
-        return types.LiveConnectConfig(
-            response_modalities=[types.Modality.AUDIO],
-            tools=_tools(),
-            system_instruction=_system_prompt(watcher),
-            input_audio_transcription=types.AudioTranscriptionConfig(),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
-            # Let the model choose NOT to answer — required for the noise/silence prompt
-            # rules to work instead of the model replying to every sound.
-            proactivity=types.ProactivityConfig(proactive_audio=True),
-        )
-
+    """Connect to meter.model and run the session; reconnect with backoff on drops."""
+    model = meter.model
     max_reconnects = 5
     for attempt in range(max_reconnects + 1):
         await websocket.send_json({"type": "status", "status": "connecting"})
         try:
-            async with client.aio.live.connect(model=LIVE_MODEL, config=_config()) as session:
-                logger.info("[live] session up (model=%s, actor=%s)", LIVE_MODEL, actor)
+            # The system prompt is rebuilt per connect attempt so a RECONNECT gets a fresh
+            # pane snapshot — the connect snapshot is the only place full screens are sent
+            # (ambient [tmux update]s omit them), so reusing a stale one would leave a
+            # reconnected session answering/acting on minutes-old screen state.
+            async with live_providers.connect(model, _system_prompt(watcher)) as session:
+                logger.info(
+                    "[live] session up (model=%s via %s, actor=%s)",
+                    model.model, model.backend, actor,
+                )
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [
                     asyncio.create_task(
@@ -687,9 +525,28 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                         _context_updater(session, watcher), name="live-context-updater"
                     ),
                 ]
+                # The mic pump is RACED against the side tasks, not awaited alone. A
+                # provider that drops surfaces here as the receiver ending — cleanly, when
+                # its event stream just stops, or with an exception — and awaiting only the
+                # pump meant nobody looked until the browser happened to send another
+                # frame. A muted or backgrounded phone sends none, so the session sat in
+                # "listening" against a dead socket with the reconnect loop one frame away
+                # and never entered. (The GPT-Live adapter already waits on all of its
+                # tasks together; this is the seam saying the same thing.)
+                pump = asyncio.create_task(
+                    _forward_audio(websocket, session), name="live-audio"
+                )
+                side.append(pump)  # so the drain below tears this one down too
                 try:
-                    await _forward_audio(websocket, session)
-                    return  # client sent stop — clean exit
+                    done, _ = await asyncio.wait(side, return_when=asyncio.FIRST_COMPLETED)
+                    if pump in done:
+                        pump.result()  # a WebSocketDisconnect here is the browser going away
+                        return  # client sent stop — clean exit
+                    for t in done:
+                        t.result()  # a real failure, re-raised into the reconnect below
+                    # Nothing raised, so a side task simply ENDED: the provider closed its
+                    # stream. A quiet end is still an end — reconnect rather than sit.
+                    raise ConnectionError("live provider stream ended")
                 finally:
                     for t in side:
                         t.cancel()
@@ -710,8 +567,8 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                             logger.warning(
                                 "[live] side task %s ended in error: %r", t.get_name(), exc
                             )
-        except WebSocketDisconnect:
-            raise  # client gone — nothing to reconnect for
+        except (WebSocketDisconnect, live_providers.Unreachable):
+            raise  # client gone, or a misconfiguration no retry can fix
         except Exception:
             if attempt >= max_reconnects:
                 raise
@@ -722,57 +579,104 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
                 return  # client sent stop during the backoff
 
 
+def offered() -> list[live_providers.LiveModel]:
+    """Everything a client may pick, in picker order: the configured table, then GPT-Live
+    when its key is set. ONE list, behind both /api/version's menu and this module's socket
+    gate, because the two saying it separately is exactly how they come to disagree — and a
+    gate that refuses what the menu just offered is indistinguishable from a broken pick.
+
+    GPT-Live is appended rather than configured: the seam opens a CONNECTION and hands it
+    to the shared coroutines, while the adapter owns a whole SESSION, so it cannot be a
+    table entry. The TABLE wins a label collision — an operator who names an entry
+    "GPT-Live 1" gets the entry they configured, not a second row shadowing it — and it
+    wins even while that entry is KEYLESS and therefore off the menu. A label is owned by
+    whoever configured it, not by whoever currently has credentials: otherwise a remembered
+    pick would silently change which model answers as keys come and go, which is the one
+    thing label-only selection exists to prevent."""
+    from . import gpt_live  # noqa: PLC0415 - the adapter imports this module's handlers
+
+    # Read the table ONCE and filter here rather than calling available(): the reservation
+    # above has to see the unoffered half too, and two reads of the same env for one answer
+    # is two chances for the halves to disagree.
+    table = live_providers.models()
+    menu = [m for m in table if m.available()]
+    if os.environ.get("OPENAI_API_KEY") and all(m.label != gpt_live.LABEL for m in table):
+        menu.append(gpt_live.ENTRY)
+    return menu
+
+
+def pick(label: str | None) -> live_providers.LiveModel | None:
+    """Resolve a client-supplied label against `offered()`. Label-only, like launchers: the
+    client names an entry and never a model id, backend or credential. No label at all is
+    the first entry — what a user who never opens the picker gets. Unknown, or configured
+    but keyless, is None: refused, never defaulted, because silently answering with a
+    different model would make a side-by-side comparison lie."""
+    menu = offered()
+    if not label:
+        return menu[0] if menu else None
+    return next((m for m in menu if m.label == label), None)
+
+
 @router.websocket("/api/live-mode")
 async def live_mode(websocket: WebSocket) -> None:
     if not enabled():
-        # Feature-flagged off — refuse before any Gemini connection or mic streaming.
+        # Feature-flagged off — refuse before any model connection or mic streaming.
         # 1008 = policy violation; the client hides the button too, so this only fires
         # for a stale tab or a direct probe. Reason points at the fix (reload the page —
         # a current client reads live_enabled from /api/version and hides the button).
         await websocket.close(code=1008, reason="Live Mode is disabled — reload the page")
         return
+    from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
+
+    model = pick(websocket.query_params.get("model"))
+    if model is None:
+        # Nothing offered at all (every entry key-gated, no key set) is the operator's
+        # config problem, not a stale tab's — a reload can't fix it, so don't say so.
+        why = "reload the page" if offered() else "no configured model has its key set"
+        await websocket.close(code=1008, reason=f"Live model not available — {why}")
+        return
+    # Which runner, decided by identity rather than by re-reading the label: `offered()`
+    # already settled who owns this pick, including a table entry that claimed the
+    # adapter's label.
+    use_gpt = model is gpt_live.ENTRY
     await websocket.accept()
     watcher = websocket.app.state.watcher
     actor = _actor(websocket)
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
-    meter = _Meter(session_id, actor)
-    logger.info("[live] session start (actor=%s, session=%s)", actor, session_id)
+    meter = _Meter(session_id, actor, model)
+    logger.info(
+        "[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label
+    )
     telemetry.emit_action(
         action="live_session", pane_uid="-", actor=actor, detail="start", keys=None
     )
     outcome, reason = "ok", "stop"
-    gpt_live = None
     try:
-        selection = websocket.query_params.get("model", "")
-        use_gpt = selection == GPT_LIVE_LABEL or (
-            selection in ("", "Default") and LIVE_MODEL == GPT_LIVE_MODEL
-        )
-        if use_gpt and os.environ.get("OPENAI_API_KEY"):
-            from . import gpt_live  # noqa: PLC0415 - only this provider needs the optional adapter
-
+        if use_gpt:
             await gpt_live.run_session(websocket, watcher, actor, meter)
-        elif (not use_gpt and LIVE_MODEL != GPT_LIVE_MODEL
-              and selection in ("", "Default", "Gemini Live")):
-            await _run_session(websocket, watcher, actor, meter)
         else:
-            outcome = reason = "error"
-            await websocket.send_json({
-                "type": "error",
-                "message": "Unknown or unavailable Live Mode selection; reload the page.",
-            })
+            await _run_session(websocket, watcher, actor, meter)
     except WebSocketDisconnect:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
-    except Exception as exc:
+    except Exception as e:  # noqa: BLE001 - the session's last stop: report it, never crash the WS
         outcome = reason = "error"
-        if gpt_live is not None and isinstance(exc, gpt_live.ProviderError):
-            message = str(exc)  # the adapter sanitizes provider diagnostics
-        else:
-            message = "live session failed"
-            logger.exception("[live] session failed")
+        # A model that can't be reached (bad deployment name, rejected key) says exactly
+        # what to fix — the user fixes config, not the retry count. Anything else stays a
+        # generic line so internal detail never reaches the browser. The adapter's
+        # ProviderError is the same promise from the other side of the seam — it has
+        # already sanitized the provider's diagnostics — so it rides this one path rather
+        # than an except clause of its own, which would have skipped the log line and sent
+        # on a socket that may already be gone.
+        fatal = isinstance(e, (live_providers.Unreachable, gpt_live.ProviderError))
+        (logger.error if fatal else logger.exception)(
+            "[live] session failed%s", f": {e}" if fatal else ""
+        )
         with contextlib.suppress(Exception):
-            await websocket.send_json({"type": "error", "message": message})
+            await websocket.send_json(
+                {"type": "error", "message": str(e) if fatal else "live session failed"}
+            )
     finally:
         logger.info(
             "[live] session end: %s (%d turns, $%.4f, session=%s)",
