@@ -10,18 +10,29 @@ interaction goal is one assistant conversation that can move between voice and t
 
 | Table | Columns |
 | --- | --- |
-| `conversations` | Integer ID, owner, kind (`live` or `pane`), optional pane lifetime key, title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
-| `conversation_entries` | Conversation ID, entry number, timestamp, kind (`user`, `assistant`, `input`, `action`, `notice`), text, optional metadata JSON. |
+| `conversations` | UUID, originating machine UUID, local creation number for pagination, owner, kind (`live` or `pane`), optional pane lifetime key, title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
+| `conversation_entries` | Conversation UUID, entry number, timestamp, kind (`user`, `assistant`, `input`, `action`, `notice`), content JSON (ordered text/image parts), optional metadata JSON. |
 
 A conversation is the thread the user sees: either a Live Mode conversation or the
 ongoing input history of a pane. These share storage, not lifecycle or recording policy. There is no separate Call, Turn, Action,
 Connection, or Usage entity. A spoken message, an action notice, and “connection lost”
 are simply different kinds of entries in that thread.
 
-The entry key is `(conversation_id, entry_number)`: 1, 2, 3, and so on. No entry UUIDs.
-Use SQLite AUTOINCREMENT for conversation IDs; allocate entry numbers from the parent
-counter in the insert transaction. Foreign keys with ON DELETE CASCADE keep entries
-attached to their conversation. Enable foreign-key enforcement on each connection.
+Generate a UUID for each conversation. The global entry key is
+`(conversation_uuid, entry_number)`, with entry numbers 1, 2, 3, and so on allocated
+from the parent counter in the insert transaction. No independent entry UUID is needed
+for this single-writer design. Exports, origin links and cross-machine analysis preserve
+these keys; local SQLite row numbers are never external identities. Keep a separate
+AUTOINCREMENT creation number only for local pagination.
+
+A persisted machine UUID identifies the originating installation across daemon/OS
+restarts; hostnames and boot IDs are not machine identity. New installations get a new
+machine UUID. Imports preserve the originating IDs rather than relabeling old records.
+The conversation has one authoritative writer; cross-machine analysis can combine copies
+by their global keys, but concurrent editing of one copied thread is not a replication
+feature promised here. A separately writable copy gets a new conversation UUID.
+Foreign keys with ON DELETE CASCADE attach entries to their conversation; enable
+foreign-key enforcement on each connection. IDs do not grant access.
 
 Provider/model information goes in metadata where useful. Action entries contain the
 server-known operation, pane label and result, without copying raw command arguments
@@ -66,7 +77,7 @@ to Voice. Resuming after a disconnected provider remains the separate Continue w
 ## Continuous pane history
 
 One pane thread per owner and pane lifetime, surviving browser visits, Live Mode calls,
-renames and daemon restarts. Use the existing tmux server/pane identity and confirmed
+renames and daemon restarts. Qualify the existing tmux server/pane identity with the machine UUID and confirmed
 pane creation/removal boundaries; `%52` or a display label alone is not an identity.
 If the lifetime cannot be established, start a new thread rather than merge unrelated
 panes. A closed pane stays readable. Starting another agent inside the same pane adds a
@@ -76,11 +87,11 @@ An `input` entry represents a logical send, not every keyboard event:
 
 | Value | Where it lives |
 | --- | --- |
-| Submitted text and timestamp | Entry text and timestamp. |
+| Submitted text and timestamp | Entry content and timestamp. |
 | Source: composer, Live Mode, or API | Entry metadata, assigned by the server. |
 | Delivery: sent, failed, or unknown; Enter submitted or not | Entry metadata. Sent means handed to tmux, not processed by the agent. |
 | Context at send time | Metadata snapshot: pane/session/window label, working directory, tool/model, agent session ID and branch when known, plus observation time. Missing or stale information stays labeled as such. |
-| Originating Live Mode message | Optional `(conversation_id, entry_number)` reference, only when that association is known and both threads have the same owner. |
+| Originating Live Mode message | Optional `(conversation_uuid, entry_number)` reference, only when that association is known and both threads have the same owner. |
 
 For example: pane input #42 says “address the review comments,” sent from Live Mode at
 14:32, to the Codex session in the repo directory on a particular branch. Its origin
@@ -90,8 +101,8 @@ the latest voice message when the provider did not establish one.
 
 Record at the logical dispatch boundary used by composer/API/Live Mode, not each low-level
 `send_keys` call: one composer submission may paste several segments and press Enter.
-Store the combined text with attachment labels/availability, not image bytes or promises
-that temporary upload files will survive. Key-only operations can be short notices.
+Store the ordered text and image parts as one prompt, retaining recorded images as
+described below; temporary upload paths are not durable attachment references. Key-only operations can be short notices.
 Unsubmitted fragments stay marked unsubmitted; do not pretend they form a full prompt.
 Never automatically resend input to repair a missing history row.
 
@@ -115,6 +126,30 @@ Origin links are optional navigation, not permission to read: recheck ownership,
 deleted source becomes unavailable without deleting the independently saved pane input.
 Make that independence clear in deletion UI; users can delete either or both threads.
 
+## Pasted images belong to the prompt
+
+Entry content is an ordered list of parts: for example `[text, image, text, image]`.
+A plain message has one text part. Each image part holds its content hash, MIME type,
+byte length and optional display name. The hash (for example SHA-256) identifies the
+bytes across machines; no separate image UUID or attachment table is required. Store
+bytes once in the private history attachment directory, scoped to the owner, outside
+temporary upload storage. The entry references the hash, never a temporary path.
+
+When recording is enabled, atomically save the image before committing its entry
+reference; a recording failure leaves an explicit unavailable-image marker and incomplete
+history, not a broken reference described as saved. Input delivery need not fail because
+history storage failed. Render saved thumbnails/full images in history in their original
+prompt order. Recording disabled means no retained image copy; the same content policy
+applies to images as text, including Live-origin pane inputs.
+
+Exports intended to preserve images bundle their referenced bytes and part manifests;
+text-only exports clearly mark omitted images. On import, verify bytes against the hash
+and preserve entry identity. Hash deduplication is not authorization: enforce owner access
+for image reads and never expose files through a public hash URL. Deleting history removes
+unreferenced owner-scoped blobs through serialized cleanup, retaining blobs still referenced
+by another saved entry. Orphan files from failed commits can be swept by the same cleanup.
+Use existing upload size/type validation; do not fetch arbitrary remote image URLs.
+
 ## Saving and reading
 
 For Live Mode, create the conversation when saved listening starts. For pane history,
@@ -135,7 +170,7 @@ can lose the current message or an action sent just before its entry was saved. 
 that limitation on interrupted history; this is a saved conversation, not an audit log.
 
 Add a History list and reuse the existing message-thread view. Read conversations by
-integer ID and entries by entry number, with a bounded “load older” query. No search
+local creation number and entries by entry number, with a bounded “load older” query. No search
 snapshots, signed pagination tokens, archive tree, or fork graph in the first version.
 
 ## Duration, usage, and cost
@@ -193,7 +228,8 @@ Add the two tables with a migration that preserves existing pane history, then w
 finished messages, action notices and meter totals into the writer. Add list/read/delete
 UI. Pane input history can follow using the same tables and shared writer, with composer,
 API and Live Mode logical sends covered together. Test message ordering/retries, reconnect without duplication, crash/write failure,
-usage without messages, pane identity/restarts, send-time context, missing origin links,
+usage without messages, cross-machine identifiers, pane identity/restarts, send-time context, missing origin links,
+ordered image pastes, missing blobs, export/import integrity and shared-blob deletion,
 recording opt-out, owner isolation and deletion races. No
 backfill and no changes to provider tool dispatch. Review that small implementation
 before designing restart-time continuation or sharing. In parallel, add the Live Mode
