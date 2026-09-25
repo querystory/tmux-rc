@@ -15,12 +15,14 @@ JSON. It then scores the candidate against the sample's blessed `expected`:
 
   STRUCTURED fields (exact match) — these drive the badge and behavior, so brittleness
   is correct here: `tool`, `activity`, `waiting_on`, plus the PRESENCE/shape of
-  `question` (present-or-absent, and if present its `answer_style`), `rewind`, `tasks`.
+  `question` (present-or-absent, and if present its `answer_style`), `rewind`, `tasks`,
+  `copyables`, and — only where a sample names it — a RENDERABLE `tables`.
   A single structured mismatch fails the sample.
 
   FREE-TEXT fields (LLM-as-judge) — `headline` is prose; exact-match would be noise.
   A second Vertex call (temperature 0) rules PASS/FAIL on whether the candidate
   headline captures the SAME situation as the expected one, given the screen.
+  Concrete expected tables also require every referenced edit to survive in the output.
 
   A sample PASSES only if structured fields match AND the judge agrees. Both signals
   are surfaced so a failure tells you which half broke.
@@ -150,7 +152,9 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     """Compare the STRUCTURED fields. Returns (ok, mismatches) — a human-readable diff
     line per field that disagrees. `waiting_on` is only meaningful when waiting, so it's
     compared as absent==absent there. `question` compares by shape (presence +
-    answer_style); `rewind`/`tasks` by presence only."""
+    answer_style); `rewind`/`tasks`/`copyables` by presence. `tables` is presence too but
+    OPT-IN — scored only on a sample whose `expected` names it, and counted present only
+    when the phone could actually draw it (a table object carrying rows)."""
     diffs = []
     for k in _STRUCT_SCALAR:
         c, e = candidate.get(k), expected.get(k)
@@ -178,8 +182,36 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     # LABEL is free prose and the TEXT is a verbatim payload whose exact whitespace we
     # don't want to bless brittlely — what must not regress is "the model noticed there
     # was something paste-worthy on this screen (or correctly noticed there wasn't)".
-    for k in ("rewind", "tasks", "copyables"):
-        c, e = bool(candidate.get(k)), bool(expected.get(k))
+    presence = {k: candidate.get(k) for k in ("rewind", "tasks", "copyables")}
+    # `tables` is presence too, but OPT-IN — scored only on a sample that names it. Most
+    # screens have no table and take no position, so scoring it everywhere would newly fail
+    # existing samples on a field they were never blessed against. Naming it is the claim,
+    # and the claim is "the question refers to a list, so the list has to travel with it or
+    # the phone asks about items it never showed". So score what the PHONE would RENDER,
+    # not bare truthiness: app.js draws a table only where `rows` is an ARRAY (and an empty
+    # one carries no list), and nothing validates this field — the model answers under a
+    # mime type, not a schema — so a string, a {} or `rows: "1. do the thing"` would
+    # otherwise score as a list that travelled when the phone would show none.
+    if "tables" in expected:
+        tables = candidate.get("tables")
+        valid = tables is None or (isinstance(tables, list) and all(
+            isinstance(table, dict)
+            and (table.get("headers") is None or (
+                isinstance(table["headers"], list)
+                and all(isinstance(cell, str) for cell in table["headers"])
+            ))
+            and isinstance(table.get("rows"), list)
+            and all(isinstance(row, list) and all(isinstance(cell, str) for cell in row)
+                    for row in table["rows"])
+            for table in tables
+        ))
+        if not valid:
+            diffs.append("tables: malformed headers, rows, or cells")
+        presence["tables"] = valid and any(
+            row for table in (tables or []) for row in table["rows"]
+        )
+    for k, got in presence.items():
+        c, e = bool(got), bool(expected.get(k))
         if c != e:
             diffs.append(f"{k} present: got {c} want {e}")
     return (not diffs), diffs
@@ -190,12 +222,16 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
 _JUDGE_SYSTEM = (
     "You are a strict grader for a terminal-pane classifier. You are given the SCREEN "
     "the classifier saw, the EXPECTED classification (blessed by a human), and the "
-    "CANDIDATE classification a model produced. Judge ONLY the free-text 'headline' "
+    "CANDIDATE classification a model produced. Judge the free-text 'headline' "
     "field: does the candidate headline describe the SAME situation on the screen as "
     "the expected one? Be lenient on wording, phrasing, and length — different words "
     "for the same situation PASS. Fail only if the candidate headline is about a "
     "materially DIFFERENT situation, is misleading, or contradicts the screen. If "
-    "neither side has a headline, PASS. Reply with compact JSON only: "
+    "neither side has a headline, that check passes. When expected_tables is provided, "
+    "ALSO check that candidate_tables contains every expected edit with its meaning "
+    "intact. Ignore wording and table layout, but FAIL for missing edits or unrelated "
+    "rows substituted for the referenced edits. Both headline and table content must "
+    "pass. Reply with compact JSON only: "
     '{"verdict":"PASS"|"FAIL","reason":"<one short line>"}.'
 )
 
@@ -204,14 +240,16 @@ def judge_freetext(sample: Sample, candidate: dict, llm_fn) -> tuple[bool, str]:
     """Second opinion on the prose. Returns (passed, reason). `llm_fn(system, text)`
     returns the judge's parsed JSON dict; a malformed/None reply is treated as a FAIL
     (visible, not silently swallowed) with the reason noting it."""
-    payload = json.dumps(
-        {
-            "screen": sample.capture,
-            "expected_headline": sample.expected.get("headline"),
-            "candidate_headline": candidate.get("headline"),
-        },
-        ensure_ascii=False,
-    )
+    fields = {
+        "screen": sample.capture,
+        "expected_headline": sample.expected.get("headline"),
+        "candidate_headline": candidate.get("headline"),
+    }
+    # A boolean asserts presence only; concrete expected tables also assert meaning.
+    if isinstance(sample.expected.get("tables"), list):
+        fields["expected_tables"] = sample.expected["tables"]
+        fields["candidate_tables"] = candidate.get("tables")
+    payload = json.dumps(fields, ensure_ascii=False)
     reply = llm_fn(_JUDGE_SYSTEM, payload)
     if not isinstance(reply, dict) or reply.get("verdict") not in ("PASS", "FAIL"):
         return False, f"judge returned no verdict: {str(reply)[:80]}"
