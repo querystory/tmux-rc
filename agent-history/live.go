@@ -45,11 +45,11 @@ func RunningClaude() (map[string]Running, error) {
 		}
 		// A registration we can't read (half-written, or a format change) could be a
 		// live session; say so rather than drop it.
-		if err := json.Unmarshal(data, &reg); err != nil || reg.SessionID == "" {
+		if err := json.Unmarshal(data, &reg); err != nil || reg.SessionID == "" || reg.ProcStart == "" {
 			return nil, fmt.Errorf("%s: unreadable registration", f)
 		}
-		if reg.ProcStart == "" || procStart(reg.PID) != reg.ProcStart {
-			continue
+		if procStart(reg.PID) != reg.ProcStart {
+			continue // a verified mismatch: that process is gone
 		}
 		pane := ""
 		if i := strings.LastIndex(reg.Tmux, ".%"); i >= 0 {
