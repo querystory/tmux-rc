@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -118,13 +119,52 @@ func TestIndexTranscript(t *testing.T) {
 		t.Errorf("subagent not indexed: %v", err)
 	}
 
-	// An unchanged transcript is not rewritten.
-	old := time.Now().Add(-time.Hour)
-	must(t, os.Chtimes(path, old, old))
+	// An entry built from the transcript's current version is not rewritten.
+	src, err := os.Stat(path)
+	must(t, err)
 	must(t, os.WriteFile(entry, []byte("sentinel"), 0o600))
+	must(t, os.Chtimes(entry, src.ModTime(), src.ModTime()))
 	must(t, IndexTranscript(path))
 	if data, _ := os.ReadFile(entry); string(data) != "sentinel" {
 		t.Errorf("up-to-date entry was rewritten")
+	}
+
+	// A stale write that landed last (a racing hook) carries an older transcript mtime
+	// and is rebuilt, even though the entry file itself is newest.
+	old := src.ModTime().Add(-time.Minute)
+	must(t, os.Chtimes(entry, old, old))
+	must(t, IndexTranscript(path))
+	if data, _ := os.ReadFile(entry); string(data) == "sentinel" {
+		t.Errorf("stale entry was not rebuilt")
+	}
+}
+
+func TestResumeQuotesCwd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	must(t, os.WriteFile(path, []byte(`{"type":"user","cwd":"/w; touch /tmp/pwned 'x'"}`+"\n"), 0o600))
+	s, err := ReadClaude(path)
+	must(t, err)
+	check(t, "resume", s.Resume, `cd '/w; touch /tmp/pwned '\''x'\''' && claude --resume s`)
+}
+
+func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	must(t, os.MkdirAll(filepath.Dir(stateFile()), 0o700))
+
+	// While another run holds the lock, this one does nothing and records nothing.
+	lock, err := os.OpenFile(stateFile()+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	must(t, err)
+	must(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
+	Reconcile()
+	if _, err := os.Stat(stateFile()); err == nil {
+		t.Fatalf("a skipped run was recorded as completed")
+	}
+	lock.Close()
+
+	Reconcile()
+	if _, err := os.Stat(stateFile()); err != nil {
+		t.Errorf("a completed run was not recorded: %v", err)
 	}
 }
 
@@ -134,15 +174,21 @@ func TestMarkMissing(t *testing.T) {
 	must(t, IndexTranscript(path))
 	entry := indexPath("claude", "", "sess-1")
 
+	// A message that happens to contain the marker must not count as the marker.
+	body, err := os.ReadFile(entry)
+	must(t, err)
+	must(t, os.WriteFile(entry, append(body, "\nsource_missing: true\n"...), 0o600))
+
 	must(t, MarkMissing(entry))
-	if data, _ := os.ReadFile(entry); strings.Contains(string(data), "source_missing") {
+	if data, _ := os.ReadFile(entry); strings.Count(string(data), "source_missing") != 1 {
 		t.Fatalf("marked missing while the transcript exists")
 	}
 	must(t, os.Remove(path))
 	must(t, MarkMissing(entry))
 	must(t, MarkMissing(entry)) // idempotent
 	data, _ := os.ReadFile(entry)
-	if strings.Count(string(data), "source_missing: true\n") != 1 || !strings.Contains(string(data), "fix live mode") {
+	header, _, _ := strings.Cut(string(data)[4:], "\n---\n")
+	if strings.Count(header, "\nsource_missing: true") != 1 || !strings.Contains(string(data), "fix live mode") {
 		t.Errorf("entry after deletion:\n%s", data)
 	}
 }

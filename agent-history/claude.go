@@ -189,9 +189,8 @@ func subagentDescription(metaPath string) string {
 	return meta.Description
 }
 
+// shellQuote single-quotes unconditionally: resume lines are meant to be pasted into
+// a shell, and a cwd is arbitrary text.
 func shellQuote(s string) string {
-	if !strings.ContainsAny(s, " '\"$`\\") {
-		return s
-	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

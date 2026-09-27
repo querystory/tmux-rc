@@ -68,10 +68,20 @@ func hook() {
 }
 
 // Reconcile indexes every Claude transcript newer than its entry and flags entries
-// whose transcript is gone.
+// whose transcript is gone. Concurrent runs are skipped via a kernel lock, which a
+// killed run releases; completion is recorded only at the end, so an interrupted run
+// is retried by the next hook rather than suppressed.
 func Reconcile() {
 	os.MkdirAll(filepath.Dir(stateFile()), 0o700)
-	os.WriteFile(stateFile(), nil, 0o600) // claim the run first so concurrent hooks don't pile on
+	lock, err := os.OpenFile(stateFile()+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		report(err)
+		return
+	}
+	defer lock.Close()
+	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		return
+	}
 	transcripts, _ := filepath.Glob(filepath.Join(claudeDir(), "projects", "*", "*.jsonl"))
 	for _, t := range transcripts {
 		report(IndexTranscript(t))
@@ -81,6 +91,7 @@ func Reconcile() {
 	for _, e := range append(entries, subentries...) {
 		report(MarkMissing(e))
 	}
+	report(os.WriteFile(stateFile(), nil, 0o600))
 }
 
 func claudeDir() string {

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Root is where the index lives; harness directories are only ever read.
@@ -46,14 +47,17 @@ func indexFile(path string) error {
 	}
 	id, parent := claudeIdentity(path)
 	dst := indexPath("claude", parent, id)
-	if idx, err := os.Stat(dst); err == nil && !src.ModTime().After(idx.ModTime()) {
+	// An entry carries the mtime of the transcript it was built from. Hooks index
+	// concurrently, so an older read can land after a newer one; its mtime then no
+	// longer matches the transcript and the next run rebuilds it.
+	if idx, err := os.Stat(dst); err == nil && idx.ModTime().Equal(src.ModTime()) {
 		return nil
 	}
 	s, err := ReadClaude(path)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	return writeAtomic(dst, Render(s))
+	return writeAtomic(dst, Render(s), src.ModTime())
 }
 
 // Render is the index entry format: a front-matter header of JSON-quoted values (valid
@@ -90,7 +94,7 @@ func quote(v any) string {
 	return strings.TrimSpace(b.String())
 }
 
-func writeAtomic(path string, data []byte) error {
+func writeAtomic(path string, data []byte, mtime time.Time) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -106,6 +110,9 @@ func writeAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	if err := os.Chtimes(tmp.Name(), mtime, mtime); err != nil {
+		return err
+	}
 	return os.Rename(tmp.Name(), path)
 }
 
@@ -113,10 +120,19 @@ func writeAtomic(path string, data []byte) error {
 // working (header, messages, summary); it just can't be grepped for detail or resumed.
 func MarkMissing(entry string) error {
 	data, err := os.ReadFile(entry)
-	if err != nil || bytes.Contains(data, []byte("\nsource_missing: true\n")) {
+	if err != nil {
 		return err
 	}
-	for line := range strings.Lines(string(data)) {
+	info, err := os.Stat(entry)
+	if err != nil {
+		return err
+	}
+	// Only the front matter is ours; message bodies can contain any text.
+	end := bytes.Index(data, []byte("\n---\n"))
+	if end < 0 || bytes.Contains(data[:end+1], []byte("\nsource_missing: true\n")) {
+		return nil
+	}
+	for line := range strings.Lines(string(data[:end+1])) {
 		raw, ok := strings.CutPrefix(line, "source: ")
 		if !ok {
 			continue
@@ -125,7 +141,7 @@ func MarkMissing(entry string) error {
 		if _, statErr := os.Stat(src); err != nil || !errors.Is(statErr, os.ErrNotExist) {
 			return nil
 		}
-		return writeAtomic(entry, bytes.Replace(data, []byte(line), []byte(line+"source_missing: true\n"), 1))
+		return writeAtomic(entry, bytes.Replace(data, []byte(line), []byte(line+"source_missing: true\n"), 1), info.ModTime())
 	}
 	return nil
 }
