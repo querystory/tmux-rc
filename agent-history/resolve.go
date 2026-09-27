@@ -61,7 +61,8 @@ type Project struct {
 
 type Scored struct {
 	Entry
-	Score float64 `json:"score"`
+	Score   float64  `json:"score"`
+	Running *Running `json:"running,omitempty"` // set when a process has it open now
 }
 
 type ResolveOptions struct {
@@ -70,6 +71,7 @@ type ResolveOptions struct {
 	MaxProjects int
 	MaxSessions int
 	Now         time.Time
+	Running     map[string]Running // by session ID; see RunningClaude
 }
 
 // Resolve ranks where a request like "fix live mode" most likely belongs: repos, and
@@ -94,7 +96,11 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 			byRepo[repo] = &Project{Repo: repo}
 		}
 		p := byRepo[repo]
-		p.Sessions = append(p.Sessions, Scored{e, round(score)})
+		scored := Scored{Entry: e, Score: round(score)}
+		if r, ok := opt.Running[e.ID]; ok {
+			scored.Running = &r
+		}
+		p.Sessions = append(p.Sessions, scored)
 	}
 	projects := []Project{}
 	for _, p := range byRepo {

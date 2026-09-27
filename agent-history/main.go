@@ -51,7 +51,7 @@ func main() {
 
 func resolveCmd(args []string) {
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
-	opt := ResolveOptions{Now: time.Now()}
+	opt := ResolveOptions{Now: time.Now(), Running: RunningClaude()}
 	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude)")
 	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
 	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
@@ -85,7 +85,9 @@ func resolveCmd(args []string) {
 		fmt.Printf("%s  (score %.2f)\n", p.Repo, p.Score)
 		for _, s := range p.Sessions {
 			fmt.Printf("  %.10s  %-8.8s  %s\n", s.LastActive, s.ID, cmp.Or(s.Title, "(untitled)"))
-			if s.Resume != "" {
+			if s.Running != nil {
+				fmt.Printf("      running in tmux pane %s (%s)\n", cmp.Or(s.Running.TmuxPane, "none"), s.Running.Status)
+			} else if s.Resume != "" {
 				fmt.Printf("      %s\n", s.Resume)
 			}
 		}
