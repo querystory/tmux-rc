@@ -388,7 +388,9 @@ def _tools():
                 required=["session_id"],
             ),
         ),
-    ] if agent_history.binary() else []
+    # Not in single-pane mode (TMUXRC_TARGET): the watcher publishes only that pane, so
+    # a window these tools open or point at could never be typed into.
+    ] if agent_history.binary() and not os.environ.get("TMUXRC_TARGET") else []
 
     return [
         types.Tool(

@@ -167,10 +167,15 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
 
 
 def test_tools_offered_only_with_agent_history(monkeypatch):
+    monkeypatch.delenv("TMUXRC_TARGET", raising=False)
+
     def names():
         return {f.name for t in L._tools() for f in t.function_declarations}
     monkeypatch.setattr(agent_history, "binary", lambda: "/bin/agent-history")
     assert {"find_sessions", "resume_session"} <= names()
+    monkeypatch.setenv("TMUXRC_TARGET", "%3")  # single-pane mode can't address new windows
+    assert names() == {"type_in_pane", "press_key"}
+    monkeypatch.delenv("TMUXRC_TARGET")
     monkeypatch.setattr(agent_history, "binary", lambda: None)
     assert names() == {"type_in_pane", "press_key"}
 
