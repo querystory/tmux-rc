@@ -43,3 +43,18 @@ jobs:
       # The suite shells out to tmux (find_pane, capture, send-keys).
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: uv run pytest -q tests/
+
+  agent-history:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-history
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent-history/go.mod
+          cache: false # no dependencies to cache
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
