@@ -48,7 +48,11 @@ func RunningClaude() (map[string]Running, error) {
 		if err := json.Unmarshal(data, &reg); err != nil || reg.SessionID == "" || reg.ProcStart == "" {
 			return nil, fmt.Errorf("%s: unreadable registration", f)
 		}
-		if procStart(reg.PID) != reg.ProcStart {
+		start, err := procStart(reg.PID)
+		if err != nil {
+			return nil, err
+		}
+		if start != reg.ProcStart {
 			continue // a verified mismatch: that process is gone
 		}
 		pane := ""
@@ -61,17 +65,21 @@ func RunningClaude() (map[string]Running, error) {
 }
 
 // procStart is field 22 of /proc/<pid>/stat, the process start time in clock ticks,
-// or "" if the process is gone. The command name (field 2) may contain spaces and
-// parentheses, so fields are counted from its closing parenthesis.
-func procStart(pid int) string {
+// or "" if there is no such process. Any other failure is an error: it proves nothing
+// about whether the process is alive. The command name (field 2) may contain spaces
+// and parentheses, so fields are counted from its closing parenthesis.
+func procStart(pid int) (string, error) {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
 	if err != nil {
-		return ""
+		return "", err
 	}
 	i := strings.LastIndexByte(string(data), ')')
 	fields := strings.Fields(string(data)[i+1:])
 	if i < 0 || len(fields) < 20 {
-		return ""
+		return "", fmt.Errorf("pid %d: unrecognized /proc stat", pid)
 	}
-	return fields[19]
+	return fields[19], nil
 }
