@@ -1,6 +1,6 @@
 # Design: push notifications — "needs you" and "milestone" pushes, with reply
 
-Status: **draft / thinking** — no code yet. Captures the design for issue #139.
+Status: **blocking pushes + replies implemented; milestone pushes remain planned**.
 
 ## The problem
 
@@ -139,10 +139,11 @@ notified-set makes "fire once, whenever conditions first allow" fall out natural
 Fingerprints are forgotten when the question clears, so a *re*-blocked pane can
 notify again.
 
-**3. Milestones coalesce; blocking never waits.** A blocking push goes out
+**3. Milestones will coalesce; blocking never waits.** A blocking push goes out
 immediately (modulo a short settle delay, below). Milestone events buffer ~60s and
 merge: three panes finishing inside a minute is one "3 tasks finished" push, not
-three buzzes. Same shape as `_maybe_summarize`'s burst collapsing.
+three buzzes. Same shape as `_maybe_summarize`'s burst collapsing. This milestone
+path remains planned and is not part of the blocking-push implementation.
 
 **4. Settle before pushing.** Agent screens flap — a menu flashes, redraws, and the
 next parse sees it differently (#64 lists the same traps for Live Mode's completion
@@ -169,7 +170,8 @@ No third-party service holds content beyond the platform push relays themselves
 service worker at all. Simpler, but: content transits a third party in cleartext
 (pane text includes code and secrets-adjacent material), replies land in *their* app
 instead of ours, and there's no deep link back to the pane card. Kept as the
-**fallback transport** — the notifier's decision layer is transport-agnostic, and if
+possible **future fallback transport** — the notifier's decision layer is
+transport-agnostic, and if
 iOS Web Push proves too fragile (see Risks), swapping the sender is a small, isolated
 change.
 
@@ -202,9 +204,9 @@ commit, and which doesn't exist when running installed as a wheel) — owner-onl
 (0600) and written atomically (temp file + rename), since it holds credentials,
 not observations — holds the VAPID keypair (generated on
 first use; it must stay stable, since subscriptions bind to the public key), the
-`sub` contact claim VAPID authentication requires (a `mailto:` — read from a `.env`
-value, since the daemon has no notion of a logged-in identity to derive it from), and
-the subscription list. Clients still re-POST their subscription at boot as
+subscription list. The VAPID `sub` contact claim comes from `TMUXRC_PUSH_SUBJECT` at
+send time (defaulting to a local `mailto:` value), since the daemon has no logged-in
+identity to derive it from. Clients still re-POST their subscription at boot as
 self-healing — the store upserts keyed by endpoint, so a re-register is idempotent,
 never a duplicate delivery — and prunes endpoints on `410 Gone`.
 
@@ -215,9 +217,10 @@ therefore exactly as reachable as typing into a pane already is: it adds no new
 exposure, but it is not a permission check either. It is paired with an unsubscribe
 (the client calls it when the user flips the bell off or permission is revoked) plus
 a revoke-all — a lost or replaced device must not keep receiving pane
-content until the platform happens to return `410`. It's single-user, multi-device:
-every stored subscription gets every push (per-device mute can come later if it
-ever matters).
+content until the platform happens to return `404` or `410`. It's single-user,
+multi-device: every stored subscription gets every push. The store retains at most
+16 validated browser subscriptions, evicting the oldest when that cap is crossed, so
+registration abuse cannot grow the state file or fan-out without bound.
 
 ### Egress
 
@@ -227,20 +230,18 @@ broken-IPv6 serial-connect hang the Gemini websocket did — but the daemon's
 inherit it for free. That sort doesn't bound a request that connects and then
 stalls, though: the sender is a synchronous `requests` call, so it runs **off the
 watcher and request hot paths** (its own worker thread, fed by a queue) with
-explicit connect/read timeouts. An FCM/APNs outage must degrade to dropped or late
-pushes — never to stalled parsing or presence updates (blocked-event-loop slowness
-is already a known failure class in this daemon). The queue is small and bounded
-(drop-oldest on overflow, no retry beyond what `requests` does in one call): a
-notification that couldn't send for minutes is *stale*, and the right failure mode
+explicit connect/read timeouts. An FCM/APNs outage must degrade to dropped pushes —
+never to stalled parsing or presence updates (blocked-event-loop slowness is already
+a known failure class in this daemon). The queue is small and bounded. A full queue
+rejects the new enqueue without evicting already-accepted work; the notifier leaves
+that wait unmarked and can retry while it remains current. Relay failures after
+dequeue are not retried: a notification that couldn't send for minutes is *stale*, and the right failure mode
 for this feature is silence, not a burst of old buzzes when the outage clears —
 the push-service TTLs bound staleness on their side for the ones that did leave.
 Blocking pushes go with `Urgency: high` and a short TTL (~10 min — a stale question
-has probably been answered from another surface); milestones with normal urgency and
-~1h TTL. Tags are **namespaced by kind**:
-`block:<pane_id>` (a newer question on the same pane replaces the older one) and a
-single rolling `milestones` tag (a coalesced push spans panes, so it has no single
-pane to tag — and it must never be able to replace an unanswered, action-bearing
-blocking notification).
+has probably been answered from another surface). Their tag is `block:<pane_id>`, so
+a newer question on the same pane replaces the older one. Milestone urgency, TTL, and
+tag behavior remain part of the planned milestone phase.
 
 ## Replying from the notification
 
@@ -257,8 +258,8 @@ blocking notification).
   Notifications API has no inline text-input field; Android's RemoteInput is a
   native-notification feature that `showNotification` cannot express, so there is
   no web-push inline reply to offer.)
-- **Deep link**: `/?pane=<id>` handled at boot in `app.js` (selects that pane's
-  card). Small, and independently useful.
+- **Deep link**: `/m#pane=<id>` handled at boot in the mobile app (selects that pane's
+  card). Free-text waits add `compose=1`; cursor questions deliberately do not.
 
 An action tap is **send-keys from the lock screen**, so the reply path is narrower
 than `/send`: the SW posts `{nonce, option_index}` to a dedicated
@@ -286,6 +287,11 @@ than `/send`: the SW posts `{nonce, option_index}` to a dedicated
   share — a forced re-parse-then-send would still race the screen, so we accept the
   same residual window the existing answer path already has rather than pretend a
   second read closes it.
+- **Any attempted pane input invalidates the action conservatively.** The nonce also
+  binds to a per-pane input generation. Ordinary sends, clicks, composers, image
+  pastes, and Live input advance it before competing for the pane lock; the push path
+  checks it again only after taking that same lock. A delayed action therefore cannot
+  race an answer from another surface and submit into the next prompt.
 - **The daemon owns the option→keystroke mapping.** `answer_style` matters:
   `"menu"` options are on-screen widgets answered with a keystroke (digit, y/n),
   not their label text — typing the label into a numbered menu selects nothing or

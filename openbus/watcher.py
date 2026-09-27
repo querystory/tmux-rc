@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 import subprocess
+import threading
 import time
 from functools import partial
 
@@ -219,6 +220,8 @@ class Watcher:
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
+        self._input_generation: dict[str, int] = {}
+        self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
@@ -443,6 +446,16 @@ class Watcher:
                 # don't fail the request over a wake we no longer need — the pane id stays
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
+
+    def invalidate_input_actions(self, pane_id: str) -> None:
+        """Invalidate actions before a pane-input transaction can take its send lock."""
+        with self._input_generation_lock:
+            self._input_generation[pane_id] = self._input_generation.get(pane_id, 0) + 1
+
+    def note_input(self, pane_id: str) -> None:
+        """Record successful push input and schedule a fresh classification."""
+        self.invalidate_input_actions(pane_id)
+        self.request_reparse(pane_id)
 
     def _tick(self) -> None:
         if not tmux.server_running():
@@ -766,6 +779,19 @@ class Watcher:
         callers like live telemetry."""
         return (self._state.get(pane_id) or {}).get("label", pane_id)
 
+    def pane_birth(self, pane_id: str) -> str | None:
+        """Return the process identity that disambiguates a recycled tmux pane id."""
+        return self._birth.get(pane_id)
+
+    def pane_parse_valid(self, pane_id: str) -> bool:
+        """Whether this pane's published classification came from a successful parse."""
+        return self._parse_valid.get(pane_id, False)
+
+    def pane_input_generation(self, pane_id: str) -> int:
+        """Monotonic token changed immediately after accepted pane input."""
+        with self._input_generation_lock:
+            return self._input_generation.get(pane_id, 0)
+
     def _stores(self):
         return (
             self._prev_fp,
@@ -818,6 +844,8 @@ class Watcher:
         )
         for store in self._stores():
             store.pop(pane_id, None)
+        with self._input_generation_lock:
+            self._input_generation.pop(pane_id, None)
 
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows

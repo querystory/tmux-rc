@@ -326,6 +326,7 @@ def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, mo
     for _ in range(W.PARSE_RETRIES + 2):
         w._tick()
     w.history.record.assert_not_called()
+    assert not w.pane_parse_valid("%0")
     assert w.is_stale()
     frame[0] = "successfully read screen"
     monkeypatch.setattr(W, "classify", lambda *args, **kwargs: {
@@ -333,6 +334,7 @@ def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, mo
     })
     w._tick()
     w.history.record.assert_called_once()
+    assert w.pane_parse_valid("%0")
     assert not w.is_stale()
 
 
