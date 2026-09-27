@@ -91,14 +91,15 @@ def test_reservation_ends_if_the_launched_pane_is_gone(history, monkeypatch):
     assert len(opened) == 2
 
 
-def test_reservation_holds_when_the_pane_pid_was_unknown(history, monkeypatch):
-    sessions, opened = history
+def test_launch_without_a_pid_is_a_failed_launch(history, monkeypatch):
+    # A pane with no pid has already closed; there is no identity to reserve, and the
+    # user should hear that the resume didn't take.
+    sessions, _ = history
     sessions["live-1"] = LIVE
-    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: None)  # still spawning
-    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "opened"
-    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "4321")  # now it has one
-    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "already_running"
-    assert len(opened) == 1
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: None)
+    monkeypatch.setattr(L, "_LAUNCH_PID_RETRY_S", 0)
+    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "error"
+    assert L._resumed == {}
 
 
 def test_resume_never_starts_a_second_copy(history):
