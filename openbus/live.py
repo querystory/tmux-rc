@@ -613,7 +613,10 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
     if entry is None:
         return {"status": "rejected", "reason": "unknown session"}
 
-    # Never start a second process on a live session's transcript.
+    # Never start a second process on a live session's transcript — including when
+    # agent-history couldn't tell whether one is running.
+    if entry.get("running_unknown"):
+        return {"status": "error", "reason": "can't tell whether it's already running"}
     running = entry.get("running")
     if running:
         pane = running.get("tmux_pane")

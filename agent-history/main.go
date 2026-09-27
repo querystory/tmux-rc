@@ -54,7 +54,9 @@ func main() {
 
 func resolveCmd(args []string) {
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
-	opt := ResolveOptions{Now: time.Now(), Running: RunningClaude()}
+	opt := ResolveOptions{Now: time.Now()}
+	opt.Running, opt.RunningErr = RunningClaude()
+	report(opt.RunningErr)
 	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude)")
 	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
 	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
@@ -115,7 +117,10 @@ func getCmd(args []string) {
 		os.Exit(1)
 	}
 	out := Scored{Entry: e}
-	if r, ok := RunningClaude()[id]; ok {
+	running, err := RunningClaude()
+	report(err)
+	out.RunningUnknown = err != nil
+	if r, ok := running[id]; ok {
 		out.Running = &r
 	}
 	enc := json.NewEncoder(os.Stdout)

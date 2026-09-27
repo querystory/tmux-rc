@@ -95,6 +95,7 @@ def test_resume_never_starts_a_second_copy(history):
     ({**LIVE, "resume_argv": ["sh", "-c", "rm -rf ~"]}, {"session_id": "live-1"}),
     ({**LIVE, "resume_argv": []}, {"session_id": "live-1"}),  # a subagent
     ({**LIVE, "cwd": "/gone"}, {"session_id": "live-1"}),
+    ({**LIVE, "running_unknown": True}, {"session_id": "live-1"}),  # registry unreadable
     (LIVE, {"session_id": "live-1", "command": "claude"}),  # extra args
     (LIVE, {"session_id": 7}),
 ])
@@ -103,7 +104,7 @@ def test_resume_rejects(history, entry, args):
     if entry:
         sessions["live-1"] = entry
     _, r = _call("resume_session", args)
-    assert r["status"] == "rejected"
+    assert r["status"] in {"rejected", "error"}
     assert opened == []
 
 

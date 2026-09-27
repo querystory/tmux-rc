@@ -20,7 +20,8 @@ func TestRunningClaude(t *testing.T) {
 	register("reused-pid", os.Getppid(), "1", "work:@4.%13") // pid alive, but a different process
 	register("dead", 1<<22+7, "5", "")
 
-	got := RunningClaude()
+	got, err := RunningClaude()
+	must(t, err)
 	if r, ok := got["live"]; !ok || r.TmuxPane != "%12" || r.PID != me || r.Status != "idle" {
 		t.Errorf("live = %+v, %v", r, ok)
 	}
@@ -42,5 +43,24 @@ func TestResolveMarksRunning(t *testing.T) {
 		if (s.Running != nil) != (s.ID == "on") {
 			t.Errorf("%s running = %+v", s.ID, s.Running)
 		}
+	}
+}
+
+func TestRunningClaudeUnreadableIsAnError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads anything")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := filepath.Join(claudeDir(), "sessions")
+	must(t, os.MkdirAll(dir, 0o000))
+	defer os.Chmod(dir, 0o700)
+	if _, err := RunningClaude(); err == nil {
+		t.Errorf("unreadable registry reported as nothing running")
+	}
+	// No registry at all is a real answer: nothing running.
+	must(t, os.Chmod(dir, 0o700))
+	must(t, os.Remove(dir))
+	if got, err := RunningClaude(); err != nil || len(got) != 0 {
+		t.Errorf("missing registry = %v, %v", got, err)
 	}
 }

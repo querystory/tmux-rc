@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,10 +19,14 @@ type Running struct {
 // RunningClaude lists live Claude Code sessions by session ID. Claude Code registers
 // each running session in <config>/sessions/<pid>.json with its tmux pane. A file
 // outlives a crashed process, and pids get reused, so an entry counts only while
-// its pid is alive with the same kernel start time it registered.
-func RunningClaude() map[string]Running {
+// its pid is alive with the same kernel start time it registered. An error means
+// liveness is unknown, which callers must not read as "nothing is running".
+func RunningClaude() (map[string]Running, error) {
 	out := map[string]Running{}
-	files, _ := find(filepath.Join(claudeDir(), "sessions"), ".json", 1)
+	files, err := find(filepath.Join(claudeDir(), "sessions"), ".json", 1)
+	if err != nil {
+		return nil, err
+	}
 	for _, f := range files {
 		var reg struct {
 			PID       int    `json:"pid"`
@@ -31,7 +36,13 @@ func RunningClaude() map[string]Running {
 			Status    string `json:"status"`
 		}
 		data, err := os.ReadFile(f)
-		if err != nil || json.Unmarshal(data, &reg) != nil || reg.SessionID == "" {
+		if errors.Is(err, os.ErrNotExist) {
+			continue // the process exited and removed it between listing and reading
+		}
+		if err != nil {
+			return nil, err
+		}
+		if json.Unmarshal(data, &reg) != nil || reg.SessionID == "" {
 			continue
 		}
 		if reg.ProcStart == "" || procStart(reg.PID) != reg.ProcStart {
@@ -43,7 +54,7 @@ func RunningClaude() map[string]Running {
 		}
 		out[reg.SessionID] = Running{PID: reg.PID, TmuxPane: pane, Status: reg.Status}
 	}
-	return out
+	return out, nil
 }
 
 // procStart is field 22 of /proc/<pid>/stat, the process start time in clock ticks,
