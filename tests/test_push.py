@@ -13,12 +13,16 @@ class Watcher:
         self.births = {"%1": "123"}
         self.reparsed = []
         self.stale = False
+        self.parse_valid = True
 
     def is_stale(self):
         return self.stale
 
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
+
+    def pane_parse_valid(self, pane_id):
+        return self.parse_valid
 
     def request_reparse(self, pane_id):
         self.reparsed.append(pane_id)
@@ -180,6 +184,24 @@ def test_stale_watcher_suppresses_until_live_state_resumes(tmp_path, monkeypatch
     assert len(sender.payloads) == 1
 
 
+def test_failed_pane_parse_suppresses_retained_question(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting()]
+    watcher.parse_valid = False
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert sender.payloads == []
+    watcher.parse_valid = True
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert len(sender.payloads) == 1
+
+
 def test_missing_waiting_on_defaults_to_an_actionable_user_wait(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
@@ -288,6 +310,25 @@ def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeyp
     service.evaluate()
     nonce = sender.payloads[0]["nonce"]
     watcher.stale = True
+
+    with pytest.raises(ValueError, match="temporarily unavailable"):
+        service.answer(nonce, 0)
+    with pytest.raises(ValueError, match="already used"):
+        service.answer(nonce, 0)
+
+
+def test_action_rejects_a_retained_question_after_parse_failure(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+                               "options": ["Yes", "No"]})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    nonce = sender.payloads[0]["nonce"]
+    watcher.parse_valid = False
 
     with pytest.raises(ValueError, match="temporarily unavailable"):
         service.answer(nonce, 0)

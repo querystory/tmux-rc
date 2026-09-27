@@ -770,6 +770,10 @@ class Watcher:
         """Return the process identity that disambiguates a recycled tmux pane id."""
         return self._birth.get(pane_id)
 
+    def pane_parse_valid(self, pane_id: str) -> bool:
+        """Whether this pane's published classification came from a successful parse."""
+        return self._parse_valid.get(pane_id, False)
+
     def _stores(self):
         return (
             self._prev_fp,

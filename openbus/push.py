@@ -356,7 +356,8 @@ class PushManager:
             raise ValueError("notification answer expired or was already used")
         if option_index not in issued["indices"]:
             raise ValueError("option was not offered by this notification")
-        if self.watcher.is_stale():
+        if (self.watcher.is_stale()
+                or not self.watcher.pane_parse_valid(issued["pane_id"])):
             raise ValueError("pane state is temporarily unavailable")
         pane = next((dict(s) for s in self.watcher.states
                      if s.get("pane_id") == issued["pane_id"]), None)
@@ -397,7 +398,8 @@ class PushManager:
                     or pane.get("waiting_on") == "external"):
                 continue
             pane_id = pane.get("pane_id")
-            if not isinstance(pane_id, str):
+            if (not isinstance(pane_id, str)
+                    or not self.watcher.pane_parse_valid(pane_id)):
                 continue
             fp, question = contract(pane, self.watcher.pane_birth(pane_id))
             active.add((pane_id, fp))
