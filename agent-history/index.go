@@ -31,7 +31,10 @@ func indexPath(harness, parent, id string) string {
 func IndexTranscript(path string) error {
 	// ReadDir, not Glob: a session path is literal and may contain glob syntax.
 	dir := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
-	files, _ := os.ReadDir(dir) // most sessions have no subagents
+	files, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) { // most sessions have no subagents
+		return err
+	}
 	paths := []string{path}
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".jsonl") {

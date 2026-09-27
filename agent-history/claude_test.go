@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,22 @@ func TestReadClaude(t *testing.T) {
 	check(t, "started", s.Started, "2026-09-01T10:00:00Z")
 	check(t, "last_active", s.LastActive, "2026-09-01T10:02:00Z")
 	check(t, "resume", s.Resume, "cd '/src/my repo' && claude --resume sess-1")
+}
+
+// Tool results are skipped by a byte match before decoding. Text inside a message is
+// JSON-escaped, so a human quoting a tool result can never trip that match.
+func TestReadClaudeKeepsQuotedToolResult(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "q.jsonl")
+	line, _ := json.Marshal(map[string]any{
+		"type": "user", "origin": map[string]string{"kind": "human"},
+		"message": map[string]string{"content": `why is "type":"tool_result" here?`},
+	})
+	must(t, os.WriteFile(path, append(line, '\n'), 0o600))
+	s, err := ReadClaude(path)
+	must(t, err)
+	if len(s.Messages) != 1 {
+		t.Errorf("messages = %+v, want the quoted message kept", s.Messages)
+	}
 }
 
 func TestReadClaudeSubagent(t *testing.T) {
@@ -148,8 +165,9 @@ func TestResumeQuotesCwd(t *testing.T) {
 }
 
 func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
-	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// Configured roots containing glob syntax are still taken literally.
+	t.Setenv("AGENT_HISTORY_DIR", filepath.Join(t.TempDir(), "[h]?"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "[c]*"))
 	must(t, os.MkdirAll(filepath.Dir(stateFile()), 0o700))
 
 	// While another run holds the lock, this one does nothing and records nothing.
@@ -176,6 +194,9 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	Reconcile()
 	if _, err := os.Stat(stateFile()); err != nil {
 		t.Errorf("a completed run was not recorded: %v", err)
+	}
+	if _, err := os.Stat(indexPath("claude", "", "s")); err != nil {
+		t.Errorf("transcript under a glob-shaped root not indexed: %v", err)
 	}
 }
 

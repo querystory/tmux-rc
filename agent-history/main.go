@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,19 +90,33 @@ func reconcileAll() (ok bool) {
 		report(err)
 		ok = ok && err == nil
 	}
-	transcripts, err := filepath.Glob(filepath.Join(claudeDir(), "projects", "*", "*.jsonl"))
+	transcripts, err := find(claudeDir(), "projects/*/*.jsonl")
 	check(err)
 	for _, t := range transcripts {
 		check(IndexTranscript(t))
 	}
-	entries, err := filepath.Glob(filepath.Join(Root(), "index", "claude", "*.md"))
+	entries, err := find(Root(), "index/claude/*.md", "index/claude/*/*.md")
 	check(err)
-	subentries, err := filepath.Glob(filepath.Join(Root(), "index", "claude", "*", "*.md"))
-	check(err)
-	for _, e := range append(entries, subentries...) {
+	for _, e := range entries {
 		check(MarkMissing(e))
 	}
 	return ok
+}
+
+// find matches patterns under root, which is taken literally: a configured directory
+// may itself contain glob syntax.
+func find(root string, patterns ...string) ([]string, error) {
+	var out []string
+	for _, p := range patterns {
+		matches, err := fs.Glob(os.DirFS(root), p)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range matches {
+			out = append(out, filepath.Join(root, m))
+		}
+	}
+	return out, nil
 }
 
 // withLock runs fn holding an exclusive kernel lock, which a killed process releases.
