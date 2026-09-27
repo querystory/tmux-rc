@@ -4,7 +4,10 @@ What must hold: the model only ever names a session id, and everything that reac
 tmux (argv, directory) comes from the agent-history index; a session that is already
 running is never started twice; and without agent-history the tools don't exist."""
 
+import asyncio
+import shutil
 import stat
+import subprocess
 
 import pytest
 
@@ -17,6 +20,12 @@ LIVE = {
     "session_id": "live-1", "title": "tmuxrc live mode", "cwd": "/repo",
     "last_active": "2026-09-05T15:29:22Z", "resume_argv": ["claude", "--resume", "live-1"],
 }
+
+
+@pytest.fixture(autouse=True)
+def _fresh_resumes(monkeypatch):
+    monkeypatch.setattr(L, "_resumed", {})
+    monkeypatch.setattr(L, "_resume_lock", asyncio.Lock())  # each test runs its own loop
 
 
 @pytest.fixture
@@ -51,6 +60,23 @@ def test_resume_opens_the_indexed_command_in_its_directory(history):
     # argv and cwd are the index's, in the tmux session already working in that repo.
     assert opened == [("work", "tmuxrc live mode", ["claude", "--resume", "live-1"], "/repo")]
     assert any(m["type"] == "typed" and m["pane_id"] == "%40" for m in ws.sent)
+
+
+def test_resume_is_idempotent_until_the_session_registers(history):
+    # Right after a launch the registry doesn't list it yet; a repeat must not relaunch.
+    sessions, opened = history
+    sessions["live-1"] = LIVE
+
+    async def twice():
+        return await asyncio.gather(*(
+            L._handle_tool_call(_WS(), s, _FC(name="resume_session", args={"session_id": "live-1"}),
+                                _Watcher(), "tester")
+            for s in (a, b)))
+    a, b = _Session(), _Session()
+    _run(twice())
+    statuses = sorted(x.responses[0].response["status"] for x in (a, b))
+    assert statuses == ["already_running", "opened"]
+    assert len(opened) == 1
 
 
 def test_resume_never_starts_a_second_copy(history):
@@ -134,3 +160,30 @@ def test_new_window_passes_argv_without_a_shell(monkeypatch):
     assert calls[-1][-2:] == ["--", "codex --yolo"]
     assert calls[-1][calls[-1].index("-c") + 1] == "#{session_path}"
 
+
+
+@pytest.mark.skipif(not shutil.which("tmux"), reason="needs tmux")
+def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
+    # tmux execs a multi-argument command directly (no shell), which is what makes the
+    # argv form safe for index data. Pinned against a real, private tmux server.
+    sock = str(tmp_path / "tmux.sock")
+    real = subprocess.run
+
+    def private(argv, *a, **k):
+        if argv[:1] == ["tmux"]:
+            argv = ["tmux", "-S", sock, *argv[1:]]
+        return real(argv, *a, **k)
+    monkeypatch.setattr(tmux.subprocess, "run", private)
+    out, marker = tmp_path / "argv", tmp_path / "PWNED"
+    real(["tmux", "-S", sock, "new-session", "-d", "-s", "t"], check=True)
+    try:
+        tmux.new_window("t", "n", ["sh", "-c", 'printf "%s|" "$@" > "$0"', str(out),
+                                   f"a b;touch {marker}", "$(x)"], str(tmp_path))
+        for _ in range(50):
+            if out.exists() and out.read_text():
+                break
+            subprocess.run(["sleep", "0.05"], check=True)
+        assert out.read_text() == f"a b;touch {marker}|$(x)|"
+        assert not marker.exists()
+    finally:
+        real(["tmux", "-S", sock, "kill-server"], check=False)

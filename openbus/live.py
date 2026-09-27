@@ -587,13 +587,29 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
     return {"status": "ok", "results": results}
 
 
+# A resumed Claude process takes a moment to register itself as running, so a repeat
+# call in that window would see nothing running and start a second copy on the same
+# transcript. Resumes are serialized, and each launch is remembered for this long.
+_RESUME_REGISTER_SECONDS = 60
+_resume_lock = asyncio.Lock()
+_resumed: dict[str, tuple[str, float]] = {}  # session id -> (pane id, launched at)
+
+
 async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
     """Open a past session in a new window. Everything that reaches tmux comes from the
     index, not the model: the model only names a session id."""
     sid = args.get("session_id")
     if set(args) - {"session_id"} or not isinstance(sid, str) or not sid.strip():
         return {"status": "rejected", "reason": "malformed call"}
-    entry = await asyncio.to_thread(agent_history.get, sid.strip())
+    async with _resume_lock:
+        return await _resume_locked(websocket, sid.strip(), watcher, actor)
+
+
+async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
+    pane, at = _resumed.get(sid, ("", 0.0))
+    if time.monotonic() - at < _RESUME_REGISTER_SECONDS:
+        return {"status": "already_running", "pane_id": pane}
+    entry = await asyncio.to_thread(agent_history.get, sid)
     if entry is None:
         return {"status": "rejected", "reason": "unknown session"}
 
@@ -627,6 +643,8 @@ async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
             detail=str(e)[:120], keys=entry["session_id"], outcome="error",
         )
         return {"status": "error", "reason": "could not open a window"}
+    _resumed[sid] = (pane_id, time.monotonic())
+    watcher.request_reparse(pane_id)  # wakes a full tick, so the new pane is addressable
     telemetry.emit_action(
         action="live_resume", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
         detail=f"in {target}", keys=entry["session_id"],
