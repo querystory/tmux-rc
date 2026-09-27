@@ -67,6 +67,9 @@ func TestResolveWeightsNamesAndRecency(t *testing.T) {
 		entry(t, Session{ID: "titled", Cwd: "/r", Title: "otlp grpc", LastActive: old}),
 	}, "otlp", defaults)
 	check(t, "newer first", ids(got[0])[0], "new")
+	if r := recency(now.Add(time.Hour).Format(time.RFC3339), now); r != 1 {
+		t.Errorf("future recency = %v, want 1", r)
+	}
 	if len(got[0].Sessions) != 3 {
 		t.Fatalf("sessions = %v", ids(got[0]))
 	}

@@ -99,7 +99,7 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 			byRepo[repo] = &Project{Repo: repo}
 		}
 		p := byRepo[repo]
-		scored := Scored{Entry: e, Score: round(score)}
+		scored := Scored{Entry: e, Score: score}
 		if r, ok := opt.Running[e.ID]; ok {
 			scored.Running = &r
 		}
@@ -114,7 +114,11 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 			p.Score += s.Score
 		}
 		p.Sessions = p.Sessions[:min(len(p.Sessions), max(opt.MaxSessions, 0))]
+		// Round for display only, after the sums that rank.
 		p.Score = round(p.Score)
+		for i := range p.Sessions {
+			p.Sessions[i].Score = round(p.Sessions[i].Score)
+		}
 		projects = append(projects, *p)
 	}
 	slices.SortFunc(projects, func(a, b Project) int { return cmp.Compare(b.Score, a.Score) })
@@ -161,7 +165,8 @@ func recency(lastActive string, now time.Time) float64 {
 	if err != nil {
 		return 0.5
 	}
-	return math.Exp2(-now.Sub(t).Hours() / (24 * 14))
+	// Clock skew can put a session in the future; that is "now", not a bonus.
+	return math.Exp2(-max(now.Sub(t).Hours(), 0) / (24 * 14))
 }
 
 // terms are the query's words plus each adjacent pair as a phrase. A phrase is rarer

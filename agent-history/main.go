@@ -73,7 +73,10 @@ func resolveCmd(args []string) {
 	var entries []Entry
 	for _, p := range append(paths, nested...) {
 		e, err := ReadEntry(p)
-		report(err)
+		if err != nil {
+			report(err)
+			continue
+		}
 		entries = append(entries, e)
 	}
 	projects := Resolve(entries, query, opt)
