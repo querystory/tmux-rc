@@ -1,6 +1,6 @@
 # Design: push notifications — "needs you" and "milestone" pushes, with reply
 
-Status: **draft / thinking** — no code yet. Captures the design for issue #139.
+Status: **blocking pushes + replies implemented; milestone pushes remain planned**.
 
 ## The problem
 

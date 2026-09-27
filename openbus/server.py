@@ -73,6 +73,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 from . import telemetry, tmux  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .push import PushManager  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -132,6 +133,25 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+
+
+class PushSubscriptionBody(BaseModel):
+    endpoint: str
+    keys: dict[str, str]
+
+
+class PushUnsubscribeBody(BaseModel):
+    endpoint: str
+
+
+class PushPresenceBody(BaseModel):
+    client: str = Field(min_length=1, max_length=100)
+    visible: bool
+
+
+class PushAnswerBody(BaseModel):
+    nonce: str = Field(min_length=16, max_length=200)
+    option_index: int = Field(ge=0, le=100)
 
 
 class ClickBody(BaseModel):
@@ -411,8 +431,13 @@ async def lifespan(app: FastAPI):
         app.state.history = None
     app.state.watcher = Watcher(target=target, use_llm=use_llm, history=app.state.history)
     app.state.watcher.start()
-    yield
-    await app.state.watcher.stop()
+    app.state.push = PushManager(app.state.watcher)
+    app.state.push.start()
+    try:
+        yield
+    finally:
+        await app.state.push.stop()
+        await app.state.watcher.stop()
 
 
 # Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
@@ -500,7 +525,7 @@ def get_history(window: str = "24h"):
 
 
 @app.get("/api/state")
-async def get_state(v: int | None = None):
+async def get_state(v: int | None = None, client: str = "", visible: bool = False):
     """Deck state for the phone. With `?v=<version>` this LONG-POLLS: it holds until the
     watcher's state_version passes `v` (a pane switch, add/remove, label/activity change,
     or new events on any pane) or ~25s elapses, then returns the fresh state plus the new
@@ -508,6 +533,9 @@ async def get_state(v: int | None = None):
     up within the fast-poll cadence instead of a fixed 2s interval. Omitting `v` returns
     immediately (unchanged legacy behavior)."""
     w = app.state.watcher
+    push = getattr(app.state, "push", None)
+    if push is not None and client:
+        push.note_presence(client, visible=visible)
     version = w.state_version()
     # Only long-poll once the watcher has produced an initial state (version > 0).
     # A client that sends ?v=0 before the deck has ever ticked (daemon startup, or the
@@ -532,6 +560,60 @@ async def get_state(v: int | None = None):
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
         "panes": panes,
     }
+
+
+@app.get("/api/push/config")
+def push_config():
+    """Return the stable VAPID public key needed by PushManager.subscribe()."""
+    _, public = app.state.push.store.keys()
+    return {"public_key": public}
+
+
+@app.post("/api/push/subscribe")
+def push_subscribe(body: PushSubscriptionBody, request: Request):
+    try:
+        app.state.push.subscribe(body.model_dump())
+    except ValueError as exc:
+        _audit(request, "push_subscribe", "push", outcome=f"rejected: {exc}")
+        raise HTTPException(400, str(exc)) from exc
+    _audit(request, "push_subscribe", "push")
+    return {"ok": True}
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(body: PushUnsubscribeBody, request: Request):
+    removed = app.state.push.store.remove(body.endpoint)
+    _audit(request, "push_unsubscribe", "push", detail=f"removed={removed}")
+    return {"ok": True, "removed": removed}
+
+
+@app.post("/api/push/revoke-all")
+def push_revoke_all(request: Request):
+    count = app.state.push.store.revoke_all()
+    _audit(request, "push_revoke_all", "push", detail=f"removed={count}")
+    return {"ok": True, "removed": count}
+
+
+@app.post("/api/push/presence")
+def push_presence(body: PushPresenceBody):
+    app.state.push.note_presence(body.client, visible=body.visible)
+    return {"ok": True}
+
+
+@app.post("/api/push/answer")
+def push_answer(body: PushAnswerBody, request: Request):
+    try:
+        pane_id, keys = app.state.push.answer(body.nonce, body.option_index)
+    except (ValueError, tmux.PaneChangedError) as exc:
+        _audit(request, "push_answer", "push", detail="actor=push-action",
+               outcome=f"rejected: {exc}")
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        _audit(request, "push_answer", "push", detail="actor=push-action",
+               outcome=f"error: {exc}"[:80])
+        raise
+    _audit(request, "push_answer", pane_id, detail="actor=push-action", keys=keys)
+    return {"ok": True}
 
 
 @app.get("/api/digest")

@@ -50,6 +50,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCaptureLines, linkifyText } from "./terminal.js";
 import { pickCursorRow } from "./cursor-pick.js";
+import { sendPresence, stateUrl } from "./push.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -800,7 +801,7 @@ async function poll() {
     // unambiguously "give me current state now" — never conflated with a real echoed
     // version. (The server only holds when v == its current version AND version > 0, so
     // a null here keeps the first paint immediate regardless of startup timing.)
-    const r = await fetch("/api/state" + (_stateVersion !== null ? `?v=${_stateVersion}` : ""));
+    const r = await fetch(stateUrl(_stateVersion));
     // Check status before parsing: when the tunnel/backend is down the relay
     // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
@@ -970,7 +971,7 @@ function onResume() {
   // but an abandoned gesture leaves only per-instance state that the next touchstart
   // overwrites — no global flag can survive to freeze the returning user's app.
 }
-document.addEventListener("visibilitychange", onResume);
+document.addEventListener("visibilitychange", () => { sendPresence(); onResume(); });
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
 
 const usageEl = document.getElementById("usage");
@@ -3999,13 +4000,9 @@ function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
-// Purge any previously-installed service worker + caches. An old SW (from before we
-// went cache-less) keeps serving a stale app.js on the phone even after edits — which
-// is why new buttons didn't appear on reload. Unregister everything so the phone
-// always fetches fresh from the network. (No SW ⇒ not installable, fine for the PoC.)
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
-}
+// Keep the push-only worker current. It has no fetch handler and writes no caches, so it
+// cannot serve stale app assets (the failure the old unregister-everything block guarded).
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" });
 if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
 pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
 syncBadgeTick(); // live-tick idle/waiting durations while visible (paused when hidden)

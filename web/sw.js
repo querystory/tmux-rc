@@ -1,11 +1,50 @@
-// Self-destructing service worker. Any previously-installed SW, when the browser
-// re-checks this file, replaces itself with this and immediately unregisters + clears
-// all caches, then reloads controlled pages. This is how we evict a stale SW that was
-// serving old app.js/index.html (which hid new UI like the attach/Ctrl-O buttons).
+// Push-only service worker. Deliberately NO fetch handler and NO cache writes: every app
+// asset continues to come from the network, preserving tmux-rc's no-stale-UI contract.
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", async () => {
-  await caches.keys().then((ks) => Promise.all(ks.map((k) => caches.delete(k))));
-  await self.registration.unregister();
-  const clients = await self.clients.matchAll();
-  clients.forEach((c) => c.navigate(c.url));
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
+    await clients.claim();
+  })());
+});
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data?.json() || {}; } catch {}
+  const actions = Array.isArray(data.actions) ? data.actions.slice(0, 2) : [];
+  event.waitUntil(self.registration.showNotification(data.title || "tmux-rc", {
+    body: data.body || "A session needs your attention",
+    tag: data.tag || "tmux-rc",
+    renotify: true,
+    icon: "/apple-touch-icon.png",
+    badge: "/apple-touch-icon.png",
+    actions,
+    data: { url: data.url || "/m", nonce: data.nonce || null },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const match = /^answer:(\d+)$/.exec(event.action || "");
+  event.waitUntil((async () => {
+    if (match && data.nonce) {
+      try {
+        const response = await fetch("/api/push/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nonce: data.nonce, option_index: Number(match[1]) }),
+        });
+        if (response.ok) return;
+      } catch {}
+    }
+    const target = new URL(data.url || "/m", self.location.origin).href;
+    const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find((client) => client.url.startsWith(self.location.origin));
+    if (existing) {
+      await existing.navigate(target);
+      return existing.focus();
+    }
+    return clients.openWindow(target);
+  })());
 });

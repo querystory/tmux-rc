@@ -766,6 +766,10 @@ class Watcher:
         callers like live telemetry."""
         return (self._state.get(pane_id) or {}).get("label", pane_id)
 
+    def pane_birth(self, pane_id: str) -> str | None:
+        """Return the process identity that disambiguates a recycled tmux pane id."""
+        return self._birth.get(pane_id)
+
     def _stores(self):
         return (
             self._prev_fp,

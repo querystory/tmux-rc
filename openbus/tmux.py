@@ -168,6 +168,26 @@ def _run(args: list[str]) -> str:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
 
 
+def client_active_within(seconds: float) -> bool:
+    """Whether any attached tmux client received input recently.
+
+    A failure (including no attached clients) is treated as absence.  Push suppression
+    must fail open: losing tmux presence may cause one useful notification, never hide it.
+    """
+    try:
+        rows = _run(["list-clients", "-F", "#{client_activity}"]).splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    now = time.time()
+    for value in rows:
+        try:
+            if now - float(value) < seconds:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 _server_uid: str | None = None
 
 
@@ -881,5 +901,3 @@ def set_clipboard_image(png: bytes) -> list[str]:
         except Exception:  # noqa: BLE001 - try the next tool
             continue
     return ok
-
-

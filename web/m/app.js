@@ -4,6 +4,7 @@ import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
+import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
@@ -747,7 +748,7 @@ async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
     try {
-      const data = await request(`/api/state${version ? `?v=${version}` : ""}`, { signal }, LONG_POLL_TIMEOUT_MS);
+      const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
@@ -1070,11 +1071,12 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { startState(); restartDetail(); });
+document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
+setupPush($("push"), notice);
 const live = setupLiveMode({ request, session: liveSession, licon, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {

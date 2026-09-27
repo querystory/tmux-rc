@@ -35,6 +35,8 @@ def test_mobile_assets_and_manifest():
         "/m/pane-model.js",
         "/lm-tap.js",
         "/terminal.js",
+        "/push.js",
+        "/sw.js",
         "/icon.svg",
     ):
         assert client.get(path).status_code == 200
@@ -42,6 +44,8 @@ def test_mobile_assets_and_manifest():
     assert manifest["start_url"] == "/m"
     assert manifest["scope"] == "/m"
     assert 'src="/app.js"' in client.get("/").text
+    assert 'id="push"' in client.get("/m").text
+    assert 'addEventListener("fetch"' not in client.get("/sw.js").text
 
 
 def test_version_tracks_nested_mobile_assets(tmp_path, monkeypatch):
