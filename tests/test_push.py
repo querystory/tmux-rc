@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from py_vapid import Vapid
+from pydantic import ValidationError
 
 from openbus import push
 
@@ -144,6 +145,20 @@ def test_answer_schema_accepts_large_valid_option_indices():
     assert PushAnswerBody(nonce="n" * 24, option_index=101).option_index == 101
 
 
+def test_subscription_schema_bounds_and_forbids_extra_key_material():
+    from openbus.server import PushSubscriptionBody
+
+    value = subscription()
+    assert PushSubscriptionBody(**value).endpoint == value["endpoint"]
+    value["keys"]["junk"] = "x" * 10_000
+    with pytest.raises(ValidationError):
+        PushSubscriptionBody(**value)
+    value = subscription()
+    value["endpoint"] = "x" * 4097
+    with pytest.raises(ValidationError):
+        PushSubscriptionBody(**value)
+
+
 def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     pane = waiting({"prompt": "Proceed?", "answer_style": "menu", "options": ["Yes", "No"]})
     before = push.contract(pane, "123")[0]
@@ -225,6 +240,22 @@ def test_presence_leases_are_bounded(tmp_path):
     assert len(service._presence) == push.MAX_PRESENCE_LEASES
     assert "client-0" not in service._presence
     assert f"client-{push.MAX_PRESENCE_LEASES + 19}" in service._presence
+
+
+def test_input_generation_updates_are_atomic():
+    from openbus.watcher import Watcher as RealWatcher
+
+    watcher = RealWatcher(None, use_llm=False)
+    def increment():
+        for _ in range(500):
+            watcher.invalidate_input_actions("%1")
+
+    workers = [threading.Thread(target=increment) for _ in range(8)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert watcher.pane_input_generation("%1") == 4000
 
 
 def test_stale_watcher_suppresses_until_live_state_resumes(tmp_path, monkeypatch):

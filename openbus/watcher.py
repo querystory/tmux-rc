@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 import subprocess
+import threading
 import time
 from functools import partial
 
@@ -220,6 +221,7 @@ class Watcher:
         self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
+        self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
         # When the pane ENTERED its current state — reset only when the activity value or
@@ -447,7 +449,8 @@ class Watcher:
 
     def invalidate_input_actions(self, pane_id: str) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock."""
-        self._input_generation[pane_id] = self._input_generation.get(pane_id, 0) + 1
+        with self._input_generation_lock:
+            self._input_generation[pane_id] = self._input_generation.get(pane_id, 0) + 1
 
     def note_input(self, pane_id: str) -> None:
         """Record successful push input and schedule a fresh classification."""
@@ -786,7 +789,8 @@ class Watcher:
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
-        return self._input_generation.get(pane_id, 0)
+        with self._input_generation_lock:
+            return self._input_generation.get(pane_id, 0)
 
     def _stores(self):
         return (
@@ -794,7 +798,6 @@ class Watcher:
             self._seen_fp,
             self._parse_fails,
             self._parse_valid,
-            self._input_generation,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -841,6 +844,8 @@ class Watcher:
         )
         for store in self._stores():
             store.pop(pane_id, None)
+        with self._input_generation_lock:
+            self._input_generation.pop(pane_id, None)
 
     def _gc(self, alive: set[str]) -> None:
         """Drop per-pane state for panes that no longer exist, so closing windows

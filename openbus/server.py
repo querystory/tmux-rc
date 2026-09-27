@@ -68,7 +68,7 @@ from fastapi.responses import (  # noqa: E402
 )
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
+from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
 from . import telemetry, tmux  # noqa: E402
 from .history import History, default_path  # noqa: E402
@@ -135,13 +135,20 @@ class SendBody(BaseModel):
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
 
 
+class PushKeysBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    p256dh: str = Field(min_length=1, max_length=128)
+    auth: str = Field(min_length=1, max_length=64)
+
+
 class PushSubscriptionBody(BaseModel):
-    endpoint: str
-    keys: dict[str, str]
+    model_config = ConfigDict(extra="forbid")
+    endpoint: str = Field(min_length=1, max_length=4096)
+    keys: PushKeysBody
 
 
 class PushUnsubscribeBody(BaseModel):
-    endpoint: str
+    endpoint: str = Field(min_length=1, max_length=4096)
 
 
 class PushPresenceBody(BaseModel):
