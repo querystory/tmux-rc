@@ -66,6 +66,17 @@ def test_store_is_owner_only_atomic_and_upserts(tmp_path: Path):
     assert json.loads(store.path.read_text())["subscriptions"] == [subscription]
 
 
+def test_sender_rejects_work_after_shutdown():
+    class Store:
+        @staticmethod
+        def subscriptions():
+            return [{"endpoint": "https://web.push.apple.com/example"}]
+
+    sender = push.PushSender(Store())
+    sender.close()
+    assert not sender.send({"title": "late"})
+
+
 def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
     assert push.option_keys(question, 0) == "y"
@@ -190,6 +201,17 @@ def test_a_wait_is_not_marked_notified_before_any_device_is_subscribed(tmp_path,
     sender.available = True
     service.evaluate()
     assert len(sender.payloads) == 1
+
+
+def test_expired_rate_buckets_are_pruned(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    service, _ = manager(tmp_path, watcher, clock)
+    service._rates[("%old", "1")].append(clock[0])
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    clock[0] += push.RATE_WINDOW_SECONDS
+    service.evaluate()
+    assert service._rates == {}
 
 
 def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypatch):

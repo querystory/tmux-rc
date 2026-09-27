@@ -62,10 +62,11 @@ export async function setupPush(button, announce = () => {}, bell = "") {
   // The daemon may have restarted or restored an older state file. Re-posting the
   // browser's durable subscription is idempotent and repairs that server-side gap.
   if (subscription && Notification.permission === "granted") {
-    await fetch("/api/push/subscribe", {
+    const repaired = await fetch("/api/push/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(subscription.toJSON()),
     }).catch(() => null);
+    if (!repaired?.ok) announce("Notifications could not reconnect; tap the bell to retry");
   }
   button.disabled = false;
   button.onclick = async () => {

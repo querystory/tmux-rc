@@ -156,38 +156,45 @@ class PushSender:
     def __init__(self, store: PushStore):
         self.store = store
         self._queue: queue.Queue[dict | None] = queue.Queue(maxsize=16)
+        self._state_lock = threading.Lock()
+        self._closed = False
         self._thread = threading.Thread(target=self._run, name="tmux-rc-push", daemon=True)
         self._thread.start()
 
     def send(self, payload: dict) -> bool:
-        if not self.store.subscriptions():
-            return False
-        try:
-            self._queue.put_nowait(payload)
-        except queue.Full:
-            try:
-                self._queue.get_nowait()
-            except queue.Empty:
-                pass
+        with self._state_lock:
+            if self._closed or not self.store.subscriptions():
+                return False
             try:
                 self._queue.put_nowait(payload)
             except queue.Full:
-                logger.warning("push queue remained full; dropping notification")
-                return False
+                try:
+                    self._queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._queue.put_nowait(payload)
+                except queue.Full:
+                    logger.warning("push queue remained full; dropping notification")
+                    return False
         return True
 
     def close(self) -> None:
-        try:
-            self._queue.put_nowait(None)
-        except queue.Full:
-            try:
-                self._queue.get_nowait()
-            except queue.Empty:
-                pass
+        with self._state_lock:
+            if self._closed:
+                return
+            self._closed = True
             try:
                 self._queue.put_nowait(None)
             except queue.Full:
-                return
+                try:
+                    self._queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._queue.put_nowait(None)
+                except queue.Full:
+                    return
         self._thread.join(timeout=2)
 
     def _run(self) -> None:
@@ -214,6 +221,8 @@ class PushSender:
                     if status in {404, 410}:
                         self.store.remove(subscription.get("endpoint", ""))
                     else:
+                        # Intentionally no retry: an answer prompt delayed by a relay
+                        # outage is stale, and draining old alerts later is worse.
                         logger.warning("push delivery failed: %s", exc)
                 except Exception:
                     logger.warning("push delivery failed", exc_info=True)
@@ -281,15 +290,17 @@ class PushManager:
         self._presence: dict[str, float] = {}
         self._stable: dict[str, tuple[str, float]] = {}
         self._notified: set[tuple[str, str]] = set()
-        self._rates: dict[str, deque[float]] = defaultdict(deque)
+        self._rates: dict[tuple[str, str | None], deque[float]] = defaultdict(deque)
         self._nonces: dict[str, dict] = {}
         self._lock = threading.Lock()
+        self._stopping = threading.Event()
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
+        self._stopping.set()
         if self._task:
             self._task.cancel()
             try:
@@ -370,6 +381,8 @@ class PushManager:
                 logger.warning("push evaluation failed", exc_info=True)
 
     def evaluate(self) -> None:
+        if self._stopping.is_set():
+            return
         now = self.clock()
         panes = [dict(s) for s in self.watcher.states]
         active: set[tuple[str, str]] = set()
@@ -394,6 +407,13 @@ class PushManager:
         self._notified.intersection_update(active)
         self._stable = {pid: value for pid, value in self._stable.items()
                         if (pid, value[0]) in active}
+        # Keep only the rolling 15-minute cap. Pane ids are recycled, so the birth token
+        # is part of the bucket key and expired historical panes disappear entirely.
+        for key, bucket in list(self._rates.items()):
+            while bucket and now - bucket[0] >= RATE_WINDOW_SECONDS:
+                bucket.popleft()
+            if not bucket:
+                self._rates.pop(key, None)
         with self._lock:
             self._presence = {k: ts for k, ts in self._presence.items()
                               if now - ts < PRESENCE_SECONDS}
@@ -409,9 +429,7 @@ class PushManager:
             marker = (pane_id, fp)
             if marker in self._notified:
                 continue
-            rate = self._rates[pane_id]
-            while rate and now - rate[0] >= RATE_WINDOW_SECONDS:
-                rate.popleft()
+            rate = self._rates[(pane_id, self.watcher.pane_birth(pane_id))]
             if len(rate) >= RATE_MAX:
                 continue
             offered = renderable_options(question)[:2] if question else []
@@ -445,7 +463,7 @@ class PushManager:
                 "actions": [{"action": f"answer:{index}", "title": _push_text(text, 50)}
                             for index, text in offered],
             }
-            if not self.sender.send(payload):
+            if self._stopping.is_set() or not self.sender.send(payload):
                 if nonce:
                     with self._lock:
                         self._nonces.pop(nonce, None)
