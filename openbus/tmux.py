@@ -699,6 +699,12 @@ def pane_pid(pane_id: str) -> str | None:
         return None  # no such pane any more
 
 
+def before_send(pane_id: str, callback: Callable[[], None]) -> None:
+    """Linearize a quick state change with every send targeting this pane."""
+    with _pane_lock(pane_id):
+        callback()
+
+
 def _settle_before_return(pane_id: str) -> None:
     """Check the pasted-to pane's identity even if its paste has already settled."""
     with _paste_lock:

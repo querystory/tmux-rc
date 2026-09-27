@@ -149,7 +149,9 @@ def test_subscription_schema_bounds_and_forbids_extra_key_material():
     from openbus.server import PushSubscriptionBody
 
     value = subscription()
-    assert PushSubscriptionBody(**value).endpoint == value["endpoint"]
+    value["expirationTime"] = None
+    parsed = PushSubscriptionBody(**value)
+    assert parsed.endpoint == value["endpoint"] and parsed.expiration_time is None
     value["keys"]["junk"] = "x" * 10_000
     with pytest.raises(ValidationError):
         PushSubscriptionBody(**value)

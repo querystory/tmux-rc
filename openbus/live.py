@@ -480,9 +480,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
 
     label = labels[pane_id]
     invalidate = getattr(watcher, "invalidate_input_actions", None)
-    if invalidate is not None:
-        invalidate(pane_id)
     try:
+        if invalidate is not None:
+            await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
         await asyncio.to_thread(tmux.send_keys, *send_args)
     except Exception as e:  # report, don't kill the session
         logger.warning("[live] %s failed for %s", fc.name, pane_id, exc_info=True)

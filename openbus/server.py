@@ -145,6 +145,7 @@ class PushSubscriptionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     endpoint: str = Field(min_length=1, max_length=4096)
     keys: PushKeysBody
+    expiration_time: float | None = Field(default=None, alias="expirationTime")
 
 
 class PushUnsubscribeBody(BaseModel):
@@ -781,7 +782,7 @@ def _invalidate_input_actions(pane_id: str) -> None:
         return
     invalidate = getattr(watcher, "invalidate_input_actions", None)
     if invalidate is not None:
-        invalidate(pane_id)
+        tmux.before_send(pane_id, lambda: invalidate(pane_id))
 
 
 @app.post("/api/panes/{pane_id}/send")

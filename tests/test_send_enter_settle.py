@@ -395,6 +395,34 @@ def test_send_guard_is_rechecked_after_waiting_for_the_pane_lock(monkeypatch):
     assert events == []
 
 
+def test_input_invalidation_waits_for_an_inflight_push_submit(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(tmux, "_ENTER_SETTLE_S", 0.2)
+    monkeypatch.setattr(tmux, "_last_paste", {})
+    order = []
+    settling = threading.Event()
+    real_sleep = tmux.time.sleep
+
+    monkeypatch.setattr(tmux, "_run", lambda args: order.append(args[-1]) or "")
+
+    def pause(seconds):
+        settling.set()
+        real_sleep(seconds)
+
+    monkeypatch.setattr(tmux.time, "sleep", pause)
+    push = threading.Thread(target=tmux.send_keys, args=("%1", "approve"))
+    push.start()
+    assert settling.wait(2)
+    invalidator = threading.Thread(
+        target=tmux.before_send, args=("%1", lambda: order.append("invalidated"))
+    )
+    invalidator.start()
+    push.join(2)
+    invalidator.join(2)
+    assert order == ["approve", "Enter", "invalidated"]
+
+
 def test_per_pane_locks_are_retired_only_after_all_users_release_them():
     import gc
 
