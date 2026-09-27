@@ -72,6 +72,26 @@ func TestResolveWeightsNamesAndRecency(t *testing.T) {
 	}
 }
 
+func TestResolveEdgeCases(t *testing.T) {
+	// MarkMissing's flag: the session is still found, but offers no resume command.
+	path := filepath.Join(t.TempDir(), "gone.md")
+	data := Render(Session{Harness: "claude", ID: "gone", Source: "/deleted.jsonl", Cwd: "/r", LastActive: now.Format(time.RFC3339),
+		ResumeArgv: []string{"claude", "--resume", "gone"}, Messages: []Message{{Text: "otlp"}}})
+	must(t, os.WriteFile(path, []byte(strings.Replace(string(data), "\nsource:", "\nsource_missing: true\nsource:", 1)), 0o600))
+	gone, err := ReadEntry(path)
+	must(t, err)
+	got := Resolve([]Entry{gone}, "otlp", defaults)
+	if s := got[0].Sessions[0]; len(s.ResumeArgv) != 0 || s.Resume != "" || !s.SourceMissing {
+		t.Errorf("deleted session still resumable: %+v", s)
+	}
+
+	negative := defaults
+	negative.MaxProjects, negative.MaxSessions = -1, -1
+	if got := Resolve([]Entry{gone}, "otlp", negative); len(got) != 0 {
+		t.Errorf("negative limits = %v", got)
+	}
+}
+
 func TestResolveFilters(t *testing.T) {
 	entries := []Entry{
 		entry(t, Session{ID: "human", Cwd: "/r", Entrypoint: "cli"}, "judge"),

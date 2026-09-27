@@ -34,10 +34,10 @@ func main() {
 	case "index":
 		withLock("index", true, func() {
 			for _, p := range os.Args[2:] {
-				report(IndexTranscript(p))
+				report(IndexTranscript(p, false))
 			}
 		})
-		if since(stateFile()) > reconcileEvery {
+		if since(stateFile()) > reconcileEvery || recordedFormat() != Format {
 			Reconcile()
 		}
 	case "reconcile":
@@ -155,14 +155,20 @@ func hook() {
 func Reconcile() {
 	withLock("reconcile", false, func() {
 		withLock("index", true, func() {
-			if reconcileAll() {
-				report(os.WriteFile(stateFile(), nil, 0o600))
+			if reconcileAll(recordedFormat() != Format) {
+				report(os.WriteFile(stateFile(), []byte(Format), 0o600))
 			}
 		})
 	})
 }
 
-func reconcileAll() (ok bool) {
+// recordedFormat is the entry format the last completed reconcile wrote.
+func recordedFormat() string {
+	data, _ := os.ReadFile(stateFile())
+	return string(data)
+}
+
+func reconcileAll(force bool) (ok bool) {
 	ok = true
 	check := func(err error) {
 		report(err)
@@ -172,7 +178,7 @@ func reconcileAll() (ok bool) {
 	transcripts, err := find(projects, ".jsonl", 2)
 	check(err)
 	for _, t := range transcripts {
-		check(IndexTranscript(t))
+		check(IndexTranscript(t, force))
 	}
 	// Subagents are normally reached through their parent; scan them too so one whose
 	// parent transcript is gone is still indexed. Fresh entries are skipped cheaply.
@@ -180,7 +186,7 @@ func reconcileAll() (ok bool) {
 	check(err)
 	for _, t := range nested {
 		if filepath.Base(filepath.Dir(t)) == "subagents" {
-			check(indexFile(t))
+			check(indexFile(t, force))
 		}
 	}
 	index := filepath.Join(Root(), "index", "claude")

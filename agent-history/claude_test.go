@@ -109,13 +109,13 @@ func TestReadClaudeHeadless(t *testing.T) {
 
 func TestIndexTranscriptNeverWritten(t *testing.T) {
 	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
-	must(t, IndexTranscript(filepath.Join(t.TempDir(), "no-persistence.jsonl")))
+	must(t, IndexTranscript(filepath.Join(t.TempDir(), "no-persistence.jsonl"), false))
 }
 
 func TestIndexTranscript(t *testing.T) {
 	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
 	_, path := writeSession(t)
-	must(t, IndexTranscript(path))
+	must(t, IndexTranscript(path, false))
 
 	entry := indexPath("claude", "", "sess-1")
 	data, err := os.ReadFile(entry)
@@ -142,15 +142,24 @@ func TestIndexTranscript(t *testing.T) {
 	must(t, err)
 	must(t, os.WriteFile(entry, []byte("sentinel"), 0o600))
 	must(t, os.Chtimes(entry, src.ModTime(), src.ModTime()))
-	must(t, IndexTranscript(path))
+	must(t, IndexTranscript(path, false))
 	if data, _ := os.ReadFile(entry); string(data) != "sentinel" {
 		t.Errorf("up-to-date entry was rewritten")
 	}
 
+	// Forcing rebuilds even an up-to-date entry (a format change).
+	must(t, os.WriteFile(entry, []byte("sentinel"), 0o600))
+	must(t, os.Chtimes(entry, src.ModTime(), src.ModTime()))
+	must(t, IndexTranscript(path, true))
+	if data, _ := os.ReadFile(entry); string(data) == "sentinel" {
+		t.Errorf("forced rebuild skipped an up-to-date entry")
+	}
+	must(t, os.WriteFile(entry, []byte("sentinel"), 0o600))
+
 	// An entry built from any other version of the transcript is rebuilt.
 	old := src.ModTime().Add(-time.Minute)
 	must(t, os.Chtimes(entry, old, old))
-	must(t, IndexTranscript(path))
+	must(t, IndexTranscript(path, false))
 	if data, _ := os.ReadFile(entry); string(data) == "sentinel" {
 		t.Errorf("stale entry was not rebuilt")
 	}
@@ -201,8 +210,8 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	}
 
 	Reconcile()
-	if _, err := os.Stat(stateFile()); err != nil {
-		t.Errorf("a completed run was not recorded: %v", err)
+	if recordedFormat() != Format {
+		t.Errorf("a completed run was not recorded with format %q: %q", Format, recordedFormat())
 	}
 	if _, err := os.Stat(indexPath("claude", "", "s")); err != nil {
 		t.Errorf("transcript under a glob-shaped root not indexed: %v", err)
@@ -221,7 +230,7 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 func TestMarkMissing(t *testing.T) {
 	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
 	_, path := writeSession(t)
-	must(t, IndexTranscript(path))
+	must(t, IndexTranscript(path, false))
 	entry := indexPath("claude", "", "sess-1")
 
 	// A message that happens to contain the marker must not count as the marker.
@@ -245,7 +254,7 @@ func TestMarkMissing(t *testing.T) {
 	// Restoring the transcript, even with its original mtime, clears the flag.
 	must(t, os.WriteFile(path, []byte(transcript), 0o600))
 	must(t, os.Chtimes(path, time.Unix(1e9, 0), time.Unix(1e9, 0)))
-	must(t, IndexTranscript(path))
+	must(t, IndexTranscript(path, false))
 	if data, _ := os.ReadFile(entry); strings.Contains(string(data), "source_missing") {
 		t.Errorf("restored entry still marked missing:\n%s", data)
 	}

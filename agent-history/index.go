@@ -26,9 +26,14 @@ func indexPath(harness, parent, id string) string {
 	return filepath.Join(Root(), "index", harness, parent, id+".md")
 }
 
+// Format versions the entry layout. Entries are skipped by mtime alone, so a new
+// layout would otherwise only reach sessions that happen to change; reconcile
+// rebuilds everything once when the recorded format differs.
+const Format = "2" // 2: resume_argv
+
 // IndexTranscript indexes a Claude session and its subagents, skipping any whose
-// index entry is already newer than the transcript.
-func IndexTranscript(path string) error {
+// entry is already up to date unless force is set.
+func IndexTranscript(path string, force bool) error {
 	// ReadDir, not Glob: a session path is literal and may contain glob syntax.
 	dir := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
 	files, err := os.ReadDir(dir)
@@ -43,12 +48,12 @@ func IndexTranscript(path string) error {
 	}
 	var errs []error
 	for _, p := range paths {
-		errs = append(errs, indexFile(p))
+		errs = append(errs, indexFile(p, force))
 	}
 	return errors.Join(errs...)
 }
 
-func indexFile(path string) error {
+func indexFile(path string, force bool) error {
 	src, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil // sessions run without persistence never write a transcript
@@ -61,7 +66,7 @@ func indexFile(path string) error {
 	// An entry carries the mtime of the transcript it was built from, so it is fresh
 	// exactly when the two match (and a transcript rewritten to an older mtime still
 	// gets rebuilt).
-	if idx, err := os.Stat(dst); err == nil && idx.ModTime().Equal(src.ModTime()) {
+	if idx, err := os.Stat(dst); !force && err == nil && idx.ModTime().Equal(src.ModTime()) {
 		return nil
 	}
 	s, err := ReadClaude(path)

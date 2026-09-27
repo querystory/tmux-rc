@@ -48,6 +48,9 @@ func ReadEntry(path string) (Entry, error) {
 	obj, _ := json.Marshal(fields)
 	e := Entry{Path: path}
 	err = json.Unmarshal(obj, &e)
+	if e.SourceMissing { // the harness deleted it: still findable, no longer resumable
+		e.ResumeArgv, e.Resume = nil, ""
+	}
 	e.named = normalize(e.Title + " " + strings.Join(e.Branches, " ") + " " + strings.Join(e.PRs, " "))
 	e.body = normalize(body)
 	return e, err
@@ -110,12 +113,12 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 		for _, s := range p.Sessions[:min(len(p.Sessions), 3)] {
 			p.Score += s.Score
 		}
-		p.Sessions = p.Sessions[:min(len(p.Sessions), opt.MaxSessions)]
+		p.Sessions = p.Sessions[:min(len(p.Sessions), max(opt.MaxSessions, 0))]
 		p.Score = round(p.Score)
 		projects = append(projects, *p)
 	}
 	slices.SortFunc(projects, func(a, b Project) int { return cmp.Compare(b.Score, a.Score) })
-	return projects[:min(len(projects), opt.MaxProjects)]
+	return projects[:min(len(projects), max(opt.MaxProjects, 0))]
 }
 
 // idf weights each query term by how rare it is across sessions, so a word like "fix"
