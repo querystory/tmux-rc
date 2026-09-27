@@ -38,6 +38,7 @@ RATE_WINDOW_SECONDS = 15 * 60.0
 RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
 MAX_PRESENCE_LEASES = 128
+MAX_SUBSCRIPTIONS = 16
 DEFAULT_PUSH_HOSTS = (
     "web.push.apple.com",
     "fcm.googleapis.com",
@@ -125,10 +126,11 @@ class PushStore:
     def upsert(self, subscription: dict) -> None:
         with self._lock:
             data = self._load()
-            data["subscriptions"] = [
+            subscriptions = [
                 item for item in data["subscriptions"]
                 if item.get("endpoint") != subscription["endpoint"]
             ] + [subscription]
+            data["subscriptions"] = subscriptions[-MAX_SUBSCRIPTIONS:]
             self._save()
 
     def remove(self, endpoint: str) -> bool:
@@ -169,15 +171,10 @@ class PushSender:
             try:
                 self._queue.put_nowait(payload)
             except queue.Full:
-                try:
-                    self._queue.get_nowait()
-                except queue.Empty:
-                    pass
-                try:
-                    self._queue.put_nowait(payload)
-                except queue.Full:
-                    logger.warning("push queue remained full; dropping notification")
-                    return False
+                # Keep already-accepted work intact. Returning False lets PushManager
+                # remove this payload's nonce and retry its still-current wait later.
+                logger.warning("push queue full; deferring notification")
+                return False
         return True
 
     def close(self) -> None:
@@ -282,6 +279,16 @@ def _push_text(value, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _valid_key(value, size: int) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
+    except (ValueError, TypeError):
+        return False
+    return len(raw) == size
+
+
 class PushManager:
     def __init__(self, watcher, store: PushStore | None = None, *, clock=time.monotonic,
                  sender=None):
@@ -332,10 +339,9 @@ class PushManager:
         except ValueError as exc:
             raise ValueError("invalid push subscription") from exc
         keys = subscription.get("keys")
-        valid_keys = isinstance(keys, dict) and all(
-            isinstance(keys.get(k), str) and 0 < len(keys[k]) <= 4096
-            for k in ("p256dh", "auth")
-        )
+        valid_keys = (isinstance(keys, dict)
+                      and _valid_key(keys.get("p256dh"), 65)
+                      and _valid_key(keys.get("auth"), 16))
         configured = os.environ.get("TMUXRC_PUSH_ALLOWED_HOSTS", "")
         allowed = tuple(
             item.strip().lower() for item in configured.split(",") if item.strip()
@@ -378,8 +384,13 @@ class PushManager:
         if not isinstance(question, dict):
             raise ValueError("the pending question has changed")  # noqa: TRY004
         keys = option_keys(question, option_index)
+        def guard() -> None:
+            if (self.watcher.pane_input_generation(issued["pane_id"])
+                    != issued["input_generation"]):
+                raise ValueError("the pane received newer input")
         tmux.send_keys(
-            issued["pane_id"], keys, enter=True, literal=True, expected_pid=birth,
+            issued["pane_id"], keys, enter=True, literal=True,
+            expected_pid=birth, guard=guard,
         )
         self.watcher.note_input(issued["pane_id"])
         return issued["pane_id"], keys

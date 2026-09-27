@@ -359,6 +359,42 @@ def test_expected_pid_protects_a_bare_submit(monkeypatch):
     assert events == []
 
 
+def test_send_guard_is_rechecked_after_waiting_for_the_pane_lock(monkeypatch):
+    import threading
+
+    events = _record(monkeypatch, 0)
+    locked = threading.Event()
+    release = threading.Event()
+    generation = [0]
+    errors = []
+
+    def blocker():
+        with tmux._pane_lock("%1"):
+            locked.set()
+            release.wait(2)
+
+    def guarded_send():
+        def guard():
+            if generation[0] != 0:
+                raise ValueError("newer input")
+        try:
+            tmux.send_keys("%1", "approve", guard=guard)
+        except ValueError as error:
+            errors.append(str(error))
+
+    holder = threading.Thread(target=blocker)
+    holder.start()
+    assert locked.wait(2)
+    contender = threading.Thread(target=guarded_send)
+    contender.start()
+    generation[0] = 1
+    release.set()
+    holder.join(2)
+    contender.join(2)
+    assert errors == ["newer input"]
+    assert events == []
+
+
 def test_per_pane_locks_are_retired_only_after_all_users_release_them():
     import gc
 

@@ -445,9 +445,13 @@ class Watcher:
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
 
-    def note_input(self, pane_id: str) -> None:
-        """Invalidate input-bound actions, then schedule a fresh classification."""
+    def invalidate_input_actions(self, pane_id: str) -> None:
+        """Invalidate actions before a pane-input transaction can take its send lock."""
         self._input_generation[pane_id] = self._input_generation.get(pane_id, 0) + 1
+
+    def note_input(self, pane_id: str) -> None:
+        """Record successful push input and schedule a fresh classification."""
+        self.invalidate_input_actions(pane_id)
         self.request_reparse(pane_id)
 
     def _tick(self) -> None:

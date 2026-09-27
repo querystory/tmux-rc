@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 import weakref
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -714,7 +715,7 @@ def _settle_before_return(pane_id: str) -> None:
 
 def send_keys(
     pane_id: str, keys: str, enter: bool = True, literal: bool = True,
-    *, expected_pid: str | None = None,
+    *, expected_pid: str | None = None, guard: Callable[[], None] | None = None,
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
@@ -723,8 +724,11 @@ def send_keys(
     Return (only meaningful for literal text).
 
     `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
-    `expected_pid` binds the complete send transaction to that pane incarnation."""
+    `expected_pid` binds the complete send transaction to that pane incarnation.
+    `guard`, when present, runs only after the per-pane send lock is held."""
     with _pane_lock(pane_id):
+        if guard is not None:
+            guard()
         if expected_pid is not None:
             check_pane(pane_id, expected_pid)
         if literal:

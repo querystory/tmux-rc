@@ -1,4 +1,6 @@
 import json
+import queue
+import threading
 from pathlib import Path
 
 import pytest
@@ -31,8 +33,11 @@ class Watcher:
     def request_reparse(self, pane_id):
         self.reparsed.append(pane_id)
 
-    def note_input(self, pane_id):
+    def invalidate_input_actions(self, pane_id):
         self.input_generations[pane_id] = self.pane_input_generation(pane_id) + 1
+
+    def note_input(self, pane_id):
+        self.invalidate_input_actions(pane_id)
         self.request_reparse(pane_id)
 
 
@@ -69,6 +74,13 @@ def manager(tmp_path, watcher, clock):
     return value, sender
 
 
+def subscription(endpoint="https://web.push.apple.com/Q1/example"):
+    return {"endpoint": endpoint, "keys": {
+        "p256dh": push._b64(b"\x04" + b"p" * 64),
+        "auth": push._b64(b"a" * 16),
+    }}
+
+
 def test_store_is_owner_only_atomic_and_upserts(tmp_path: Path):
     store = push.PushStore(tmp_path / "state" / "push.json")
     private, public = store.keys()
@@ -91,6 +103,23 @@ def test_sender_rejects_work_after_shutdown():
     sender = push.PushSender(Store())
     sender.close()
     assert not sender.send({"title": "late"})
+
+
+def test_sender_does_not_evict_already_accepted_work_when_full():
+    class Store:
+        @staticmethod
+        def subscriptions():
+            return [subscription()]
+
+    sender = push.PushSender.__new__(push.PushSender)
+    sender.store = Store()
+    sender._queue = queue.Queue(maxsize=1)
+    sender._state_lock = threading.Lock()
+    sender._closed = False
+    first = {"title": "first"}
+    assert sender.send(first)
+    assert not sender.send({"title": "second"})
+    assert sender._queue.get_nowait() == first
 
 
 def test_option_mapping_matches_card_semantics():
@@ -125,13 +154,25 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
 def test_subscription_only_accepts_known_push_relays(tmp_path):
     watcher = Watcher()
     service, _ = manager(tmp_path, watcher, [100.0])
-    subscription = {"endpoint": "https://127.0.0.1/internal",
-                    "keys": {"p256dh": "p", "auth": "a"}}
+    value = subscription("https://127.0.0.1/internal")
     with pytest.raises(ValueError, match="invalid"):
-        service.subscribe(subscription)
-    subscription["endpoint"] = "https://web.push.apple.com/Q1/example"
-    service.subscribe(subscription)
-    assert service.store.subscriptions() == [subscription]
+        service.subscribe(value)
+    value["endpoint"] = "https://web.push.apple.com/Q1/example"
+    service.subscribe(value)
+    assert service.store.subscriptions() == [value]
+    value["keys"]["auth"] = "not-base64!"
+    with pytest.raises(ValueError, match="invalid"):
+        service.subscribe(value)
+
+
+def test_subscription_store_is_bounded(tmp_path):
+    watcher = Watcher()
+    service, _ = manager(tmp_path, watcher, [100.0])
+    for index in range(push.MAX_SUBSCRIPTIONS + 3):
+        service.subscribe(subscription(f"https://web.push.apple.com/Q1/{index}"))
+    saved = service.store.subscriptions()
+    assert len(saved) == push.MAX_SUBSCRIPTIONS
+    assert saved[0]["endpoint"].endswith("/3")
 
 
 def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, monkeypatch):
@@ -299,9 +340,11 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     sent = []
-    monkeypatch.setattr(
-        push.tmux, "send_keys", lambda pane, keys, **kw: sent.append((pane, keys, kw))
-    )
+    def send(pane, keys, **kwargs):
+        kwargs.pop("guard")()
+        sent.append((pane, keys, kwargs))
+
+    monkeypatch.setattr(push.tmux, "send_keys", send)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()

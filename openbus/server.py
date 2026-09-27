@@ -767,10 +767,14 @@ def _emit_live_round(
         logger.debug("live emit failed", exc_info=True)
 
 
-def _note_input(pane_id: str) -> None:
-    """Invalidate input-bound actions and reparse; tolerate legacy watcher fakes."""
-    watcher = app.state.watcher
-    getattr(watcher, "note_input", watcher.request_reparse)(pane_id)
+def _invalidate_input_actions(pane_id: str) -> None:
+    """Invalidate push actions before competing for the pane's send lock."""
+    watcher = getattr(app.state, "watcher", None)
+    if watcher is None:
+        return
+    invalidate = getattr(watcher, "invalidate_input_actions", None)
+    if invalidate is not None:
+        invalidate(pane_id)
 
 
 @app.post("/api/panes/{pane_id}/send")
@@ -795,6 +799,7 @@ def send(pane_id: str, body: SendBody, request: Request):
             outcome="rejected: pane not found",
         )
         raise HTTPException(404, "pane not found")
+    _invalidate_input_actions(pane.id)
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
     except Exception as e:
@@ -810,7 +815,7 @@ def send(pane_id: str, body: SendBody, request: Request):
     # canonical id again: the watcher matches this set against pane.id, so a request
     # queued under an alias would simply never fire and the card would go stale until the
     # next poll.
-    _note_input(pane.id)
+    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
@@ -825,6 +830,7 @@ def click(pane_id: str, body: ClickBody, request: Request):
         if pane is None:
             _audit(request, "click", pane_id, detail, outcome="rejected: pane not found")
             raise HTTPException(404, "pane not found")
+        _invalidate_input_actions(pane.id)
         sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
                           expected_frame=body.frame)
     except subprocess.CalledProcessError as e:
@@ -835,7 +841,7 @@ def click(pane_id: str, body: ClickBody, request: Request):
         raise HTTPException(409, str(e)) from e
     if sent:
         _audit(request, "click", pane_id, detail)
-        _note_input(pane.id)
+        app.state.watcher.request_reparse(pane.id)
     return {"sent": sent}
 
 
@@ -1009,6 +1015,7 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         raise HTTPException(400, "empty upload")
     detail = f"{mime} {len(data)}B"
 
+    _invalidate_input_actions(pane.id)
     try:
         path = _stage_image(data, mime)
         # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
@@ -1019,7 +1026,7 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
             raise HTTPException(409, str(error)) from error
         raise
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    _note_input(pane.id)
+    app.state.watcher.request_reparse(pane.id)
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
@@ -1094,9 +1101,10 @@ async def _compose(pane_id: str, request: Request):
                 raise HTTPException(400, "invalid composer segment")
     if not segments:
         raise HTTPException(400, "empty composer")
+    _invalidate_input_actions(pane.id)
     await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
     _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
-    _note_input(pane.id)
+    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
