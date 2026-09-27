@@ -78,6 +78,31 @@ def test_option_mapping_matches_card_semantics():
         push.option_keys({"answer_style": "cursor", "options": ["row"]}, 0)
 
 
+def test_answer_schema_accepts_large_valid_option_indices():
+    from openbus.server import PushAnswerBody
+
+    assert PushAnswerBody(nonce="n" * 24, option_index=101).option_index == 101
+
+
+def test_contract_includes_nonrendered_options_that_change_menu_mapping():
+    pane = waiting({"prompt": "Proceed?", "answer_style": "menu", "options": ["Yes", "No"]})
+    before = push.contract(pane, "123")[0]
+    pane["question"]["options"].append("Other")
+    assert push.contract(pane, "123")[0] != before
+
+
+def test_subscription_only_accepts_known_push_relays(tmp_path):
+    watcher = Watcher()
+    service, _ = manager(tmp_path, watcher, [100.0])
+    subscription = {"endpoint": "https://127.0.0.1/internal",
+                    "keys": {"p256dh": "p", "auth": "a"}}
+    with pytest.raises(ValueError, match="invalid"):
+        service.subscribe(subscription)
+    subscription["endpoint"] = "https://web.push.apple.com/Q1/example"
+    service.subscribe(subscription)
+    assert service.store.subscriptions() == [subscription]
+
+
 def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
@@ -118,6 +143,33 @@ def test_visible_presence_suppresses_until_the_lease_is_gone(tmp_path, monkeypat
     service.note_presence("phone", visible=False)
     service.evaluate()
     assert len(sender.payloads) == 1
+
+
+def test_missing_waiting_on_defaults_to_an_actionable_user_wait(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    pane = waiting()
+    pane.pop("waiting_on")
+    watcher.states = [pane]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert len(sender.payloads) == 1
+    assert "compose" not in sender.payloads[0]["url"]
+
+
+def test_free_text_question_deep_links_to_the_composer(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "What should I do?", "answer_style": "text"})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert sender.payloads[0]["url"].endswith("&compose=1")
 
 
 def test_a_wait_is_not_marked_notified_before_any_device_is_subscribed(tmp_path, monkeypatch):

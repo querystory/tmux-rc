@@ -1,5 +1,3 @@
-const BELL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/></svg>';
-
 function decodeKey(value) {
   const padded = value + "=".repeat((4 - value.length % 4) % 4);
   const raw = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
@@ -36,48 +34,51 @@ export function sendPresence() {
   navigator.sendBeacon("/api/push/presence", body);
 }
 
-export async function setupPush(button, announce = () => {}) {
+export async function setupPush(button, announce = () => {}, bell = "") {
   if (!button || !("serviceWorker" in navigator) || !("PushManager" in window)
       || !("Notification" in window)) return;
   button.hidden = false;
-  button.innerHTML = BELL;
+  button.innerHTML = bell;
+  button.disabled = true;
   let registration;
   try {
-    registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    registration = await navigator.serviceWorker.ready;
   } catch {
     button.title = "Notifications unavailable";
     button.disabled = true;
     return;
   }
+  let subscription;
   const refresh = async () => {
-    const subscription = await registration.pushManager.getSubscription();
+    subscription = await registration.pushManager.getSubscription();
     const enabled = Notification.permission === "granted" && !!subscription;
     button.setAttribute("aria-pressed", String(enabled));
     button.title = enabled ? "Turn off notifications" : "Notify me when a session needs me";
     button.setAttribute("aria-label", button.title);
     button.classList.toggle("active", enabled);
-    return subscription;
   };
-  const existing = await refresh();
+  await refresh();
   // The daemon may have restarted or restored an older state file. Re-posting the
   // browser's durable subscription is idempotent and repairs that server-side gap.
-  if (existing && Notification.permission === "granted") {
-    fetch("/api/push/subscribe", {
+  if (subscription && Notification.permission === "granted") {
+    await fetch("/api/push/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(existing.toJSON()),
-    }).catch(() => {});
+      body: JSON.stringify(subscription.toJSON()),
+    }).catch(() => null);
   }
+  button.disabled = false;
   button.onclick = async () => {
     button.disabled = true;
     try {
-      const current = await registration.pushManager.getSubscription();
-      if (current) {
+      if (subscription) {
         const response = await fetch("/api/push/unsubscribe", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: current.endpoint }),
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
         });
         if (!response.ok) throw new Error("Could not turn off notifications");
-        await current.unsubscribe();
+        await subscription.unsubscribe();
+        subscription = null;
         announce("Notifications turned off");
       } else {
         const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -86,12 +87,15 @@ export async function setupPush(button, announce = () => {}) {
         if (ios && !standalone) {
           throw new Error("On iPhone, first Add to Home Screen and open the installed app");
         }
-        const permission = await Notification.requestPermission();
+        // This must be the first awaited browser operation in the enable branch: Safari
+        // requires requestPermission() to observe the button's transient user activation.
+        const permission = Notification.permission === "granted"
+          ? "granted" : await Notification.requestPermission();
         if (permission !== "granted") throw new Error("Notification permission was not granted");
         const configResponse = await fetch("/api/push/config");
         if (!configResponse.ok) throw new Error("Could not load notification settings");
         const config = await configResponse.json();
-        const subscription = await registration.pushManager.subscribe({
+        subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true, applicationServerKey: decodeKey(config.public_key),
         });
         const response = await fetch("/api/push/subscribe", {

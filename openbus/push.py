@@ -37,6 +37,12 @@ TMUX_ACTIVE_SECONDS = 30.0
 RATE_WINDOW_SECONDS = 15 * 60.0
 RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
+DEFAULT_PUSH_HOSTS = (
+    "web.push.apple.com",
+    "fcm.googleapis.com",
+    "updates.push.services.mozilla.com",
+    ".notify.windows.com",
+)
 _FREETEXT_OPTION = re.compile(
     r"^(type\b|other\b|something else|let me|custom|free.?text|write )", re.IGNORECASE
 )
@@ -230,7 +236,10 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
     value = {
         "birth": birth,
         "prompt": question.get("prompt") if question else pane.get("headline"),
-        "options": renderable_options(question) if question else [],
+        # Keep the complete source array as well as the renderable indices. Menu mapping
+        # depends on the original option count, including pseudo/non-string rows.
+        "options": question.get("options") if question else [],
+        "renderable": renderable_options(question) if question else [],
         "style": question.get("answer_style") if question else None,
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
@@ -301,12 +310,26 @@ class PushManager:
     def subscribe(self, subscription: dict) -> None:
         endpoint = subscription.get("endpoint", "")
         parsed = urlparse(endpoint)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("invalid push subscription") from exc
         keys = subscription.get("keys")
         valid_keys = isinstance(keys, dict) and all(
             isinstance(keys.get(k), str) and 0 < len(keys[k]) <= 4096
             for k in ("p256dh", "auth")
         )
-        if (parsed.scheme != "https" or not parsed.netloc or len(endpoint) > 4096
+        configured = os.environ.get("TMUXRC_PUSH_ALLOWED_HOSTS", "")
+        allowed = tuple(
+            item.strip().lower() for item in configured.split(",") if item.strip()
+        ) or DEFAULT_PUSH_HOSTS
+        host = (parsed.hostname or "").lower()
+        trusted_host = any(
+            host == rule or (rule.startswith(".") and host.endswith(rule)) for rule in allowed
+        )
+        if (parsed.scheme != "https" or not host or parsed.username or parsed.password
+                or port not in (None, 443) or not trusted_host
+                or parsed.fragment or len(endpoint) > 4096
                 or not valid_keys):
             raise ValueError("invalid push subscription")
         self.store.upsert({"endpoint": endpoint, "keys": {
@@ -340,7 +363,9 @@ class PushManager:
         while True:
             await asyncio.sleep(1)
             try:
-                self.evaluate()
+                # client_active_within shells out to tmux. Keep that bounded subprocess
+                # and the rest of notification evaluation off the server event loop.
+                await asyncio.to_thread(self.evaluate)
             except Exception:
                 logger.warning("push evaluation failed", exc_info=True)
 
@@ -350,7 +375,8 @@ class PushManager:
         active: set[tuple[str, str]] = set()
         candidates = []
         for pane in panes:
-            if pane.get("activity") != "waiting" or pane.get("waiting_on") != "user":
+            if (pane.get("activity") != "waiting"
+                    or pane.get("waiting_on") == "external"):
                 continue
             pane_id = pane.get("pane_id")
             if not isinstance(pane_id, str):
@@ -400,7 +426,10 @@ class PushManager:
                         "indices": {index for index, _ in offered},
                         "expires": now + NONCE_SECONDS,
                     }
-            url = "/m#" + urlencode({"pane": pane_id, "from": "push"})
+            deep_link = {"pane": pane_id, "from": "push"}
+            if question and not renderable_options(question):
+                deep_link["compose"] = "1"
+            url = "/m#" + urlencode(deep_link)
             payload = {
                 "title": _push_text(
                     pane.get("title") or pane.get("label") or pane_id, 100

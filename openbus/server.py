@@ -151,7 +151,7 @@ class PushPresenceBody(BaseModel):
 
 class PushAnswerBody(BaseModel):
     nonce: str = Field(min_length=16, max_length=200)
-    option_index: int = Field(ge=0, le=100)
+    option_index: int = Field(ge=0)
 
 
 class ClickBody(BaseModel):
