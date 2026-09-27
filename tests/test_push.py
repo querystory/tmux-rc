@@ -215,7 +215,10 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     pane = waiting({"prompt": "Proceed?", "answer_style": "menu", "options": ["Yes", "No"]})
     before = push.contract(pane, "123")[0]
     pane["question"]["options"].append("Other")
-    assert push.contract(pane, "123")[0] != before
+    with_option = push.contract(pane, "123")[0]
+    assert with_option != before
+    pane["activity"] = "running"
+    assert push.contract(pane, "123")[0] != with_option
 
 
 def test_subscription_only_accepts_known_push_relays(tmp_path):
@@ -497,6 +500,47 @@ def test_other_pane_input_invalidates_an_outstanding_action(tmp_path, monkeypatc
         service.answer(nonce, 0)
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
+
+
+def test_concurrent_valid_nonces_cannot_both_submit(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+                               "options": ["Yes", "No"]})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    nonce = sender.payloads[0]["nonce"]
+    duplicate = "duplicate-notification-nonce"
+    service._nonces[duplicate] = dict(service._nonces[nonce])
+    send_lock = threading.Lock()
+    sent = []
+
+    def send(_pane, keys, **kwargs):
+        with send_lock:
+            kwargs["guard"]()
+            sent.append(keys)
+
+    monkeypatch.setattr(push.tmux, "send_keys", send)
+    results = []
+
+    def answer(value):
+        try:
+            results.append(service.answer(value, 0))
+        except ValueError as error:
+            results.append(str(error))
+
+    workers = [threading.Thread(target=answer, args=(value,))
+               for value in (nonce, duplicate)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert sent == ["y"]
+    assert len([result for result in results if result == ("%1", "y")]) == 1
+    assert any("newer input" in str(result) for result in results)
 
 
 def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkeypatch):

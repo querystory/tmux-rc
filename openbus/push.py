@@ -309,6 +309,8 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
     question = pane.get("question") if isinstance(pane.get("question"), dict) else None
     value = {
         "birth": birth,
+        "activity": pane.get("activity"),
+        "waiting_on": pane.get("waiting_on", "user"),
         "prompt": question.get("prompt") if question else pane.get("headline"),
         # Keep the complete source array as well as the renderable indices. Menu mapping
         # depends on the original option count, including pseudo/non-string rows.
@@ -425,11 +427,14 @@ class PushManager:
             if (self.watcher.pane_input_generation(issued["pane_id"])
                     != issued["input_generation"]):
                 raise ValueError("the pane received newer input")
+            # Reserve the generation while the pane lock is held. Even if two distinct
+            # valid nonces somehow coexist, only the first guard can pass.
+            self.watcher.invalidate_input_actions(issued["pane_id"])
         tmux.send_keys(
             issued["pane_id"], keys, enter=True, literal=True,
             expected_pid=birth, guard=guard,
         )
-        self.watcher.note_input(issued["pane_id"])
+        self.watcher.request_reparse(issued["pane_id"])
         return issued["pane_id"], keys
 
     async def _loop(self) -> None:
