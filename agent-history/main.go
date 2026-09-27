@@ -1,0 +1,190 @@
+// Command agent-history keeps a small, greppable index of coding-agent sessions.
+//
+// Harness transcripts stay where the harness wrote them; the index holds identity,
+// where the work happened, and what the human said, and points back at the source.
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// A full reconcile repairs drift a hook could not see (hard reboot, killed session,
+// hooks not installed yet). Hooks trigger one when the last is older than this.
+const reconcileEvery = 6 * time.Hour
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile")
+		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "hook":
+		hook()
+	case "index":
+		withLock("index", true, func() {
+			for _, p := range os.Args[2:] {
+				report(IndexTranscript(p))
+			}
+		})
+		if since(stateFile()) > reconcileEvery {
+			Reconcile()
+		}
+	case "reconcile":
+		Reconcile()
+	default:
+		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
+		os.Exit(2)
+	}
+}
+
+// hook is the Claude Code hook entry point (Stop, SessionEnd, SubagentStop). It hands
+// the transcript to a detached child and returns at once, so a hook never slows or
+// breaks the session, and it never writes to stdout, so it never injects context.
+func hook() {
+	var in struct {
+		TranscriptPath string `json:"transcript_path"`
+	}
+	if json.NewDecoder(os.Stdin).Decode(&in) != nil || in.TranscriptPath == "" {
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	logPath := filepath.Join(Root(), "state", "agent-history.log")
+	os.MkdirAll(filepath.Dir(logPath), 0o700)
+	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(self, "index", in.TranscriptPath)
+	cmd.Stderr = log
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Start()
+}
+
+// Reconcile rebuilds every out-of-date entry and flags entries whose transcript is
+// gone. Only one runs at a time; others return at once. Completion is recorded only
+// when every entry was handled, so an interrupted or failed run is retried by the next
+// hook instead of being suppressed for reconcileEvery.
+func Reconcile() {
+	withLock("reconcile", false, func() {
+		withLock("index", true, func() {
+			if reconcileAll() {
+				report(os.WriteFile(stateFile(), nil, 0o600))
+			}
+		})
+	})
+}
+
+func reconcileAll() (ok bool) {
+	ok = true
+	check := func(err error) {
+		report(err)
+		ok = ok && err == nil
+	}
+	projects := filepath.Join(claudeDir(), "projects")
+	transcripts, err := find(projects, ".jsonl", 2)
+	check(err)
+	for _, t := range transcripts {
+		check(IndexTranscript(t))
+	}
+	// Subagents are normally reached through their parent; scan them too so one whose
+	// parent transcript is gone is still indexed. Fresh entries are skipped cheaply.
+	nested, err := find(projects, ".jsonl", 4)
+	check(err)
+	for _, t := range nested {
+		if filepath.Base(filepath.Dir(t)) == "subagents" {
+			check(indexFile(t))
+		}
+	}
+	index := filepath.Join(Root(), "index", "claude")
+	entries, err := find(index, ".md", 1)
+	check(err)
+	subentries, err := find(index, ".md", 2)
+	check(err)
+	for _, e := range append(entries, subentries...) {
+		check(MarkMissing(e))
+	}
+	return ok
+}
+
+// find lists files ending in ext at the given depth below root (1 = root's own
+// files), taken literally since a configured root may contain glob syntax. A missing
+// root is empty; any other unreadable directory is an error, so reconcile won't record
+// a run that couldn't see everything.
+func find(root, ext string, depth int) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	var errs []error
+	for _, e := range entries {
+		path := filepath.Join(root, e.Name())
+		switch {
+		case depth == 1 && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
+			out = append(out, path)
+		case depth > 1 && e.IsDir():
+			sub, err := find(path, ext, depth-1)
+			out, errs = append(out, sub...), append(errs, err)
+		}
+	}
+	return out, errors.Join(errs...)
+}
+
+// withLock runs fn holding an exclusive kernel lock, which a killed process releases.
+// Every writer of the index holds "index", so a read-modify-write can never replace a
+// newer entry. A non-blocking caller skips fn when the lock is taken.
+func withLock(name string, wait bool, fn func()) {
+	path := filepath.Join(Root(), "state", name+".lock")
+	os.MkdirAll(filepath.Dir(path), 0o700)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		report(err)
+		return
+	}
+	defer f.Close()
+	how := syscall.LOCK_EX
+	if !wait {
+		how |= syscall.LOCK_NB
+	}
+	if syscall.Flock(int(f.Fd()), how) == nil {
+		fn()
+	}
+}
+
+func claudeDir() string {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude")
+}
+
+func stateFile() string { return filepath.Join(Root(), "state", "last-reconcile") }
+
+func since(path string) time.Duration {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Duration(1<<63 - 1)
+	}
+	return time.Since(info.ModTime())
+}
+
+func report(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, time.Now().Format(time.RFC3339), err)
+	}
+}
