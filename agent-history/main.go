@@ -93,7 +93,9 @@ func resolveCmd(args []string) {
 		fmt.Printf("%s  (score %.2f)\n", p.Repo, p.Score)
 		for _, s := range p.Sessions {
 			fmt.Printf("  %.10s  %-8.8s  %s\n", s.LastActive, s.ID, cmp.Or(s.Title, "(untitled)"))
-			if s.Running != nil {
+			if s.RunningUnknown {
+				fmt.Println("      can't tell whether it's running; not offering a resume command")
+			} else if s.Running != nil {
 				fmt.Printf("      running in tmux pane %s (%s)\n", cmp.Or(s.Running.TmuxPane, "none"), s.Running.Status)
 			} else if s.Resume != "" {
 				fmt.Printf("      %s\n", s.Resume)

@@ -148,7 +148,9 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
             {**LIVE, "session_id": "ide", "running": {"pid": 7}},
         ],
     }])
-    _, r = _call("find_sessions", {"query": "live mode"})
+    w = _Watcher()
+    _, r = _call("find_sessions", {"query": "live mode"}, w)
+    assert w.reparsed == ["%77"]  # the unpublished running pane is woken
     assert r == {"status": "ok", "results": [{"repo": "~/src/tmux-rc", "sessions": [
         {"session_id": "live-1", "title": "tmuxrc live mode", "last_active": "2026-09-05",
          "running_in": "work", "pane_id": "%1"},

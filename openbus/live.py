@@ -576,6 +576,8 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
         sessions = []
         for s in p["sessions"]:
             pane = (s.get("running") or {}).get("tmux_pane")
+            if pane and pane not in labels:
+                watcher.request_reparse(pane)  # publish it before the model types there
             sessions.append({
                 "session_id": s["session_id"],
                 "title": s.get("title") or "(untitled)",
