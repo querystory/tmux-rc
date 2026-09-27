@@ -48,6 +48,28 @@ def test_payload_leads_with_foreground_process():
     assert "foreground process" in first_line and "python3" in first_line
 
 
+def test_foreground_agent_process_beats_selected_model_identity():
+    r = classify(
+        _pane(cmd="opencode"),
+        "Build · Claude Opus 5.5 · Amazon Bedrock\nOpenCode 1.18.32",
+        _llm({"tool": "claude", "activity": "idle", "model": "Claude Opus 5.5",
+              "tasks": [{"text": "A conversational bullet", "done": False}]}),
+    )
+    assert r["tool"] == "opencode"
+    assert r["model"] == "Claude Opus 5.5"  # backend metadata remains intact
+    assert "tasks" not in r
+
+
+def test_opencode_keeps_an_explicit_task_plan():
+    tasks = [{"text": "Add the regression test", "done": False}]
+    r = classify(
+        _pane(cmd="opencode"),
+        "Plan\n☐ Add the regression test\n\nOpenCode 1.18.32",
+        _llm({"tool": "opencode", "activity": "running", "tasks": tasks}),
+    )
+    assert r["tasks"] == tasks
+
+
 def test_pipes_llm_json_through():
     r = classify(
         _pane(),

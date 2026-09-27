@@ -23,6 +23,20 @@ from .tmux import Pane
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
+_CHECKLIST_RE = re.compile(
+    r"(?im)^\s*(?:(?:☐|☑|✓|✔|[-*]\s*\[[ x]\])\s*\S|(?:todo|tasks?|plan)\s*:?\s*$)",
+)
+
+# tmux's foreground executable is stronger identity evidence than any model name inside
+# an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
+# Claude Code because its selected model is Claude is the category error this guard
+# prevents. These exact executable names come from tmux's pane_current_command.
+_PROCESS_TOOLS = {
+    "claude": "claude",
+    "codex": "codex",
+    "gemini": "gemini",
+    "opencode": "opencode",
+}
 
 # A concrete CLI section cue needs a local clarification, not more rules applied
 # to every unrelated pane. The model still identifies and classifies the workers.
@@ -180,6 +194,17 @@ def classify(
             # Tells the watcher this screen was never actually read, so it can leave the
             # pane's fingerprint unset and try again rather than retiring the screen.
             result["parse_ok"] = False
+    # A direct agent executable is ground truth. The LLM still parses activity and the
+    # selected model/provider, but may not relabel the host application from those model
+    # names (OpenCode showing "Claude Opus" is still OpenCode).
+    if process_tool := _PROCESS_TOOLS.get(pane.current_command):
+        result["tool"] = process_tool
+    # OpenCode renders ordinary answer bullets immediately above its model/footer. The
+    # parser sometimes promotes those review findings to the agent's live task plan.
+    # Keep real plans (checkboxes or an explicit standalone plan/TODO/tasks heading),
+    # but do not manufacture task controls from prose bullets alone.
+    if result.get("tool") == "opencode" and not _CHECKLIST_RE.search(text):
+        result.pop("tasks", None)
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
     # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any

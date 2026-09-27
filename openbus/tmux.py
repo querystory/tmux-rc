@@ -142,6 +142,7 @@ _GENERIC_NAMES = {
     "claude",
     "codex",
     "gemini",
+    "opencode",
     "aider",
 }
 
@@ -881,5 +882,4 @@ def set_clipboard_image(png: bytes) -> list[str]:
         except Exception:  # noqa: BLE001 - try the next tool
             continue
     return ok
-
 

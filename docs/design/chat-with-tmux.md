@@ -11,7 +11,7 @@ records how — and whether — this relates to the `/api/live` feed and the sta
 
 tmux-rc's founding principle is **observe the terminal, don't drive the agent** — the
 daemon reads `capture-pane` and injects `send-keys`, vendor-agnostic, treating every pane
-(claude/codex/gemini/shell) the same. "Chat with your tmux" is the natural next layer:
+(claude/codex/gemini/opencode/shell) the same. "Chat with your tmux" is the natural next layer:
 instead of the phone being a *manual* remote (tap a pane, type keys), it becomes an
 *intent* remote — you say what you want and a router figures out which pane and what keys.
 

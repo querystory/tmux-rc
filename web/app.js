@@ -223,11 +223,11 @@ function keyedList(parentEl, items, keyFn, build, apply) {
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg",
-  shell: "/bash.png" }; // official Bash logo (MIT — see bash-logo.LICENSE)
+  opencode: "/opencode.svg", shell: "/bash.png" }; // MIT marks: see *-logo.LICENSE
 // Unidentified panes get the tmux logomark ("some tmux pane") instead of a bare dot.
 const UNKNOWN_LOGO = "/tmux-logomark.svg";
 // Tools with status/input chrome at the bottom of their screen (see bgTerm).
-const AGENT_TOOLS = new Set(["claude", "codex", "gemini"]);
+const AGENT_TOOLS = new Set(["claude", "codex", "gemini", "opencode"]);
 // activity comes from parser (LLM) output and gets interpolated into class names —
 // whitelist it so an unexpected value can't inject markup/classes.
 const ACTIVITIES = new Set(["running", "waiting", "idle", "compacting", "unknown"]);

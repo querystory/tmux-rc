@@ -756,7 +756,7 @@ class Watcher:
         return seen is not None and (time.monotonic() - seen) < self.LIVE_PRESENCE_WINDOW
 
     def tool_for(self, pane_id: str) -> str | None:
-        """Last-known agent tool for a pane (claude/codex/gemini/shell), for callers
+        """Last-known agent tool for a pane (claude/codex/gemini/opencode/shell), for callers
         outside the tick — e.g. live telemetry attribution. None if unseen."""
         t = self._tool.get(pane_id)
         return t[0] if t else None
@@ -1110,7 +1110,7 @@ class Watcher:
         # So: only override a shell/unknown read with a remembered agent if we saw that
         # agent within the last few seconds.
         tool = state.get("tool")
-        if tool in ("claude", "codex", "gemini"):
+        if tool in ("claude", "codex", "gemini", "opencode"):
             self._tool[pane.id] = (tool, now)
         elif tool in ("shell", "unknown", None):
             prev = self._tool.get(pane.id)

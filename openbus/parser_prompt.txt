@@ -52,7 +52,7 @@ above, even where the draft itself isn't dim. Never mention the markers themselv
 any output field.
 
 TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just the last
-lines. The choices are "claude", "codex", "gemini", "shell", "unknown" — do NOT default
+lines. The choices are "claude", "codex", "gemini", "opencode", "shell", "unknown" — do NOT default
 to "claude"; different coding agents look similar (box-drawn input, permission prompts)
 but have distinct signatures. Decide by the evidence on screen:
 - "codex" (OpenAI Codex / ChatGPT CLI): an OpenAI model in the pane's OWN live
@@ -83,6 +83,13 @@ but have distinct signatures. Decide by the evidence on screen:
 - "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
   with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
   "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
+- "opencode" (OpenCode): the foreground process `opencode` is conclusive, regardless of
+  which provider or model it is running. Its chrome can show a large OpenCode banner;
+  a right sidebar headed "Context" and "LSP"; a composer footer such as
+  "Build · Claude Opus 5.5 · Amazon Bedrock"; and a bottom status row with cwd,
+  tokens/context/cost, "ctrl+p commands", and "OpenCode <version>". Claude/GPT/Gemini
+  text in OpenCode's MODEL slot identifies the selected backend only — it never turns
+  the host application into Claude Code, Codex, or Gemini CLI.
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
   "Fable" + a version like "4.8" — the family grows, so an unfamiliar name in the model
   slot is claude when the rest of the chrome matches); status line shows dir/branch ·
@@ -92,7 +99,7 @@ but have distinct signatures. Decide by the evidence on screen:
   name inside unmistakable Claude Code chrome is still "claude". GPT names in its
   conversation, logs, or subagent output do not change the identity of the host agent.
 The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
-not screen content. Agents run as node/claude/codex/gemini processes; a pane whose
+not screen content. Agents run as node/claude/codex/gemini/opencode processes; a pane whose
 process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
 or model names appear in its OUTPUT (a server printing gemini-… log lines is a log
 viewer, never the Gemini CLI).
@@ -127,7 +134,7 @@ tokens"). Ignore editor/multiplexer chrome that isn't the agent's own state (vim
 
 Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
 {
-  "tool": "claude"|"codex"|"gemini"|"shell"|"unknown",
+  "tool": "claude"|"codex"|"gemini"|"opencode"|"shell"|"unknown",
   "activity": "running"|"waiting"|"idle"|"compacting",
   "waiting_on": "user"|"external",   // ONLY when activity is "waiting" — see WAITING ON below
   "headline": "one short human sentence for the top of the card: what is happening / "
@@ -265,7 +272,11 @@ and NO "question" at all (the phone drives rewind through its own control, so a 
 there is a duplicate affordance) — the rewind rows are not question options.
 "tasks" is the agent's OWN plan/checklist — the ☐/☑ (or [ ]/[x], •/✓) TODO list it
 prints and ticks off as it works. Emit a task per visible line with its done state;
-include "tasks" ONLY when such a checklist is on screen. "subagents" is separate: the
+include "tasks" ONLY when such a checklist is on screen. Ordinary bullets in the
+agent's conversational answer are content, not its live plan — including OpenCode
+review findings rendered as `-` rows above its Build/model footer. A bullet glyph alone
+does not make a checklist; require explicit plan/TODO framing or checkbox/progress UI.
+"subagents" is separate: the
 BACKGROUND agents this agent spawned to run in parallel — a block of rows each naming a
 delegated job with a live meter (Claude Code shows "general-purpose  <what it's doing>
 Nm  ↓Nk tokens"), or a "waiting for N background agents to finish" line. Each row is one
