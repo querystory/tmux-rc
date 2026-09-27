@@ -31,6 +31,7 @@ const subagentTranscript = `{"type":"user","timestamp":"2026-09-01T10:03:00Z","c
 func writeSession(t *testing.T) (dir, path string) {
 	t.Helper()
 	dir = t.TempDir()
+	dir = filepath.Join(dir, "[glob]?")
 	path = filepath.Join(dir, "sess-1.jsonl")
 	sub := filepath.Join(dir, "sess-1", "subagents")
 	must(t, os.MkdirAll(sub, 0o700))
@@ -200,6 +201,14 @@ func TestMarkMissing(t *testing.T) {
 	header, _, _ := strings.Cut(string(data)[4:], "\n---\n")
 	if strings.Count(header, "\nsource_missing: true") != 1 || !strings.Contains(string(data), "fix live mode") {
 		t.Errorf("entry after deletion:\n%s", data)
+	}
+
+	// Restoring the transcript, even with its original mtime, clears the flag.
+	must(t, os.WriteFile(path, []byte(transcript), 0o600))
+	must(t, os.Chtimes(path, time.Unix(1e9, 0), time.Unix(1e9, 0)))
+	must(t, IndexTranscript(path))
+	if data, _ := os.ReadFile(entry); strings.Contains(string(data), "source_missing") {
+		t.Errorf("restored entry still marked missing:\n%s", data)
 	}
 }
 

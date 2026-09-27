@@ -29,9 +29,17 @@ func indexPath(harness, parent, id string) string {
 // IndexTranscript indexes a Claude session and its subagents, skipping any whose
 // index entry is already newer than the transcript.
 func IndexTranscript(path string) error {
-	subagents, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents", "*.jsonl"))
+	// ReadDir, not Glob: a session path is literal and may contain glob syntax.
+	dir := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
+	files, _ := os.ReadDir(dir) // most sessions have no subagents
+	paths := []string{path}
+	for _, f := range files {
+		if strings.HasSuffix(f.Name(), ".jsonl") {
+			paths = append(paths, filepath.Join(dir, f.Name()))
+		}
+	}
 	var errs []error
-	for _, p := range append([]string{path}, subagents...) {
+	for _, p := range paths {
 		errs = append(errs, indexFile(p))
 	}
 	return errors.Join(errs...)
@@ -123,10 +131,6 @@ func MarkMissing(entry string) error {
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(entry)
-	if err != nil {
-		return err
-	}
 	// Only the front matter is ours; message bodies can contain any text.
 	end := bytes.Index(data, []byte("\n---\n"))
 	if end < 0 || bytes.Contains(data[:end+1], []byte("\nsource_missing: true\n")) {
@@ -141,7 +145,8 @@ func MarkMissing(entry string) error {
 		if _, statErr := os.Stat(src); err != nil || !errors.Is(statErr, os.ErrNotExist) {
 			return nil
 		}
-		return writeAtomic(entry, bytes.Replace(data, []byte(line), []byte(line+"source_missing: true\n"), 1), info.ModTime())
+		// The epoch mtime matches no transcript, so one restored later gets rebuilt.
+		return writeAtomic(entry, bytes.Replace(data, []byte(line), []byte(line+"source_missing: true\n"), 1), time.Unix(0, 0))
 	}
 	return nil
 }
