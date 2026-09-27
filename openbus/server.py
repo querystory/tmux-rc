@@ -767,6 +767,12 @@ def _emit_live_round(
         logger.debug("live emit failed", exc_info=True)
 
 
+def _note_input(pane_id: str) -> None:
+    """Invalidate input-bound actions and reparse; tolerate legacy watcher fakes."""
+    watcher = app.state.watcher
+    getattr(watcher, "note_input", watcher.request_reparse)(pane_id)
+
+
 @app.post("/api/panes/{pane_id}/send")
 def send(pane_id: str, body: SendBody, request: Request):
     detail = f"enter={body.enter} literal={body.literal}"
@@ -804,7 +810,7 @@ def send(pane_id: str, body: SendBody, request: Request):
     # canonical id again: the watcher matches this set against pane.id, so a request
     # queued under an alias would simply never fire and the card would go stale until the
     # next poll.
-    app.state.watcher.request_reparse(pane.id)
+    _note_input(pane.id)
     return {"ok": True}
 
 
@@ -829,7 +835,7 @@ def click(pane_id: str, body: ClickBody, request: Request):
         raise HTTPException(409, str(e)) from e
     if sent:
         _audit(request, "click", pane_id, detail)
-        app.state.watcher.request_reparse(pane.id)
+        _note_input(pane.id)
     return {"sent": sent}
 
 
@@ -1013,7 +1019,7 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
             raise HTTPException(409, str(error)) from error
         raise
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    app.state.watcher.request_reparse(pane.id)  # the paste changed the screen
+    _note_input(pane.id)
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
@@ -1090,7 +1096,7 @@ async def _compose(pane_id: str, request: Request):
         raise HTTPException(400, "empty composer")
     await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
     _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
-    app.state.watcher.request_reparse(pane.id)
+    _note_input(pane.id)
     return {"ok": True}
 
 

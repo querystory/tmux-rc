@@ -494,7 +494,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
         detail=f"into {label}" + (" +enter" if submitted else ""), keys=what,
     )
-    watcher.request_reparse(pane_id)  # the keystrokes changed the screen
+    # Older embedding fakes expose only request_reparse; production Watcher uses
+    # note_input so outstanding notification actions are invalidated immediately.
+    getattr(watcher, "note_input", watcher.request_reparse)(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,

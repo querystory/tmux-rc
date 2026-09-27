@@ -37,6 +37,7 @@ TMUX_ACTIVE_SECONDS = 30.0
 RATE_WINDOW_SECONDS = 15 * 60.0
 RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
+MAX_PRESENCE_LEASES = 128
 DEFAULT_PUSH_HOSTS = (
     "web.push.apple.com",
     "fcm.googleapis.com",
@@ -315,7 +316,11 @@ class PushManager:
             return
         with self._lock:
             if visible:
-                self._presence[client[:100]] = self.clock()
+                client = client[:100]
+                self._presence[client] = self.clock()
+                while len(self._presence) > MAX_PRESENCE_LEASES:
+                    oldest = min(self._presence, key=self._presence.get)
+                    self._presence.pop(oldest, None)
             else:
                 self._presence.pop(client[:100], None)
 
@@ -359,6 +364,9 @@ class PushManager:
         if (self.watcher.is_stale()
                 or not self.watcher.pane_parse_valid(issued["pane_id"])):
             raise ValueError("pane state is temporarily unavailable")
+        if (self.watcher.pane_input_generation(issued["pane_id"])
+                != issued["input_generation"]):
+            raise ValueError("the pane received newer input")
         pane = next((dict(s) for s in self.watcher.states
                      if s.get("pane_id") == issued["pane_id"]), None)
         birth = self.watcher.pane_birth(issued["pane_id"])
@@ -373,7 +381,7 @@ class PushManager:
         tmux.send_keys(
             issued["pane_id"], keys, enter=True, literal=True, expected_pid=birth,
         )
-        self.watcher.request_reparse(issued["pane_id"])
+        self.watcher.note_input(issued["pane_id"])
         return issued["pane_id"], keys
 
     async def _loop(self) -> None:
@@ -449,6 +457,7 @@ class PushManager:
                     self._nonces[nonce] = {
                         "pane_id": pane_id, "fingerprint": fp,
                         "indices": {index for index, _ in offered},
+                        "input_generation": self.watcher.pane_input_generation(pane_id),
                         "expires": now + NONCE_SECONDS,
                     }
             deep_link = {"pane": pane_id, "from": "push"}

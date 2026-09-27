@@ -14,6 +14,7 @@ class Watcher:
         self.reparsed = []
         self.stale = False
         self.parse_valid = True
+        self.input_generations = {}
 
     def is_stale(self):
         return self.stale
@@ -24,8 +25,15 @@ class Watcher:
     def pane_parse_valid(self, pane_id):
         return self.parse_valid
 
+    def pane_input_generation(self, pane_id):
+        return self.input_generations.get(pane_id, 0)
+
     def request_reparse(self, pane_id):
         self.reparsed.append(pane_id)
+
+    def note_input(self, pane_id):
+        self.input_generations[pane_id] = self.pane_input_generation(pane_id) + 1
+        self.request_reparse(pane_id)
 
 
 class Sender:
@@ -166,6 +174,16 @@ def test_visible_presence_suppresses_until_the_lease_is_gone(tmp_path, monkeypat
     service.note_presence("phone", visible=False)
     service.evaluate()
     assert len(sender.payloads) == 1
+
+
+def test_presence_leases_are_bounded(tmp_path):
+    watcher = Watcher()
+    service, _ = manager(tmp_path, watcher, [100.0])
+    for index in range(push.MAX_PRESENCE_LEASES + 20):
+        service.note_presence(f"client-{index}", visible=True)
+    assert len(service._presence) == push.MAX_PRESENCE_LEASES
+    assert "client-0" not in service._presence
+    assert f"client-{push.MAX_PRESENCE_LEASES + 19}" in service._presence
 
 
 def test_stale_watcher_suppresses_until_live_state_resumes(tmp_path, monkeypatch):
@@ -331,6 +349,25 @@ def test_action_rejects_a_retained_question_after_parse_failure(tmp_path, monkey
     watcher.parse_valid = False
 
     with pytest.raises(ValueError, match="temporarily unavailable"):
+        service.answer(nonce, 0)
+    with pytest.raises(ValueError, match="already used"):
+        service.answer(nonce, 0)
+
+
+def test_other_pane_input_invalidates_an_outstanding_action(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+                               "options": ["Yes", "No"]})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    nonce = sender.payloads[0]["nonce"]
+    watcher.note_input("%1")
+
+    with pytest.raises(ValueError, match="newer input"):
         service.answer(nonce, 0)
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
