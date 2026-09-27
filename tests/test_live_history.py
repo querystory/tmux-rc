@@ -138,6 +138,7 @@ def test_resume_rejects(history, entry, args):
 
 
 def test_find_sessions_returns_routing_hints_only(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/u")
     monkeypatch.setattr(agent_history, "resolve", lambda q: [{
         "repo": "/home/u/src/tmux-rc", "score": 9,
         "sessions": [
@@ -148,7 +149,7 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
         ],
     }])
     _, r = _call("find_sessions", {"query": "live mode"})
-    assert r == {"status": "ok", "results": [{"repo": "tmux-rc", "sessions": [
+    assert r == {"status": "ok", "results": [{"repo": "~/src/tmux-rc", "sessions": [
         {"session_id": "live-1", "title": "tmuxrc live mode", "last_active": "2026-09-05",
          "running_in": "work", "pane_id": "%1"},
         {"session_id": "old", "title": "(untitled)", "last_active": "2026-09-05",

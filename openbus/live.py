@@ -585,7 +585,8 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
                 **({"running_elsewhere": True} if s.get("running") and not pane else {}),
                 **({"running_unknown": True} if s.get("running_unknown") else {}),
             })
-        results.append({"repo": os.path.basename(p["repo"]), "sessions": sessions})
+        # The path, shortened under home, so two repos with one name stay distinct.
+        results.append({"repo": _home_relative(p["repo"]), "sessions": sessions})
     return {"status": "ok", "results": results}
 
 
@@ -595,6 +596,11 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
 # the pane it opened lives. The pane's pid, not its id, is the identity: tmux reuses ids.
 _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str]] = {}  # session id -> (pane id, pane pid)
+
+
+def _home_relative(path: str) -> str:
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path.startswith(home + "/") else path
 
 
 async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
