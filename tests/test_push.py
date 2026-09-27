@@ -12,6 +12,10 @@ class Watcher:
         self.states = []
         self.births = {"%1": "123"}
         self.reparsed = []
+        self.stale = False
+
+    def is_stale(self):
+        return self.stale
 
     def pane_birth(self, pane_id):
         return self.births.get(pane_id)
@@ -87,6 +91,10 @@ def test_option_mapping_matches_card_semantics():
     assert push.option_keys(question, 0) == "Ship it"
     with pytest.raises(ValueError, match="app"):
         push.option_keys({"answer_style": "cursor", "options": ["row"]}, 0)
+    question = {"answer_style": "text", "options": ["  ", "Ship it"]}
+    assert push.renderable_options(question) == [(1, "Ship it")]
+    with pytest.raises(ValueError, match="available"):
+        push.option_keys(question, 0)
 
 
 def test_answer_schema_accepts_large_valid_option_indices():
@@ -156,6 +164,22 @@ def test_visible_presence_suppresses_until_the_lease_is_gone(tmp_path, monkeypat
     assert len(sender.payloads) == 1
 
 
+def test_stale_watcher_suppresses_until_live_state_resumes(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting()]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    watcher.stale = True
+    service.evaluate()
+    assert sender.payloads == []
+    watcher.stale = False
+    service.evaluate()
+    assert len(sender.payloads) == 1
+
+
 def test_missing_waiting_on_defaults_to_an_actionable_user_wait(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
@@ -221,7 +245,6 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
                                "options": ["Yes", "No"]})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
-    monkeypatch.setattr(push.tmux, "pane_pid", lambda _pane: "123")
     sent = []
     monkeypatch.setattr(
         push.tmux, "send_keys", lambda pane, keys, **kw: sent.append((pane, keys, kw))
@@ -232,7 +255,9 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
     nonce = sender.payloads[0]["nonce"]
 
     assert service.answer(nonce, 0) == ("%1", "y")
-    assert sent == [("%1", "y", {"enter": True, "literal": True})]
+    assert sent == [("%1", "y", {
+        "enter": True, "literal": True, "expected_pid": "123",
+    })]
     assert watcher.reparsed == ["%1"]
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)

@@ -343,6 +343,22 @@ def test_recycled_pane_between_text_and_submit_is_a_failure(monkeypatch):
     assert events == [("send", "original draft")]
 
 
+def test_expected_pid_is_checked_inside_the_send_transaction(monkeypatch):
+    events = _record(monkeypatch, 0.3)
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "replacement")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "approve", expected_pid="original")
+    assert events == []
+
+
+def test_expected_pid_protects_a_bare_submit(monkeypatch):
+    events = _record(monkeypatch, 0.3)
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "replacement")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "", expected_pid="original")
+    assert events == []
+
+
 def test_per_pane_locks_are_retired_only_after_all_users_release_them():
     import gc
 

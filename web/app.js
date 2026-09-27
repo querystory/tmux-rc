@@ -3692,7 +3692,7 @@ function applyQuestion(ui, s, card) {
   // this is the deck catching up.)
   const realOpts = (s.question.options || [])
     .map((text, index) => ({ text, index }))
-    .filter(({ text }) => !_FREETEXT_OPT.test(text.trim()));
+    .filter(({ text }) => typeof text === "string" && text.trim() && !_FREETEXT_OPT.test(text.trim()));
   keyedList(ui.opts, realOpts, ({ text, index }) => index + " " + text, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";

@@ -713,7 +713,8 @@ def _settle_before_return(pane_id: str) -> None:
 
 
 def send_keys(
-    pane_id: str, keys: str, enter: bool = True, literal: bool = True
+    pane_id: str, keys: str, enter: bool = True, literal: bool = True,
+    *, expected_pid: str | None = None,
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
@@ -721,10 +722,15 @@ def send_keys(
     key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
     Return (only meaningful for literal text).
 
-    `pane_id` must already be a resolved pane id — see _send_locks."""
+    `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
+    `expected_pid` binds the complete send transaction to that pane incarnation."""
     with _pane_lock(pane_id):
+        if expected_pid is not None:
+            check_pane(pane_id, expected_pid)
         if literal:
-            identity = pane_pid(pane_id) if keys else None
+            identity = expected_pid if keys and expected_pid is not None else (
+                pane_pid(pane_id) if keys else None
+            )
             if keys and identity is None:
                 raise PaneChangedError("Pane disappeared before delivery.")
             b, i = keys.encode(), 0
@@ -764,6 +770,8 @@ def send_keys(
             # too. Every other key name is a lone keystroke and waits for nothing.
             if keys == "Enter":
                 _settle_before_return(pane_id)
+            if expected_pid is not None:
+                check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, keys])
         if enter and literal:
             # Let the paste burst end before the Return, or it is read as a newline
@@ -771,6 +779,8 @@ def send_keys(
             # an interleaved send during the gap would put another caller's text in the
             # box we are about to submit.
             _settle_before_return(pane_id)
+            if expected_pid is not None:
+                check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 

@@ -234,7 +234,8 @@ def renderable_options(question: dict) -> list[tuple[int, str]]:
         return []
     out = []
     for index, option in enumerate(options):
-        if not isinstance(option, str) or _FREETEXT_OPTION.match(option.strip()):
+        if (not isinstance(option, str) or not option.strip()
+                or _FREETEXT_OPTION.match(option.strip())):
             continue
         out.append((index, option))
     return out
@@ -260,8 +261,8 @@ def option_keys(question: dict, index: int) -> str:
     if not isinstance(options, list) or index < 0 or index >= len(options):
         raise ValueError("option is no longer available")
     option = options[index]
-    if not isinstance(option, str):
-        raise ValueError("option is no longer available")  # noqa: TRY004
+    if not isinstance(option, str) or not option.strip():
+        raise ValueError("option is no longer available")
     style = question.get("answer_style", "text")
     if style == "cursor":
         raise ValueError("cursor questions must be answered in the app")
@@ -360,13 +361,15 @@ class PushManager:
         birth = self.watcher.pane_birth(issued["pane_id"])
         if pane is None or contract(pane, birth)[0] != issued["fingerprint"]:
             raise ValueError("the pending question has changed")
-        if not birth or tmux.pane_pid(issued["pane_id"]) != birth:
+        if not birth:
             raise ValueError("the pane has changed")
         question = pane.get("question")
         if not isinstance(question, dict):
             raise ValueError("the pending question has changed")  # noqa: TRY004
         keys = option_keys(question, option_index)
-        tmux.send_keys(issued["pane_id"], keys, enter=True, literal=True)
+        tmux.send_keys(
+            issued["pane_id"], keys, enter=True, literal=True, expected_pid=birth,
+        )
         self.watcher.request_reparse(issued["pane_id"])
         return issued["pane_id"], keys
 
@@ -381,7 +384,7 @@ class PushManager:
                 logger.warning("push evaluation failed", exc_info=True)
 
     def evaluate(self) -> None:
-        if self._stopping.is_set():
+        if self._stopping.is_set() or self.watcher.is_stale():
             return
         now = self.clock()
         panes = [dict(s) for s in self.watcher.states]
