@@ -27,9 +27,11 @@ func main() {
 	case "hook":
 		hook()
 	case "index":
-		for _, p := range os.Args[2:] {
-			report(IndexTranscript(p))
-		}
+		withLock("index", true, func() {
+			for _, p := range os.Args[2:] {
+				report(IndexTranscript(p))
+			}
+		})
 		if since(stateFile()) > reconcileEvery {
 			Reconcile()
 		}
@@ -67,31 +69,60 @@ func hook() {
 	cmd.Start()
 }
 
-// Reconcile indexes every Claude transcript newer than its entry and flags entries
-// whose transcript is gone. Concurrent runs are skipped via a kernel lock, which a
-// killed run releases; completion is recorded only at the end, so an interrupted run
-// is retried by the next hook rather than suppressed.
+// Reconcile rebuilds every out-of-date entry and flags entries whose transcript is
+// gone. Only one runs at a time; others return at once. Completion is recorded only
+// when every entry was handled, so an interrupted or failed run is retried by the next
+// hook instead of being suppressed for reconcileEvery.
 func Reconcile() {
-	os.MkdirAll(filepath.Dir(stateFile()), 0o700)
-	lock, err := os.OpenFile(stateFile()+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	withLock("reconcile", false, func() {
+		withLock("index", true, func() {
+			if reconcileAll() {
+				report(os.WriteFile(stateFile(), nil, 0o600))
+			}
+		})
+	})
+}
+
+func reconcileAll() (ok bool) {
+	ok = true
+	check := func(err error) {
+		report(err)
+		ok = ok && err == nil
+	}
+	transcripts, err := filepath.Glob(filepath.Join(claudeDir(), "projects", "*", "*.jsonl"))
+	check(err)
+	for _, t := range transcripts {
+		check(IndexTranscript(t))
+	}
+	entries, err := filepath.Glob(filepath.Join(Root(), "index", "claude", "*.md"))
+	check(err)
+	subentries, err := filepath.Glob(filepath.Join(Root(), "index", "claude", "*", "*.md"))
+	check(err)
+	for _, e := range append(entries, subentries...) {
+		check(MarkMissing(e))
+	}
+	return ok
+}
+
+// withLock runs fn holding an exclusive kernel lock, which a killed process releases.
+// Every writer of the index holds "index", so a read-modify-write can never replace a
+// newer entry. A non-blocking caller skips fn when the lock is taken.
+func withLock(name string, wait bool, fn func()) {
+	path := filepath.Join(Root(), "state", name+".lock")
+	os.MkdirAll(filepath.Dir(path), 0o700)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		report(err)
 		return
 	}
-	defer lock.Close()
-	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
-		return
+	defer f.Close()
+	how := syscall.LOCK_EX
+	if !wait {
+		how |= syscall.LOCK_NB
 	}
-	transcripts, _ := filepath.Glob(filepath.Join(claudeDir(), "projects", "*", "*.jsonl"))
-	for _, t := range transcripts {
-		report(IndexTranscript(t))
+	if syscall.Flock(int(f.Fd()), how) == nil {
+		fn()
 	}
-	entries, _ := filepath.Glob(filepath.Join(Root(), "index", "claude", "*.md"))
-	subentries, _ := filepath.Glob(filepath.Join(Root(), "index", "claude", "*", "*.md"))
-	for _, e := range append(entries, subentries...) {
-		report(MarkMissing(e))
-	}
-	report(os.WriteFile(stateFile(), nil, 0o600))
 }
 
 func claudeDir() string {

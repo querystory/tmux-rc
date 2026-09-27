@@ -47,9 +47,9 @@ func indexFile(path string) error {
 	}
 	id, parent := claudeIdentity(path)
 	dst := indexPath("claude", parent, id)
-	// An entry carries the mtime of the transcript it was built from. Hooks index
-	// concurrently, so an older read can land after a newer one; its mtime then no
-	// longer matches the transcript and the next run rebuilds it.
+	// An entry carries the mtime of the transcript it was built from, so it is fresh
+	// exactly when the two match (and a transcript rewritten to an older mtime still
+	// gets rebuilt).
 	if idx, err := os.Stat(dst); err == nil && idx.ModTime().Equal(src.ModTime()) {
 		return nil
 	}

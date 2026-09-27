@@ -129,8 +129,7 @@ func TestIndexTranscript(t *testing.T) {
 		t.Errorf("up-to-date entry was rewritten")
 	}
 
-	// A stale write that landed last (a racing hook) carries an older transcript mtime
-	// and is rebuilt, even though the entry file itself is newest.
+	// An entry built from any other version of the transcript is rebuilt.
 	old := src.ModTime().Add(-time.Minute)
 	must(t, os.Chtimes(entry, old, old))
 	must(t, IndexTranscript(path))
@@ -153,7 +152,7 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Dir(stateFile()), 0o700))
 
 	// While another run holds the lock, this one does nothing and records nothing.
-	lock, err := os.OpenFile(stateFile()+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	lock, err := os.OpenFile(filepath.Join(Root(), "state", "reconcile.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	must(t, err)
 	must(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX))
 	Reconcile()
@@ -162,6 +161,17 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	}
 	lock.Close()
 
+	// A run that could not handle every transcript is not recorded either.
+	project := filepath.Join(claudeDir(), "projects", "p")
+	must(t, os.MkdirAll(project, 0o700))
+	unreadable := filepath.Join(project, "s.jsonl")
+	must(t, os.WriteFile(unreadable, nil, 0o000))
+	Reconcile()
+	if _, err := os.Stat(stateFile()); err == nil && os.Getuid() != 0 {
+		t.Fatalf("a failed run was recorded as completed")
+	}
+
+	must(t, os.Chmod(unreadable, 0o600))
 	Reconcile()
 	if _, err := os.Stat(stateFile()); err != nil {
 		t.Errorf("a completed run was not recorded: %v", err)
