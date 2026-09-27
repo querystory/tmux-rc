@@ -73,3 +73,6 @@ can send to the live agent instead of resuming a second copy onto the same trans
 This comes from the registry Claude Code keeps of its live processes
 (`~/.claude/sessions/<pid>.json`); an entry only counts while its pid is alive with the
 start time it registered, since the files outlive crashes and pids get reused.
+
+`agent-history get <session-id>` prints one session in the same JSON shape, for a caller
+that already chose it; the ID must be a plain name, so it can't reach outside the index.

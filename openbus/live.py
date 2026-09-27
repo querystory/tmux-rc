@@ -20,7 +20,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import llm, telemetry, tmux
+from . import agent_history, llm, telemetry, tmux
 from .classify import _load_prompt
 
 logger = logging.getLogger(__name__)
@@ -351,6 +351,44 @@ def _tools():
     fold text and a chord into a single ambiguous call, and press_key's whitelist keeps it
     from inventing arbitrary key sequences."""
     types = llm.genai_types()
+    history = [
+        types.FunctionDeclaration(
+            name="find_sessions",
+            description=(
+                "Look up the user's past coding-agent sessions by topic, across every "
+                "repo — including sessions no window shows now. Use only when the user "
+                "asks to resume, continue, or find earlier work (“resume the live mode "
+                "session”, “where was I on the auth fix”). Returns repos, each with "
+                "sessions: id, title, last active date, and the window running it if "
+                "one is. Titles are hints for choosing, not facts about the work."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={"query": types.Schema(
+                    type=types.Type.STRING,
+                    description="The topic in the user's words, e.g. live mode",
+                )},
+                required=["query"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="resume_session",
+            description=(
+                "Reopen a past session from find_sessions in a new window, in its "
+                "original directory. Use after find_sessions, once you know which one "
+                "the user means; if find_sessions says a window already runs it, talk "
+                "to that window with type_in_pane instead. It opens idle: to give it an "
+                "instruction, type_in_pane into the returned pane_id afterwards."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={"session_id": types.Schema(
+                    type=types.Type.STRING, description="session_id from find_sessions",
+                )},
+                required=["session_id"],
+            ),
+        ),
+    ] if agent_history.binary() else []
 
     return [
         types.Tool(
@@ -412,6 +450,7 @@ def _tools():
                         required=["pane_id", "key"],
                     ),
                 ),
+                *history,
             ]
         )
     ]
@@ -430,6 +469,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
                 types.FunctionResponse(id=fc.id, name=fc.name, response=payload)
             ]
         )
+
+    if fc.name in _HISTORY_TOOLS:
+        args = fc.args if isinstance(fc.args, dict) else {}
+        await respond(await _HISTORY_TOOLS[fc.name](websocket, args, watcher, actor))
+        return
 
     args = fc.args if isinstance(fc.args, dict) else {}
     raw_pane_id = args.get("pane_id")
@@ -514,6 +558,99 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
 
     task = asyncio.create_task(refresh())
     _background(task)
+
+
+async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
+    """Past sessions for a topic, trimmed to what choosing needs. No message text: the
+    model routes on titles, recency and liveness, and nothing from an old session is
+    handed to it as if it were current."""
+    query = args.get("query")
+    if set(args) - {"query"} or not isinstance(query, str) or not query.strip():
+        return {"status": "rejected", "reason": "malformed call"}
+    projects = await asyncio.to_thread(agent_history.resolve, query.strip())
+    if projects is None:
+        return {"status": "error", "reason": "session history unavailable"}
+    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    results = []
+    for p in projects:
+        sessions = []
+        for s in p["sessions"]:
+            pane = (s.get("running") or {}).get("tmux_pane")
+            sessions.append({
+                "session_id": s["session_id"],
+                "title": s.get("title") or "(untitled)",
+                "last_active": (s.get("last_active") or "")[:10],
+                # A running pane is named the way windows are everywhere else.
+                **({"running_in": labels[pane], "pane_id": pane} if pane in labels else {}),
+            })
+        results.append({"repo": os.path.basename(p["repo"]), "sessions": sessions})
+    return {"status": "ok", "results": results}
+
+
+async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
+    """Open a past session in a new window. Everything that reaches tmux comes from the
+    index, not the model: the model only names a session id."""
+    sid = args.get("session_id")
+    if set(args) - {"session_id"} or not isinstance(sid, str) or not sid.strip():
+        return {"status": "rejected", "reason": "malformed call"}
+    entry = await asyncio.to_thread(agent_history.get, sid.strip())
+    if entry is None:
+        return {"status": "rejected", "reason": "unknown session"}
+
+    # Never start a second process on a live session's transcript.
+    running = entry.get("running")
+    if running:
+        pane = running.get("tmux_pane")
+        labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+        if pane in labels:
+            return {"status": "already_running", "pane_id": pane, "pane": labels[pane]}
+        return {"status": "rejected", "reason": "already running outside tmux"}
+
+    argv, cwd = entry.get("resume_argv") or [], entry.get("cwd") or ""
+    if not argv or argv[0] not in agent_history.RESUMABLE:
+        return {"status": "rejected", "reason": "session can't be resumed"}
+    if not os.path.isdir(cwd):
+        return {"status": "rejected", "reason": "session directory is gone"}
+
+    panes = await asyncio.to_thread(tmux.list_panes)
+    target = _session_for(panes, cwd)
+    if target is None:
+        return {"status": "error", "reason": "no tmux session to open a window in"}
+    title = entry.get("title") or entry["session_id"][:8]
+    name = title[:24]
+    try:
+        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd)
+    except Exception as e:  # report, don't kill the session
+        logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
+        telemetry.emit_action(
+            action="live_resume", pane_uid=f"{tmux.server_uid()}:?", actor=actor,
+            detail=str(e)[:120], keys=entry["session_id"], outcome="error",
+        )
+        return {"status": "error", "reason": "could not open a window"}
+    telemetry.emit_action(
+        action="live_resume", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
+        detail=f"in {target}", keys=entry["session_id"],
+    )
+    await websocket.send_json(
+        {"type": "typed", "pane_id": pane_id, "label": name,
+         "text": f"[resumed {title}]", "submitted": True}
+    )
+    return {"status": "opened", "pane_id": pane_id, "window": name}
+
+
+def _session_for(panes, cwd: str) -> str | None:
+    """The tmux session to open a resumed agent in: one already working in or under its
+    directory, else the session of the active window, else any."""
+    if not panes:
+        return None
+    for p in panes:
+        if p.cwd and (p.cwd == cwd or p.cwd.startswith(cwd.rstrip("/") + "/")):
+            return p.session
+    active = next((p for p in panes if p.window_active == "1" and p.pane_active == "1"), panes[0])
+    return active.session
+
+
+_HISTORY_TOOLS = {"find_sessions": _find_sessions, "resume_session": _resume_session}
 
 
 # Keep strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -24,7 +25,7 @@ const reconcileEvery = 6 * time.Hour
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query>")
+		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query> | get <session-id>")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -43,6 +44,8 @@ func main() {
 		Reconcile()
 	case "resolve":
 		resolveCmd(os.Args[2:])
+	case "get":
+		getCmd(os.Args[2:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
 		os.Exit(2)
@@ -93,6 +96,31 @@ func resolveCmd(args []string) {
 		}
 	}
 }
+
+// getCmd prints one top-level session as JSON, with whether it is running, for a
+// caller that already chose it (e.g. from resolve). IDs are checked to be plain
+// names so a caller-supplied ID can't reach outside the index.
+func getCmd(args []string) {
+	if len(args) != 1 || !validID.MatchString(args[0]) {
+		fmt.Fprintln(os.Stderr, "usage: agent-history get <session-id>")
+		os.Exit(2)
+	}
+	id := args[0]
+	e, err := ReadEntry(indexPath("claude", "", id))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "get:", err)
+		os.Exit(1)
+	}
+	out := Scored{Entry: e}
+	if r, ok := RunningClaude()[id]; ok {
+		out.Running = &r
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.Encode(out)
+}
+
+var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // hook is the Claude Code hook entry point (Stop, SessionEnd, SubagentStop). It hands
 // the transcript to a detached child and returns at once, so a hook never slows or
