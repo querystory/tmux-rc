@@ -66,7 +66,7 @@ func TestReadClaude(t *testing.T) {
 	check(t, "prs (deduped)", strings.Join(s.PRs, ","), "https://github.com/o/r/pull/1")
 	check(t, "started", s.Started, "2026-09-01T10:00:00Z")
 	check(t, "last_active", s.LastActive, "2026-09-01T10:02:00Z")
-	check(t, "resume", s.Resume, "cd '/src/my repo' && claude --resume sess-1")
+	check(t, "resume", ResumeLine(s.Cwd, s.ResumeArgv), "cd '/src/my repo' && 'claude' '--resume' 'sess-1'")
 }
 
 // Tool results are skipped by a byte match before decoding. Text inside a message is
@@ -91,7 +91,7 @@ func TestReadClaudeSubagent(t *testing.T) {
 	must(t, err)
 	check(t, "parent", s.Parent, "sess-1")
 	check(t, "title", s.Title, "Judge persona")
-	check(t, "resume", s.Resume, "")
+	check(t, "resume_argv", strings.Join(s.ResumeArgv, " "), "")
 	if len(s.Messages) != 1 || s.Messages[0].Kind != "prompt" || s.Messages[0].Text != "Research the judge" {
 		t.Errorf("messages = %+v, want only the parent's task as a prompt", s.Messages)
 	}
@@ -161,7 +161,7 @@ func TestResumeQuotesCwd(t *testing.T) {
 	must(t, os.WriteFile(path, []byte(`{"type":"user","cwd":"/w; touch /tmp/pwned 'x'"}`+"\n"), 0o600))
 	s, err := ReadClaude(path)
 	must(t, err)
-	check(t, "resume", s.Resume, `cd '/w; touch /tmp/pwned '\''x'\''' && claude --resume s`)
+	check(t, "resume", ResumeLine(s.Cwd, s.ResumeArgv), `cd '/w; touch /tmp/pwned '\''x'\''' && 'claude' '--resume' 's'`)
 }
 
 func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {

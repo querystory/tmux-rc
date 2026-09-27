@@ -83,7 +83,8 @@ func Render(s Session) []byte {
 		{"harness", s.Harness}, {"session_id", s.ID}, {"parent_session", s.Parent},
 		{"source", s.Source}, {"cwd", s.Cwd}, {"branches", s.Branches},
 		{"entrypoint", s.Entrypoint}, {"title", s.Title}, {"started", s.Started},
-		{"last_active", s.LastActive}, {"prs", s.PRs}, {"resume", s.Resume},
+		{"last_active", s.LastActive}, {"prs", s.PRs}, {"resume_argv", s.ResumeArgv},
+		{"resume", ResumeLine(s.Cwd, s.ResumeArgv)},
 		{"messages", len(s.Messages)},
 	} {
 		if v := quote(f.value); v != `""` && v != "null" {

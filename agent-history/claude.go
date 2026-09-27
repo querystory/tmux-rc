@@ -27,7 +27,7 @@ type Session struct {
 	Started    string
 	LastActive string
 	PRs        []string
-	Resume     string
+	ResumeArgv []string // run in Cwd; the structured form tmux-rc builds a pane from
 	Messages   []Message
 }
 
@@ -97,7 +97,7 @@ func ReadClaude(path string) (Session, error) {
 		s.Title = aiTitle
 	}
 	if !subagent && s.Cwd != "" {
-		s.Resume = "cd " + shellQuote(s.Cwd) + " && claude --resume " + s.ID
+		s.ResumeArgv = []string{"claude", "--resume", s.ID}
 	}
 	return s, nil
 }
@@ -187,6 +187,19 @@ func subagentDescription(metaPath string) string {
 		json.Unmarshal(b, &meta)
 	}
 	return meta.Description
+}
+
+// ResumeLine is the copy-paste form of the resume command, for humans. Programs use
+// Cwd and ResumeArgv directly and never go through a shell.
+func ResumeLine(cwd string, argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	words := []string{"cd", shellQuote(cwd), "&&"}
+	for _, a := range argv {
+		words = append(words, shellQuote(a))
+	}
+	return strings.Join(words, " ")
 }
 
 // shellQuote single-quotes unconditionally: resume lines are meant to be pasted into

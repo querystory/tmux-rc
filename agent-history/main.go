@@ -5,8 +5,10 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,7 +24,7 @@ const reconcileEvery = 6 * time.Hour
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile")
+		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query>")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -39,9 +41,54 @@ func main() {
 		}
 	case "reconcile":
 		Reconcile()
+	case "resolve":
+		resolveCmd(os.Args[2:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
 		os.Exit(2)
+	}
+}
+
+func resolveCmd(args []string) {
+	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
+	opt := ResolveOptions{Now: time.Now()}
+	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude)")
+	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
+	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
+	flags.IntVar(&opt.MaxSessions, "sessions", 5, "max sessions per repo")
+	asJSON := flags.Bool("json", false, "machine-readable output")
+	flags.Parse(args)
+	query := strings.Join(flags.Args(), " ")
+	if query == "" {
+		fmt.Fprintln(os.Stderr, "resolve: missing query")
+		os.Exit(2)
+	}
+	paths, err := find(filepath.Join(Root(), "index"), ".md", 2)
+	report(err)
+	nested, err := find(filepath.Join(Root(), "index"), ".md", 3)
+	report(err)
+	var entries []Entry
+	for _, p := range append(paths, nested...) {
+		e, err := ReadEntry(p)
+		report(err)
+		entries = append(entries, e)
+	}
+	projects := Resolve(entries, query, opt)
+	if *asJSON {
+		out := json.NewEncoder(os.Stdout)
+		out.SetEscapeHTML(false)
+		out.SetIndent("", "  ")
+		out.Encode(map[string]any{"query": query, "projects": projects})
+		return
+	}
+	for _, p := range projects {
+		fmt.Printf("%s  (score %.2f)\n", p.Repo, p.Score)
+		for _, s := range p.Sessions {
+			fmt.Printf("  %.10s  %-8.8s  %s\n", s.LastActive, s.ID, cmp.Or(s.Title, "(untitled)"))
+			if s.Resume != "" {
+				fmt.Printf("      %s\n", s.Resume)
+			}
+		}
 	}
 }
 
