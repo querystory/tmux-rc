@@ -23,8 +23,8 @@ from .tmux import Pane
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
-_CHECKLIST_RE = re.compile(
-    r"(?im)^\s*(?:☐|☑|✓|✔|[-*]\s*\[[ x]\])\s*\S",
+_CHECKLIST_LINE_RE = re.compile(
+    r"(?im)^\s*(?:☐|☑|✓|✔|(?:[-*]\s*)?\[[ x]\])\s*(?P<text>\S.*)$",
 )
 _OPENCODE_RUNNING_RE = re.compile(
     r"(?im)^\s*[▰▮▯■□▪▫█▓▒░]+\s+esc\s+interrupt\s*$",
@@ -40,6 +40,11 @@ _PROCESS_TOOLS = {
     "gemini": "gemini",
     "opencode": "opencode",
 }
+
+
+def _checklist_text(text: str) -> str:
+    """Normalize visible and model-returned task labels for conservative matching."""
+    return " ".join(text.split()).casefold()
 
 # A concrete CLI section cue needs a local clarification, not more rules applied
 # to every unrelated pane. The model still identifies and classifies the workers.
@@ -204,11 +209,26 @@ def classify(
         result["tool"] = process_tool
     # OpenCode renders ordinary answer bullets immediately above its model/footer. The
     # parser sometimes promotes those review findings to the agent's live task plan.
-    # Keep real plans with visible checkbox/progress marks, but do not manufacture task
-    # controls from prose bullets alone. A heading is intentionally insufficient: an old
-    # "Plan" can remain in scrollback above a newer conversational list.
-    if result.get("tool") == "opencode" and not _CHECKLIST_RE.search(text):
-        result.pop("tasks", None)
+    # Validate each model-returned task against an actual visible checkbox/progress line,
+    # rather than treating any old checklist in scrollback as permission for an unrelated
+    # current bullet list. Standalone markdown checkboxes (`[ ] task`) are valid too.
+    if result.get("tool") == "opencode" and "tasks" in result:
+        visible_tasks = {
+            _checklist_text(match.group("text"))
+            for match in _CHECKLIST_LINE_RE.finditer(text)
+        }
+        tasks = result.get("tasks")
+        validated = [
+            task
+            for task in tasks
+            if isinstance(task, dict)
+            and isinstance(task.get("text"), str)
+            and _checklist_text(task["text"]) in visible_tasks
+        ] if isinstance(tasks, list) else []
+        if validated:
+            result["tasks"] = validated
+        else:
+            result.pop("tasks", None)
     # OpenCode shows this animated block row only while a turn can be interrupted. It is
     # application state, not decorative spinner noise, and is stronger than a stale
     # completed answer above it.

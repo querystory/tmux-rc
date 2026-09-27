@@ -70,17 +70,27 @@ def test_opencode_keeps_an_explicit_task_plan():
     assert r["tasks"] == tasks
 
 
-def test_opencode_stale_plan_heading_does_not_validate_current_bullets():
+def test_opencode_stale_checklist_does_not_validate_current_bullets():
     r = classify(
         _pane(cmd="opencode"),
         (
-            "Plan\n- Old implementation step\n\n"
+            "Plan\n☐ Old implementation step\n\n"
             "Review complete:\n- Logs still use HTTP\nOpenCode 1.18.32"
         ),
         _llm({"tool": "opencode", "activity": "idle",
               "tasks": [{"text": "Logs still use HTTP", "done": False}]}),
     )
     assert "tasks" not in r
+
+
+def test_opencode_keeps_standalone_markdown_checkbox_tasks():
+    task = {"text": "Ship the parser fix", "done": False}
+    r = classify(
+        _pane(cmd="opencode"),
+        "Plan\n[ ] Ship the parser fix\n\nOpenCode 1.18.32",
+        _llm({"tool": "opencode", "activity": "running", "tasks": [task]}),
+    )
+    assert r["tasks"] == [task]
 
 
 def test_opencode_interrupt_spinner_forces_running():

@@ -283,7 +283,8 @@ include "tasks" ONLY when such a checklist is on screen. Ordinary bullets in the
 agent's conversational answer are content, not its live plan — including OpenCode
 review findings rendered as `-` rows above its Build/model footer. A bullet glyph alone
 does not make a checklist; require visible checkbox/progress UI. A stale Plan/TODO
-heading higher in scrollback does not turn a newer conversational list into tasks.
+heading or old checkbox higher in scrollback does not turn a newer, unrelated
+conversational list into tasks.
 "subagents" is separate: the
 BACKGROUND agents this agent spawned to run in parallel — a block of rows each naming a
 delegated job with a live meter (Claude Code shows "general-purpose  <what it's doing>
@@ -306,7 +307,9 @@ step, asking "want me to…?", or offering "…, or are you good here?" — like
 posing a rhetorical question — is CONVERSATIONAL. The tell: it sits ABOVE the agent's own
 EMPTY input box (a bare ❯/› line, often with "-- INSERT --"), so the agent finished its
 turn and handed control back; nothing blocks. Do NOT emit a "question" and do NOT mark it
-"waiting" — report the pane as idle. Only a prompt the TOOL is holding open — a
+"waiting" — report the pane as idle. This remains true for a direct "Want me to…?" or
+multi-clause offer: an empty input box below it is proof that it is ordinary completed
+prose, not a held-open input affordance. Only a prompt the TOOL is holding open — a
 permission/approval box, a y/n confirmation, a selection menu, a prompt visibly awaiting a
 typed answer, where the choice IS the live bottom of the screen (no empty input box below
 it) — is a real question / user-wait.
@@ -350,8 +353,9 @@ For "cursor" ONLY, two extra fields make the list drivable:
   commit key at all. An advertised binding always wins over the default; omit a field
   only when the screen shows a binding you cannot translate. Translate to tmux key-names:
   ↑/k ⇒ "Up", ↓/j ⇒ "Down", enter/return ⇒ "Enter", tab ⇒ "Tab". "search" is the one
-  field with NO default: set it true only when type-to-filter is actually offered on
-  screen, because typing into a list that does not filter is just stray keystrokes.
+field with NO default: set it true only when type-to-filter is actually offered on
+screen, because typing into a list that does not filter is just stray keystrokes. An
+explicit "Type to search" binding or visible Search field always means `search: true`.
 
 WAITING ON — when (and ONLY when) activity is "waiting", say WHOM the pane is blocked on,
 because the phone treats these two very differently: a user-wait is an amber "tap me, I
@@ -391,5 +395,6 @@ starting "gpt-" or "o"+digit in the pane's OWN live model slot identifies Codex,
 when its other controls resemble Claude. This exception does not apply to model
 names printed in conversation, captured output, server logs, or subagent content.
 For code edits, the headline must name the changed behavior and the relevant flag,
-function, or API visible in the diff. Do not substitute an earlier discussed error
-for the change shown in the added/removed lines.
+function, or API visible in the newest Update/Edit diff. That newest visible edit wins
+over diagnostic prose earlier in the capture; do not substitute an earlier discussed
+error or observation for the change shown in the added/removed lines.
