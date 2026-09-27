@@ -207,6 +207,19 @@ def test_free_text_question_deep_links_to_the_composer(tmp_path, monkeypatch):
     assert sender.payloads[0]["url"].endswith("&compose=1")
 
 
+def test_cursor_question_never_focuses_the_text_composer(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Choose a row", "answer_style": "cursor",
+                               "options": []})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    assert "compose" not in sender.payloads[0]["url"]
+
+
 def test_a_wait_is_not_marked_notified_before_any_device_is_subscribed(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()

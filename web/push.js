@@ -50,6 +50,7 @@ export async function setupPush(button, announce = () => {}, bell = "") {
     return;
   }
   let subscription;
+  let repairNeeded = false;
   const refresh = async () => {
     subscription = await registration.pushManager.getSubscription();
     const enabled = Notification.permission === "granted" && !!subscription;
@@ -66,13 +67,22 @@ export async function setupPush(button, announce = () => {}, bell = "") {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(subscription.toJSON()),
     }).catch(() => null);
-    if (!repaired?.ok) announce("Notifications could not reconnect; tap the bell to retry");
+    repairNeeded = !repaired?.ok;
+    if (repairNeeded) announce("Notifications could not reconnect; tap the bell to retry");
   }
   button.disabled = false;
   button.onclick = async () => {
     button.disabled = true;
     try {
-      if (subscription) {
+      if (subscription && repairNeeded) {
+        const response = await fetch("/api/push/subscribe", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(subscription.toJSON()),
+        });
+        if (!response.ok) throw new Error("Notifications could not reconnect; tap to retry");
+        repairNeeded = false;
+        announce("Notifications reconnected");
+      } else if (subscription) {
         const response = await fetch("/api/push/unsubscribe", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ endpoint: subscription.endpoint }),

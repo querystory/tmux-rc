@@ -450,7 +450,8 @@ class PushManager:
                         "expires": now + NONCE_SECONDS,
                     }
             deep_link = {"pane": pane_id, "from": "push"}
-            if question and not renderable_options(question):
+            if (question and question.get("answer_style") != "cursor"
+                    and not renderable_options(question)):
                 deep_link["compose"] = "1"
             url = "/m#" + urlencode(deep_link)
             payload = {

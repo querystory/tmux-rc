@@ -48,6 +48,15 @@ def test_mobile_assets_and_manifest():
     assert 'addEventListener("fetch"' not in client.get("/sw.js").text
 
 
+def test_failed_push_repair_retries_before_unsubscribe():
+    source = (Path(__file__).resolve().parents[1] / "web/push.js").read_text()
+    retry = source.index("if (subscription && repairNeeded)")
+    unsubscribe = source.index('fetch("/api/push/unsubscribe"')
+    retry_body = source[retry:unsubscribe]
+    assert 'fetch("/api/push/subscribe"' in retry_body
+    assert "repairNeeded = false" in retry_body
+
+
 def test_version_tracks_nested_mobile_assets(tmp_path, monkeypatch):
     (tmp_path / "app.js").write_text("desktop")
     mobile = tmp_path / "m"
