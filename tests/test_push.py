@@ -263,6 +263,25 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
         service.answer(nonce, 0)
 
 
+def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeypatch):
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+                               "options": ["Yes", "No"]})]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    nonce = sender.payloads[0]["nonce"]
+    watcher.stale = True
+
+    with pytest.raises(ValueError, match="temporarily unavailable"):
+        service.answer(nonce, 0)
+    with pytest.raises(ValueError, match="already used"):
+        service.answer(nonce, 0)
+
+
 def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()

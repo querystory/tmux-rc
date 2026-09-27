@@ -356,6 +356,8 @@ class PushManager:
             raise ValueError("notification answer expired or was already used")
         if option_index not in issued["indices"]:
             raise ValueError("option was not offered by this notification")
+        if self.watcher.is_stale():
+            raise ValueError("pane state is temporarily unavailable")
         pane = next((dict(s) for s in self.watcher.states
                      if s.get("pane_id") == issued["pane_id"]), None)
         birth = self.watcher.pane_birth(issued["pane_id"])
