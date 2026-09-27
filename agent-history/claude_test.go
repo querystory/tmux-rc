@@ -190,7 +190,16 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 		t.Fatalf("a failed run was recorded as completed")
 	}
 
+	// Nor is one whose projects directory can't be read, which a glob would hide.
 	must(t, os.Chmod(unreadable, 0o600))
+	projects := filepath.Dir(project)
+	must(t, os.Chmod(projects, 0o000))
+	Reconcile()
+	must(t, os.Chmod(projects, 0o700))
+	if _, err := os.Stat(stateFile()); err == nil && os.Getuid() != 0 {
+		t.Fatalf("a run that couldn't read the projects directory was recorded")
+	}
+
 	Reconcile()
 	if _, err := os.Stat(stateFile()); err != nil {
 		t.Errorf("a completed run was not recorded: %v", err)

@@ -145,8 +145,11 @@ func MarkMissing(entry string) error {
 			continue
 		}
 		src, err := strconv.Unquote(strings.TrimSpace(raw))
-		if _, statErr := os.Stat(src); err != nil || !errors.Is(statErr, os.ErrNotExist) {
-			return nil
+		if err != nil {
+			return fmt.Errorf("%s: bad source line: %w", entry, err)
+		}
+		if _, err := os.Stat(src); !errors.Is(err, os.ErrNotExist) {
+			return err // present, or unknown: either way not known to be gone
 		}
 		// The epoch mtime matches no transcript, so one restored later gets rebuilt.
 		return writeAtomic(entry, bytes.Replace(data, []byte(line), []byte(line+"source_missing: true\n"), 1), time.Unix(0, 0))

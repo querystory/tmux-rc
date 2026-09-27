@@ -6,11 +6,12 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -90,33 +91,47 @@ func reconcileAll() (ok bool) {
 		report(err)
 		ok = ok && err == nil
 	}
-	transcripts, err := find(claudeDir(), "projects/*/*.jsonl")
+	transcripts, err := find(filepath.Join(claudeDir(), "projects"), ".jsonl", 2)
 	check(err)
 	for _, t := range transcripts {
 		check(IndexTranscript(t))
 	}
-	entries, err := find(Root(), "index/claude/*.md", "index/claude/*/*.md")
+	index := filepath.Join(Root(), "index", "claude")
+	entries, err := find(index, ".md", 1)
 	check(err)
-	for _, e := range entries {
+	subentries, err := find(index, ".md", 2)
+	check(err)
+	for _, e := range append(entries, subentries...) {
 		check(MarkMissing(e))
 	}
 	return ok
 }
 
-// find matches patterns under root, which is taken literally: a configured directory
-// may itself contain glob syntax.
-func find(root string, patterns ...string) ([]string, error) {
+// find lists files ending in ext at the given depth below root (1 = root's own
+// files), taken literally since a configured root may contain glob syntax. A missing
+// root is empty; any other unreadable directory is an error, so reconcile won't record
+// a run that couldn't see everything.
+func find(root, ext string, depth int) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	var out []string
-	for _, p := range patterns {
-		matches, err := fs.Glob(os.DirFS(root), p)
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range matches {
-			out = append(out, filepath.Join(root, m))
+	var errs []error
+	for _, e := range entries {
+		path := filepath.Join(root, e.Name())
+		switch {
+		case depth == 1 && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
+			out = append(out, path)
+		case depth > 1 && e.IsDir():
+			sub, err := find(path, ext, depth-1)
+			out, errs = append(out, sub...), append(errs, err)
 		}
 	}
-	return out, nil
+	return out, errors.Join(errs...)
 }
 
 // withLock runs fn holding an exclusive kernel lock, which a killed process releases.
