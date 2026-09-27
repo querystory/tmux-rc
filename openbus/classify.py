@@ -24,7 +24,10 @@ from .tmux import Pane
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 _CHECKLIST_RE = re.compile(
-    r"(?im)^\s*(?:(?:☐|☑|✓|✔|[-*]\s*\[[ x]\])\s*\S|(?:todo|tasks?|plan)\s*:?\s*$)",
+    r"(?im)^\s*(?:☐|☑|✓|✔|[-*]\s*\[[ x]\])\s*\S",
+)
+_OPENCODE_RUNNING_RE = re.compile(
+    r"(?im)^\s*[▰▮▯■□▪▫█▓▒░]+\s+esc\s+interrupt\s*$",
 )
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
@@ -201,10 +204,16 @@ def classify(
         result["tool"] = process_tool
     # OpenCode renders ordinary answer bullets immediately above its model/footer. The
     # parser sometimes promotes those review findings to the agent's live task plan.
-    # Keep real plans (checkboxes or an explicit standalone plan/TODO/tasks heading),
-    # but do not manufacture task controls from prose bullets alone.
+    # Keep real plans with visible checkbox/progress marks, but do not manufacture task
+    # controls from prose bullets alone. A heading is intentionally insufficient: an old
+    # "Plan" can remain in scrollback above a newer conversational list.
     if result.get("tool") == "opencode" and not _CHECKLIST_RE.search(text):
         result.pop("tasks", None)
+    # OpenCode shows this animated block row only while a turn can be interrupted. It is
+    # application state, not decorative spinner noise, and is stronger than a stale
+    # completed answer above it.
+    if result.get("tool") == "opencode" and _OPENCODE_RUNNING_RE.search(text):
+        result["activity"] = "running"
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
     # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any

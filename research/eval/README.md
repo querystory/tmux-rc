@@ -100,7 +100,7 @@ loosen the score.
 }
 ```
 
-Coverage (24 samples, quality over quantity) — every state, every tool, and the
+Coverage (25 samples, quality over quantity) — every state, every tool, and the
 affordances this session actually hit:
 
 | sample | asserts |
@@ -119,6 +119,7 @@ affordances this session actually hit:
 | `12_shell_server_gemini_trap` | server log mentioning `gemini-…` → tool=shell (not gemini) |
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
 | `25_opencode_claude_model` | OpenCode using Claude/Bedrock → tool=opencode, not claude |
+| `26_opencode_interrupt_spinner` | OpenCode `esc interrupt` spinner → running, not idle |
 
 ### Committed vs local — what's repo-safe
 

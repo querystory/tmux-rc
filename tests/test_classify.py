@@ -70,6 +70,29 @@ def test_opencode_keeps_an_explicit_task_plan():
     assert r["tasks"] == tasks
 
 
+def test_opencode_stale_plan_heading_does_not_validate_current_bullets():
+    r = classify(
+        _pane(cmd="opencode"),
+        (
+            "Plan\n- Old implementation step\n\n"
+            "Review complete:\n- Logs still use HTTP\nOpenCode 1.18.32"
+        ),
+        _llm({"tool": "opencode", "activity": "idle",
+              "tasks": [{"text": "Logs still use HTTP", "done": False}]}),
+    )
+    assert "tasks" not in r
+
+
+def test_opencode_interrupt_spinner_forces_running():
+    r = classify(
+        _pane(cmd="opencode"),
+        "┃  Build · Claude Opus 5.5 · Amazon Bedrock\n▰▰▰▰▰▰ esc interrupt",
+        _llm({"tool": "claude", "activity": "idle", "model": "Claude Opus 5.5"}),
+    )
+    assert r["tool"] == "opencode"
+    assert r["activity"] == "running"
+
+
 def test_pipes_llm_json_through():
     r = classify(
         _pane(),

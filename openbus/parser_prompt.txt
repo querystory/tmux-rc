@@ -89,7 +89,9 @@ but have distinct signatures. Decide by the evidence on screen:
   "Build · Claude Opus 5.5 · Amazon Bedrock"; and a bottom status row with cwd,
   tokens/context/cost, "ctrl+p commands", and "OpenCode <version>". Claude/GPT/Gemini
   text in OpenCode's MODEL slot identifies the selected backend only — it never turns
-  the host application into Claude Code, Codex, or Gemini CLI.
+  the host application into Claude Code, Codex, or Gemini CLI. While a turn is active,
+  OpenCode shows an animated block row ending "esc interrupt" below the composer. That
+  row is decisive activity=running chrome — do not discard it as spinner decoration.
 - "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
   "Fable" + a version like "4.8" — the family grows, so an unfamiliar name in the model
   slot is claude when the rest of the chrome matches); status line shows dir/branch ·
@@ -102,7 +104,12 @@ The input's first line reports the pane's foreground PROCESS from tmux — hard 
 not screen content. Agents run as node/claude/codex/gemini/opencode processes; a pane whose
 process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
 or model names appear in its OUTPUT (a server printing gemini-… log lines is a log
-viewer, never the Gemini CLI).
+viewer, never the Gemini CLI). Activity is separate from tool identity: when that
+foreground process is an ordinary command/server such as python or uvicorn and no bare
+shell prompt has returned, activity is "running". Words like `shell/idle` printed in
+the server's own log lines describe other panes or old events, not this pane's state.
+For the headline, describe the server's newest/repeated operational work visible in
+its logs (for example, parsing panes), not merely its older startup banner.
 Identify an agent by ITS OWN UI CHROME (status bar, input box, permission prompts,
 banner) — never by agent/model names merely APPEARING IN CONTENT. A pane whose text
 mentions "gemini"/"claude"/"gpt" in log lines, API URLs (…/models/gemini-…:generateContent),
@@ -275,7 +282,8 @@ prints and ticks off as it works. Emit a task per visible line with its done sta
 include "tasks" ONLY when such a checklist is on screen. Ordinary bullets in the
 agent's conversational answer are content, not its live plan — including OpenCode
 review findings rendered as `-` rows above its Build/model footer. A bullet glyph alone
-does not make a checklist; require explicit plan/TODO framing or checkbox/progress UI.
+does not make a checklist; require visible checkbox/progress UI. A stale Plan/TODO
+heading higher in scrollback does not turn a newer conversational list into tasks.
 "subagents" is separate: the
 BACKGROUND agents this agent spawned to run in parallel — a block of rows each naming a
 delegated job with a live meter (Claude Code shows "general-purpose  <what it's doing>
@@ -289,7 +297,9 @@ line never goes in "subagents". Include "subagents" ONLY when such spawned-agent
 are visibly on screen. Classify each worker independently: explicit Copilot/CI/timer
 waits are "waiting", idle/paused is "idle", context compaction is "compacting",
 and unclear is "unknown". Elapsed time alone does not mean working. The parent
-waiting for children does not imply its children are waiting.
+waiting for children does not imply its children are waiting. Conversely, an explicit
+"Waiting for N background agents to finish" means the PARENT activity is "waiting"
+with waiting_on="external", even when some individual workers are still "running".
 A question mark in the
 agent's OWN prose is NOT an input affordance: an assistant turn ending by proposing a next
 step, asking "want me to…?", or offering "…, or are you good here?" — likewise a summary
