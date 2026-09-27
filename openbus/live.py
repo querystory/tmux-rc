@@ -582,6 +582,7 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
                 "last_active": (s.get("last_active") or "")[:10],
                 # Named the way windows are everywhere else, once the watcher has it.
                 **({"running_in": labels.get(pane, pane), "pane_id": pane} if pane else {}),
+                **({"running_elsewhere": True} if s.get("running") and not pane else {}),
                 **({"running_unknown": True} if s.get("running_unknown") else {}),
             })
         results.append({"repo": os.path.basename(p["repo"]), "sessions": sessions})
@@ -607,9 +608,11 @@ async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
 
 
 async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
-    pane, pid = _resumed.get(sid, ("", None))
-    if pid is not None:
-        if await asyncio.to_thread(tmux.pane_pid, pane) == pid:
+    if sid in _resumed:
+        pane, pid = _resumed[sid]
+        now = await asyncio.to_thread(tmux.pane_pid, pane)
+        # Held while the pane lives: same pid, or any pid if none was known at launch.
+        if now is not None and pid in (None, now):
             return {"status": "already_running", "pane_id": pane}
         _resumed.pop(sid)  # that pane is gone; fall through to the registry
     entry = await asyncio.to_thread(agent_history.get, sid)
@@ -627,6 +630,8 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
         if not pane:
             return {"status": "rejected", "reason": "already running outside tmux"}
         labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+        if pane not in labels:
+            watcher.request_reparse(pane)  # publish it before the model types there
         return {"status": "already_running", "pane_id": pane, "pane": labels.get(pane, pane)}
 
     argv, cwd = entry.get("resume_argv") or [], entry.get("cwd") or ""

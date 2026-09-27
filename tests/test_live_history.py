@@ -46,9 +46,10 @@ def history(monkeypatch, tmp_path):
     return sessions, opened
 
 
-def _call(name, args):
+def _call(name, args, watcher=None):
     ws, session = _WS(), _Session()
-    _run(L._handle_tool_call(ws, session, _FC(name=name, args=args), _Watcher(), "tester"))
+    _run(L._handle_tool_call(ws, session, _FC(name=name, args=args), watcher or _Watcher(),
+                             "tester"))
     return ws, session.responses[0].response
 
 
@@ -90,6 +91,16 @@ def test_reservation_ends_if_the_launched_pane_is_gone(history, monkeypatch):
     assert len(opened) == 2
 
 
+def test_reservation_holds_when_the_pane_pid_was_unknown(history, monkeypatch):
+    sessions, opened = history
+    sessions["live-1"] = LIVE
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: None)  # still spawning
+    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "opened"
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "4321")  # now it has one
+    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "already_running"
+    assert len(opened) == 1
+
+
 def test_resume_never_starts_a_second_copy(history):
     sessions, opened = history
     sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
@@ -97,8 +108,10 @@ def test_resume_never_starts_a_second_copy(history):
     assert r == {"status": "already_running", "pane_id": "%1", "pane": "work"}
     # A pane the watcher hasn't published yet is still the running one.
     sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%77"}}
-    _, r = _call("resume_session", {"session_id": "live-1"})
+    w = _Watcher()
+    _, r = _call("resume_session", {"session_id": "live-1"}, w)
     assert r == {"status": "already_running", "pane_id": "%77", "pane": "%77"}
+    assert w.reparsed == ["%77"]  # woken so the follow-up type_in_pane finds it
     sessions["live-1"] = {**LIVE, "running": {"pid": 5}}  # an IDE or bare terminal
     _, r = _call("resume_session", {"session_id": "live-1"})
     assert r["status"] == "rejected"
@@ -130,6 +143,7 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
             {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}, "prs": ["x"], "source": "/s"},
             {**LIVE, "session_id": "old", "title": "", "running_unknown": True},
             {**LIVE, "session_id": "new", "running": {"pid": 6, "tmux_pane": "%77"}},
+            {**LIVE, "session_id": "ide", "running": {"pid": 7}},
         ],
     }])
     _, r = _call("find_sessions", {"query": "live mode"})
@@ -140,6 +154,8 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
          "running_unknown": True},
         {"session_id": "new", "title": "tmuxrc live mode", "last_active": "2026-09-05",
          "running_in": "%77", "pane_id": "%77"},
+        {"session_id": "ide", "title": "tmuxrc live mode", "last_active": "2026-09-05",
+         "running_elsewhere": True},
     ]}]}
     monkeypatch.setattr(agent_history, "resolve", lambda q: None)
     assert _call("find_sessions", {"query": "x"})[1]["status"] == "error"
