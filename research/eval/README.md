@@ -118,6 +118,16 @@ affordances this session actually hit:
 | `11_shell_idle` | bare shell prompt → tool=shell, idle |
 | `12_shell_server_gemini_trap` | server log mentioning `gemini-…` → tool=shell (not gemini) |
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
+| `14_copyable_commit_and_command` | drafted commit text and a command to run elsewhere → copyables |
+| `15_codex_thread_title` | Codex status-bar thread title → session name, not model/mode/cwd |
+| `17_claude_resume_cursor_picker` | `/resume` cursor picker → user-wait with selected row and keymap |
+| `18_claude_done_marker_with_draft` | completed turn plus unsent draft → idle, not running |
+| `19_codex_orchestrating_claude` | Claude chrome inside Codex capture output → tool=codex |
+| `20_shell_server_codex_trap` | Python logs mentioning Codex/OpenAI models → tool=shell |
+| `21_openai_model_claude_chrome` | OpenAI model in ambiguous Claude-like chrome → tool=codex |
+| `22_background_worker_states` | mixed worker states and parent wait → external-wait + exact states |
+| `23_background_shell_is_not_agent` | Codex background shell terminal → no subagent |
+| `24_agents_and_background_terminal` | real agents plus shell terminal → count only coding workers |
 | `25_opencode_claude_model` | OpenCode using Claude/Bedrock → tool=opencode, not claude |
 | `26_opencode_interrupt_spinner` | OpenCode `esc interrupt` spinner → running, not idle |
 
