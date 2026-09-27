@@ -105,6 +105,13 @@ _VOLATILE_RE = re.compile(
     re.MULTILINE,
 )
 
+# OpenCode's active-turn row is meaningful as a whole (`esc interrupt` means running),
+# but its leading block animation repaints continuously. Canonicalize only those blocks:
+# the row still enters/leaves the fingerprint when work starts or finishes.
+_OPENCODE_SPINNER_RE = re.compile(
+    r"(?im)^(\s*)[▰▮▯■□▪▫█▓▒░]+(\s+esc\s+interrupt\s*)$",
+)
+
 # Codex's ambient "sparkle" animation: single-dot braille scattered over the rows around
 # its input box, reshuffled every frame. Unlike the spinners in _VOLATILE_RE it is not one
 # cell in a fixed place — the dots MOVE, so deleting the glyph is not enough: the gap it
@@ -146,6 +153,7 @@ def _fingerprint(text: str) -> str:
     untouched — including single-cell braille, which is real content — because
     collapsing spacing globally would erase the indentation that distinguishes one
     screen from another (a diff, a tree, nested output)."""
+    text = _OPENCODE_SPINNER_RE.sub(r"\1[opencode-active]\2", text)
     text = _VOLATILE_RE.sub("", text)
     lines = text.split("\n")
     anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]

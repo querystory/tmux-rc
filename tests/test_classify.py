@@ -103,6 +103,15 @@ def test_opencode_interrupt_spinner_forces_running():
     assert r["activity"] == "running"
 
 
+def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
+    r = classify(
+        _pane(cmd="opencode"),
+        "▰▰▰▰ esc interrupt\nPrevious turn complete\nOpenCode 1.18.32",
+        _llm({"tool": "opencode", "activity": "idle"}),
+    )
+    assert r["activity"] == "idle"
+
+
 def test_pipes_llm_json_through():
     r = classify(
         _pane(),

@@ -27,7 +27,8 @@ _CHECKLIST_LINE_RE = re.compile(
     r"(?im)^\s*(?:☐|☑|✓|✔|(?:[-*]\s*)?\[[ x]\])\s*(?P<text>\S.*)$",
 )
 _OPENCODE_RUNNING_RE = re.compile(
-    r"(?im)^\s*[▰▮▯■□▪▫█▓▒░]+\s+esc\s+interrupt\s*$",
+    r"\s*[▰▮▯■□▪▫█▓▒░]+\s+esc\s+interrupt\s*",
+    re.IGNORECASE,
 )
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
@@ -45,6 +46,12 @@ _PROCESS_TOOLS = {
 def _checklist_text(text: str) -> str:
     """Normalize visible and model-returned task labels for conservative matching."""
     return " ".join(text.split()).casefold()
+
+
+def _opencode_running(text: str) -> bool:
+    """Recognize OpenCode's live interrupt row, not an older row in scrollback."""
+    last = next((line for line in reversed(text.splitlines()) if line.strip()), "")
+    return _OPENCODE_RUNNING_RE.fullmatch(last) is not None
 
 # A concrete CLI section cue needs a local clarification, not more rules applied
 # to every unrelated pane. The model still identifies and classifies the workers.
@@ -232,7 +239,7 @@ def classify(
     # OpenCode shows this animated block row only while a turn can be interrupted. It is
     # application state, not decorative spinner noise, and is stronger than a stale
     # completed answer above it.
-    if result.get("tool") == "opencode" and _OPENCODE_RUNNING_RE.search(text):
+    if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.

@@ -138,3 +138,17 @@ def test_volatile_list_still_runs_without_a_band():
     trailing space after the prompt."""
     plain = "$ make test\n   297 passed\n$ "
     assert _fingerprint(plain) == "$ make test\n   297 passed\n$"
+
+
+def test_opencode_spinner_frames_share_one_fingerprint():
+    """Animated blocks must not reparse the same active OpenCode turn every tick."""
+    a = "OpenCode 1.18.32\n▰▰▰▰▰▰ esc interrupt"
+    b = "OpenCode 1.18.32\n▮▯■□▪▫ esc interrupt"
+    assert _fingerprint(a) == _fingerprint(b)
+
+
+def test_opencode_spinner_appearance_changes_the_fingerprint():
+    """Starting or finishing a turn is real state even though its animation is not."""
+    idle = "OpenCode 1.18.32"
+    running = f"{idle}\n▰▰▰▰▰▰ esc interrupt"
+    assert _fingerprint(idle) != _fingerprint(running)
