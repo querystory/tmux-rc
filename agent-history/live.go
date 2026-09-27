@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -42,8 +43,10 @@ func RunningClaude() (map[string]Running, error) {
 		if err != nil {
 			return nil, err
 		}
-		if json.Unmarshal(data, &reg) != nil || reg.SessionID == "" {
-			continue
+		// A registration we can't read (half-written, or a format change) could be a
+		// live session; say so rather than drop it.
+		if err := json.Unmarshal(data, &reg); err != nil || reg.SessionID == "" {
+			return nil, fmt.Errorf("%s: unreadable registration", f)
 		}
 		if reg.ProcStart == "" || procStart(reg.PID) != reg.ProcStart {
 			continue

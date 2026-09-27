@@ -57,6 +57,14 @@ func TestRunningClaudeUnreadableIsAnError(t *testing.T) {
 	if _, err := RunningClaude(); err == nil {
 		t.Errorf("unreadable registry reported as nothing running")
 	}
+	// So is a registration that doesn't parse: it could be a live session.
+	must(t, os.Chmod(dir, 0o700))
+	must(t, os.WriteFile(filepath.Join(dir, "9.json"), []byte(`{"pid":9,"sess`), 0o600))
+	if _, err := RunningClaude(); err == nil {
+		t.Errorf("truncated registration reported as nothing running")
+	}
+	must(t, os.Remove(filepath.Join(dir, "9.json")))
+
 	// No registry at all is a real answer: nothing running.
 	must(t, os.Chmod(dir, 0o700))
 	must(t, os.Remove(dir))

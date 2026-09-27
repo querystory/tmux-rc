@@ -79,6 +79,17 @@ def test_resume_is_idempotent_until_the_session_registers(history):
     assert len(opened) == 1
 
 
+def test_reservation_ends_if_the_launched_pane_is_gone(history, monkeypatch):
+    # tmux reuses pane ids: if the launch died before registering and %40 now belongs
+    # to another process, a retry must launch again, not point at a stranger.
+    sessions, opened = history
+    sessions["live-1"] = LIVE
+    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "opened"
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "9999")
+    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "opened"
+    assert len(opened) == 2
+
+
 def test_resume_never_starts_a_second_copy(history):
     sessions, opened = history
     sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
@@ -113,14 +124,15 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
         "repo": "/home/u/src/tmux-rc", "score": 9,
         "sessions": [
             {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}, "prs": ["x"], "source": "/s"},
-            {**LIVE, "session_id": "old", "title": ""},
+            {**LIVE, "session_id": "old", "title": "", "running_unknown": True},
         ],
     }])
     _, r = _call("find_sessions", {"query": "live mode"})
     assert r == {"status": "ok", "results": [{"repo": "tmux-rc", "sessions": [
         {"session_id": "live-1", "title": "tmuxrc live mode", "last_active": "2026-09-05",
          "running_in": "work", "pane_id": "%1"},
-        {"session_id": "old", "title": "(untitled)", "last_active": "2026-09-05"},
+        {"session_id": "old", "title": "(untitled)", "last_active": "2026-09-05",
+         "running_unknown": True},
     ]}]}
     monkeypatch.setattr(agent_history, "resolve", lambda q: None)
     assert _call("find_sessions", {"query": "x"})[1]["status"] == "error"

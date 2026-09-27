@@ -582,6 +582,7 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
                 "last_active": (s.get("last_active") or "")[:10],
                 # A running pane is named the way windows are everywhere else.
                 **({"running_in": labels[pane], "pane_id": pane} if pane in labels else {}),
+                **({"running_unknown": True} if s.get("running_unknown") else {}),
             })
         results.append({"repo": os.path.basename(p["repo"]), "sessions": sessions})
     return {"status": "ok", "results": results}
@@ -592,7 +593,9 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
 # transcript. Resumes are serialized, and each launch is remembered for this long.
 _RESUME_REGISTER_SECONDS = 60
 _resume_lock = asyncio.Lock()
-_resumed: dict[str, tuple[str, float]] = {}  # session id -> (pane id, launched at)
+# session id -> (pane id, that pane's pid, launched at). The pid guards against tmux
+# recycling the pane id if the launched process exits before registering.
+_resumed: dict[str, tuple[str, str | None, float]] = {}
 
 
 async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
@@ -606,9 +609,11 @@ async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
 
 
 async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
-    pane, at = _resumed.get(sid, ("", 0.0))
-    if time.monotonic() - at < _RESUME_REGISTER_SECONDS:
-        return {"status": "already_running", "pane_id": pane}
+    pane, pid, at = _resumed.get(sid, ("", None, 0.0))
+    if time.monotonic() - at < _RESUME_REGISTER_SECONDS and pid is not None:
+        if await asyncio.to_thread(tmux.pane_pid, pane) == pid:
+            return {"status": "already_running", "pane_id": pane}
+        _resumed.pop(sid)  # it exited before registering; let this call try again
     entry = await asyncio.to_thread(agent_history.get, sid)
     if entry is None:
         return {"status": "rejected", "reason": "unknown session"}
@@ -646,7 +651,7 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
             detail=str(e)[:120], keys=entry["session_id"], outcome="error",
         )
         return {"status": "error", "reason": "could not open a window"}
-    _resumed[sid] = (pane_id, time.monotonic())
+    _resumed[sid] = (pane_id, await asyncio.to_thread(tmux.pane_pid, pane_id), time.monotonic())
     watcher.request_reparse(pane_id)  # wakes a full tick, so the new pane is addressable
     telemetry.emit_action(
         action="live_resume", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
