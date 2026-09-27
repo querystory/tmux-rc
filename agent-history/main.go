@@ -91,10 +91,20 @@ func reconcileAll() (ok bool) {
 		report(err)
 		ok = ok && err == nil
 	}
-	transcripts, err := find(filepath.Join(claudeDir(), "projects"), ".jsonl", 2)
+	projects := filepath.Join(claudeDir(), "projects")
+	transcripts, err := find(projects, ".jsonl", 2)
 	check(err)
 	for _, t := range transcripts {
 		check(IndexTranscript(t))
+	}
+	// Subagents are normally reached through their parent; scan them too so one whose
+	// parent transcript is gone is still indexed. Fresh entries are skipped cheaply.
+	nested, err := find(projects, ".jsonl", 4)
+	check(err)
+	for _, t := range nested {
+		if filepath.Base(filepath.Dir(t)) == "subagents" {
+			check(indexFile(t))
+		}
 	}
 	index := filepath.Join(Root(), "index", "claude")
 	entries, err := find(index, ".md", 1)

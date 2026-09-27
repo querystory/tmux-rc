@@ -207,6 +207,15 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	if _, err := os.Stat(indexPath("claude", "", "s")); err != nil {
 		t.Errorf("transcript under a glob-shaped root not indexed: %v", err)
 	}
+
+	// A subagent whose parent transcript is gone is still indexed.
+	orphan := filepath.Join(project, "gone", "subagents")
+	must(t, os.MkdirAll(orphan, 0o700))
+	must(t, os.WriteFile(filepath.Join(orphan, "agent-o.jsonl"), []byte(subagentTranscript), 0o600))
+	Reconcile()
+	if _, err := os.Stat(indexPath("claude", "gone", "agent-o")); err != nil {
+		t.Errorf("orphaned subagent not indexed: %v", err)
+	}
 }
 
 func TestMarkMissing(t *testing.T) {
