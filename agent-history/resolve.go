@@ -190,7 +190,11 @@ func repoOf(cwd string) string {
 			continue
 		}
 		if info.IsDir() {
-			return dir
+			// A stray empty .git directory isn't a repo; a real one always has HEAD.
+			if _, err := os.Stat(filepath.Join(dir, ".git", "HEAD")); err == nil {
+				return dir
+			}
+			continue
 		}
 		// A worktree's .git file reads "gitdir: <main>/.git/worktrees/<name>".
 		if data, err := os.ReadFile(filepath.Join(dir, ".git")); err == nil {

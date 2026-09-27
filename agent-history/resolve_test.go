@@ -121,6 +121,8 @@ func TestRepoOfFoldsWorktrees(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Join(repo, ".git", "worktrees", "feat"), 0o700))
 	must(t, os.MkdirAll(filepath.Join(wt, "sub"), 0o700))
 	must(t, os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+repo+"/.git/worktrees/feat\n"), 0o600))
+	must(t, os.WriteFile(filepath.Join(repo, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o600))
+	must(t, os.MkdirAll(filepath.Join(root, "plain", ".git"), 0o700)) // stray, no HEAD
 
 	check(t, "repo subdir", repoOf(filepath.Join(repo, "x")), repo)
 	check(t, "worktree subdir", repoOf(filepath.Join(wt, "sub")), repo)
