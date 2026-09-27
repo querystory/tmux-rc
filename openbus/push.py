@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
@@ -48,6 +49,48 @@ DEFAULT_PUSH_HOSTS = (
 _FREETEXT_OPTION = re.compile(
     r"^(type\b|other\b|something else|let me|custom|free.?text|write )", re.IGNORECASE
 )
+
+
+def _valid_key(value, size: int) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
+    except (ValueError, TypeError):
+        return False
+    return len(raw) == size
+
+
+def _allowed_hosts() -> tuple[str, ...]:
+    configured = os.environ.get("TMUXRC_PUSH_ALLOWED_HOSTS", "")
+    return tuple(
+        item.strip().lower() for item in configured.split(",") if item.strip()
+    ) or DEFAULT_PUSH_HOSTS
+
+
+def _valid_subscription(subscription) -> bool:
+    if not isinstance(subscription, dict):
+        return False
+    endpoint = subscription.get("endpoint")
+    if not isinstance(endpoint, str) or len(endpoint) > 4096:
+        return False
+    try:
+        parsed = urlparse(endpoint)
+        port = parsed.port
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return False
+    trusted_host = any(
+        host == rule or (rule.startswith(".") and host.endswith(rule))
+        for rule in _allowed_hosts()
+    )
+    keys = subscription.get("keys")
+    return bool(
+        parsed.scheme == "https" and host and not parsed.username and not parsed.password
+        and port in (None, 443) and trusted_host and not parsed.fragment
+        and isinstance(keys, dict) and _valid_key(keys.get("p256dh"), 65)
+        and _valid_key(keys.get("auth"), 16)
+    )
 
 
 def default_path() -> Path:
@@ -88,10 +131,18 @@ class PushStore:
             self._data = data
             self._save()
             return data
-        if not isinstance(data.get("subscriptions"), list):
-            raise ValueError("invalid push subscription store")  # noqa: TRY004
+        if (not isinstance(data, dict) or not _valid_key(data.get("private_key"), 32)
+                or not _valid_key(data.get("public_key"), 65)
+                or not isinstance(data.get("subscriptions"), list)):
+            raise ValueError("invalid push subscription store")
         os.chmod(self.path, 0o600)
+        subscriptions = [item for item in data["subscriptions"] if _valid_subscription(item)]
+        changed = subscriptions != data["subscriptions"]
+        data["subscriptions"] = subscriptions[-MAX_SUBSCRIPTIONS:]
+        changed = changed or len(subscriptions) > MAX_SUBSCRIPTIONS
         self._data = data
+        if changed:
+            self._save()
         return data
 
     def _save(self) -> None:
@@ -121,7 +172,10 @@ class PushStore:
 
     def subscriptions(self) -> list[dict]:
         with self._lock:
-            return [dict(item) for item in self._load()["subscriptions"]]
+            return [
+                {"endpoint": item["endpoint"], "keys": dict(item["keys"])}
+                for item in self._load()["subscriptions"]
+            ]
 
     def upsert(self, subscription: dict) -> None:
         with self._lock:
@@ -198,32 +252,44 @@ class PushSender:
     def _run(self) -> None:
         while (payload := self._queue.get()) is not None:
             private, _ = self.store.keys()
-            for subscription in self.store.subscriptions():
-                try:
-                    # pywebpush mutates this dict with endpoint-specific aud/exp claims,
-                    # so every endpoint needs a fresh one (Apple and FCM cannot share aud).
-                    claims = {"sub": os.environ.get(
-                        "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@localhost"
-                    )}
-                    webpush(
-                        subscription_info=subscription,
-                        data=json.dumps(payload, separators=(",", ":")),
-                        vapid_private_key=private,
-                        vapid_claims=claims,
-                        timeout=(3, 7),
-                        ttl=600,
-                        headers={"Urgency": "high"},
-                    )
-                except WebPushException as exc:
-                    status = getattr(getattr(exc, "response", None), "status_code", None)
-                    if status in {404, 410}:
-                        self.store.remove(subscription.get("endpoint", ""))
-                    else:
-                        # Intentionally no retry: an answer prompt delayed by a relay
-                        # outage is stale, and draining old alerts later is worse.
-                        logger.warning("push delivery failed: %s", exc)
-                except Exception:
-                    logger.warning("push delivery failed", exc_info=True)
+            subscriptions = self.store.subscriptions()
+            if not subscriptions:
+                continue
+            # One slow relay/device must not serially delay every other subscribed device.
+            with ThreadPoolExecutor(
+                max_workers=len(subscriptions), thread_name_prefix="tmux-rc-webpush"
+            ) as pool:
+                futures = [pool.submit(self._deliver, subscription, payload, private)
+                           for subscription in subscriptions]
+                for future in futures:
+                    future.result()  # _deliver contains and logs endpoint-specific errors
+
+    def _deliver(self, subscription: dict, payload: dict, private: str) -> None:
+        try:
+            # pywebpush mutates this dict with endpoint-specific aud/exp claims,
+            # so every endpoint receives the independent copy returned by the store.
+            claims = {"sub": os.environ.get(
+                "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@localhost"
+            )}
+            webpush(
+                subscription_info=subscription,
+                data=json.dumps(payload, separators=(",", ":")),
+                vapid_private_key=private,
+                vapid_claims=claims,
+                timeout=(3, 7),
+                ttl=600,
+                headers={"Urgency": "high"},
+            )
+        except WebPushException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status in {404, 410}:
+                self.store.remove(subscription.get("endpoint", ""))
+            else:
+                # Intentionally no retry: an answer prompt delayed by a relay
+                # outage is stale, and draining old alerts later is worse.
+                logger.warning("push delivery failed: %s", exc)
+        except Exception:
+            logger.warning("push delivery failed", exc_info=True)
 
 
 def renderable_options(question: dict) -> list[tuple[int, str]]:
@@ -279,16 +345,6 @@ def _push_text(value, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def _valid_key(value, size: int) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
-    except (ValueError, TypeError):
-        return False
-    return len(raw) == size
-
-
 class PushManager:
     def __init__(self, watcher, store: PushStore | None = None, *, clock=time.monotonic,
                  sender=None):
@@ -332,29 +388,10 @@ class PushManager:
                 self._presence.pop(client[:100], None)
 
     def subscribe(self, subscription: dict) -> None:
-        endpoint = subscription.get("endpoint", "")
-        parsed = urlparse(endpoint)
-        try:
-            port = parsed.port
-        except ValueError as exc:
-            raise ValueError("invalid push subscription") from exc
-        keys = subscription.get("keys")
-        valid_keys = (isinstance(keys, dict)
-                      and _valid_key(keys.get("p256dh"), 65)
-                      and _valid_key(keys.get("auth"), 16))
-        configured = os.environ.get("TMUXRC_PUSH_ALLOWED_HOSTS", "")
-        allowed = tuple(
-            item.strip().lower() for item in configured.split(",") if item.strip()
-        ) or DEFAULT_PUSH_HOSTS
-        host = (parsed.hostname or "").lower()
-        trusted_host = any(
-            host == rule or (rule.startswith(".") and host.endswith(rule)) for rule in allowed
-        )
-        if (parsed.scheme != "https" or not host or parsed.username or parsed.password
-                or port not in (None, 443) or not trusted_host
-                or parsed.fragment or len(endpoint) > 4096
-                or not valid_keys):
+        if not _valid_subscription(subscription):
             raise ValueError("invalid push subscription")
+        endpoint = subscription["endpoint"]
+        keys = subscription["keys"]
         self.store.upsert({"endpoint": endpoint, "keys": {
             "p256dh": keys["p256dh"], "auth": keys["auth"],
         }})

@@ -95,6 +95,19 @@ def test_store_is_owner_only_atomic_and_upserts(tmp_path: Path):
     assert json.loads(store.path.read_text())["subscriptions"] == [subscription]
 
 
+def test_store_prunes_malformed_persisted_subscriptions(tmp_path: Path):
+    store = push.PushStore(tmp_path / "push.json")
+    private, public = store.keys()
+    valid = subscription()
+    store.path.write_text(json.dumps({
+        "private_key": private, "public_key": public,
+        "subscriptions": [valid, {"endpoint": "https://127.0.0.1/internal", "keys": {}}],
+    }))
+    reloaded = push.PushStore(store.path)
+    assert reloaded.subscriptions() == [valid]
+    assert json.loads(store.path.read_text())["subscriptions"] == [valid]
+
+
 def test_sender_rejects_work_after_shutdown():
     class Store:
         @staticmethod
@@ -121,6 +134,43 @@ def test_sender_does_not_evict_already_accepted_work_when_full():
     assert sender.send(first)
     assert not sender.send({"title": "second"})
     assert sender._queue.get_nowait() == first
+
+
+def test_sender_delivers_to_devices_in_parallel(monkeypatch):
+    subscriptions = [
+        subscription("https://web.push.apple.com/Q1/one"),
+        subscription("https://web.push.apple.com/Q1/two"),
+    ]
+
+    class Store:
+        @staticmethod
+        def subscriptions():
+            return subscriptions
+
+        @staticmethod
+        def keys():
+            return push._new_keys()[0], "unused"
+
+        @staticmethod
+        def remove(_endpoint):
+            return False
+
+    barrier = threading.Barrier(2)
+    delivered = []
+    done = threading.Event()
+
+    def webpush(**kwargs):
+        barrier.wait(timeout=2)
+        delivered.append(kwargs["subscription_info"]["endpoint"])
+        if len(delivered) == 2:
+            done.set()
+
+    monkeypatch.setattr(push, "webpush", webpush)
+    sender = push.PushSender(Store())
+    assert sender.send({"title": "parallel"})
+    assert done.wait(3)
+    sender.close()
+    assert sorted(delivered) == sorted(item["endpoint"] for item in subscriptions)
 
 
 def test_option_mapping_matches_card_semantics():

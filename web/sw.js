@@ -40,10 +40,14 @@ self.addEventListener("notificationclick", (event) => {
     }
     const target = new URL(data.url || "/m", self.location.origin).href;
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
-    const existing = windows.find((client) => client.url.startsWith(self.location.origin));
+    const existing = windows.find((client) => {
+      try { return new URL(client.url).pathname.startsWith("/m"); } catch { return false; }
+    }) || windows[0];
     if (existing) {
-      await existing.navigate(target);
-      return existing.focus();
+      try {
+        await existing.navigate(target);
+        return existing.focus();
+      } catch {}
     }
     return clients.openWindow(target);
   })());

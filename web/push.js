@@ -114,7 +114,13 @@ export async function setupPush(button, announce = () => {}, bell = "") {
           body: JSON.stringify(subscription.toJSON()),
         });
         if (!response.ok) {
-          await subscription.unsubscribe();
+          repairNeeded = true;
+          try {
+            if (await subscription.unsubscribe()) {
+              subscription = null;
+              repairNeeded = false;
+            }
+          } catch {}
           throw new Error("Could not save the notification subscription");
         }
         announce("Notifications enabled");
