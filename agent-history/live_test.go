@@ -61,7 +61,7 @@ func TestRunningClaudeUnreadableIsAnError(t *testing.T) {
 	}
 	// So is a registration that doesn't parse: it could be a live session.
 	must(t, os.Chmod(dir, 0o700))
-	for _, body := range []string{`{"pid":9,"sess`, `{"pid":9,"sessionId":"s"}`} {
+	for _, body := range []string{`{"pid":9,"sess`, `{"pid":9,"sessionId":"s"}`, `{"sessionId":"s","procStart":"5"}`} {
 		must(t, os.WriteFile(filepath.Join(dir, "9.json"), []byte(body), 0o600))
 		if _, err := RunningClaude(); err == nil {
 			t.Errorf("registration %s reported as nothing running", body)

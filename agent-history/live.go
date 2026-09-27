@@ -45,7 +45,7 @@ func RunningClaude() (map[string]Running, error) {
 		}
 		// A registration we can't read (half-written, or a format change) could be a
 		// live session; say so rather than drop it.
-		if err := json.Unmarshal(data, &reg); err != nil || reg.SessionID == "" || reg.ProcStart == "" {
+		if err := json.Unmarshal(data, &reg); err != nil || reg.SessionID == "" || reg.ProcStart == "" || reg.PID <= 0 {
 			return nil, fmt.Errorf("%s: unreadable registration", f)
 		}
 		start, err := procStart(reg.PID)

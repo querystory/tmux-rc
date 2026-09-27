@@ -95,6 +95,10 @@ def test_resume_never_starts_a_second_copy(history):
     sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
     _, r = _call("resume_session", {"session_id": "live-1"})
     assert r == {"status": "already_running", "pane_id": "%1", "pane": "work"}
+    # A pane the watcher hasn't published yet is still the running one.
+    sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%77"}}
+    _, r = _call("resume_session", {"session_id": "live-1"})
+    assert r == {"status": "already_running", "pane_id": "%77", "pane": "%77"}
     sessions["live-1"] = {**LIVE, "running": {"pid": 5}}  # an IDE or bare terminal
     _, r = _call("resume_session", {"session_id": "live-1"})
     assert r["status"] == "rejected"
@@ -125,6 +129,7 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
         "sessions": [
             {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}, "prs": ["x"], "source": "/s"},
             {**LIVE, "session_id": "old", "title": "", "running_unknown": True},
+            {**LIVE, "session_id": "new", "running": {"pid": 6, "tmux_pane": "%77"}},
         ],
     }])
     _, r = _call("find_sessions", {"query": "live mode"})
@@ -133,6 +138,8 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
          "running_in": "work", "pane_id": "%1"},
         {"session_id": "old", "title": "(untitled)", "last_active": "2026-09-05",
          "running_unknown": True},
+        {"session_id": "new", "title": "tmuxrc live mode", "last_active": "2026-09-05",
+         "running_in": "%77", "pane_id": "%77"},
     ]}]}
     monkeypatch.setattr(agent_history, "resolve", lambda q: None)
     assert _call("find_sessions", {"query": "x"})[1]["status"] == "error"

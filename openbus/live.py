@@ -580,8 +580,8 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
                 "session_id": s["session_id"],
                 "title": s.get("title") or "(untitled)",
                 "last_active": (s.get("last_active") or "")[:10],
-                # A running pane is named the way windows are everywhere else.
-                **({"running_in": labels[pane], "pane_id": pane} if pane in labels else {}),
+                # Named the way windows are everywhere else, once the watcher has it.
+                **({"running_in": labels.get(pane, pane), "pane_id": pane} if pane else {}),
                 **({"running_unknown": True} if s.get("running_unknown") else {}),
             })
         results.append({"repo": os.path.basename(p["repo"]), "sessions": sessions})
@@ -622,11 +622,12 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
         return {"status": "error", "reason": "can't tell whether it's already running"}
     running = entry.get("running")
     if running:
+        # The registry, not the watcher's last tick, is what says which pane it's in.
         pane = running.get("tmux_pane")
+        if not pane:
+            return {"status": "rejected", "reason": "already running outside tmux"}
         labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
-        if pane in labels:
-            return {"status": "already_running", "pane_id": pane, "pane": labels[pane]}
-        return {"status": "rejected", "reason": "already running outside tmux"}
+        return {"status": "already_running", "pane_id": pane, "pane": labels.get(pane, pane)}
 
     argv, cwd = entry.get("resume_argv") or [], entry.get("cwd") or ""
     if not argv or argv[0] not in agent_history.RESUMABLE:
