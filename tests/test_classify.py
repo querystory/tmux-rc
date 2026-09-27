@@ -36,6 +36,17 @@ def test_bootstrap_rejects_junk():
     assert bootstrap(_pane(), "…", lambda s, t: None) is None
 
 
+def test_bootstrap_prompt_explains_opencode_model_identity():
+    seen = {}
+
+    def llm(system, text):
+        seen["prompt"] = system
+        return {"summary": "OpenCode session"}
+
+    bootstrap(_pane(cmd="opencode"), "Claude Opus 5.5\nOpenCode 1.18.32", llm)
+    assert "OpenCode can run Claude, GPT, or Gemini models" in seen["prompt"]
+
+
 def test_payload_leads_with_foreground_process():
     seen = {}
 

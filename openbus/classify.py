@@ -27,8 +27,8 @@ _CHECKLIST_LINE_RE = re.compile(
     r"(?im)^\s*(?:☐|☑|✓|✔|(?:[-*]\s*)?\[[ x]\])\s*(?P<text>\S.*)$",
 )
 _OPENCODE_RUNNING_RE = re.compile(
-    r"\s*[▰▮▯■□▪▫█▓▒░]+\s+esc\s+interrupt\s*",
-    re.IGNORECASE,
+    r"^[ \t]*[▰▮▯■□▪▫█▓▒░]+[ \t]+esc[ \t]+interrupt[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 # tmux's foreground executable is stronger identity evidence than any model name inside

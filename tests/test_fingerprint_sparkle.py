@@ -142,8 +142,8 @@ def test_volatile_list_still_runs_without_a_band():
 
 def test_opencode_spinner_frames_share_one_fingerprint():
     """Animated blocks must not reparse the same active OpenCode turn every tick."""
-    a = "OpenCode 1.18.32\n▰▰▰▰▰▰ esc interrupt"
-    b = "OpenCode 1.18.32\n▮▯■□▪▫ esc interrupt"
+    a = "OpenCode 1.18.32\n  ▰▰▰▰▰▰ esc interrupt"
+    b = "OpenCode 1.18.32\n▮▯■□▪▫ ESC INTERRUPT"
     assert _fingerprint(a) == _fingerprint(b)
 
 
