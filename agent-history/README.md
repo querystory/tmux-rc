@@ -5,8 +5,7 @@ Live Mode can find past work across projects and resume it. It is independent of
 tmux-rc daemon: it indexes sessions that never ran in a pane (subagents, IDE sessions,
 headless runs), and runs whether or not the daemon is up.
 
-Status: Claude Code and Codex sessions are indexed. OpenCode readers, summaries and
-`resolve` follow.
+Status: Claude Code only. Codex and OpenCode readers, summaries and `resolve` follow.
 
 ## Why an index and not a copy
 
@@ -40,13 +39,6 @@ valid YAML and one greppable line per field: `harness`, `session_id`, `parent_se
 is the human's messages, one `## <timestamp> · <how it was sent>` section each; a
 subagent's body is the task its parent gave it.
 
-`prs` is an array of canonical GitHub pull URLs. Each URL contains the repository and
-number without requiring GitHub access, and the shape leaves room for a later dashboard
-to fetch live review/merge state. A session can list several PRs; the same PR can appear
-in several sessions. Claude's explicit `pr-link` records are authoritative. Codex tracks
-pull URLs in its rollout (including `gh pr create` output), plus explicit human shorthand
-such as `PR 4955` when the session's local `origin` identifies a GitHub repository.
-
 Entries are derived: deleting the index and running `reconcile` rebuilds it from any
 transcripts that still exist. When a harness deletes a transcript, its entry is kept and
 marked `source_missing: true` — it can no longer be grepped for detail or resumed, but
@@ -54,22 +46,8 @@ what the human said is not lost. Retention is otherwise the harness's setting.
 
 ## Running it
 
-`go build -o ~/.local/bin/agent-history .` then register `agent-history hook` for each
-harness. For Claude Code, use its `Stop`, `SessionEnd` and `SubagentStop` hooks. For Codex,
-add a `Stop` command hook to `~/.codex/hooks.json` (or the equivalent `config.toml`):
-
-```json
-{
-  "hooks": {
-    "Stop": [{"hooks": [{"type": "command", "command": "~/.local/bin/agent-history hook"}]}]
-  }
-}
-```
-
-Codex requires reviewing and trusting a new local hook from `/hooks`; see the official
-[Codex hooks documentation](https://learn.chatgpt.com/docs/hooks).
-
-Both harnesses send `transcript_path` on standard input. The hook hands that transcript
-to a detached child and returns in milliseconds. `agent-history reconcile` repairs
-whatever hooks missed (hard reboot, killed session, hooks not yet installed); hooks run
-one themselves when the last is more than six hours old, so no timer is needed.
+`go build -o ~/.local/bin/agent-history .` then register `agent-history hook` for Claude
+Code's `Stop`, `SessionEnd` and `SubagentStop` hooks. The hook hands the transcript to a
+detached child and returns in milliseconds. `agent-history reconcile` repairs whatever
+hooks missed (hard reboot, killed session, hooks not yet installed); hooks run one
+themselves when the last is more than six hours old, so no timer is needed.

@@ -134,7 +134,9 @@ func (s *Session) apply(rec record, subagent bool, aiTitle *string) {
 	case "ai-title":
 		*aiTitle = rec.AITitle
 	case "pr-link":
-		s.addPullRequests(rec.PRURL, false)
+		if !slices.Contains(s.PRs, rec.PRURL) {
+			s.PRs = append(s.PRs, rec.PRURL)
+		}
 	case "user":
 		kind := rec.PromptSource
 		// A headless run's prompt ("sdk") is not marked human, but it is the session's task.
@@ -146,7 +148,6 @@ func (s *Session) apply(rec record, subagent bool, aiTitle *string) {
 		}
 		if text := messageText(rec.Message.Content); text != "" {
 			s.Messages = append(s.Messages, Message{Time: rec.Timestamp, Kind: kind, Text: text})
-			s.addPullRequests(text, true)
 		}
 	}
 }

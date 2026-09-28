@@ -26,13 +26,9 @@ func indexPath(harness, parent, id string) string {
 	return filepath.Join(Root(), "index", harness, parent, id+".md")
 }
 
-// IndexTranscript identifies and indexes a Claude or Codex transcript. Claude's
-// subagent files live beside their parent and are indexed with it; Codex supplies each
-// transcript directly to the same hook.
+// IndexTranscript indexes a Claude session and its subagents, skipping any whose
+// index entry is already newer than the transcript.
 func IndexTranscript(path string) error {
-	if isCodex(path) {
-		return indexCodexFile(path)
-	}
 	// ReadDir, not Glob: a session path is literal and may contain glob syntax.
 	dir := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
 	files, err := os.ReadDir(dir)
@@ -47,12 +43,12 @@ func IndexTranscript(path string) error {
 	}
 	var errs []error
 	for _, p := range paths {
-		errs = append(errs, indexClaudeFile(p))
+		errs = append(errs, indexFile(p))
 	}
 	return errors.Join(errs...)
 }
 
-func indexClaudeFile(path string) error {
+func indexFile(path string) error {
 	src, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil // sessions run without persistence never write a transcript
@@ -73,43 +69,6 @@ func indexClaudeFile(path string) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return writeAtomic(dst, Render(s), src.ModTime())
-}
-
-func indexCodexFile(path string) error {
-	src, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	id, parent, err := codexIdentity(path)
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	dst := indexPath("codex", parent, id)
-	if idx, err := os.Stat(dst); err == nil && idx.ModTime().Equal(src.ModTime()) {
-		return nil
-	}
-	s, err := ReadCodex(path)
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	return writeAtomic(dst, Render(s), src.ModTime())
-}
-
-// A Codex rollout starts with session_meta; Claude transcripts do not. Decode only the
-// first object so hook dispatch does not depend on a particular config-directory path.
-func isCodex(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	var first struct {
-		Type string `json:"type"`
-	}
-	return json.NewDecoder(f).Decode(&first) == nil && first.Type == "session_meta"
 }
 
 // Render is the index entry format: a front-matter header of JSON-quoted values (valid
