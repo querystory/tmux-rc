@@ -466,6 +466,7 @@ class Watcher:
     def _tick(self) -> None:
         if not tmux.server_running():
             self._collection_failed = False
+            self._gc(set())  # confirmed server absence ends every pane lifetime
             self._publish_states([])
             return
         history_server = None
@@ -493,6 +494,8 @@ class Watcher:
             panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
             self._collection_failed = False
+            if not self.target:
+                self._gc(set())  # empty inventory, not just an unmatched target label
             self._publish_states([], record_history=history_server is not None,
                                  history_server=history_server)
             return

@@ -1,5 +1,7 @@
 """PR associations are semantic classifier evidence accumulated for a pane lifetime."""
 
+import pytest
+
 import openbus.watcher as W
 from openbus.watcher import Watcher
 
@@ -61,6 +63,29 @@ def test_pr_associations_leave_with_the_pane(monkeypatch):
     w._repositories["%1"] = ("/repo/worktree", "querystory/qs-app")
     w._forget("%1")
     assert "%1" not in w._prs and "%1" not in w._repositories
+
+
+@pytest.mark.parametrize("server_exists", [True, False])
+def test_pr_associations_clear_when_the_last_pane_disappears(monkeypatch, server_exists):
+    w = Watcher(None, use_llm=False)
+    monkeypatch.setattr(W.tmux, "server_running", lambda: server_exists)
+    monkeypatch.setattr(W.tmux, "list_panes", list)
+    monkeypatch.setattr(w, "_pane_event", lambda *args, **kwargs: None)
+    w._prs["%1"] = [{"repo": "querystory/qs-app", "number": 4955}]
+    w._repositories["%1"] = ("/repo", "querystory/qs-app")
+    w._birth["%1"] = "100"
+    w._tick()
+    assert not w._prs and not w._repositories and not w._birth
+    assert w.states == []
+
+
+def test_unmatched_target_is_not_proof_of_pane_death(monkeypatch):
+    w = Watcher("renamed-label", use_llm=False)
+    monkeypatch.setattr(W.tmux, "server_running", lambda: True)
+    monkeypatch.setattr(W.tmux, "find_pane", lambda target: None)
+    w._prs["%1"] = [{"repo": "querystory/qs-app", "number": 4955}]
+    w._tick()
+    assert w._prs["%1"] == [{"repo": "querystory/qs-app", "number": 4955}]
 
 
 def test_digest_exposes_accumulated_prs():

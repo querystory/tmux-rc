@@ -118,13 +118,15 @@ def _working_prs(value) -> list[dict]:
             continue
         repo = item["repo"].strip()
         number = item.get("number")
-        if isinstance(number, str) and number.isdigit():
+        # Bound before conversion: Python rejects enormous digit strings, and the
+        # browser must be able to represent the resulting identifier exactly.
+        if isinstance(number, str) and len(number) <= 16 and number.isascii() and number.isdigit():
             number = int(number)
         if (
             not _GITHUB_REPOSITORY_RE.fullmatch(repo)
             or not isinstance(number, int)
             or isinstance(number, bool)
-            or number <= 0
+            or not 0 < number <= 2**53 - 1
         ):
             continue
         key = (repo.lower(), number)

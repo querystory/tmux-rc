@@ -1,0 +1,12 @@
+{
+  "description": "Identifier-validation work and example PR-shaped inputs are not evidence of work on a PR. Malformed references must not become sticky associations.",
+  "current_command": "codex",
+  "repository": "querystory/tmux-rc",
+  "capture": "OpenAI Codex\n\n• Fixed validation of untrusted PR references. Tests now reject number='²', number='111111111111111111111111111111111111111111111111111111111111111111111111111111', and number=9007199254740992. These are invalid test inputs, not actual pull requests. No PR has been opened for this change yet.\n\nWorked for 1m 10s\n\n› Ask Codex to do anything\n\ngpt-6-sol medium · ~/src/tmux-rc · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "working_prs": [],
+    "headline": "Fixed PR-reference validation and added invalid-input tests"
+  }
+}

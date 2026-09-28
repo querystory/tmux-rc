@@ -63,6 +63,10 @@ def test_payload_supplies_repository_for_semantic_pr_classification():
 
 def test_working_prs_are_validated_bounded_and_deduped():
     raw = [
+        {"repo": "querystory/qs-app", "number": "1" * 5000},
+        {"repo": "querystory/qs-app", "number": "²"},
+        {"repo": "querystory/qs-app", "number": 2**53},
+        {"repo": "querystory/qs-app", "number": str(2**53)},
         {"repo": "querystory/qs-app", "number": 4955},
         {"repo": "QUERYSTORY/qs-app", "number": "4955"},
         {"repo": "no-owner", "number": 2},
