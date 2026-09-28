@@ -110,9 +110,15 @@ binary, put the client's config in `~/.config/tmux-rc/tunnel.env` (see
 so you can ignore it entirely on a LAN-only setup. Whatever you pick should
 **authenticate** — the daemon itself has no auth.
 
-### iPhone notifications
+### iPhone: Live Mode and notifications
 
-Open `/m` in Safari, use **Add to Home Screen**, launch that installed app, then tap
+Follow the [iPhone happy-path setup guide](docs/iphone-setup.md) for Home Screen installation,
+permissions, a real notification test, screen timeout/lock behavior, and audio recovery.
+Use **Safari or Chrome → Share → Add to Home Screen**, then launch the installed app—not
+a browser tab—for this workflow. Push continues independently of Live Mode; uninterrupted
+background voice is not guaranteed by iOS.
+
+Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then tap
 the bell in its header. iOS only permits Web Push permission from an installed web app
 and a user gesture. A notification tap opens the exact pane that needs attention, where
 you can use its answer buttons or composer. iOS Web Push does not expose inline text
@@ -124,6 +130,8 @@ Subscriptions and the VAPID key are stored owner-only at
 from the same bell; `POST /api/push/revoke-all` revokes every saved device.
 Delivery is deliberately best-effort: relay failures are logged and dropped instead of
 replaying a stale question after an outage.
+Operators must set `TMUXRC_PUSH_SUBJECT=mailto:<real-contact-address>` in the daemon
+environment: the localhost fallback caused Apple `403 BadJwtToken` during testing.
 
 The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
 upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit

@@ -2,6 +2,11 @@
 
 Status: **blocking pushes + replies implemented; milestone pushes remain planned**.
 
+For the current operational contract and end-to-end phone setup, see
+[iPhone: Live Mode + notifications](../iphone-setup.md). That guide covers Home
+Screen installation, screen lock, permissions, delivery tests, and the Apple VAPID
+contact requirement. Milestone sections below describe future work, not shipped behavior.
+
 ## The problem
 
 Every pane's output already flows through an LLM that decides what matters. But the
@@ -41,7 +46,7 @@ LLM pass.
 An agent blocked on the user is already fully described by existing fields:
 `activity == "waiting"` and `waiting_on == "user"`. The daemon derives the
 notification server-side — **zero prompt change, zero new schema** — with title from
-the pane label, body from `question.prompt` (falling back to `headline`), actions
+the pane title (falling back to its label), body from `question.prompt` (falling back to `headline`), actions
 from `question.options`.
 
 Not every user-wait carries a `question`: `classify()` also promotes a detected
@@ -155,19 +160,13 @@ change.
 
 ### The service-worker wrinkle
 
-`web/sw.js` is currently a **self-destructing tombstone** and `app.js` unregisters
-all service workers at boot — deliberately, because an old *caching* SW once served
-stale `app.js` and hid new UI. Push requires a live SW, so the tombstone gets
-replaced by a real one that handles `push` and `notificationclick` and registers
-**no fetch handler at all**. No fetch handler ⇒ every asset request still goes
-straight to the network ⇒ the property the tombstone protected (never serve stale
-assets) is preserved by construction. The boot-time unregister purge is replaced by
-an explicit `navigator.serviceWorker.register()` — no registration call exists in
-the app today (nothing registers a SW implicitly), and the returned registration is
-also where `pushManager.subscribe()` hangs off. The SW file itself is served
-no-store like everything else, so browser update checks always see the current
-version. This constraint gets a loud comment in `sw.js`, or someone will
-"helpfully" add caching back.
+`web/sw.js` handles `push` and `notificationclick` with **no fetch handler and no
+cache writes**. This replaced the old self-destructing tombstone, which existed
+because a caching worker once served stale `app.js` and hid new UI. Asset requests
+still go to the network; activation clears old caches. `web/push.js` explicitly
+registers the worker and subscribes through its `pushManager`. The worker file is
+served no-store so update checks see the current version. Keep this push-only:
+adding asset caching would reintroduce the stale-UI failure mode.
 
 ### Subscriptions and keys
 
@@ -183,8 +182,9 @@ commit, and which doesn't exist when running installed as a wheel) — owner-onl
 not observations — holds the VAPID keypair (generated on
 first use; it must stay stable, since subscriptions bind to the public key), the
 subscription list. The VAPID `sub` contact claim comes from `TMUXRC_PUSH_SUBJECT` at
-send time (defaulting to a local `mailto:` value), since the daemon has no logged-in
-identity to derive it from. Clients still re-POST their subscription at boot as
+send time, since the daemon has no logged-in identity to derive it from. Configure a
+real `mailto:` contact: the localhost fallback caused Apple `403 BadJwtToken` in
+field testing. See the setup guide above. Clients still re-POST their subscription at boot as
 self-healing — the store upserts keyed by endpoint, so a re-register is idempotent,
 never a duplicate delivery — and prunes endpoints on `410 Gone`.
 
