@@ -168,6 +168,7 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	// Configured roots containing glob syntax are still taken literally.
 	t.Setenv("AGENT_HISTORY_DIR", filepath.Join(t.TempDir(), "[h]?"))
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "[c]*"))
+	t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), "[x]*"))
 	must(t, os.MkdirAll(filepath.Dir(stateFile()), 0o700))
 
 	// While another run holds the lock, this one does nothing and records nothing.

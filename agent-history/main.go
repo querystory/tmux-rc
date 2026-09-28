@@ -45,9 +45,9 @@ func main() {
 	}
 }
 
-// hook is the Claude Code hook entry point (Stop, SessionEnd, SubagentStop). It hands
-// the transcript to a detached child and returns at once, so a hook never slows or
-// breaks the session, and it never writes to stdout, so it never injects context.
+// hook is the harness hook entry point (Claude or Codex). It hands the transcript to a
+// detached child and returns at once, so a hook never slows or breaks the session, and
+// it never writes to stdout, so it never injects context.
 func hook() {
 	var in struct {
 		TranscriptPath string `json:"transcript_path"`
@@ -103,13 +103,20 @@ func reconcileAll() (ok bool) {
 	check(err)
 	for _, t := range nested {
 		if filepath.Base(filepath.Dir(t)) == "subagents" {
-			check(indexFile(t))
+			check(indexClaudeFile(t))
 		}
 	}
-	index := filepath.Join(Root(), "index", "claude")
-	entries, err := find(index, ".md", 1)
+	// Codex stores rollouts at sessions/YYYY/MM/DD/*.jsonl. The same hook indexes
+	// completed turns promptly; reconcile covers crashes, disabled hooks, and old data.
+	codexTranscripts, err := find(filepath.Join(codexDir(), "sessions"), ".jsonl", 4)
 	check(err)
-	subentries, err := find(index, ".md", 2)
+	for _, t := range codexTranscripts {
+		check(IndexTranscript(t))
+	}
+	index := filepath.Join(Root(), "index")
+	entries, err := find(index, ".md", 2)
+	check(err)
+	subentries, err := find(index, ".md", 3)
 	check(err)
 	for _, e := range append(entries, subentries...) {
 		check(MarkMissing(e))
@@ -171,6 +178,14 @@ func claudeDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".claude")
+}
+
+func codexDir() string {
+	if dir := os.Getenv("CODEX_HOME"); dir != "" {
+		return dir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".codex")
 }
 
 func stateFile() string { return filepath.Join(Root(), "state", "last-reconcile") }
