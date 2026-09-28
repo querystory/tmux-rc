@@ -81,6 +81,12 @@ needed, is a separate design rather than an accidental dependency on agent histo
 and the Live prompt receives a readable “PRs this pane has worked on” line. A request
 naming a repository and PR should prefer panes with an exact association.
 
+The `/m` session sidebar (on phone and desktop) searches accumulated `prs`, not just
+the current headline. Search by `4955`, `#4955`, `qs-app#4955`, `qs-app PR 4955`, the
+full `owner/repo#4955`, or a GitHub pull-request URL. All matching panes remain in
+the results, including several sessions for the same PR. Existing status filters still
+apply; select **All** to find an idle pane. Search does not create associations.
+
 When several panes match, routing considers their current titles, activity, cwd, and
 screens. If those do not distinguish the intended pane, Live Mode asks the user rather
 than silently choosing. This permits several sessions per PR without pretending there
