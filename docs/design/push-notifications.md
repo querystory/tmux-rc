@@ -96,32 +96,10 @@ The watcher re-parses on every real content change. Suppression lives server-sid
 a small notifier that observes state transitions — never in the LLM, and never in the
 service worker (by the time a push arrives, the decision must already be made).
 
-**1. Someone watching is already notified.** If any client has the app *foregrounded*,
-the app is the notification surface (the dock badges the waiting pane). Two presence
-inputs:
-
-- A **per-client presence lease**, refreshed by `/api/state` polls that carry a
-  visibility flag and by a `sendBeacon` fired on `visibilitychange`. Per-client
-  (keyed by a client id, one TTL entry each — suppress while *any* visible lease is
-  live), because a hidden tab's hide-beacon must not clear a different device's
-  visible lease. And a lease, not a latch, because the raw poll signal goes stale in
-  both directions: the poll loop never pauses when hidden (a hidden desktop tab
-  keeps polling), and one long-poll can be in flight — or the mobile OS can suspend
-  the page outright — right as the user backgrounds the app, leaving the server
-  believing "visible" for the rest of the hold. The TTL must exceed the ~25s
-  long-poll hold with margin (~40s): a foregrounded client's next visible signal can
-  legitimately be a full hold away, and a shorter TTL would read ordinary
-  foreground use as absence and push at a watching user. The hide-beacon delivers
-  the background transition promptly, so the longer TTL costs nothing in the common
-  case; it only bounds how long a *missed* beacon (suspended page) can keep
-  suppressing. Expiry fails in the safe direction: no fresh visible signal ⇒ notify.
-- tmux itself knows when the user is at the desk: `client_activity` from
-  `list-clients`. Keystrokes in any attached tmux client within the last ~30s mean
-  the user is *at the terminal*, likely mid-answer — pushing to their phone then is
-  noise.
-
-Suppression here is correct even cross-device: if you're watching on the desktop, the
-phone staying silent is the right behavior.
+**1. Notify even while someone is watching.** A visible browser window or recent tmux
+input does not suppress pushes. An open desktop tab must not silence the phone, and
+working in one pane does not mean the user has seen another pane's question. Existing
+presence endpoints remain compatible with clients, but presence does not gate delivery.
 
 **2. Once per question, not once per tick.** A blocked pane stays blocked across
 dozens of parses. The notifier keys on a fingerprint of **(pane incarnation, full
@@ -133,8 +111,8 @@ while the prompt text stays identical, and an action minted against the old cont
 must not validate against the new one. The notifier pushes **at most once per
 fingerprint**. This is deliberately
 *level-triggered with a notified-set*, not edge-triggered: a question that appears
-while you're watching (suppressed by rule 1) and is still unanswered when you
-background the app *should* then fire. Pure edge-triggering misses that case; the
+while parsing is temporarily stale and remains unanswered should fire when valid
+state resumes. Pure edge-triggering misses that case; the
 notified-set makes "fire once, whenever conditions first allow" fall out naturally.
 Fingerprints are forgotten when the question clears, so a *re*-blocked pane can
 notify again.
@@ -316,7 +294,7 @@ The endpoint audits with a distinguishable actor (`push-action`) through the sam
    change ships with eval cases: milestone-positive and milestone-negative samples
    in the existing prompt-eval corpus (`research/eval/samples/`), and a full eval
    run green — that's a requirement of this step, not a someday-before-step-4.
-2. **Blocking pushes.** Real SW, subscribe endpoint, VAPID sender, presence +
+2. **Blocking pushes.** Real SW, subscribe endpoint, VAPID sender,
    fingerprint + settle suppression. If only this ships, most of the value is
    captured: "an agent is waiting on *you*" is the high-signal, low-noise case.
 3. **Replies.** Action buttons → `/api/push/answer`; deep link.

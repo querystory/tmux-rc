@@ -271,18 +271,18 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     assert len(sender.payloads) == 2
 
 
-def test_visible_presence_suppresses_until_the_lease_is_gone(tmp_path, monkeypatch):
+def test_visible_browser_and_active_tmux_do_not_suppress_push(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
     watcher.states = [waiting()]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: True)
     service.note_presence("phone", visible=True)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
-    assert sender.payloads == []
-    service.note_presence("phone", visible=False)
+    assert len(sender.payloads) == 1
+    # Activity must not bypass duplicate prevention either.
     service.evaluate()
     assert len(sender.payloads) == 1
 
