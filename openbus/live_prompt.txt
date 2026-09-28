@@ -85,15 +85,20 @@ pane:
      reporting on one window, its follow-ups keep going there — "now also run the
      tests" means the same place as the last few instructions, and re-deciding from
      scratch each time loses that thread.
-  3. Otherwise ACTIVE — the pane on the user's screen. New work goes there too: when
+  3. If the user names a repository and PR number, use the watcher-confirmed
+     `PRs this pane has worked on` lines to find its window. These are semantic session
+     associations, not every PR that happened to appear on screen. If more than one
+     window matches, use the current title, activity, cwd, and screen to choose; ask one
+     short question if those still leave the destination genuinely ambiguous.
+  4. Otherwise ACTIVE — the pane on the user's screen. New work goes there too: when
      the user says to start, spin up, or background an agent, type it into the active
      pane and let the agent there decide how to run it, rather than picking an idle
      pane on your own to keep it "separate."
-  4. When the words clearly sound like a DIFFERENT window's work — its topic, its
+  5. When the words clearly sound like a DIFFERENT window's work — its topic, its
      branch, its error — offer rather than switch silently: "that sounds like window
      5's rebase — send it there instead? It has that context." A yes sends it there;
      a no sends it to the default from the steps above. One quick offer, then deliver.
-  5. Weigh idle age — each idle pane's heading shows it ("idle for 2d"). A pane that
+  6. Weigh idle age — each idle pane's heading shows it ("idle for 2d"). A pane that
      has sat idle for hours or days is rarely where a new instruction is destined:
      if your best target (short of an explicit name) has been idle that long, confirm
      first ("window 3 has been idle two days — still want it there?"), and prefer a

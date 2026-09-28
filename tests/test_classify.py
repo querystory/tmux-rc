@@ -21,6 +21,7 @@ def test_bootstrap_shapes_result_and_flags_history():
             {
                 "name": "  tmux-rc overhaul  ",
                 "summary": " shipping PRs #24 and #26 ",
+                "working_prs": [{"repo": "querystory/tmux-rc", "number": 245}],
                 "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
             }
         ),
@@ -28,6 +29,7 @@ def test_bootstrap_shapes_result_and_flags_history():
     assert r["name"] == "tmux-rc overhaul"
     assert r["summary"] == "shipping PRs #24 and #26"
     assert r["events"] == [{"text": "Merged PR #24", "historical": True}]
+    assert r["working_prs"] == [{"repo": "querystory/tmux-rc", "number": 245}]
 
 
 def test_bootstrap_rejects_junk():
@@ -46,6 +48,35 @@ def test_payload_leads_with_foreground_process():
     classify(_pane(cmd="python3"), "some screen", llm)
     first_line = seen["text"].splitlines()[0]
     assert "foreground process" in first_line and "python3" in first_line
+
+
+def test_payload_supplies_repository_for_semantic_pr_classification():
+    seen = {}
+
+    def llm(_system, text):
+        seen["text"] = text
+        return {"tool": "codex", "activity": "running"}
+
+    classify(_pane(cmd="codex"), "working", llm, repository="querystory/tmux-rc")
+    assert "GitHub repository is 'querystory/tmux-rc'" in seen["text"].splitlines()[0]
+
+
+def test_working_prs_are_validated_bounded_and_deduped():
+    raw = [
+        {"repo": "querystory/qs-app", "number": 4955},
+        {"repo": "QUERYSTORY/qs-app", "number": "4955"},
+        {"repo": "no-owner", "number": 2},
+        {"repo": "querystory/qs-app", "number": True},
+        {"repo": "querystory/qs-app", "number": 0},
+        "junk",
+    ] + [{"repo": "querystory/tmux-rc", "number": n} for n in range(1, 12)]
+    r = classify(_pane(), "…", _llm({"activity": "running", "working_prs": raw}))
+    assert r["working_prs"][0] == {"repo": "querystory/qs-app", "number": 4955}
+    assert len(r["working_prs"]) == 8
+    assert len({(p["repo"].lower(), p["number"]) for p in r["working_prs"]}) == 8
+    assert "working_prs" not in classify(
+        _pane(), "…", _llm({"activity": "idle", "working_prs": "all PRs"})
+    )
 
 
 def test_pipes_llm_json_through():

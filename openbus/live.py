@@ -262,6 +262,9 @@ def _pane_block(d: dict, screen: str | None) -> str:
         parts.append(f"now: {d['headline']}")
     if d.get("summary"):
         parts.append(f"recently: {d['summary']}")
+    if d.get("prs"):
+        refs = ", ".join(f"{p['repo']}#{p['number']}" for p in d["prs"])
+        parts.append(f"PRs this pane has worked on: {refs}")
     if d.get("question"):
         parts.append(f"PENDING QUESTION: {d['question']}")
     if screen:
