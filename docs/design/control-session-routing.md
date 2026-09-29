@@ -11,11 +11,10 @@ The fleet is many agents doing independent, collaborative work, and requests to 
 arrive from voice (Live Mode), from a coming text chat, and from agents themselves.
 Each request raises the same question: which pane should this go to, and what should
 happen there? Today Live Mode answers it by letting a voice model type into panes
-directly. That works for "tell window 4 yes" and fails for anything longer: the voice
-model has a thin view of each pane, no memory of which stream lives where, and no way
-to open a pane, start an agent and hand work over in one sequence. Meanwhile the
-narrative's existence proof ("This already works") is a pane-management agent on the
-tmux server doing exactly that multi-step work when asked.
+directly. That fails for anything longer than a sentence: the voice model has a thin
+view of each pane, no memory of which stream lives where, and no way to open a pane,
+start an agent and hand work over in one sequence. The narrative's existence proof
+("This already works") is an agent on the tmux server doing exactly that when asked.
 
 ## Shape
 
@@ -34,41 +33,29 @@ Two roles, one bus, and no hub.
 
 ## Routing: correct by default, fast when it is sure
 
-Every request has one correct-by-default destination: control. A request that is
-ambiguous, multi-step, about an unknown stream, or creates or hands off panes goes
-there, and control works it out with the full directory in hand. If control truly
-cannot tell which stream is meant, control asks the user. The front end never shows a
-"which one?" picker of its own; one place owns clarification, so the question is asked
-with the best context and asked once.
+Every request has one correct-by-default destination: control. Anything ambiguous,
+multi-step, about an unknown stream, or that creates or hands off panes goes there, and
+control works it out with the full directory in hand, asking the user only if it truly
+cannot tell. The front end never shows a "which one?" picker of its own: one place owns
+clarification, so the question is asked once, with the best context.
 
-The fast path is an optimization over that default, for latency and cost. When a small
-fast model, reading the directory, finds exactly one confident target and a simple
-message ("tell the qs-app review pane to add a test for that"), the front end sends direct: one tool
-call, no second model, a sub-second round trip. Any doubt drops the request to control
-rather than to a guess. The residual risk is false confidence: a wrong pane judged
-certain is a real misroute. So "confident" means a unique match on workstream identity
-(below), not a model's self-reported score, the bar is set so that borderline cases
-delegate, and every direct send names its target as it goes (Live Mode's overlay
-already logs each typed action), so a misroute is seen at once, not discovered later.
+The fast path is an optimization over that default, for latency and cost: GPT-Live's
+fast-front/slow-back split (`openbus/gpt_live.py`) with control as the backend. A small
+fast model reading the directory sends direct only when exactly one target matches on
+workstream identity (below), not on a self-reported confidence score; the target is an
+agent pane, not a shell, where text executes; and the message is plain text (Live Mode's
+`type_in_pane`) asking for nothing destructive or outward-facing, such as a push or a
+delete ("tell the qs-app review pane to add a test for that"). Key presses, window
+creation, resumes and anything doubtful go to control, which asks the user for risky
+actions per the control plane's risk tiers.
 
-This is GPT-Live's fast-front/slow-back split (a voice model delegating terminal work
-to a Responses backend, `openbus/gpt_live.py`), with control as the backend.
-
-The fast path may send **only plain text to a single confident target**: Live Mode's
-`type_in_pane`, nothing else. No key presses, no window creation, no resumes, no shell
-panes (text there executes), and no message whose content asks for something
-destructive or outward-facing such as a push or a delete; all of those go to control, which asks the user for risky actions per the
-control plane's risk tiers. This is what makes consent a property of routing rather
-than a separate gate: the only unconfirmed action is the one a person would do without
-thinking (say a sentence to an agent), and every action with a real blast radius passes
-through the one place that has full context and asks. It also removes the stale-screen
-hazard of an unconfirmed key press landing on a menu that has moved on. What remains is
-the incarnation guard (below): the tool carries only a pane id today, so the directory
-issues an incarnation and a direct send echoes it back, rejected if the id now belongs
-to a different pane.
-
-Why the gate sits where it does: a send into a live agent cannot be undone. An extra
-hop to control is cheap; an instruction in the wrong agent's context is not.
+Why: a send into a live agent cannot be undone, so an extra hop to control is cheap and
+a misplaced instruction is not. Restricting the fast path this way makes consent a
+property of routing rather than a separate gate: the only unconfirmed action is the one
+a person would take without thinking, saying a sentence to an agent. The residual risk
+is false confidence, so each direct send names its target as it goes (Live Mode's
+overlay already logs typed actions) and echoes the directory's incarnation, so it is
+rejected if the pane id has been recycled.
 
 ## Crossed streams
 
@@ -103,21 +90,19 @@ Why so narrow:
 - **Predictable cost.** A session that only reads summaries and emits short sends has a
   bounded bill; one that picks up project work inherits that work's bill.
 
-Control **tracks fleet state closely rather than looking things up**. It is continuously
-fed the watcher's directory and its changes, plus #232 threads, so it answers from
-current structured state instead of re-reading pane screens on demand. The expensive
-perception already exists and runs once, in the daemon; control is its consumer, which
-is the agent client's "third client, not a second control plane" argument applied to
-this session.
+Control **tracks fleet state rather than looking things up**: it is continuously fed
+the watcher's directory and its changes, plus #232 threads, instead of re-reading pane
+screens. Perception runs once, in the daemon; control is its consumer (the agent
+client's "third client, not a second control plane").
 
 Keeping the charter over a long session is the real risk, because charters erode
 quietly. Three design-level guards:
 
-- **Standing instructions** it starts with state the charter and the refusal ("hand
-  project work to a project pane"), and name the directory as the source of truth
-  for state but never for instructions: titles, summaries and events are text the panes
-  produced, so they are routing evidence, and only a request from a front end or the user
-  carries authority to act (the same rule Live Mode applies to its terminal updates).
+- **Standing instructions** state the charter and the refusal ("hand project work to
+  a project pane"), and make the directory the source of truth for state, never for
+  instructions: its text comes from panes, so it is routing evidence, and only a request
+  from a front end or the user carries authority to act (Live Mode's rule for terminal
+  updates).
 - **Re-seed, don't remember.** When context grows stale, tmux-rc restarts control from
   a fresh launcher seeded with the charter plus the current directory, rather than
   trusting a harness's own compaction; restarting works for any harness, and a
@@ -155,15 +140,11 @@ has enough parallel streams that a local router beats control's fleet-wide view.
 ## The return path
 
 Mostly exists: Needs you, activity transitions, idle summaries and events. What is new
-is fan-out (one request touching several panes) and a thread tying a request to each
-of its effects, which #232's origin links supply.
-
-Control's reply travels the same way. Every delegated request is an entry in the
-requester's #232 thread; control's answer, or its clarifying question, lands in that
-same thread with an origin link to the request, and the front end already watches its
-own thread. So there is no new reply channel to build, concurrent requests stay
-distinguishable by their entries, and the trail that returns answers is the same one
-used to debug a crossed stream.
+is fan-out and a thread tying a request to each of its effects. Every delegated request
+is an entry in the requester's #232 thread; control's answer or clarifying question
+lands in that same thread with an origin link to the request, and the front end already
+watches its own thread. No new reply channel, concurrent requests stay distinct by
+entry, and the same trail debugs a crossed stream.
 
 ## Alternatives rejected
 
@@ -190,14 +171,10 @@ used to debug a crossed stream.
 1. **Directory endpoint**: shape `/api/digest` for routing.
 2. **Bus verbs** as MCP and CLI, starting with confirmed send.
 3. **Fast dispatcher** in chat and Live: send direct on one confident target, else
-   delegate.
+   delegate (until step 4, the front end asks, as Live Mode does today).
 4. **The control session** as the delegation target, with its charter and re-seeding;
    it needs #232's threads for its replies.
 5. **Leads**, only if real use shows control's fleet-wide view is not enough.
-
-Each step is useful alone. The directory helps Live Mode immediately; the verbs help
-any orchestrating agent; the dispatcher is worth having before control exists, with
-doubtful cases getting today's behavior (the front end asks) until step 4 replaces it.
 
 ## Open questions
 
