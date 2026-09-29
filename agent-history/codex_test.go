@@ -173,7 +173,12 @@ func TestRunningCodex(t *testing.T) {
 	// A process named codex (a shell under that name) holding it open does.
 	codex := filepath.Join(t.TempDir(), "codex")
 	must(t, os.Symlink("/bin/sh", codex))
-	cmd := exec.Command(codex, "-c", `exec 3<"$1"; sleep 60`, "sh", path)
+	// read is a builtin: the shell itself waits, holding the file (a trailing external
+	// command would be exec'd in its place).
+	cmd := exec.Command(codex, "-c", `exec 3<"$1"; read -r _`, "sh", path)
+	stdin, err := cmd.StdinPipe()
+	must(t, err)
+	defer stdin.Close()
 	cmd.Env = append(os.Environ(), "TMUX_PANE=%99")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	must(t, cmd.Start())

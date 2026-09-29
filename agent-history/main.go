@@ -37,7 +37,9 @@ func main() {
 				report(IndexTranscript(p, false))
 			}
 		})
-		reconcileIfDue()
+		if reconcileDue() {
+			Reconcile()
+		}
 	case "reconcile":
 		Reconcile()
 	case "resolve":
@@ -54,8 +56,11 @@ func main() {
 }
 
 func resolveCmd(args []string) error {
-	// Codex has no hook here, so searching is also what keeps its sessions current.
-	reconcileIfDue()
+	// Codex has no hook here, so searching is also what keeps its sessions current. In
+	// the background: a search is on someone's clock, and a first reconcile is not.
+	if reconcileDue() {
+		detach("reconcile")
+	}
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
 	opt.Running, opt.RunningErr = LiveSessions()
@@ -150,6 +155,12 @@ func hook() {
 	if json.NewDecoder(os.Stdin).Decode(&in) != nil || in.TranscriptPath == "" {
 		return
 	}
+	detach("index", in.TranscriptPath)
+}
+
+// detach starts agent-history with args in its own session, logging its errors, and
+// returns without waiting for it.
+func detach(args ...string) {
 	self, err := os.Executable()
 	if err != nil {
 		return
@@ -160,7 +171,7 @@ func hook() {
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(self, "index", in.TranscriptPath)
+	cmd := exec.Command(self, args...)
 	cmd.Stderr = log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Start()
@@ -180,12 +191,9 @@ func Reconcile() {
 	})
 }
 
-// reconcileIfDue runs a reconcile when the last completed one is too old or wrote an
-// older entry format.
-func reconcileIfDue() {
-	if since(stateFile()) > reconcileEvery || recordedFormat() != Format {
-		Reconcile()
-	}
+// reconcileDue says the last completed reconcile is too old or wrote an older format.
+func reconcileDue() bool {
+	return since(stateFile()) > reconcileEvery || recordedFormat() != Format
 }
 
 // recordedFormat is the entry format the last completed reconcile wrote.

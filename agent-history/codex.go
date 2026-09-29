@@ -190,7 +190,13 @@ func RunningCodex() (map[string]Running, error) {
 		}
 		for _, fd := range fds {
 			target, err := os.Readlink(filepath.Join("/proc", p.Name(), "fd", fd.Name()))
-			if err == nil && strings.HasPrefix(target, dir) && strings.HasSuffix(target, ".jsonl") {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue // closed while we looked
+			}
+			if err != nil {
+				return nil, err
+			}
+			if strings.HasPrefix(target, dir) && strings.HasSuffix(target, ".jsonl") {
 				id, _ := codexIdentity(target)
 				out[id] = Running{PID: pid, TmuxPane: pane(pid)}
 			}
