@@ -122,6 +122,12 @@ def _codex_model_segments(line: str) -> list[int]:
     if wrapped == ("[", "]") and any(char in stripped for char in "{'\""):
         return []
     segments = [segment.strip() for segment in line.split("·")]
+    if not any(
+        re.match(r"^(?:~/|/)", segment)
+        or re.search(r"(?:\bcontext\b|\bweekly\b|%)", segment, re.IGNORECASE)
+        for segment in segments
+    ):
+        return []
     return [i for i, segment in enumerate(segments)
             if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
 

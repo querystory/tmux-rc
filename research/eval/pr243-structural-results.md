@@ -268,3 +268,11 @@ rows-only forms, preserving the existing individual-row behavior. Sample 50 cove
 the full displayed table. Final validation remains **755 unit tests**, Ruff clean,
 target repetition **30/30**, and full Vertex candidate eval **52/53**, with only
 main's known sample 16 failure. No prompt text changed.
+
+Copilot's review of 77d14f0 found that a prose line ending in a model and `Ready`
+could still resemble a compact status row. Status evidence now requires real footer
+metadata: a cwd or a usage/context segment. Sample 51 covers the false footer while
+the existing compact model-plus-cwd samples retain the supported layouts. Final
+validation: **756 unit tests**, Ruff clean, target repetition **30/30**, and full
+Vertex candidate eval **53/54**, with only main's known sample 16 failure. No prompt
+text changed.
