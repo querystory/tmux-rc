@@ -1,0 +1,19 @@
+{
+  "description": "A parent waiting for workers does not mean all workers are running. Explicit review waits and idle workers stay separate from active work.",
+  "current_command": "node",
+  "capture": "Claude Code | Opus 5.5\n\n\u25cf Waiting for background agents before assembling the PR status report.\n\nBackground agents:\n  general-purpose Fixing parser tests \u2014 running \u2014 2m 5s \u219318k tokens\n  general-purpose Monitoring Copilot review \u2014 waiting for Copilot \u2014 5m 2s \u21939k tokens\n  general-purpose Documentation cleanup \u2014 idle \u2014 1m 0s \u21934k tokens\n  general-purpose Security audit \u2014 compacting context \u2014 3m 0s \u219324k tokens\n  general-purpose Dependency check \u2014 done \u2014 1m 2s \u21937k tokens\n\nWaiting for 4 background agents to finish\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u276f\n~/src/tmux-rc | Opus 5.5 | 42% context",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "agents": 2,
+    "subagent_states": [
+      "running",
+      "waiting",
+      "idle",
+      "compacting",
+      "done"
+    ],
+    "headline": "Waiting for background agents to finish the PR status report"
+  }
+}

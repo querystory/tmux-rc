@@ -15,3 +15,5 @@ docs-site/.hugo_build.lock
 
 # npm is used only to regenerate the committed browser dependencies.
 node_modules/
+
+agent-history/bin/

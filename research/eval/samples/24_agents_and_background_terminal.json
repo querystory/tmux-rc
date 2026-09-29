@@ -1,0 +1,16 @@
+{
+  "description": "Actual coding workers must remain counted when the same Codex screen also has a background shell terminal. The shell job is not a third worker.",
+  "current_command": "node",
+  "capture": "OpenAI Codex | gpt-6-sol\n\nSpawned coding agents:\n  Ada \u2014 running parser tests\n  Grace \u2014 waiting for Copilot review\n\nWaiting for these 2 background agents before assembling results.\n\n  1 background terminal running \u00b7 /ps to view \u00b7 /stop to close\n\n\u203a Ask Codex to do anything\n\n~/src/tmux-rc \u00b7 gpt-6-sol medium \u00b7 30% context left",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "external",
+    "agents": 1,
+    "subagent_states": [
+      "running",
+      "waiting"
+    ],
+    "headline": "Waiting for coding agents to finish parser tests and Copilot review"
+  }
+}
