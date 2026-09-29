@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
+from . import agent_history
 from .config import json_list
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,51 @@ TOOLS = [
 ]
 
 
+# Past-session lookup (agent_history), offered only where it can work.
+_HISTORY_TOOLS = [
+    {
+        "name": "find_sessions",
+        "description": (
+            "Look up the user's past coding-agent sessions by topic, across every repo — "
+            "including sessions no window shows now. Use only when the user asks to "
+            "resume, continue, or find earlier work (“resume the live mode session”, "
+            "“where was I on the auth fix”). Returns repos, each with sessions: id, "
+            "title, last active date, and the window running it if one is. Titles are "
+            "hints for choosing, not facts about the work."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {
+                "type": "string", "description": "The topic in the user's words, e.g. live mode",
+            }},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "resume_session",
+        "description": (
+            "Reopen a past session from find_sessions in a new window, in its original "
+            "directory. Use after find_sessions, once you know which one the user means; "
+            "if find_sessions says a window already runs it, talk to that window with "
+            "type_in_pane instead. It opens idle: to give it an instruction, type_in_pane "
+            "into the returned pane_id afterwards."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"session_id": {
+                "type": "string", "description": "session_id from find_sessions",
+            }},
+            "required": ["session_id"],
+        },
+    },
+]
+
+
+def tools() -> list[dict]:
+    """The tools a session is offered: TOOLS, plus history when agent_history offers it."""
+    return TOOLS + (_HISTORY_TOOLS if agent_history.offered() else [])
+
+
 @dataclass(frozen=True)
 class ToolCall:
     id: str
@@ -309,7 +355,7 @@ class _GeminiSession:
             tools=[
                 types.Tool(
                     function_declarations=[
-                        types.FunctionDeclaration(**t) for t in TOOLS
+                        types.FunctionDeclaration(**t) for t in tools()
                     ]
                 )
             ],
@@ -500,7 +546,7 @@ class _OpenAISession:
                         "session": {
                             "type": "realtime",
                             "instructions": system_prompt,
-                            "tools": [{"type": "function", **t} for t in TOOLS],
+                            "tools": [{"type": "function", **t} for t in tools()],
                             "tool_choice": "auto",
                             "output_modalities": ["audio"],
                             "audio": {

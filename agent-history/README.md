@@ -67,3 +67,12 @@ inactivity. A repo ranks by its best three sessions, not its volume, and git wor
 fold into their main repo. Headless runs and subagents are left out unless `-all`.
 Paraphrase ("the voice thing" for Live Mode) is out of reach by design until real misses
 justify aliases or embeddings.
+
+Each session also says whether it is `running` now, and in which tmux pane, so a caller
+can send to the live agent instead of resuming a second copy onto the same transcript.
+This comes from the registry Claude Code keeps of its live processes
+(`~/.claude/sessions/<pid>.json`); an entry only counts while its pid is alive with the
+start time it registered, since the files outlive crashes and pids get reused.
+
+`agent-history get <session-id>` prints one session in the same JSON shape, for a caller
+that already chose it; the ID must be a plain name, so it can't reach outside the index.
