@@ -471,7 +471,7 @@ def test_status_fields_are_not_session_title_evidence():
 def test_session_grounding_preserves_footer_and_rename_titles():
     for capture in (
         "old output\n\n› input\n\nReview 4955 · gpt-6-sol · ~/src/app",
-        "Thread renamed to Review 4955\n" + "output\n" * 10,
+        "• Thread renamed to Review 4955\n" + "output\n" * 10,
     ):
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "Review 4955"}))
         assert result["session"] == "Review 4955"
@@ -589,6 +589,8 @@ def test_short_capture_does_not_promote_tool_output_to_status_evidence():
          "{'footer': 'other-pane · gpt-6-sol · Ready'}"),
         ("\x1e[visible screen]\x1f\n› Ask Codex to do anything\n"
          "{'session': 'other-pane'}\ngpt-6-sol · ~/src/app"),
+        ("Thread renamed to other-pane\n\x1e[visible screen]\x1f\n"
+         "› Ask Codex to do anything\ngpt-6-sol · ~/src/app"),
     ):
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "other-pane"}))
         assert "session" not in result
@@ -653,16 +655,16 @@ def test_copyables_require_payload_in_current_viewport():
 
 
 def test_scrolled_rename_is_evidence_for_initial_read_and_retry():
-    capture = ("Thread renamed to Fix login redirects\n\x1e[visible screen]\x1f\n"
+    capture = ("• Thread renamed to Fix login redirects\n\x1e[visible screen]\x1f\n"
                "Done\n\n› Ask Codex to do anything\n\ngpt-6-sol · ~/src/app")
     for initial in ("Fix login redirects", "wrong quoted name"):
         calls = []
         def read(_prompt, text, calls=calls, initial=initial):
             calls.append(text)
             if len(calls) == 1:
-                assert "Thread renamed to Fix login redirects" in text
+                assert "• Thread renamed to Fix login redirects" in text
             else:
-                assert text.endswith("Thread renamed to Fix login redirects")
+                assert text.endswith("• Thread renamed to Fix login redirects")
             return {"tool": "codex", "session": initial if len(calls) == 1
                     else "Fix login redirects", "activity": "idle"}
         result = classify(_pane("node"), capture, read)

@@ -235,3 +235,11 @@ A known tool replacement also survives failed-parse state fallback and clears th
 agent title. Sample 46 and watcher tests cover both paths. Final validation:
 **745 unit tests**, Ruff clean, target repetition **30/30**, and full Vertex candidate
 eval **48/49**, with only main's known sample 16 failure. No prompt text changed.
+
+Copilot's read-only audit of 0e905c6 identified one last ambiguity and explicitly
+found no other reproducible issue: an unadorned historical line printing `Thread
+renamed to ...` could mimic a rename event. Historical rename provenance now requires
+the agent's bullet-marked event form; sample 47 distinguishes printed output from the
+real scrolled rename in sample 36. Final validation remains **745 unit tests**, Ruff
+clean, target repetition **30/30**, and the expanded full Vertex candidate eval is
+**49/50**, with only main's known sample 16 failure. No prompt text changed.

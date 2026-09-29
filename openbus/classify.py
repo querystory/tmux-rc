@@ -134,7 +134,7 @@ def _session_chrome(text: str) -> list[str]:
         if path_status or _CODEX_STATUS_ROW_RE.fullmatch(line):
             chrome.append(line)
     chrome.extend(line for line in strip_dim(text).splitlines()
-                  if re.match(r"^\s*(?:[•●]\s*)?Thread renamed to \S", line))
+                  if re.match(r"^\s*[•●]\s+Thread renamed to \S", line))
     return chrome
 
 
@@ -153,7 +153,7 @@ def _session_evidence(text: str) -> str:
             model = models[-1] if models else 0
             if model:
                 titles.append(" · ".join(segments[:model]))
-        match = re.match(r"^\s*(?:[•●]\s*)?Thread renamed to (\S.*?)\s*$", line)
+        match = re.match(r"^\s*[•●]\s+Thread renamed to (\S.*?)\s*$", line)
         if match:
             titles.append(match.group(1))
     return "\n".join(titles)

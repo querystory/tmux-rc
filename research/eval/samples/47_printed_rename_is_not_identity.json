@@ -1,0 +1,11 @@
+{
+  "description": "An unadorned historical line that merely prints 'Thread renamed to' is tool output, not the agent's bullet-marked rename event, and cannot name a titleless current pane.",
+  "current_command": "node",
+  "capture": "Thread renamed to Legacy ticket\n\u001e[visible screen]\u001f\n› Ask Codex to do anything\n\ngpt-6-sol · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Ready for a request"
+  }
+}
