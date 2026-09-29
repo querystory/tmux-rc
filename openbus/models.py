@@ -12,7 +12,7 @@ Activity = Literal["running", "idle", "waiting", "compacting", "unknown"]
 # actionable) vs "external" (a background subagent / Copilot / CI / poll it spawned —
 # just busy). Absent ⇒ treat as "user" (the safe default; never hide a real user-wait).
 WaitingOn = Literal["user", "external"]
-Tool = Literal["claude", "codex", "gemini", "shell", "unknown"]
+Tool = Literal["claude", "codex", "gemini", "opencode", "shell", "unknown"]
 # Permission/interaction mode, mirroring Claude Code's shift-tab cycle.
 Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
 

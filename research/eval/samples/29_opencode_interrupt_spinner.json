@@ -1,0 +1,10 @@
+{
+  "description": "OpenCode's animated block row ending in 'esc interrupt' is active-work chrome, not decorative noise. The generic node foreground forces the prompt to identify OpenCode from its own footer while a Claude model is selected. Faithful synthetic reduction of the live spinner shown in OpenCode 1.18.32.",
+  "current_command": "node",
+  "capture": "The previous response remains visible above the composer.\n\n▣  Build · Claude Opus 5.5 · 38.5s\n\n┃\n┃\n┃  Build · Claude Opus 5.5 · Amazon Bedrock                  ~/src/example:feat/otlp-grpc-exporter\n╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n /home/example/src/example          51.8K (5%) · $0.40   ctrl+p commands   • OpenCode 1.18.32\n\n▰▰▰▰▰▰ esc interrupt",
+  "expected": {
+    "tool": "opencode",
+    "activity": "running",
+    "headline": "OpenCode is actively working on the current turn"
+  }
+}

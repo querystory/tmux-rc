@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from openbus.history import BACKFILL_TTL, History, state_index
+from openbus.history import BACKFILL_TTL, History, agent_counts, state_index
 from scripts.backfill_history import reconstruct
 
 
@@ -72,6 +72,13 @@ def test_identity_and_dimensions_are_structural_only(tmp_path):
 ])
 def test_state_semantics(activity, waiting_on, expected):
     assert state_index({"activity": activity, "waiting_on": waiting_on}) == expected
+
+
+def test_opencode_counts_as_a_foreground_agent():
+    assert agent_counts({"tool": "opencode", "activity": "idle"}) == {
+        "foreground": [0, 0, 1, 0, 0, 0],
+        "background": [0, 0, 0, 0, 0, 0],
+    }
 
 
 def test_backfill_rejects_ambiguity_wrong_host_old_server_and_missing_states(tmp_path):
