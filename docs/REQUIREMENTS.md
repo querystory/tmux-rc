@@ -83,6 +83,9 @@ PAUSED here (2026-07-14) to redesign around this before writing more scrapers.
       per-tick work extracted into `_tick_pane`. Cards sorted waiting > running > idle.
       Per-pane state independent (fingerprint, parse cadence, events, sticky tool).
       GC drops state for closed panes. Verified live with multiple panes.
+- [x] Blocking push notifications for user-waits, with secure option replies where the
+      platform supports actions and an iPhone deep link to the pending pane.
 
 ## Non-goals for PoC
-- Push notifications; auth (LAN/tunnel only, do NOT expose); PNG snapshots; tmux control-mode.
+- Milestone/completion pushes (after noise calibration); auth (LAN/tunnel only, do NOT
+  expose); PNG snapshots; tmux control-mode.

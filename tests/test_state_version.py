@@ -67,6 +67,14 @@ def test_live_frame_churn_does_not_bump():
     assert w.state_version() == v
 
 
+def test_cwd_change_wakes_state_consumers_without_a_screen_change():
+    w = Watcher(target=None)
+    w._bump_state_if_changed(_states({**A, "cwd": "/repo/first"}))
+    version = w.state_version()
+    w._bump_state_if_changed(_states({**A, "cwd": "/repo/second"}))
+    assert w.state_version() == version + 1
+
+
 def test_fingerprint_distinguishes_none_from_literal_none():
     # A field flipping between None and the literal string "None" IS a change and must
     # bump — the fingerprint must not coerce them together (the f-string-join bug).

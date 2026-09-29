@@ -343,6 +343,86 @@ def test_recycled_pane_between_text_and_submit_is_a_failure(monkeypatch):
     assert events == [("send", "original draft")]
 
 
+def test_expected_pid_is_checked_inside_the_send_transaction(monkeypatch):
+    events = _record(monkeypatch, 0.3)
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "replacement")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "approve", expected_pid="original")
+    assert events == []
+
+
+def test_expected_pid_protects_a_bare_submit(monkeypatch):
+    events = _record(monkeypatch, 0.3)
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "replacement")
+    with pytest.raises(tmux.PaneChangedError):
+        tmux.send_keys("%1", "", expected_pid="original")
+    assert events == []
+
+
+def test_send_guard_is_rechecked_after_waiting_for_the_pane_lock(monkeypatch):
+    import threading
+
+    events = _record(monkeypatch, 0)
+    locked = threading.Event()
+    release = threading.Event()
+    generation = [0]
+    errors = []
+
+    def blocker():
+        with tmux._pane_lock("%1"):
+            locked.set()
+            release.wait(2)
+
+    def guarded_send():
+        def guard():
+            if generation[0] != 0:
+                raise ValueError("newer input")
+        try:
+            tmux.send_keys("%1", "approve", guard=guard)
+        except ValueError as error:
+            errors.append(str(error))
+
+    holder = threading.Thread(target=blocker)
+    holder.start()
+    assert locked.wait(2)
+    contender = threading.Thread(target=guarded_send)
+    contender.start()
+    generation[0] = 1
+    release.set()
+    holder.join(2)
+    contender.join(2)
+    assert errors == ["newer input"]
+    assert events == []
+
+
+def test_input_invalidation_waits_for_an_inflight_push_submit(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(tmux, "_ENTER_SETTLE_S", 0.2)
+    monkeypatch.setattr(tmux, "_last_paste", {})
+    order = []
+    settling = threading.Event()
+    real_sleep = tmux.time.sleep
+
+    monkeypatch.setattr(tmux, "_run", lambda args: order.append(args[-1]) or "")
+
+    def pause(seconds):
+        settling.set()
+        real_sleep(seconds)
+
+    monkeypatch.setattr(tmux.time, "sleep", pause)
+    push = threading.Thread(target=tmux.send_keys, args=("%1", "approve"))
+    push.start()
+    assert settling.wait(2)
+    invalidator = threading.Thread(
+        target=tmux.before_send, args=("%1", lambda: order.append("invalidated"))
+    )
+    invalidator.start()
+    push.join(2)
+    invalidator.join(2)
+    assert order == ["approve", "Enter", "invalidated"]
+
+
 def test_per_pane_locks_are_retired_only_after_all_users_release_them():
     import gc
 

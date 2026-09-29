@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 import weakref
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -166,6 +167,26 @@ def _run(args: list[str]) -> str:
         ).stdout
     except subprocess.TimeoutExpired as e:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
+
+
+def client_active_within(seconds: float) -> bool:
+    """Whether any attached tmux client received input recently.
+
+    A failure (including no attached clients) is treated as absence.  Push suppression
+    must fail open: losing tmux presence may cause one useful notification, never hide it.
+    """
+    try:
+        rows = _run(["list-clients", "-F", "#{client_activity}"]).splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    now = time.time()
+    for value in rows:
+        try:
+            if now - float(value) < seconds:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 _server_uid: str | None = None
@@ -678,6 +699,12 @@ def pane_pid(pane_id: str) -> str | None:
         return None  # no such pane any more
 
 
+def before_send(pane_id: str, callback: Callable[[], None]) -> None:
+    """Linearize a quick state change with every send targeting this pane."""
+    with _pane_lock(pane_id):
+        callback()
+
+
 def _settle_before_return(pane_id: str) -> None:
     """Check the pasted-to pane's identity even if its paste has already settled."""
     with _paste_lock:
@@ -693,7 +720,8 @@ def _settle_before_return(pane_id: str) -> None:
 
 
 def send_keys(
-    pane_id: str, keys: str, enter: bool = True, literal: bool = True
+    pane_id: str, keys: str, enter: bool = True, literal: bool = True,
+    *, expected_pid: str | None = None, guard: Callable[[], None] | None = None,
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
@@ -701,10 +729,18 @@ def send_keys(
     key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
     Return (only meaningful for literal text).
 
-    `pane_id` must already be a resolved pane id — see _send_locks."""
+    `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
+    `expected_pid` binds the complete send transaction to that pane incarnation.
+    `guard`, when present, runs only after the per-pane send lock is held."""
     with _pane_lock(pane_id):
+        if guard is not None:
+            guard()
+        if expected_pid is not None:
+            check_pane(pane_id, expected_pid)
         if literal:
-            identity = pane_pid(pane_id) if keys else None
+            identity = expected_pid if keys and expected_pid is not None else (
+                pane_pid(pane_id) if keys else None
+            )
             if keys and identity is None:
                 raise PaneChangedError("Pane disappeared before delivery.")
             b, i = keys.encode(), 0
@@ -744,6 +780,8 @@ def send_keys(
             # too. Every other key name is a lone keystroke and waits for nothing.
             if keys == "Enter":
                 _settle_before_return(pane_id)
+            if expected_pid is not None:
+                check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, keys])
         if enter and literal:
             # Let the paste burst end before the Return, or it is read as a newline
@@ -751,6 +789,8 @@ def send_keys(
             # an interleaved send during the gap would put another caller's text in the
             # box we are about to submit.
             _settle_before_return(pane_id)
+            if expected_pid is not None:
+                check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, "Enter"])
 
 
@@ -881,5 +921,3 @@ def set_clipboard_image(png: bytes) -> list[str]:
         except Exception:  # noqa: BLE001 - try the next tool
             continue
     return ok
-
-
