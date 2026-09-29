@@ -533,7 +533,12 @@ def classify(
         if isinstance(rows, list) and rows and all(
             isinstance(row, list) and all(isinstance(v, str) for v in row) for row in rows
         ):
+            headers = table.get("headers")
             table_text.add(" ".join(" ".join(v for row in rows for v in row).split()))
+            if isinstance(headers, list) and all(isinstance(value, str) for value in headers):
+                table_text.add(" ".join(" ".join(
+                    value for row in [headers, *rows] for value in row
+                ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
     copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "",

@@ -261,3 +261,10 @@ the exact visible footer title canonicalizes a unique partial model response. Sa
 covers `[PR 123] Fix login`. Final validation: **755 unit tests**, Ruff clean, target
 repetition **30/30**, and full Vertex candidate eval **51/52**, with only main's known
 sample 16 failure. No prompt text changed.
+
+Copilot's review of 8914261 found that whole-table copyable deduplication included
+rows but omitted headers. The normalizer now records both header-plus-rows and
+rows-only forms, preserving the existing individual-row behavior. Sample 50 covers
+the full displayed table. Final validation remains **755 unit tests**, Ruff clean,
+target repetition **30/30**, and full Vertex candidate eval **52/53**, with only
+main's known sample 16 failure. No prompt text changed.

@@ -651,8 +651,13 @@ def test_visible_question_is_preserved_without_retry():
 
 
 def test_copyable_table_rows_are_not_duplicated():
-    for payload in ("12  Open\n13  Merged", "12 Open", "13 Merged"):
-        result = classify(_pane(), "12 Open\n13 Merged", _llm({
+    for payload in (
+        "PR  State\n12  Open\n13  Merged",
+        "12  Open\n13  Merged",
+        "12 Open",
+        "13 Merged",
+    ):
+        result = classify(_pane(), "PR State\n12 Open\n13 Merged", _llm({
             "tables": [{"headers": ["PR", "State"], "rows": [["12", "Open"], ["13", "Merged"]]}],
             "copyables": [{"label": "PR list", "text": payload}],
         }))
