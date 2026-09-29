@@ -4,8 +4,8 @@ from openbus.classify import compose_prompt, parser_prompt
 
 
 def test_composed_prompt_is_byte_identical_to_main_before_split():
-    # Captured verbatim from main cd9aaf9; includes order, blank lines, and examples.
-    baseline = Path(__file__).parents[1] / "research/eval/prompts/parser_main_cd9aaf9.txt"
+    # Captured verbatim from main 27d81e1; includes order, blank lines, and examples.
+    baseline = Path(__file__).parents[1] / "research/eval/prompts/parser_main_27d81e1.txt"
     assert parser_prompt().encode("utf-8") == baseline.read_bytes()
 
 
