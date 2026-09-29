@@ -582,4 +582,5 @@ def test_connect_snapshot_screen_budget():
 def test_unknown_tool_is_rejected_as_such(monkeypatch):
     fc = _FC(name="rm_rf", args={"pane_id": "%1", "text": "x"})
     _, _, session, typed = _dispatch(fc, monkeypatch)
-    assert typed == [] and session.responses[0][1] == {"status": "rejected", "reason": "unknown tool"}
+    assert typed == []
+    assert session.responses[0][1] == {"status": "rejected", "reason": "unknown tool"}
