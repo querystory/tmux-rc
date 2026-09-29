@@ -47,7 +47,7 @@ Have it return explicit updates, not a replacement list:
 
 ```json
 {"pr_updates": [{"repo": "owner/repo", "number": 123,
-                 "context": "Review finished; changes handed back to the author",
+                 "context": "Review finished; findings summarized",
                  "status": "done"}]}
 ```
 
@@ -127,13 +127,14 @@ and recovery tests in implementation; no database/schema expansion is prescribed
 
 ## Migration and acceptance tests
 
-Existing `{repo, number}` entries have no trustworthy role or lifecycle. For a verified
-current session, preserve their links and search matches labeled “Context pending,”
-but exclude them from automatic routing. Internally they are pending, not active.
-Supply them for reassessment on each normal semantic read until explicitly classified;
-omission or failure leaves them pending. Never infer a role or delete an entry on a
-timeout. Entries whose originating session cannot be verified remain quarantined under
-the identity rule above. Pending and quarantined records count toward the same cap.
+The shipped baseline stores associations only in memory. The first upgrade therefore
+starts without saved associations and reconstructs best-effort state from available
+scrollback under the bootstrap rules above. It cannot promise to preserve every old
+link or reconstruct work no longer in the capture. Do not import an unverified union
+from a stale client, or invent roles for old references. There is no fourth pending
+status: bootstrap emits validated active/done/removed records or leaves a reference
+unassociated. Subsequent restarts restore the new persisted records. Quarantine is a
+session-level identity gate, not a PR status, and its records count toward the same cap.
 
 Add multi-capture evals that check transitions and negative cases, plus deterministic
 tests for update application, publication, persistence, and consumer filtering:
