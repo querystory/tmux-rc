@@ -54,9 +54,9 @@ hooks missed (hard reboot, killed session, hooks not yet installed); hooks run o
 themselves when the last is more than six hours old, so no timer is needed.
 
 Codex has no such hook here, so its sessions (`~/.codex/sessions`, or `$CODEX_HOME`)
-arrive with reconcile, which `resolve` also starts in the background when one is due:
-without Claude hooks the index is still at most six hours behind whenever someone
-searches, and no search waits for it. An entry is one Codex thread, not one file: resuming a thread
+arrive with reconcile, which `resolve` also starts in the background when one is due.
+No search waits for it, so a search after a long idle period answers from the index as
+it was and starts the refresh; a later search sees the result. An entry is one Codex thread, not one file: resuming a thread
 continues it in a new rollout file under the same ID, so its files are read together
 and the entry is fresh while none is newer. Its title is the thread name Codex keeps in
 `session_index.jsonl`; renaming an idle thread touches no rollout, so the rename's

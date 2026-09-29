@@ -37,7 +37,7 @@ type harness struct {
 	sessions func() ([][]string, error)            // each session's transcript files, oldest first
 	identity func(path string) (id, parent string) // from the path alone, so freshness needs no parsing
 	read     func(files []string) (Session, error)
-	renamed  func(id string) time.Time          // when a name kept outside the transcripts changed
+	renamed  func(id string) (time.Time, error) // when a name kept outside the transcripts changed
 	running  func() (map[string]Running, error) // live sessions by ID; an error means unknown
 }
 
@@ -107,8 +107,14 @@ func indexFile(h harness, files []string, force bool) error {
 		return nil
 	}
 	id, parent := h.identity(files[0])
-	if h.renamed != nil && h.renamed(id).After(mtime) {
-		mtime = h.renamed(id)
+	if h.renamed != nil {
+		renamed, err := h.renamed(id)
+		if err != nil {
+			return err
+		}
+		if renamed.After(mtime) {
+			mtime = renamed
+		}
 	}
 	dst := indexPath(h.name, parent, id)
 	if idx, err := os.Stat(dst); !force && err == nil && idx.ModTime().Equal(mtime) {

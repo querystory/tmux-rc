@@ -78,6 +78,20 @@ func TestReadCodex(t *testing.T) {
 	check(t, "started", s.Started, "2026-09-01T10:00:00Z")
 	check(t, "last_active", s.LastActive, "2026-09-02T09:00:09Z")
 	check(t, "resume", ResumeLine(s.Cwd, s.ResumeArgv), "cd '/src/my repo' && 'codex' 'resume' '"+codexID+"'")
+
+	// An unreadable name log is an error, not an untitled thread, and isn't cached.
+	if os.Getuid() != 0 {
+		names := filepath.Join(codexDir(), "session_index.jsonl")
+		nameLog.path = ""
+		must(t, os.Chmod(names, 0o000))
+		if _, err := ReadCodex(sessions[0]); err == nil {
+			t.Errorf("unreadable name log read as no names")
+		}
+		must(t, os.Chmod(names, 0o600))
+		s, err = ReadCodex(sessions[0])
+		must(t, err)
+		check(t, "title after the log is readable", s.Title, "live mode fix")
+	}
 }
 
 func TestReconcileIndexesCodex(t *testing.T) {

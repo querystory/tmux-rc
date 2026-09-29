@@ -78,7 +78,11 @@ func ReadCodex(files []string) (Session, error) {
 	var tail struct{ Timestamp string }
 	json.Unmarshal(last, &tail)
 	s.seen(tail.Timestamp, "", "")
-	s.Title = codexThreadName(s.ID).Name
+	name, err := codexThreadName(s.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	s.Title = name.Name
 	if s.Cwd != "" {
 		s.ResumeArgv = []string{"codex", "resume", s.ID}
 	}
@@ -108,15 +112,18 @@ var nameLog struct {
 // codexThreadName is the thread's name and when it was last set. Codex keeps names
 // outside the rollout, in an append-only log where the last entry for an ID wins, so
 // the rename time also dates the entry: renaming an idle thread rebuilds only it.
-func codexThreadName(id string) codexName {
+func codexThreadName(id string) (codexName, error) {
 	path := filepath.Join(codexDir(), "session_index.jsonl")
 	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return codexName{}, nil // no thread has been named yet
+	}
 	if err != nil {
-		return codexName{}
+		return codexName{}, err
 	}
 	if path != nameLog.path || !info.ModTime().Equal(nameLog.mtime) {
 		names := map[string]codexName{}
-		scanLines(path, func(line []byte) error {
+		err := scanLines(path, func(line []byte) error {
 			var e struct {
 				ID string `json:"id"`
 				codexName
@@ -126,12 +133,18 @@ func codexThreadName(id string) codexName {
 			}
 			return nil
 		})
+		if err != nil {
+			return codexName{}, err // cache only a complete read
+		}
 		nameLog.path, nameLog.mtime, nameLog.names = path, info.ModTime(), names
 	}
-	return nameLog.names[id]
+	return nameLog.names[id], nil
 }
 
-func codexRenamed(id string) time.Time { return codexThreadName(id).Renamed }
+func codexRenamed(id string) (time.Time, error) {
+	n, err := codexThreadName(id)
+	return n.Renamed, err
+}
 
 // codexSessions groups the rollout files by thread, oldest first. find lists
 // directories in name order and rollouts are named by start time, so a thread's
@@ -174,14 +187,20 @@ func RunningCodex() (map[string]Running, error) {
 	}
 	for _, p := range procs {
 		pid, err := strconv.Atoi(p.Name())
-		info, statErr := p.Info()
-		if err != nil || statErr != nil || !owned(info) {
-			continue
+		if err != nil {
+			continue // not a process
 		}
-		if comm, _ := os.ReadFile(filepath.Join("/proc", p.Name(), "comm")); strings.TrimSpace(string(comm)) != "codex" {
-			continue
+		// Each step runs only if the last succeeded and says keep looking; any failure
+		// but the process exiting makes liveness unknown.
+		var comm []byte
+		var fds []os.DirEntry
+		info, err := p.Info()
+		if err == nil && owned(info) {
+			comm, err = os.ReadFile(filepath.Join("/proc", p.Name(), "comm"))
 		}
-		fds, err := os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
+		if err == nil && strings.TrimSpace(string(comm)) == "codex" {
+			fds, err = os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
+		}
 		if errors.Is(err, fs.ErrNotExist) {
 			continue // exited while we looked
 		}
