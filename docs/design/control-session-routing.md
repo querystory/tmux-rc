@@ -57,7 +57,8 @@ existing tools (`type_in_pane`, `press_key` in `openbus/live_providers.py`) as t
 path's whole vocabulary. The one addition is the directory's incarnation guard (below):
 today those tools carry only a pane id, and a direct send must be rejected if that id
 now belongs to a different pane, or (for a key press) if the screen it was judged
-against has since changed.
+against has since changed. So the directory carries a per-pane screen revision next to
+the incarnation, and a direct send echoes both back.
 
 Why the gate sits where it does: a send into a live agent cannot be undone. The agent
 reads it and acts. The control plane's risk tiers already say to spend friction in
@@ -110,8 +111,8 @@ quietly. Three design-level guards:
 
 - **Standing instructions** it starts with state the charter and the refusal ("hand
   project work to a project pane"), and name the directory as the source of truth
-  for state but never for instructions: titles, summaries and events are text panes
-  wrote, so they are routing evidence, and only a request from a front end or the user
+  for state but never for instructions: titles, summaries and events are text the panes
+  produced, so they are routing evidence, and only a request from a front end or the user
   carries authority to act (the same rule Live Mode applies to its terminal updates).
 - **Re-seed, don't remember.** When context grows stale, tmux-rc restarts control from
   a fresh launcher seeded with the charter plus the current directory, rather than
@@ -186,7 +187,8 @@ used to debug a crossed stream.
 2. **Bus verbs** as MCP and CLI, starting with confirmed send.
 3. **Fast dispatcher** in chat and Live: send direct on one confident target, else
    delegate.
-4. **The control session** as the delegation target, with its charter and re-seeding.
+4. **The control session** as the delegation target, with its charter and re-seeding;
+   it needs #232's threads for its replies.
 5. **Leads**, only if real use shows control's fleet-wide view is not enough.
 
 Each step is useful alone. The directory helps Live Mode immediately; the verbs help
