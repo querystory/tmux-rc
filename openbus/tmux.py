@@ -700,8 +700,8 @@ def pane_pid(pane_id: str) -> str | None:
     durable identity."""
     try:
         return _run(["display-message", "-p", "-t", pane_id, "#{pane_pid}"]).strip() or None
-    except subprocess.CalledProcessError:
-        return None  # no such pane any more
+    except (OSError, subprocess.CalledProcessError):
+        return None  # no such pane (or tmux) any more
 
 
 def before_send(pane_id: str, callback: Callable[[], None]) -> None:
