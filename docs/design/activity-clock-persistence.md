@@ -57,10 +57,11 @@ the pid in the key, a reused id is simply a new row.
 We add one small table to that database: one row per pane, holding a hash of the
 pane's current fingerprint, the time that fingerprint first appeared, and the time the
 pane went idle (empty while it isn't idle). A row records facts about the pane, not
-what some daemon noticed, so writes are conditional: the screen fields change only
-when the stored hash differs from the current one, the idle time only when the pane
-enters or leaves idle. A write stores the clocks as the watcher holds them, so after a
-mismatch it records the `window_activity` seed, not the startup time. That is a few writes a minute across the fleet, not one per tick.
+what some daemon noticed, so writes are conditional: a row is written only when the
+stored hash differs from the current one or the pane has entered or left idle. A write
+replaces the whole row with the clocks as the watcher holds them, so after a mismatch
+it records the `window_activity` seeds, not the startup time or a stale idle time.
+That is a few writes a minute across the fleet, not one per tick.
 
 The condition matters even with one daemon. The watcher treats a pane's first tick
 after startup as a screen change, so an unconditional write-on-change would stamp
@@ -74,8 +75,8 @@ a change and its write is harmless: the hash mismatches and seeding falls back t
 
 ### Seeding
 
-On a pane's first sighting after startup, the watcher looks up its preloaded row. If the stored
-hash matches the current screen, the stored times replace `window_activity` wherever
+On a pane's first sighting after startup, the watcher looks up its preloaded row. If
+the stored hash matches the current screen, the stored times replace `window_activity` wherever
 the code now seeds from it: `last_activity_at`, and `state_since` on a pane that is
 already idle. If the hash differs, or there is no row, or the database can't be read,
 the watcher falls back to `window_activity` exactly as today.
@@ -125,11 +126,11 @@ After the first successful listing of every pane on the tmux server, we delete t
 preloaded rows for that server whose panes are not in it. Limiting the delete to the
 preload means a row another daemon inserted meanwhile can't be pruned. Preloaded rows
 from other tmux servers go once that server is provably gone: a different boot id, or
-a server pid that is no longer running. The listing must be the full one, not the watch
-list, which `TMUXRC_TARGET` narrows to one pane. Expiring
-rows by age instead would drop a long-idle live pane back to `window_activity`, which
-the footer redraws above keep fresh: the very bug this fixes. If tmux can't be listed,
-nothing is pruned.
+a server pid that is no longer running. The listing must be the full one, not the
+watch list, which `TMUXRC_TARGET` narrows to one pane. If tmux can't be listed,
+nothing is pruned. Expiring rows by age instead would drop a long-idle live pane back
+to `window_activity`, which the footer redraws above keep fresh: the very bug this
+fixes.
 
 ## Alternatives considered
 
