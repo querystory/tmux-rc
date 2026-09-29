@@ -2771,6 +2771,7 @@ function applyLinks(box, links) {
     setAttr(a, "href", l.href);
     setText(a._txt, safeText(l.text, 80) || host); // untrusted: bidi-stripped, capped
     setText(a._host, ` ${safeText(l.detail, 280) || host}`);
+    a._host.style.display = l.detail ? "block" : "";
   });
 }
 
