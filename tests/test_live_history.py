@@ -5,6 +5,7 @@ tmux (argv, directory) comes from the agent-history index; a session that is alr
 running is never started twice; and without agent-history the tools don't exist."""
 
 import asyncio
+import logging
 import os
 import shutil
 import stat
@@ -15,7 +16,7 @@ import pytest
 import openbus.live as L
 from openbus import agent_history, tmux
 from openbus.tmux import Pane
-from tests.test_live_mode import _FC, _WS, _run, _Session, _Watcher
+from tests.test_live_mode import _FC, _METER, _WS, _run, _Session, _Watcher
 
 _REAL_ANCESTORS = L._ancestors  # before the autouse stub replaces it
 
@@ -57,7 +58,7 @@ def history(monkeypatch, tmp_path):
 def _call(name, args, watcher=None):
     ws, session = _WS(), _Session()
     _run(L._handle_tool_call(ws, session, _FC(name=name, args=args), watcher or _Watcher(),
-                             "tester"))
+                             _METER))
     return ws, session.responses[0][1]
 
 
@@ -80,7 +81,7 @@ def test_resume_is_idempotent_until_the_session_registers(history):
     async def twice():
         return await asyncio.gather(*(
             L._handle_tool_call(_WS(), s, _FC(name="resume_session", args={"session_id": "live-1"}),
-                                _Watcher(), "tester")
+                                _Watcher(), _METER)
             for s in (a, b)))
     a, b = _Session(), _Session()
     _run(twice())
@@ -120,6 +121,64 @@ def test_tmux_failure_is_reported_not_raised(history, monkeypatch, broken):
         raise subprocess.CalledProcessError(1, "tmux")
     monkeypatch.setattr(tmux, broken, fail)
     assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "error"
+
+
+def test_every_call_is_audited_in_the_journal_and_otel(history, monkeypatch, caplog):
+    # One record per call, whatever the outcome: opened, failed, or refused unoffered.
+    sessions, _ = history
+    sessions["live-1"], sessions["live-2"] = LIVE, {**LIVE, "session_id": "live-2"}
+    emitted = []
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: emitted.append(k))
+    monkeypatch.setattr(tmux, "server_uid", lambda: "u")
+    caplog.set_level(logging.INFO, logger="openbus.server.audit")
+    _call("resume_session", {"session_id": "live-1"})
+    monkeypatch.setattr(tmux, "new_window", lambda *a: 1 / 0)
+    _call("resume_session", {"session_id": "live-2"})
+    # The window opened but the phone vanished before hearing so: still on the record.
+    sessions["live-3"], gone = {**LIVE, "session_id": "live-3"}, _WS()
+    monkeypatch.setattr(tmux, "new_window", lambda *a: "%41")
+
+    async def drop(obj):
+        raise ConnectionError
+    gone.send_json = drop
+    with pytest.raises(ConnectionError):
+        _run(L._handle_tool_call(gone, _Session(), _FC(name="resume_session",
+             args={"session_id": "live-3"}), _Watcher(), _METER))
+    monkeypatch.setattr(agent_history, "binary", lambda: None)
+    _call("resume_session", {"session_id": "live-1"})
+    ok, err, aborted, refused = emitted
+    assert aborted["outcome"] == "error: aborted" and aborted["pane_uid"] == "u:%41"
+    assert ok.items() >= {
+        "action": "live_resume_session", "pane_uid": "u:%40", "actor": "tester",
+        "outcome": "ok", "session": "s1", "session_id": "live-1", "tool": "claude",
+        "cwd": "/repo", "window": "tmuxrc live mode", "tmux_session": "work",
+    }.items()
+    assert isinstance(ok["latency_ms"], int) and ok["provider"] == _METER.model.backend
+    assert err["outcome"] == "error: could not open a window" and "division" in err["detail"]
+    assert refused["outcome"] == "rejected: session history not available"
+    lines = [r.getMessage() for r in caplog.records if r.name == "openbus.server.audit"]
+    assert lines[0].startswith("AUDIT live_resume_session pane=%40 by tester ")
+    assert "session_id='live-1'" in lines[0] and "window='tmuxrc live mode'" in lines[0]
+    assert lines[1].endswith("[error: could not open a window]")
+    assert lines[3].endswith("[rejected: session history not available]")
+
+
+@pytest.mark.parametrize(("qsdebug", "audit_keys"), [(False, True), (True, True), (True, False)])
+def test_spoken_content_is_recorded_only_under_qsdebug(monkeypatch, caplog, qsdebug, audit_keys):
+    # A search query is the user's speech: like a transcript, it reaches the journal and
+    # OTel only under QSDEBUG, and TMUXRC_AUDIT_KEYS=0 still withholds it everywhere.
+    monkeypatch.setattr(agent_history, "resolve", lambda q: [])
+    monkeypatch.setattr(L.telemetry, "QSDEBUG", qsdebug)
+    monkeypatch.setattr(L.telemetry, "AUDIT_KEYS", audit_keys)
+    monkeypatch.setattr(tmux, "server_uid", lambda: "u")
+    records = []
+    monkeypatch.setattr(L.telemetry, "_emit_record", lambda body, attrs, *a: records.append(attrs))
+    caplog.set_level(logging.INFO, logger="openbus.server.audit")
+    _call("find_sessions", {"query": "my sudo password"})
+    shown = qsdebug and audit_keys
+    assert ("my sudo password" in caplog.text) is shown
+    assert (records[0].get("keys") == "my sudo password") is shown
+    assert records[0]["results"] == 0
 
 
 def test_resume_never_starts_a_second_copy(history):

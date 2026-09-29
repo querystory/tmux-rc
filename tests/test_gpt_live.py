@@ -67,7 +67,7 @@ def session(events=(), *, closed=True):
     meter = L._Meter("test", "test", G.ENTRY)
     meter.usage = G.Usage(G.BACKEND)
     events = [*events, {"type": "session.closed"}] if closed else events
-    return G.Session(Wire(events), Browser(), Watcher(), "test", meter)
+    return G.Session(Wire(events), Browser(), Watcher(), meter)
 
 
 def response(kind, **fields):
@@ -326,7 +326,7 @@ def test_stop_or_phone_disconnect_collects_final_usage(monkeypatch, disconnected
 
     async def run():
         try:
-            await G.run_session(Client(), Watcher(), "test", meter)
+            await G.run_session(Client(), Watcher(), meter)
         except WebSocketDisconnect:
             assert disconnected
 
@@ -393,7 +393,7 @@ def test_startup_error_preserves_code(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: model_not_found$"):
-        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test", G.ENTRY)))
+        asyncio.run(G.run_session(Browser(), Watcher(), L._Meter("test", "test", G.ENTRY)))
 
 
 # Selection is by LABEL against the offered menu now, not by a TMUXRC_LIVE_MODEL default:
@@ -475,7 +475,7 @@ def test_http_handshake_error_is_sanitized(monkeypatch, status, code):
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: Connection())
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: " + code + "$"):
-        asyncio.run(G.run_session(Browser(), Watcher(), "test", L._Meter("test", "test", G.ENTRY)))
+        asyncio.run(G.run_session(Browser(), Watcher(), L._Meter("test", "test", G.ENTRY)))
 
 
 @pytest.mark.parametrize("rate", ["bad", "nan", "inf", "-1"])
@@ -511,7 +511,7 @@ def test_invalid_configuration_still_marks_openai_telemetry(monkeypatch):
     monkeypatch.setenv("TMUXRC_GPT_LIVE_INPUT_PER_M", "invalid")
     meter = L._Meter("test", "test", G.ENTRY)
     with pytest.raises(G.ProviderError):
-        asyncio.run(G.run_session(Browser(), Watcher(), "test", meter))
+        asyncio.run(G.run_session(Browser(), Watcher(), meter))
     assert meter.model is G.ENTRY  # the adapter must not replace it with a bare id
     assert meter.details == {
         "backend_model": G.BACKEND, "voice_seconds": 0.0, "usage_final": False,
@@ -576,6 +576,6 @@ def test_provider_eof_propagates_from_running_session(monkeypatch):
     monkeypatch.setattr(G.websockets, "connect", lambda *a, **kw: wire)
     meter = L._Meter("test", "test", G.ENTRY)
     with pytest.raises(G.ProviderError, match="connection_closed_without_session_closed"):
-        asyncio.run(G.run_session(Client(), Watcher(), "test", meter))
+        asyncio.run(G.run_session(Client(), Watcher(), meter))
     assert not meter.usage.final
     assert wire.sent[-1]["type"] == "session.close"

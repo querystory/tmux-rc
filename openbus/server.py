@@ -322,17 +322,6 @@ class ClientErrorBody(BaseModel):
     message: str | None = None  # free-text — to OTel only under TMUXRC_QSDEBUG
 
 
-# Audit lines ride the standard root config above (INFO). Routine records, not warnings.
-_audit_log = logging.getLogger("openbus.server.audit")
-
-# Key CONTENT in the audit trail is on by default (the operator asked for exactly this
-# visibility) but can be switched off: keys typed via the phone can include no-echo
-# secrets (sudo/ssh passwords) that nothing else in the system captures — pane capture
-# never sees unechoed input — and a forwarded journal would persist them. Set
-# TMUXRC_AUDIT_KEYS=0 to log actions without key content (local log AND telemetry).
-_AUDIT_KEYS = os.environ.get("TMUXRC_AUDIT_KEYS") != "0"
-
-
 def _trusted_user(request: Request | None) -> str | None:
     """The tunnel owner's email, honored ONLY from a loopback peer (the same trust
     model as _audit): the tunnel-client connects from localhost having validated the
@@ -379,50 +368,9 @@ def _audit(
     outcome: str = "ok",
 ) -> None:
     """One line per state-CHANGING request, with WHO — answers "what is making changes
-    to my terminals?". Also emitted as an OTel record so the trail is queryable next to
-    the parse telemetry.
-
-    Trust model for WHO: X-Tunnel-User is honored only from loopback peers — the
-    tunnel-client connects from localhost, and the relay validated the identity via IAP
-    and strips spoofed inbound copies. From any OTHER peer the
-    header is an unauthenticated LAN client's claim, so it is logged as a claim rather
-    than as the actor — which makes spoof attempts themselves visible in the trail.
-
-    `outcome` records what actually happened ("ok", "rejected: ...", "error: ..."), so
-    a forensic reader can distinguish completed actions from refused/failed attempts."""
-    peer = request.client.host if request.client else "?"
-    claimed = request.headers.get("x-tunnel-user")
-    if claimed and peer in ("127.0.0.1", "::1"):
-        actor = claimed
-        # Untrusted forensics breadcrumb: the relay forwards Cloud Run's XFF chain,
-        # whose first hop is the real browser IP. Annotation only — never the actor.
-        if xff := request.headers.get("x-forwarded-for"):
-            actor = f"{claimed} [via {xff.split(',')[0].strip()[:45]}]"
-    elif claimed:
-        actor = f"local:{peer} claiming {claimed[:60]!r}"
-    else:
-        actor = f"local:{peer}"
-    shown = f" keys={keys[:80]!r}" if keys is not None and _AUDIT_KEYS else ""
-    _audit_log.info(
-        "AUDIT %s pane=%s by %s%s%s%s",
-        action,
-        pane_id,
-        actor,
-        f" {detail}" if detail else "",
-        shown,
-        "" if outcome == "ok" else f" [{outcome}]",
-    )
-    try:
-        telemetry.emit_action(
-            action=action,
-            pane_uid=f"{tmux.server_uid()}:{pane_id}",
-            actor=actor[:200],
-            detail=detail or None,
-            keys=keys if _AUDIT_KEYS else None,
-            outcome=outcome,
-        )
-    except Exception:  # audit telemetry must never break the request
-        logger.debug("audit emit failed", exc_info=True)
+    to my terminals?". See telemetry.actor for the trust model, telemetry.audit for the
+    record."""
+    telemetry.audit(action, pane_id, telemetry.actor(request, via=True), detail, keys, outcome)
 
 
 @asynccontextmanager
