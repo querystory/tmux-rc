@@ -16,7 +16,7 @@ import time
 from functools import partial
 
 from . import tmux
-from .classify import bootstrap, classify
+from .classify import _OPENCODE_RUNNING_RE, bootstrap, classify
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
 from .repository import github_repository
@@ -151,6 +151,9 @@ def _fingerprint(text: str) -> str:
     untouched — including single-cell braille, which is real content — because
     collapsing spacing globally would erase the indentation that distinguishes one
     screen from another (a diff, a tree, nested output)."""
+    # Share the exact line matcher with classify(): anything decisive enough to force
+    # running is normalized here, and nothing else can accidentally become invisible.
+    text = _OPENCODE_RUNNING_RE.sub("[opencode-active]", text)
     text = _VOLATILE_RE.sub("", text)
     lines = text.split("\n")
     anchors = [i for i, ln in enumerate(lines) if _CODEX_INPUT_RE.match(ln)]
@@ -791,7 +794,7 @@ class Watcher:
         return seen is not None and (time.monotonic() - seen) < self.LIVE_PRESENCE_WINDOW
 
     def tool_for(self, pane_id: str) -> str | None:
-        """Last-known agent tool for a pane (claude/codex/gemini/shell), for callers
+        """Last-known agent tool for a pane (claude/codex/gemini/opencode/shell), for callers
         outside the tick — e.g. live telemetry attribution. None if unseen."""
         t = self._tool.get(pane_id)
         return t[0] if t else None
@@ -1188,7 +1191,7 @@ class Watcher:
         # So: only override a shell/unknown read with a remembered agent if we saw that
         # agent within the last few seconds.
         tool = state.get("tool")
-        if tool in ("claude", "codex", "gemini"):
+        if tool in ("claude", "codex", "gemini", "opencode"):
             self._tool[pane.id] = (tool, now)
         elif tool in ("shell", "unknown", None):
             prev = self._tool.get(pane.id)

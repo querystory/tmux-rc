@@ -143,6 +143,7 @@ _GENERIC_NAMES = {
     "claude",
     "codex",
     "gemini",
+    "opencode",
     "aider",
 }
 
@@ -216,7 +217,7 @@ def server_uid(*, strict: bool = False) -> str:
         boot = "nobootid"
     try:
         pid = _run(["display-message", "-p", "#{pid}"]).strip()
-    except subprocess.CalledProcessError:
+    except (OSError, subprocess.CalledProcessError):
         if strict: raise
         # No server (yet). Serve the last good identity if we have one rather than
         # inventing a ':0' that would look like a different server to the backend.
@@ -408,17 +409,22 @@ def server_path() -> str | None:
     return out[len("PATH="):] if out.startswith("PATH=") else None
 
 
-def new_window(session: str, name: str, command: str) -> str:
+def new_window(session: str, name: str, command: str | list[str], cwd: str | None = None) -> str:
     """Open a new window in `session` running `command`, and return its pane id.
     The trailing ':' pins the target to the session (a bare name could match a window).
     -d: the phone asked, so the phone decides focus — the daemon must not yank the
     host user's tmux client to the new window.
     -c: without it tmux starts the window in the *client's* cwd, and here the client is
     the daemon (its WorkingDirectory), not the user's session. #{session_path} is the
-    directory the session was created in, which is what a hand-typed `prefix c` gets."""
+    directory the session was created in, which is what a hand-typed `prefix c` gets;
+    `cwd` overrides it for a command that must start somewhere specific (a resumed
+    agent session only exists in the directory it was started in).
+    A `command` given as a list is executed directly by tmux, with no shell, so its
+    arguments are never parsed as shell syntax."""
+    argv = command if isinstance(command, list) else [command]
     return _run(
-        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", "#{session_path}",
-         "-t", f"{session}:", "-n", name, command]
+        ["new-window", "-d", "-P", "-F", "#{pane_id}", "-c", cwd or "#{session_path}",
+         "-t", f"{session}:", "-n", name, "--", *argv]
     ).strip()
 
 
@@ -695,8 +701,8 @@ def pane_pid(pane_id: str) -> str | None:
     durable identity."""
     try:
         return _run(["display-message", "-p", "-t", pane_id, "#{pane_pid}"]).strip() or None
-    except subprocess.CalledProcessError:
-        return None  # no such pane any more
+    except (OSError, subprocess.CalledProcessError):
+        return None  # no such pane (or tmux) any more
 
 
 def before_send(pane_id: str, callback: Callable[[], None]) -> None:

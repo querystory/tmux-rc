@@ -60,7 +60,8 @@ the session; the adapter does not replay actions or silently start a fresh conve
 Speech interruption alone does not undo an action already sent to a terminal.
 
 Validation: `make test`; the opt-in, billable
-`uv run python research/live-eval/smoke_gpt_live.py /tmp/live-smoke.wav` synthesizes a
+`uv run python research/live-eval/smoke_gpt_live.py /tmp/live-smoke.wav`
+([live-eval scripts](../../research/live-eval/README.md)) synthesizes a
 fixed utterance and checks speech → delegation → exactly one guarded action → spoken
 confirmation → final usage. It uses a fake terminal and requires `ffmpeg`. Phone testing
 is still needed for echo, interruptions, mobile backgrounding, and perceived latency.
@@ -174,7 +175,7 @@ narrow verb rather than overloading the first: two unambiguous actions (type a s
 press a key) the model chooses between, and `press_key`'s **whitelist** means it can only
 send keys that make sense for a terminal UI, never an arbitrary chord we didn't vet. The
 prompt teaches the vocabulary generically (Escape cancels, C-c interrupts, arrows+Enter
-pick a menu item) so it works for claude/codex/gemini/shell alike — no per-vendor
+pick a menu item) so it works for claude/codex/gemini/opencode/shell alike — no per-vendor
 cheatsheet to go stale, matching the "observe the terminal, don't model the agent"
 principle.
 
@@ -228,7 +229,7 @@ executor). What carried over, adapted:
    be state refreshes, not the user speaking: "never respond to them; treat them as
    current truth." Belt (the `turn_complete=False` mechanism) and suspenders (the
    prompt rule).
-7. **Per-pane audience awareness.** Agent panes (claude/codex/gemini) receive natural
+7. **Per-pane audience awareness.** Agent panes (claude/codex/gemini/opencode) receive natural
    language — the agent parses it. Shell panes receive exact commands. Panes showing a
    numbered menu can be answered with the option the prompt expects. This routing
    knowledge lives in the prompt because the pane state already carries each pane's
@@ -316,7 +317,7 @@ parsing. It gets its own accounting rather than being folded into the parser's:
 
 The 2.5 voice sounded dated next to current consumer assistants, and the only honest way
 to judge a voice model is to talk to it from the phone about real panes — a text harness
-(`research/live-eval/`) shows every candidate passing the same tool-calling cases at
+([`research/live-eval/`](../../research/live-eval/README.md)) shows every candidate passing the same tool-calling cases at
 sub-second latency, so reasoning is not what separates them; naturalness, barge-in and
 turn-taking are, and no harness sees those. Hence a picker on the real surface, backed by
 a small amount of deliberate structure:
