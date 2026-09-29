@@ -28,6 +28,17 @@ test("PR destinations reject malformed metadata and unsafe links", () => {
     links: [null, {}, { href: "javascript:alert(1)" }] }), []);
 });
 
+test("transient links keep their own cap without hiding tracked PRs", () => {
+  const prs = Array.from({ length: 8 }, (_, i) => ({ repo: "org/repo", number: i + 1 }));
+  const links = [null, { href: "javascript:bad" },
+    { href: "https://github.com/org/repo/pull/1" },
+    ...Array.from({ length: 20 }, (_, i) => ({ href: `https://example.com/${i}` }))];
+  const result = paneLinks({ prs, links });
+  assert.equal(result.length, 11);
+  assert.equal(result[7].href, "https://github.com/org/repo/pull/8");
+  assert.equal(result[10].href, "https://example.com/2");
+});
+
 test("sidebar finds accumulated PRs after the number disappears from visible text", () => {
   for (const query of ["4955", "#4955", "PR 4955", "PR #4955", "qs-app#4955",
     "qs-app 4955", "qs-app #4955", "qs-app pr 4955", "QUERYSTORY/QS-APP#4955",

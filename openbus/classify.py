@@ -124,6 +124,7 @@ def _working_prs(value) -> list[dict]:
             number = int(number)
         if (
             not _GITHUB_REPOSITORY_RE.fullmatch(repo)
+            or any(part in {".", ".."} for part in repo.split("/"))
             or len(repo) > 256
             or not isinstance(number, int)
             or isinstance(number, bool)
