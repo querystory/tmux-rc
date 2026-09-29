@@ -1,0 +1,11 @@
+{
+  "description": "A four-row viewport places quoted pane metadata inside the last four rows, but above the input boundary. It is conversation output, not current status-row identity evidence.",
+  "current_command": "codex",
+  "capture": "\u001e[visible screen]\u001f\n{'session': 'other-pane', 'title': 'Other conversation'}\n• Pane status check complete.\n› Ask Codex to do anything\ngpt-6-sol · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Pane status check complete; ready for another request"
+  }
+}

@@ -131,6 +131,14 @@ scrolled-off rename; unit tests cover initial validation and the bounded retry.
 Latest full corpus: **38/39**, only the same sample 16 failure. **732 unit tests**
 and Ruff pass. Final samples 27–32 repetition: **30/30**, five passes per case.
 
+The short-capture review finding is now covered by sample 37: quoted tool metadata
+above the input row is not status chrome even when it falls within the final four
+rows. Status evidence starts below the input boundary; a capture lacking that boundary
+must contain recognizable standalone footer structure. Explicit rename events are
+anchored separately. A positive Claude title-above-status unit test also passes.
+Current validation: **734 unit tests**, Ruff clean, target repetition **30/30**, full
+candidate corpus **39/40** (only the same known sample 16 missing-table failure).
+
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked
 on #249. Next: finish the current-head Copilot loop; no merge or deployment authorized.

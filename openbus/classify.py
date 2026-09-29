@@ -114,7 +114,17 @@ def bootstrap_prompt() -> str:
 
 def _session_evidence(text: str) -> str:
     lines = text.splitlines()
-    return "\n".join(lines[-4:] + [line for line in lines if "Thread renamed to " in line])
+    # The input row separates conversation output from the bottom status chrome.
+    # A short capture can put quoted tool output in the last four rows too.
+    input_row = max((i for i, line in enumerate(lines)
+                     if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
+    footer = lines[max(input_row + 1, len(lines) - 4):]
+    if input_row < 0:
+        footer = [line for line in footer if re.match(r"^\s*(?:~/|/)", line)
+                  or re.search(r"(?:^|·\s*)(?:gpt-[\w.-]+|o\d[\w.-]*)(?:\s|·|$)", line)]
+    renamed = [line for line in lines
+               if re.match(r"^\s*(?:[•●]\s*)?Thread renamed to \S", line)]
+    return "\n".join(footer + renamed)
 
 
 def _supported_session(name, visible: str, tool) -> bool:

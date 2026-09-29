@@ -474,6 +474,25 @@ def test_session_grounding_rejects_paths_and_quoted_output():
         assert "session" not in result
 
 
+def test_short_capture_does_not_promote_tool_output_to_status_evidence():
+    for capture in (
+        "{'session': 'other-pane'}\noutput\n› input\n~/src/app · gpt-6-sol",
+        "{'session': 'other-pane'}\noutput\n~/src/app · gpt-6-sol",
+        "log: Thread renamed to other-pane\n› input\n~/src/app · gpt-6-sol",
+    ):
+        result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "other-pane"}))
+        assert "session" not in result
+
+
+def test_claude_title_above_status_bar_is_preserved():
+    capture = ("› input\n──────────────────── Fix login redirects\n"
+               "~/src/app · Opus 5.5 · 30% context")
+    result = classify(_pane("claude"), capture, _llm({
+        "tool": "claude", "session": "Fix login redirects",
+    }))
+    assert result["session"] == "Fix login redirects"
+
+
 def test_stale_question_is_reread_from_visible_screen_only():
     calls = []
     def read(_prompt, text):
