@@ -103,7 +103,7 @@ def test_opencode_standalone_checkboxes_own_their_line_and_done_state():
         "Plan\n[✓] Ship it\n[•] Test it\n~[ ] Drop it~\n[ ]\nProse\n\nOpenCode 1.18.32",
         _llm({"tool": "opencode", "activity": "running", "tasks": tasks}),
     )
-    assert r["tasks"] == [{"text": "Ship it", "done": True}, *tasks[1:3]]
+    assert r["tasks"] == [{"text": "Ship it", "done": True}, tasks[1]]
 
 
 def test_opencode_interrupt_spinner_forces_running():

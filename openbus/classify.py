@@ -25,9 +25,10 @@ from .tmux import Pane
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
-    # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending, ~[ ] cancelled~.
-    r"(?im)^[ \t]*(?:[-*][ \t]*)?~?(?:(?P<done>☑|✓|✔|\[[x✓]\])|☐|\[[ •]\])"
-    r"[ \t]*(?P<text>\S.*?)~?[ \t]*$",
+    # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
+    # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
+    r"(?im)^[ \t]*(?:[-*][ \t]*)?(?:(?P<done>☑|✓|✔|\[[x✓]\])|☐|\[[ •]\])"
+    r"[ \t]*(?P<text>\S.*)$",
 )
 _OPENCODE_RUNNING_RE = re.compile(
     # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
