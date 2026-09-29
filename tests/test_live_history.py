@@ -53,7 +53,7 @@ def _call(name, args, watcher=None):
     ws, session = _WS(), _Session()
     _run(L._handle_tool_call(ws, session, _FC(name=name, args=args), watcher or _Watcher(),
                              "tester"))
-    return ws, session.responses[0].response
+    return ws, session.responses[0][1]
 
 
 def test_resume_opens_the_indexed_command_in_its_directory(history):
@@ -78,7 +78,7 @@ def test_resume_is_idempotent_until_the_session_registers(history):
             for s in (a, b)))
     a, b = _Session(), _Session()
     _run(twice())
-    statuses = sorted(x.responses[0].response["status"] for x in (a, b))
+    statuses = sorted(x.responses[0][1]["status"] for x in (a, b))
     assert statuses == ["already_running", "opened"]
     assert len(opened) == 1
 
@@ -182,7 +182,7 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
 
 def test_tools_offered_only_with_agent_history(monkeypatch):
     def offered():
-        names = {f.name for t in L._tools() for f in t.function_declarations}
+        names = {t["name"] for t in L.live_providers.tools()}
         # A call to a tool that wasn't offered is refused, not run.
         refused = _call("find_sessions", {"query": "x"})[1]["status"] == "rejected"
         assert refused == ("find_sessions" not in names)

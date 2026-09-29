@@ -23,6 +23,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
         "app.js",
         "terminal.js",
         "push.js",
+        "live-close.js",
         "sw.js",
         "m/app.js",
         "m/composer.js",

@@ -32,6 +32,13 @@ def binary() -> str | None:
     )
 
 
+def offered() -> bool:
+    """Whether Live offers the history tools, and so whether a call to them may run.
+    Not in single-pane mode (TMUXRC_TARGET): the watcher publishes only that pane, so a
+    window these tools open or point at could never be typed into."""
+    return bool(binary()) and not os.environ.get("TMUXRC_TARGET")
+
+
 def _run(*args: str) -> dict | None:
     exe = binary()
     if not exe:

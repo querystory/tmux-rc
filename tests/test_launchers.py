@@ -49,6 +49,20 @@ def test_launchers_bad_config_falls_back(monkeypatch):
     assert [e["label"] for e in S._launchers()] == ["Claude", "Codex", "Gemini"]
 
 
+def test_one_malformed_launcher_falls_the_whole_list_back(monkeypatch):
+    """All-or-nothing, and deliberately so. The hand-rolled parser this replaced skipped a
+    bad entry and kept the rest, which leaves a menu that looks correct and quietly is not
+    — nobody investigates that. A menu that has visibly reverted to the defaults sends you
+    to the config, where the warning is already waiting in the log. The Live model table
+    needs the same rule for a stronger reason (a mis-parsed entry must never be offered at
+    a made-up price), and one rule for both is one thing to know."""
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([
+        {"label": "Good", "command": "claude"},
+        {"label": "Broken"},  # no command
+    ]))
+    assert [e["label"] for e in S._launchers()] == ["Claude", "Codex", "Gemini"]
+
+
 def _fake_pane(session="work"):
     return T.Pane(session, "1", "w", "0", "%9", "bash", "t")
 
