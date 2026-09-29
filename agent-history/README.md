@@ -5,7 +5,7 @@ Live Mode can find past work across projects and resume it. It is independent of
 tmux-rc daemon: it indexes sessions that never ran in a pane (subagents, IDE sessions,
 headless runs), and runs whether or not the daemon is up.
 
-Status: Claude Code only. Codex and OpenCode readers, summaries and `resolve` follow.
+Status: Claude Code only. Codex and OpenCode readers and summaries follow.
 
 ## Why an index and not a copy
 
@@ -35,7 +35,8 @@ Each entry is front matter of `key: value` lines whose values are JSON, which ke
 valid YAML and one greppable line per field: `harness`, `session_id`, `parent_session`,
 `source`, `source_missing`, `cwd`, `branches`, `entrypoint` (`cli` is interactive,
 `sdk-cli` is headless), `title` (the user's name for the session over the generated one),
-`started`, `last_active`, `prs`, `resume`, `messages`. Empty fields are omitted. The body
+`started`, `last_active`, `prs`, `resume_argv` (the command to run in `cwd`, for programs,
+which must never go through a shell), `resume` (the same as a quoted line to paste), `messages`. Empty fields are omitted. The body
 is the human's messages, one `## <timestamp> · <how it was sent>` section each; a
 subagent's body is the task its parent gave it.
 
@@ -51,3 +52,18 @@ Code's `Stop`, `SessionEnd` and `SubagentStop` hooks. The hook hands the transcr
 detached child and returns in milliseconds. `agent-history reconcile` repairs whatever
 hooks missed (hard reboot, killed session, hooks not yet installed); hooks run one
 themselves when the last is more than six hours old, so no timer is needed.
+
+## Resolving a request
+
+`agent-history resolve [-json] [-harness claude] [-all] <query>` answers "where does
+this belong?" for a request like "fix live mode": the likeliest repos and, in each, the
+sessions to resume. It reads only the index, takes milliseconds, and calls no model.
+
+Scoring is deliberately simple. Each query word and adjacent word pair is weighted by
+how rare it is across sessions, so "fix" barely counts and "live mode" decides; the
+session's title, branches and PR links count more than passing mentions; hits saturate
+so one long session can't bury the rest; and weight halves every two weeks of
+inactivity. A repo ranks by its best three sessions, not its volume, and git worktrees
+fold into their main repo. Headless runs and subagents are left out unless `-all`.
+Paraphrase ("the voice thing" for Live Mode) is out of reach by design until real misses
+justify aliases or embeddings.
