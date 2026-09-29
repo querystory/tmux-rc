@@ -2,8 +2,10 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -15,6 +17,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("CODEX_HOME", dir)
+	os.Setenv("CLAUDE_CONFIG_DIR", dir) // resolve may reconcile
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -150,24 +153,46 @@ func TestRunningCodex(t *testing.T) {
 	for n := range codexRollouts {
 		name = n
 	}
-	f, err := os.Open(filepath.Join(codexSessionsDir(), name))
-	must(t, err)
+	path := filepath.Join(codexSessionsDir(), name)
 	id, _ := codexIdentity(name)
-	got, err := RunningCodex()
+	running := func() (Running, bool) {
+		got, err := RunningCodex()
+		must(t, err)
+		r, ok := got[id]
+		return r, ok
+	}
+
+	// Holding a rollout open doesn't make a process the session: this test isn't codex.
+	f, err := os.Open(path)
 	must(t, err)
-	// A process with no terminal (like the app-server daemon, or this test under CI)
-	// is in no pane, whatever its environment says.
-	pane := os.Getenv("TMUX_PANE")
+	defer f.Close()
+	if r, ok := running(); ok {
+		t.Errorf("a non-codex process holding the rollout counted: %+v", r)
+	}
+
+	// A process named codex (a shell under that name) holding it open does.
+	codex := filepath.Join(t.TempDir(), "codex")
+	must(t, os.Symlink("/bin/sh", codex))
+	cmd := exec.Command(codex, "-c", `exec 3<"$1"; sleep 60`, "sh", path)
+	cmd.Env = append(os.Environ(), "TMUX_PANE=%99")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	must(t, cmd.Start())
+	// A process with no terminal (like the app-server daemon, or tests under CI) is in
+	// no pane, whatever its environment says.
+	pane := "%99"
 	if tty, _ := procStat(os.Getpid(), 7); tty == "0" {
 		pane = ""
 	}
-	if r, ok := got[id]; !ok || r.PID != os.Getpid() || r.TmuxPane != pane {
-		t.Errorf("open rollout = %+v, %v", r, ok)
+	r, ok := running()
+	for deadline := time.Now().Add(5 * time.Second); !ok && time.Now().Before(deadline); r, ok = running() {
+		time.Sleep(20 * time.Millisecond)
 	}
-	f.Close()
-	got, err = RunningCodex()
-	must(t, err)
-	if _, ok := got[id]; ok {
-		t.Errorf("closed rollout counted as running")
+	if !ok || r.PID != cmd.Process.Pid || r.TmuxPane != pane {
+		t.Errorf("codex holding the rollout = %+v, %v", r, ok)
+	}
+	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	cmd.Wait()
+	if r, ok := running(); ok {
+		t.Errorf("exited codex counted as running: %+v", r)
 	}
 }

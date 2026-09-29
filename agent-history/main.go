@@ -37,9 +37,7 @@ func main() {
 				report(IndexTranscript(p, false))
 			}
 		})
-		if since(stateFile()) > reconcileEvery || recordedFormat() != Format {
-			Reconcile()
-		}
+		reconcileIfDue()
 	case "reconcile":
 		Reconcile()
 	case "resolve":
@@ -56,6 +54,8 @@ func main() {
 }
 
 func resolveCmd(args []string) error {
+	// Codex has no hook here, so searching is also what keeps its sessions current.
+	reconcileIfDue()
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
 	opt.Running, opt.RunningErr = LiveSessions()
@@ -178,6 +178,14 @@ func Reconcile() {
 			}
 		})
 	})
+}
+
+// reconcileIfDue runs a reconcile when the last completed one is too old or wrote an
+// older entry format.
+func reconcileIfDue() {
+	if since(stateFile()) > reconcileEvery || recordedFormat() != Format {
+		Reconcile()
+	}
 }
 
 // recordedFormat is the entry format the last completed reconcile wrote.

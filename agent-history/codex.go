@@ -153,10 +153,10 @@ func codexSessions() ([][]string, error) {
 }
 
 // RunningCodex lists live Codex threads by ID. Codex keeps no registry, but a running
-// process holds its thread's rollout open, so the user's processes' open files say
-// which threads are live, and where (see pane). A process
-// whose files can't be read is skipped, unless it is Codex itself: then liveness is
-// unknown.
+// Codex holds its thread's rollout open, so the open files of the user's codex
+// processes say which threads are live, and where (see pane). Only codex processes
+// count: an editor or `tail -f` on a rollout is not the session. A codex process
+// whose files can't be read makes liveness unknown.
 func RunningCodex() (map[string]Running, error) {
 	out := map[string]Running{}
 	// Open files show resolved paths, so compare against the resolved directory.
@@ -178,13 +178,10 @@ func RunningCodex() (map[string]Running, error) {
 		if err != nil || statErr != nil || !owned(info) {
 			continue
 		}
-		fds, err := os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
-		if errors.Is(err, fs.ErrPermission) {
-			comm, _ := os.ReadFile(filepath.Join("/proc", p.Name(), "comm"))
-			if strings.TrimSpace(string(comm)) != "codex" {
-				continue // not dumpable (ssh-agent, sandboxes): not ours to see
-			}
+		if comm, _ := os.ReadFile(filepath.Join("/proc", p.Name(), "comm")); strings.TrimSpace(string(comm)) != "codex" {
+			continue
 		}
+		fds, err := os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue // exited while we looked
 		}
