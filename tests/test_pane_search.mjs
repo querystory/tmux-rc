@@ -16,6 +16,12 @@ const pane = {
   window_index: "2", tool: "codex", prs: [{ repo: "querystory/qs-app", number: 4955 }],
 };
 
+test("transient link metadata cannot spoof the destination host", () => {
+  assert.deepEqual(paneLinks({ links: [{ href: "https://evil.example/", text: "Preview",
+    detail: "github.com", extra: "untrusted" }] }),
+  [{ href: "https://evil.example/", text: "Preview" }]);
+});
+
 test("tracked PRs stay tappable without a current-frame link and preserve other links", () => {
   const pr = { href: "https://github.com/querystory/qs-app/pull/4955", text: "querystory/qs-app#4955" };
   assert.deepEqual(paneLinks(pane), [pr]);

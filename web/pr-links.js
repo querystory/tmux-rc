@@ -24,6 +24,7 @@ export function paneLinks(pane) {
     } catch { return false; }
   };
   const prs = tracked.filter(accept).slice(0, 64);
-  const transient = (Array.isArray(pane?.links) ? pane.links : []).filter(accept).slice(0, 3);
+  const transient = (Array.isArray(pane?.links) ? pane.links : [])
+    .filter(accept).slice(0, 3).map(({ href, text }) => ({ href, text }));
   return [...prs, ...transient];
 }
