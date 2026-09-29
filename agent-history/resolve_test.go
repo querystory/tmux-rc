@@ -95,6 +95,30 @@ func TestResolveEdgeCases(t *testing.T) {
 	}
 }
 
+func TestResolveRanksBeforeRounding(t *testing.T) {
+	entries := []Entry{
+		entry(t, Session{ID: "older", Cwd: "/a", LastActive: now.Add(-time.Second).Format(time.RFC3339)}, "ranking"),
+		entry(t, Session{ID: "newer", Cwd: "/z"}, "ranking"),
+	}
+	opt := defaults
+	opt.MaxProjects = 1
+	for range 50 {
+		got := Resolve(entries, "ranking", opt)
+		check(t, "higher score despite same display rounding", got[0].Repo, "/z")
+	}
+}
+
+func TestResolveCommandReportsUnreadableEntry(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_HISTORY_DIR", root)
+	dir := filepath.Join(root, "index", "claude")
+	must(t, os.MkdirAll(dir, 0o700))
+	must(t, os.WriteFile(filepath.Join(dir, "broken.md"), []byte("---\ntitle: invalid-json\n---\nquery"), 0o600))
+	if err := resolveCmd([]string{"-json", "query"}); err == nil {
+		t.Fatal("corrupt index was reported as a successful empty search")
+	}
+}
+
 func TestResolveFilters(t *testing.T) {
 	entries := []Entry{
 		entry(t, Session{ID: "human", Cwd: "/r", Entrypoint: "cli"}, "judge"),
