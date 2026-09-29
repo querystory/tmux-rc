@@ -2,7 +2,7 @@
 
 The scripts that answered "which voice model, and does the whole loop actually work?" for
 [Live Mode](../../docs/design/live-mode.md). None of them touch a real tmux pane: the
-probe and harnesses never reach tmux code (the harnesses only answer the model's tool
+probe and harnesses never reach tmux code (the harnesses only inspect the model's tool
 call), and the two smokes run the daemon against a fake watcher with `send_keys` mocked.
 All of them call paid provider APIs, so none run in `make test`; run them by hand when the
 question they answer comes up again.
