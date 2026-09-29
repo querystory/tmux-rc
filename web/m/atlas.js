@@ -1,8 +1,9 @@
 import { atlasCharts } from './atlas-charts.js';
-import { needsYou, isRunning, paneName, activityLabel } from './pane-model.js';
+import { needsYou, isRunning, paneName } from './pane-model.js';
 
-const STATES = ['Needs you', 'Running', 'Idle', 'Unknown'];
-const stateOf = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
+const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting'];
+const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
+const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
 const toolOf = p => p.tool || 'other';
 let history = [], historyData = null, historyWindow = '24h', historyError = '';
 let requestedAt = 0, controller, reloadHistory;
@@ -54,12 +55,13 @@ function packSessions(groups, width) {
 
 const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
 
-export function renderAtlas(root, panes, navigate, logos) {
+export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
   const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(Boolean))];
   const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
+  const metric = root._metric || 'panes';
   const filtered = scope.tool || scope.session;
   const samples = history.map(s => {
     if (!filtered || s.n === null) return s;
@@ -67,23 +69,38 @@ export function renderAtlas(root, panes, navigate, logos) {
     // A partial log reconstruction cannot prove a filtered fleet was empty. Keep
     // its timestamp as a gap, including at either end of the selected range.
     if (!s.groups || (s.source === 'logs' && !groups.length)) return { ...s, n: null, groups: [], source: 'gap' };
-    return { ...s, groups, n: groups.reduce((counts, g) => counts.map((n, i) => n + g.n[i]), [0, 0, 0, 0]) };
+    return { ...s, groups, n: groups.reduce((counts, g) => counts.map((n, i) => n + (g.n[i] || 0)), STATES.map(() => 0)),
+      foreground: s.foreground == null && !groups.length ? null : sum(groups.map(g => g.foreground)),
+      background: s.background == null && !groups.length ? null : sum(groups.map(g => g.background)) };
   });
+  const chartSamples = samples.map(s => ({ ...s, n: metric === 'panes' ? s.n : metric === 'agents'
+    ? sum([s.foreground, s.background]) : s[metric] ?? null }));
   // Preserve focus and pointer targets across unchanged long polls.
-  const signature = [scope.tool, scope.session, history, historyWindow, historyError, historyData?.step, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+  const signature = [metric, scope.tool, scope.session, history, historyWindow, historyError, historyData?.step, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.session_summary, p.status_line])];
   if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return;
   root._signature = signature;
-  const selectedWord = root._selectedWord;
   const charts = root._charts ||= atlasCharts();
   const focus = root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
   root._mapResize?.disconnect();
   root.replaceChildren();
   const controls = el('div', 'atlas-controls');
-  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos); };
+  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic); };
   ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
     const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
-    const button = el('button', 'atlas-filter', `${tool || 'All tools'} · ${count}`);
+    const button = el('button', 'atlas-filter atlas-tool-filter');
+    const label = `${tool || 'All tools'} · ${count} panes`;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    if (tool) {
+      const logo = el('img');
+      logo.src = Object.prototype.hasOwnProperty.call(logos, tool) ? logos[tool] : '/tmux-logomark.svg';
+      logo.alt = ''; logo.width = 22; logo.height = 22;
+      button.append(logo);
+    } else {
+      button.append(el('span', '', 'All'));
+    }
+    button.append(el('span', 'count', String(count)));
     button.dataset.key = `tool:${tool}`;
     button.setAttribute('aria-pressed', String(scope.tool === tool));
     button.onclick = () => { scope.tool = tool; redraw(); };
@@ -112,8 +129,8 @@ export function renderAtlas(root, panes, navigate, logos) {
     members.forEach(p => {
       const dot = el('button', `atlas-dot s${stateOf(p)}`);
       dot.dataset.key = p.pane_id;
-      dot.setAttribute('aria-label', `${paneName(p)} · ${activityLabel(p)}`);
-      dot.title = `${paneName(p)}\n${activityLabel(p)}\n${p.session_summary || p.status_line || ''}`;
+      dot.setAttribute('aria-label', `${paneName(p)} · ${STATES[stateOf(p)]}`);
+      dot.title = `${paneName(p)}\n${STATES[stateOf(p)]}\n${p.session_summary || p.status_line || ''}`;
       const logo = el('img', 'atlas-agent-icon');
       logo.src = Object.prototype.hasOwnProperty.call(logos, p.tool) ? logos[p.tool] : '/tmux-logomark.svg';
       logo.alt = p.tool || 'tmux';
@@ -139,36 +156,28 @@ export function renderAtlas(root, panes, navigate, logos) {
   });
   root._mapResize.observe(map);
   if (!panes.length) root.append(el('p', 'muted', 'No current panes match these filters.'));
-  const busy = panes.filter(isRunning).length, waiting = panes.filter(needsYou).length;
+  const busy = panes.filter(p => stateOf(p) === 1).length, waiting = panes.filter(needsYou).length;
   const insight = el('p', 'atlas-insight muted', `${panes.length} panes across ${groups.size} sessions · ${panes.length ? Math.round(busy / panes.length * 100) : 0}% running · ${waiting} waiting for you`);
   root.append(insight);
 
   const lower = el('div', 'atlas-lower');
-  const topics = el('section', 'atlas-panel');
-  topics.append(el('h3', '', 'What’s on the radar'), el('p', 'muted', 'Words shared by pane titles and summaries. Pick one to explore.'));
+  const topics = el('section', 'atlas-panel atlas-topics');
+  topics.append(el('h3', '', 'What’s on the radar'), el('p', 'muted', 'Click a word to search your sessions.'));
   const words = new Map();
   panes.forEach(p => {
     const tokens = new Set(`${paneName(p)} ${p.session_summary || p.status_line || ''}`.toLowerCase().match(/[\p{L}][\p{L}\p{N}-]{2,24}/gu) || []);
     tokens.forEach(w => { if (!STOP.has(w)) { if (!words.has(w)) words.set(w, []); words.get(w).push(p); } });
   });
-  const matches = el('div', 'atlas-matches');
   const topWords = [...words].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])).slice(0, 40);
-  const picker = el('select', 'atlas-topic-picker');
-  picker.dataset.key = 'topic-picker';
-  picker.setAttribute('aria-label', 'Explore a topic');
-  picker.append(new Option('Explore a topic…', ''));
-  topWords.forEach(([word, members]) => picker.append(new Option(`${word} · ${members.length} panes`, word)));
-  const selectWord = word => {
-    root._selectedWord = word;
-    picker.value = word;
-    matches.replaceChildren();
-    if (!word || !words.has(word)) return;
-    const members = words.get(word);
-    matches.append(el('p', 'muted', `${word} · ${members.length} panes`));
-    members.forEach(p => { const link = el('button', 'landing-row', paneName(p)); link.dataset.key = `topic-pane:${p.pane_id}`; link.onclick = () => navigate(p.pane_id); matches.append(link); });
-  };
-  picker.onchange = () => selectWord(picker.value);
-  topics.append(charts.cloud, picker, matches);
+  // Canvas words are clickable; expose the same topics when navigating by keyboard.
+  const topicLinks = el('div', 'atlas-topic-links');
+  topWords.forEach(([word, members]) => {
+    const button = el('button', '', `${word} · ${members.length} panes`);
+    button.dataset.key = `topic:${word}`;
+    button.onclick = () => searchTopic(word);
+    topicLinks.append(button);
+  });
+  topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
   lower.append(topics);
 
@@ -186,32 +195,36 @@ export function renderAtlas(root, panes, navigate, logos) {
   };
   const hasLogs = samples.some(s => s.source === 'logs');
   const heading = el('div', 'atlas-panel-heading');
-  heading.append(el('h3', '', 'Pane states over time'), range);
+  heading.append(el('h3', '', 'Activity over time'));
+  const metricControls = el('select', 'atlas-range');
+  metricControls.setAttribute('aria-label', 'History population');
+  metricControls.dataset.key = 'history-metric';
+  [['panes', 'Panes'], ['agents', 'All agents'], ['foreground', 'Main agents'], ['background', 'Background agents']]
+    .forEach(([value, label]) => metricControls.append(new Option(label, value)));
+  metricControls.value = metric;
+  metricControls.onchange = () => { root._metric = metricControls.value; redraw(); };
+  const pickers = el('div', 'atlas-history-pickers');
+  pickers.append(metricControls, range);
   pulse.append(heading,
     el('p', 'muted', historyError || (historyData
-      ? 'Saved by this machine’s daemon. Blank intervals mean no observation. Idle starts hidden; use the state buttons or legend to show it.' : 'Loading saved history…')));
+      ? 'Saved by this machine’s daemon. Gaps mean no observation.' : 'Loading saved history…')));
   const zoomControls = el('div', 'atlas-zoom-controls');
   const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
   resetZoom.dataset.key = 'reset-zoom';
   resetZoom.onclick = () => charts.resetZoom();
-  zoomControls.append(el('span', 'muted', 'Drag the handles to zoom · Ctrl + scroll over the chart'), resetZoom);
-  const keyboardZoom = el('div', 'atlas-controls');
-  keyboardZoom.setAttribute('role', 'group');
-  keyboardZoom.setAttribute('aria-label', 'History chart zoom');
-  [['Zoom in', () => charts.zoomBy(0.5)], ['Zoom out', () => charts.zoomBy(2)],
-    ['Earlier', () => charts.shiftZoom(-1)], ['Later', () => charts.shiftZoom(1)]].forEach(([label, action]) => {
-    const button = el('button', 'atlas-filter', label);
-    button.dataset.key = `history-zoom:${label}`;
-    button.onclick = action; keyboardZoom.append(button);
-  });
-  pulse.append(charts.stateControls, charts.bars, keyboardZoom, zoomControls);
+  zoomControls.append(el('span', 'muted atlas-zoom-desktop', 'Drag to pan · Ctrl + scroll to zoom'),
+    el('span', 'muted atlas-zoom-touch', 'Pinch to zoom · Drag to pan'), resetZoom);
+  pulse.append(pickers, charts.stateControls, charts.bars, zoomControls);
+  pulse.append(el('p', 'atlas-history-note muted', metric === 'panes'
+    ? 'Older history grouped compacting and external waits under Running.'
+    : 'Observed coding agents only; shells and log tails are excluded. Main agents and their visible background workers are counted separately. Waiting includes review and CI waits. Hidden workers may be missed; this is not CPU or token utilization. Older history has no agent counts.'));
+  if (metric !== 'panes' && !chartSamples.some(s => s.n != null)) pulse.append(el('p', 'muted', 'No agent observations in this range yet.'));
   if (hasLogs) pulse.append(el('p', 'atlas-history-note muted', historyData.backfill_note));
   if (scope.session && history.some(s => s.source === 'logs'))
     pulse.append(el('p', 'atlas-history-note muted', 'Older log records have no tmux session identity; they are excluded from this session filter.'));
   lower.append(pulse); root.append(lower);
   charts.update({ words: topWords.map(([word, members]) => [word, members.length]),
-    samples, states: STATES, step: historyData?.step || 60000,
-    zoomKey: JSON.stringify([historyWindow, scope]), selectWord });
-  if (selectedWord) selectWord(selectedWord);
+    samples: chartSamples, states: STATES, unit: metric === 'panes' ? 'Panes' : 'Agents', step: historyData?.step || 60000,
+    zoomKey: JSON.stringify([historyWindow, scope]), selectWord: searchTopic });
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }

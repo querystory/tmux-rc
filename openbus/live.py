@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json
 import logging
 import os
 import time
@@ -217,10 +218,16 @@ def _pane_block(d: dict, screen: str | None) -> str:
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
+    if d.get("cwd"):
+        # Keep untrusted directory names from introducing fake prompt lines.
+        parts.append(f"cwd: {json.dumps(str(d['cwd']), ensure_ascii=True)}")
     if d.get("headline"):
         parts.append(f"now: {d['headline']}")
     if d.get("summary"):
         parts.append(f"recently: {d['summary']}")
+    if d.get("prs"):
+        refs = ", ".join(f"{p['repo']}#{p['number']}" for p in d["prs"])
+        parts.append(f"PRs this pane has worked on: {refs}")
     if d.get("question"):
         parts.append(f"PENDING QUESTION: {d['question']}")
     if screen:
@@ -350,7 +357,10 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         return
 
     label = labels[pane_id]
+    invalidate = getattr(watcher, "invalidate_input_actions", None)
     try:
+        if invalidate is not None:
+            await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
         await asyncio.to_thread(tmux.send_keys, *send_args)
     except Exception as e:  # report, don't kill the session
         logger.warning("[live] %s failed for %s", fc.name, pane_id, exc_info=True)
@@ -365,7 +375,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
         detail=f"into {label}" + (" +enter" if submitted else ""), keys=what,
     )
-    watcher.request_reparse(pane_id)  # the keystrokes changed the screen
+    watcher.request_reparse(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,

@@ -35,6 +35,9 @@ def test_mobile_assets_and_manifest():
         "/m/pane-model.js",
         "/lm-tap.js",
         "/terminal.js",
+        "/push.js",
+        "/pr-links.js",
+        "/sw.js",
         "/icon.svg",
     ):
         assert client.get(path).status_code == 200
@@ -42,6 +45,23 @@ def test_mobile_assets_and_manifest():
     assert manifest["start_url"] == "/m"
     assert manifest["scope"] == "/m"
     assert 'src="/app.js"' in client.get("/").text
+    assert 'id="push"' in client.get("/m").text
+    assert 'addEventListener("fetch"' not in client.get("/sw.js").text
+
+
+def test_failed_push_repair_retries_before_unsubscribe():
+    source = (Path(__file__).resolve().parents[1] / "web/push.js").read_text()
+    retry = source.index("if (subscription && repairNeeded)")
+    unsubscribe = source.index('fetch("/api/push/unsubscribe"')
+    retry_body = source[retry:unsubscribe]
+    assert 'fetch("/api/push/subscribe"' in retry_body
+    assert "repairNeeded = false" in retry_body
+    failed_enable = source.rindex("if (!response.ok) {")
+    assert "repairNeeded = true" in source[failed_enable:failed_enable + 350]
+
+    worker = (Path(__file__).resolve().parents[1] / "web/sw.js").read_text()
+    assert 'pathname.startsWith("/m")' in worker
+    assert "clients.openWindow(target)" in worker
 
 
 def test_version_tracks_nested_mobile_assets(tmp_path, monkeypatch):
@@ -112,7 +132,7 @@ def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
     css = (root / "web/m/style.css").read_text()
 
     assert "matchMedia(" in app and "WIDE" in app
-    assert 'show("sessions", !inPane || wide)' in app, "the list must survive on wide screens"
+    assert 'show("sessions", (!inPane && !dashboard) || wide)' in app
     assert 'show("back", inPane && !wide)' in app, "Back has no sidebar to return to"
     # Feature-detected: older iOS Safari has only the deprecated addListener, and calling
     # the modern name unguarded throws at module scope, taking the whole phone UI with it.
@@ -141,7 +161,8 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     css = (root / "web/m/style.css").read_text()
     html = (root / "web/m/index.html").read_text()
 
-    assert 'show("landing", wide && !inPane)' in app, "no pane picked must not mean a blank column"
+    assert 'show("landing", dashboardVisible())' in app
+    assert "!active && (WIDE.matches || dashboard)" in app
     assert "renderLanding()" in app
     # The same helpers the tabs count with — not a parallel definition that can drift.
     assert "panes.filter(needsYou)" in app and "panes.filter(isRunning)" in app

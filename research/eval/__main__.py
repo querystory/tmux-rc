@@ -76,11 +76,8 @@ def main() -> int:
     # pipeline (payload assembly, overrides) runs against the candidate prompt with no
     # duplicated call logic — this is HOW a prompt edit gets regression-tested.
     if args.prompt:
-        # Read the candidate VERBATIM — no .strip(). A prompt-regression harness must
-        # test the file's exact bytes; silently normalizing whitespace would A/B a
-        # different prompt than the one on disk. (Production's own _load_prompt strips,
-        # so the meaningful content is identical either way — but the harness must not
-        # add normalization of its own on top of what ships.)
+        # Read the candidate verbatim, matching the production loader. Boundary
+        # whitespace changes tokenization and must not differ between A/B and live.
         prompt_text = args.prompt.read_text(encoding="utf-8")
         import openbus.classify as C
 

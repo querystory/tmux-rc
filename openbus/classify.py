@@ -23,6 +23,19 @@ from .tmux import Pane
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
+_GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+# A concrete CLI section cue needs a local clarification, not more rules applied
+# to every unrelated pane. The model still identifies and classifies the workers.
+_BACKGROUND_TERMINALS_HINT = """
+AGENT COUNTS: a background process is not a background coding agent. In particular,
+Codex's "Background terminals" / "exec session" rows describe shell commands it ran,
+not delegated agents. A screen containing only "exec session 1: tail -f ... (running)"
+must omit subagents (or emit []). They also do not make the HOST agent's activity
+"running": classify the host from its own current chrome and words (idle at an empty
+input, or waiting/external when it says it is waiting for real coding agents). Only
+include actual spawned-agent contexts.
+"""
 
 # The production parser prompt lives in parser_prompt.txt (a load-bearing ~120-line
 # artifact — kept as its own file so it can be edited/diffed as prose, not wrangled
@@ -38,7 +51,9 @@ def _load_prompt(name: str) -> str:
     mtime = path.stat().st_mtime_ns  # ns: coarse mtime can miss rapid edits
     cached = _prompts.get(name)
     if cached is None or cached[0] != mtime:
-        _prompts[name] = (mtime, path.read_text(encoding="utf-8").strip())
+        # Preserve the exact candidate bytes used by the eval harness. Boundary
+        # whitespace changes tokenization too; production must not silently strip it.
+        _prompts[name] = (mtime, path.read_text(encoding="utf-8"))
     return _prompts[name][1]
 
 
@@ -85,14 +100,55 @@ def _with_recent_events(text: str, recent: list[str]) -> str:
     )
 
 
-def bootstrap(pane: Pane, text: str, llm_fn) -> dict | None:
+def _parser_context(pane: Pane, repository: str | None) -> str:
+    context = f"[tmux: this pane's foreground process is '{pane.current_command}'"
+    if repository:
+        context += f"; GitHub repository is '{repository}'"
+    return context + "]"
+
+
+def _working_prs(value) -> list[dict]:
+    """Validate the model's semantic PR associations before they become sticky state."""
+    if not isinstance(value, list):
+        return []
+    out = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
+            continue
+        repo = item["repo"].strip()
+        number = item.get("number")
+        # Bound before conversion: Python rejects enormous digit strings, and the
+        # browser must be able to represent the resulting identifier exactly.
+        if isinstance(number, str) and len(number) <= 16 and number.isascii() and number.isdigit():
+            number = int(number)
+        if (
+            not _GITHUB_REPOSITORY_RE.fullmatch(repo)
+            or any(part in {".", ".."} for part in repo.split("/"))
+            or len(repo) > 256
+            or not isinstance(number, int)
+            or isinstance(number, bool)
+            or not 0 < number <= 2**53 - 1
+        ):
+            continue
+        key = (repo.lower(), number)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"repo": repo, "number": number})
+        if len(out) == 8:
+            break
+    return out
+
+
+def bootstrap(
+    pane: Pane, text: str, llm_fn, repository: str | None = None
+) -> dict | None:
     """One-time deep read of a pane's scrollback → {name, summary, events}, seeding the
     card before live watching has accumulated anything. Events come back flagged
     historical=True (reconstructed, not observed — the UI dims them). Returns None on
     any failure so the caller can retry later."""
-    payload = (
-        f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{text}"
-    )
+    payload = f"{_parser_context(pane, repository)}\n\n{text}"
     result = llm_fn(bootstrap_prompt(), payload)
     if not isinstance(result, dict) or not isinstance(result.get("summary"), str):
         return None
@@ -106,6 +162,7 @@ def bootstrap(pane: Pane, text: str, llm_fn) -> dict | None:
         "summary": result["summary"].strip(),
         "name": name.strip()[:60] if isinstance(name, str) and name.strip() else None,
         "events": events,
+        "working_prs": _working_prs(result.get("working_prs")),
     }
 
 
@@ -116,6 +173,7 @@ def classify(
     prior: list[str] | None = None,
     recent_events: list[str] | None = None,
     prev_activity: str | None = None,
+    repository: str | None = None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
@@ -127,8 +185,15 @@ def classify(
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
-    payload = f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{payload}"
-    result = llm_fn(parser_prompt(), payload) if llm_fn else None
+    payload = f"{_parser_context(pane, repository)}\n\n{payload}"
+    result = None
+    if llm_fn:
+        prompt = parser_prompt()
+        if re.search(
+            r"(?im)^\s*(?:Background terminals\s*:|\d+ background terminals? running\b)", text,
+        ):
+            prompt += _BACKGROUND_TERMINALS_HINT
+        result = llm_fn(prompt, payload)
     if not isinstance(result, dict):
         # A failed parse knows nothing about the screen, so it must not INVENT a state.
         # `_obvious_idle` only recognizes a bare shell prompt, so on an agent TUI it is
@@ -178,14 +243,11 @@ def classify(
             result["waiting_on"] = "user"
     else:
         result.pop("waiting_on", None)
-    # Derive the running-subagent count from subagents[] so the UI (dock badge) has one
-    # number to read and the model never has to keep a separate count in sync. ALWAYS
-    # set it (default 0) — never let a legacy/non-numeric `agents` the model might emit
-    # leak through to the UI. "Running" == the UI's rule: anything not "done" is running
-    # (subagentsView pulses on state !== "done"), so both read one definition.
+    # Count only workers observed running; waiting/idle/unknown are not active work.
+    # Compacting has its own history state but still counts as busy in the dock.
     subs = result.get("subagents")
     result["agents"] = (
-        sum(1 for a in subs if isinstance(a, dict) and a.get("state") != "done")
+        sum(1 for a in subs if isinstance(a, dict) and a.get("state") in ("running", "compacting"))
         if isinstance(subs, list)
         else 0
     )
@@ -236,6 +298,11 @@ def classify(
         result["copyables"] = good
     else:
         result.pop("copyables", None)
+    working_prs = _working_prs(result.get("working_prs"))
+    if working_prs:
+        result["working_prs"] = working_prs
+    else:
+        result.pop("working_prs", None)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.

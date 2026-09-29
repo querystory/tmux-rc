@@ -11,6 +11,10 @@ panes, answers out loud, and can type into a pane, as the one and only action it
 take. Which model answers is a server-side table; with more than one configured, the
 Live button becomes a picker (see "Model providers").
 
+For the supported iPhone workflow, follow [Live Mode + notifications setup](../iphone-setup.md):
+Safari or Chrome → Add to Home Screen → launch the installed app. The guide covers microphone
+and push permissions, screen timeout, lock/background audio interruptions, and recovery.
+
 ## GPT-Live 1
 
 `openbus/gpt_live.py` adds OpenAI's full-duplex voice frontend with managed Responses

@@ -4,7 +4,9 @@ import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { sendPresence, setupPush, stateUrl } from "/push.js";
+import { paneLinks } from "/pr-links.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
@@ -39,6 +41,7 @@ const LUCIDE = {
   circle: '<circle cx="12" cy="12" r="9"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
+  bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -60,15 +63,28 @@ const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.sv
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
-let reviewLayout = "side";
-try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
-const reviewing = () => WIDE.matches && reviewLayout !== "focus";
+let reviewLayout = "auto";
+try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
+function effectiveLayout() {
+  if (!WIDE.matches) return "focus";
+  if (reviewLayout !== "auto") return reviewLayout;
+  if (view === "terminal") return "focus"; // Honor an explicit terminal deep link.
+  const { width, height } = document.getElementById("detail").getBoundingClientRect();
+  if (width >= 900 && height >= 480) return "side";
+  if (width >= 480 && height >= 720) return "stack";
+  return "focus";
+}
+const reviewing = () => effectiveLayout() !== "focus";
 const terminalVisible = () => reviewing() || view === "terminal";
 const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
+let dashboard = false;
+const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
+let focusPushComposer = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
+let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
@@ -140,6 +156,7 @@ function hashFor(id, nextView) {
   if (filter !== "all") params.set("filter", filter);
   if (sort !== "updated") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
+  if (!id && nextView === "dashboard") params.set("view", "dashboard");
   return params.toString();
 }
 
@@ -163,10 +180,13 @@ function leaveMissingPane(id) {
 }
 
 function route() {
+  const wasDashboardVisible = dashboardVisible();
   const params = new URLSearchParams(location.hash.slice(1));
   const next = params.get("pane");
   const changed = next !== active;
   active = next;
+  focusPushComposer = params.get("compose") === "1";
+  dashboard = !active && params.get("view") === "dashboard";
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
   sort = params.get("sort") === "session" ? "session" : "updated";
@@ -185,6 +205,9 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
+  if (dashboardVisible() && !wasDashboardVisible) {
+    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
+  }
   if (active && changed) post(paneUrl(active, "select")).catch(() => notice("Could not focus this pane on the host."));
   if (changed && active) $("back").focus({ preventScroll: true });
 }
@@ -192,7 +215,7 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"></span></span>' + licon("chevron", 16);
+  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span></span></span>' + licon("chevron", 16);
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
@@ -209,7 +232,11 @@ function updateRow(button, pane) {
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
   text(button.querySelector(".row-status"), pane.question?.prompt || pane.status_line || pane.session_summary || "No recent activity");
-  text(button.querySelector(".row-meta"), [sort === "updated" ? pane.session : "", pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
+  const sessionChip = button.querySelector(".session-chip");
+  sessionChip.hidden = sort !== "updated" || !pane.session;
+  text(sessionChip, pane.session || "");
+  sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
+  text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -219,9 +246,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.title, p.label, p.window_name, p.pane_id, p.tool, p.model,
-    p.question?.prompt, p.headline, p.status_line, p.session_summary, activityLabel(p),
-    p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
+  const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
     ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
@@ -237,7 +262,8 @@ function renderList() {
   text($("attention-count"), waiting);
   text($("running-count"), panes.filter(isRunning).length);
   text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", filter === button.dataset.filter));
+  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", (!dashboard || WIDE.matches) && filter === button.dataset.filter));
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("new-window").disabled = !panes.length;
 }
 
@@ -267,7 +293,13 @@ function renderLanding() {
   text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
     ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
     : "No tmux panes are open. Start a session on the host and it will appear here.");
-  renderAtlas($("session-atlas"), panes, navigate, LOGOS);
+  renderAtlas($("session-atlas"), panes, navigate, LOGOS, term => {
+    $("search").value = term;
+    filter = "all";
+    renderList();
+    navigate();
+    $("sessions").scrollTop = 0;
+  });
   landingRows("landing-attention", waiting);
 }
 
@@ -364,9 +396,9 @@ try {
   }
 } catch {}
 const reviewDivider = $("review-divider");
-function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
+function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()]) {
   if (!reviewing()) return;
-  const side = reviewLayout === "side", rect = $("detail").getBoundingClientRect();
+  const mode = effectiveLayout(), side = mode === "side", rect = $("detail").getBoundingClientRect();
   const min = side ? 240 : 120;
   const max = Math.max(min, Math.floor(side ? rect.width * .45 : rect.height * .5));
   const size = Math.round(Math.max(min, Math.min(max, requested)));
@@ -374,11 +406,15 @@ function sizeReview(persist = false, requested = reviewSizes[reviewLayout]) {
   reviewDivider.setAttribute("aria-orientation", side ? "vertical" : "horizontal");
   for (const [key, value] of Object.entries({ min, max, now: size })) reviewDivider.setAttribute(`aria-value${key}`, value);
   if (persist) {
-    reviewSizes[reviewLayout] = size;
-    try { localStorage.setItem(`tmuxrc-review-${reviewLayout}`, String(size)); } catch {}
+    reviewSizes[mode] = size;
+    try { localStorage.setItem(`tmuxrc-review-${mode}`, String(size)); } catch {}
   }
 }
-new ResizeObserver(() => sizeReview()).observe($("detail"));
+new ResizeObserver(() => {
+  if (active && streamedLayout !== effectiveLayout()) {
+    restartDetail(); render();
+  } else sizeReview();
+}).observe($("detail"));
 $("mobile-view-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
   if (!button) return;
@@ -391,6 +427,7 @@ $("review-layout").onchange = (e) => {
     reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
     try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
   }
+  if (choice === "auto") { view = "summary"; navigate(active, view); }
   if (["summary", "terminal"].includes(choice)) { view = choice; navigate(active, view); }
   restartDetail(); render();
 };
@@ -402,7 +439,7 @@ reviewDivider.onpointerdown = (e) => {
 reviewDivider.onpointermove = (e) => {
   if (!reviewDivider.hasPointerCapture(e.pointerId)) return;
   const rect = $("detail").getBoundingClientRect();
-  sizeReview(true, reviewLayout === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
+  sizeReview(true, effectiveLayout() === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
 };
 const endReviewResize = (e) => {
   if (reviewDivider.hasPointerCapture(e.pointerId)) reviewDivider.releasePointerCapture(e.pointerId);
@@ -410,12 +447,12 @@ const endReviewResize = (e) => {
 };
 reviewDivider.onpointerup = reviewDivider.onpointercancel = reviewDivider.onlostpointercapture = endReviewResize;
 reviewDivider.onkeydown = (e) => {
-  const steps = reviewLayout === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
+  const steps = effectiveLayout() === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
   const step = steps[e.key];
   if (!step) return;
   e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
 };
-reviewDivider.ondblclick = () => sizeReview(true, reviewLayout === "side" ? 360 : 280);
+reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
@@ -432,15 +469,15 @@ function render() {
   // sidebar it would return you to is already there. The brand keeps its slot for the
   // same reason. Narrow is unchanged.
   const wide = WIDE.matches;
-  show("sessions", !inPane || wide); show("list-nav", !inPane || wide);
+  show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane || wide);
   show("brand", !inPane || wide);
   show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
-  show("landing", wide && !inPane);
+  show("landing", dashboardVisible());
   show("divider", wide);
   renderList();
-  if (!inPane) { if (wide) renderLanding(); return; }
+  if (!inPane) { if (dashboardVisible()) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
   // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
   // still shows the last frame, and every key is disabled — nothing to do but hit back.
@@ -465,9 +502,9 @@ function render() {
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
-  $("detail").dataset.layout = reviewing() ? reviewLayout : "focus";
+  $("detail").dataset.layout = effectiveLayout();
   const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
-  if (wide) layouts.unshift(["side", "Side by side"], ["stack", "Overview above"]);
+  if (wide) layouts.unshift(["auto", "Auto"], ["side", "Side by side"], ["stack", "Overview above"]);
   const picker = $("review-layout");
   if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
   picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
@@ -501,7 +538,7 @@ function render() {
   const answered = pendingAnswer && pendingAnswer.id === active && pendingAnswer.signature === JSON.stringify(question);
   show("answer-status", !!answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
-  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
   reconcile($("options"), options, (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
     button.onclick = () => {
@@ -526,15 +563,17 @@ function render() {
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
+  if (focusPushComposer && pane?.question && needsYou(pane)) {
+    focusPushComposer = false;
+    requestAnimationFrame(() => $("reply").focus({ preventScroll: true }));
+  }
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
 function renderRichContent(pane) {
-  const links = (Array.isArray(pane?.links) ? pane.links : []).filter((link) => {
-    try { return /^https?:$/.test(new URL(link.href).protocol); } catch { return false; }
-  });
+  const links = paneLinks(pane);
   show("link-section", !!links.length);
-  reconcile($("links"), links, (link, i) => `${i}:${link.href}`, () => {
+  reconcile($("links"), links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
@@ -543,7 +582,7 @@ function renderRichContent(pane) {
     const host = new URL(link.href).host;
     anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
-    text(anchor.querySelector("small"), host);
+    text(anchor.querySelector("small"), link.detail || host);
   });
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
@@ -576,9 +615,9 @@ function renderTasks(pane) {
       const node = document.createElement("div"); node.innerHTML = "<span></span><span></span>"; return node;
     }, (node, value) => {
       const done = value.done || value.state === "done";
-      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}`;
+      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}${id === "agents" && value.state === "compacting" ? " compacting" : ""}`;
       html(node.firstChild, licon(done ? "check" : "circle", 16));
-      text(node.lastChild, [value.text || value.label, value.elapsed].filter(Boolean).join(" / "));
+      text(node.lastChild, [value.text || value.label, id === "agents" ? value.state : null, value.elapsed].filter(Boolean).join(" / "));
     });
   }
   reconcile($("copyables"), copyables, (value, i) => `${i}:${value.label}`, () => {
@@ -618,6 +657,9 @@ async function loadEvents(pane) {
 function restartDetail() {
   detailController?.abort();
   detailController = new AbortController();
+  // A previously hidden detail may only get its real dimensions after render().
+  // The resize observer restarts streams if that changes the resolved layout.
+  streamedLayout = effectiveLayout();
   eventsKey = null;
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
@@ -706,7 +748,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
+    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
     pollState(stateController.signal);
   }
 }
@@ -714,11 +756,11 @@ async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
     try {
-      const data = await request(`/api/state${version ? `?v=${version}` : ""}`, { signal }, LONG_POLL_TIMEOUT_MS);
+      const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
-      refreshAtlasHistory(request, () => { if (WIDE.matches && !active) renderLanding(); });
+      refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -885,13 +927,16 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
+html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
+$("dashboard-tab").onclick = () => navigate(null, "dashboard");
 $("back").onclick = () => navigate();
 $("search").oninput = renderList;
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
-$("list-nav").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
+$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
+  document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
   icon("theme", light ? "moon" : "sun");
   $("theme").title = $("theme").ariaLabel = light ? "Use dark theme" : "Use light theme";
 }
@@ -999,12 +1044,28 @@ function fitViewport() {
   // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
   const viewport = window.visualViewport;
   if (!viewport || viewport.scale !== 1) return;
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  const focused = document.activeElement;
+  const textInput = focused?.tagName === "INPUT"
+    && ["text", "search", "email", "url", "tel", "number", "password"].includes(focused.type);
+  const editing = focused?.isContentEditable
+    || ((textInput || focused?.tagName === "TEXTAREA") && !focused.readOnly && !focused.disabled);
+  // Installed mode lets iOS reserve the status bar outside the app. Fill that
+  // available viewport while browsing; editors still follow the keyboard.
+  document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
+  if (standalone && !editing) {
+    document.documentElement.style.removeProperty("--app-height");
+    document.documentElement.style.removeProperty("--app-top");
+    return;
+  }
   document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
   document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
 }
 window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
 window.addEventListener("resize", fitViewport);
+document.addEventListener("focusin", fitViewport);
+document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // Crossing the breakpoint changes which elements are hidden, and only render() knows
 // that. Without this, widening the window leaves the list hidden until the next poll
 // repaints — and narrowing it leaves a sidebar with no room, which is the worse half.
@@ -1018,11 +1079,12 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { startState(); restartDetail(); });
+document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
+setupPush($("push"), notice, licon("bell"));
 const live = setupLiveMode({ request, session: liveSession, licon, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {

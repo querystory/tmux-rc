@@ -18,6 +18,7 @@ dependencies = [
     # OpenAI Realtime (live_providers.py) and GPT-Live (gpt_live.py) are both spoken raw
     # over their own WebSocket — no SDK for either.
     "websockets>=14",
+    "pywebpush>=2.5.0",
 ]
 
 [project.scripts]
