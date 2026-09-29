@@ -163,7 +163,8 @@ For Live Mode, create the conversation when saved listening starts. For pane his
 explicitly enabling recording creates or opens that pane thread. The existing live handler builds
 each message from streaming fragments; save the finished message, not every fragment.
 Use one bounded writer queue off the audio loop. Assign a message its entry number
-once and reuse it on a database retry. Do not replay provider history on reconnect or
+once and reuse it on a database retry; an identical existing row counts as success,
+a different one marks history incomplete, and nothing overwrites an entry. Do not replay provider history on reconnect or
 try to reconstruct missed fragments after a daemon crash.
 
 One live handler writes a conversation at a time. A browser reconnect reattaches to the
