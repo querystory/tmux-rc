@@ -115,7 +115,11 @@ def bootstrap_prompt() -> str:
 
 
 def _codex_model_segments(line: str) -> list[int]:
-    if any(char in line for char in "{}[]'\""):
+    stripped = line.strip()
+    wrapped = (stripped[:1], stripped[-1:])
+    if wrapped in {("{", "}"), ("'", "'"), ('"', '"')}:
+        return []
+    if wrapped == ("[", "]") and any(char in stripped for char in "{'\""):
         return []
     segments = [segment.strip() for segment in line.split("·")]
     return [i for i, segment in enumerate(segments)
@@ -170,12 +174,17 @@ def _valid_session_shape(name) -> bool:
                 or _OPAQUE_SESSION_RE.fullmatch(name))
 
 
-def _supported_session(name, visible: str) -> bool:
+def _canonical_session(name, visible: str) -> str | None:
     if not _valid_session_shape(name):
-        return False
+        return None
     name = name.strip()
+    titles = _session_evidence(visible).splitlines()
+    exact = [title for title in titles if title.casefold() == name.casefold()]
+    if exact:
+        return exact[-1]
     pattern = r"(?<![\w/.-])" + re.escape(name) + r"(?![\w/.-])"
-    return bool(re.search(pattern, _session_evidence(visible)))
+    matches = [title for title in titles if re.search(pattern, title)]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _supported_question(question, visible: str) -> bool:
@@ -204,9 +213,11 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
         bool(result.get("rewind")) and VISIBLE_SCREEN in text
         and not _supported_rewind(result["rewind"], visible)
     )
-    bad_session = result.get("session") is not None and not _supported_session(
-        result["session"], identity,
-    )
+    session = result.get("session")
+    canonical_session = _canonical_session(session, identity)
+    bad_session = session is not None and canonical_session is None
+    if canonical_session:
+        result["session"] = canonical_session
     if not (bad_question or bad_rewind or bad_session):
         return
     # A rejected old menu can also contaminate activity/headline. Re-read only the
@@ -241,8 +252,8 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
         result.pop("session", None)
         if not retry:
             result["parse_ok"] = False
-        elif _supported_session(retry.get("session"), identity):
-            result["session"] = retry["session"].strip()
+        elif retry_session := _canonical_session(retry.get("session"), identity):
+            result["session"] = retry_session
         elif retry.get("session") is not None:
             result["parse_ok"] = False
 

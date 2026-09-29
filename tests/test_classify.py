@@ -484,6 +484,14 @@ def test_session_grounding_preserves_footer_and_rename_titles():
         assert result["session"] == "Review 4955"
 
 
+def test_session_grounding_preserves_bracketed_footer_title():
+    capture = "› input\n\n[PR 123] Fix login · gpt-6-sol · ~/src/app"
+    result = classify(_pane("node"), capture, _llm({
+        "tool": "codex", "session": "PR 123",
+    }))
+    assert result["session"] == "[PR 123] Fix login"
+
+
 def test_null_session_does_not_trigger_retry():
     calls = []
     def read(_prompt, text):

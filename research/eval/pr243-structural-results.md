@@ -251,3 +251,13 @@ composing prompt files it cannot send. Sample 48 covers the footer ordering, wit
 coverage for combined retries and no-LLM composition. Final validation: **747 unit
 tests**, Ruff clean, target repetition **30/30**, and full Vertex candidate eval
 **50/51**, with only main's known sample 16 failure. No prompt text changed.
+
+After #249 merged, #243 was restacked directly on current main. CodeQL then found
+potential exponential backtracking in the Codex status-row regex. Status rows are now
+parsed by bounded segment operations plus a simple full-match model token. Copilot's
+current-head review found that the first structured-output guard also rejected valid
+punctuated titles; serialized rows are now rejected by their outer shape instead, and
+the exact visible footer title canonicalizes a unique partial model response. Sample 49
+covers `[PR 123] Fix login`. Final validation: **755 unit tests**, Ruff clean, target
+repetition **30/30**, and full Vertex candidate eval **51/52**, with only main's known
+sample 16 failure. No prompt text changed.
