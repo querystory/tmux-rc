@@ -103,6 +103,8 @@ to stay grounded (e.g. confirm the Rewind picker actually opened before arrowing
 - **Multi-pane routing.** "run the tests" — which pane/session? Infer from context or ask.
 
 ## Relationship to other docs
+- Routing intent to the right pane, and the `control` session that plans multi-step
+  work, are in [control session and routing](control-session-routing.md).
 - Leans hard on the **LLM parser** (the state grounding for planning + step
   verification) and the **primitives** (send_keys, tmux ops).
 - The work-tree/timeline give intents like "roll back to when we did X" something

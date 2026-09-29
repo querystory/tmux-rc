@@ -192,8 +192,10 @@ The shared handler:
 
 Deliberately **absent**: pane switching (the model doesn't need focus to act —
 `send_keys` targets any pane), pane creation ("open claude in a new pane in ~/src/x" is
-the obvious v0.2, pending the create-pane endpoint), kill/destroy (destructive, needs the
-approval design from chat-with-tmux), and any read tool (state is pushed, not pulled).
+the obvious v0.2; `POST /api/windows` already opens configured launchers),
+kill/destroy (destructive, needs the risk tiers in
+[the control plane](agentic-control-plane.md)), and any read tool (state is pushed,
+not pulled).
 
 ## Prompting strategy (where the quality lives)
 
@@ -253,9 +255,10 @@ executor). What carried over, adapted:
 
 ## Alternatives considered
 
-- **Text chat first, voice later.** Rejected for this feature (though it remains the
-  chat-with-tmux route): the point here is specifically the hands-free, cross-pane
-  conversation; a text box duplicates the composer we already have.
+- **Text chat first, voice later.** Rejected for this feature (text chat now arrives
+  as a front end in [control session and routing](control-session-routing.md)): the
+  point here is specifically the hands-free, cross-pane conversation; a text box
+  duplicates the composer we already have.
 - **Browser talks to Gemini directly** (no daemon hop). Rejected: the tool must execute
   `send_keys` on the daemon anyway, credentials live server-side, and the daemon is
   where pane state lives. Two hops is the only shape that doesn't scatter authority.
@@ -269,8 +272,8 @@ executor). What carried over, adapted:
 - **Full screens in every ambient update.** Simplest mental model, unbounded token
   drip. Digest-level updates + targeted screen refreshes cover the same questions at a
   fraction of the cost.
-- **An approval gate before typing.** The chat-with-tmux design calls for
-  approve-before-inject on *routed text commands*. For v0.1 voice we deliberately run
+- **An approval gate before typing.** [The control plane](agentic-control-plane.md)
+  calls for risk-tiered confirmation before acting. For v0.1 voice we deliberately run
   without one: the session is explicitly started by the user, every action is spoken
   aloud and logged in the overlay, and the prompt constrains typing to explicit
   requests. If real use shows misfires, the gate design is already written.
