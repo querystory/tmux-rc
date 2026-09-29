@@ -114,14 +114,22 @@ tests pass**, Ruff clean. That run was superseded by the main refresh below.
 Claude reproduced the CI failure on tmux 3.4: `display-message` vis-escapes C0 bytes.
 The command now emits an unpredictable ASCII nonce, replaced with the framed marker
 after capture. This retains collision protection without depending on tmux's C0
-serialization. Local real-tmux tests pass on 3.7c; tmux 3.4 awaits GitHub CI here
-(no local Docker daemon). Tests pin that the transport token is 32 hexadecimal bytes.
+serialization. Local real-tmux tests pass on 3.7c; GitHub CI run 36551902280 also
+passes all 731 tests with no skips after the correction. Tests pin that the transport
+token is 32 hexadecimal characters.
 
 Reapplied #243's net changes on #249 plus main 27d81e1, preserving #238's foreground
 tool forcing, OpenCode task validation and interrupt-row detection before visible
 field grounding. The prompt byte-comparison baseline now includes current main's
-landed prompt edits. **731 unit tests pass**, Ruff clean. Repeated targets and the
-expanded full corpus are running on this refreshed version.
+landed prompt edits. **731 unit tests pass**, Ruff clean; repeated targets **30/30**,
+full corpus **37/38**, with only sample 16 failing.
+
+Copilot's next two findings are also addressed: explicit rename events in scrollback
+remain identity evidence (questions stay viewport-only), and copyables matching an
+individual table row are deduplicated along with whole tables. Sample 36 pins a
+scrolled-off rename; unit tests cover initial validation and the bounded retry.
+Latest full corpus: **38/39**, only the same sample 16 failure. **732 unit tests**
+and Ruff pass. Final samples 27–32 repetition: **30/30**, five passes per case.
 
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked

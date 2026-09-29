@@ -503,12 +503,28 @@ def test_visible_question_is_preserved_without_retry():
 
 
 def test_copyable_table_rows_are_not_duplicated():
-    result = classify(_pane(), "text", _llm({
-        "tables": [{"headers": ["PR", "State"], "rows": [["12", "Open"], ["13", "Merged"]]}],
-        "copyables": [{"label": "PR list", "text": "12  Open\n13  Merged"}],
-    }))
-    assert "copyables" not in result
-    assert len(result["tables"]) == 1
+    for payload in ("12  Open\n13  Merged", "12 Open", "13 Merged"):
+        result = classify(_pane(), "12 Open\n13 Merged", _llm({
+            "tables": [{"headers": ["PR", "State"], "rows": [["12", "Open"], ["13", "Merged"]]}],
+            "copyables": [{"label": "PR list", "text": payload}],
+        }))
+        assert "copyables" not in result
+        assert len(result["tables"]) == 1
+
+
+def test_scrolled_rename_is_evidence_for_initial_read_and_retry():
+    capture = ("Thread renamed to Fix login redirects\n\x1e[visible screen]\x1f\n"
+               "Done\n\n› Ask Codex to do anything\n\ngpt-6-sol · ~/src/app")
+    for initial in ("Fix login redirects", "wrong quoted name"):
+        calls = []
+        def read(_prompt, text, calls=calls, initial=initial):
+            calls.append(text)
+            assert "Thread renamed to Fix login redirects" in text
+            return {"tool": "codex", "session": initial if len(calls) == 1
+                    else "Fix login redirects", "activity": "idle"}
+        result = classify(_pane("node"), capture, read)
+        assert result["session"] == "Fix login redirects"
+        assert len(calls) == (1 if initial == "Fix login redirects" else 2)
 
 
 def test_cursor_search_binding_requires_visible_footer_evidence():

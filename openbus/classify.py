@@ -139,18 +139,19 @@ def _supported_question(question, visible: str) -> bool:
 def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: str) -> None:
     """Validate actionable fields against their UI evidence, retrying once on that slice."""
     visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
+    identity = strip_dim(text)  # A Thread-renamed event remains evidence after scrolling off.
     bad_question = (
         bool(result.get("question")) and VISIBLE_SCREEN in text
         and not _supported_question(result["question"], visible)
     )
     bad_session = result.get("session") is not None and not _supported_session(
-        result["session"], visible, result.get("tool"),
+        result["session"], identity, result.get("tool"),
     )
     if not (bad_question or bad_session):
         return
     # A rejected old menu can also contaminate activity/headline. Re-read only the
     # viewport; for identity alone, restrict the same model to the status evidence.
-    evidence = visible if bad_question else _session_evidence(visible)
+    evidence = visible if bad_question else _session_evidence(identity)
     retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if bad_question:
@@ -168,7 +169,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     if bad_session:
         result.pop("session", None)
         if isinstance(retry, dict) and _supported_session(
-            retry.get("session"), visible, result.get("tool"),
+            retry.get("session"), identity, result.get("tool"),
         ):
             result["session"] = retry["session"].strip()
 
@@ -440,6 +441,7 @@ def classify(
             isinstance(row, list) and all(isinstance(v, str) for v in row) for row in rows
         ):
             table_text.add(" ".join(" ".join(v for row in rows for v in row).split()))
+            table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
     copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", strip_dim(text))
     copy_source = copy_source.replace("\\\n", "")
