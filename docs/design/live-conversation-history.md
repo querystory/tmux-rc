@@ -38,8 +38,8 @@ reference, not a cascading key, so deleting its source never deletes the pane in
 IDs do not grant access.
 
 Provider/model information goes in metadata where useful. Action entries contain the
-server-known operation, pane label and result, without copying raw command arguments
-or typed secrets. They describe what was sent, not whether the command finished.
+server-known operation, pane label and delivery status, never raw arguments, typed
+secrets, error text or pane output. They describe what was sent, not whether the command finished.
 Provider connection IDs and transcript-fragment bookkeeping stay in the live handler;
 they do not need their own durable records.
 
