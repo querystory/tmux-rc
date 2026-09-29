@@ -467,6 +467,48 @@ def test_null_session_does_not_trigger_retry():
     assert len(calls) == 1
 
 
+def test_shell_drops_scrolled_agent_title_without_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "shell", "session": "Fix login redirects", "activity": "idle"}
+    result = classify(_pane(), "Thread renamed to Fix login redirects\nuser@host:~$ ", read)
+    assert "session" not in result
+    assert len(calls) == 1
+
+
+def test_returned_shell_prompt_overrides_old_agent_identity_and_actions():
+    result = classify(_pane("bash"), "Thread renamed to Fix login redirects\nuser@host:~$ ", _llm({
+        "tool": "codex", "session": "Fix login redirects", "activity": "waiting",
+        "question": {"prompt": "Old approval?"}, "rewind": {"rows": ["old"]},
+    }))
+    assert result["tool"] == "shell" and result["activity"] == "idle"
+    assert not any(key in result for key in ("session", "question", "rewind", "waiting_on"))
+
+
+def test_visible_opencode_spinner_wins_over_stale_question_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "opencode", "question": {"prompt": "Old approval?"}}
+        return {"tool": "opencode", "activity": "idle"}
+    capture = "Old approval?\n\x1e[visible screen]\x1f\n■⬝ esc interrupt"
+    result = classify(_pane("opencode"), capture, read)
+    assert len(calls) == 2
+    assert "question" not in result
+    assert result["activity"] == "running"
+
+
+def test_failed_question_retry_does_not_retire_the_screen():
+    for retry in (None, {"question": {"prompt": "Still an old question?"}}):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"}}, retry])
+        result = classify(_pane("codex"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert "question" not in result
+        assert result["parse_ok"] is False
+
+
 def test_session_grounding_rejects_paths_and_quoted_output():
     for name in ("~/src/app", "/src/app", "app", "other-pane"):
         capture = "{'session': 'other-pane'}\n\noutput\n\n› input\n\n~/src/app · gpt-6-sol"

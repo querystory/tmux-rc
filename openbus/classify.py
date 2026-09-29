@@ -148,6 +148,8 @@ def _supported_question(question, visible: str) -> bool:
 
 def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: str) -> None:
     """Validate actionable fields against their UI evidence, retrying once on that slice."""
+    if result.get("tool") == "shell":
+        result.pop("session", None)  # Old agent scrollback cannot name its replacement shell.
     visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
     identity = strip_dim(text)  # A Thread-renamed event remains evidence after scrolling off.
     bad_question = (
@@ -173,9 +175,11 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
                     result[key] = retry[key]
         else:
             result["activity"] = "unknown"
+            result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
         if result.get("question") and not _supported_question(result["question"], visible):
             result.pop("question", None)
             result["activity"] = "unknown"
+            result["parse_ok"] = False
     if bad_session:
         result.pop("session", None)
         if isinstance(retry, dict) and _supported_session(
@@ -351,6 +355,15 @@ def classify(
     # names (OpenCode showing "Claude Opus" is still OpenCode).
     if process_tool := _PROCESS_TOOLS.get(pane.current_command):
         result["tool"] = process_tool
+    elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(
+        strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]),
+    ):
+        # A returned shell prompt is stronger evidence than an agent in history.
+        if result.get("tool") != "shell":
+            result["headline"] = "Shell ready for a command"
+        result.update(tool="shell", activity="idle")
+        result.pop("question", None)
+        result.pop("rewind", None)
     # OpenCode renders ordinary answer bullets immediately above its model/footer. The
     # parser sometimes promotes those review findings to the agent's live task plan.
     # Validate each model-returned task against an actual visible checkbox/progress line,
@@ -375,12 +388,10 @@ def classify(
             result["tasks"] = validated
         else:
             result.pop("tasks", None)
-    # OpenCode shows this animated block row only while a turn can be interrupted. It is
-    # application state, not decorative spinner noise, and is stronger than a stale
-    # completed answer above it.
+    _ground_visible_fields(result, text, pane, llm_fn, parser_prompt())
+    # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
-    _ground_visible_fields(result, text, pane, llm_fn, parser_prompt())
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":

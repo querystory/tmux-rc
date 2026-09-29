@@ -1,0 +1,11 @@
+{
+  "description": "After the agent exits, an explicit shell result must not retain its conversation name from scrollback. The old footer and rename event are history, not the current shell's identity.",
+  "current_command": "bash",
+  "capture": "Thread renamed to Fix login redirects\nFix login redirects · gpt-6-sol · ~/src/app · Ready\n\u001e[visible screen]\u001f\nAgent exited.\nuser@host:~/src/app$ ",
+  "expected": {
+    "tool": "shell",
+    "activity": "idle",
+    "session": null,
+    "headline": "Agent exited; shell is ready for a command"
+  }
+}

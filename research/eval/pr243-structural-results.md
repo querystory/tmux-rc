@@ -139,6 +139,24 @@ anchored separately. A positive Claude title-above-status unit test also passes.
 Current validation: **734 unit tests**, Ruff clean, target repetition **30/30**, full
 candidate corpus **39/40** (only the same known sample 16 missing-table failure).
 
+The next review exposed shell-title inheritance. Explicit shell results now drop
+session identity without a retry; a returned bare prompt in a foreground shell also
+overrides an old agent classification and clears its obsolete question/rewind.
+Sample 38 initially failed because the model called that shell Codex; after the
+structural guard it passes. The full run before that guard was **39/41**, failing
+16 and 38. Afterward it is **40/41**, with only 16 failing. **738 unit tests** and
+Ruff pass. The six Codex target cases also passed the repeated **30/30** matrix;
+the subsequent foreground-shell-only guard leaves those node-hosted cases unchanged.
+
+Related review-summary edge cases have focused tests: blank viewports cannot leak
+the boundary marker, OpenCode's observed interrupt row wins after a question retry,
+and a failed/unsupported re-read sets `parse_ok=False` so the watcher retries instead
+of permanently retiring an unread screen. No prompt text was added.
+
+#249 was refreshed to e5c6015 after main landed OpenCode: its composition remains
+byte-identical to main 27d81e1, 677 tests/lint/CI pass, and current-head Copilot is
+clean. Its current-main eval is **30/31**, failing only the same sample 16.
+
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked
 on #249. Next: finish the current-head Copilot loop; no merge or deployment authorized.

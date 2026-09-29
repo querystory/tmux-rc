@@ -83,3 +83,5 @@ def test_bootstrap_capture_uses_its_history_budget(monkeypatch):
 def test_printed_boundary_label_is_preserved():
     text = f"history\n{tmux.VISIBLE_SCREEN}\n[visible screen]\ncurrent output"
     assert tmux.strip_dim(text) == "history\n[visible screen]\ncurrent output"
+    assert tmux.strip_dim(tmux.VISIBLE_SCREEN) == ""
+    assert tmux.strip_dim("history\n" + tmux.VISIBLE_SCREEN) == "history\n"

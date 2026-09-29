@@ -492,7 +492,7 @@ def strip_dim(text: str) -> str:
     """Collapse a marked capture back to the plain text the phone renders."""
     for a, b in ((DIM_OPEN, DIM_CLOSE), (PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE)):
         text = text.replace(a, "").replace(b, "")
-    return text.replace(VISIBLE_SCREEN + "\n", "")
+    return text.replace(VISIBLE_SCREEN + "\n", "").replace(VISIBLE_SCREEN, "")
 
 
 _OPENS = (DIM_OPEN, PLACEHOLDER_OPEN)
