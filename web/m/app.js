@@ -578,7 +578,7 @@ function renderRichContent(pane) {
     const host = new URL(link.href).host;
     anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
-    text(anchor.querySelector("small"), host);
+    text(anchor.querySelector("small"), link.detail || host);
   });
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
