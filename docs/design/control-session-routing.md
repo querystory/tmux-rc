@@ -48,14 +48,16 @@ call, no second model, a sub-second round trip. Any doubt drops the request to c
 rather than to a guess. The residual risk is false confidence: a wrong pane judged
 certain is a real misroute. So "confident" means a unique match on workstream identity
 (below), not a model's self-reported score, the bar is set so that borderline cases
-delegate, and every direct send names its target in the thread as it goes, so a
-misroute is seen at once rather than discovered later.
+delegate, and every direct send names its target as it goes (Live Mode's overlay
+already logs each typed action), so a misroute is seen at once, not discovered later.
 
 This is the same fast-front/slow-back split GPT-Live already uses (a voice model that
 delegates to a Responses backend for anything touching terminal state, per
 `openbus/gpt_live.py`), with control as the backend. It also keeps Live Mode's
 existing tools (`type_in_pane`, `press_key` in `openbus/live_providers.py`) as the fast
-path's whole vocabulary: sending direct needs nothing new.
+path's whole vocabulary. The one addition is the directory's incarnation guard (below):
+today those tools carry only a pane id, and a direct send must be rejected if that id
+now belongs to a different pane.
 
 Why the gate sits where it does: a send into a live agent cannot be undone. The agent
 reads it and acts. The control plane's risk tiers already say to spend friction in
@@ -128,8 +130,8 @@ and read panes, send (with delivery confirmation), press a key, open a window, f
 resume sessions, and hand off. They are exposed over the daemon's API as an MCP server
 with a thin CLI fallback, for the reasons the agent client gives: tools the harness
 actually sees, no harness-specific integration. Every send stays on the daemon's one
-keystroke path, so the audit log and consent rules (narrative build item 2) cover
-control exactly as they cover the phone.
+keystroke path, so the audit log covers control as it covers the phone, and whatever
+consent rules narrative build item 2 settles on have one place to be enforced.
 
 ## Optional session leads
 
