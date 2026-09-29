@@ -191,7 +191,7 @@ The shared handler:
 
 Deliberately **absent**: pane switching (the model doesn't need focus to act —
 `send_keys` targets any pane), pane creation ("open claude in a new pane in ~/src/x" is
-the obvious v0.2, pending the create-pane endpoint), kill/destroy (destructive, needs
+the obvious v0.2; `POST /api/windows` already opens configured launchers), kill/destroy (destructive, needs
 the risk tiers in [the control plane](agentic-control-plane.md)), and any read tool
 (state is pushed, not pulled).
 
