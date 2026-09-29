@@ -27,11 +27,7 @@ _OPAQUE_SESSION_RE = re.compile(
     r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{16,})", re.IGNORECASE,
 )
 _RELATIVE_PATH_RE = re.compile(r"^(?:[^/\s]+/)+[^/\s]+$")
-_CODEX_STATUS_ROW_RE = re.compile(
-    r"^\s*(?:[^{}\[\]'\"]+\s+·\s+)?(?:gpt-[\w.-]+|o\d[\w.-]*)"
-    r"(?:\s+[^·{}\[\]'\"]+)?(?:\s+·\s+[^{}\[\]'\"]+)*\s*$",
-    re.IGNORECASE,
-)
+_CODEX_MODEL_TOKEN_RE = re.compile(r"(?:gpt-[\w.-]+|o\d[\w.-]*)", re.IGNORECASE)
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
@@ -118,6 +114,14 @@ def bootstrap_prompt() -> str:
     return _load_prompt("bootstrap_prompt.txt")
 
 
+def _codex_model_segments(line: str) -> list[int]:
+    if any(char in line for char in "{}[]'\""):
+        return []
+    segments = [segment.strip() for segment in line.split("·")]
+    return [i for i, segment in enumerate(segments)
+            if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
+
+
 def _session_chrome(text: str) -> list[str]:
     lines = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()
     # The input row separates conversation output from the bottom status chrome.
@@ -128,7 +132,7 @@ def _session_chrome(text: str) -> list[str]:
     chrome = []
     status_rows = [(i, line, re.match(r"^\s*(?:~/|/)", line))
                    for i, line in enumerate(candidates)
-                   if re.match(r"^\s*(?:~/|/)", line) or _CODEX_STATUS_ROW_RE.fullmatch(line)]
+                   if re.match(r"^\s*(?:~/|/)", line) or _codex_model_segments(line)]
     if status_rows:
         i, line, path_status = status_rows[-1]  # The bottommost recognized row is live chrome.
         if (path_status and i
@@ -147,12 +151,9 @@ def _session_evidence(text: str) -> str:
         if match:
             titles.append(match.group(1))
             continue
-        if _CODEX_STATUS_ROW_RE.fullmatch(line):
+        if models := _codex_model_segments(line):
             segments = [segment.strip() for segment in line.split("·")]
-            models = [j for j, segment in enumerate(segments) if re.match(
-                r"^(?:gpt-[\w.-]+|o\d[\w.-]*)(?:\s|$)", segment, re.IGNORECASE,
-            )]
-            model = models[-1] if models else 0
+            model = models[-1]
             if model:
                 titles.append(" · ".join(segments[:model]))
         match = re.match(r"^\s*[•●]\s+Thread renamed to (\S.*?)\s*$", line)
