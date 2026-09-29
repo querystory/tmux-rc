@@ -216,7 +216,7 @@ def server_uid(*, strict: bool = False) -> str:
         boot = "nobootid"
     try:
         pid = _run(["display-message", "-p", "#{pid}"]).strip()
-    except subprocess.CalledProcessError:
+    except (OSError, subprocess.CalledProcessError):
         if strict: raise
         # No server (yet). Serve the last good identity if we have one rather than
         # inventing a ':0' that would look like a different server to the backend.
