@@ -92,11 +92,22 @@ func TestResolveEdgeCases(t *testing.T) {
 	legacy, err := ReadEntry(path)
 	must(t, err)
 	check(t, "legacy argv", strings.Join(legacy.ResumeArgv, " "), "claude --resume gone")
+	must(t, os.WriteFile(path, data[:strings.Index(string(data), "\n---\n")], 0o600))
+	if _, err := ReadEntry(path); err == nil {
+		t.Error("truncated entry read without error")
+	}
 
 	negative := defaults
 	negative.MaxProjects, negative.MaxSessions = -1, -1
 	if got := Resolve([]Entry{gone}, "otlp", negative); len(got) != 0 {
 		t.Errorf("negative limits = %v", got)
+	}
+
+	one := defaults
+	one.MaxProjects = 1
+	tied := []Entry{entry(t, Session{ID: "z", Cwd: "/z"}, "otlp"), entry(t, Session{ID: "a", Cwd: "/a"}, "otlp")}
+	for range 10 { // map order would pick either repo
+		check(t, "tie", Resolve(tied, "otlp", one)[0].Repo, "/a")
 	}
 }
 

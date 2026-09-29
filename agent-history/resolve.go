@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -38,7 +39,10 @@ func ReadEntry(path string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	header, body, _ := strings.Cut(strings.TrimPrefix(string(data), "---\n"), "\n---\n")
+	header, body, ok := strings.Cut(strings.TrimPrefix(string(data), "---\n"), "\n---\n")
+	if !ok { // entries are written whole, so this one is damaged or not ours
+		return Entry{}, errors.New("no end of front matter")
+	}
 	fields := map[string]json.RawMessage{}
 	for line := range strings.Lines(header) {
 		if key, value, ok := strings.Cut(strings.TrimSpace(line), ": "); ok {
@@ -122,7 +126,7 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 		p.Sessions = p.Sessions[:min(len(p.Sessions), max(opt.MaxSessions, 0))]
 		projects = append(projects, *p)
 	}
-	slices.SortFunc(projects, func(a, b Project) int { return cmp.Compare(b.Score, a.Score) })
+	slices.SortFunc(projects, func(a, b Project) int { return cmp.Or(cmp.Compare(b.Score, a.Score), strings.Compare(a.Repo, b.Repo)) })
 	projects = projects[:min(len(projects), max(opt.MaxProjects, 0))]
 	// Round only after ranking and selecting projects; tiny differences still decide.
 	for i := range projects {
