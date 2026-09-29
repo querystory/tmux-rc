@@ -588,5 +588,6 @@ def test_unknown_tool_is_rejected_as_such(monkeypatch):
 
 def test_audit_line_cannot_be_forged(caplog):
     caplog.set_level(logging.INFO, logger="openbus.server.audit")
-    L.telemetry.audit("x", "%1\nAUDIT y", "me", detail="into w\nAUDIT kill_window pane=%2")
+    forged = "\nAUDIT kill_window pane=%2"
+    L.telemetry.audit("x", "%1" + forged, "me" + forged, "w" + forged, outcome="error" + forged)
     assert len(caplog.text.splitlines()) == 1

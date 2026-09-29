@@ -211,16 +211,20 @@ def audit(
     TMUXRC_QSDEBUG. OTel keys are QSDEBUG-gated either way (emit_action)."""
     shown = keys is not None and AUDIT_KEYS and (QSDEBUG or not speech)
     # One physical line per record, whatever a caller passes: free text (a window label,
-    # a URL-decoded pane id) is escaped like the repr'd fields, so it can't forge a line.
+    # a URL-decoded pane id, exception text) is escaped like the repr'd fields, so it
+    # can't forge a line.
+    def esc(text: str) -> str:
+        return repr(str(text))[1:-1]
+
     _audit_log.info(
         "AUDIT %s pane=%s by %s%s%s%s%s",
-        action,
-        repr(pane_id)[1:-1],
-        actor,
-        f" {repr(detail)[1:-1][:200]}" if detail else "",
+        esc(action),
+        esc(pane_id),
+        esc(actor),
+        f" {esc(detail)[:200]}" if detail else "",
         "".join(f" {k}={v!r}" for k, v in fields.items()),
         f" keys={keys[:80]!r}" if shown else "",
-        "" if outcome == "ok" else f" [{outcome}]",
+        "" if outcome == "ok" else f" [{esc(outcome)}]",
     )
     try:
         emit_action(
