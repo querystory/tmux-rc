@@ -213,6 +213,8 @@ Use the same server-verified owner for recording and history access. Unverified 
 can use existing unsaved Live Mode but cannot create/read saved conversations. Check
 ownership on every operation and protect browser mutations/recording handshakes with
 same-origin checks. IDs are lookup keys, not permission to read a conversation.
+Isolation is only as strong as that identity: the loopback API trusts any local
+process, so owner separation assumes a single-user host.
 
 Keep a conversation until the user deletes it in the first version. Delete its entries
 and usage together; no separate retention periods, keep overrides, or tombstones.
