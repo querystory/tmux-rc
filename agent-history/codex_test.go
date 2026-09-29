@@ -112,17 +112,25 @@ func TestReconcileIndexesCodex(t *testing.T) {
 	}
 
 	// Renaming an idle thread touches only Codex's name log; that rebuilds it too.
-	f, err := os.OpenFile(codexNames(), os.O_APPEND|os.O_WRONLY, 0)
+	names := filepath.Join(codexDir(), "session_index.jsonl")
+	f, err := os.OpenFile(names, os.O_APPEND|os.O_WRONLY, 0)
 	must(t, err)
-	_, err = f.WriteString(`{"id":"` + codexID + `","thread_name":"renamed later"}` + "\n")
+	_, err = f.WriteString(`{"id":"` + codexID + `","thread_name":"renamed later","updated_at":"` + later.Add(time.Hour).Format(time.RFC3339Nano) + `"}` + "\n")
 	must(t, err)
 	must(t, f.Close())
-	later = later.Add(time.Minute)
-	must(t, os.Chtimes(codexNames(), later, later))
 	reconcileAll(false)
 	e, err = ReadEntry(e.Path)
 	must(t, err)
 	check(t, "title after rename", e.Title, "renamed later")
+
+	// Retention deletes a thread's oldest file first; the entry still has a source.
+	must(t, os.Remove(sessionsOf(t)[0][0]))
+	reconcileAll(false)
+	e, err = ReadEntry(e.Path)
+	must(t, err)
+	if e.SourceMissing || e.ResumeArgv == nil {
+		t.Errorf("thread with a surviving rollout marked missing: %+v", e)
+	}
 }
 
 func sessionsOf(t *testing.T) [][]string {

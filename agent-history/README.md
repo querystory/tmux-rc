@@ -57,8 +57,9 @@ Codex has no such hook here, so its sessions (`~/.codex/sessions`, or `$CODEX_HO
 arrive with reconcile. An entry is one Codex thread, not one file: resuming a thread
 continues it in a new rollout file under the same ID, so its files are read together
 and the entry is fresh while none is newer. Its title is the thread name Codex keeps in
-`session_index.jsonl`, and a change there rebuilds the Codex entries too: renaming an
-idle thread touches no rollout. Codex subagent threads are left out: here they are approval
+`session_index.jsonl`; renaming an idle thread touches no rollout, so the rename's
+time dates the entry as well. The source is the thread's latest file, the one Codex's
+retention deletes last. Codex subagent threads are left out: here they are approval
 reviews whose task is a copy of the parent's transcript, which only adds noise.
 
 ## Resolving a request

@@ -37,13 +37,13 @@ type harness struct {
 	sessions func() ([][]string, error)            // each session's transcript files, oldest first
 	identity func(path string) (id, parent string) // from the path alone, so freshness needs no parsing
 	read     func(files []string) (Session, error)
-	sidecar  func() string                      // a file outside the transcripts whose changes also rebuild entries
+	renamed  func(id string) time.Time          // when a name kept outside the transcripts changed
 	running  func() (map[string]Running, error) // live sessions by ID; an error means unknown
 }
 
 var (
 	claude    = harness{"claude", claudeSessions, claudeIdentity, func(f []string) (Session, error) { return ReadClaude(f[0]) }, nil, RunningClaude}
-	harnesses = []harness{claude, {"codex", codexSessions, codexIdentity, ReadCodex, codexNames, RunningCodex}}
+	harnesses = []harness{claude, {"codex", codexSessions, codexIdentity, ReadCodex, codexRenamed, RunningCodex}}
 )
 
 // IndexTranscript indexes a Claude session and its subagents, skipping any whose
@@ -87,9 +87,9 @@ func claudeSessions() ([][]string, error) {
 }
 
 func indexFile(h harness, files []string, force bool) error {
-	// An entry carries the mtime of the newest file it was built from, so it is fresh
-	// exactly when the two match (and a transcript rewritten to an older mtime still
-	// gets rebuilt).
+	// An entry carries the mtime of the newest file it was built from (or of a later
+	// rename), so it is fresh exactly when the two match (and a transcript rewritten to
+	// an older mtime still gets rebuilt).
 	var mtime time.Time
 	for _, f := range files {
 		src, err := os.Stat(f)
@@ -106,12 +106,10 @@ func indexFile(h harness, files []string, force bool) error {
 	if mtime.IsZero() {
 		return nil
 	}
-	if h.sidecar != nil {
-		if info, err := os.Stat(h.sidecar()); err == nil && info.ModTime().After(mtime) {
-			mtime = info.ModTime()
-		}
-	}
 	id, parent := h.identity(files[0])
+	if h.renamed != nil && h.renamed(id).After(mtime) {
+		mtime = h.renamed(id)
+	}
 	dst := indexPath(h.name, parent, id)
 	if idx, err := os.Stat(dst); !force && err == nil && idx.ModTime().Equal(mtime) {
 		return nil

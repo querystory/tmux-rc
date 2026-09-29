@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // codexRecord holds the few fields we use from a Codex rollout line.
@@ -44,7 +45,8 @@ var errNotIndexed = errors.New("not indexed")
 // thread continues in a new file under the same ID. Subagent threads are left out:
 // here they are approval reviews whose task is a copy of the parent's transcript.
 func ReadCodex(files []string) (Session, error) {
-	s := Session{Harness: "codex", Source: files[0]}
+	// The source is the latest file, the one retention deletes last.
+	s := Session{Harness: "codex", Source: files[len(files)-1]}
 	s.ID, _ = codexIdentity(files[0])
 	var last []byte
 	for _, f := range files {
@@ -76,7 +78,7 @@ func ReadCodex(files []string) (Session, error) {
 	var tail struct{ Timestamp string }
 	json.Unmarshal(last, &tail)
 	s.seen(tail.Timestamp, "", "")
-	s.Title = codexThreadName(s.ID)
+	s.Title = codexThreadName(s.ID).Name
 	if s.Cwd != "" {
 		s.ResumeArgv = []string{"codex", "resume", s.ID}
 	}
@@ -91,23 +93,45 @@ func codexIdentity(path string) (id, parent string) {
 	return id, ""
 }
 
-// codexThreadName is the thread's name, which Codex keeps outside the rollout in an
-// append-only log where the last entry for an ID wins. The log is the Codex harness's
-// sidecar, so a rename rebuilds entries even for a thread that is no longer active.
-func codexThreadName(id string) string {
-	name := ""
-	scanLines(codexNames(), func(line []byte) error {
-		var e struct {
-			ID   string `json:"id"`
-			Name string `json:"thread_name"`
-		}
-		if json.Unmarshal(line, &e) == nil && e.ID == id {
-			name = e.Name
-		}
-		return nil
-	})
-	return name
+type codexName struct {
+	Name    string    `json:"thread_name"`
+	Renamed time.Time `json:"updated_at"`
 }
+
+// nameLog caches Codex's thread-name log, parsed once per version of the file.
+var nameLog struct {
+	path  string
+	mtime time.Time
+	names map[string]codexName
+}
+
+// codexThreadName is the thread's name and when it was last set. Codex keeps names
+// outside the rollout, in an append-only log where the last entry for an ID wins, so
+// the rename time also dates the entry: renaming an idle thread rebuilds only it.
+func codexThreadName(id string) codexName {
+	path := filepath.Join(codexDir(), "session_index.jsonl")
+	info, err := os.Stat(path)
+	if err != nil {
+		return codexName{}
+	}
+	if path != nameLog.path || !info.ModTime().Equal(nameLog.mtime) {
+		names := map[string]codexName{}
+		scanLines(path, func(line []byte) error {
+			var e struct {
+				ID string `json:"id"`
+				codexName
+			}
+			if json.Unmarshal(line, &e) == nil {
+				names[e.ID] = e.codexName
+			}
+			return nil
+		})
+		nameLog.path, nameLog.mtime, nameLog.names = path, info.ModTime(), names
+	}
+	return nameLog.names[id]
+}
+
+func codexRenamed(id string) time.Time { return codexThreadName(id).Renamed }
 
 // codexSessions groups the rollout files by thread, oldest first. find lists
 // directories in name order and rollouts are named by start time, so a thread's
@@ -206,7 +230,5 @@ func codexDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".codex")
 }
-
-func codexNames() string { return filepath.Join(codexDir(), "session_index.jsonl") }
 
 func codexSessionsDir() string { return filepath.Join(codexDir(), "sessions") }
