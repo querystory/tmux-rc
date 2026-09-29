@@ -115,8 +115,9 @@ def test_tools_come_from_the_shared_table_unconverted():
     adapter only wraps each entry, and the google-genai enum walk this used to do is gone
     rather than rewritten."""
     defs = G.tool_definitions()
-    assert [d["name"] for d in defs] == [t["name"] for t in L.live_providers.TOOLS]
-    for d, t in zip(defs, L.live_providers.TOOLS, strict=True):
+    shared = L.live_providers.tools()
+    assert [d["name"] for d in defs] == [t["name"] for t in shared]
+    for d, t in zip(defs, shared, strict=True):
         assert d["type"] == "function" and d["parameters"] == t["parameters"]
 
 

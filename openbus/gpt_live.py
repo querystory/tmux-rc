@@ -111,7 +111,7 @@ def tool_definitions():
     translate. This used to walk google-genai Tool objects and lowercase their enum
     spellings; that conversion existed only because the schemas lived in Gemini's types,
     and it went away with them."""
-    return [{"type": "function", "strict": False, **tool} for tool in live_providers.TOOLS]
+    return [{"type": "function", "strict": False, **tool} for tool in live_providers.tools()]
 
 
 class Usage:

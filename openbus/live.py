@@ -22,7 +22,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import live_providers, llm, telemetry, tmux
+from . import agent_history, live_providers, llm, telemetry, tmux
 from .classify import _load_prompt
 from .live_providers import KEYS, LiveModel
 
@@ -306,6 +306,13 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
         await session.send_tool_result(fc, payload)
 
     args = fc.args if isinstance(fc.args, dict) else {}
+    if fc.name in _HISTORY_TOOLS:
+        if not agent_history.offered():
+            await respond({"status": "rejected", "reason": "session history not available"})
+            return
+        await respond(await _HISTORY_TOOLS[fc.name](websocket, args, watcher, actor))
+        return
+
     # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
     # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
     # rather than silently accept its repr. A model parroting our own tool response back
@@ -395,6 +402,172 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
 
     task = asyncio.create_task(refresh())
     _background(task)
+
+
+async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
+    """Past sessions for a topic, trimmed to what choosing needs. No message text: the
+    model routes on titles, recency and liveness, and nothing from an old session is
+    handed to it as if it were current."""
+    query = args.get("query")
+    if set(args) - {"query"} or not isinstance(query, str) or not query.strip():
+        return {"status": "rejected", "reason": "malformed call"}
+    projects = await asyncio.to_thread(agent_history.resolve, query.strip())
+    if projects is None:
+        return {"status": "error", "reason": "session history unavailable"}
+    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    results = []
+    for p in projects:
+        sessions = []
+        for s in p["sessions"]:
+            pane = s.get("running") and await asyncio.to_thread(_pane_of, s["running"])
+            if pane and pane not in labels:
+                watcher.request_reparse(pane)  # publish it before the model types there
+            sessions.append({
+                "session_id": s["session_id"],
+                "title": s.get("title") or "(untitled)",
+                "last_active": (s.get("last_active") or "")[:10],
+                # Named the way windows are everywhere else, once the watcher has it.
+                **({"running_in": labels.get(pane, pane), "pane_id": pane} if pane else {}),
+                **({"running_elsewhere": True} if s.get("running") and not pane else {}),
+                **({"running_unknown": True} if s.get("running_unknown") else {}),
+            })
+        # The path, shortened under home, so two repos with one name stay distinct.
+        results.append({"repo": _home_relative(p["repo"]), "sessions": sessions})
+    return {"status": "ok", "results": results}
+
+
+# A resumed Claude process takes a moment to register itself as running, so a repeat
+# call before then would see nothing running and start a second copy on the same
+# transcript. Resumes are serialized, and each launch holds its session for as long as
+# the pane it opened lives. The pane's pid, not its id, is the identity: tmux reuses ids.
+_resume_lock = asyncio.Lock()
+_resumed: dict[str, tuple[str, str]] = {}  # session id -> (pane id, pane pid)
+
+
+def _ancestors(pid: int):
+    """pid, its parent, and so on up, read from /proc; stops at init or a gone process."""
+    while pid > 1:
+        yield pid
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                pid = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return
+
+
+def _pane_of(running: dict) -> str | None:
+    """A registry entry's pane in THIS tmux server, or None. Its %N comes from whatever
+    server Claude ran under, so it counts only if that pane's process here is an
+    ancestor of the registered pid."""
+    pane, pid = running.get("tmux_pane"), running.get("pid")
+    root = pane and isinstance(pid, int) and tmux.pane_pid(pane)
+    return pane if root and int(root) in _ancestors(pid) else None
+
+
+def _home_relative(path: str) -> str:
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path.startswith(home + "/") else path
+
+
+async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
+    """Open a past session in a new window. Everything that reaches tmux comes from the
+    index, not the model: the model only names a session id."""
+    sid = args.get("session_id")
+    if set(args) - {"session_id"} or not isinstance(sid, str) or not sid.strip():
+        return {"status": "rejected", "reason": "malformed call"}
+    async with _resume_lock:
+        return await _resume_locked(websocket, sid.strip(), watcher, actor)
+
+
+async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
+    if sid in _resumed:
+        pane, pid = _resumed[sid]
+        # Held while that same process lives in the pane (tmux reuses pane ids).
+        if await asyncio.to_thread(tmux.pane_pid, pane) == pid:
+            return {"status": "already_running", "pane_id": pane}
+        _resumed.pop(sid)  # that pane is gone; fall through to the registry
+    entry = await asyncio.to_thread(agent_history.get, sid)
+    if entry is None:
+        return {"status": "rejected", "reason": "unknown session"}
+
+    # Never start a second process on a live session's transcript — including when
+    # agent-history couldn't tell whether one is running.
+    if entry.get("running_unknown"):
+        return {"status": "error", "reason": "can't tell whether it's already running"}
+    running = entry.get("running")
+    if running:
+        # The registry, not the watcher's last tick, is what says which pane it's in.
+        pane = await asyncio.to_thread(_pane_of, running)
+        if not pane:
+            return {"status": "rejected", "reason": "already running outside this tmux"}
+        labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+        if pane not in labels:
+            watcher.request_reparse(pane)  # publish it before the model types there
+        return {"status": "already_running", "pane_id": pane, "pane": labels.get(pane, pane)}
+
+    argv, cwd = entry.get("resume_argv") or [], entry.get("cwd") or ""
+    if not argv or argv[0] not in agent_history.RESUMABLE:
+        return {"status": "rejected", "reason": "session can't be resumed"}
+    if not os.path.isdir(cwd):
+        return {"status": "rejected", "reason": "session directory is gone"}
+
+    title = entry.get("title") or entry["session_id"][:8]
+    name = title[:24]
+    try:  # tmux can fail here too; report, don't kill the session
+        target = _session_for(await asyncio.to_thread(tmux.list_panes), cwd)
+        if target is None:
+            return {"status": "error", "reason": "no tmux session to open a window in"}
+        pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd)
+    except Exception as e:
+        logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
+        telemetry.emit_action(
+            action="live_resume", pane_uid=f"{tmux.server_uid()}:?", actor=actor,
+            detail=str(e)[:120], keys=entry["session_id"], outcome="error",
+        )
+        return {"status": "error", "reason": "could not open a window"}
+    pid = await _launched_pid(pane_id)
+    if pid is None:  # the window closed at once: the command failed to start
+        return {"status": "error", "reason": "the resumed session exited immediately"}
+    _resumed[sid] = (pane_id, pid)
+    watcher.request_reparse(pane_id)  # wakes a full tick, so the new pane is addressable
+    telemetry.emit_action(
+        action="live_resume", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
+        detail=f"in {target}", keys=entry["session_id"],
+    )
+    await websocket.send_json(
+        {"type": "typed", "pane_id": pane_id, "label": name,
+         "text": f"[resumed {title}]", "submitted": True}
+    )
+    return {"status": "opened", "pane_id": pane_id, "window": name}
+
+
+_LAUNCH_PID_RETRY_S = 0.1
+
+
+async def _launched_pid(pane_id: str) -> str | None:
+    """The pid of a just-opened pane. tmux sets it as it forks, so this is normally
+    immediate; a few short retries cover a slow tmux. None means the pane is gone."""
+    for _ in range(5):
+        pid = await asyncio.to_thread(tmux.pane_pid, pane_id)
+        if pid is not None:
+            return pid
+        await asyncio.sleep(_LAUNCH_PID_RETRY_S)
+    return None
+
+
+def _session_for(panes, cwd: str) -> str | None:
+    """The tmux session to open a resumed agent in: one already working in or under its
+    directory, else the session of the active window, else any."""
+    if not panes:
+        return None
+    for p in panes:
+        if p.cwd and (p.cwd == cwd or p.cwd.startswith(cwd.rstrip("/") + "/")):
+            return p.session
+    active = next((p for p in panes if p.window_active == "1" and p.pane_active == "1"), panes[0])
+    return active.session
+
+
+_HISTORY_TOOLS = {"find_sessions": _find_sessions, "resume_session": _resume_session}
 
 
 # Keep strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.

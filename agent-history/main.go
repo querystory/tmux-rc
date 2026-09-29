@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -24,7 +25,7 @@ const reconcileEvery = 6 * time.Hour
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query>")
+		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query> | get <session-id>")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -46,6 +47,8 @@ func main() {
 			report(err)
 			os.Exit(1)
 		}
+	case "get":
+		getCmd(os.Args[2:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
 		os.Exit(2)
@@ -55,6 +58,8 @@ func main() {
 func resolveCmd(args []string) error {
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
+	opt.Running, opt.RunningErr = RunningClaude()
+	report(opt.RunningErr)
 	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude)")
 	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
 	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
@@ -93,13 +98,45 @@ func resolveCmd(args []string) error {
 		fmt.Printf("%s  (score %.2f)\n", p.Repo, p.Score)
 		for _, s := range p.Sessions {
 			fmt.Printf("  %.10s  %-8.8s  %s\n", s.LastActive, s.ID, cmp.Or(s.Title, "(untitled)"))
-			if s.Resume != "" {
+			if s.RunningUnknown {
+				fmt.Println("      can't tell whether it's running; not offering a resume command")
+			} else if s.Running != nil {
+				fmt.Printf("      running in tmux pane %s (%s)\n", cmp.Or(s.Running.TmuxPane, "none"), s.Running.Status)
+			} else if s.Resume != "" {
 				fmt.Printf("      %s\n", s.Resume)
 			}
 		}
 	}
 	return nil
 }
+
+// getCmd prints one top-level session as JSON, with whether it is running, for a
+// caller that already chose it (e.g. from resolve). IDs are checked to be plain
+// names so a caller-supplied ID can't reach outside the index.
+func getCmd(args []string) {
+	if len(args) != 1 || !validID.MatchString(args[0]) {
+		fmt.Fprintln(os.Stderr, "usage: agent-history get <session-id>")
+		os.Exit(2)
+	}
+	id := args[0]
+	e, err := ReadEntry(indexPath("claude", "", id))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "get:", err)
+		os.Exit(1)
+	}
+	out := Scored{Entry: e}
+	running, err := RunningClaude()
+	report(err)
+	out.RunningUnknown = err != nil
+	if r, ok := running[id]; ok {
+		out.Running = &r
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.Encode(out)
+}
+
+var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // hook is the Claude Code hook entry point (Stop, SessionEnd, SubagentStop). It hands
 // the transcript to a detached child and returns at once, so a hook never slows or

@@ -71,7 +71,11 @@ type Project struct {
 
 type Scored struct {
 	Entry
-	Score float64 `json:"score"`
+	Score   float64  `json:"score"`
+	Running *Running `json:"running,omitempty"` // set when a process has it open now
+	// RunningUnknown: the live-process registry couldn't be read, so no Running here
+	// does not mean it's stopped. Callers must not resume on that basis.
+	RunningUnknown bool `json:"running_unknown,omitempty"`
 }
 
 type ResolveOptions struct {
@@ -80,6 +84,8 @@ type ResolveOptions struct {
 	MaxProjects int
 	MaxSessions int
 	Now         time.Time
+	Running     map[string]Running // by session ID; see RunningClaude
+	RunningErr  error              // set when Running could not be determined
 }
 
 // Resolve ranks where a request like "fix live mode" most likely belongs: repos, and
@@ -104,7 +110,11 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 			byRepo[repo] = &Project{Repo: repo}
 		}
 		p := byRepo[repo]
-		p.Sessions = append(p.Sessions, Scored{e, score})
+		scored := Scored{Entry: e, Score: score, RunningUnknown: opt.RunningErr != nil}
+		if r, ok := opt.Running[e.ID]; ok {
+			scored.Running = &r
+		}
+		p.Sessions = append(p.Sessions, scored)
 	}
 	projects := []Project{}
 	for _, p := range byRepo {
