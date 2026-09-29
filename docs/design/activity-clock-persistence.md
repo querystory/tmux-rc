@@ -56,9 +56,14 @@ the pid in the key, a reused id is simply a new row.
 
 We add one small table to that database: one row per pane, holding a hash of the
 pane's current fingerprint, the time that fingerprint first appeared, and the time the
-pane last went idle. The watcher writes a row only when a pane's screen or state really
-changes, the same moments it already updates `last_activity_at` and `state_since`.
-That is a few writes a minute across the fleet, not one per tick.
+pane went idle (empty while it isn't idle). A row records facts about the pane, not
+what some daemon noticed, so writes are conditional: the screen fields change only
+when the stored hash differs from the current one, the idle time only when the pane
+enters or leaves idle. That is a few writes a minute across the fleet, not one per tick.
+
+The condition matters even with one daemon. The watcher treats a pane's first tick
+after startup as a screen change, so an unconditional write-on-change would stamp
+every row with "now" on each restart: the bug again.
 
 Memory stays the runtime source of truth. SQLite is a write-through checkpoint, read
 only on a pane's first sighting after startup and never on the tick path, so a slow or
@@ -97,9 +102,24 @@ can still reuse its stored time.
 The parser still receives the full capture. Only the change-detection signature
 narrows.
 
+### Multiple daemons
+
+Two tmux-rc copies on one host share the database by default, with no instance lock,
+and copies watching the same tmux server compute identical pane keys. The conditional
+write makes this safe: the first copy to see a change records it, the other's write is
+a no-op, and they converge.
+
+- Copies running different fingerprint code hash the same screen differently. Writes
+  still happen only on real changes, so stored times stay honest, but a restart may
+  mismatch and fall back to `window_activity`. Accepted, as with versioning below.
+- The existing inventory history has the same two-writer exposure. An instance lock or
+  a per-instance database is the real fix and belongs in its own change.
+
 ### Pruning
 
-After the first successful inventory, we delete rows for panes not in it. Expiring
+After the first successful listing of every pane on the tmux server, we delete that
+server's rows for panes not in it. The listing must be the full one, not the watch
+list, which `TMUXRC_TARGET` narrows to one pane. Expiring
 rows by age instead would drop a long-idle live pane back to `window_activity`, which
 the footer redraws above keep fresh: the very bug this fixes. If tmux can't be listed,
 nothing is pruned.
@@ -148,8 +168,8 @@ direction, so a version column isn't worth it. Rejected.
 ## Failure modes
 
 - **Database missing, locked, or corrupt:** seed from `window_activity`, as today.
-  Writes use the history module's existing backoff, so a failing disk can't slow the
-  watcher.
+  A failed write is not retried; the row stays stale until the pane's next real
+  change, and a restart before then falls back to `window_activity`.
 - **Screen changed while down:** hash mismatch, fall back to `window_activity`, and
   the pane shows as recent. That's correct.
 - **Screen changed and changed back while down** (a command run, then cleared): the
