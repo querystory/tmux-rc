@@ -38,6 +38,17 @@ def test_bootstrap_rejects_junk():
     assert bootstrap(_pane(), "…", lambda s, t: None) is None
 
 
+def test_bootstrap_prompt_explains_opencode_model_identity():
+    seen = {}
+
+    def llm(system, text):
+        seen["prompt"] = system
+        return {"summary": "OpenCode session"}
+
+    bootstrap(_pane(cmd="opencode"), "Claude Opus 5.5\nOpenCode 1.18.32", llm)
+    assert "OpenCode can run Claude, GPT, or Gemini models" in seen["prompt"]
+
+
 def test_payload_leads_with_foreground_process():
     seen = {}
 
@@ -48,6 +59,70 @@ def test_payload_leads_with_foreground_process():
     classify(_pane(cmd="python3"), "some screen", llm)
     first_line = seen["text"].splitlines()[0]
     assert "foreground process" in first_line and "python3" in first_line
+
+
+def test_foreground_agent_process_beats_selected_model_identity():
+    r = classify(
+        _pane(cmd="opencode"),
+        "Build · Claude Opus 5.5 · Amazon Bedrock\nOpenCode 1.18.32",
+        _llm({"tool": "claude", "activity": "idle", "model": "Claude Opus 5.5",
+              "tasks": [{"text": "A conversational bullet", "done": False}]}),
+    )
+    assert r["tool"] == "opencode"
+    assert r["model"] == "Claude Opus 5.5"  # backend metadata remains intact
+    assert "tasks" not in r
+
+
+def test_opencode_keeps_an_explicit_task_plan():
+    tasks = [{"text": "Add the regression test", "done": False}]
+    r = classify(
+        _pane(cmd="opencode"),
+        "Plan\n☐ Add the regression test\n\nOpenCode 1.18.32",
+        _llm({"tool": "opencode", "activity": "running", "tasks": tasks}),
+    )
+    assert r["tasks"] == tasks
+
+
+def test_opencode_stale_checklist_does_not_validate_current_bullets():
+    r = classify(
+        _pane(cmd="opencode"),
+        (
+            "Plan\n☐ Old implementation step\n\n"
+            "Review complete:\n- Logs still use HTTP\nOpenCode 1.18.32"
+        ),
+        _llm({"tool": "opencode", "activity": "idle",
+              "tasks": [{"text": "Logs still use HTTP", "done": False}]}),
+    )
+    assert "tasks" not in r
+
+
+def test_opencode_standalone_checkboxes_own_their_line_and_done_state():
+    tasks = [{"text": t, "done": False} for t in ("Ship it", "Test it", "Drop it", "Prose")]
+    r = classify(
+        _pane(cmd="opencode"),
+        "Plan\n[✓] Ship it\n[•] Test it\n~[ ] Drop it~\n[ ]\nProse\n\nOpenCode 1.18.32",
+        _llm({"tool": "opencode", "activity": "running", "tasks": tasks}),
+    )
+    assert r["tasks"] == [{"text": "Ship it", "done": True}, tasks[1]]
+
+
+def test_opencode_interrupt_spinner_forces_running():
+    r = classify(
+        _pane(cmd="opencode"),
+        "┃  Build · Claude Opus 5.5 · Amazon Bedrock\n▰▰▰▰▰▰ esc interrupt",
+        _llm({"tool": "claude", "activity": "idle", "model": "Claude Opus 5.5"}),
+    )
+    assert r["tool"] == "opencode"
+    assert r["activity"] == "running"
+
+
+def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
+    r = classify(
+        _pane(cmd="opencode"),
+        "▰▰▰▰ esc interrupt\nPrevious turn complete\nOpenCode 1.18.32",
+        _llm({"tool": "opencode", "activity": "idle"}),
+    )
+    assert r["activity"] == "idle"
 
 
 def test_payload_supplies_repository_for_semantic_pr_classification():

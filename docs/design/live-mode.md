@@ -174,7 +174,7 @@ narrow verb rather than overloading the first: two unambiguous actions (type a s
 press a key) the model chooses between, and `press_key`'s **whitelist** means it can only
 send keys that make sense for a terminal UI, never an arbitrary chord we didn't vet. The
 prompt teaches the vocabulary generically (Escape cancels, C-c interrupts, arrows+Enter
-pick a menu item) so it works for claude/codex/gemini/shell alike — no per-vendor
+pick a menu item) so it works for claude/codex/gemini/opencode/shell alike — no per-vendor
 cheatsheet to go stale, matching the "observe the terminal, don't model the agent"
 principle.
 
@@ -228,7 +228,7 @@ executor). What carried over, adapted:
    be state refreshes, not the user speaking: "never respond to them; treat them as
    current truth." Belt (the `turn_complete=False` mechanism) and suspenders (the
    prompt rule).
-7. **Per-pane audience awareness.** Agent panes (claude/codex/gemini) receive natural
+7. **Per-pane audience awareness.** Agent panes (claude/codex/gemini/opencode) receive natural
    language — the agent parses it. Shell panes receive exact commands. Panes showing a
    numbered menu can be answered with the option the prompt expects. This routing
    knowledge lives in the prompt because the pane state already carries each pane's

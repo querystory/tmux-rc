@@ -143,6 +143,7 @@ _GENERIC_NAMES = {
     "claude",
     "codex",
     "gemini",
+    "opencode",
     "aider",
 }
 

@@ -60,6 +60,11 @@ def test_agent_cli_window_names_are_generic():
     assert named.label == "review the PR"
 
 
+def test_opencode_auto_window_name_is_generic():
+    agent = Pane("work", "8", "opencode", "0", "%8", "opencode", "OpenCode", "/home/x/proj")
+    assert agent.label == "work:8"
+
+
 def test_label_falls_back_to_cwd_with_index_when_session_is_generic():
     """No meaningful window OR session name: the cwd basename identifies the project,
     the index identifies the window."""
