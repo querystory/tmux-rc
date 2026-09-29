@@ -325,11 +325,11 @@ def test_picker_key_gating_and_route_selection(monkeypatch):
 
 @pytest.mark.parametrize("error,expected", [
     ({"code": "invalid_api_key", "message": "private terminal context"}, "invalid_api_key"),
-    ({"code": "secret context!"}, "unknown_error"), ({"code": None}, "unknown_error"),
+    ({"code": "secret context!"}, "unknown_error"), ({}, "unknown_error"),
     ("private terminal context", "unknown_error"), (None, "unknown_error"),
 ])
 def test_provider_errors_expose_only_sanitized_code(error, expected):
-    s = session([{"type": "error", "error": error}])
+    s = session([{"type": "error", "code": "invalid_api_key", "error": error}])
     with pytest.raises(G.ProviderError, match=r"^GPT-Live: " + expected + "$"):
         asyncio.run(s.receive())
     assert not s.ws.sent

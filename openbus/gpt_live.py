@@ -63,8 +63,8 @@ class ProviderError(RuntimeError):
     """A diagnostic safe to display without provider messages or terminal context."""
 
     def __init__(self, event):
-        error = event.get("error")
-        code = (error if isinstance(error, dict) else event).get("code")
+        error = event.get("error", event)
+        code = error.get("code") if isinstance(error, dict) else None
         if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,64}", code):
             code = "unknown_error"
         super().__init__("GPT-Live: " + code)
