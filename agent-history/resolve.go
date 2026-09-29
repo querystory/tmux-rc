@@ -50,6 +50,8 @@ func ReadEntry(path string) (Entry, error) {
 	err = json.Unmarshal(obj, &e)
 	if e.SourceMissing { // the harness deleted it: still findable, no longer resumable
 		e.ResumeArgv, e.Resume = nil, ""
+	} else if e.ResumeArgv == nil && e.Resume != "" { // format 1, until reconcile rebuilds it
+		e.ResumeArgv = claudeResume(e.ID)
 	}
 	e.named = normalize(e.Title + " " + strings.Join(e.Branches, " ") + " " + strings.Join(e.PRs, " "))
 	e.body = normalize(body)

@@ -87,6 +87,11 @@ func TestResolveEdgeCases(t *testing.T) {
 	if s := got[0].Sessions[0]; len(s.ResumeArgv) != 0 || s.Resume != "" || !s.SourceMissing {
 		t.Errorf("deleted session still resumable: %+v", s)
 	}
+	// A format-1 entry has only the resume line; resolve must not wait for reconcile.
+	must(t, os.WriteFile(path, []byte(strings.Replace(string(data), "\nresume_argv:", "\nx:", 1)), 0o600))
+	legacy, err := ReadEntry(path)
+	must(t, err)
+	check(t, "legacy argv", strings.Join(legacy.ResumeArgv, " "), "claude --resume gone")
 
 	negative := defaults
 	negative.MaxProjects, negative.MaxSessions = -1, -1
