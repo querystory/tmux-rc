@@ -5,6 +5,7 @@ tmux (argv, directory) comes from the agent-history index; a session that is alr
 running is never started twice; and without agent-history the tools don't exist."""
 
 import asyncio
+import os
 import shutil
 import stat
 import subprocess
@@ -16,6 +17,8 @@ from openbus import agent_history, tmux
 from openbus.tmux import Pane
 from tests.test_live_mode import _FC, _WS, _run, _Session, _Watcher
 
+_REAL_ANCESTORS = L._ancestors  # before the autouse stub replaces it
+
 LIVE = {
     "session_id": "live-1", "title": "tmuxrc live mode", "cwd": "/repo",
     "last_active": "2026-09-05T15:29:22Z", "resume_argv": ["claude", "--resume", "live-1"],
@@ -26,6 +29,8 @@ LIVE = {
 def _fresh_resumes(monkeypatch):
     monkeypatch.setattr(L, "_resumed", {})
     monkeypatch.setattr(L, "_resume_lock", asyncio.Lock())  # each test runs its own loop
+    # Every registered process runs under the stubbed pane pid (conftest's 1234).
+    monkeypatch.setattr(L, "_ancestors", lambda pid: [pid, 1234])
     # The tools are offered (and callable) only with a binary; tests stub its calls.
     monkeypatch.setenv("TMUXRC_AGENT_HISTORY", shutil.which("true"))
     monkeypatch.delenv("TMUXRC_TARGET", raising=False)
@@ -131,6 +136,20 @@ def test_resume_never_starts_a_second_copy(history):
     _, r = _call("resume_session", {"session_id": "live-1"})
     assert r["status"] == "rejected"
     assert opened == []
+
+
+def test_registry_pane_counts_only_if_its_process_runs_there(history, monkeypatch):
+    # The registry's %N may belong to another tmux server; here it's an unrelated pane.
+    sessions, opened = history
+    sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
+    monkeypatch.setattr(L, "_ancestors", lambda pid: [pid])
+    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "rejected"
+    assert opened == []
+    monkeypatch.setattr(L, "_ancestors", _REAL_ANCESTORS)
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: str(os.getppid()))
+    assert L._pane_of({"pid": os.getpid(), "tmux_pane": "%1"}) == "%1"  # real /proc walk
+    monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "999999999")
+    assert L._pane_of({"pid": os.getpid(), "tmux_pane": "%1"}) is None
 
 
 @pytest.mark.parametrize(("entry", "args"), [

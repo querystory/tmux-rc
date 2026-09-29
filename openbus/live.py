@@ -419,7 +419,7 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
     for p in projects:
         sessions = []
         for s in p["sessions"]:
-            pane = (s.get("running") or {}).get("tmux_pane")
+            pane = s.get("running") and await asyncio.to_thread(_pane_of, s["running"])
             if pane and pane not in labels:
                 watcher.request_reparse(pane)  # publish it before the model types there
             sessions.append({
@@ -442,6 +442,26 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
 # the pane it opened lives. The pane's pid, not its id, is the identity: tmux reuses ids.
 _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str]] = {}  # session id -> (pane id, pane pid)
+
+
+def _ancestors(pid: int):
+    """pid, its parent, and so on up, read from /proc; stops at init or a gone process."""
+    while pid > 1:
+        yield pid
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                pid = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return
+
+
+def _pane_of(running: dict) -> str | None:
+    """A registry entry's pane in THIS tmux server, or None. Its %N comes from whatever
+    server Claude ran under, so it counts only if that pane's process here is an
+    ancestor of the registered pid."""
+    pane, pid = running.get("tmux_pane"), running.get("pid")
+    root = pane and isinstance(pid, int) and tmux.pane_pid(pane)
+    return pane if root and int(root) in _ancestors(pid) else None
 
 
 def _home_relative(path: str) -> str:
@@ -477,9 +497,9 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
     running = entry.get("running")
     if running:
         # The registry, not the watcher's last tick, is what says which pane it's in.
-        pane = running.get("tmux_pane")
+        pane = await asyncio.to_thread(_pane_of, running)
         if not pane:
-            return {"status": "rejected", "reason": "already running outside tmux"}
+            return {"status": "rejected", "reason": "already running outside this tmux"}
         labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
         if pane not in labels:
             watcher.request_reparse(pane)  # publish it before the model types there
