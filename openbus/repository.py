@@ -6,7 +6,8 @@ import re
 import subprocess
 
 _GITHUB_REMOTE = re.compile(
-    r"^(?:git@github\.com:|ssh://git@github\.com/|https?://github\.com/)"
+    r"^(?:git@github\.com:|ssh://git@(?:ssh\.)?github\.com(?::[0-9]+)?/"
+    r"|(?:https?|git)://github\.com(?::[0-9]+)?/)"
     r"(?P<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?$"
 )
 
@@ -30,4 +31,9 @@ def github_repository(cwd: str) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     match = _GITHUB_REMOTE.fullmatch(remote)
-    return match.group("repo") if match else None
+    if not match:
+        return None
+    repo = match.group("repo")
+    if len(repo) > 256 or any(part in {".", ".."} for part in repo.split("/")):
+        return None
+    return repo

@@ -11,6 +11,13 @@ from openbus import repository
         ("git@github.com:querystory/tmux-rc.git", "querystory/tmux-rc"),
         ("ssh://git@github.com/querystory/qs-app", "querystory/qs-app"),
         ("https://github.com/querystory/tmux-rc.git", "querystory/tmux-rc"),
+        ("git://github.com/querystory/tmux-rc.git", "querystory/tmux-rc"),
+        ("ssh://git@github.com:22/querystory/tmux-rc.git", "querystory/tmux-rc"),
+        ("ssh://git@ssh.github.com:443/querystory/tmux-rc.git", "querystory/tmux-rc"),
+        ("https://github.com:443/querystory/tmux-rc.git", "querystory/tmux-rc"),
+        ("ssh://git@github.com.evil.test:22/querystory/tmux-rc.git", None),
+        ("https://github.com/../bad.git", None),
+        ("https://github.com/org/" + "a" * 257, None),
         ("git@gitlab.com:querystory/tmux-rc.git", None),
     ],
 )
