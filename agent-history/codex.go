@@ -92,11 +92,11 @@ func codexIdentity(path string) (id, parent string) {
 }
 
 // codexThreadName is the thread's name, which Codex keeps outside the rollout in an
-// append-only log where the last entry for an ID wins. A rename made after a thread's
-// last activity shows up the next time its rollout changes.
+// append-only log where the last entry for an ID wins. The log is the Codex harness's
+// sidecar, so a rename rebuilds entries even for a thread that is no longer active.
 func codexThreadName(id string) string {
 	name := ""
-	scanLines(filepath.Join(codexDir(), "session_index.jsonl"), func(line []byte) error {
+	scanLines(codexNames(), func(line []byte) error {
 		var e struct {
 			ID   string `json:"id"`
 			Name string `json:"thread_name"`
@@ -135,7 +135,15 @@ func codexSessions() ([][]string, error) {
 // unknown.
 func RunningCodex() (map[string]Running, error) {
 	out := map[string]Running{}
-	dir := codexSessionsDir() + string(filepath.Separator)
+	// Open files show resolved paths, so compare against the resolved directory.
+	dir, err := filepath.EvalSymlinks(codexSessionsDir())
+	if errors.Is(err, fs.ErrNotExist) {
+		return out, nil // no sessions directory, so no rollout can be open
+	}
+	if err != nil {
+		return nil, err
+	}
+	dir += string(filepath.Separator)
 	procs, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
@@ -198,5 +206,7 @@ func codexDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".codex")
 }
+
+func codexNames() string { return filepath.Join(codexDir(), "session_index.jsonl") }
 
 func codexSessionsDir() string { return filepath.Join(codexDir(), "sessions") }

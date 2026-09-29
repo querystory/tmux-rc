@@ -110,6 +110,19 @@ func TestReconcileIndexesCodex(t *testing.T) {
 	if data, _ := os.ReadFile(e.Path); string(data) == "sentinel" {
 		t.Errorf("entry not rebuilt when its thread was resumed")
 	}
+
+	// Renaming an idle thread touches only Codex's name log; that rebuilds it too.
+	f, err := os.OpenFile(codexNames(), os.O_APPEND|os.O_WRONLY, 0)
+	must(t, err)
+	_, err = f.WriteString(`{"id":"` + codexID + `","thread_name":"renamed later"}` + "\n")
+	must(t, err)
+	must(t, f.Close())
+	later = later.Add(time.Minute)
+	must(t, os.Chtimes(codexNames(), later, later))
+	reconcileAll(false)
+	e, err = ReadEntry(e.Path)
+	must(t, err)
+	check(t, "title after rename", e.Title, "renamed later")
 }
 
 func sessionsOf(t *testing.T) [][]string {
@@ -121,6 +134,10 @@ func sessionsOf(t *testing.T) [][]string {
 
 func TestRunningCodex(t *testing.T) {
 	writeCodex(t)
+	// CODEX_HOME reached through a symlink: open files still show the real path.
+	link := filepath.Join(t.TempDir(), "codex-link")
+	must(t, os.Symlink(codexDir(), link))
+	t.Setenv("CODEX_HOME", link)
 	var name string
 	for n := range codexRollouts {
 		name = n
