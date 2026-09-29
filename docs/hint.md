@@ -111,11 +111,22 @@ NONE of the parse metrics (model/latency/tokens/etc.).
 
 ### Action audit records (`body = 'tmux-rc action'`)
 
-One record per state-CHANGING request a user made through the phone UI — the audit trail
-for "what is making changes to my terminals, and who?". These are USER actions, not
-parser activity — don't mix them into parse metrics.
+One record per state-CHANGING request a user made through the phone UI or Live Mode — the
+audit trail for "what is making changes to my terminals, and who?". These are USER actions,
+not parser activity — don't mix them into parse metrics. Each record has a matching
+`AUDIT ...` line in the daemon's journal.
 
-- **`event`** — `send_keys` | `select_pane` | `paste_image`.
+- **`event`** — phone: `send_keys` | `click` | `select_pane` | `kill_window` | `new_window`
+  | `paste_image` | `compose` | `push_subscribe` | `push_unsubscribe` | `push_revoke_all` |
+  `push_answer`. Live Mode: `live_session` (start/end, with `turns`, `cost_usd`,
+  `duration_s`) and one `live_<tool>` per tool call (`live_type_in_pane`,
+  `live_press_key`, `live_find_sessions`, `live_resume_session`).
+- Live records also carry **`session`** (the voice session id that joins to its
+  `live_turn` rows), **`model`**, **`provider`**, and for tool calls **`latency_ms`**.
+  `live_find_sessions` adds `results` (count) and `top` (first three session ids);
+  `live_resume_session` adds `session_id`, `tool`, `cwd`, and on success `window` and
+  `tmux_session` — `pane_uid` is the new pane, or the existing one when the session was
+  already running (`outcome = already_running`).
 - **`pane_uid`** — joins to parse and lifecycle records.
 - **`actor`** — the IAP-authenticated email forwarded by the tunnel (trusted only when
   the request arrived from loopback, i.e. via the tunnel client), `local:<ip>` for
@@ -123,8 +134,8 @@ parser activity — don't mix them into parse metrics.
   the identity header — a visible spoof attempt, treat with suspicion.
 - **`outcome`** — `ok` for completed actions; `rejected: ...` / `error: ...` for refused
   or failed attempts (probing for nonexistent panes shows up here).
-- optional **`detail`**, and **`keys`** (the injected text — only in debug mode AND when
-  key logging isn't disabled via TMUXRC_AUDIT_KEYS=0).
+- optional **`detail`**, and **`keys`** (the injected text, or Live's search query — only
+  in debug mode AND when key logging isn't disabled via TMUXRC_AUDIT_KEYS=0).
 
 ### Live-view records (`scope_name = 'tmux-rc.live'`, `body = 'tmux-rc live'`)
 

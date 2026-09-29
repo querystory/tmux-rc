@@ -282,36 +282,50 @@ def _system_prompt(watcher) -> str:
     )
 
 
-def _actor(websocket: WebSocket) -> str:
-    """WHO is on this session, same trust model as server._audit: the relay-forwarded
-    identity header is honored only from loopback peers (the tunnel-client), otherwise
-    recorded as a claim."""
-    peer = websocket.client.host if websocket.client else "?"
-    claimed = websocket.headers.get("x-tunnel-user")
-    # Bound the header-derived identity so a peer can't bloat OTel attrs/logs with a huge
-    # x-tunnel-user — same 200-char convention as server._audit's actor[:200].
-    if claimed and peer in ("127.0.0.1", "::1"):
-        return claimed[:200]
-    if claimed:
-        return f"local:{peer} claiming {claimed[:60]!r}"
-    return f"local:{peer}"
+def _audit(meter: _Meter, action: str, pane_id: str = "-", **kw) -> None:
+    """A Live audit record, tagged with the voice session it came from. Everything the
+    voice typed or asked for is speech: journal content only under TMUXRC_QSDEBUG."""
+    telemetry.audit(
+        action, pane_id, meter.actor, speech=True, session=meter.session[:64],
+        model=meter.model.model, provider=meter.model.backend, **kw,
+    )
 
 
-async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: str) -> None:
-    """Route a tool call (type_in_pane / press_key) to the pane and answer the model tersely.
-    The result NEVER rides back through the tool response (echo loops — see design doc);
-    the model sees the outcome via the post-action ambient refresh instead."""
+async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter) -> None:
+    """Run one tool call, audit it, and answer the model tersely. The ONE place every
+    Live tool call is recorded: the handler notes what it touched in `rec` (pane, detail,
+    content, ids) and the outcome comes from its answer, so no path goes unaudited — a
+    call that raises (say, the socket dropping after the keys went in) is audited too,
+    with whatever `rec` already shows it did."""
+    started, rec = time.monotonic(), {}
+    # The name is provider data: anything but a known string (a list is unhashable) is
+    # refused here, before it can reach a set lookup.
+    known = isinstance(fc.name, str) and fc.name in _TOOLS
+    result = {"status": "error", "reason": "aborted"} if known else {
+        "status": "rejected", "reason": "unknown tool"}
+    try:
+        if known:
+            result = await _dispatch(websocket, session, fc, watcher, rec)
+    finally:
+        status, reason = result["status"], result.get("reason")
+        _audit(
+            meter, f"live_{fc.name if known else 'unknown_tool'}",
+            outcome="ok" if status in {"done", "ok", "opened"}
+            else f"{status}: {reason}" if reason else status,
+            latency_ms=round((time.monotonic() - started) * 1000), **rec,
+        )
+    await session.send_tool_result(fc, result)
 
-    async def respond(payload: dict) -> None:
-        await session.send_tool_result(fc, payload)
 
+async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> dict:
+    """Route a tool call (type_in_pane / press_key, or a history tool) and return its
+    answer. The result NEVER rides back through the tool response (echo loops — see
+    design doc); the model sees the outcome via the post-action ambient refresh instead."""
     args = fc.args if isinstance(fc.args, dict) else {}
     if fc.name in _HISTORY_TOOLS:
         if not agent_history.offered():
-            await respond({"status": "rejected", "reason": "session history not available"})
-            return
-        await respond(await _HISTORY_TOOLS[fc.name](websocket, args, watcher, actor))
-        return
+            return {"status": "rejected", "reason": "session history not available"}
+        return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
 
     # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
     # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
@@ -351,17 +365,14 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
             send_args = (pane_id, key, False, False)  # named key, not literal, no auto-Enter
             what, submitted = f"[{key}]", key == "Enter"
 
-    if send_args is None or pane_id not in labels:
-        reason = "unknown pane" if pane_id not in labels else "malformed call"
-        # Log the verb + target + reason only — the payload may hold secrets and logs
-        # aren't QSDEBUG-gated. (The keys= on emit_action IS gated, so it keeps them.)
-        logger.info("[live] rejecting tool call %s -> %s: %s", fc.name, pane_id or "?", reason)
-        telemetry.emit_action(
-            action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id or '?'}", actor=actor,
-            detail=reason, keys=str(args), outcome=f"rejected: {reason}",
-        )
-        await respond({"status": "rejected", "reason": reason})
-        return
+    # The payload may hold secrets: it is speech, so it reaches the journal only under
+    # QSDEBUG. The pane id is recorded only once it names a real pane.
+    rec["keys"] = what or str(args)
+    if pane_id not in labels:
+        return {"status": "rejected", "reason": "unknown pane"}
+    rec["pane_id"] = pane_id
+    if send_args is None:
+        return {"status": "rejected", "reason": "malformed call"}
 
     label = labels[pane_id]
     invalidate = getattr(watcher, "invalidate_input_actions", None)
@@ -370,25 +381,20 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
             await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
         await asyncio.to_thread(tmux.send_keys, *send_args)
     except Exception as e:  # report, don't kill the session
-        logger.warning("[live] %s failed for %s", fc.name, pane_id, exc_info=True)
-        telemetry.emit_action(
-            action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
-            detail=str(e)[:120], keys=what, outcome="error",
-        )
-        await respond({"status": "error", "reason": "pane did not accept input"})
-        return
+        # The error's text can quote the typed text (send-keys argv): speech, so only
+        # the class leaves here unless QSDEBUG.
+        rec["detail"] = type(e).__name__
+        logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
+                       exc_info=telemetry.QSDEBUG)
+        return {"status": "error", "reason": "pane did not accept input"}
 
-    telemetry.emit_action(
-        action="live_type", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
-        detail=f"into {label}" + (" +enter" if submitted else ""), keys=what,
-    )
+    rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
     watcher.request_reparse(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
          "text": what, "submitted": submitted}
     )
-    await respond({"status": "done", "pane": label})
 
     # Let the pane react, then show the model what its keystrokes did — as ambient
     # state, not as a tool result.
@@ -400,15 +406,16 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
                 session, f"[tmux update] {label} ({pane_id}) after your input:\n{tail}"
             )
 
-    task = asyncio.create_task(refresh())
-    _background(task)
+    _background(asyncio.create_task(refresh()))
+    return {"status": "done", "pane": label}
 
 
-async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
+async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     """Past sessions for a topic, trimmed to what choosing needs. No message text: the
     model routes on titles, recency and liveness, and nothing from an old session is
     handed to it as if it were current."""
     query = args.get("query")
+    rec["keys"] = str(query)  # the user's words: speech, like a transcript
     if set(args) - {"query"} or not isinstance(query, str) or not query.strip():
         return {"status": "rejected", "reason": "malformed call"}
     projects = await asyncio.to_thread(agent_history.resolve, query.strip())
@@ -433,6 +440,8 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
             })
         # The path, shortened under home, so two repos with one name stay distinct.
         results.append({"repo": _home_relative(p["repo"]), "sessions": sessions})
+    ids = [s["session_id"] for r in results for s in r["sessions"]]
+    rec.update(results=len(ids), top=",".join(ids[:3]))
     return {"status": "ok", "results": results}
 
 
@@ -441,7 +450,7 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
 # transcript. Resumes are serialized, and each launch holds its session for as long as
 # the pane it opened lives. The pane's pid, not its id, is the identity: tmux reuses ids.
 _resume_lock = asyncio.Lock()
-_resumed: dict[str, tuple[str, str]] = {}  # session id -> (pane id, pane pid)
+_resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, audit rec)
 
 
 def _ancestors(pid: int):
@@ -469,26 +478,30 @@ def _home_relative(path: str) -> str:
     return "~" + path[len(home):] if path.startswith(home + "/") else path
 
 
-async def _resume_session(websocket, args: dict, watcher, actor: str) -> dict:
+async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
     """Open a past session in a new window. Everything that reaches tmux comes from the
     index, not the model: the model only names a session id."""
     sid = args.get("session_id")
+    rec["session_id"] = str(sid)[:80]
     if set(args) - {"session_id"} or not isinstance(sid, str) or not sid.strip():
         return {"status": "rejected", "reason": "malformed call"}
     async with _resume_lock:
-        return await _resume_locked(websocket, sid.strip(), watcher, actor)
+        return await _resume_locked(websocket, sid.strip(), watcher, rec)
 
 
-async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
+async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     if sid in _resumed:
-        pane, pid = _resumed[sid]
+        pane, pid, launched = _resumed[sid]
         # Held while that same process lives in the pane (tmux reuses pane ids).
         if await asyncio.to_thread(tmux.pane_pid, pane) == pid:
+            rec.update({**launched, **rec}, detail="resumed moments ago")  # this call's id
             return {"status": "already_running", "pane_id": pane}
         _resumed.pop(sid)  # that pane is gone; fall through to the registry
     entry = await asyncio.to_thread(agent_history.get, sid)
     if entry is None:
         return {"status": "rejected", "reason": "unknown session"}
+    argv, cwd = entry.get("resume_argv") or [], entry.get("cwd") or ""
+    rec.update(tool=argv[0] if argv else "-", cwd=_home_relative(cwd))
 
     # Never start a second process on a live session's transcript — including when
     # agent-history couldn't tell whether one is running.
@@ -500,12 +513,12 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
         pane = await asyncio.to_thread(_pane_of, running)
         if not pane:
             return {"status": "rejected", "reason": "already running outside this tmux"}
+        rec["pane_id"] = pane
         labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
         if pane not in labels:
             watcher.request_reparse(pane)  # publish it before the model types there
         return {"status": "already_running", "pane_id": pane, "pane": labels.get(pane, pane)}
 
-    argv, cwd = entry.get("resume_argv") or [], entry.get("cwd") or ""
     if not argv or argv[0] not in agent_history.RESUMABLE:
         return {"status": "rejected", "reason": "session can't be resumed"}
     if not os.path.isdir(cwd):
@@ -520,20 +533,14 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
         pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd)
     except Exception as e:
         logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
-        telemetry.emit_action(
-            action="live_resume", pane_uid=f"{tmux.server_uid()}:?", actor=actor,
-            detail=str(e)[:120], keys=entry["session_id"], outcome="error",
-        )
+        rec["detail"] = str(e)[:120]
         return {"status": "error", "reason": "could not open a window"}
+    rec.update(pane_id=pane_id, window=name, tmux_session=target)
     pid = await _launched_pid(pane_id)
     if pid is None:  # the window closed at once: the command failed to start
         return {"status": "error", "reason": "the resumed session exited immediately"}
-    _resumed[sid] = (pane_id, pid)
+    _resumed[sid] = (pane_id, pid, dict(rec))
     watcher.request_reparse(pane_id)  # wakes a full tick, so the new pane is addressable
-    telemetry.emit_action(
-        action="live_resume", pane_uid=f"{tmux.server_uid()}:{pane_id}", actor=actor,
-        detail=f"in {target}", keys=entry["session_id"],
-    )
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": name,
          "text": f"[resumed {title}]", "submitted": True}
@@ -568,6 +575,7 @@ def _session_for(panes, cwd: str) -> str | None:
 
 
 _HISTORY_TOOLS = {"find_sessions": _find_sessions, "resume_session": _resume_session}
+_TOOLS = {"type_in_pane", "press_key", *_HISTORY_TOOLS}
 
 
 # Keep strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.
@@ -639,7 +647,7 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
             logger.debug("[live] unknown client action: %s", action)
 
 
-async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _Meter) -> None:
+async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> None:
     """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
     the session — takes each usage event into `meter` and emits a per-turn OTel record
     at every turn boundary."""
@@ -647,14 +655,8 @@ async def _receiver(websocket: WebSocket, session, watcher, actor: str, meter: _
         if ev.kind == "usage":
             meter.usage.set(ev.usage)
         elif ev.kind == "tool_call":
-            fc = ev.call
-            # Log the verb + target only, never the payload — typed text can carry
-            # secrets, and logs aren't gated by TMUXRC_QSDEBUG the way telemetry/meter
-            # content is.
-            pane = fc.args.get("pane_id") if isinstance(fc.args, dict) else None
-            logger.info("[live] tool call: %s -> %s", fc.name, pane)
-            meter.note(f"[typed] {fc.args}")
-            await _handle_tool_call(websocket, session, fc, watcher, actor)
+            meter.note(f"[typed] {ev.call.args}")
+            await _handle_tool_call(websocket, session, ev.call, watcher, meter)
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
@@ -683,7 +685,7 @@ async def _hold(websocket: WebSocket, seconds: float) -> bool:
     return False
 
 
-async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter) -> None:
+async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
     """Connect to meter.model and run the session; reconnect with backoff on drops."""
     model = meter.model
     max_reconnects = 5
@@ -697,12 +699,12 @@ async def _run_session(websocket: WebSocket, watcher, actor: str, meter: _Meter)
             async with live_providers.connect(model, _system_prompt(watcher)) as session:
                 logger.info(
                     "[live] session up (model=%s via %s, actor=%s)",
-                    model.model, model.backend, actor,
+                    model.model, model.backend, meter.actor,
                 )
                 await websocket.send_json({"type": "status", "status": "listening"})
                 side = [
                     asyncio.create_task(
-                        _receiver(websocket, session, watcher, actor, meter), name="live-receiver"
+                        _receiver(websocket, session, watcher, meter), name="live-receiver"
                     ),
                     asyncio.create_task(
                         _context_updater(session, watcher), name="live-context-updater"
@@ -824,27 +826,21 @@ async def live_mode(websocket: WebSocket) -> None:
     use_gpt = model is gpt_live.ENTRY
     await websocket.accept()
     watcher = websocket.app.state.watcher
-    actor = _actor(websocket)
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
-    meter = _Meter(session_id, actor, model)
-    logger.info(
-        "[live] session start (actor=%s, session=%s, model=%s)", actor, session_id, model.label
-    )
-    telemetry.emit_action(
-        action="live_session", pane_uid="-", actor=actor, detail="start", keys=None
-    )
+    meter = _Meter(session_id, telemetry.actor(websocket), model)
+    _audit(meter, "live_session", detail="start")
     outcome, reason = "ok", "stop"
     try:
         if use_gpt:
-            await gpt_live.run_session(websocket, watcher, actor, meter)
+            await gpt_live.run_session(websocket, watcher, meter)
         else:
-            await _run_session(websocket, watcher, actor, meter)
+            await _run_session(websocket, watcher, meter)
     except WebSocketDisconnect:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
     except Exception as e:  # noqa: BLE001 - the session's last stop: report it, never crash the WS
-        outcome = reason = "error"
+        reason, outcome = "error", f"error: {type(e).__name__}"  # the class, never provider text
         # A model that can't be reached (bad deployment name, rejected key) says exactly
         # what to fix — the user fixes config, not the retry count. Anything else stays a
         # generic line so internal detail never reaches the browser. The adapter's
@@ -861,16 +857,11 @@ async def live_mode(websocket: WebSocket) -> None:
                 {"type": "error", "message": str(e) if fatal else "live session failed"}
             )
     finally:
-        logger.info(
-            "[live] session end: %s (%d turns, $%.4f, session=%s)",
-            reason, meter.turns, meter.usage.cost(), session_id,
-        )
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
-        telemetry.emit_action(
-            action="live_session", pane_uid="-", actor=actor,
-            detail=f"end ({meter.turns} turns, ${meter.usage.cost():.4f})",
-            keys=None,
-            outcome=outcome,
+        _audit(
+            meter, "live_session", detail=f"end: {reason}", outcome=outcome, turns=meter.turns,
+            cost_usd=round(meter.usage.cost(), 4),
+            duration_s=round(time.monotonic() - meter.started, 1),
         )
         with contextlib.suppress(Exception):
             await websocket.close()

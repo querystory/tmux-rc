@@ -116,7 +116,7 @@ undercount. So:
 
 There is no per-user auth identity inside the daemon. The only "who" it has is the
 tunnel owner's email, forwarded as `X-Tunnel-User` and trusted **only from loopback**
-(the same trust model as `_audit`, see server.py) — over the LAN it's an unverified
+(the same trust model as the audit trail, see `telemetry.actor`) — over the LAN it's an unverified
 claim. That email answers "which account", but not "which viewing session": one user
 opening the PWA twice, or leaving it open across days, is one email but many distinct
 watch sessions, and billing/usage wants to tell those apart.
@@ -138,7 +138,7 @@ So we use **two attribution keys, layered:**
   would sum unrelated viewers' hold-seconds into one phantom session and corrupt the
   per-session billing signal. Better to attribute to none than to the wrong one.
 - **`actor`** — the loopback-trusted `X-Tunnel-User` email when present, recorded the
-  same guarded way `_audit` records it (trusted only from loopback; a LAN claim is
+  same guarded way the audit trail records it (trusted only from loopback; a LAN claim is
   logged as a claim, never as the actor). This is the account key for "live-time per
   user" rollups. Absent (direct LAN use) ⇒ omitted, and the `session` still carries the
   usage story.

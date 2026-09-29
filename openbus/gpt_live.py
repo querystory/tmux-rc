@@ -185,9 +185,9 @@ class Usage:
 
 
 class Session:
-    def __init__(self, ws, browser, watcher, actor, meter):
+    def __init__(self, ws, browser, watcher, meter):
         self.ws, self.browser, self.watcher = ws, browser, watcher
-        self.actor, self.meter = actor, meter
+        self.meter = meter
         self.closing = False
         self.calls = {}
         self.seen_calls = set()
@@ -383,7 +383,7 @@ class Session:
                 fc = SimpleNamespace(id=cid, name=item.get("name"), args=args)
                 self.meter.note(f"[typed] {args}")
                 await live._handle_tool_call(  # noqa: SLF001 - shared Live adapter internals
-                    self.browser, self, fc, self.watcher, self.actor
+                    self.browser, self, fc, self.watcher, self.meter
                 )
             if not self.closing:
                 # All outputs must precede continuation, even if a backend emits
@@ -411,7 +411,7 @@ class Session:
         )
 
 
-async def run_session(browser, watcher, actor, meter):
+async def run_session(browser, watcher, meter):
     """Stop on connection loss; don't silently replay a terminal action after reconnect."""
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
@@ -430,7 +430,7 @@ async def run_session(browser, watcher, actor, meter):
     meter.usage = Usage(backend)
     await browser.send_json({"type": "status", "status": "connecting"})
     async with _connect(key) as ws:
-        session = Session(ws, browser, watcher, actor, meter)
+        session = Session(ws, browser, watcher, meter)
         await session.send(
             {
                 "type": "session.start",
