@@ -52,19 +52,22 @@ delegate, and every direct send names its target as it goes (Live Mode's overlay
 already logs each typed action), so a misroute is seen at once, not discovered later.
 
 This is GPT-Live's fast-front/slow-back split (a voice model delegating terminal work
-to a Responses backend, `openbus/gpt_live.py`), with control as the backend. It also keeps Live Mode's
-existing tools (`type_in_pane`, `press_key` in `openbus/live_providers.py`) as the fast
-path's whole vocabulary. The one addition is the directory's incarnation guard (below):
-today those tools carry only a pane id, and a direct send must be rejected if that id
-now belongs to a different pane, or (for a key press) if the screen it was judged
-against has since changed. So the directory carries a per-pane screen revision next to
-the incarnation, and a direct send echoes both back.
+to a Responses backend, `openbus/gpt_live.py`), with control as the backend.
 
-Why the gate sits where it does: a send into a live agent cannot be undone. The agent
-reads it and acts. The control plane's risk tiers already say to spend friction in
-proportion to irreversibility; here the cheap friction is an extra hop to control, and
-the expensive failure is an instruction landing in the wrong agent's context. Paying
-the hop on every doubtful request is cheaper than one crossed stream.
+The fast path may send **only plain text to a single confident target**: Live Mode's
+`type_in_pane`, nothing else. No key presses, nothing destructive, no window creation,
+no resumes; all of those go to control, which asks the user for risky actions per the
+control plane's risk tiers. This is what makes consent a property of routing rather
+than a separate gate: the only unconfirmed action is the one a person would do without
+thinking (say a sentence to an agent), and every action with a real blast radius passes
+through the one place that has full context and asks. It also removes the stale-screen
+hazard of an unconfirmed key press landing on a menu that has moved on. What remains is
+the incarnation guard (below): the tool carries only a pane id today, so the directory
+issues an incarnation and a direct send echoes it back, rejected if the id now belongs
+to a different pane.
+
+Why the gate sits where it does: a send into a live agent cannot be undone. An extra
+hop to control is cheap; an instruction in the wrong agent's context is not.
 
 ## Crossed streams
 
