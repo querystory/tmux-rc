@@ -59,7 +59,8 @@ pane's current fingerprint, the time that fingerprint first appeared, and the ti
 pane went idle (empty while it isn't idle). A row records facts about the pane, not
 what some daemon noticed, so writes are conditional: the screen fields change only
 when the stored hash differs from the current one, the idle time only when the pane
-enters or leaves idle. That is a few writes a minute across the fleet, not one per tick.
+enters or leaves idle. A write stores the clocks as the watcher holds them, so after a
+mismatch it records the `window_activity` seed, not the startup time. That is a few writes a minute across the fleet, not one per tick.
 
 The condition matters even with one daemon. The watcher treats a pane's first tick
 after startup as a screen change, so an unconditional write-on-change would stamp
@@ -122,7 +123,9 @@ a no-op, and they converge.
 
 After the first successful listing of every pane on the tmux server, we delete the
 preloaded rows for that server whose panes are not in it. Limiting the delete to the
-preload means a row another daemon inserted meanwhile can't be pruned. The listing must be the full one, not the watch
+preload means a row another daemon inserted meanwhile can't be pruned. Preloaded rows
+from other tmux servers go once that server is provably gone: a different boot id, or
+a server pid that is no longer running. The listing must be the full one, not the watch
 list, which `TMUXRC_TARGET` narrows to one pane. Expiring
 rows by age instead would drop a long-idle live pane back to `window_activity`, which
 the footer redraws above keep fresh: the very bug this fixes. If tmux can't be listed,
