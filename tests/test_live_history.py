@@ -26,6 +26,9 @@ LIVE = {
 def _fresh_resumes(monkeypatch):
     monkeypatch.setattr(L, "_resumed", {})
     monkeypatch.setattr(L, "_resume_lock", asyncio.Lock())  # each test runs its own loop
+    # The tools are offered (and callable) only with a binary; tests stub its calls.
+    monkeypatch.setenv("TMUXRC_AGENT_HISTORY", shutil.which("true"))
+    monkeypatch.delenv("TMUXRC_TARGET", raising=False)
 
 
 @pytest.fixture
@@ -178,17 +181,19 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
 
 
 def test_tools_offered_only_with_agent_history(monkeypatch):
-    monkeypatch.delenv("TMUXRC_TARGET", raising=False)
-
-    def names():
-        return {f.name for t in L._tools() for f in t.function_declarations}
-    monkeypatch.setattr(agent_history, "binary", lambda: "/bin/agent-history")
-    assert {"find_sessions", "resume_session"} <= names()
+    def offered():
+        names = {f.name for t in L._tools() for f in t.function_declarations}
+        # A call to a tool that wasn't offered is refused, not run.
+        refused = _call("find_sessions", {"query": "x"})[1]["status"] == "rejected"
+        assert refused == ("find_sessions" not in names)
+        return names
+    monkeypatch.setattr(agent_history, "resolve", lambda q: [])
+    assert {"find_sessions", "resume_session"} <= offered()
     monkeypatch.setenv("TMUXRC_TARGET", "%3")  # single-pane mode can't address new windows
-    assert names() == {"type_in_pane", "press_key"}
+    assert offered() == {"type_in_pane", "press_key"}
     monkeypatch.delenv("TMUXRC_TARGET")
     monkeypatch.setattr(agent_history, "binary", lambda: None)
-    assert names() == {"type_in_pane", "press_key"}
+    assert offered() == {"type_in_pane", "press_key"}
 
 
 def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):

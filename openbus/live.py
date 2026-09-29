@@ -352,6 +352,13 @@ _KEYS = {
 }
 
 
+def _history_offered() -> bool:
+    """Whether the session-history tools are offered (and so may be called). Not in
+    single-pane mode (TMUXRC_TARGET): the watcher publishes only that pane, so a window
+    these tools open or point at could never be typed into."""
+    return bool(agent_history.binary()) and not os.environ.get("TMUXRC_TARGET")
+
+
 def _tools():
     """The session's tools: type_in_pane (types a string) and press_key (sends one named
     control key). Two narrow verbs beat one overloaded one — the model can't accidentally
@@ -395,9 +402,7 @@ def _tools():
                 required=["session_id"],
             ),
         ),
-    # Not in single-pane mode (TMUXRC_TARGET): the watcher publishes only that pane, so
-    # a window these tools open or point at could never be typed into.
-    ] if agent_history.binary() and not os.environ.get("TMUXRC_TARGET") else []
+    ] if _history_offered() else []
 
     return [
         types.Tool(
@@ -479,12 +484,14 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, actor: s
             ]
         )
 
+    args = fc.args if isinstance(fc.args, dict) else {}
     if fc.name in _HISTORY_TOOLS:
-        args = fc.args if isinstance(fc.args, dict) else {}
+        if not _history_offered():
+            await respond({"status": "rejected", "reason": "session history not available"})
+            return
         await respond(await _HISTORY_TOOLS[fc.name](websocket, args, watcher, actor))
         return
 
-    args = fc.args if isinstance(fc.args, dict) else {}
     raw_pane_id = args.get("pane_id")
     pane_id = raw_pane_id.strip() if isinstance(raw_pane_id, str) else ""
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
