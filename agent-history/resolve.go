@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -38,7 +39,10 @@ func ReadEntry(path string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	header, body, _ := strings.Cut(strings.TrimPrefix(string(data), "---\n"), "\n---\n")
+	header, body, ok := strings.Cut(strings.TrimPrefix(string(data), "---\n"), "\n---\n")
+	if !ok { // entries are written whole, so this one is damaged or not ours
+		return Entry{}, errors.New("no end of front matter")
+	}
 	fields := map[string]json.RawMessage{}
 	for line := range strings.Lines(header) {
 		if key, value, ok := strings.Cut(strings.TrimSpace(line), ": "); ok {
