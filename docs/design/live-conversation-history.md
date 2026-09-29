@@ -28,11 +28,6 @@ for this single-writer design. Exports and origin links preserve
 these keys; local SQLite row numbers are never external identities. Keep a separate
 AUTOINCREMENT creation number only for local pagination.
 
-Every local row comes from one install, so an install ID is stored once in the database
-metadata rather than on each row, replacing today's hostname guard (hostnames are not
-identity; a copied database is the same install moved, and two writable copies are
-unsupported). A later export bundle carries the install ID once; attributing rows after
-combining installs is the importer's concern, deferred with import.
 Foreign keys with ON DELETE CASCADE attach entries to their conversation; enable
 foreign-key enforcement on each connection. The optional origin link is a plain
 reference, not a cascading key, so deleting its source never deletes the pane input.
@@ -85,11 +80,10 @@ to Voice. Resuming after a disconnected provider remains the separate Continue w
 ## Continuous pane history
 
 One pane thread per owner and pane lifetime, surviving browser visits, Live Mode calls,
-renames and daemon restarts. Pane identity is local; qualify it by install only in exported data. Use the existing tmux server/pane identity and confirmed
-pane creation/removal boundaries; `%52` or a display label alone is not an identity.
-Today the watcher keeps a pane's birth evidence only in memory, so the implementation
-must persist it; without it a pane seen after a daemon restart counts as unestablished.
-If the lifetime cannot be established, start a new thread rather than merge unrelated
+renames and daemon restarts. Key it by the pane uid History already records: tmux
+server (boot ID plus server PID), pane ID and pane PID. It is recomputed from live tmux
+after a daemon restart and cannot collide after a reboot or tmux restart; `%52` or a
+display label alone is not an identity. If the pane PID is unknown, start a new thread rather than merge unrelated
 panes. A closed pane stays readable. Starting another agent inside the same pane adds a
 boundary notice when detected; it does not silently erase or replace the pane history.
 
@@ -233,7 +227,8 @@ backups already taken cannot be recalled by deleting the local conversation.
   Evaluate this with the separate dispatch-authorization work in #236 before shipping;
   merely quoting old text does not make it safe against prompt injection. No Call table
   is needed just to show where listening stopped and restarted.
-- **Share:** start with a reviewed text/JSON download. No hosted links, recipient ACLs,
+- **Share:** start with a reviewed text/JSON download; any install identity belongs to
+  that format. No hosted links, recipient ACLs,
   imports, share snapshots, or fork objects in this proposal's implementation scope.
 - Add automatic retention, transcript search or detailed usage breakdowns only when
   actual usage demonstrates a need. They are not prerequisites for saving a thread.
