@@ -52,7 +52,7 @@ _STRUCT_SCALAR = ("tool", "activity", "waiting_on")
 # match — but it is read off agent chrome that most screens don't show, so it is scored
 # only when a sample states an expectation (including an explicit null for "must omit").
 # Silently ignoring it would let a naming regression pass with the expectation in place.
-_STRUCT_OPTIONAL = ("session",)
+_STRUCT_OPTIONAL = ("session", "agents")
 
 
 @dataclass
@@ -62,6 +62,7 @@ class Sample:
     current_command: str
     capture: str
     expected: dict
+    repository: str | None = None
 
     @classmethod
     def load(cls, path: Path) -> Sample:
@@ -70,6 +71,7 @@ class Sample:
             name=path.stem,
             description=d.get("description", ""),
             current_command=d.get("current_command", "bash"),
+            repository=d.get("repository"),
             capture=d["capture"],
             expected=d["expected"],
         )
@@ -100,25 +102,53 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         current_command=sample.current_command,
         title=sample.name,
     )
-    return classify(pane, sample.capture, llm_fn=llm_fn)
+    return classify(
+        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository
+    )
 
 
 # ── scoring ────────────────────────────────────────────────────────────────────────
 
 
-def _shape(field: dict | list | None) -> object:
+def _keymap(km: dict | None) -> tuple:
+    """What the cursor walk actually reads off a keymap: the three keys it may press and
+    whether type-to-filter was advertised. Both sides go through this so a model that
+    omits `search` scores the same as a sample that writes `false`, and so a keymap
+    carrying extra prose doesn't fail on fields nothing consumes."""
+    # isinstance, not `or {}`: classify() pipes model JSON through unvalidated (see
+    # classify.py), so a malformed keymap can be a string or a list, and .get would raise
+    # — taking down the whole eval run instead of recording one structured mismatch.
+    km = km if isinstance(km, dict) else {}
+    # `is True`, not bool(): the field is declared boolean but the candidate is raw model
+    # output, and bool("false") is True — which would let a malformed keymap score as
+    # matching a pinned `search: true` and walk straight through the gate. Omitted and
+    # explicitly false still agree, which is the point of normalizing at all.
+    return (km.get("next"), km.get("prev"), km.get("select"), km.get("search") is True)
+
+
+def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     """The structural signature we score `question` on: present-or-absent, and if a
-    question, its answer_style (menu vs text — the phone sends a keystroke vs typed
-    text, so this is behavior, not prose). Body text is left to the judge.
+    question, its answer_style (menu vs text vs cursor — the phone sends a keystroke,
+    typed text, or a whole arrow walk, so this is behavior, not prose). Body text is
+    left to the judge.
 
     ABSENT (missing or explicit null) → None. A PRESENT question — even an empty `{}`,
     which the web UI's `if (s.question)` treats as truthy and would try (and fail) to
     render — is ("present", answer_style): so a spurious bare `{}` still scores as a
-    question mismatch against an expected-absent, rather than slipping through."""
+    question mismatch against an expected-absent, rather than slipping through.
+
+    `extra` names further fields to fold in, and comes from what the SAMPLE declares —
+    the same "takes no position" rule as _STRUCT_OPTIONAL, one level down. It exists for
+    `selected` and `keymap`: answer_style alone says a cursor picker was recognized, but
+    the walk that drives it is steered by the anchor and the advertised bindings, and a
+    model that says "cursor" with a wrong anchor selects the WRONG SESSION — silently,
+    and with an eval that was still green. Scored only where a sample asks for it, since
+    most screens have nothing to say about either."""
     if field is None:
         return None
     if isinstance(field, dict):
-        return ("present", field.get("answer_style"))
+        vals = tuple(_keymap(field.get(k)) if k == "keymap" else field.get(k) for k in extra)
+        return ("present", field.get("answer_style"), *vals)
     return ("present", None) if field else None
 
 
@@ -140,8 +170,24 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         c, e = candidate.get(k), expected.get(k)
         if c != e:
             diffs.append(f"{k}: got {c!r} want {e!r}")
-    # question — presence + answer_style
-    cq, eq = _shape(candidate.get("question")), _shape(expected.get("question"))
+    if "working_prs" in expected:
+        def pr_key(pr):
+            return (pr.get("repo"), pr.get("number")) if isinstance(pr, dict) else (None, None)
+
+        candidate_prs = sorted(map(pr_key, candidate.get("working_prs") or []))
+        expected_prs = sorted(map(pr_key, expected.get("working_prs") or []))
+        if candidate_prs != expected_prs:
+            diffs.append(f"working_prs: got {candidate_prs!r} want {expected_prs!r}")
+    if "subagent_states" in expected:
+        subs = candidate.get("subagents")
+        states = (sorted(str(a.get("state")) for a in subs if isinstance(a, dict))
+                  if isinstance(subs, list) else [])
+        if states != sorted(expected["subagent_states"]):
+            diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
+    # question — presence + answer_style, plus whichever cursor fields the sample pins
+    want_q = expected.get("question")
+    extra = tuple(k for k in ("selected", "keymap") if isinstance(want_q, dict) and k in want_q)
+    cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
     # Presence-only fields. `copyables` is here rather than compared by content: the

@@ -21,6 +21,7 @@ def test_bootstrap_shapes_result_and_flags_history():
             {
                 "name": "  tmux-rc overhaul  ",
                 "summary": " shipping PRs #24 and #26 ",
+                "working_prs": [{"repo": "querystory/tmux-rc", "number": 245}],
                 "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
             }
         ),
@@ -28,6 +29,7 @@ def test_bootstrap_shapes_result_and_flags_history():
     assert r["name"] == "tmux-rc overhaul"
     assert r["summary"] == "shipping PRs #24 and #26"
     assert r["events"] == [{"text": "Merged PR #24", "historical": True}]
+    assert r["working_prs"] == [{"repo": "querystory/tmux-rc", "number": 245}]
 
 
 def test_bootstrap_rejects_junk():
@@ -46,6 +48,41 @@ def test_payload_leads_with_foreground_process():
     classify(_pane(cmd="python3"), "some screen", llm)
     first_line = seen["text"].splitlines()[0]
     assert "foreground process" in first_line and "python3" in first_line
+
+
+def test_payload_supplies_repository_for_semantic_pr_classification():
+    seen = {}
+
+    def llm(_system, text):
+        seen["text"] = text
+        return {"tool": "codex", "activity": "running"}
+
+    classify(_pane(cmd="codex"), "working", llm, repository="querystory/tmux-rc")
+    assert "GitHub repository is 'querystory/tmux-rc'" in seen["text"].splitlines()[0]
+
+
+def test_working_prs_are_validated_bounded_and_deduped():
+    raw = [
+        *[{"repo": repo, "number": 1} for repo in ("../bad", "./repo", "org/.", "org/..")],
+        {"repo": "org/" + "a" * 257, "number": 1},
+        {"repo": "querystory/qs-app", "number": "1" * 5000},
+        {"repo": "querystory/qs-app", "number": "²"},
+        {"repo": "querystory/qs-app", "number": 2**53},
+        {"repo": "querystory/qs-app", "number": str(2**53)},
+        {"repo": "querystory/qs-app", "number": 4955},
+        {"repo": "QUERYSTORY/qs-app", "number": "4955"},
+        {"repo": "no-owner", "number": 2},
+        {"repo": "querystory/qs-app", "number": True},
+        {"repo": "querystory/qs-app", "number": 0},
+        "junk",
+    ] + [{"repo": "querystory/tmux-rc", "number": n} for n in range(1, 12)]
+    r = classify(_pane(), "…", _llm({"activity": "running", "working_prs": raw}))
+    assert r["working_prs"][0] == {"repo": "querystory/qs-app", "number": 4955}
+    assert len(r["working_prs"]) == 8
+    assert len({(p["repo"].lower(), p["number"]) for p in r["working_prs"]}) == 8
+    assert "working_prs" not in classify(
+        _pane(), "…", _llm({"activity": "idle", "working_prs": "all PRs"})
+    )
 
 
 def test_pipes_llm_json_through():
@@ -136,19 +173,12 @@ def test_stray_waiting_on_dropped_when_not_waiting():
     assert "waiting_on" not in r
 
 
-def test_agents_count_matches_ui_not_done_rule():
-    # The dock badge count must agree with subagentsView, which pulses on state != "done".
-    # So any non-"done" state (running, missing, paused, a stray uppercase) counts as one
-    # running agent; only exactly "done" is excluded.
-    subs = [
-        {"state": "running"},
-        {"state": "done"},
-        {},  # missing state → running
-        {"state": "paused"},  # not "done" → still counted (matches the pulse)
-        {"state": "Running"},  # stray case → not "done" → counted
-    ]
+def test_agents_count_only_observed_busy_workers():
+    subs = [{"state": state} for state in
+            ("running", "done", "waiting", "idle", "compacting", "unknown")]
+    subs.extend([{}, {"state": "Running"}, "malformed"])
     r = classify(_pane(), "…", _llm({"activity": "running", "subagents": subs}))
-    assert r["agents"] == 4
+    assert r["agents"] == 2
 
 
 def test_agents_count_defaults_zero_without_subagents():
@@ -162,9 +192,31 @@ def test_no_llm_fallback_idle_shell():
     assert r["tool"] == "shell" and r["activity"] == "idle"
 
 
-def test_no_llm_fallback_running():
-    r = classify(_pane("node"), "streaming output...\nmore", llm_fn=None)
-    assert r["activity"] == "running"
+def test_failed_parse_holds_the_last_known_activity_instead_of_guessing():
+    """A failed parse read NOTHING off the screen, so it must not invent a state. The
+    old fallback said "running" for anything that wasn't a bare shell prompt — which on
+    an agent TUI is everything — so a silent 429 stamped a finished agent "Running", and
+    the watcher's fingerprint retired the screen so it never re-parsed. A pane whose
+    screen never changes again wore that badge forever."""
+    pane = _pane("node")
+    # Nothing known yet: "unknown" (reads as stale in the UI), never a fabricated "running".
+    assert classify(pane, "streaming output...\nmore", llm_fn=None)["activity"] == "unknown"
+    # Known state carries forward, in both directions — the last thing we actually read.
+    for prev in ("running", "idle", "waiting"):
+        r = classify(pane, "streaming output...\nmore", llm_fn=None, prev_activity=prev)
+        assert r["activity"] == prev
+    # A bare shell prompt is still readable without the model, so it still wins.
+    assert classify(_pane(), "user@host:~$ ", llm_fn=None, prev_activity="running")[
+        "activity"
+    ] == "idle"
+
+
+def test_failed_parse_is_flagged_so_the_watcher_can_retry_the_screen():
+    """The watcher retires a screen by advancing its fingerprint, and never re-parses an
+    unchanged one. So a failed parse has to say so, or the failure is committed as if it
+    were a reading."""
+    assert classify(_pane("node"), "x", llm_fn=None)["parse_ok"] is False
+    assert "parse_ok" not in classify(_pane("node"), "x", _llm({"activity": "idle"}))
 
 
 def test_copyables_capped_and_malformed_dropped():
@@ -280,3 +332,22 @@ def test_copyable_duplicating_a_link_is_dropped():
     assert r["copyables"] == [
         {"label": "curl using it", "text": "curl https://github.com/o/r/pull/5 -H accept:json"}
     ]
+
+
+def test_background_terminal_hint_is_scoped_to_current_section():
+    from openbus.classify import parser_prompt
+
+    prompts = []
+
+    def capture_prompt(system, _text):
+        prompts.append(system)
+        return {"tool": "codex", "activity": "idle"}
+
+    classify(_pane("node"), "Background terminals:\n exec session 1: tail -f log", capture_prompt)
+    assert "AGENT COUNTS:" in prompts[-1]
+    classify(_pane("node"), "  1 background terminal running · /ps to view", capture_prompt)
+    assert "AGENT COUNTS:" in prompts[-1]
+    classify(_pane("node"), "Background agents:\n review: running", capture_prompt)
+    assert prompts[-1] == parser_prompt()
+    classify(_pane("node"), "Ready", capture_prompt, prior=["Background terminals:\n old command"])
+    assert prompts[-1] == parser_prompt()

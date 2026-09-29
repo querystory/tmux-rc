@@ -1,3 +1,5 @@
+import { paneLinks } from "/pr-links.js";
+
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step (native ES module — index.html loads type=module).
@@ -49,6 +51,8 @@
 // Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCaptureLines, linkifyText } from "./terminal.js";
+import { pickCursorRow } from "./cursor-pick.js";
+import { sendPresence, stateUrl } from "./push.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -248,6 +252,7 @@ const logoFor = (tool) => (has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO);
 // the emoji they replace rendered as platform-colored glyphs that clashed with the
 // chrome (and differed per device). Same inline-SVG approach as the ⤢ fsbtn.
 const LUCIDE = {
+  circle: '<circle cx="12" cy="12" r="10"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -437,6 +442,19 @@ let pending = null; // {id, ts}
 // session_active — each session's own focused pane — but only within `shown`'s session;
 // focus movement in OTHER sessions is desktop noise, not a signal to switch the view.
 let shown = null;
+// How long an anchor on a pane that was not in state when it was picked survives. Far
+// past the 8s an ordinary select gets, because the two are waiting on different things:
+// a select waits for tmux to confirm focus, while this waits for the watcher to publish
+// a pane that already exists. POST /api/windows wakes the watcher, but the wake is not
+// an interrupt — a tick already in flight finishes first, and with classification on
+// that is bounded by the per-request LLM timeout (20s), not by anything quick. Giving up
+// early doesn't fail gracefully: it drops the anchor and the view snaps back to tmux's
+// global focus, i.e. the window you just created is the one place you don't end up.
+// Worse than that, even: the new pane is what tmux has focused, so NO published pane
+// carries tmux_active and the fallback below lands on whichever card happens to sort
+// first. Kept a fixed number all the same — see the same decision written out next to
+// LAUNCH_GRACE_MS in web/m/pane-model.js, which is where the reasoning lives.
+const UNSEEN_PICK_MS = 30000;
 function activeId() {
   if (pending) {
     const s = panesById[pending.id];
@@ -455,7 +473,31 @@ function activeId() {
     // `shown` was optimistically set below while pending, and keeping it would leave
     // the view parked in a session tmux never actually switched to. Null falls through
     // to the global-focus branch: resync to tmux's truth, same as before multi-session.
-    if (!s || Date.now() - pending.ts > 8000) { pending = null; shown = null; }
+    // "Not in panesById" is this branch's test for a select that never landed — but a
+    // pane the app JUST created isn't there either: POST /api/windows returns the id
+    // before the watcher has published it, and syncUrl() below calls straight back in
+    // here, so the launcher's jump used to cancel itself in the same task it was made.
+    // `unseen` separates the two: an id that wasn't in state when it was PICKED is "not
+    // yet" and keeps its anchor for UNSEEN_PICK_MS below before giving up, while one
+    // that was there and has since gone is the "pane closed" case and still drops at
+    // once. Nothing else can reach here unseen — every other caller picks from the deck.
+    // Seeing the pane is what the launch grace was waiting for, so seeing it ends the
+    // grace: from here on this is an ordinary pick, and a pane that then vanishes is an
+    // ordinary death — it must drop at once rather than be held by its own birth.
+    //
+    // "Seeing" is presence under the id, and tmux recycles ids, so for up to one poll the
+    // entry under a freshly launched id can still be the PREVIOUS occupant — enough to end
+    // the grace early, or, if that dead pane was its session's focused one, to satisfy the
+    // confirm above outright. Both are deliberate: the anchor resolves to the id the
+    // launcher asked for, `shown` is set to that same id, and the next poll rebuilds the
+    // deck with the NEW pane under it — so the user lands exactly where they asked, having
+    // briefly seen the previous occupant's card. There is no bounce in this, which is why
+    // the birth/PID token that would tell the two apart (a /api/state schema change the
+    // endpoint echoes back) is not worth its weight here. The one case it would buy is the
+    // grace collapsing from 30s to 8s, which only matters when discovery is ALSO stalled —
+    // the separate limitation written out next to LAUNCH_GRACE_MS in web/m/pane-model.js.
+    if (s) pending.unseen = false;
+    if ((!s && !pending.unseen) || Date.now() - pending.ts > (pending.unseen ? UNSEEN_PICK_MS : 8000)) { pending = null; shown = null; }
     else return (shown = pending.id);
   }
   const cur = panesById[shown];
@@ -478,14 +520,20 @@ function activeId() {
 // fired by a scroll that merely STARTED on them: `click` requires press and release on
 // the same element and the browser withholds it after a scroll. That is what onTap's
 // `defer` mode was hand-rolling, and it comes for free once nodes are permanent.
-function setActive(id) {
+// `unseen` = state has never shown us this pane, so an absence means "not yet" rather
+// than "gone" (see activeId). Defaulted from the deck for ordinary picks, which are made
+// BY tapping something in it — but passed explicitly by the launcher, because a pane
+// tmux has just created cannot be inferred that way: tmux recycles ids, so the deck may
+// still hold the dead occupant of a reused id and the launch would silently be treated
+// as an ordinary pick of a pane that no longer exists.
+function setActive(id, unseen = !panesById[id]) {
   // The composer buffer (typed text + staged images) is the user's un-sent message; it
   // persists across pane switches just like the text input does, and sends to whichever
   // pane is active when they hit Send.
   fetch(`/api/panes/${encodeURIComponent(id)}/select`, { method: "POST" }).catch(() => {});
   // pending makes the switch instant in the UI (the next poll is 2s away, and the
   // watcher's view of tmux focus lags a tick or two behind that).
-  pending = { id, ts: Date.now() };
+  pending = { id, ts: Date.now(), unseen };
   // The single URL write for every pane change (#162) — dock tap, list row, swipe,
   // launcher jump all land here with listFilter already null: list rows clear it
   // explicitly, the rest (card tap, swipe, answer keys) only fire in card view where it
@@ -518,6 +566,12 @@ function setActive(id) {
     ? (fn) => requestAnimationFrame(() => requestAnimationFrame(fn))
     : (fn) => setTimeout(fn, 0);
   soon(() => render(Object.values(panesById)));
+  // A pick on a pane state hasn't shown us yet expires on a clock, but only a render can
+  // notice — and renders follow /api/state, which may be parked on a long poll for longer
+  // than the deadline. One scheduled render is what makes the timeout above real. No
+  // cancellation needed: a spare render is idempotent, and by then the pane has either
+  // arrived (nothing to expire) or the anchor is correctly dropped.
+  if (pending.unseen) setTimeout(() => render(Object.values(panesById)), UNSEEN_PICK_MS);
 }
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded
@@ -749,7 +803,7 @@ async function poll() {
     // unambiguously "give me current state now" — never conflated with a real echoed
     // version. (The server only holds when v == its current version AND version > 0, so
     // a null here keeps the first paint immediate regardless of startup timing.)
-    const r = await fetch("/api/state" + (_stateVersion !== null ? `?v=${_stateVersion}` : ""));
+    const r = await fetch(stateUrl(_stateVersion));
     // Check status before parsing: when the tunnel/backend is down the relay
     // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
@@ -919,7 +973,7 @@ function onResume() {
   // but an abandoned gesture leaves only per-instance state that the next touchstart
   // overwrites — no global flag can survive to freeze the returning user's app.
 }
-document.addEventListener("visibilitychange", onResume);
+document.addEventListener("visibilitychange", () => { sendPresence(); onResume(); });
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
 
 const usageEl = document.getElementById("usage");
@@ -1198,6 +1252,13 @@ function render(states) {
   applyList(ui.list, states, [], act);
   dock(states, act); // sticky top bar — constant height, content swaps below it
   const a = panesById[act];
+  // `act` can name a pane state has yet to catch up with: the launcher anchors on a window
+  // tmux has already made but the watcher hasn't published (setActive's `unseen`). The
+  // list is hidden above and the deck has no pane to draw, so without a third state here
+  // the page would simply go blank until it lands — a worse answer than the snap-back this
+  // anchor replaced. Reuse the deck's own loading notice, which is exactly what this is.
+  setCls(ui.empty, "hid", !!a);
+  if (!a) { setCls(ui.spinner, "hid", false); setText(ui.emptyText, "Opening window…"); }
   // #106: drop #panes' bar padding in card mode, where the deck is already sized to the
   // remaining viewport AND runs under the bar via its own negative margin, so counting the
   // bar height again scrolled the whole DOCUMENT ~62px behind the card. Keyed to the deck
@@ -1542,13 +1603,21 @@ const filtersEl = document.getElementById("filters"); // pane filters, homed in 
 // polls rewrite the icon around it.
 // ---- Launcher menu: a new agent window in a session, from the dock's "+"/"+N" ----
 // Entries come from the daemon (GET /api/launchers) so the label→command mapping stays
-// server-side: the phone posts back only the label, never a command string. Fetched
-// once — the config is env-set, so it can't change under a running page.
+// server-side: the phone posts back only the label, never a command string. The CONFIG is
+// env-set and can't change under a running page, but each entry's availability can — it
+// is a live fact about the daemon's PATH, so installing the binary or restarting the unit
+// with a wider PATH makes an entry usable again. Re-read on every open, or the page would
+// go on refusing a launcher that has since been fixed until someone reloads it.
 let launchers = [];
-fetch("/api/launchers")
+const loadLaunchers = () => fetch("/api/launchers")
   .then((r) => r.json())
-  .then((d) => { launchers = d.launchers || []; })
+  // Replace the cache only on a real answer. An error body (a FastAPI `detail`, a tunnel's
+  // HTML) parses fine and has no launchers, and taking it would wipe a working menu — on
+  // a re-read, blanking one that is open on screen. A stale list is strictly better: its
+  // entries still launch, and the POST is the authority on whether they can.
+  .then((d) => { if (Array.isArray(d?.launchers)) launchers = d.launchers; })
   .catch(() => {});
+loadLaunchers();
 let launchMenuEl = null;
 function closeLaunchMenu() {
   if (!launchMenuEl) return;
@@ -1561,7 +1630,19 @@ function launchMenuAway(e) {
 }
 function openLaunchMenu(sess, anchor) {
   closeLaunchMenu();
-  if (!launchers.length) return; // fetch failed or config empty — nothing to offer
+  // Nothing to offer — but a first read that failed or hasn't landed must not disable
+  // "+" for the life of the page, so take this tap as the cue to try again AND honour it
+  // once entries arrive: a tap that silently does nothing is the symptom this PR exists
+  // to remove. Bounded: the retry only re-enters with a non-empty list, which skips here.
+  if (!launchers.length) {
+    loadLaunchers().then(() => {
+      if (launchers.length) openLaunchMenu(sess, anchor);
+      // Still nothing: the read failed, or there are no launchers configured. Say so —
+      // a retry that leaves the tap unanswered is the same silence, one round later.
+      else barNote("Could not load launchers. Check the daemon and try again.");
+    });
+    return;
+  }
   const m = document.createElement("div");
   m.className = "launch-menu";
   m.setAttribute("role", "menu");
@@ -1577,31 +1658,61 @@ function openLaunchMenu(sess, anchor) {
   head.setAttribute("role", "presentation");
   setText(head, `New window in ${sess || "this session"}`);
   m.appendChild(head);
-  for (const l of launchers) {
-    const b = document.createElement("button");
-    b.setAttribute("role", "menuitem");
-    const im = document.createElement("img");
-    im.width = im.height = 18;
-    // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
-    // config entry can ship its own glyph without the app changing.
-    setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
-    setAttr(im, "alt", "");
-    b.append(im, document.createTextNode(l.label));
-    b.onclick = () => {
-      closeLaunchMenu();
-      fetch("/api/windows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session: sess, launcher: l.label }),
-      })
-        .then((r) => r.json())
-        // Jump to the new window's card: the pane exists in tmux the moment the POST
-        // returns, so setActive's select lands; the card fills in on the next poll.
-        .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id); } })
-        .catch(() => {});
-    };
-    m.appendChild(b);
-  }
+  const fill = () => {
+    for (const b of [...m.querySelectorAll("button")]) b.remove();
+    for (const l of launchers) {
+      const b = document.createElement("button");
+      b.setAttribute("role", "menuitem");
+      const im = document.createElement("img");
+      im.width = im.height = 18;
+      // `icon` names a built-in tool logo; anything else is taken as an image URL, so a
+      // config entry can ship its own glyph without the app changing.
+      setAttr(im, "src", has(LOGOS, l.icon) ? LOGOS[l.icon] : l.icon || UNKNOWN_LOGO);
+      setAttr(im, "alt", "");
+      b.append(im, document.createTextNode(l.label));
+      // The daemon flags a launcher whose command it can't run (GET /api/launchers).
+      // Show it anyway — the user configured it, so hiding it would only be a second
+      // mystery — but disabled, with the reason as the tooltip. Without this the entry
+      // stays clickable, the POST comes back 400, and the handler below (which only
+      // looks for pane_id) drops the explanation on the floor: exactly the silent
+      // nothing-happens this endpoint's `unavailable` exists to end.
+      // aria-label as well as title, matching the dock icons: a tooltip is a pointer
+      // affordance, and on a DISABLED control it is the least reachable one there is —
+      // keyboard focus skips it, touch has no hover, and AT would otherwise announce the
+      // launcher's name with no hint of why it does nothing.
+      if (l.unavailable) { b.disabled = true; setAttr(b, "title", l.unavailable); setAttr(b, "aria-label", `${l.label}, unavailable: ${l.unavailable}`); m.appendChild(b); continue; }
+      b.onclick = () => {
+        closeLaunchMenu();
+        fetch("/api/windows", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: sess, launcher: l.label }),
+        })
+          // The disabled entry above is only a snapshot from the last /api/launchers read:
+          // a binary removed, a chmod, or a daemon restart with a narrower PATH since the
+          // menu opened all reach here as a 400 carrying the reason. Say it, rather
+          // than falling through to the pane_id check and failing silently — a silent
+          // failure is the exact symptom this endpoint's `detail` was added to end.
+          .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d?.detail || `HTTP ${r.status}`); return d; })
+          // Jump to the new window's card: the pane exists in tmux the moment the POST
+          // returns, so setActive's select lands; the card fills in on the next poll.
+          .then((d) => { if (d.pane_id) { listFilter = null; setActive(d.pane_id, true); } })
+          .catch((e) => barNote(`Could not open a window — ${e.message}`));
+      };
+      m.appendChild(b);
+    }
+  };
+  fill();
+  // Then repaint from a fresh read, so a launcher fixed on the host since this page
+  // loaded stops being refused without anyone having to reload the app. ONLY when the
+  // answer actually changed: rebuilding these buttons between a pointerdown and its
+  // pointerup destroys the element the press landed on, and the browser then withholds
+  // the click — so an unconditional repaint would trade a stale entry for a menu that
+  // silently eats taps. Nothing changed is the overwhelmingly common answer.
+  const before = JSON.stringify(launchers);
+  loadLaunchers().then(() => {
+    if (launchMenuEl === m && JSON.stringify(launchers) !== before) fill();
+  });
   document.body.appendChild(m);
   // Under the anchor, clamped into the viewport (a tray's "+" can sit at the right edge).
   const r = anchor.getBoundingClientRect();
@@ -2127,7 +2238,7 @@ function applyPaneBody(ui, s, show, rewindable) {
   applyQuestion(ui.q, show && s.question ? s : null, ui);
   applyTasks(ui.tasks, show && Array.isArray(s.tasks) ? s.tasks : []);
   applySubagents(ui.subs, show ? realSubs(s.subagents) : []);
-  applyLinks(ui.links, show && Array.isArray(s.links) ? s.links : []);
+  applyLinks(ui.links, show ? paneLinks(s) : []);
   applyCopy(ui.copy, show && Array.isArray(s.copyables) ? s.copyables : []);
   const log = (eventLog[s.pane_id] || {}).events || [];
   applyEvents(ui.events, show ? log : [], s.pane_id, show ? s.summary : null);
@@ -2631,7 +2742,7 @@ function applyLinks(box, links) {
   const valid = links.filter((l) => {
     if (!l || !l.href || !/^https?:\/\//i.test(l.href)) return false;
     try { new URL(l.href); return true; } catch { return false; }  // pre-cap: malformed can't eat slots
-  }).slice(0, 3);
+  });
   // Index + href, for the same reason as the copyables below: the same URL can appear twice
   // with different labels, and a bare-href key collapsed both onto one cached node.
   keyedList(box, valid, (l, i) => i + "|" + l.href, () => {
@@ -2659,7 +2770,8 @@ function applyLinks(box, links) {
     const host = new URL(l.href).host;
     setAttr(a, "href", l.href);
     setText(a._txt, safeText(l.text, 80) || host); // untrusted: bidi-stripped, capped
-    setText(a._host, ` ${host}`);
+    setText(a._host, ` ${safeText(l.detail, 280) || host}`);
+    a._host.style.display = l.detail ? "block" : "";
   });
 }
 
@@ -2984,9 +3096,11 @@ function applySubagents(ui, subs) {
   keyedList(ui.list, subs, (a, i) => i + "|" + (a.label || ""), buildTask, (d, a) => {
     const done = a.state === "done";
     setCls(d, "done", done);
-    setText(d._tickText, done ? "✓" : "");
-    setCls(d._pulse, "on", !done);
-    setText(d._label, a.label || "");
+    const busy = ["running", "compacting"].includes(a.state);
+    setHtml(d._tickText, done ? licon("check", 12) : busy ? "" : licon("circle", 12));
+    setCls(d, "b-compacting", a.state === "compacting");
+    setCls(d._pulse, "on", busy);
+    setText(d._label, [a.label, a.state].filter(Boolean).join(" · "));
     setText(d._meter, [a.elapsed, a.tokens && "↓" + a.tokens].filter(Boolean).join(" "));
   });
 }
@@ -3352,16 +3466,16 @@ async function submitComposer(s, presetSegs) {
   // backgrounded tab killing the in-flight fetch, a navigation). The spinner class is
   // the feedback; the guard is the correctness.
   try {
-    // If any image fails to deliver, DON'T press Enter and DON'T clear the composer —
-    // submitting now would send the surrounding text without its image and drop the
-    // file. Everything stays in place so the user can retry. Ordering matters: any text
-    // typed into the pane before the failing image is already there, but without the
-    // final Enter it isn't submitted. uploadStagedImage throws on a bad response.
+    // One request keeps another sender out between the first segment and Enter.
+    const form = new FormData();
     for (const seg of segs) {
-      if (seg.text != null) await postSend(s, { keys: seg.text, enter: false, literal: true });
-      else await uploadStagedImage(s, seg.file);
+      if (seg.text != null) form.append("text", seg.text);
+      else form.append("image", seg.file);
     }
-    await postSend(s, { keys: "Enter", enter: false, literal: false });
+    const response = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/compose`, {
+      method: "POST", body: form, signal: timeoutSignal(45000),
+    });
+    if (!response.ok) throw new Error(`delivery failed (${response.status}); check the terminal before retrying`);
     clearComposer();
     // No burst needed: the visible raw surface streams via liveStream, so the sent
     // text/images show up in the next live frame on their own (docs/design/live-view.md).
@@ -3438,20 +3552,6 @@ function composerSegments() {
   run += "\n".repeat(pending); // realize a trailing newline (Shift+Enter at the very end)
   flush();
   return segs;
-}
-
-// POST one staged image to the pane (server stages it to disk and pastes/types it in,
-// no Enter — submitComposer sends the single Enter). Kept separate from send() because
-// it's a multipart body, not the JSON /send shape. Throws on a bad response so
-// submitComposer aborts before the final Enter (see its catch).
-async function uploadStagedImage(s, file) {
-  const fd = new FormData();
-  fd.append("file", file);
-  // Bounded like postSend, but with room for a real upload on a phone connection.
-  const r = await fetch(`/api/panes/${encodeURIComponent(s.pane_id)}/image`, {
-    method: "POST", body: fd, signal: timeoutSignal(45000),
-  });
-  if (!r.ok) throw new Error("upload failed: " + r.status);
 }
 
 // The composer's contenteditable DOM IS the buffer: typed text and pasted/attached image
@@ -3587,8 +3687,16 @@ function applyQuestion(ui, s, card) {
   setText(ui.promptText, s.question.prompt);
   setCls(ui.spin, "on", spinning);
   // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
-  const realOpts = (s.question.options || []).filter((o) => !_FREETEXT_OPT.test(o.trim()));
-  keyedList(ui.opts, realOpts, (o, i) => i + " " + o, (opt) => {
+  // Each survivor carries its index in question.options, NOT its position in this list:
+  // both keyFor's digit and the cursor walk's row identity are indices into that array,
+  // so a dropped pseudo-option ahead of a real row would shift every index after it —
+  // sending the wrong digit to a menu, and costing the cursor walk the tapped-row identity
+  // it uses to tell two same-titled sessions apart. (/m has always kept the source index;
+  // this is the deck catching up.)
+  const realOpts = (s.question.options || [])
+    .map((text, index) => ({ text, index }))
+    .filter(({ text }) => typeof text === "string" && text.trim() && !_FREETEXT_OPT.test(text.trim()));
+  keyedList(ui.opts, realOpts, ({ text, index }) => index + " " + text, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
     b.onclick = () => {
@@ -3600,12 +3708,14 @@ function applyQuestion(ui, s, card) {
       if (!cur || !cur.question) return;
       const i = b._optIndex;
       setActive(paneId);
-      answer(cur, keyFor(cur.question, b._optText, i));
+      // A cursor list can't be answered with one keystroke — it needs a verified walk.
+      if (cur.question.answer_style === "cursor") pickCursorRow(cursorIO(paneId), b._optText, i);
+      else answer(cur, keyFor(cur.question, b._optText, i));
     };
     return b;
-  }, (b, opt, i) => {
-    b._optText = opt; b._optIndex = i;
-    setText(b, opt);
+  }, (b, { text, index }) => {
+    b._optText = text; b._optIndex = index;
+    setText(b, text);
     // Once an answer is in flight the options disable — a second tap would send a stray
     // keystroke into the agent while the first is still being processed.
     if (b.disabled !== spinning) b.disabled = spinning;
@@ -3618,8 +3728,10 @@ const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|
 // Decide what keystroke represents the chosen option. y/n prompts want a letter;
 // numbered menus want the number; otherwise send the literal option text.
 // What to send when an option is tapped, per answer_style:
-//   "menu"  — a real on-screen widget: options map to keystrokes (digit / y|n letter).
-//   "text"  — a natural-language question (default): TYPE the option's text as a reply.
+//   "menu"   — a real on-screen widget: options map to keystrokes (digit / y|n letter).
+//   "cursor" — a highlighted list you arrow through: NOT keyFor's business, it needs
+//              several keystrokes and a re-read between them (see pickCursorRow).
+//   "text"   — a natural-language question (default): TYPE the option's text as a reply.
 // Getting this wrong is what made tapping option 4 type a stray "4" into a prose
 // question instead of answering it — so default to text unless it's truly a menu.
 function keyFor(question, opt, i) {
@@ -3631,16 +3743,35 @@ function keyFor(question, opt, i) {
   return opt; // text style (default): send the option's literal text
 }
 
+// The cursor walk is shared with the phone (web/cursor-pick.js); everything below is
+// just this surface's plumbing plugged into it. The pane is guaranteed present inside the
+// senders — see the io contract there.
+function cursorIO(paneId) {
+  // Reporting nothing once the view has moved off this pane is what ABORTS the walk: a
+  // multi-second walk outlives a card swipe or a dock tap easily, and going on to move and
+  // commit a row in a picker the user can no longer see is the kind of thing you only
+  // discover afterwards. (The same gate on the phone, for the same reason.) Sends already
+  // go to the captured pane, so this is about consent, not about routing.
+  const pane = () => (shown === paneId ? panesById[paneId] : null) || null;
+  return {
+    question: () => pane()?.question || null,
+    parsedAt: () => pane()?.parsed_at || 0,
+    sendKey: (k) => sendRaw(panesById[paneId], k),
+    sendText: (t) => send(panesById[paneId], { keys: t, enter: false, literal: true }),
+    note: barNote,
+  };
+}
+
 async function answer(s, keys) {
   // A staged image is composer state, sent only by submitComposer — answering a
   // question (option tap / free-text) leaves it queued for the user's own send.
-  await send(s, { keys, enter: true, literal: true });
+  return send(s, { keys, enter: true, literal: true });
 }
 
 // Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter. Leaves
 // any staged image in place (it's flushed only by submitComposer's Send/Enter).
 async function sendRaw(s, keyName) {
-  await send(s, { keys: keyName, enter: false, literal: false });
+  return send(s, { keys: keyName, enter: false, literal: false });
 }
 
 // POST keys to the pane. No burst needed: the visible raw surface streams via
@@ -3674,7 +3805,7 @@ async function send(s, body) {
   // unrelated send lands could answer a different prompt than the one they read. But
   // dropping it silently is exactly the "the button just does nothing" this branch exists
   // to eliminate, so say so.
-  if (sending) return void barNote("Busy sending — that didn't go through. Tap again.");
+  if (sending) { barNote("Busy sending — that didn't go through. Tap again."); return false; }
   sending = true;
   markReparsing(s.pane_id); // spin the card until the server's forced reparse lands
   render(Object.values(panesById)); // reflect the spinning state immediately
@@ -3693,9 +3824,14 @@ async function send(s, body) {
     barNote(`Not sent — ${e.message}. Tap again to retry.`);
     reportError("send", e);
     render(Object.values(panesById)); // drop the spinner now, not on the next poll
+    return false;
   } finally {
     sending = false; // re-entry guard: released now, so a failed answer stays retryable
   }
+  // Delivered. The cursor walk (web/cursor-pick.js) treats anything else as "the key did
+  // not land", because a move it wrongly believes happened puts every later step one row
+  // out and commits the wrong row.
+  return true;
 }
 
 // Full-screen live view of the pane (⤢ over the deck): the same long-poll stream as
@@ -3867,13 +4003,9 @@ function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
-// Purge any previously-installed service worker + caches. An old SW (from before we
-// went cache-less) keeps serving a stale app.js on the phone even after edits — which
-// is why new buttons didn't appear on reload. Unregister everything so the phone
-// always fetches fresh from the network. (No SW ⇒ not installable, fine for the PoC.)
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
-}
+// Keep the push-only worker current. It has no fetch handler and writes no caches, so it
+// cannot serve stale app assets (the failure the old unregister-everything block guarded).
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" });
 if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
 pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
 syncBadgeTick(); // live-tick idle/waiting durations while visible (paused when hidden)

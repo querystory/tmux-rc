@@ -1,7 +1,15 @@
+import { headerPicker } from "/m/header-picker.js";
+import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName } from "/m/pane-model.js";
+import { pickCursorRow } from "/cursor-pick.js";
+import { sendPresence, setupPush, stateUrl } from "/push.js";
+import { paneLinks } from "/pr-links.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+
+const refreshSortPicker = headerPicker(document.getElementById("sort"));
+const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
 // surfaces as an error before the user retries by hand.
@@ -33,6 +41,7 @@ const LUCIDE = {
   circle: '<circle cx="12" cy="12" r="9"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
+  bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -40,6 +49,8 @@ const LUCIDE = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  pointer: '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
+  cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -50,15 +61,36 @@ const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", shell: "/bash.png" };
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
+// The desktop workspace shows context alongside the live terminal; phones retain tabs.
+const WIDE = matchMedia("(min-width: 1100px)");
+let reviewLayout = "auto";
+try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
+function effectiveLayout() {
+  if (!WIDE.matches) return "focus";
+  if (reviewLayout !== "auto") return reviewLayout;
+  if (view === "terminal") return "focus"; // Honor an explicit terminal deep link.
+  const { width, height } = document.getElementById("detail").getBoundingClientRect();
+  if (width >= 900 && height >= 480) return "side";
+  if (width >= 480 && height >= 720) return "stack";
+  return "focus";
+}
+const reviewing = () => effectiveLayout() !== "focus";
+const terminalVisible = () => reviewing() || view === "terminal";
+const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
+let dashboard = false;
+const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
-let sort = "session";
+let focusPushComposer = false;
+let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
+let streamedLayout = null;
 let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
+let latestFrame = "", paintedFrame = "";
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return ""; } // Like desktop SESSION_ID: CSPRNG-random or omitted, never guessed.
@@ -93,8 +125,13 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
     if (!response.ok) {
+      // Carry the server's own explanation (FastAPI puts it in `detail`) on the error.
+      // Without it a caller can only say something generic, which is how a launcher
+      // that isn't on the daemon's PATH used to surface as an unrelated focus error.
+      const detail = await response.json().then((body) => body?.detail, () => null);
       const error = new Error(`Request failed (${response.status})`);
       error.status = response.status;
+      if (typeof detail === "string" && detail) error.detail = detail;
       throw error;
     }
     return await response.json();
@@ -117,8 +154,9 @@ function notice(message = "") { text($("notice"), message); show("notice", !!mes
 function hashFor(id, nextView) {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
-  if (sort !== "session") params.set("sort", sort);
+  if (sort !== "updated") params.set("sort", sort);
   if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
+  if (!id && nextView === "dashboard") params.set("view", "dashboard");
   return params.toString();
 }
 
@@ -142,14 +180,18 @@ function leaveMissingPane(id) {
 }
 
 function route() {
+  const wasDashboardVisible = dashboardVisible();
   const params = new URLSearchParams(location.hash.slice(1));
   const next = params.get("pane");
   const changed = next !== active;
   active = next;
+  focusPushComposer = params.get("compose") === "1";
+  dashboard = !active && params.get("view") === "dashboard";
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
-  sort = params.get("sort") === "updated" ? "updated" : "session";
+  sort = params.get("sort") === "session" ? "session" : "updated";
   $("sort").value = sort;
+  refreshSortPicker();
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("overview").scrollTop = 0;
@@ -163,6 +205,9 @@ function route() {
   // aborted at once, so every navigation fetched events twice.
   restartDetail();
   render();
+  if (dashboardVisible() && !wasDashboardVisible) {
+    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
+  }
   if (active && changed) post(paneUrl(active, "select")).catch(() => notice("Could not focus this pane on the host."));
   if (changed && active) $("back").focus({ preventScroll: true });
 }
@@ -170,11 +215,13 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"></span></span>' + licon("chevron", 16);
+  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span></span></span>' + licon("chevron", 16);
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
 function updateRow(button, pane) {
+  if (pane.pane_id === active) button.setAttribute("aria-current", "true");
+  else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", needsYou(pane));
   const logo = button.querySelector(".pane-icon img");
   const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
@@ -185,7 +232,11 @@ function updateRow(button, pane) {
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
   text(button.querySelector(".row-status"), pane.question?.prompt || pane.status_line || pane.session_summary || "No recent activity");
-  text(button.querySelector(".row-meta"), [sort === "updated" ? pane.session : "", pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
+  const sessionChip = button.querySelector(".session-chip");
+  sessionChip.hidden = sort !== "updated" || !pane.session;
+  text(sessionChip, pane.session || "");
+  sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
+  text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -195,9 +246,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.title, p.label, p.window_name, p.pane_id, p.tool, p.model,
-    p.question?.prompt, p.headline, p.status_line, p.session_summary, activityLabel(p),
-    p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
+  const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
     ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
@@ -213,51 +262,296 @@ function renderList() {
   text($("attention-count"), waiting);
   text($("running-count"), panes.filter(isRunning).length);
   text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", filter === button.dataset.filter));
+  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", (!dashboard || WIDE.matches) && filter === button.dataset.filter));
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("new-window").disabled = !panes.length;
 }
+
+// The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
+// filter tabs already show — a second count that disagreed with the tabs would be worse
+// than no count — plus panes blocked on you. Rows navigate exactly like sidebar rows.
+function landingRows(id, subset) {
+  show(id, !!subset.length);
+  reconcile($(id + "-list"), subset, (p) => p.pane_id, () => {
+    const b = document.createElement("button");
+    b.className = "landing-row";
+    b.innerHTML = '<span class="t"></span><span class="m"></span>';
+    return b;
+  }, (node, p) => {
+    node.onclick = () => navigate(p.pane_id);
+    text(node.querySelector(".t"), paneName(p));
+    text(node.querySelector(".m"), `${activityLabel(p)} · ${p.session} / ${p.window_name || p.pane_id}`);
+  });
+}
+
+function renderLanding() {
+  const waiting = panes.filter(needsYou);
+  text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "Session atlas" : "No panes yet");
+  // With no panes there is no session to open a window IN: + is disabled and the server
+  // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
+  // the empty state says where a session actually comes from instead.
+  text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
+    ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
+    : "No tmux panes are open. Start a session on the host and it will appear here.");
+  renderAtlas($("session-atlas"), panes, navigate, LOGOS, term => {
+    $("search").value = term;
+    filter = "all";
+    renderList();
+    navigate();
+    $("sessions").scrollTop = 0;
+  });
+  landingRows("landing-attention", waiting);
+}
+
+// Drag the seam between the sidebar and the main column. Width is a CSS variable the
+// grid clamps, so a stored value from a wider window can never strand the layout, and
+// persistence is per browser (localStorage) because it is a per-screen preference, not
+// something the daemon should know. Arrow keys move it too: the handle is a focusable
+// separator, and a pointer-only affordance would be unreachable from the keyboard.
+const SIDEBAR_KEY = "tmuxrc-sidebar", SIDEBAR_DEFAULT = 340;
+// Mirrors the CSS clamp() in style.css, which stays the real guard: it holds with JS off
+// and against a hand-edited localStorage value. These bounds exist so the separator can
+// report a truthful value to assistive tech. MAX can fall BELOW MIN on a narrow window
+// (46vw of 390px is 179px), and clamp() resolves that by letting the minimum win — so
+// the order here is min-last, matching CSS, not Math.min(Math.max(...)).
+const SIDEBAR_MIN = 260, SIDEBAR_MAX = () => window.innerWidth * 0.46;
+const clampSidebar = (px) => Math.round(Math.max(Math.min(px, SIDEBAR_MAX()), SIDEBAR_MIN));
+// The width the user chose, unclamped. Kept apart from the rendered value because the
+// clamp is viewport-dependent: narrowing the window must not erase the desktop width, so
+// what we store and replay is always the intent, and the clamp is applied on the way out.
+let sidebarWidth = SIDEBAR_DEFAULT;
+// `persist` is false for the boot restore and for resize: only a drag or an arrow key is
+// the user choosing a width, so a phone visit cannot overwrite the desktop's.
+function setSidebar(px, persist = true) {
+  const width = clampSidebar(px);
+  // A drag or an arrow key records the width the user actually SAW, not the raw pointer
+  // position: over-dragging past the ceiling must not bank a width that a later resize
+  // would suddenly honour. A replay (persist false) keeps the intent it was handed, which
+  // is the whole point of replaying it.
+  sidebarWidth = persist ? width : px;
+  document.documentElement.style.setProperty("--sidebar", width + "px");
+  // A focusable role="separator" is a widget, so it owes screen readers a value.
+  const handle = $("divider");
+  handle.setAttribute("aria-valuenow", width);
+  handle.setAttribute("aria-valuemin", SIDEBAR_MIN);
+  handle.setAttribute("aria-valuemax", Math.max(Math.round(SIDEBAR_MAX()), SIDEBAR_MIN));
+  if (persist) { try { localStorage.setItem(SIDEBAR_KEY, String(width)); } catch {} }
+  return width;
+}
+let storedSidebar = 0;
+try { storedSidebar = Number(localStorage.getItem(SIDEBAR_KEY)); } catch {}
+setSidebar(storedSidebar > 0 ? storedSidebar : SIDEBAR_DEFAULT, false);
+// The clamp moves with the viewport, so replay the intent whenever it changes: a tab that
+// loaded narrow and was widened gets the saved desktop width back rather than the value
+// the narrow clamp had squeezed it to, and aria-valuenow follows the seam it describes.
+addEventListener("resize", () => setSidebar(sidebarWidth, false));
+
+const divider = $("divider");
+divider.addEventListener("pointerdown", (e) => {
+  // Primary button only. A right-click on the seam is a context-menu gesture, not a
+  // resize, and preventDefault() here would swallow it.
+  if (e.button !== 0) return;
+  e.preventDefault();
+  divider.setPointerCapture(e.pointerId);
+  divider.classList.add("dragging");
+  document.body.classList.add("resizing");
+});
+divider.addEventListener("pointermove", (e) => {
+  if (!divider.hasPointerCapture(e.pointerId)) return;
+  // Measured from the app's left edge, not the viewport, so it stays correct if the
+  // layout ever gains an outer margin.
+  setSidebar(e.clientX - $("app").getBoundingClientRect().left);
+});
+// body.resizing kills pointer-events on the main column, so it sticking on would deaden
+// the whole pane. pointerup/pointercancel cover the ordinary endings (capture guarantees
+// one of them even if the pointer leaves the window), and lostpointercapture is the
+// backstop for the rest: crossing the wide breakpoint mid-drag hides #divider, which
+// drops capture without firing either of the other two.
+const endResize = (e) => {
+  if (e.pointerId !== undefined && divider.hasPointerCapture(e.pointerId)) {
+    divider.releasePointerCapture(e.pointerId);
+  }
+  divider.classList.remove("dragging");
+  document.body.classList.remove("resizing");
+};
+divider.addEventListener("pointerup", endResize);
+divider.addEventListener("pointercancel", endResize);
+divider.addEventListener("lostpointercapture", endResize);
+divider.addEventListener("keydown", (e) => {
+  const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  // From the rendered width, not the stored one: the clamp may already be overriding it,
+  // and an arrow press should move the seam the user can actually see.
+  setSidebar($("sessions").getBoundingClientRect().width + step);
+});
+
+// One seam for both arrangements. Store dimensions separately so rearranging never
+// turns a preferred column width into an implausibly tall overview.
+const reviewSizes = { side: 360, stack: 280 };
+try {
+  for (const mode of Object.keys(reviewSizes)) {
+    const saved = Number(localStorage.getItem(`tmuxrc-review-${mode}`));
+    if (Number.isFinite(saved) && saved > 0) reviewSizes[mode] = saved;
+  }
+} catch {}
+const reviewDivider = $("review-divider");
+function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()]) {
+  if (!reviewing()) return;
+  const mode = effectiveLayout(), side = mode === "side", rect = $("detail").getBoundingClientRect();
+  const min = side ? 240 : 120;
+  const max = Math.max(min, Math.floor(side ? rect.width * .45 : rect.height * .5));
+  const size = Math.round(Math.max(min, Math.min(max, requested)));
+  $("detail").style.setProperty("--review-size", `${size}px`);
+  reviewDivider.setAttribute("aria-orientation", side ? "vertical" : "horizontal");
+  for (const [key, value] of Object.entries({ min, max, now: size })) reviewDivider.setAttribute(`aria-value${key}`, value);
+  if (persist) {
+    reviewSizes[mode] = size;
+    try { localStorage.setItem(`tmuxrc-review-${mode}`, String(size)); } catch {}
+  }
+}
+new ResizeObserver(() => {
+  if (active && streamedLayout !== effectiveLayout()) {
+    restartDetail(); render();
+  } else sizeReview();
+}).observe($("detail"));
+$("mobile-view-toggle").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-view]");
+  if (!button) return;
+  $("review-layout").value = button.dataset.view;
+  $("review-layout").dispatchEvent(new Event("change", { bubbles: true }));
+});
+$("review-layout").onchange = (e) => {
+  const choice = e.target.value;
+  if (WIDE.matches) {
+    reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
+    try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
+  }
+  if (choice === "auto") { view = "summary"; navigate(active, view); }
+  if (["summary", "terminal"].includes(choice)) { view = choice; navigate(active, view); }
+  restartDetail(); render();
+};
+reviewDivider.onpointerdown = (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault(); reviewDivider.setPointerCapture(e.pointerId);
+  reviewDivider.classList.add("dragging");
+};
+reviewDivider.onpointermove = (e) => {
+  if (!reviewDivider.hasPointerCapture(e.pointerId)) return;
+  const rect = $("detail").getBoundingClientRect();
+  sizeReview(true, effectiveLayout() === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
+};
+const endReviewResize = (e) => {
+  if (reviewDivider.hasPointerCapture(e.pointerId)) reviewDivider.releasePointerCapture(e.pointerId);
+  reviewDivider.classList.remove("dragging");
+};
+reviewDivider.onpointerup = reviewDivider.onpointercancel = reviewDivider.onlostpointercapture = endReviewResize;
+reviewDivider.onkeydown = (e) => {
+  const steps = effectiveLayout() === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
+  const step = steps[e.key];
+  if (!step) return;
+  e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
+};
+reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
   const inPane = !!active;
-  show("sessions", !inPane); show("list-nav", !inPane); show("brand", !inPane);
-  show("back", inPane); show("heading", inPane); show("detail", inPane);
+  // Once state has shown us the launched pane the grace record is spent — wherever the
+  // user happens to be looking. Keyed on the pane list, not on `active`: a launch the
+  // user navigated away from before the first poll would otherwise keep its exemption,
+  // and coming back to that pane after it had exited would find it still held on screen
+  // by its own birth. Presence is imperfect evidence when tmux recycles an id — see the
+  // note at the eviction below; it is the only evidence the client has.
+  if (launched && panes.some((p) => p.pane_id === launched.id)) launched = null;
+  // On a wide screen the list never leaves, so it is not "list OR pane" any more:
+  // the list and the filter tabs stay up, and Back has nothing to go back TO — the
+  // sidebar it would return you to is already there. The brand keeps its slot for the
+  // same reason. Narrow is unchanged.
+  const wide = WIDE.matches;
+  show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane || wide);
+  show("brand", !inPane || wide);
+  show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
+  // The main column is never blank on a wide screen: with no pane chosen it answers the
+  // question the sidebar cannot, which is what the whole fleet is doing right now.
+  show("landing", dashboardVisible());
+  show("divider", wide);
   renderList();
-  if (!inPane) return;
+  if (!inPane) { if (dashboardVisible()) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
   // Leaving you on it is a dead end: the header reads "Pane unavailable", the terminal
   // still shows the last frame, and every key is disabled — nothing to do but hit back.
   // Go back to the list instead, and only once the daemon is authoritative: `booted`
   // false means the inventory is still loading (startup, or a restart), where an absent
   // pane means "not yet", not "gone". Draft text is preserved by pruneDrafts.
-  if (booted && loaded && !pane) { leaveMissingPane(active); return; }
-  text($("pane-title"), (pane && paneName(pane)) || (booted ? "Pane unavailable" : "Loading pane"));
+  // ...unless the app itself created this pane moments ago and state has yet to catch up,
+  // which is "not yet" too — see awaitingLaunch for why that is a deadline. Once the pane
+  // HAS been seen the record is spent: a window that opens and then closes inside the
+  // grace is an ordinary death, and must not be held on screen by its own birth.
+  // Presence is the only evidence the clearing above has, and it is imperfect: tmux
+  // recycles pane ids, so a launch that reuses one can match the previous occupant's
+  // entry in a state poll that predates it, ending the grace early and showing the dead
+  // card for a tick. Telling the two apart needs a birth token in /api/state that the
+  // endpoint can echo back — a schema change, not a client fix, and not worth it for a
+  // window this narrow: it costs a stale card until the next poll, and the next poll is
+  // what it was waiting for anyway.
+  // Has the daemon's word on this pane settled? Every "it's gone" wording below turns on
+  // this rather than on `booted` alone, so the grace reads as "still loading" throughout
+  // instead of announcing the pane unavailable on a screen we are deliberately holding.
+  const settled = booted && !awaitingLaunch(launched, active);
+  if (settled && loaded && !pane) { leaveMissingPane(active); return; }
+  text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
-  $("summary-tab").setAttribute("aria-pressed", view === "summary");
-  $("terminal-tab").setAttribute("aria-pressed", view === "terminal");
-  show("overview", view === "summary"); show("terminal", view === "terminal");
-  text($("activity"), pane ? activityLabel(pane) : booted ? "Unavailable" : "Loading");
+  $("detail").dataset.layout = effectiveLayout();
+  const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
+  if (wide) layouts.unshift(["auto", "Auto"], ["side", "Side by side"], ["stack", "Overview above"]);
+  const picker = $("review-layout");
+  if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
+  picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
+  refreshViewPicker();
+  $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.view === view));
+  });
+  show("review-divider", reviewing());
+  show("overview", overviewVisible()); show("terminal", terminalVisible());
+  sizeReview(false);
+  text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
-  const missing = loaded && !pane ? (booted ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
+  const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
   const headline = pane?.headline || pane?.status_line || pane?.session_summary || missing;
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
-  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.elapsed].filter(Boolean).join(" / "));
+  const elapsed = pane?.working?.elapsed ?? pane?.elapsed;
+  const tokens = pane?.working?.tokens ?? pane?.tokens;
+  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, elapsed].filter(Boolean).join(" / "));
+  const chips = [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost,
+    elapsed, tokens ? `${tokens} tokens` : "",
+    ...(Array.isArray(pane?.status_entries) ? pane.status_entries.slice(0, 4) : []),
+    ({ plan: "Plan mode", "accept-edits": "Accept edits", bypass: "Bypass permissions" })[pane?.mode],
+    pane?.agents ? `${pane.agents} agents` : ""].filter(Boolean);
+  reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.prompt || "");
   const answered = pendingAnswer && pendingAnswer.id === active && pendingAnswer.signature === JSON.stringify(question);
   show("answer-status", !!answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
-  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
   reconcile($("options"), options, (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
     button.onclick = () => {
       const current = panes.find((p) => p.pane_id === active);
       if (!current?.question || !needsYou(current)) return;
       let keys = button._option.option;
+      // A cursor list answers to neither of the other two styles: the row's text and a
+      // digit both land in the picker's search box. It needs a verified walk, shared with
+      // the desktop so this surface can't drift behind it again (web/cursor-pick.js).
+      if (current.question.answer_style === "cursor") {
+        pickCursorRow(cursorIO(active), keys, button._option.index);
+        return;
+      }
       if (current.question.answer_style === "menu") {
         if (current.question.options.length === 2 && /^(yes|no)$/i.test(keys)) keys = keys[0].toLowerCase();
         else if (current.question.options.length > 2) keys = String(button._option.index + 1);
@@ -269,15 +563,17 @@ function render() {
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
-  if (pane && view === "summary") loadEvents(pane);
+  if (focusPushComposer && pane?.question && needsYou(pane)) {
+    focusPushComposer = false;
+    requestAnimationFrame(() => $("reply").focus({ preventScroll: true }));
+  }
+  if (pane && overviewVisible()) loadEvents(pane);
 }
 
 function renderRichContent(pane) {
-  const links = (Array.isArray(pane?.links) ? pane.links : []).filter((link) => {
-    try { return /^https?:$/.test(new URL(link.href).protocol); } catch { return false; }
-  });
+  const links = paneLinks(pane);
   show("link-section", !!links.length);
-  reconcile($("links"), links, (link, i) => `${i}:${link.href}`, () => {
+  reconcile($("links"), links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
@@ -286,7 +582,7 @@ function renderRichContent(pane) {
     const host = new URL(link.href).host;
     anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
-    text(anchor.querySelector("small"), host);
+    text(anchor.querySelector("small"), link.detail || host);
   });
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
@@ -319,9 +615,9 @@ function renderTasks(pane) {
       const node = document.createElement("div"); node.innerHTML = "<span></span><span></span>"; return node;
     }, (node, value) => {
       const done = value.done || value.state === "done";
-      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}`;
+      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}${id === "agents" && value.state === "compacting" ? " compacting" : ""}`;
       html(node.firstChild, licon(done ? "check" : "circle", 16));
-      text(node.lastChild, [value.text || value.label, value.elapsed].filter(Boolean).join(" / "));
+      text(node.lastChild, [value.text || value.label, id === "agents" ? value.state : null, value.elapsed].filter(Boolean).join(" / "));
     });
   }
   reconcile($("copyables"), copyables, (value, i) => `${i}:${value.label}`, () => {
@@ -361,6 +657,9 @@ async function loadEvents(pane) {
 function restartDetail() {
   detailController?.abort();
   detailController = new AbortController();
+  // A previously hidden detail may only get its real dimensions after render().
+  // The resize observer restarts streams if that changes the resolved layout.
+  streamedLayout = effectiveLayout();
   eventsKey = null;
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
@@ -368,11 +667,11 @@ function restartDetail() {
   }
   if (!active || document.hidden) return;
   const pane = panes.find((p) => p.pane_id === active);
-  if (view === "terminal") streamTerminal(active, detailController.signal);
-  else if (pane) loadEvents(pane);
+  if (terminalVisible()) streamTerminal(active, detailController.signal);
+  if (pane && overviewVisible()) loadEvents(pane);
 }
 
-function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; }
+function clearCapture() { $("capture").replaceChildren(); captureLines = []; captureDirty = false; latestFrame = paintedFrame = ""; }
 // One <span> per screen line, each ending in its own "\n" (except the last), so inside the
 // <pre>'s `white-space: pre` the layout and copied text are exactly what one innerHTML of
 // the whole frame gave — no extra CSS, and no block children to lose the newlines. The
@@ -409,6 +708,7 @@ function paintCapture() {
   const scroll = $("terminal-scroll");
   const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - FOLLOW_SLACK_PX;
   paintLines(lines);
+  paintedFrame = latestFrame;
   if (follow) scroll.scrollTop = scroll.scrollHeight;
 }
 async function streamTerminal(id, signal) {
@@ -421,7 +721,7 @@ async function streamTerminal(id, signal) {
       const data = await request(`${paneUrl(id, "live")}?${query}`, { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       frame = data.frame || "";
-      if (typeof data.text === "string") { latestCapture = data.text; paintCapture(); }
+      if (typeof data.text === "string") { latestCapture = data.text; latestFrame = frame; paintCapture(); }
       text($("terminal-status"), "Live terminal");
       await pause(100, signal);
     } catch (error) {
@@ -447,16 +747,20 @@ async function streamTerminal(id, signal) {
 function startState() {
   stateController?.abort();
   stateController = new AbortController();
-  if (!document.hidden) pollState(stateController.signal);
+  if (!document.hidden) {
+    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
+    pollState(stateController.signal);
+  }
 }
 async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
     try {
-      const data = await request(`/api/state${version ? `?v=${version}` : ""}`, { signal }, LONG_POLL_TIMEOUT_MS);
+      const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
+      refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -495,13 +799,17 @@ function updateComposer() {
   $("attach").disabled = sending || !available;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
 }
-async function sendKeys(body, answer = false) {
-  if (sending || !panes.some((p) => p.pane_id === active)) return;
-  const id = active;
+// Returns whether the keys were DELIVERED. Most callers ignore it; the cursor walk
+// (web/cursor-pick.js) cannot — a move it wrongly believes happened leaves every later
+// step one row out and commits the wrong row.
+async function sendKeys(body, answer = false, id = active) {
+  if (sending || !panes.some((p) => p.pane_id === id)) return false;
   const signature = JSON.stringify(panes.find((p) => p.pane_id === id)?.question);
+  let delivered = false;
   sending = true; notice(); render();
   try {
     await post(paneUrl(id, "send"), body);
+    delivered = true;
     if (answer) {
       pendingAnswer = { id, signature };
       setTimeout(() => { if (pendingAnswer?.id === id && pendingAnswer.signature === signature) { pendingAnswer = null; render(); } }, ANSWER_PENDING_MS);
@@ -510,6 +818,29 @@ async function sendKeys(body, answer = false) {
     startState();
   } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
   finally { sending = false; render(); }
+  return delivered;
+}
+
+// This surface's half of the shared cursor walk. No send here sets `pendingAnswer`:
+// gating the option buttons on the first Down would disable the very row the walk is
+// working toward. What keeps a second tap from starting a rival walk is not this surface
+// at all — `sending` is released between every step — but the module's own one-at-a-time
+// lock, which is where that belongs since both surfaces have the same gap.
+function cursorIO(id) {
+  // Two separate things, both needed. sendKeys takes the captured id, so no move can ever
+  // be posted to a pane the walk was not started for — it defaults to `active` for every
+  // other caller, but a default resolved at call time is exactly what a multi-second walk
+  // must not rely on. And question() reports nothing once `active` has moved off that
+  // pane, which STOPS the walk: a picker the user has navigated away from should not go on
+  // being driven, let alone committed, out of sight.
+  const pane = () => (active === id ? panes.find((p) => p.pane_id === id) : null);
+  return {
+    question: () => pane()?.question || null,
+    parsedAt: () => pane()?.parsed_at || 0,
+    sendKey: (k) => sendKeys({ keys: k, enter: false, literal: false }, false, id),
+    sendText: (t) => sendKeys({ keys: t, enter: false, literal: true }, false, id),
+    note: notice,
+  };
 }
 $("reply-form").onsubmit = async (event) => {
   event.preventDefault();
@@ -517,16 +848,13 @@ $("reply-form").onsubmit = async (event) => {
   const id = active, value = draft(), segments = value.segments();
   sending = true; notice(); render();
   try {
-    while (segments.length) {
-      const segment = segments[0];
-      if (segment.file) {
-        const form = new FormData(); form.append("file", segment.file);
-        await request(paneUrl(id, "image"), { method: "POST", body: form }, 30000);
-      } else await post(paneUrl(id, "send"), { keys: segment.text, enter: false, literal: true });
-      // Remove only acknowledged segments, so retry never repeats a confirmed upload.
-      segments.shift(); value.pendingEnter = true; value.replace(segments);
+    const form = new FormData();
+    for (const segment of segments) {
+      if (segment.file) form.append("image", segment.file);
+      else form.append("text", segment.text);
     }
-    await post(paneUrl(id, "send"), { keys: "", enter: true, literal: true });
+    await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
+    value.replace([]);
     value.pendingEnter = false;
     if (active === id) text($("draft-status"), "Sent");
     startState();
@@ -599,15 +927,16 @@ function fadeKeys() {
 $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
+html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
+$("dashboard-tab").onclick = () => navigate(null, "dashboard");
 $("back").onclick = () => navigate();
-$("summary-tab").onclick = () => navigate(active, "summary");
-$("terminal-tab").onclick = () => navigate(active, "terminal");
 $("search").oninput = renderList;
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
-$("list-nav").querySelectorAll("button").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
+$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
+  document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = light ? "default" : "black";
   icon("theme", light ? "moon" : "sun");
   $("theme").title = $("theme").ariaLabel = light ? "Use dark theme" : "Use light theme";
 }
@@ -616,6 +945,39 @@ $("theme").onclick = () => { const light = !document.documentElement.classList.c
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
 $("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; };
+// Click mode: a tap on the terminal is a mouse click in the pane (the daemon drops it
+// unless the pane's app asked for mouse reports). Select mode is the plain text view, for
+// copying. Two explicit modes rather than guessing intent from drag-vs-tap, because a tap
+// that meant "place the selection" would otherwise click whatever is under it.
+function setClickMode(on) {
+  $("capture").classList.toggle("clicks", on);
+  $("click-mode").setAttribute("aria-pressed", String(on));
+  html($("click-mode"), `${licon(on ? "pointer" : "cursor", 16)}${on ? "Click" : "Select"}`);
+  $("click-mode").ariaLabel = $("click-mode").dataset.tip = on
+    ? "Click mode: taps click inside the app, like menus and agent rows. Tap to switch to Select for copying text."
+    : "Select mode: drag to select and copy text. Tap to switch to Click to use the app's menus and rows.";
+}
+let storedClickMode = null;
+try { storedClickMode = localStorage.getItem("tmuxrc-click-mode"); } catch {}
+setClickMode(storedClickMode !== "off");
+$("click-mode").onclick = () => { const on = !$("capture").classList.contains("clicks"); setClickMode(on); try { localStorage.setItem("tmuxrc-click-mode", on ? "on" : "off"); } catch {} };
+// The cell comes from monospace geometry, not the tapped node, so blank space right of
+// the text still hits its row. Rows count up from the frame's last line — the edge it
+// shares with the screen (see tmux.click). A tap on a link still follows the link.
+$("capture").onclick = (event) => {
+  const pre = $("capture");
+  if (!active || !paintedFrame || captureDirty || !captureLines.length || !pre.classList.contains("clicks") || event.target.closest("a")) return;
+  const probe = pre.appendChild(document.createElement("span"));
+  probe.textContent = "0".repeat(100);
+  const cell = probe.getBoundingClientRect().width / 100;
+  probe.remove();
+  const style = getComputedStyle(pre), box = pre.getBoundingClientRect();
+  const top = box.top + parseFloat(style.paddingTop);
+  const row = Math.floor((event.clientY - top) / ((box.bottom - parseFloat(style.paddingBottom) - top) / captureLines.length));
+  const col = Math.floor((event.clientX - box.left - parseFloat(style.paddingLeft)) / cell) + 1;
+  if (row < 0 || row >= captureLines.length || col < 1) return;
+  post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }).catch(() => {});
+};
 
 $("new-window").onclick = async () => {
   $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
@@ -628,45 +990,101 @@ $("new-window").onclick = async () => {
       const button = document.createElement("button");
       const logo = document.createElement("img");
       logo.src = Object.prototype.hasOwnProperty.call(LOGOS, launcher.icon) ? LOGOS[launcher.icon] : launcher.icon || "/tmux-logomark.svg"; logo.alt = "";
-      const label = document.createElement("span"); label.textContent = launcher.label;
-      button.append(logo, label); button.insertAdjacentHTML("beforeend", licon("plus"));
-      button.disabled = !sessions.length;
-      button.onclick = () => launchWindow(launcher.label);
+      const label = document.createElement("span");
+      const name = document.createElement("strong"); name.textContent = launcher.label; label.append(name);
+      // A launcher whose command the daemon can't find stays VISIBLE — the user
+      // configured it, so hiding it would only be a second mystery — but is disabled and
+      // states the reason, instead of opening a window that dies in milliseconds.
+      // The marker outlives the disabled flag, which launchWindow's `finally` clears on
+      // every button: without it one failed launch would re-arm the entries the daemon
+      // has just told us cannot run.
+      if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; const why = document.createElement("small"); why.textContent = launcher.unavailable; label.append(why); }
+      button.append(logo, label);
+      if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
+      button.disabled = !sessions.length || !!launcher.unavailable;
+      button.onclick = () => launchWindow(launcher.label, button);
       return button;
     }));
   } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
 };
 $("close-launch").onclick = () => $("launch-dialog").close();
-let launching = false;
-async function launchWindow(launcher) {
+let launching = false, launched = null;
+async function launchWindow(launcher, button) {
   if (launching) return;
   launching = true; text($("launch-error"), "Creating window...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
     const data = await post("/api/windows", { session: $("launch-session").value, launcher });
+    // Record the id BEFORE navigating to it: startState only *starts* a fetch, so the
+    // hashchange this triggers reaches render() while `panes` is still the previous
+    // poll's, without the pane that was created a moment ago. See awaitingLaunch.
+    launched = { id: data.pane_id, at: Date.now() };
+    // The exemption expires on a clock, but only a render can act on it, and renders are
+    // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
+    // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
+    // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
+    // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
+    setTimeout(render, LAUNCH_GRACE_MS);
     $("launch-dialog").close(); startState(); navigate(data.pane_id);
-  } catch { text($("launch-error"), "Creation could not be confirmed. Check sessions before retrying."); }
-  finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = false; }); }
+  } catch (error) {
+    text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying.");
+    // The list was a snapshot from the GET; if the daemon has since decided it can't run
+    // this one, believe it now rather than leaving a button that only ever re-shows the
+    // same refusal. The marker is what `finally` restores from, so setting it is enough.
+    // ONLY on 400, the preflight's own status: every FastAPI error carries a `detail`, so
+    // a stale session (404) or any other transient refusal would otherwise disable a
+    // perfectly good launcher for the rest of the dialog over something that isn't
+    // about the command at all.
+    if (button && error.status === 400 && error.detail) button.dataset.unavailable = error.detail;
+  }
+  finally { launching = false; $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = "unavailable" in button.dataset; }); }
 }
 
 function fitViewport() {
   // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
   const viewport = window.visualViewport;
   if (!viewport || viewport.scale !== 1) return;
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  const focused = document.activeElement;
+  const textInput = focused?.tagName === "INPUT"
+    && ["text", "search", "email", "url", "tel", "number", "password"].includes(focused.type);
+  const editing = focused?.isContentEditable
+    || ((textInput || focused?.tagName === "TEXTAREA") && !focused.readOnly && !focused.disabled);
+  // Installed mode lets iOS reserve the status bar outside the app. Fill that
+  // available viewport while browsing; editors still follow the keyboard.
+  document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
+  if (standalone && !editing) {
+    document.documentElement.style.removeProperty("--app-height");
+    document.documentElement.style.removeProperty("--app-top");
+    return;
+  }
   document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
   document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
 }
 window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
 window.addEventListener("resize", fitViewport);
+document.addEventListener("focusin", fitViewport);
+document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
+// Crossing the breakpoint changes which elements are hidden, and only render() knows
+// that. Without this, widening the window leaves the list hidden until the next poll
+// repaints — and narrowing it leaves a sidebar with no room, which is the worse half.
+// Older iOS Safari has only the deprecated addListener, and calling the modern name
+// unguarded would throw here and abort the whole module — breaking the phone UI to add
+// a wide-screen affordance those browsers can never show. Same feature test as the
+// desktop app's scheme listener.
+const resizeWorkspace = () => { restartDetail(); render(); };
+if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
+else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
-document.addEventListener("selectionchange", () => { if (view === "terminal" && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { startState(); restartDetail(); });
+document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
+document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
+setupPush($("push"), notice, licon("bell"));
 const live = setupLiveMode({ request, session: liveSession, licon, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {

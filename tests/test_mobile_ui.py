@@ -35,6 +35,9 @@ def test_mobile_assets_and_manifest():
         "/m/pane-model.js",
         "/lm-tap.js",
         "/terminal.js",
+        "/push.js",
+        "/pr-links.js",
+        "/sw.js",
         "/icon.svg",
     ):
         assert client.get(path).status_code == 200
@@ -42,6 +45,23 @@ def test_mobile_assets_and_manifest():
     assert manifest["start_url"] == "/m"
     assert manifest["scope"] == "/m"
     assert 'src="/app.js"' in client.get("/").text
+    assert 'id="push"' in client.get("/m").text
+    assert 'addEventListener("fetch"' not in client.get("/sw.js").text
+
+
+def test_failed_push_repair_retries_before_unsubscribe():
+    source = (Path(__file__).resolve().parents[1] / "web/push.js").read_text()
+    retry = source.index("if (subscription && repairNeeded)")
+    unsubscribe = source.index('fetch("/api/push/unsubscribe"')
+    retry_body = source[retry:unsubscribe]
+    assert 'fetch("/api/push/subscribe"' in retry_body
+    assert "repairNeeded = false" in retry_body
+    failed_enable = source.rindex("if (!response.ok) {")
+    assert "repairNeeded = true" in source[failed_enable:failed_enable + 350]
+
+    worker = (Path(__file__).resolve().parents[1] / "web/sw.js").read_text()
+    assert 'pathname.startsWith("/m")' in worker
+    assert "clients.openWindow(target)" in worker
 
 
 def test_version_tracks_nested_mobile_assets(tmp_path, monkeypatch):
@@ -98,3 +118,59 @@ def test_key_row_can_answer_a_codex_queued_question():
     # is useless for the one key a non-visual user opened this row to press.
     assert '"Shift+Left"' in lines[start], "S-Left needs a spoken label beside its glyph"
     assert 'aria-label", aria' in body, "the spoken label must be what reaches aria-label"
+
+
+def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
+    """The phone layout is list-OR-pane; a desktop has room for both. The whole switch is
+    one media query plus not hiding the list — if a second render path ever appears here,
+    the two-UI divergence this direction exists to end has just been recreated inside one
+    UI. So pin the shape: a `wide` read gating the list's visibility, and a re-render when
+    the breakpoint is crossed (without which widening leaves the sidebar hidden until the
+    next poll repaints)."""
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "web/m/app.js").read_text()
+    css = (root / "web/m/style.css").read_text()
+
+    assert "matchMedia(" in app and "WIDE" in app
+    assert 'show("sessions", (!inPane && !dashboard) || wide)' in app
+    assert 'show("back", inPane && !wide)' in app, "Back has no sidebar to return to"
+    # Feature-detected: older iOS Safari has only the deprecated addListener, and calling
+    # the modern name unguarded throws at module scope, taking the whole phone UI with it.
+    assert 'WIDE.addEventListener("change", resizeWorkspace)' in app, "crossing it must re-render"
+    assert "WIDE.addListener(resizeWorkspace)" in app, "older iOS Safari must also re-render"
+
+    # The CSS breakpoint and the JS one are the same number in two files; a mismatch would
+    # show as a sidebar that is hidden in a grid column reserved for it.
+    assert "min-width: 1100px" in css and "min-width: 1100px)" in app
+    assert "grid-template-columns" in css
+
+
+def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
+    """Three properties of the wide layout that are easy to regress silently.
+
+    The main column must never be blank: with no pane picked it answers what the sidebar
+    cannot, which is what the whole fleet is doing. Its counts come from the same helpers
+    the filter tabs use, because a second count that disagreed with the tabs would be
+    worse than showing none. The sidebar width is a clamped CSS variable, so a value
+    stored from a wider window can still never squeeze out the list or the terminal. And
+    the pane's identity lives over the pane: the header spans both columns here, so a
+    title there would float above the sidebar it does not describe.
+    """
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "web/m/app.js").read_text()
+    css = (root / "web/m/style.css").read_text()
+    html = (root / "web/m/index.html").read_text()
+
+    assert 'show("landing", dashboardVisible())' in app
+    assert "!active && (WIDE.matches || dashboard)" in app
+    assert "renderLanding()" in app
+    # The same helpers the tabs count with — not a parallel definition that can drift.
+    assert "panes.filter(needsYou)" in app and "panes.filter(isRunning)" in app
+
+    # The drag handle writes a variable the grid clamps; the clamp is the real guard.
+    assert "--sidebar" in css and "clamp(260px" in css
+    assert "setSidebar" in app and "pointermove" in app
+    assert "ArrowLeft" in app, "a pointer-only resize is unreachable from the keyboard"
+
+    # The heading moved out of the app-wide header and into the panel it names.
+    assert html.index('id="detail"') < html.index('id="heading"'), "the title belongs over the pane"

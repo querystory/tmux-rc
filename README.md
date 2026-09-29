@@ -110,6 +110,29 @@ binary, put the client's config in `~/.config/tmux-rc/tunnel.env` (see
 so you can ignore it entirely on a LAN-only setup. Whatever you pick should
 **authenticate** — the daemon itself has no auth.
 
+### iPhone: Live Mode and notifications
+
+Follow the [iPhone happy-path setup guide](docs/iphone-setup.md) for Home Screen installation,
+permissions, a real notification test, screen timeout/lock behavior, and audio recovery.
+Use **Safari or Chrome → Share → Add to Home Screen**, then launch the installed app—not
+a browser tab—for this workflow. Push continues independently of Live Mode; uninterrupted
+background voice is not guaranteed by iOS.
+
+Open `/m` in Safari or Chrome, use **Add to Home Screen**, launch that installed app, then tap
+the bell in its header. iOS only permits Web Push permission from an installed web app
+and a user gesture. A notification tap opens the exact pane that needs attention, where
+you can use its answer buttons or composer. iOS Web Push does not expose inline text
+replies or notification action buttons; platforms that do support action buttons can
+send the first two structured options directly from the notification.
+
+Subscriptions and the VAPID key are stored owner-only at
+`~/.local/state/tmux-rc/push.json`, outside the checkout. Removing a device is available
+from the same bell; `POST /api/push/revoke-all` revokes every saved device.
+Delivery is deliberately best-effort: relay failures are logged and dropped instead of
+replaying a stale question after an outage.
+The push sender contact defaults to `mailto:tmux-rc@openbus.io`; operators can override
+it with `TMUXRC_PUSH_SUBJECT=mailto:<real-contact-address>` in the daemon environment.
+
 The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
 upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit
 and run `make dev` in a pane as usual; the two modes share the same command and config.
@@ -171,7 +194,10 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_TARGET` | unset (all panes) | restrict watching to one pane. Always reliable: a pane id (`%3`) or a numeric tmux address (`session:window_index[.pane_index]`, e.g. `work:0.0` — indices, not the window name). Also accepted: the pane's derived label (`name` / `name.N`). That is a window name that doesn't look like a tmux default, used *verbatim*; failing that, `<base>:<window_index>` where base is the session name, or the cwd basename when the session name looks like a default too. Only the fallback carries the index, so a bare session or cwd name matches nothing unless a window is actually named that. A card's title in the UI is not reliably a target — it may be the agent's own pane title or an LLM-refined name rather than the label — so use a pane id when in doubt |
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
+| `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
+| `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | optional operator `mailto:` contact override for VAPID; unrelated to the tunnel URL |
+| `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft push relays | comma-separated exact hosts or dot-prefixed domain suffixes accepted as subscription endpoints; extend only for a trusted browser push service |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
 | `TMUXRC_QSDEBUG` | unset | set `1` to also send raw pane text + model output JSON (privacy: content leaves the host) |

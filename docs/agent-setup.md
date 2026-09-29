@@ -38,6 +38,40 @@ Both prefer `title` over `label`; the phone also falls back to `window_name`, th
 `pane_id`, when neither is available. Keeping a session name on screen still helps
 the classifier identify the work when the agent does not publish a terminal title.
 
+### Keep the model name on screen
+
+Include the model in the status line too. tmux-rc works out *which agent* a pane is
+running from what the pane shows, and the model name is the single most decisive clue:
+OpenAI names (`gpt-…`, `o3`) mean Codex, Anthropic ones (`Opus`, `Sonnet`, `Fable`) mean
+Claude Code. The agents otherwise look alike — both draw a box-framed input, both ask
+permission before running commands — so a pane that never names its model leans on
+weaker signals and can be filed under the wrong agent.
+
+For Codex that is `"model-with-reasoning"` in `status_line`, next to the
+`"thread-title"` above. A `~/.codex/config.toml` carrying both:
+
+```toml
+[tui]
+status_line = [
+  "thread-title",
+  "model-with-reasoning",
+  "context-remaining",
+  "git-branch",
+  "current-dir",
+  "run-state",
+]
+```
+
+Order mostly does not matter to the parser — it reads each segment for what it says
+rather than for where it sits, so segments you add or drop do not shift the meaning of
+the rest. The one exception is `thread-title`: it is identified as the leftover segment
+*before* the model, so keep it ahead of `model-with-reasoning` or the pane loses the
+only per-window identity Codex has. Claude Code prints its model by default; if you
+have replaced its status line with a custom command, keep the model in what you emit.
+
+This also feeds the card's subtitle, so you can see at a glance which model a pane is
+burning tokens on without opening it.
+
 ### When nothing is parsed off the screen
 
 The label falls back to `Pane.label` (`openbus/tmux.py`): the window name if it looks
@@ -161,3 +195,8 @@ phone can tell your agents apart; turn off decoration that moves on a timer; kee
 point the watcher at something that repaints forever. The first is about whether tmux-rc
 is *usable* from a phone. The rest are about what it costs you per day, and the numbers
 above are what that bill looks like when nobody is paying attention.
+
+All of that is about making a pane *readable*. If you also drive agents from another
+agent — one session typing into its siblings' panes — see
+[orchestrating agents from an agent](agent-orchestration.md), which covers the mechanics
+that fail without telling you.

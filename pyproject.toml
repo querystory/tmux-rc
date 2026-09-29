@@ -16,6 +16,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc>=1.43.0",
     "python-dotenv>=1.2.2",
     "websockets>=14",
+    "pywebpush>=2.5.0",
 ]
 
 [project.scripts]

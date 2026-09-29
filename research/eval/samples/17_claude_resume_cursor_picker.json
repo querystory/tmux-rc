@@ -1,0 +1,22 @@
+{
+  "description": "Claude Code /resume session picker: a ❯-highlighted cursor list with NO per-row digits, a search box, and a footer of bindings. The trap is scoring this 'menu' — a digit lands in the Search box instead of selecting, which is issue #206. Expected question with answer_style=cursor, waiting_on=user. The sample also pins the two fields the phone's cursor walk is STEERED by, because answer_style alone only proves the shape was recognized: `selected` is the anchor every move is computed from (a wrong one silently resumes the wrong session), and `keymap` is the set of keys the walk is allowed to press (an empty one leaves the phone with nothing to do but tell the user to reach for a keyboard). Note what this screen's footer does and does not say: it spells out Ctrl+A, Ctrl+B, Space, Type to search and Esc, but NOT ↑/↓ or Enter — which is the normal case, not an odd one. Up/Down/Enter are reported anyway because being arrow-driven is what makes a list a cursor list; `search` is the field with no default and is true here only because the box is on screen. A classifier that went strictly literal about the footer would report an empty keymap, and the phone would answer a tap with 'use the keyboard' on the exact screen this feature exists for — so this expectation going red is a real alarm, not a fixture to relax. Real screen (tmux-rc, 2026-09-17).",
+  "current_command": "node",
+  "capture": "  Resume session (1 of 13)\n\n  ┌──────────────────────────────────────────────────────────┐\n  │ ⌕ Search…                                                │\n  └──────────────────────────────────────────────────────────┘\n    tmux-rc\n\n  ❯ Mid-file imports cleanup\n    12 hours ago · HEAD · 4.5MB · querystory/tmux-rc#204\n\n    tmuxrc-live-mode\n    1 day ago · HEAD · 2.7KB\n\n    tmuxrc-dev\n    4 days ago · HEAD · 14.3MB · querystory/tmux-rc#193\n\n    approved-prs\n    4 days ago · HEAD · 976.5KB · querystory/qs-app#4795\n\n    prs\n    5 days ago · HEAD · 1.1MB\n\n  Ctrl+A to show all projects · Ctrl+B to only show current branch · Space to preview · Type to search · Esc to cancel",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "selected": 0,
+      "keymap": {
+        "next": "Down",
+        "prev": "Up",
+        "select": "Enter",
+        "search": true
+      }
+    },
+    "headline": "Showing the resume-session picker to choose a past session"
+  }
+}

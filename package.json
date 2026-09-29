@@ -1,0 +1,12 @@
+{
+  "name": "tmux-rc-browser-assets",
+  "private": true,
+  "scripts": {
+    "vendor:build": "node scripts/vendor-assets.mjs",
+    "vendor:check": "node scripts/vendor-assets.mjs --check"
+  },
+  "dependencies": {
+    "echarts": "6.1.0",
+    "wordcloud": "1.2.3"
+  }
+}

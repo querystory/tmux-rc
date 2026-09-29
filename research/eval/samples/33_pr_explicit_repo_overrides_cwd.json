@@ -1,0 +1,12 @@
+{
+  "description": "The pane remains in an unrelated checkout while the agent completes work in tmux-rc; the explicit PR URL must override cwd repository identity.",
+  "current_command": "codex",
+  "repository": "anomalyco/opencode",
+  "capture": "OpenAI Codex | gpt-6-sol\n\nUser: Implement session resume in the tmux-rc checkout.\n\n• Implemented Live Mode session resume in /src/tmux-rc. Added the resolver and resume guard tests; all tests pass. Opened https://github.com/querystory/tmux-rc/pull/241 for this change.\n\n› Ask Codex to do anything\n\nSession resume · gpt-6-sol medium · ~/src/opencode · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "working_prs": [{"repo": "querystory/tmux-rc", "number": 241}],
+    "headline": "Implemented session resume and opened tmux-rc PR 241 with passing tests"
+  }
+}

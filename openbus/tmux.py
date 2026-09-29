@@ -7,13 +7,22 @@ to the session, so a human can stay attached at the same time.
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import math
 import os
 import re
 import shutil
 import socket
 import subprocess
 import threading
+import time
+import weakref
+from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
@@ -22,9 +31,8 @@ _TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
-# FLY002 is suppressed below: the suggested single f-string would fuse 12 fields into
-# one unsearchable line. Their ORDER is the wire format _parse_pane unpacks, so they
-# stay one per line.
+# FLY002 is suppressed below: keep fields individually searchable and ordered to
+# match the Pane constructor used by list_panes().
 _PANE_FMT = "\t".join(  # noqa: FLY002
     [
         "#{session_name}",
@@ -161,10 +169,30 @@ def _run(args: list[str]) -> str:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
 
 
+def client_active_within(seconds: float) -> bool:
+    """Whether any attached tmux client received input recently.
+
+    A failure (including no attached clients) is treated as absence.  Push suppression
+    must fail open: losing tmux presence may cause one useful notification, never hide it.
+    """
+    try:
+        rows = _run(["list-clients", "-F", "#{client_activity}"]).splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    now = time.time()
+    for value in rows:
+        try:
+            if now - float(value) < seconds:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 _server_uid: str | None = None
 
 
-def server_uid() -> str:
+def server_uid(*, strict: bool = False) -> str:
     """Stable identity of the tmux SERVER: '<boot_id>:<server_pid>'.
 
     boot_id (a fresh kernel UUID per boot, from /proc) plus the server's pid uniquely
@@ -184,10 +212,12 @@ def server_uid() -> str:
         with open("/proc/sys/kernel/random/boot_id") as f:
             boot = f.read().strip()
     except OSError:
+        if strict: raise
         boot = "nobootid"
     try:
         pid = _run(["display-message", "-p", "#{pid}"]).strip()
     except subprocess.CalledProcessError:
+        if strict: raise
         # No server (yet). Serve the last good identity if we have one rather than
         # inventing a ':0' that would look like a different server to the backend.
         return _server_uid or f"{boot}:0"
@@ -205,12 +235,18 @@ def pane_uid(pane: Pane) -> str:
 
 
 def server_running() -> bool:
-    """True if a tmux server is up (avoids noisy errors when nothing is running)."""
+    """False only for a confirmed absent server; collection failures must remain gaps."""
     try:
         _run(["list-sessions"])
         return True
-    except subprocess.CalledProcessError:
-        return False
+    except subprocess.CalledProcessError as error:
+        message = (error.stderr or "").lower()
+        if error.returncode == 1 and (
+            "no server running" in message
+            or ("no such file or directory" in message and "connect" in message)
+        ):
+            return False
+        raise
 
 
 def prefix_key() -> str:
@@ -343,6 +379,33 @@ def kill_window(pane_id: str) -> None:
     it, and whatever is running there is killed. The watcher's next tick sees the pane gone
     and evicts it (watcher._gc), so no client-side cleanup is needed."""
     _run(["kill-window", "-t", pane_id])
+
+
+def server_path() -> str | None:
+    """PATH from the tmux SERVER's global environment — the list a new window's command is
+    actually looked up in — or None if tmux can't say.
+
+    The daemon does NOT start the server; it connects to whatever is already running (the
+    unit only runs the daemon, and the README has the user open `tmux new -s work` first).
+    A server started from a login shell therefore carries that shell's PATH, which is
+    typically far wider than the daemon's own — nvm, ~/bin — and is the difference between
+    a launcher that works and one the daemon would swear does not exist.
+
+    The global environment, not a session's. A session CAN override PATH with
+    `set-environment`, and one that did would be missed here — but reading it costs a tmux
+    call per session and the menu that consumes this has no session in hand at all, while
+    the override itself is vanishingly rare. The approximation errs the same way the whole
+    check does: an unmodelled PATH can only cause a launcher to be doubted, never a bad
+    one to be trusted. None means "don't know", which the caller must not read as "empty":
+    the window's shell also runs its rc files and can prepend more, so a hit here is only
+    ever "can't say it's missing" rather than proof of anything."""
+    try:
+        out = _run(["show-environment", "-g", "PATH"]).strip()
+    except Exception:  # noqa: BLE001 - no server, old tmux, wedged: just don't know
+        return None
+    # An EMPTY value is still an answer ("the server's PATH is empty"), and must not be
+    # folded into None, which means "no answer" and makes the caller decline entirely.
+    return out[len("PATH="):] if out.startswith("PATH=") else None
 
 
 def new_window(session: str, name: str, command: str) -> str:
@@ -549,34 +612,233 @@ def capture_pane(
 # chunks are measured in UTF-8 bytes — 4000 characters of emoji is ~16KB — and a slice
 # must never land inside a multi-byte code point.
 _SEND_CHUNK_BYTES = 4000
-# One logical send now spans several tmux commands (chunks + Enter); concurrent callers
-# (asyncio.to_thread in live.py, parallel HTTP handlers) must not interleave mid-paste.
-_send_lock = threading.Lock()
+# Pause between the typed text and the Return that submits it.
+#
+# Agent TUIs take multi-line input, so they must decide whether a Return is "submit" or
+# "newline in what I am typing". They decide it by TIMING: bytes arriving in a fast burst
+# are a paste, and a Return inside a paste is a literal newline. `send-keys -l` followed
+# immediately by `send-keys Enter` is exactly that burst, so the Return lands inside the
+# paste window and becomes a newline — the message sits composed in the input box, unsent,
+# and nothing reports an error because tmux delivered every byte it was asked to.
+#
+# Observed from the phone: tapping an answer to a codex approval prompt left the text in
+# the input line with the composer reporting "Sent". So the wait is the fix: it ends the
+# burst, and the Return afterwards arrives as its own keystroke.
+#
+# Paid once per send, and only for literal text that asks for a Return — key-name sends
+# (Escape, C-c, arrows) are single keystrokes with no paste to escape and skip it.
+def _enter_settle_seconds() -> float:
+    try:
+        value = float(os.environ.get("TMUXRC_ENTER_SETTLE_S", "0.3"))
+    except ValueError:
+        logger.warning("Invalid TMUXRC_ENTER_SETTLE_S; using 0.3 seconds")
+        return 0.3
+    if not math.isfinite(value):
+        logger.warning("Non-finite TMUXRC_ENTER_SETTLE_S; using 0.3 seconds")
+        return 0.3
+    if value < 0:
+        logger.warning("Negative TMUXRC_ENTER_SETTLE_S; disabling the delay")
+        return 0.0
+    return value
+
+
+_ENTER_SETTLE_S = _enter_settle_seconds()
+# One logical send now spans several tmux commands (chunks, the settle, the Return), and
+# concurrent callers (asyncio.to_thread in live.py, parallel HTTP handlers) must not
+# interleave mid-paste.
+#
+# Weak values retire unused locks without replacing a lock held by a sender/waiter.
+# Every caller keeps a strong reference for its entire `with` block.
+_send_locks = weakref.WeakValueDictionary()
+_send_registry_lock = threading.Lock()
+_last_paste: dict[str, tuple[str, float]] = {}
+_paste_lock = threading.Lock()
+_LAST_PASTE_MAX = 256
+
+
+def _pane_lock(pane_id: str):
+    with _send_registry_lock:
+        lock = _send_locks.get(pane_id)
+        if lock is None:
+            lock = threading.RLock()
+            _send_locks[pane_id] = lock
+        return lock
+
+
+class PaneChangedError(RuntimeError):
+    """Delivery stopped because the original pane can no longer be identified."""
+
+
+def check_pane(pane_id: str, expected: str | None) -> None:
+    if expected is None or pane_pid(pane_id) != expected:
+        raise PaneChangedError(
+            "Pane changed or disappeared; delivery stopped. Check the terminal before retrying."
+        )
+
+
+@contextmanager
+def send_transaction(pane_id: str):
+    """Serialize a complete composer delivery; uploads finish BEFORE taking this lock."""
+    with _pane_lock(pane_id):
+        identity = pane_pid(pane_id)
+        if identity is None:
+            raise PaneChangedError("Pane disappeared before delivery.")
+        yield identity
+
+
+def pane_pid(pane_id: str) -> str | None:
+    """The PID of the process in `pane_id`, or None if the pane is gone.
+
+    One cheap display-message, used to tell a pane apart from a DIFFERENT pane that has
+    since inherited its id — the same job Pane.pid does in the watcher, for the same
+    reason stated there: tmux recycles "%N" when panes close, so the id alone is not a
+    durable identity."""
+    try:
+        return _run(["display-message", "-p", "-t", pane_id, "#{pane_pid}"]).strip() or None
+    except subprocess.CalledProcessError:
+        return None  # no such pane any more
+
+
+def before_send(pane_id: str, callback: Callable[[], None]) -> None:
+    """Linearize a quick state change with every send targeting this pane."""
+    with _pane_lock(pane_id):
+        callback()
+
+
+def _settle_before_return(pane_id: str) -> None:
+    """Check the pasted-to pane's identity even if its paste has already settled."""
+    with _paste_lock:
+        paste = _last_paste.get(pane_id)
+    if paste is None:
+        return
+    identity, at = paste
+    check_pane(pane_id, identity)
+    remaining = _ENTER_SETTLE_S - (time.monotonic() - at)
+    if remaining > 0:
+        time.sleep(remaining)
+        check_pane(pane_id, identity)
 
 
 def send_keys(
-    pane_id: str, keys: str, enter: bool = True, literal: bool = True
+    pane_id: str, keys: str, enter: bool = True, literal: bool = True,
+    *, expected_pid: str | None = None, guard: Callable[[], None] | None = None,
 ) -> None:
     """Send `keys` to a pane. When `literal` (default), text is sent with `-l` so it
     isn't interpreted as tmux key names — for typed answers, chunked under tmux's
     message-size cap (see _SEND_CHUNK_BYTES). When not literal, `keys` is a tmux
     key-name like "Escape", "Up", or "C-c", sent as that key. `enter` appends a
-    Return (only meaningful for literal text)."""
-    with _send_lock:
+    Return (only meaningful for literal text).
+
+    `pane_id` must already be a resolved pane id — see _send_locks. When supplied,
+    `expected_pid` binds the complete send transaction to that pane incarnation.
+    `guard`, when present, runs only after the per-pane send lock is held."""
+    with _pane_lock(pane_id):
+        if guard is not None:
+            guard()
+        if expected_pid is not None:
+            check_pane(pane_id, expected_pid)
         if literal:
+            identity = expected_pid if keys and expected_pid is not None else (
+                pane_pid(pane_id) if keys else None
+            )
+            if keys and identity is None:
+                raise PaneChangedError("Pane disappeared before delivery.")
             b, i = keys.encode(), 0
-            while True:
+            # An empty literal is not a paste — it is how both composers ask for a bare
+            # submit once their text has gone out in earlier requests. Sending it would be
+            # a tmux call that types nothing, and STAMPING it would be worse: it would
+            # restart the paste clock and make the Return below wait the whole window
+            # again, discarding the elapsed-time measurement at the one call that exists
+            # purely to be measured. Skipping both leaves the real last chunk's time in
+            # place, which is what the Return should be judged against.
+            while b:
                 j = min(i + _SEND_CHUNK_BYTES, len(b))
                 while j < len(b) and b[j] & 0xC0 == 0x80:  # back off a split code point
                     j -= 1
+                check_pane(pane_id, identity)
                 _run(["send-keys", "-t", pane_id, "-l", b[i:j].decode()])
+                # Per chunk, not once at the end: if a later chunk raises, the bytes
+                # already delivered are in the pane and a paste really did happen, so a
+                # Return arriving after that failure still has a burst to clear. Stamping
+                # only after the last chunk would leave the half-delivered draft looking
+                # as though nothing had been typed. The final chunk still sets the time
+                # the Return below is judged against.
+                with _paste_lock:
+                    _last_paste[pane_id] = (identity, now := time.monotonic())
+                    if len(_last_paste) > _LAST_PASTE_MAX:
+                        for dead in [k for k, (_, at) in _last_paste.items()
+                                     if now - at > _ENTER_SETTLE_S]:
+                            del _last_paste[dead]
                 i = j
                 if i >= len(b):
                     break
         else:
+            # A Return asked for by NAME is a submit like any other, and the live tools
+            # can produce exactly that: the model may return type_in_pane(press_enter=
+            # false) and press_key("Enter") in ONE response, which we execute back to
+            # back with no round trip between them. So it has to clear the paste window
+            # too. Every other key name is a lone keystroke and waits for nothing.
+            if keys == "Enter":
+                _settle_before_return(pane_id)
+            if expected_pid is not None:
+                check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, keys])
         if enter and literal:
+            # Let the paste burst end before the Return, or it is read as a newline
+            # rather than a submit (see _ENTER_SETTLE_S). Inside the lock deliberately:
+            # an interleaved send during the gap would put another caller's text in the
+            # box we are about to submit.
+            _settle_before_return(pane_id)
+            if expected_pid is not None:
+                check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, "Enter"])
+
+
+def click(pane_id: str, from_bottom: int, col: int, *,
+          expected_pid: str, expected_frame: str) -> bool:
+    """Left-click the cell `from_bottom` lines above the last line of the live frame, at
+    1-based `col`. Returns False (nothing sent) when the pane's app has not asked for
+    SGR mouse reports — a shell would echo the bytes as garbage — or the line has
+    scrolled off the visible screen into history, where the app has no cell to hit.
+
+    The client counts lines from the BOTTOM because that is the one edge its frame
+    shares with the screen: the frame starts somewhere in history and loses trailing
+    blank rows to the rstrip. Capturing the visible screen through the same capture_pane
+    path and counting up from its last line puts the row in screen coordinates without
+    the live stream having to carry any geometry. Reject wrapped screens: the joined
+    capture loses their physical row boundaries, so guessing could click another action.
+
+    tmux can't synthesize a mouse event (`send-keys -M` only replays the one that
+    triggered a binding), so we write the report bytes the app would have received:
+    `ESC[<0;col;rowM` press, `…m` release."""
+    if from_bottom < 0 or col < 1:
+        return False
+    with _pane_lock(pane_id):
+        width, sgr = _run([
+            "display-message", "-p", "-t", pane_id, "#{pane_width} #{mouse_sgr_flag}",
+        ]).split()
+        if sgr != "1" or col > int(width):
+            return False
+        frame = capture_pane(pane_id, keep_colors=True)
+        if hashlib.md5(frame.encode()).hexdigest() != expected_frame:
+            return False
+        # Validate physical geometry against the exact visible suffix of the fresh
+        # joined frame. Wrapped scrollback is irrelevant; a wrapped or changed screen
+        # cannot match this suffix, so never map the tap onto different visible text.
+        # -N -T preserves the same trailing positions as -J without joining rows.
+        visible = _materialize_links(_run([
+            "capture-pane", "-p", "-e", "-N", "-T", "-t", pane_id, "-S", "-0",
+        ])).rstrip("\n")
+        if not (frame == visible or frame.endswith("\n" + visible)):
+            return False
+        row = len(visible.split("\n")) - from_bottom
+        if row < 1:
+            return False
+        # tmux cannot atomically compare output and inject input.
+        check_pane(pane_id, expected_pid)
+        seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
+        _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq)])
+        return True
 
 
 _clip_procs: list[subprocess.Popen] = []  # live clipboard holders awaiting reaping
@@ -659,5 +921,3 @@ def set_clipboard_image(png: bytes) -> list[str]:
         except Exception:  # noqa: BLE001 - try the next tool
             continue
     return ok
-
-
