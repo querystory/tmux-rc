@@ -37,7 +37,7 @@ top and the (ignored) weekly percentage.
 ## Goals
 
 - A restart must not change any pane's clocks unless its content actually changed.
-- A pane whose content changed while the daemon was down should look recent. We can't
+- A pane whose screen differs from when the daemon went down should look recent. We can't
   know exactly when it changed, and erring toward "recent" there is fine.
 - Scrollback moving at the top edge is not activity.
 - Losing or corrupting the stored state must never make things worse than today.
@@ -48,31 +48,37 @@ top and the (ignored) weekly percentage.
 
 The daemon already keeps a SQLite database for pane history (see
 [pane-history.md](pane-history.md)). It already builds a pane key that is stable
-across daemon restarts: tmux server id, pane id, and the pane's process id. The
+across daemon restarts: tmux server id (boot id plus server pid), pane id, and the
+pane's process id. The
 process id matters. tmux reuses pane ids like `%40` after its own server restarts, and
 a key on the bare id would hand an old pane's timestamp to an unrelated new one. With
 the pid in the key, a reused id is simply a new row.
 
 We add one small table to that database: one row per pane, holding a hash of the
-pane's current fingerprint and the time that fingerprint first appeared. The watcher
-writes a row only when a pane's screen really changes, which is the same moment it
-already updates `last_activity_at`. That is a few writes a minute across the fleet,
-not one per tick.
+pane's current fingerprint, the time that fingerprint first appeared, and the time the
+pane last went idle. The watcher writes a row only when a pane's screen or state really
+changes, the same moments it already updates `last_activity_at` and `state_since`.
+That is a few writes a minute across the fleet, not one per tick.
 
-### One seeding rule for both clocks
+Memory stays the runtime source of truth. SQLite is a write-through checkpoint, read
+only on a pane's first sighting after startup and never on the tick path, so a slow or
+locked database can only cost restart seeding, never live UI latency. A crash between
+a change and its write is harmless: the hash mismatches and seeding falls back to
+`window_activity`, which is accurate for a pane that just changed.
+
+### Seeding
 
 On a pane's first sighting after startup, the watcher looks up its row. If the stored
-hash matches the current screen, nothing changed while the daemon was down, so the
-stored time is the pane's real last activity. That value becomes the seed wherever
-the code now uses `window_activity`: for `last_activity_at`, and for `state_since` on a
-pane that is already idle. If the hash differs, or there is no row, or the database
-can't be read, the watcher falls back to `window_activity` exactly as today.
+hash matches the current screen, the stored times replace `window_activity` wherever
+the code now seeds from it: `last_activity_at`, and `state_since` on a pane that is
+already idle. If the hash differs, or there is no row, or the database can't be read,
+the watcher falls back to `window_activity` exactly as today.
 
-One seed feeds both clocks on purpose. For an idle pane, the last content change is
-effectively the moment it went idle: the turn ended and the screen stopped changing.
-Storing a separate `state_since` would mean storing the activity/question key it's
-derived from. That key includes question text, and the history database promises to
-contain no terminal text.
+The two clocks need separate stored times. An idle pane's screen can change without
+leaving idle (a shell command finishing between polls), and `state_since` deliberately
+holds through that. Seeding it from the last content change would move it forward and
+put an old idle pane back in Recent. Only idle panes are seeded, so the stored state
+time needs no question text.
 
 The stored value is a hash, not text. The history database's "no terminal text" rule
 still holds in spirit. A hash of a low-entropy screen could in principle be matched
@@ -93,12 +99,16 @@ narrows.
 
 ### Pruning
 
-Rows for panes that no longer exist stop being updated. On startup we delete rows not
-written in 30 days. That keeps the table small without tracking pane deaths, and a
-pane idle for more than 30 days loses nothing: it falls back to `window_activity`,
-which for such a pane is also old.
+After the first successful inventory, we delete rows for panes not in it. Expiring
+rows by age instead would drop a long-idle live pane back to `window_activity`, which
+the footer redraws above keep fresh: the very bug this fixes. If tmux can't be listed,
+nothing is pruned.
 
 ## Alternatives considered
+
+**Using SQLite as the live store.** Reading clocks from the database each tick would
+put disk latency and lock contention on the path that feeds the UI, for no gain: memory
+already holds the truth while the daemon runs. Rejected.
 
 **A separate JSON state file.** Simplest to write, but it would need its own private-
 directory checks, atomic replace, and concurrent-reader story. The history database
@@ -142,6 +152,9 @@ direction, so a version column isn't worth it. Rejected.
   watcher.
 - **Screen changed while down:** hash mismatch, fall back to `window_activity`, and
   the pane shows as recent. That's correct.
+- **Screen changed and changed back while down** (a command run, then cleared): the
+  hash matches and the pane keeps its old times. Nothing we can observe separates this
+  from footer redraws, so we accept it.
 - **Clock skew or a stored time in the future:** clamp to "now", as the current seed
   already does.
 - **tmux server restarted:** every pid changes, so no rows match and seeding falls
