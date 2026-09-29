@@ -102,6 +102,13 @@ func TestResolveEdgeCases(t *testing.T) {
 	if got := Resolve([]Entry{gone}, "otlp", negative); len(got) != 0 {
 		t.Errorf("negative limits = %v", got)
 	}
+
+	one := defaults
+	one.MaxProjects = 1
+	tied := []Entry{entry(t, Session{ID: "z", Cwd: "/z"}, "otlp"), entry(t, Session{ID: "a", Cwd: "/a"}, "otlp")}
+	for range 10 { // map order would pick either repo
+		check(t, "tie", Resolve(tied, "otlp", one)[0].Repo, "/a")
+	}
 }
 
 func TestResolveRanksBeforeRounding(t *testing.T) {

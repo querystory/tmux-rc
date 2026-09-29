@@ -116,7 +116,7 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 		p.Sessions = p.Sessions[:min(len(p.Sessions), max(opt.MaxSessions, 0))]
 		projects = append(projects, *p)
 	}
-	slices.SortFunc(projects, func(a, b Project) int { return cmp.Compare(b.Score, a.Score) })
+	slices.SortFunc(projects, func(a, b Project) int { return cmp.Or(cmp.Compare(b.Score, a.Score), strings.Compare(a.Repo, b.Repo)) })
 	projects = projects[:min(len(projects), max(opt.MaxProjects, 0))]
 	// Round only after ranking and selecting projects; tiny differences still decide.
 	for i := range projects {
