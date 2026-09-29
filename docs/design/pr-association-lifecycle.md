@@ -84,9 +84,11 @@ last context explaining why they were retired; do not append them to unrelated l
 Default sidebar PR search matches active and done records, with their disposition
 visible in results. Removed matches require an explicit “include history” option.
 Done records remain discoverable so a user can return to a completed session for new
-review feedback. Routing prefers suitable active contexts, then considers done ones;
-it does not silently send new work to a completed or removed assignment. An explicit
-request to resume a completed session can select it. Ambiguity still requires a
+review feedback. Only an unambiguous active match may be automatically routed. Done
+records are clarification candidates, never automatic fallback targets; an explicit
+request to resume a particular completed session authorizes that target. Removed
+records are never routing candidates. A user can independently select that session
+and start new work, which may reactivate the association. Ambiguity still requires a
 question, including two active sessions with different roles on the same PR.
 
 Publish one canonical association state to API consumers. Derive visible links,
@@ -100,11 +102,14 @@ Removal cannot be reliable if a daemon restart forgets it and bootstrap reconstr
 the old association from scrollback. Persist bounded association records, including
 removed tombstones, as watcher-owned state; do not put this in agent-history.
 
-Key persisted state by the same verified pane/session lifetime used by the watcher,
-not a bare reusable tmux pane ID. Restoration must reject a changed pane process or
-known agent-session identity. Implementers must verify that identity contract before
-claiming restart-safe behavior; a replacement conversation in the same shell must not
-inherit the previous conversation's PRs.
+Persist a composite identity: tmux server generation, pane ID, pane process start
+identity, and a verified agent conversation ID. Neither a title nor cwd is an identity.
+A changed component starts a new association scope, including a replacement
+conversation inside the same shell. If a conversation ID is unavailable or temporarily
+unverifiable, quarantine existing records: do not restore, publish, route, or mutate
+them until the identity is verified. This trades tracking availability for isolation;
+never fall back to pane ID alone. Establishing this identity signal is an implementation
+prerequisite, not an assumption that today's watcher already supplies it.
 
 Restore state before bootstrap. With restored records, bootstrap fills narrative
 context but cannot overwrite lifecycle decisions using old history. Without saved
@@ -112,19 +117,23 @@ state, bootstrap must reconstruct the latest relationship from the full availabl
 timeline, not union every historical work mention. If storage is unavailable, expose
 degraded restart persistence rather than silently promising durable removals.
 
-Keep at most 64 current records and 64 retired records per session, with completed
-records eligible for archival when current capacity is exhausted. Never silently
-evict active work to admit a passing mention. Historical retention is bounded, not an
-audit log. Prune state for ended session lifetimes. Define atomic writes and recovery
-tests in implementation; no database/schema expansion is prescribed by this sketch.
+Keep at most 64 association records total per session, counting removed tombstones.
+At capacity, accept updates to existing keys but reject new keys and expose a capacity
+warning; never evict a retirement decision or active work to admit another reference.
+This avoids resurrecting an evicted tombstone from scrollback and bounds model input.
+Prune state only for verified ended session lifetimes, not a transient pane-list error.
+History retains the latest disposition, not an unbounded event log. Define atomic writes
+and recovery tests in implementation; no database/schema expansion is prescribed here.
 
 ## Migration and acceptance tests
 
-Existing `{repo, number}` entries have no trustworthy role or lifecycle. Preserve
-their links temporarily with no invented context and mark them internally as needing
-reassessment. On the next successful semantic read, provide them as legacy evidence
-for the LLM to classify; do not manufacture an “implementing” role or permanently bless
-the existing union. Failed reassessment leaves them unchanged, not deleted.
+Existing `{repo, number}` entries have no trustworthy role or lifecycle. For a verified
+current session, preserve their links and search matches labeled “Context pending,”
+but exclude them from automatic routing. Internally they are pending, not active.
+Supply them for reassessment on each normal semantic read until explicitly classified;
+omission or failure leaves them pending. Never infer a role or delete an entry on a
+timeout. Entries whose originating session cannot be verified remain quarantined under
+the identity rule above. Pending and quarantined records count toward the same cap.
 
 Add multi-capture evals that check transitions and negative cases, plus deterministic
 tests for update application, publication, persistence, and consumer filtering:
