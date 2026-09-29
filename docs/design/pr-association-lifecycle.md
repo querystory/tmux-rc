@@ -123,16 +123,18 @@ state, bootstrap must reconstruct the latest relationship from the full availabl
 timeline, not union every historical work mention. If storage is unavailable, expose
 degraded restart persistence rather than silently promising durable removals.
 
-On restore, capture the current terminal as a baseline before permitting reactivation.
-Normal classification may reactivate done/removed records only when renewed work is
-supported by content first observed after that baseline. Done → removed remains
-allowed when new evidence shows handoff or progression beyond the work; it does not
-require renewed work on that PR. Bootstrap cannot change restored records. Supply
-that new evidence separately from historical context. A redraw, resize, or shifted
+On restore, capture the current terminal as a baseline before permitting any mutation
+of restored records. Every context/status change requires supporting content first
+observed after that baseline, including active → done and context-only edits. Advance
+the record's evidence boundary on each accepted mutation; subsequent mutations require
+new supporting evidence beyond that boundary. Reactivation requires renewed work;
+done → removed instead requires handoff or progression beyond the work. Bootstrap
+cannot change restored records. Supply new evidence separately from historical context.
+A redraw, resize, or shifted
 scrollback window is not new work; if continuity cannot be established, rebaseline and
-require subsequent evidence. Apply the same evidence boundary when retiring work
-during normal operation. The model judges whether the new evidence is actual renewed
-work, not just a fresh quotation of an old task. Wall-clock `updated_at` is display
+require subsequent evidence. Apply this same rule to records created during normal
+operation. The model judges whether the new evidence supports the proposed transition,
+not just a fresh quotation of an old task. Wall-clock `updated_at` is display
 metadata, never proof that undated terminal text is newer. This conservative rule can
 miss work begun while the daemon was down until new evidence arrives; it must not
 resurrect an association on the first ordinary tick after restart.
