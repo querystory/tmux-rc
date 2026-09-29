@@ -2,8 +2,10 @@
 
 Proposal only. Let someone reopen a previous Live Mode conversation, read the message
 thread, and see roughly how long it ran and what it cost. Use the existing private
-SQLite database; this ends its “no terminal text” promise in `pane-history.md`, which
-the implementation must update. Also keep a continuous history of inputs sent to each pane. This
+SQLite database, deliberately amending the “no terminal text” promise in
+`pane-history.md`: it already has private modes, one writer and migrations, and a second
+content database would duplicate those and give deletion two places to miss. Content is
+still opt-in per conversation and per pane. Also keep a continuous history of inputs sent to each pane. This
 does not change how Live Mode or the composer sends commands to panes. The main
 interaction goal is one assistant conversation that can move between voice and text.
 
@@ -24,7 +26,7 @@ Generate a unique UUID for each conversation. The entry primary key is
 from the parent counter in the insert transaction. No independent entry UUID is needed
 for this single-writer design. Exports, origin links and cross-machine analysis preserve
 these keys; local SQLite row numbers are never external identities. Keep a separate
-AUTOINCREMENT creation number (the integer row key) only for local pagination.
+AUTOINCREMENT creation number only for local pagination.
 
 A persisted machine UUID identifies the originating installation across daemon/OS
 restarts; hostnames and boot IDs are not machine identity. New installations get a new
@@ -88,6 +90,8 @@ to Voice. Resuming after a disconnected provider remains the separate Continue w
 One pane thread per owner and pane lifetime, surviving browser visits, Live Mode calls,
 renames and daemon restarts. Qualify the existing tmux server/pane identity with the machine UUID and confirmed
 pane creation/removal boundaries; `%52` or a display label alone is not an identity.
+Today the watcher keeps a pane's birth evidence only in memory, so the implementation
+must persist it; without it a pane seen after a daemon restart counts as unestablished.
 If the lifetime cannot be established, start a new thread rather than merge unrelated
 panes. A closed pane stays readable. Starting another agent inside the same pane adds a
 boundary notice when detected; it does not silently erase or replace the pane history.
@@ -165,8 +169,7 @@ each message from streaming fragments; save the finished message, not every frag
 Adapters report where a message ends or was interrupted; the writer never invents
 boundaries.
 Use one bounded writer queue off the audio loop. Assign a message its entry number
-once and reuse it on a database retry; an identical existing row counts as success,
-a different one marks history incomplete, and nothing overwrites an entry. Do not replay provider history on reconnect or
+once and reuse it on a database retry; a retry never overwrites an entry. Do not replay provider history on reconnect or
 try to reconstruct missed fragments after a daemon crash.
 
 One live handler writes a conversation at a time. A browser reconnect reattaches to the
