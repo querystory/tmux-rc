@@ -210,12 +210,14 @@ def audit(
     query), which follows the transcript rule instead: journal only under
     TMUXRC_QSDEBUG. OTel keys are QSDEBUG-gated either way (emit_action)."""
     shown = keys is not None and AUDIT_KEYS and (QSDEBUG or not speech)
+    # One physical line per record, whatever a caller passes: free text (a window label,
+    # a URL-decoded pane id) is escaped like the repr'd fields, so it can't forge a line.
     _audit_log.info(
         "AUDIT %s pane=%s by %s%s%s%s%s",
         action,
-        pane_id,
+        repr(pane_id)[1:-1],
         actor,
-        f" {detail}" if detail else "",
+        f" {repr(detail)[1:-1][:200]}" if detail else "",
         "".join(f" {k}={v!r}" for k, v in fields.items()),
         f" keys={keys[:80]!r}" if shown else "",
         "" if outcome == "ok" else f" [{outcome}]",

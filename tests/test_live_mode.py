@@ -584,3 +584,9 @@ def test_unknown_tool_is_rejected_as_such(monkeypatch):
     _, _, session, typed = _dispatch(fc, monkeypatch)
     assert typed == []
     assert session.responses[0][1] == {"status": "rejected", "reason": "unknown tool"}
+
+
+def test_audit_line_cannot_be_forged(caplog):
+    caplog.set_level(logging.INFO, logger="openbus.server.audit")
+    L.telemetry.audit("x", "%1\nAUDIT y", "me", detail="into w\nAUDIT kill_window pane=%2")
+    assert len(caplog.text.splitlines()) == 1
