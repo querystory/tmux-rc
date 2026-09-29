@@ -24,6 +24,7 @@ from .telemetry import emit_pane_event
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
+MAX_PRS_PER_PANE = 64  # retain recent evidence, bound state/Live payloads
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
 # no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop). 0.1s
 # is the perceived floor for "instant" switching; the cost is one local `display-message`
@@ -179,6 +180,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
         s["label"] = p.label
     s["tmux_label"] = p.label
     s["session"] = p.session
+    s["cwd"] = getattr(p, "cwd", "")
     s["window_index"] = p.window_index
     s["window_name"] = p.window_name
     s["session_active"] = p.session_active
@@ -358,6 +360,7 @@ class Watcher:
                     "pane_id": pid,
                     "label": s.get("label"),
                     "title": s.get("title"),  # self-published title, or bootstrap name
+                    "cwd": s.get("cwd"),
                     "window_index": s.get("window_index"),
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
@@ -797,16 +800,16 @@ class Watcher:
         return cached[1]
 
     def _accumulate_prs(self, pane_id: str, candidates: list[dict]) -> None:
-        """Union classifier-confirmed PR work into the pane-lifetime association set."""
+        """Keep a bounded, most-recently-evidenced set of classifier-confirmed PR work."""
         if not candidates:
             return
         prs = self._prs.setdefault(pane_id, [])
-        seen = {(p["repo"].lower(), p["number"]) for p in prs}
+        indexed = {(p["repo"].lower(), p["number"]): p for p in prs}
         for pr in candidates:
             key = (pr["repo"].lower(), pr["number"])
-            if key not in seen:
-                prs.append(dict(pr))
-                seen.add(key)
+            previous = indexed.pop(key, None)
+            indexed[key] = previous or dict(pr)
+        self._prs[pane_id] = list(indexed.values())[-MAX_PRS_PER_PANE:]
 
     def label_for(self, pane_id: str) -> str:
         """Last-known human label for a pane (falls back to the id), for out-of-tick
@@ -1054,7 +1057,7 @@ class Watcher:
             recent_events=recent_texts,
             # What we last knew, so a failed parse holds that instead of guessing.
             prev_activity=(previous or {}).get("activity"),
-            repository=self._repository_for(pane),
+            repository=self._repository_for(pane) if self.use_llm else None,
         )
         self._parse_valid[pane.id] = state.get("parse_ok", True)
         if state.get("parse_ok", True):

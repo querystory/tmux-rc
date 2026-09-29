@@ -38,7 +38,7 @@ def test_working_prs_accumulate_but_a_visible_pr_list_adds_nothing(monkeypatch):
         return dict(next(results))
 
     monkeypatch.setattr(W, "classify", classify)
-    w = Watcher(None, use_llm=False)
+    w = Watcher(None, use_llm=True)
     pane = _Pane()
     w._forced_this_tick = set()
 
@@ -90,11 +90,36 @@ def test_unmatched_target_is_not_proof_of_pane_death(monkeypatch):
 
 def test_digest_exposes_accumulated_prs():
     w = Watcher(None)
-    w.states = [{"pane_id": "%1", "label": "work"}]
+    w.states = [{"pane_id": "%1", "label": "work", "cwd": "/repo/worktree"}]
     w._prs["%1"] = [{"repo": "querystory/qs-app", "number": 4955}]
     assert w.digest()[0]["prs"] == [
         {"repo": "querystory/qs-app", "number": 4955}
     ]
+    assert w.digest()[0]["cwd"] == "/repo/worktree"
+
+
+def test_associations_keep_recent_evidence_with_a_fixed_budget():
+    w = Watcher(None)
+    for number in range(1, W.MAX_PRS_PER_PANE + 1):
+        w._accumulate_prs("%1", [{"repo": "querystory/qs-app", "number": number}])
+    w._accumulate_prs("%1", [{"repo": "QUERYSTORY/qs-app", "number": 1}])
+    w._accumulate_prs("%1", [{"repo": "querystory/qs-app", "number": 1000}])
+    assert len(w._prs["%1"]) == W.MAX_PRS_PER_PANE
+    assert w._prs["%1"][-2:] == [
+        {"repo": "querystory/qs-app", "number": 1},
+        {"repo": "querystory/qs-app", "number": 1000},
+    ]
+    assert not any(p["number"] == 2 for p in w._prs["%1"])
+
+
+def test_no_llm_mode_skips_repository_resolution(monkeypatch):
+    w = Watcher(None, use_llm=False)
+    monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: "user@host:~$ ")
+    monkeypatch.setattr(W, "github_repository", lambda cwd: pytest.fail("unused repository lookup"))
+    state = w._tick_pane(_Pane())
+    assert state["cwd"] == "/repo/worktree"
+    assert not state.get("prs")
+    assert not w._repositories
 
 
 def test_repository_context_follows_a_pane_that_changes_directory(monkeypatch):

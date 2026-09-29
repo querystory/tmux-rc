@@ -57,15 +57,19 @@ decision stays in the semantic classifier that already reads the pane trajectory
 
 The watcher resolves the pane cwd's local `origin` with `git remote get-url origin` and
 passes an exact GitHub `owner/name` into the classifier. This uses no network access and
-is cached for the pane's current cwd (and refreshed when that cwd changes). The model
+is cached for the pane's current cwd (and refreshed when that cwd changes). Repository
+lookup is skipped when LLM classification is disabled. The model
 uses that value for bare PR numbers; it may name another
 repository only when the screen gives the complete owner/name unambiguously. If no
 GitHub origin is available, it must not guess an owner.
 
 ## Lifetime and restart behavior
 
-Associations are an append-only union for one tmux pane lifetime. Multiple PRs may be
-associated with a pane, and multiple panes may be associated with the same PR. Closing
+Associations persist for one tmux pane lifetime, retaining up to 64 of the most
+recently evidenced PRs (repeat evidence refreshes retention order). Repository strings
+are limited to 256 characters; together these bounds prevent untrusted model output
+from growing state and Live context without limit. Multiple PRs may be associated
+with a pane, and multiple panes may be associated with the same PR. Closing
 a pane clears its set. If tmux recycles a pane id with a different pid, the old set is
 cleared before the new pane is observed.
 

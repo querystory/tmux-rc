@@ -27,6 +27,7 @@ class _Watcher:
              "activity": "waiting", "tmux_active": True,
              "headline": "asking about tests", "summary": "ran the suite",
              "prs": [{"repo": "querystory/qs-app", "number": 4955}],
+             "cwd": "/repo/worktree",
              "question": "Run them? 1) yes 2) no", "history": []},
             {"pane_id": "%2", "label": "shell", "window_index": "4", "tool": "shell",
              "activity": "idle", "tmux_active": False,
@@ -73,6 +74,7 @@ def test_pane_context_carries_state_and_screens():
     assert "ACTIVE" in ctx  # the focused pane is flagged for "here"/"this" resolution
     assert "PENDING QUESTION: Run them? 1) yes 2) no" in ctx
     assert "PRs this pane has worked on: querystory/qs-app#4955" in ctx
+    assert "cwd: /repo/worktree" in ctx
     assert "one\ntwo\nthree" in ctx and "idle-shell-screen" in ctx  # all screens ride along
     # digest-only updates omit every screen
     none = L._pane_context(w, screens="none")

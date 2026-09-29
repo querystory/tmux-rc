@@ -258,6 +258,8 @@ def _pane_block(d: dict, screen: str | None) -> str:
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
+    if d.get("cwd"):
+        parts.append(f"cwd: {d['cwd']}")
     if d.get("headline"):
         parts.append(f"now: {d['headline']}")
     if d.get("summary"):
