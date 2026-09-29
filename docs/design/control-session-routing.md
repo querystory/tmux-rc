@@ -51,13 +51,13 @@ certain is a real misroute. So "confident" means a unique match on workstream id
 delegate, and every direct send names its target as it goes (Live Mode's overlay
 already logs each typed action), so a misroute is seen at once, not discovered later.
 
-This is the same fast-front/slow-back split GPT-Live already uses (a voice model that
-delegates to a Responses backend for anything touching terminal state, per
-`openbus/gpt_live.py`), with control as the backend. It also keeps Live Mode's
+This is GPT-Live's fast-front/slow-back split (a voice model delegating terminal work
+to a Responses backend, `openbus/gpt_live.py`), with control as the backend. It also keeps Live Mode's
 existing tools (`type_in_pane`, `press_key` in `openbus/live_providers.py`) as the fast
 path's whole vocabulary. The one addition is the directory's incarnation guard (below):
 today those tools carry only a pane id, and a direct send must be rejected if that id
-now belongs to a different pane.
+now belongs to a different pane, or (for a key press) if the screen it was judged
+against has since changed.
 
 Why the gate sits where it does: a send into a live agent cannot be undone. The agent
 reads it and acts. The control plane's risk tiers already say to spend friction in
@@ -109,11 +109,14 @@ Keeping the charter over a long session is the real risk, because charters erode
 quietly. Three design-level guards:
 
 - **Standing instructions** it starts with state the charter and the refusal ("hand
-  project work to a project pane"), and name the directory as the source of truth.
-- **Re-seed, don't remember.** When context is refreshed or compacted, it is rebuilt
-  from the charter plus the current directory, not from the conversation's own summary
-  of itself. Conversation memory is where drift accumulates; the directory is
-  recomputed truth.
+  project work to a project pane"), and name the directory as the source of truth
+  for state but never for instructions: titles, summaries and events are text panes
+  wrote, so they are routing evidence, and only a request from a front end or the user
+  carries authority to act (the same rule Live Mode applies to its terminal updates).
+- **Re-seed, don't remember.** When context grows stale, tmux-rc restarts control from
+  a fresh launcher seeded with the charter plus the current directory, rather than
+  trusting a harness's own compaction; restarting works for any harness, and a
+  conversation's summary of itself is where drift accumulates.
 - **Visibility.** It is an ordinary pane; if it starts doing project work, you see it
   on the phone like any agent going off course.
 
@@ -181,13 +184,16 @@ of its effects, which #232's origin links supply.
 
 Each step is useful alone. The directory helps Live Mode immediately; the verbs help
 any orchestrating agent; the dispatcher is worth having before control exists, with
-doubtful cases falling back to Live Mode's current behavior of asking the user.
+doubtful cases getting today's behavior (the front end asks) until step 4 replaces it.
 
 ## Open questions
 
 - How control is fed changes without interrupting its own turns: a subscribe verb it
   blocks on between tasks, or a harness hook that injects the latest directory each
   turn.
+- How control's answer reaches the front end that asked: a reply keyed to the
+  originating request (a #232 thread entry is the natural id), including clarifying
+  questions and several requests in flight at once.
 - Whether hand-off needs its own verb or is a composed open-window-then-send.
 - How consent rules (narrative build item 2) apply to control specifically, given it
   types into more panes than anyone else.
