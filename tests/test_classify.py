@@ -501,7 +501,7 @@ def test_visible_opencode_spinner_wins_over_stale_question_retry():
 
 
 def test_failed_question_retry_does_not_retire_the_screen():
-    for retry in (None, {"question": {"prompt": "Still an old question?"}}):
+    for retry in (None, {}, {"question": {"prompt": "Still an old question?"}}):
         replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"}}, retry])
         result = classify(_pane("codex"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
                           lambda _prompt, _text, replies=replies: next(replies))

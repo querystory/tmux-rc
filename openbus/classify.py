@@ -168,7 +168,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     retry = dict(retry) if isinstance(retry, dict) else None
     if bad_question:
         result.pop("question", None)
-        if isinstance(retry, dict):
+        if retry:
             for key in ("activity", "waiting_on", "headline", "question", "rewind"):
                 result.pop(key, None)
                 if key in retry:
