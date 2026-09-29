@@ -54,6 +54,10 @@ Have it return explicit updates, not a replacement list:
 Omission means unchanged. An empty update list, model failure, truncated capture, or
 malformed update never clears an association. Code validates references, statuses,
 field lengths, and batch size before applying updates to this pane's session only.
+Accept at most eight updates per response; reject an oversized batch in full. Context
+must be nonempty plain text of at most 240 Unicode code points after trimming; reject
+an oversized/invalid item rather than truncating its meaning. Retain the existing
+256-character repository bound and positive safe-integer PR-number validation.
 Do not retain two contradictory updates for one key in a response: ignore that key.
 
 The LLM decides whether the conversation demonstrates a transition:
@@ -116,6 +120,18 @@ context but cannot overwrite lifecycle decisions using old history. Without save
 state, bootstrap must reconstruct the latest relationship from the full available
 timeline, not union every historical work mention. If storage is unavailable, expose
 degraded restart persistence rather than silently promising durable removals.
+
+On restore, capture the current terminal as a baseline before permitting reactivation.
+Both bootstrap and normal classification must leave done/removed records unchanged
+unless renewed work is supported by content first observed after that baseline. Supply
+that new evidence separately from historical context. A redraw, resize, or shifted
+scrollback window is not new work; if continuity cannot be established, rebaseline and
+require subsequent evidence. Apply the same evidence boundary when retiring work
+during normal operation. The model judges whether the new evidence is actual renewed
+work, not just a fresh quotation of an old task. Wall-clock `updated_at` is display
+metadata, never proof that undated terminal text is newer. This conservative rule can
+miss work begun while the daemon was down until new evidence arrives; it must not
+resurrect an association on the first ordinary tick after restart.
 
 Keep at most 64 association records total per session, counting removed tombstones.
 At capacity, accept updates to existing keys but reject new keys and expose a capacity
