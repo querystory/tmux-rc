@@ -153,6 +153,13 @@ Mostly exists: Needs you, activity transitions, idle summaries and events. What 
 is fan-out (one request touching several panes) and a thread tying a request to each
 of its effects, which #232's origin links supply.
 
+Control's reply travels the same way. Every delegated request is an entry in the
+requester's #232 thread; control's answer, or its clarifying question, lands in that
+same thread with an origin link to the request, and the front end already watches its
+own thread. So there is no new reply channel to build, concurrent requests stay
+distinguishable by their entries, and the trail that returns answers is the same one
+used to debug a crossed stream.
+
 ## Alternatives rejected
 
 - **A mandatory master router.** Every request through one session makes it the
@@ -191,9 +198,6 @@ doubtful cases getting today's behavior (the front end asks) until step 4 replac
 - How control is fed changes without interrupting its own turns: a subscribe verb it
   blocks on between tasks, or a harness hook that injects the latest directory each
   turn.
-- How control's answer reaches the front end that asked: a reply keyed to the
-  originating request (a #232 thread entry is the natural id), including clarifying
-  questions and several requests in flight at once.
 - Whether hand-off needs its own verb or is a composed open-window-then-send.
 - How consent rules (narrative build item 2) apply to control specifically, given it
   types into more panes than anyone else.

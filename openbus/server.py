@@ -180,11 +180,12 @@ class NewWindowBody(BaseModel):
 # model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
 # back only the LABEL and the daemon looks the command up here, so the HTTP surface
 # can't be asked to run arbitrary strings. `icon` names one of the web app's built-in
-# tool logos (claude/codex/gemini/shell) or any image URL it serves.
+# tool logos (claude/codex/gemini/opencode/shell) or any image URL it serves.
 # TMUXRC_LAUNCHERS: inline JSON list, or a path to a JSON file containing one.
 _DEFAULT_LAUNCHERS = [
     {"label": "Claude", "command": "claude", "icon": "claude"},
     {"label": "Codex", "command": "codex", "icon": "codex"},
+    {"label": "OpenCode", "command": "opencode", "icon": "opencode"},
     {"label": "Gemini", "command": "gemini", "icon": "gemini"},
 ]
 

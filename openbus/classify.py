@@ -24,6 +24,40 @@ from .tmux import Pane
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_CHECKLIST_LINE_RE = re.compile(
+    # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
+    # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
+    r"(?im)^[ \t]*(?:[-*][ \t]*)?(?:(?P<done>☑|✓|✔|\[[x✓]\])|☐|\[[ •]\])"
+    r"[ \t]*(?P<text>\S.*)$",
+)
+_OPENCODE_RUNNING_RE = re.compile(
+    # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
+    # press turns the label into "esc again to interrupt".
+    r"^[ \t]*(?:[▰▱▮▯■⬝□▪▫█▓▒░]+|\[⋯\])[ \t]+esc[ \t]+(?:again[ \t]+to[ \t]+)?interrupt[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# tmux's foreground executable is stronger identity evidence than any model name inside
+# an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
+# Claude Code because its selected model is Claude is the category error this guard
+# prevents. These exact executable names come from tmux's pane_current_command.
+_PROCESS_TOOLS = {
+    "claude": "claude",
+    "codex": "codex",
+    "gemini": "gemini",
+    "opencode": "opencode",
+}
+
+
+def _checklist_text(text: str) -> str:
+    """Normalize visible and model-returned task labels for conservative matching."""
+    return " ".join(text.split()).casefold()
+
+
+def _opencode_running(text: str) -> bool:
+    """Recognize OpenCode's live interrupt row, not an older row in scrollback."""
+    last = next((line for line in reversed(text.splitlines()) if line.strip()), "")
+    return _OPENCODE_RUNNING_RE.fullmatch(last) is not None
 
 # A concrete CLI section cue needs a local clarification, not more rules applied
 # to every unrelated pane. The model still identifies and classifies the workers.
@@ -227,6 +261,40 @@ def classify(
             # Tells the watcher this screen was never actually read, so it can leave the
             # pane's fingerprint unset and try again rather than retiring the screen.
             result["parse_ok"] = False
+    # A direct agent executable is ground truth. The LLM still parses activity and the
+    # selected model/provider, but may not relabel the host application from those model
+    # names (OpenCode showing "Claude Opus" is still OpenCode).
+    if process_tool := _PROCESS_TOOLS.get(pane.current_command):
+        result["tool"] = process_tool
+    # OpenCode renders ordinary answer bullets immediately above its model/footer. The
+    # parser sometimes promotes those review findings to the agent's live task plan.
+    # Validate each model-returned task against an actual visible checkbox/progress line,
+    # rather than treating any checklist on screen as permission for an unrelated bullet
+    # list. Standalone markdown checkboxes (`[ ] task`) are valid too. OpenCode's TUI runs
+    # on the alternate screen, so its capture has no scrollback: `text` is the live screen.
+    if result.get("tool") == "opencode" and "tasks" in result:
+        # The visible marker, not the model, is authoritative for completion state.
+        visible_tasks = {
+            _checklist_text(match.group("text")): bool(match.group("done"))
+            for match in _CHECKLIST_LINE_RE.finditer(text)
+        }
+        tasks = result.get("tasks")
+        validated = [
+            {**task, "done": visible_tasks[_checklist_text(task["text"])]}
+            for task in tasks
+            if isinstance(task, dict)
+            and isinstance(task.get("text"), str)
+            and _checklist_text(task["text"]) in visible_tasks
+        ] if isinstance(tasks, list) else []
+        if validated:
+            result["tasks"] = validated
+        else:
+            result.pop("tasks", None)
+    # OpenCode shows this animated block row only while a turn can be interrupted. It is
+    # application state, not decorative spinner noise, and is stronger than a stale
+    # completed answer above it.
+    if result.get("tool") == "opencode" and _opencode_running(text):
+        result["activity"] = "running"
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
     # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any

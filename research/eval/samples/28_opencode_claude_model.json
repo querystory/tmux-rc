@@ -1,0 +1,10 @@
+{
+  "description": "OpenCode running through a generic wrapper with a Claude model must still be tool=opencode. OpenCode chrome identifies the host; Claude Opus and Amazon Bedrock are backend metadata, not evidence of Claude Code. Faithful synthetic reduction of a live OpenCode 1.18.32 pane, with current_command=node to ensure the prompt—not the deterministic process override—makes the distinction.",
+  "current_command": "node",
+  "capture": "The exporter works and typecheck passes. A few protocol-specific fixes remain.\n\n- Logs still use HTTP.\n- Move gRPC metadata setup inside the grpc branch.\n- Replace the misleading protocol comment.\n\n▣  Build · Claude Opus 5.5 · 38.5s\n\n┃  Build · Claude Opus 5.5 · Amazon Bedrock                       ~/src/example:feat/otlp-grpc-exporter\n╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n /home/example/src/example                 51.8K (5%) · $0.40   ctrl+p commands   • OpenCode 1.18.32",
+  "expected": {
+    "tool": "opencode",
+    "activity": "idle",
+    "headline": "Exporter review complete with several fixes still identified"
+  }
+}
