@@ -60,6 +60,7 @@ class Sample:
     current_command: str
     capture: str
     expected: dict
+    repository: str | None = None
 
     @classmethod
     def load(cls, path: Path) -> Sample:
@@ -68,6 +69,7 @@ class Sample:
             name=path.stem,
             description=d.get("description", ""),
             current_command=d.get("current_command", "bash"),
+            repository=d.get("repository"),
             capture=d["capture"],
             expected=d["expected"],
         )
@@ -98,7 +100,9 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         current_command=sample.current_command,
         title=sample.name,
     )
-    return classify(pane, sample.capture, llm_fn=llm_fn)
+    return classify(
+        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository
+    )
 
 
 # ── scoring ────────────────────────────────────────────────────────────────────────
@@ -162,6 +166,14 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
         c, e = candidate.get(k), expected.get(k)
         if c != e:
             diffs.append(f"{k}: got {c!r} want {e!r}")
+    if "working_prs" in expected:
+        def pr_key(pr):
+            return (pr.get("repo"), pr.get("number")) if isinstance(pr, dict) else (None, None)
+
+        candidate_prs = sorted(map(pr_key, candidate.get("working_prs") or []))
+        expected_prs = sorted(map(pr_key, expected.get("working_prs") or []))
+        if candidate_prs != expected_prs:
+            diffs.append(f"working_prs: got {candidate_prs!r} want {expected_prs!r}")
     if "subagent_states" in expected:
         subs = candidate.get("subagents")
         states = (sorted(str(a.get("state")) for a in subs if isinstance(a, dict))

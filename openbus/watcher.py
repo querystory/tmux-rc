@@ -18,11 +18,14 @@ from functools import partial
 from . import tmux
 from .classify import bootstrap, classify
 from .llm import backing_off, classify_text, summarize_events
+from .repository import github_repository
 from .telemetry import emit_pane_event
 
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
+MAX_PRS_PER_PANE = 64  # retain recent evidence, bound state/Live payloads
+REPOSITORY_REFRESH_SECONDS = 60.0
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
 # no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop). 0.1s
 # is the perceived floor for "instant" switching; the cost is one local `display-message`
@@ -178,6 +181,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
         s["label"] = p.label
     s["tmux_label"] = p.label
     s["session"] = p.session
+    s["cwd"] = getattr(p, "cwd", "")
     s["window_index"] = p.window_index
     s["window_name"] = p.window_name
     s["session_active"] = p.session_active
@@ -251,6 +255,10 @@ class Watcher:
         self._summary: dict[
             str, dict
         ] = {}  # pane_id -> cached {from,to,text} idle summary
+        self._repositories: dict[
+            str, tuple[str, str | None, float]
+        ] = {}  # pane_id -> (cwd, GitHub owner/name, monotonic expiry)
+        self._prs: dict[str, list[dict]] = {}  # pane_id -> accumulated semantic associations
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
         self._boot: dict[
             str, dict
@@ -353,6 +361,7 @@ class Watcher:
                     "pane_id": pid,
                     "label": s.get("label"),
                     "title": s.get("title"),  # self-published title, or bootstrap name
+                    "cwd": s.get("cwd"),
                     "window_index": s.get("window_index"),
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
@@ -360,6 +369,7 @@ class Watcher:
                     "idle_seconds": s.get("idle_seconds"),
                     "state_since": s.get("state_since"),  # ts state entered; client ticks it
                     "headline": s.get("headline"),
+                    "prs": list(self._prs.get(pid, [])),
                     "question": self._question_prompt(s),
                     # LLM one-liner for the last activity burst (present once the pane
                     # has idled past the summary threshold; None while actively working).
@@ -460,6 +470,7 @@ class Watcher:
     def _tick(self) -> None:
         if not tmux.server_running():
             self._collection_failed = False
+            self._gc(set())  # confirmed server absence ends every pane lifetime
             self._publish_states([])
             return
         history_server = None
@@ -487,6 +498,8 @@ class Watcher:
             panes = tmux.dedupe_grouped(tmux.list_panes())
         if not panes:
             self._collection_failed = False
+            if not self.target:
+                self._gc(set())  # empty inventory, not just an unmatched target label
             self._publish_states([], record_history=history_server is not None,
                                  history_server=history_server)
             return
@@ -517,7 +530,7 @@ class Watcher:
         if prepublish:
             # Never seed the parse cache with these placeholders.
             focused = tmux.active_pane_id()
-            blank = {"tool": "unknown", "activity": "unknown"}
+            blank = {"tool": "unknown", "activity": "unknown", "prs": []}
             for p in panes:
                 # A pane already classified keeps its last state here, so republishing
                 # for a NEW pane's sake never flickers an existing card back to "unknown".
@@ -590,6 +603,7 @@ class Watcher:
             self._maybe_bootstrap(panes)
         for s in states:
             s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
+            s["prs"] = list(self._prs.get(s.get("pane_id"), []))
             b = self._boot.get(s.get("pane_id"))
             if not b:
                 continue
@@ -655,8 +669,9 @@ class Watcher:
                 # The structural identity the phone RENDERS (headers, window numbers):
                 # a renumber/rename with unchanged content must still bump the version.
                 s.get("session"), s.get("window_index"), s.get("window_name"),
-                s.get("label"), s.get("title"),
+                s.get("label"), s.get("title"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                tuple((p.get("repo"), p.get("number")) for p in (s.get("prs") or [])),
                 # The card renders it, and a refresh can land with no other deck
                 # change (idle pane, cadence elapsed) — the hold must still return.
                 s.get("session_summary"),
@@ -720,10 +735,13 @@ class Watcher:
                     p,
                     tmux.capture_pane(p.id, lines=BOOTSTRAP_LINES, mark_dim=True),
                     llm_fn,
+                    repository=self._repository_for(p),
                 )
             except Exception:  # one pane must never wedge the watcher
                 logger.warning("bootstrap failed for %s", p.id, exc_info=True)
                 result = None
+            if result:
+                self._accumulate_prs(p.id, result.pop("working_prs", []))
             if result and boot is not None:
                 # Refresh takes only the narration; keep the old name if the model
                 # dropped it this round.
@@ -774,6 +792,27 @@ class Watcher:
         t = self._tool.get(pane_id)
         return t[0] if t else None
 
+    def _repository_for(self, pane) -> str | None:
+        cwd = getattr(pane, "cwd", "")
+        cached = self._repositories.get(pane.id)
+        now = time.monotonic()
+        if cached is None or cached[0] != cwd or now >= cached[2]:
+            cached = (cwd, github_repository(cwd), now + REPOSITORY_REFRESH_SECONDS)
+            self._repositories[pane.id] = cached
+        return cached[1]
+
+    def _accumulate_prs(self, pane_id: str, candidates: list[dict]) -> None:
+        """Keep a bounded, most-recently-evidenced set of classifier-confirmed PR work."""
+        if not candidates:
+            return
+        prs = self._prs.setdefault(pane_id, [])
+        indexed = {(p["repo"].lower(), p["number"]): p for p in prs}
+        for pr in candidates:
+            key = (pr["repo"].lower(), pr["number"])
+            previous = indexed.pop(key, None)
+            indexed[key] = previous or dict(pr)
+        self._prs[pane_id] = list(indexed.values())[-MAX_PRS_PER_PANE:]
+
     def label_for(self, pane_id: str) -> str:
         """Last-known human label for a pane (falls back to the id), for out-of-tick
         callers like live telemetry."""
@@ -809,6 +848,8 @@ class Watcher:
             self.snapshots,
             self._burst,
             self._summary,
+            self._repositories,
+            self._prs,
             self._birth,
             self._boot,
             self._boot_tries,
@@ -1018,8 +1059,12 @@ class Watcher:
             recent_events=recent_texts,
             # What we last knew, so a failed parse holds that instead of guessing.
             prev_activity=(previous or {}).get("activity"),
+            repository=self._repository_for(pane) if self.use_llm else None,
         )
         self._parse_valid[pane.id] = state.get("parse_ok", True)
+        if state.get("parse_ok", True):
+            self._accumulate_prs(pane.id, state.get("working_prs") or [])
+        state.pop("working_prs", None)
         # Remember the events this parse produced (bounded) for the next call's context,
         # and add them (timestamped) to the current activity burst. New activity clears
         # any cached idle summary — it'll be regenerated when the pane goes idle again.
@@ -1125,6 +1170,7 @@ class Watcher:
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
             state = dict(previous)
         state.pop("parse_ok", None)
+        state["prs"] = list(self._prs.get(pane.id, []))
 
         # Tool identity. Trust the LLM's read of the screen: a real agent pane has an
         # unmistakable status-line/box, so if it says "shell" it IS a shell — never let

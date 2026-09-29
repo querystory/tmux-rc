@@ -24,7 +24,7 @@ def _watcher(monkeypatch, reads):
     monkeypatch.setattr(W.tmux, "pane_uid", lambda pane: "srv:1:%1")
     calls = {"n": 0}
 
-    def fake_bootstrap(pane, text, llm_fn):
+    def fake_bootstrap(pane, text, llm_fn, repository=None):
         calls["n"] += 1
         return reads.pop(0)
 

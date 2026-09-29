@@ -36,6 +36,7 @@ def test_mobile_assets_and_manifest():
         "/lm-tap.js",
         "/terminal.js",
         "/push.js",
+        "/pr-links.js",
         "/sw.js",
         "/icon.svg",
     ):

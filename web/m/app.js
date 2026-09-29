@@ -5,7 +5,8 @@ import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { paneLinks } from "/pr-links.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
@@ -241,9 +242,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.title, p.label, p.window_name, p.pane_id, p.tool, p.model,
-    p.question?.prompt, p.headline, p.status_line, p.session_summary, activityLabel(p),
-    p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
+  const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
     ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
@@ -568,11 +567,9 @@ function render() {
 }
 
 function renderRichContent(pane) {
-  const links = (Array.isArray(pane?.links) ? pane.links : []).filter((link) => {
-    try { return /^https?:$/.test(new URL(link.href).protocol); } catch { return false; }
-  });
+  const links = paneLinks(pane);
   show("link-section", !!links.length);
-  reconcile($("links"), links, (link, i) => `${i}:${link.href}`, () => {
+  reconcile($("links"), links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);

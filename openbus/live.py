@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json
 import logging
 import os
 import time
@@ -258,10 +259,16 @@ def _pane_block(d: dict, screen: str | None) -> str:
     if d.get("tmux_active"):
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
+    if d.get("cwd"):
+        # Keep untrusted directory names from introducing fake prompt lines.
+        parts.append(f"cwd: {json.dumps(str(d['cwd']), ensure_ascii=True)}")
     if d.get("headline"):
         parts.append(f"now: {d['headline']}")
     if d.get("summary"):
         parts.append(f"recently: {d['summary']}")
+    if d.get("prs"):
+        refs = ", ".join(f"{p['repo']}#{p['number']}" for p in d["prs"])
+        parts.append(f"PRs this pane has worked on: {refs}")
     if d.get("question"):
         parts.append(f"PENDING QUESTION: {d['question']}")
     if screen:
