@@ -22,6 +22,7 @@ Return ONLY compact JSON. Include a field only if the scrollback supports it:
               that matter; say what finished, what is in flight, what is blocked or
               waiting on the user. Write it as a handoff note to someone picking up
               this terminal cold.>,
+  "working_prs": [{"repo": "owner/name", "number": <positive int>}],
   "events": [
     {"text": <one milestone, oldest first — a real outcome ('Merged PR #24 after 7
               review rounds', 'Tests green after fixing the auth timeout'), never
@@ -30,6 +31,16 @@ Return ONLY compact JSON. Include a field only if the scrollback supports it:
   ]
 }
 Rules:
+- `working_prs` contains only PRs this session actually implemented, created, updated,
+  reviewed, tested/debugged, addressed feedback for, or shepherded through checks/merge.
+  It is NOT a scrape of PR mentions. Omit PRs merely shown in lists/searches/dashboards,
+  discussed as related context, summarized, compared, or used as examples. A command
+  like `gh pr list` can fill the scrollback with PRs and still yields no working_prs.
+  An explicit full owner/name or GitHub PR URL identifying this work takes precedence
+  over the tmux repository context: the agent can work in another checkout while its
+  pane stays in the original directory. Otherwise use the exact owner/name from the
+  tmux context. Never attach a PR number to the cwd repository when the work explicitly
+  identifies a different repository, and never guess an owner.
 - Notification-style substance: carry the actual question, decision, or result.
 - Never invent facts not on screen. Thin scrollback ⇒ fewer events and a shorter
   summary — that is the correct output, not a reason to pad.

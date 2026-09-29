@@ -4,6 +4,10 @@ title: "Live Mode (voice)"
 
 # Design: Live Mode — talk to your tmux
 
+For the supported iPhone workflow, follow [Live Mode + notifications setup](../iphone-setup.md):
+Safari or Chrome → Add to Home Screen → launch the installed app. The guide covers microphone
+and push permissions, screen timeout, lock/background audio interruptions, and recovery.
+
 ## GPT-Live 1
 
 `openbus/gpt_live.py` adds OpenAI's full-duplex voice frontend with managed Responses

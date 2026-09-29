@@ -30,6 +30,10 @@ even agent chrome above that prompt are finished history, never a live waiting s
 (welcome screen + "Resume this session with: …" + fresh prompt = the agent exited; the
 pane is an idle shell). Distinct from an agent shelling out, where output appears under
 the agent's still-live chrome with no bare prompt returned to the user.
+A long-running foreground server, log tail, test watcher, or similar command with no
+bare shell prompt returned is activity "running", even when the latest captured log
+line is momentarily static or complete. Its headline should name the meaningful work
+visible in the logs, not merely say that a generic server is running.
 
 IMPORTANT — mid-typing: the text right after a shell prompt on the LAST line may be a
 command the user is STILL TYPING and has NOT run yet. Do NOT report it as an executed
@@ -149,7 +153,9 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
               "Write it like a mobile push notification the user will REACT to: carry "
               "the SUBSTANCE, never a meta-description — 'Asking whether to commit to "
               "main or a branch', not 'Asked for clarification'; 'Tests fail: 3 "
-              "timeouts in auth_test', not 'Reported test results'",
+              "timeouts in auth_test', not 'Reported test results'. For a server/log "
+              "pane, summarize the recurring meaningful log activity, not merely its "
+              "startup banner, address, or port",
   "model": "...",
   "context_pct": <int — ALWAYS percent USED. Displays differ: "56% ctx" means used -> 56,
                   but wording like "(99% context left)" (Gemini CLI) or "N% until
@@ -172,6 +178,7 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
   "subagents": [{"label": "...", "state": "running"|"waiting"|"idle"|"compacting"|"unknown"|"done", "elapsed": "...", "tokens": "..."}],
+  "working_prs": [{"repo": "owner/name", "number": <positive int>}],
   "links": [{"href": "https://...", "text": "short meaningful label"}],
   "copyables": [{"label": "one-line summary of WHAT this text is, e.g. 'Commit message' "
                  "or 'The 3 failing test names'",
@@ -182,6 +189,30 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
      "meta": "OPTIONAL short side-note for non-file events, e.g. 'ran 3 commands', 'exit 1'"}
   ]
 }
+"working_prs" is a SEMANTIC ASSOCIATION, not every PR visible or mentioned. Include a
+PR only when this pane's agent/session is actually doing work for that PR: implementing
+its change, creating/updating it, addressing its review feedback, reviewing it, testing
+or debugging its change, or actively shepherding its checks/merge. A direct user
+instruction to work on a PR and the agent's resulting work are strong evidence. A
+completed outcome such as "opened PR #245 for this change" also qualifies: it identifies
+the PR this session's work produced.
+
+Do NOT include PRs merely displayed or discussed: lists of open PRs, search/`gh pr list`
+results, dashboards, notification summaries, triage, comparisons, examples, related or
+dependency PRs, release notes, logs, or a request to inspect/list/report PRs without
+working on their changes. Seeing a URL or number is never enough. In particular, a pane
+asked "show all open PRs" must emit NO working_prs even if dozens fill the screen.
+
+An explicit full `owner/name` or GitHub PR URL identifying this work takes precedence
+over the tmux repository context: the agent can work in another checkout while its
+pane stays in the original directory. Otherwise use the exact `owner/name` from the
+tmux GitHub-repository context line. Never attach a PR number to the cwd repository
+when the work explicitly identifies a different repository.
+Never infer an owner, and never guess a PR association. Omit working_prs when none are
+supported. This field is accumulated by the watcher after each successful parse, so emit
+only associations supported by this work; do not repeat incidental history to preserve
+it.
+
 "links": URLs the screen is OFFERING the user to open — an auth/approval URL ("open
 this link", a device-login code page), a PR/issue the agent just created, a preview
 deployment. The phone renders these as tap-to-open buttons, so include them whenever

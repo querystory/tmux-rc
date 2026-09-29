@@ -23,8 +23,10 @@ from .tmux import Pane
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
+_GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
-    r"(?im)^\s*(?:☐|☑|✓|✔|(?:[-*]\s*)?\[[ x]\])\s*(?P<text>\S.*)$",
+    r"(?im)^[ \t]*(?:(?P<done>☑|✓|✔|(?:[-*][ \t]*)?\[x\])|☐|(?:[-*][ \t]*)?\[ \])"
+    r"[ \t]*(?P<text>\S.*)$",
 )
 _OPENCODE_RUNNING_RE = re.compile(
     r"^[ \t]*[▰▮▯■□▪▫█▓▒░]+[ \t]+esc[ \t]+interrupt[ \t]*$",
@@ -59,7 +61,10 @@ _BACKGROUND_TERMINALS_HINT = """
 AGENT COUNTS: a background process is not a background coding agent. In particular,
 Codex's "Background terminals" / "exec session" rows describe shell commands it ran,
 not delegated agents. A screen containing only "exec session 1: tail -f ... (running)"
-must omit subagents (or emit []). Only include actual spawned-agent contexts.
+must omit subagents (or emit []). They also do not make the HOST agent's activity
+"running": classify the host from its own current chrome and words (idle at an empty
+input, or waiting/external when it says it is waiting for real coding agents). Only
+include actual spawned-agent contexts.
 """
 
 # The production parser prompt lives in parser_prompt.txt (a load-bearing ~120-line
@@ -125,14 +130,55 @@ def _with_recent_events(text: str, recent: list[str]) -> str:
     )
 
 
-def bootstrap(pane: Pane, text: str, llm_fn) -> dict | None:
+def _parser_context(pane: Pane, repository: str | None) -> str:
+    context = f"[tmux: this pane's foreground process is '{pane.current_command}'"
+    if repository:
+        context += f"; GitHub repository is '{repository}'"
+    return context + "]"
+
+
+def _working_prs(value) -> list[dict]:
+    """Validate the model's semantic PR associations before they become sticky state."""
+    if not isinstance(value, list):
+        return []
+    out = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, dict) or not isinstance(item.get("repo"), str):
+            continue
+        repo = item["repo"].strip()
+        number = item.get("number")
+        # Bound before conversion: Python rejects enormous digit strings, and the
+        # browser must be able to represent the resulting identifier exactly.
+        if isinstance(number, str) and len(number) <= 16 and number.isascii() and number.isdigit():
+            number = int(number)
+        if (
+            not _GITHUB_REPOSITORY_RE.fullmatch(repo)
+            or any(part in {".", ".."} for part in repo.split("/"))
+            or len(repo) > 256
+            or not isinstance(number, int)
+            or isinstance(number, bool)
+            or not 0 < number <= 2**53 - 1
+        ):
+            continue
+        key = (repo.lower(), number)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"repo": repo, "number": number})
+        if len(out) == 8:
+            break
+    return out
+
+
+def bootstrap(
+    pane: Pane, text: str, llm_fn, repository: str | None = None
+) -> dict | None:
     """One-time deep read of a pane's scrollback → {name, summary, events}, seeding the
     card before live watching has accumulated anything. Events come back flagged
     historical=True (reconstructed, not observed — the UI dims them). Returns None on
     any failure so the caller can retry later."""
-    payload = (
-        f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{text}"
-    )
+    payload = f"{_parser_context(pane, repository)}\n\n{text}"
     result = llm_fn(bootstrap_prompt(), payload)
     if not isinstance(result, dict) or not isinstance(result.get("summary"), str):
         return None
@@ -146,6 +192,7 @@ def bootstrap(pane: Pane, text: str, llm_fn) -> dict | None:
         "summary": result["summary"].strip(),
         "name": name.strip()[:60] if isinstance(name, str) and name.strip() else None,
         "events": events,
+        "working_prs": _working_prs(result.get("working_prs")),
     }
 
 
@@ -156,6 +203,7 @@ def classify(
     prior: list[str] | None = None,
     recent_events: list[str] | None = None,
     prev_activity: str | None = None,
+    repository: str | None = None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
@@ -167,7 +215,7 @@ def classify(
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
-    payload = f"[tmux: this pane's foreground process is '{pane.current_command}']\n\n{payload}"
+    payload = f"{_parser_context(pane, repository)}\n\n{payload}"
     result = None
     if llm_fn:
         prompt = parser_prompt()
@@ -220,13 +268,14 @@ def classify(
     # rather than treating any old checklist in scrollback as permission for an unrelated
     # current bullet list. Standalone markdown checkboxes (`[ ] task`) are valid too.
     if result.get("tool") == "opencode" and "tasks" in result:
+        # The visible marker, not the model, is authoritative for completion state.
         visible_tasks = {
-            _checklist_text(match.group("text"))
+            _checklist_text(match.group("text")): bool(match.group("done"))
             for match in _CHECKLIST_LINE_RE.finditer(text)
         }
         tasks = result.get("tasks")
         validated = [
-            task
+            {**task, "done": visible_tasks[_checklist_text(task["text"])]}
             for task in tasks
             if isinstance(task, dict)
             and isinstance(task.get("text"), str)
@@ -312,6 +361,11 @@ def classify(
         result["copyables"] = good
     else:
         result.pop("copyables", None)
+    working_prs = _working_prs(result.get("working_prs"))
+    if working_prs:
+        result["working_prs"] = working_prs
+    else:
+        result.pop("working_prs", None)
     result["pane_id"] = pane.id
     # Prefer the agent's own session name (read from the pane by the LLM, e.g.
     # "tmux-rc-dev") over the tmux-derived label — it's what the user recognizes.

@@ -21,6 +21,7 @@ def test_bootstrap_shapes_result_and_flags_history():
             {
                 "name": "  tmux-rc overhaul  ",
                 "summary": " shipping PRs #24 and #26 ",
+                "working_prs": [{"repo": "querystory/tmux-rc", "number": 245}],
                 "events": [{"text": "Merged PR #24"}, {"junk": 1}, "nope"],
             }
         ),
@@ -28,6 +29,7 @@ def test_bootstrap_shapes_result_and_flags_history():
     assert r["name"] == "tmux-rc overhaul"
     assert r["summary"] == "shipping PRs #24 and #26"
     assert r["events"] == [{"text": "Merged PR #24", "historical": True}]
+    assert r["working_prs"] == [{"repo": "querystory/tmux-rc", "number": 245}]
 
 
 def test_bootstrap_rejects_junk():
@@ -94,14 +96,14 @@ def test_opencode_stale_checklist_does_not_validate_current_bullets():
     assert "tasks" not in r
 
 
-def test_opencode_keeps_standalone_markdown_checkbox_tasks():
-    task = {"text": "Ship the parser fix", "done": False}
+def test_opencode_standalone_checkboxes_own_their_line_and_done_state():
+    tasks = [{"text": t, "done": False} for t in ("Ship the parser fix", "Prose")]
     r = classify(
         _pane(cmd="opencode"),
-        "Plan\n[ ] Ship the parser fix\n\nOpenCode 1.18.32",
-        _llm({"tool": "opencode", "activity": "running", "tasks": [task]}),
+        "Plan\n[X] Ship the parser fix\n[ ]\nProse\n\nOpenCode 1.18.32",
+        _llm({"tool": "opencode", "activity": "running", "tasks": tasks}),
     )
-    assert r["tasks"] == [task]
+    assert r["tasks"] == [{"text": "Ship the parser fix", "done": True}]
 
 
 def test_opencode_interrupt_spinner_forces_running():
@@ -121,6 +123,41 @@ def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
         _llm({"tool": "opencode", "activity": "idle"}),
     )
     assert r["activity"] == "idle"
+
+
+def test_payload_supplies_repository_for_semantic_pr_classification():
+    seen = {}
+
+    def llm(_system, text):
+        seen["text"] = text
+        return {"tool": "codex", "activity": "running"}
+
+    classify(_pane(cmd="codex"), "working", llm, repository="querystory/tmux-rc")
+    assert "GitHub repository is 'querystory/tmux-rc'" in seen["text"].splitlines()[0]
+
+
+def test_working_prs_are_validated_bounded_and_deduped():
+    raw = [
+        *[{"repo": repo, "number": 1} for repo in ("../bad", "./repo", "org/.", "org/..")],
+        {"repo": "org/" + "a" * 257, "number": 1},
+        {"repo": "querystory/qs-app", "number": "1" * 5000},
+        {"repo": "querystory/qs-app", "number": "²"},
+        {"repo": "querystory/qs-app", "number": 2**53},
+        {"repo": "querystory/qs-app", "number": str(2**53)},
+        {"repo": "querystory/qs-app", "number": 4955},
+        {"repo": "QUERYSTORY/qs-app", "number": "4955"},
+        {"repo": "no-owner", "number": 2},
+        {"repo": "querystory/qs-app", "number": True},
+        {"repo": "querystory/qs-app", "number": 0},
+        "junk",
+    ] + [{"repo": "querystory/tmux-rc", "number": n} for n in range(1, 12)]
+    r = classify(_pane(), "…", _llm({"activity": "running", "working_prs": raw}))
+    assert r["working_prs"][0] == {"repo": "querystory/qs-app", "number": 4955}
+    assert len(r["working_prs"]) == 8
+    assert len({(p["repo"].lower(), p["number"]) for p in r["working_prs"]}) == 8
+    assert "working_prs" not in classify(
+        _pane(), "…", _llm({"activity": "idle", "working_prs": "all PRs"})
+    )
 
 
 def test_pipes_llm_json_through():
