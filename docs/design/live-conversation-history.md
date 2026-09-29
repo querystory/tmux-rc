@@ -65,7 +65,8 @@ not another durable lifecycle. A reopened thread starts with audio off until req
 
 Route submitted text into the active provider conversation as a user turn, an adapter
 operation distinct from today's ambient-context injection. Confirm each adapter can
-accept text and produce visible replies while local audio is disabled; do not recreate
+accept text and produce visible replies while local audio is disabled (audio-only
+models can keep generating audio: show its output transcript and drop playback locally); do not recreate
 the provider session just to hide audio controls. If a provider requires a new session,
 say it is reconnecting and restore bounded context explicitly rather than silently
 starting from scratch. Never present an outgoing local text bubble as acknowledged
