@@ -124,7 +124,9 @@ const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: 
   URLSearchParams, location: {protocol: 'https:', host: 'test'},
   localStorage: {getItem() {}, setItem() {}},
   setTimeout: (fn) => {timers.add(fn); return fn;}, clearTimeout: (fn) => timers.delete(fn)};
-const source = fs.readFileSync(process.argv[1], 'utf8').replace('export function', 'function');
+const strip = (path) =>
+  fs.readFileSync(path, 'utf8').replace(/^import .*\n/m, '').replace(/export /, '');
+const source = strip(process.argv[2]) + strip(process.argv[1]);
 vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode;', sandbox);
 const live = sandbox.setup({request: async () => {throw Error('offline');}});
 const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
@@ -177,6 +179,9 @@ process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pen
   assert.match(status(), /Listening/);
   document.getElementById('voice-mute').onclick(); await flush();
   assert.equal(track.enabled, false); assert.match(status(), /muted/);
+  // A refusal of the reconnect handshake is definitive: shown, never retried.
+  sockets[0].onclose({code: 1008, reason: 'Live model not available'});
+  assert.equal(live.isActive(), false); assert.match(status(), /not available/);
   // Leaving the document explicitly releases all hardware and the audio category.
   window.dispatchEvent(new Event('pagehide')); await flush();
   assert.equal(live.isActive(), false); assert.equal(track.stopped, true);
@@ -230,7 +235,8 @@ process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pen
   completed = true;
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """
-    module = Path(__file__).resolve().parents[1] / "web/m/live.js"
-    result = subprocess.run(["node", "-e", script, str(module)],
+    web = Path(__file__).resolve().parents[1] / "web"
+    args = [str(web / "m/live.js"), str(web / "live-close.js")]
+    result = subprocess.run(["node", "-e", script, *args],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr

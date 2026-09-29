@@ -215,7 +215,7 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"></span></span>' + licon("chevron", 16);
+  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span></span></span>' + licon("chevron", 16);
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
@@ -232,7 +232,11 @@ function updateRow(button, pane) {
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
   text(button.querySelector(".row-status"), pane.question?.prompt || pane.status_line || pane.session_summary || "No recent activity");
-  text(button.querySelector(".row-meta"), [sort === "updated" ? pane.session : "", pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
+  const sessionChip = button.querySelector(".session-chip");
+  sessionChip.hidden = sort !== "updated" || !pane.session;
+  text(sessionChip, pane.session || "");
+  sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
+  text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -1049,12 +1053,10 @@ function fitViewport() {
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
   document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
-  if (standalone && !editing) {
-    document.documentElement.style.removeProperty("--app-height");
-    document.documentElement.style.removeProperty("--app-top");
-    return;
-  }
-  document.documentElement.style.setProperty("--app-height", `${viewport.height}px`);
+  // Translucent installs expose a top safe area excluded from visualViewport;
+  // opaque-status-bar installs report zero. Preserve both without sniffing the installer.
+  const topInset = standalone && !editing ? parseFloat(getComputedStyle($("app")).paddingTop) || 0 : 0;
+  document.documentElement.style.setProperty("--app-height", `${viewport.height + topInset}px`);
   document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
 }
 window.visualViewport?.addEventListener("resize", fitViewport);

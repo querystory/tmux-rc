@@ -5,8 +5,10 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,7 +24,7 @@ const reconcileEvery = 6 * time.Hour
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile")
+		fmt.Fprintln(os.Stderr, "usage: agent-history hook | index <transcript.jsonl>... | reconcile | resolve [flags] <query>")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -31,18 +33,72 @@ func main() {
 	case "index":
 		withLock("index", true, func() {
 			for _, p := range os.Args[2:] {
-				report(IndexTranscript(p))
+				report(IndexTranscript(p, false))
 			}
 		})
-		if since(stateFile()) > reconcileEvery {
+		if since(stateFile()) > reconcileEvery || recordedFormat() != Format {
 			Reconcile()
 		}
 	case "reconcile":
 		Reconcile()
+	case "resolve":
+		if err := resolveCmd(os.Args[2:]); err != nil {
+			report(err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
 		os.Exit(2)
 	}
+}
+
+func resolveCmd(args []string) error {
+	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
+	opt := ResolveOptions{Now: time.Now()}
+	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude)")
+	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
+	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
+	flags.IntVar(&opt.MaxSessions, "sessions", 5, "max sessions per repo")
+	asJSON := flags.Bool("json", false, "machine-readable output")
+	flags.Parse(args)
+	query := strings.Join(flags.Args(), " ")
+	if query == "" {
+		fmt.Fprintln(os.Stderr, "resolve: missing query")
+		os.Exit(2)
+	}
+	paths, err := find(filepath.Join(Root(), "index"), ".md", 2)
+	if err != nil {
+		return err
+	}
+	nested, err := find(filepath.Join(Root(), "index"), ".md", 3)
+	if err != nil {
+		return err
+	}
+	var entries []Entry
+	for _, p := range append(paths, nested...) {
+		e, err := ReadEntry(p)
+		if err != nil {
+			return fmt.Errorf("read index entry %s: %w", p, err)
+		}
+		entries = append(entries, e)
+	}
+	projects := Resolve(entries, query, opt)
+	if *asJSON {
+		out := json.NewEncoder(os.Stdout)
+		out.SetEscapeHTML(false)
+		out.SetIndent("", "  ")
+		return out.Encode(map[string]any{"query": query, "projects": projects})
+	}
+	for _, p := range projects {
+		fmt.Printf("%s  (score %.2f)\n", p.Repo, p.Score)
+		for _, s := range p.Sessions {
+			fmt.Printf("  %.10s  %-8.8s  %s\n", s.LastActive, s.ID, cmp.Or(s.Title, "(untitled)"))
+			if s.Resume != "" {
+				fmt.Printf("      %s\n", s.Resume)
+			}
+		}
+	}
+	return nil
 }
 
 // hook is the Claude Code hook entry point (Stop, SessionEnd, SubagentStop). It hands
@@ -78,14 +134,20 @@ func hook() {
 func Reconcile() {
 	withLock("reconcile", false, func() {
 		withLock("index", true, func() {
-			if reconcileAll() {
-				report(os.WriteFile(stateFile(), nil, 0o600))
+			if reconcileAll(recordedFormat() != Format) {
+				report(os.WriteFile(stateFile(), []byte(Format), 0o600))
 			}
 		})
 	})
 }
 
-func reconcileAll() (ok bool) {
+// recordedFormat is the entry format the last completed reconcile wrote.
+func recordedFormat() string {
+	data, _ := os.ReadFile(stateFile())
+	return string(data)
+}
+
+func reconcileAll(force bool) (ok bool) {
 	ok = true
 	check := func(err error) {
 		report(err)
@@ -95,7 +157,7 @@ func reconcileAll() (ok bool) {
 	transcripts, err := find(projects, ".jsonl", 2)
 	check(err)
 	for _, t := range transcripts {
-		check(IndexTranscript(t))
+		check(IndexTranscript(t, force))
 	}
 	// Subagents are normally reached through their parent; scan them too so one whose
 	// parent transcript is gone is still indexed. Fresh entries are skipped cheaply.
@@ -103,7 +165,7 @@ func reconcileAll() (ok bool) {
 	check(err)
 	for _, t := range nested {
 		if filepath.Base(filepath.Dir(t)) == "subagents" {
-			check(indexFile(t))
+			check(indexFile(t, force))
 		}
 	}
 	index := filepath.Join(Root(), "index", "claude")
