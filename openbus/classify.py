@@ -113,7 +113,7 @@ def bootstrap_prompt() -> str:
 
 
 def _session_evidence(text: str) -> str:
-    lines = text.splitlines()
+    lines = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()
     # The input row separates conversation output from the bottom status chrome.
     # A short capture can put quoted tool output in the last four rows too.
     input_row = max((i for i, line in enumerate(lines)
@@ -122,7 +122,7 @@ def _session_evidence(text: str) -> str:
     if input_row < 0:
         footer = [line for line in footer if re.match(r"^\s*(?:~/|/)", line)
                   or re.search(r"(?:^|·\s*)(?:gpt-[\w.-]+|o\d[\w.-]*)(?:\s|·|$)", line)]
-    renamed = [line for line in lines
+    renamed = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*(?:[•●]\s*)?Thread renamed to \S", line)]
     return "\n".join(footer + renamed)
 
@@ -151,7 +151,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     if result.get("tool") == "shell":
         result.pop("session", None)  # Old agent scrollback cannot name its replacement shell.
     visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
-    identity = strip_dim(text)  # A Thread-renamed event remains evidence after scrolling off.
+    identity = text  # Keep the boundary: only explicit rename events may come from history.
     bad_question = (
         bool(result.get("question")) and VISIBLE_SCREEN in text
         and not _supported_question(result["question"], visible)
@@ -470,7 +470,8 @@ def classify(
             table_text.add(" ".join(" ".join(v for row in rows for v in row).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", strip_dim(text))
+    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "",
+                         strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]))
     copy_source = copy_source.replace("\\\n", "")
 
     def _valid(cps):

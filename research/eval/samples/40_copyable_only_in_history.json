@@ -1,0 +1,12 @@
+{
+  "description": "A previously suggested command is only in history. It must not become a current copy action after the viewport has moved to an unrelated completed result.",
+  "current_command": "codex",
+  "capture": "Previously suggested command:\n  git commit -m stale\n\u001e[visible screen]\u001f\n• No commit needed. All tests passed.\n\n› Ask Codex to do anything\ngpt-6-sol · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "copyables": false,
+    "headline": "All tests passed; no commit is needed"
+  }
+}

@@ -533,6 +533,8 @@ def test_short_capture_does_not_promote_tool_output_to_status_evidence():
         "{'session': 'other-pane'}\noutput\n› input\n~/src/app · gpt-6-sol",
         "{'session': 'other-pane'}\noutput\n~/src/app · gpt-6-sol",
         "log: Thread renamed to other-pane\n› input\n~/src/app · gpt-6-sol",
+        ("› old input\n\x1e[visible screen]\x1f\n{'session': 'other-pane'}\n"
+         "Inspecting parser\nWorking\n~/src/app · gpt-6-sol"),
     ):
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "other-pane"}))
         assert "session" not in result
@@ -583,6 +585,17 @@ def test_copyable_table_rows_are_not_duplicated():
         }))
         assert "copyables" not in result
         assert len(result["tables"]) == 1
+
+
+def test_copyables_require_payload_in_current_viewport():
+    for capture, expected in (
+        ("git commit -m stale\n\x1e[visible screen]\x1f\nUnrelated output", False),
+        ("history\n\x1e[visible screen]\x1f\ngit commit -m stale", True),
+    ):
+        result = classify(_pane(), capture, _llm({
+            "copyables": [{"label": "Command", "text": "git commit -m stale"}],
+        }))
+        assert bool(result.get("copyables")) is expected
 
 
 def test_scrolled_rename_is_evidence_for_initial_read_and_retry():

@@ -177,6 +177,17 @@ watcher bootstrap/publication test covers this startup path and explicit-title
 precedence. **740 unit tests**, Ruff clean, final target matrix **30/30**, final full
 candidate-file eval **40/41**, failing only the known main sample 16 missing table.
 
+The final read-only audit of 634ef60 identified two concrete grounding gaps:
+an input row in history could anchor viewport identity, and a copyable could match
+only history. Identity status-row selection now splits at the boundary before
+finding input rows (explicit rename events may still come from history); copyable
+payloads must appear in the viewport. Samples 39 and 40 cover these cases, with
+unit tests retaining the positive visible-copyable path. **741 unit tests** and
+Ruff pass, target repetition is **30/30**, and the full Vertex candidate run is
+**42/43**, failing only the known main sample 16 missing table. An earlier full
+run aborted with Vertex 504 DEADLINE_EXCEEDED and supplied no verdict. No prompt
+text was added for either fix.
+
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked
 on #249. Next: finish the current-head Copilot loop; no merge or deployment authorized.
