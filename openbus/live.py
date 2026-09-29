@@ -298,13 +298,18 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     call that raises (say, the socket dropping after the keys went in) is audited too,
     with whatever `rec` already shows it did."""
     started, rec = time.monotonic(), {}
-    result = {"status": "error", "reason": "aborted"}
+    # The name is provider data: anything but a known string (a list is unhashable) is
+    # refused here, before it can reach a set lookup.
+    known = isinstance(fc.name, str) and fc.name in _TOOLS
+    result = {"status": "error", "reason": "aborted"} if known else {
+        "status": "rejected", "reason": "unknown tool"}
     try:
-        result = await _dispatch(websocket, session, fc, watcher, rec)
+        if known:
+            result = await _dispatch(websocket, session, fc, watcher, rec)
     finally:
         status, reason = result["status"], result.get("reason")
         _audit(
-            meter, f"live_{fc.name if fc.name in _TOOLS else 'unknown_tool'}",
+            meter, f"live_{fc.name if known else 'unknown_tool'}",
             outcome="ok" if status in {"done", "ok", "opened"}
             else f"{status}: {reason}" if reason else status,
             latency_ms=round((time.monotonic() - started) * 1000), **rec,
@@ -317,8 +322,6 @@ async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> di
     answer. The result NEVER rides back through the tool response (echo loops — see
     design doc); the model sees the outcome via the post-action ambient refresh instead."""
     args = fc.args if isinstance(fc.args, dict) else {}
-    if fc.name not in _TOOLS:
-        return {"status": "rejected", "reason": "unknown tool"}
     if fc.name in _HISTORY_TOOLS:
         if not agent_history.offered():
             return {"status": "rejected", "reason": "session history not available"}
