@@ -3,7 +3,7 @@
 Proposal only. Let someone reopen a previous Live Mode conversation, read the message
 thread, and see roughly how long it ran and what it cost. Use the existing private
 SQLite database; this ends its “no terminal text” promise in `pane-history.md`, which
-the implementation must update along with its backup advice. Also keep a continuous history of inputs sent to each pane. This
+the implementation must update. Also keep a continuous history of inputs sent to each pane. This
 does not change how Live Mode or the composer sends commands to panes. The main
 interaction goal is one assistant conversation that can move between voice and text.
 
@@ -138,27 +138,24 @@ Make that independence clear in deletion UI; users can delete either or both thr
 ## Pasted images belong to the prompt
 
 Entry content is an ordered list of parts: for example `[text, image, text, image]`.
-A plain message has one text part. Each image part holds its content hash, MIME type,
-byte length and optional display name. The hash (for example SHA-256) identifies the
-bytes across machines; no separate image UUID or attachment table is required. Store
-bytes once in a private directory beside the database, with the same modes, scoped to
-the owner by a derived key rather than a raw identifier in the path, outside temporary
-upload storage. The entry references the hash, never a temporary path.
+A plain message has one text part. Each image part holds its MIME type, byte length,
+content hash and optional display name. Its bytes are stored in SQLite in the same
+transaction as the entry, never referenced by a temporary upload path.
 
-When recording is enabled, atomically save the image before committing its entry
-reference; a recording failure leaves an explicit unavailable-image marker and incomplete
-history, not a broken reference described as saved. Input delivery need not fail because
-history storage failed. Render saved thumbnails/full images in history in their original
-prompt order. Recording disabled means no retained image copy beyond the existing transient
-delivery staging; the same content policy
-applies to images as text, including Live-origin pane inputs.
+Keeping bytes in the database means one commit makes an entry and its images durable
+together, deleting a conversation cascades to its images, and the existing backup API
+captures both consistently. A content-addressed blob directory was rejected: it would
+deduplicate repeated pastes, but needs crash reconciliation, reference-counted cleanup,
+its own permissions and a second backup step. Upload size limits already bound images,
+so duplication is the cheaper cost.
 
-Later exports (see Share) that preserve images bundle their referenced bytes and part manifests;
-text-only exports clearly mark omitted images. Hash deduplication is not authorization: enforce owner access
-for image reads and never expose files through a public hash URL. Deleting history removes
-unreferenced owner-scoped blobs through serialized cleanup, retaining blobs still referenced
-by another saved entry. Orphan files from failed commits can be swept by the same cleanup.
-Use existing upload size/type validation; do not fetch arbitrary remote image URLs.
+If saving fails, the entry keeps an unavailable-image marker and the history is marked
+incomplete; input delivery need not fail because history storage failed. Render images
+in their original prompt order. Recording disabled means no retained image copy beyond
+the existing transient delivery staging; the same content policy applies to images as
+text, including Live-origin pane inputs. Serve images only through owner-checked reads,
+never a public hash URL. Later exports (see Share) bundle image bytes or clearly mark
+them omitted. Use existing upload size/type validation; do not fetch remote image URLs.
 
 ## Saving and reading
 
@@ -249,7 +246,7 @@ finished messages, action notices and meter totals into the writer. Add list/rea
 UI. Pane input history can follow using the same tables and shared writer, with composer,
 API and Live Mode logical sends covered together. Test message ordering/retries, reconnect without duplication, crash/write failure,
 usage without messages, cross-machine identifiers, pane identity/restarts, send-time context, missing origin links,
-ordered image pastes, missing blobs, shared-blob deletion,
+ordered image pastes,
 recording opt-out, owner isolation and deletion races. No
 backfill and no changes to provider tool dispatch. Review that small implementation
 before designing restart-time continuation or sharing. In parallel, add the Live Mode
