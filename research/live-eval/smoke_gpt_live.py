@@ -128,7 +128,7 @@ async def main():
         patch.object(live.tmux, "server_uid", return_value="smoke"),
     ):
         async with asyncio.timeout(60):
-            await gpt_live.run_session(browser, Watcher(), "smoke", meter)
+            await gpt_live.run_session(browser, Watcher(), meter)
         # Let post-action refresh tasks finish before the fake terminal is unpatched.
         if live._tasks:
             await asyncio.gather(*list(live._tasks), return_exceptions=True)

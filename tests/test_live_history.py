@@ -133,9 +133,20 @@ def test_every_call_is_audited_in_the_journal_and_otel(history, monkeypatch, cap
     _call("resume_session", {"session_id": "live-1"})
     monkeypatch.setattr(tmux, "new_window", lambda *a: 1 / 0)
     _call("resume_session", {"session_id": "live-2"})
+    # The window opened but the phone vanished before hearing so: still on the record.
+    sessions["live-3"], gone = {**LIVE, "session_id": "live-3"}, _WS()
+    monkeypatch.setattr(tmux, "new_window", lambda *a: "%41")
+
+    async def drop(obj):
+        raise ConnectionError
+    gone.send_json = drop
+    with pytest.raises(ConnectionError):
+        _run(L._handle_tool_call(gone, _Session(), _FC(name="resume_session",
+             args={"session_id": "live-3"}), _Watcher(), _METER))
     monkeypatch.setattr(agent_history, "binary", lambda: None)
     _call("resume_session", {"session_id": "live-1"})
-    ok, err, refused = emitted
+    ok, err, aborted, refused = emitted
+    assert aborted["outcome"] == "error: aborted" and aborted["pane_uid"] == "u:%41"
     assert ok.items() >= {
         "action": "live_resume_session", "pane_uid": "u:%40", "actor": "tester",
         "outcome": "ok", "session": "s1", "session_id": "live-1", "tool": "claude",
@@ -148,7 +159,7 @@ def test_every_call_is_audited_in_the_journal_and_otel(history, monkeypatch, cap
     assert lines[0].startswith("AUDIT live_resume_session pane=%40 by tester ")
     assert "session_id='live-1'" in lines[0] and "window='tmuxrc live mode'" in lines[0]
     assert lines[1].endswith("[error: could not open a window]")
-    assert lines[2].endswith("[rejected: session history not available]")
+    assert lines[3].endswith("[rejected: session history not available]")
 
 
 def test_resume_never_starts_a_second_copy(history):

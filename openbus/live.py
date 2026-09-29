@@ -294,17 +294,22 @@ def _audit(meter: _Meter, action: str, pane_id: str = "-", **kw) -> None:
 async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _Meter) -> None:
     """Run one tool call, audit it, and answer the model tersely. The ONE place every
     Live tool call is recorded: the handler notes what it touched in `rec` (pane, detail,
-    content, ids) and the outcome comes from its answer, so no path goes unaudited."""
+    content, ids) and the outcome comes from its answer, so no path goes unaudited — a
+    call that raises (say, the socket dropping after the keys went in) is audited too,
+    with whatever `rec` already shows it did."""
     started, rec = time.monotonic(), {}
-    result = await _dispatch(websocket, session, fc, watcher, rec)
-    status, reason = result["status"], result.get("reason")
-    known = fc.name in {"type_in_pane", "press_key", *_HISTORY_TOOLS}
-    _audit(
-        meter, f"live_{fc.name if known else 'unknown_tool'}",
-        outcome="ok" if status in {"done", "ok", "opened"}
-        else f"{status}: {reason}" if reason else status,
-        latency_ms=round((time.monotonic() - started) * 1000), **rec,
-    )
+    result = {"status": "error", "reason": "aborted"}
+    try:
+        result = await _dispatch(websocket, session, fc, watcher, rec)
+    finally:
+        status, reason = result["status"], result.get("reason")
+        known = fc.name in {"type_in_pane", "press_key", *_HISTORY_TOOLS}
+        _audit(
+            meter, f"live_{fc.name if known else 'unknown_tool'}",
+            outcome="ok" if status in {"done", "ok", "opened"}
+            else f"{status}: {reason}" if reason else status,
+            latency_ms=round((time.monotonic() - started) * 1000), **rec,
+        )
     await session.send_tool_result(fc, result)
 
 
@@ -372,8 +377,11 @@ async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> di
             await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
         await asyncio.to_thread(tmux.send_keys, *send_args)
     except Exception as e:  # report, don't kill the session
-        logger.warning("[live] %s failed for %s", fc.name, pane_id, exc_info=True)
-        rec["detail"] = str(e)[:120]
+        # The error's text can quote the typed text (send-keys argv): speech, so only
+        # the class leaves here unless QSDEBUG.
+        rec["detail"] = type(e).__name__
+        logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
+                       exc_info=telemetry.QSDEBUG)
         return {"status": "error", "reason": "pane did not accept input"}
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
@@ -438,7 +446,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
 # transcript. Resumes are serialized, and each launch holds its session for as long as
 # the pane it opened lives. The pane's pid, not its id, is the identity: tmux reuses ids.
 _resume_lock = asyncio.Lock()
-_resumed: dict[str, tuple[str, str]] = {}  # session id -> (pane id, pane pid)
+_resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, audit rec)
 
 
 def _ancestors(pid: int):
@@ -479,10 +487,10 @@ async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
 
 async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     if sid in _resumed:
-        pane, pid = _resumed[sid]
+        pane, pid, launched = _resumed[sid]
         # Held while that same process lives in the pane (tmux reuses pane ids).
         if await asyncio.to_thread(tmux.pane_pid, pane) == pid:
-            rec.update(pane_id=pane, detail="resumed moments ago")
+            rec.update(launched, detail="resumed moments ago")
             return {"status": "already_running", "pane_id": pane}
         _resumed.pop(sid)  # that pane is gone; fall through to the registry
     entry = await asyncio.to_thread(agent_history.get, sid)
@@ -527,7 +535,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     pid = await _launched_pid(pane_id)
     if pid is None:  # the window closed at once: the command failed to start
         return {"status": "error", "reason": "the resumed session exited immediately"}
-    _resumed[sid] = (pane_id, pid)
+    _resumed[sid] = (pane_id, pid, dict(rec))
     watcher.request_reparse(pane_id)  # wakes a full tick, so the new pane is addressable
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": name,
