@@ -18,7 +18,7 @@ ongoing input history of a pane. These share storage, not lifecycle or recording
 Connection, or Usage entity. A spoken message, an action notice, and “connection lost”
 are simply different kinds of entries in that thread.
 
-Generate a UUID for each conversation. The global entry key is
+Generate a UUID for each conversation, its primary key. The entry primary key is
 `(conversation_uuid, entry_number)`, with entry numbers 1, 2, 3, and so on allocated
 from the parent counter in the insert transaction. No independent entry UUID is needed
 for this single-writer design. Exports, origin links and cross-machine analysis preserve
@@ -28,7 +28,7 @@ AUTOINCREMENT creation number only for local pagination.
 A persisted machine UUID identifies the originating installation across daemon/OS
 restarts; hostnames and boot IDs are not machine identity. New installations get a new
 machine UUID. Store it in the database metadata, replacing today's hostname guard (a copied
-database moves the installation, it does not clone it);
+database moves the installation; two writable copies are unsupported);
 other machines' records arrive through exports, not by opening a copied database.
 The conversation has one authoritative writer; cross-machine analysis can combine copies
 by their global keys, but concurrent editing of one copied thread is not a replication
@@ -96,7 +96,7 @@ An `input` entry represents a logical send, not every keyboard event:
 | --- | --- |
 | Submitted text and timestamp | Entry content and timestamp. |
 | Source: composer, Live Mode, or API | Entry metadata, assigned by the server. |
-| Delivery: sent, failed, or unknown; Enter submitted or not | Entry metadata. Sent means handed to tmux, not processed by the agent. |
+| Delivery: sent, failed, or unknown; Enter submitted or not | Entry metadata. Sent means handed to tmux, not processed by the agent; a failure after some bytes reached tmux is unknown, never retried. |
 | Context at send time | Metadata snapshot: pane/session/window label, working directory, tool/model, agent session ID and branch when known, plus observation time. Missing or stale information stays labeled as such. |
 | Originating Live Mode message | Optional `(conversation_uuid, entry_number)` reference, only when that association is known and both threads have the same owner. |
 
