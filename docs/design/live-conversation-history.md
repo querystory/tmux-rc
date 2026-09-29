@@ -14,7 +14,7 @@ interaction goal is one assistant conversation that can move between voice and t
 | Table | Columns |
 | --- | --- |
 | `conversations` | UUID, originating machine UUID, local creation number for pagination, owner, kind (`live` or `pane`), pane lifetime key (required for `pane`, unique per owner), title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
-| `conversation_entries` | Conversation UUID, entry number, timestamp, kind (`user`, `assistant`, `input`, `action`, `notice`), content JSON (ordered text/image parts), optional metadata JSON. |
+| `conversation_entries` | Conversation UUID, entry number, timestamp, kind (`user`, `assistant`, `input`, `action`, `notice`), content JSON (ordered text/image parts), image bytes as BLOBs owned by the entry, optional metadata JSON. |
 
 A conversation is the thread the user sees: either a Live Mode conversation or the
 ongoing input history of a pane. These share storage, not lifecycle or recording policy. There is no separate Call, Turn, Action,
