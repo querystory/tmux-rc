@@ -54,8 +54,9 @@ a misplaced instruction is not. Restricting the fast path this way makes consent
 property of routing rather than a separate gate: the only unconfirmed action is the one
 a person would take without thinking, saying a sentence to an agent. The residual risk
 is false confidence, so each direct send names its target as it goes (Live Mode's
-overlay already logs typed actions) and echoes the directory's incarnation, so it is
-rejected if the pane id has been recycled.
+overlay already logs typed actions) and echoes the directory's incarnation and screen
+revision, so it falls back to control if the pane was recycled or has changed (say, an
+agent exiting to its shell).
 
 ## Crossed streams
 
@@ -120,11 +121,12 @@ agent client explains) rather than inventing it.
 
 Control's **bus verbs** are the agent client's verbs plus the ones this job needs: list
 and read panes, send (with delivery confirmation), press a key, open a window, find and
-resume sessions, and hand off. They are exposed over the daemon's API as an MCP server
-with a thin CLI fallback, for the reasons the agent client gives: tools the harness
-actually sees, no harness-specific integration. Every send stays on the daemon's one
-keystroke path, so the audit log covers control as it covers the phone, and whatever
-consent rules narrative build item 2 settles on have one place to be enforced.
+resume sessions, hand off, and reply into a #232 thread. They are exposed over the
+daemon's API as an MCP server with a thin CLI fallback, for the reasons the agent client
+gives: tools the harness actually sees, no harness-specific integration. Sends through
+these verbs take the daemon's one keystroke path, so the audit log and any consent rules
+cover them. A harness in a pane can still call tmux directly, as any agent can today;
+that is a convention the standing instructions set, not an isolation boundary.
 
 ## Optional session leads
 
@@ -142,9 +144,9 @@ has enough parallel streams that a local router beats control's fleet-wide view.
 Mostly exists: Needs you, activity transitions, idle summaries and events. What is new
 is fan-out and a thread tying a request to each of its effects. Every delegated request
 is an entry in the requester's #232 thread; control's answer or clarifying question
-lands in that same thread with an origin link to the request, and the front end already
-watches its own thread. No new reply channel, concurrent requests stay distinct by
-entry, and the same trail debugs a crossed stream.
+lands in that same thread through the reply verb, with an origin link to the request,
+and the front end already watches its own thread. No new reply channel, concurrent
+requests stay distinct by entry, and the same trail debugs a crossed stream.
 
 ## Alternatives rejected
 
