@@ -162,6 +162,24 @@ def test_every_call_is_audited_in_the_journal_and_otel(history, monkeypatch, cap
     assert lines[3].endswith("[rejected: session history not available]")
 
 
+@pytest.mark.parametrize(("qsdebug", "audit_keys"), [(False, True), (True, True), (True, False)])
+def test_spoken_content_is_recorded_only_under_qsdebug(monkeypatch, caplog, qsdebug, audit_keys):
+    # A search query is the user's speech: like a transcript, it reaches the journal and
+    # OTel only under QSDEBUG, and TMUXRC_AUDIT_KEYS=0 still withholds it everywhere.
+    monkeypatch.setattr(agent_history, "resolve", lambda q: [])
+    monkeypatch.setattr(L.telemetry, "QSDEBUG", qsdebug)
+    monkeypatch.setattr(L.telemetry, "AUDIT_KEYS", audit_keys)
+    monkeypatch.setattr(tmux, "server_uid", lambda: "u")
+    records = []
+    monkeypatch.setattr(L.telemetry, "_emit_record", lambda body, attrs, *a: records.append(attrs))
+    caplog.set_level(logging.INFO, logger="openbus.server.audit")
+    _call("find_sessions", {"query": "my sudo password"})
+    shown = qsdebug and audit_keys
+    assert ("my sudo password" in caplog.text) is shown
+    assert (records[0].get("keys") == "my sudo password") is shown
+    assert records[0]["results"] == 0
+
+
 def test_resume_never_starts_a_second_copy(history):
     sessions, opened = history
     sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
