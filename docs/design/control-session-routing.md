@@ -45,8 +45,11 @@ The fast path is an optimization over that default, for latency and cost. When a
 fast model, reading the directory, finds exactly one confident target and a simple
 message ("tell the qs-app review pane to push"), the front end sends direct: one tool
 call, no second model, a sub-second round trip. Any doubt drops the request to control
-rather than to a guess, so a wrong fast-path decision costs a slower answer, not a
-misroute.
+rather than to a guess. The residual risk is false confidence: a wrong pane judged
+certain is a real misroute. So "confident" means a unique match on workstream identity
+(below), not a model's self-reported score, the bar is set so that borderline cases
+delegate, and every direct send names its target in the thread as it goes, so a
+misroute is seen at once rather than discovered later.
 
 This is the same fast-front/slow-back split GPT-Live already uses (a voice model that
 delegates to a Responses backend for anything touching terminal state, per
