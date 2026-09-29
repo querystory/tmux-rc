@@ -13,7 +13,7 @@ interaction goal is one assistant conversation that can move between voice and t
 
 | Table | Columns |
 | --- | --- |
-| `conversations` | UUID, originating machine UUID, local creation number for pagination, owner, kind (`live` or `pane`), pane lifetime key (required for `pane`, unique per owner), title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
+| `conversations` | UUID, local creation number for pagination, owner, kind (`live` or `pane`), pane lifetime key (required for `pane`, unique per owner), title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
 | `conversation_entries` | Conversation UUID, entry number, timestamp, kind (`user`, `assistant`, `input`, `action`, `notice`), content JSON (ordered text/image parts), image bytes as BLOBs owned by the entry, optional metadata JSON. |
 
 A conversation is the thread the user sees: either a Live Mode conversation or the
@@ -24,18 +24,15 @@ are simply different kinds of entries in that thread.
 Generate a unique UUID for each conversation. The entry primary key is
 `(conversation_uuid, entry_number)`, with entry numbers 1, 2, 3, and so on allocated
 from the parent counter in the insert transaction. No independent entry UUID is needed
-for this single-writer design. Exports, origin links and cross-machine analysis preserve
+for this single-writer design. Exports and origin links preserve
 these keys; local SQLite row numbers are never external identities. Keep a separate
 AUTOINCREMENT creation number only for local pagination.
 
-A persisted machine UUID identifies the originating installation across daemon/OS
-restarts; hostnames and boot IDs are not machine identity. New installations get a new
-machine UUID. Store it in the database metadata, replacing today's hostname guard (a copied
-database moves the installation; two writable copies are unsupported);
-other machines' records arrive through exports, not by opening a copied database.
-The conversation has one authoritative writer; cross-machine analysis can combine copies
-by their global keys, but concurrent editing of one copied thread is not a replication
-feature promised here. A separately writable copy gets a new conversation UUID.
+Every local row comes from one install, so an install ID is stored once in the database
+metadata rather than on each row, replacing today's hostname guard (hostnames are not
+identity; a copied database is the same install moved, and two writable copies are
+unsupported). A later export bundle carries the install ID once; attributing rows after
+combining installs is the importer's concern, deferred with import.
 Foreign keys with ON DELETE CASCADE attach entries to their conversation; enable
 foreign-key enforcement on each connection. The optional origin link is a plain
 reference, not a cascading key, so deleting its source never deletes the pane input.
@@ -88,7 +85,7 @@ to Voice. Resuming after a disconnected provider remains the separate Continue w
 ## Continuous pane history
 
 One pane thread per owner and pane lifetime, surviving browser visits, Live Mode calls,
-renames and daemon restarts. Qualify the existing tmux server/pane identity with the machine UUID and confirmed
+renames and daemon restarts. Pane identity is local; qualify it by install only in exported data. Use the existing tmux server/pane identity and confirmed
 pane creation/removal boundaries; `%52` or a display label alone is not an identity.
 Today the watcher keeps a pane's birth evidence only in memory, so the implementation
 must persist it; without it a pane seen after a daemon restart counts as unestablished.
@@ -248,7 +245,7 @@ metadata table; a daemon refuses to open a newer schema rather than guess. Then 
 finished messages, action notices and meter totals into the writer. Add list/read/delete
 UI. Pane input history can follow using the same tables and shared writer, with composer,
 API and Live Mode logical sends covered together. Test message ordering/retries, reconnect without duplication, crash/write failure,
-usage without messages, cross-machine identifiers, pane identity/restarts, send-time context, missing origin links,
+usage without messages, pane identity/restarts, send-time context, missing origin links,
 ordered image pastes,
 recording opt-out, owner isolation and deletion races. No
 backfill and no changes to provider tool dispatch. Review that small implementation
