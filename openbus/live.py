@@ -303,9 +303,8 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         result = await _dispatch(websocket, session, fc, watcher, rec)
     finally:
         status, reason = result["status"], result.get("reason")
-        known = fc.name in {"type_in_pane", "press_key", *_HISTORY_TOOLS}
         _audit(
-            meter, f"live_{fc.name if known else 'unknown_tool'}",
+            meter, f"live_{fc.name if fc.name in _TOOLS else 'unknown_tool'}",
             outcome="ok" if status in {"done", "ok", "opened"}
             else f"{status}: {reason}" if reason else status,
             latency_ms=round((time.monotonic() - started) * 1000), **rec,
@@ -318,6 +317,8 @@ async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> di
     answer. The result NEVER rides back through the tool response (echo loops — see
     design doc); the model sees the outcome via the post-action ambient refresh instead."""
     args = fc.args if isinstance(fc.args, dict) else {}
+    if fc.name not in _TOOLS:
+        return {"status": "rejected", "reason": "unknown tool"}
     if fc.name in _HISTORY_TOOLS:
         if not agent_history.offered():
             return {"status": "rejected", "reason": "session history not available"}
@@ -490,7 +491,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
         pane, pid, launched = _resumed[sid]
         # Held while that same process lives in the pane (tmux reuses pane ids).
         if await asyncio.to_thread(tmux.pane_pid, pane) == pid:
-            rec.update(launched, detail="resumed moments ago")
+            rec.update({**launched, **rec}, detail="resumed moments ago")  # this call's id
             return {"status": "already_running", "pane_id": pane}
         _resumed.pop(sid)  # that pane is gone; fall through to the registry
     entry = await asyncio.to_thread(agent_history.get, sid)
@@ -571,6 +572,7 @@ def _session_for(panes, cwd: str) -> str | None:
 
 
 _HISTORY_TOOLS = {"find_sessions": _find_sessions, "resume_session": _resume_session}
+_TOOLS = {"type_in_pane", "press_key", *_HISTORY_TOOLS}
 
 
 # Keep strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.

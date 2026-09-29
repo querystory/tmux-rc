@@ -577,3 +577,9 @@ def test_connect_snapshot_screen_budget():
     assert "screen:" in active_block.split("##")[0]
     idlest_block = ctx.split("## window 28")[1]  # idle_seconds=2800, the stalest
     assert "screen:" not in idlest_block.split("##")[0]
+
+
+def test_unknown_tool_is_rejected_as_such(monkeypatch):
+    fc = _FC(name="rm_rf", args={"pane_id": "%1", "text": "x"})
+    _, _, session, typed = _dispatch(fc, monkeypatch)
+    assert typed == [] and session.responses[0][1] == {"status": "rejected", "reason": "unknown tool"}
