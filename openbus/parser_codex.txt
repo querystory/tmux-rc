@@ -1,0 +1,25 @@
+- "codex" (OpenAI Codex / ChatGPT CLI): an OpenAI model in the pane's OWN live
+  status-bar model slot identifies Codex. OpenAI names start "gpt-" or "o"+digit
+  ("gpt-5", "gpt-6-astra", "o3", "o4-mini"); match that family, not a version list.
+  FIRST distinguish live chrome from printed content: a python/server/log-viewer
+  printing an entire captured Codex footer is still a shell program, even when that
+  quoted footer contains a model, thread title, context usage, and Ready/Working.
+  Other Codex tells: it calls itself "Codex"; its input box prompts "Ask Codex to do
+  anything"; permission prompts are a NUMBERED list ("1. Yes  2. Yes, and don't ask
+  again for commands that start with X  3. No, and tell Codex what to do differently").
+  Its bottom line is a "·"-separated bar whose segments are SELF-DESCRIBING — read each
+  for what it says, not for where it sits, because users configure these differently and
+  segments come and go:
+    "airbyte-value-population · gpt-5.6-sol medium · Context 71% left · 415K used · docs/query-result-metadata-design · ~/src/example-app · weekly 52% left · Ready"
+    "gpt-5.5 xhigh fast · ~/src/example-app"
+  A segment naming an OpenAI model (optionally + effort, "gpt-5.6-sol medium") is the
+  MODEL. One starting "~/" or "/" is the CWD. A percentage or token count ("Context 71%
+  left", "415K used", "weekly 52% left") is a USAGE readout. A bare state word
+  ("Ready", "Working", "fast") is a MODE. A branch-shaped path
+  ("docs/query-result-metadata-design") is a BRANCH.
+  "session" gets Codex's THREAD TITLE: a short task name it wrote itself, and the only
+  per-window identity Codex has — without it every Codex pane in a repo looks alike. It
+  is a segment that is none of the above kinds, appearing BEFORE the model
+  ("airbyte-value-population", "Review 4745"). A "Thread renamed to <name>" line names
+  it too. If every segment is an identifiable kind, there is no title: OMIT "session"
+  rather than promoting a mode word, cwd, branch, or usage readout.

@@ -25,27 +25,30 @@ import subprocess
 import sys
 from pathlib import Path
 
+from openbus.classify import compose_prompt, parser_prompt
 from openbus.llm import _MODEL, _client
 
 _HERE = Path(__file__).parent
 _SAMPLES = _HERE / "samples"
-_PROMPT = _HERE.parent / "openbus" / "parser_prompt.txt"
 # PATCHED = the working-tree prompt (what ships). BASELINE = the same file at origin/main,
 # read from git so there's no committed duplicate to drift — the A/B is prompt-vs-prompt.
-PATCHED = _PROMPT.read_text(encoding="utf-8").strip()
-_baseline_proc = subprocess.run(
-    ["git", "show", "origin/main:openbus/parser_prompt.txt"],
-    capture_output=True, text=True, cwd=_HERE.parent,
-)
-BASELINE = _baseline_proc.stdout.strip()
-if _baseline_proc.returncode != 0 or not BASELINE:
-    # An empty/failed baseline (no origin/main, unfetched, wrong cwd) would silently make
-    # the A/B compare PATCHED against nothing — fail fast rather than report noise.
-    raise SystemExit(
-        "could not load baseline prompt from origin/main:openbus/parser_prompt.txt "
-        f"(git rc={_baseline_proc.returncode}): {_baseline_proc.stderr.strip()[:200]}\n"
-        "run `git fetch origin` from the worktree first."
+PATCHED = parser_prompt()
+
+
+def _baseline_file(name: str) -> str:
+    result = subprocess.run(
+        ["git", "show", f"origin/main:openbus/{name}"],
+        capture_output=True, text=True, cwd=_HERE.parent,
     )
+    if result.returncode != 0 or not result.stdout:
+        raise SystemExit(
+            f"could not load baseline prompt origin/main:openbus/{name}: "
+            f"{result.stderr.strip()[:200]}; run `git fetch origin` first."
+        )
+    return result.stdout
+
+
+BASELINE = compose_prompt(_baseline_file)
 
 AFFECTED = ["%3", "%46", "%53", "%57"]
 CONTROLS = ["%49", "%24", "%54", "%52", "%48", "%16"]

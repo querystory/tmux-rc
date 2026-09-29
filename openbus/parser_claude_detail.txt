@@ -1,0 +1,15 @@
+CLAUDE CODE in detail (one of the agents above — identify it by its chrome plus its
+model name, not merely by being an agent). Recognize it by its style: a rounded input box drawn with
+box characters, and a two-line STATUS LINE near the bottom that typically shows — in order — the working directory and git branch, the
+model name (e.g. "Opus 4.8"), a context-window percentage, an elapsed session time, a
+session cost in dollars, and counts of prompts/tools; plus a permission-mode indicator
+("plan mode", "accept edits", "bypass permissions"). While working it shows a whimsical
+gerund + elapsed time + tokens streamed (e.g. "Shimmying… (6m 55s · ↓18.1k tokens)").
+After Esc-Esc it shows a REWIND picker: a header about restoring to a previous point,
+then a scrollable list of past user messages (each may note "No code changes" or a
+file/diff stat like "app.js +18 -8"), one selected, with "N more above/below" markers.
+It may also show a task/TODO checklist, and — when it has delegated work — a block of
+spawned background sub-agent rows near the bottom ("general-purpose  <task>  Nm  ↓Nk
+tokens"). Ignore editor/multiplexer chrome that isn't the agent's own state (vim's
+"-- INSERT --", tmux's mode footer).
+

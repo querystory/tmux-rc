@@ -91,8 +91,18 @@ def _load_prompt(name: str) -> str:
     return _prompts[name][1]
 
 
+def compose_prompt(read_prompt) -> str:
+    """Compose a template using fragments from the same source/revision."""
+    prompt = read_prompt("parser_prompt.txt")
+    for tool in ("codex", "gemini", "claude", "claude_detail"):
+        marker = "{{" + tool + "}}\n"
+        if marker in prompt:
+            prompt = prompt.replace(marker, read_prompt(f"parser_{tool}.txt"))
+    return prompt
+
+
 def parser_prompt() -> str:
-    return _load_prompt("parser_prompt.txt")
+    return compose_prompt(_load_prompt)
 
 
 def bootstrap_prompt() -> str:

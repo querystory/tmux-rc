@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 from openbus import llm
-from openbus.classify import parser_prompt
+from openbus.classify import compose_prompt, parser_prompt
 
 from .harness import evaluate, format_table, load_corpus
 
@@ -78,7 +78,9 @@ def main() -> int:
     if args.prompt:
         # Read the candidate verbatim, matching the production loader. Boundary
         # whitespace changes tokenization and must not differ between A/B and live.
-        prompt_text = args.prompt.read_text(encoding="utf-8")
+        prompt_text = compose_prompt(lambda name: (
+            args.prompt if name == "parser_prompt.txt" else args.prompt.with_name(name)
+        ).read_text(encoding="utf-8"))
         import openbus.classify as C
 
         C.parser_prompt = lambda: prompt_text  # type: ignore[assignment]

@@ -1,0 +1,8 @@
+- "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
+  "Fable" + a version like "4.8" — the family grows, so an unfamiliar name in the model
+  slot is claude when the rest of the chrome matches); status line shows dir/branch ·
+  model · context% · elapsed · cost · prompts/tools counts; whimsical gerund while
+  working (e.g. "Shimmying…"); permission modes "plan mode"/"accept edits"/"bypass
+  permissions"; Esc-Esc REWIND picker. The CHROME identifies it — an unrecognized model
+  name inside unmistakable Claude Code chrome is still "claude". GPT names in its
+  conversation, logs, or subagent output do not change the identity of the host agent.
