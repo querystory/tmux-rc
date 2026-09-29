@@ -27,7 +27,8 @@ AUTOINCREMENT creation number only for local pagination.
 
 A persisted machine UUID identifies the originating installation across daemon/OS
 restarts; hostnames and boot IDs are not machine identity. New installations get a new
-machine UUID. Store it in the database metadata, replacing today's hostname guard;
+machine UUID. Store it in the database metadata, replacing today's hostname guard (a copied
+database moves the installation, it does not clone it);
 other machines' records arrive through exports, not by opening a copied database.
 The conversation has one authoritative writer; cross-machine analysis can combine copies
 by their global keys, but concurrent editing of one copied thread is not a replication
@@ -62,7 +63,8 @@ are both `user` entries, with `input_mode: voice|text` in metadata; replies are
 end the conversation, reset usage, or create a Call. Text mode is a UI/audio preference,
 not another durable lifecycle. A reopened thread starts with audio off until requested.
 
-Route submitted text into the active provider conversation. Confirm each adapter can
+Route submitted text into the active provider conversation as a user turn, an adapter
+operation distinct from today's ambient-context injection. Confirm each adapter can
 accept text and produce visible replies while local audio is disabled; do not recreate
 the provider session just to hide audio controls. If a provider requires a new session,
 say it is reconnecting and restore bounded context explicitly rather than silently
@@ -144,7 +146,8 @@ When recording is enabled, atomically save the image before committing its entry
 reference; a recording failure leaves an explicit unavailable-image marker and incomplete
 history, not a broken reference described as saved. Input delivery need not fail because
 history storage failed. Render saved thumbnails/full images in history in their original
-prompt order. Recording disabled means no retained image copy; the same content policy
+prompt order. Recording disabled means no retained image copy beyond the existing transient
+delivery staging; the same content policy
 applies to images as text, including Live-origin pane inputs.
 
 Later exports (see Share) that preserve images bundle their referenced bytes and part manifests;
@@ -201,7 +204,8 @@ rates change; we are not promising invoice reconciliation or historical billing 
 
 Provide a visible Save conversation toggle before starting. When off, do not persist
 transcript content or send it through content-bearing telemetry/logging: that choice is
-checked before serialization and overrides QSDEBUG. Do not save microphone audio, provider credentials, or exact action
+checked before serialization and overrides QSDEBUG. The existing operator pane-send
+audit log keeps its own setting. Do not save microphone audio, provider credentials, or exact action
 payloads in Live Mode action entries. Exact text belongs only in opted-in pane input
 entries as described above. The saved transcript itself may contain sensitive things the user said.
 
