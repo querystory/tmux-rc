@@ -34,6 +34,7 @@ def test_mobile_assets_and_manifest():
         "/m/composer.js",
         "/m/pane-model.js",
         "/lm-tap.js",
+        "/live-close.js",
         "/terminal.js",
         "/push.js",
         "/pr-links.js",
