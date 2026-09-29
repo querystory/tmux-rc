@@ -47,7 +47,8 @@ they do not need their own durable records.
 
 Put a text composer in the Live Mode thread. The user can switch to **Text mode** in a
 crowded room or meeting: stop microphone capture, stop current playback and suppress
-new spoken replies, while keeping the assistant conversation open. Responses remain
+new spoken replies, while keeping the assistant conversation open. This is its own control; Stop still
+ends the conversation. Responses remain
 visible as text. Switching back to Voice explicitly reacquires the microphone and
 enables spoken replies. Closing the keyboard or sending text never unmutes audio.
 
@@ -146,7 +147,7 @@ history storage failed. Render saved thumbnails/full images in history in their 
 prompt order. Recording disabled means no retained image copy; the same content policy
 applies to images as text, including Live-origin pane inputs.
 
-Exports intended to preserve images bundle their referenced bytes and part manifests;
+Later exports (see Share) that preserve images bundle their referenced bytes and part manifests;
 text-only exports clearly mark omitted images. Hash deduplication is not authorization: enforce owner access
 for image reads and never expose files through a public hash URL. Deleting history removes
 unreferenced owner-scoped blobs through serialized cleanup, retaining blobs still referenced
@@ -236,7 +237,7 @@ finished messages, action notices and meter totals into the writer. Add list/rea
 UI. Pane input history can follow using the same tables and shared writer, with composer,
 API and Live Mode logical sends covered together. Test message ordering/retries, reconnect without duplication, crash/write failure,
 usage without messages, cross-machine identifiers, pane identity/restarts, send-time context, missing origin links,
-ordered image pastes, missing blobs, export integrity and shared-blob deletion,
+ordered image pastes, missing blobs, shared-blob deletion,
 recording opt-out, owner isolation and deletion races. No
 backfill and no changes to provider tool dispatch. Review that small implementation
 before designing restart-time continuation or sharing. In parallel, add the Live Mode
