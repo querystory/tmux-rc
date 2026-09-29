@@ -43,7 +43,7 @@ with the best context and asked once.
 
 The fast path is an optimization over that default, for latency and cost. When a small
 fast model, reading the directory, finds exactly one confident target and a simple
-message ("tell the qs-app review pane to push"), the front end sends direct: one tool
+message ("tell the qs-app review pane to add a test for that"), the front end sends direct: one tool
 call, no second model, a sub-second round trip. Any doubt drops the request to control
 rather than to a guess. The residual risk is false confidence: a wrong pane judged
 certain is a real misroute. So "confident" means a unique match on workstream identity
@@ -55,8 +55,9 @@ This is GPT-Live's fast-front/slow-back split (a voice model delegating terminal
 to a Responses backend, `openbus/gpt_live.py`), with control as the backend.
 
 The fast path may send **only plain text to a single confident target**: Live Mode's
-`type_in_pane`, nothing else. No key presses, nothing destructive, no window creation,
-no resumes; all of those go to control, which asks the user for risky actions per the
+`type_in_pane`, nothing else. No key presses, no window creation, no resumes, no shell
+panes (text there executes), and no message whose content asks for something
+destructive or outward-facing such as a push or a delete; all of those go to control, which asks the user for risky actions per the
 control plane's risk tiers. This is what makes consent a property of routing rather
 than a separate gate: the only unconfirmed action is the one a person would do without
 thinking (say a sentence to an agent), and every action with a real blast radius passes
