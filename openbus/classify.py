@@ -18,11 +18,14 @@ import re
 from itertools import islice
 from pathlib import Path
 
-from .tmux import Pane
+from .tmux import VISIBLE_SCREEN, Pane, strip_dim
 
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
+_OPAQUE_SESSION_RE = re.compile(
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{16,})", re.IGNORECASE,
+)
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
@@ -107,6 +110,67 @@ def parser_prompt() -> str:
 
 def bootstrap_prompt() -> str:
     return _load_prompt("bootstrap_prompt.txt")
+
+
+def _session_evidence(text: str) -> str:
+    lines = text.splitlines()
+    return "\n".join(lines[-4:] + [line for line in lines if "Thread renamed to " in line])
+
+
+def _supported_session(name, visible: str, tool) -> bool:
+    if not isinstance(name, str) or not name.strip():
+        return False
+    name = name.strip()
+    if name.startswith(("~/", "/")) or _OPAQUE_SESSION_RE.fullmatch(name):
+        return False
+    if tool not in ("codex", "claude"):
+        return True
+    pattern = r"(?<![\w/.-])" + re.escape(name) + r"(?![\w/.-])"
+    return bool(re.search(pattern, _session_evidence(visible)))
+
+
+def _supported_question(question, visible: str) -> bool:
+    prompt = question.get("prompt") if isinstance(question, dict) else None
+    return isinstance(prompt, str) and bool(prompt.strip()) and (
+        " ".join(prompt.split()).casefold() in " ".join(visible.split()).casefold()
+    )
+
+
+def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: str) -> None:
+    """Validate actionable fields against their UI evidence, retrying once on that slice."""
+    visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
+    bad_question = (
+        bool(result.get("question")) and VISIBLE_SCREEN in text
+        and not _supported_question(result["question"], visible)
+    )
+    bad_session = result.get("session") is not None and not _supported_session(
+        result["session"], visible, result.get("tool"),
+    )
+    if not (bad_question or bad_session):
+        return
+    # A rejected old menu can also contaminate activity/headline. Re-read only the
+    # viewport; for identity alone, restrict the same model to the status evidence.
+    evidence = visible if bad_question else _session_evidence(visible)
+    retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
+    retry = dict(retry) if isinstance(retry, dict) else None
+    if bad_question:
+        result.pop("question", None)
+        if isinstance(retry, dict):
+            for key in ("activity", "waiting_on", "headline", "question", "rewind"):
+                result.pop(key, None)
+                if key in retry:
+                    result[key] = retry[key]
+        else:
+            result["activity"] = "unknown"
+        if result.get("question") and not _supported_question(result["question"], visible):
+            result.pop("question", None)
+            result["activity"] = "unknown"
+    if bad_session:
+        result.pop("session", None)
+        if isinstance(retry, dict) and _supported_session(
+            retry.get("session"), visible, result.get("tool"),
+        ):
+            result["session"] = retry["session"].strip()
 
 
 def _obvious_idle(text: str) -> bool:
@@ -305,6 +369,16 @@ def classify(
     # completed answer above it.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
+    _ground_visible_fields(result, text, pane, llm_fn, parser_prompt())
+    # A cursor picker's advertised search binding is evidence, not a model guess.
+    question = result.get("question")
+    if isinstance(question, dict) and question.get("answer_style") == "cursor":
+        keymap = question.get("keymap")
+        footer = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()[-3:]
+        if isinstance(keymap, dict) and any(re.search(
+            r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", line, re.IGNORECASE,
+        ) for line in footer):
+            keymap["search"] = True
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
     # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any
@@ -356,7 +430,19 @@ def classify(
         for link in (result.get("links") or [])
         if isinstance(link, dict) and link.get("href")
     }
+    # Structured tables already render this content; don't duplicate their rows as
+    # a copy button just because the model also emitted the terminal's plain text.
+    tables = result.get("tables")
+    table_text = set()
+    for table in tables if isinstance(tables, list) else []:
+        rows = table.get("rows") if isinstance(table, dict) else None
+        if isinstance(rows, list) and rows and all(
+            isinstance(row, list) and all(isinstance(v, str) for v in row) for row in rows
+        ):
+            table_text.add(" ".join(" ".join(v for row in rows for v in row).split()))
     cps = result.get("copyables")
+    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", strip_dim(text))
+    copy_source = copy_source.replace("\\\n", "")
 
     def _valid(cps):
         """Validated entries, lazily — islice below stops us at 3 without validating the
@@ -367,11 +453,27 @@ def classify(
             # strip() not len(): whitespace-only text is nothing to paste, and the client
             # discards it anyway — dropping here keeps it off every poll for every client.
             stripped = c["text"].strip()
-            if not stripped or len(c["text"]) > 4000 or stripped in hrefs:
+            if (not stripped or len(c["text"]) > 4000 or stripped in hrefs
+                    or " ".join(stripped.split()) in table_text):
+                continue
+            # Copy whole displayed blocks/inline code, not invented summaries or
+            # fragments cut out of a longer prose paragraph. Permit terminal wraps.
+            words = r"\s+".join(re.escape(word) for word in stripped.split())
+            if f"`{stripped}`" not in copy_source and not re.search(
+                r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
+            ):
                 continue
             yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
 
     good = list(islice(_valid(cps), 3)) if isinstance(cps, list) else []
+    question = result.get("question")
+    if good and isinstance(question, dict) and question.get("answer_style") in ("menu", "cursor"):
+        # A held selection expects a key, not a pasted command. Keep the payload as
+        # supporting question context instead of offering the wrong input affordance.
+        result["tables"] = (tables if isinstance(tables, list) else []) + [
+            {"title": c["label"], "headers": ["Context"], "rows": [[c["text"]]]} for c in good
+        ]
+        good = []
     if good:
         result["copyables"] = good
     else:

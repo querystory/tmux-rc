@@ -6,6 +6,8 @@ new events since the last read + cadence elapsed ⇒ re-read replaces the summar
 WITHOUT re-seeding events (a re-seed would duplicate the log); an idle pane never
 re-reads."""
 
+import pytest
+
 import openbus.watcher as W
 from openbus.watcher import SUMMARY_REFRESH_SECONDS, Watcher, _append_events
 
@@ -53,6 +55,17 @@ def test_busy_pane_summary_refreshes(monkeypatch):
     w._maybe_bootstrap([p])
     assert calls["n"] == 2
     assert w._boot["%1"]["summary"] == "new story"
+
+
+@pytest.mark.parametrize("tool", [None, "unknown", "shell", "gemini"])
+def test_refresh_does_not_reassign_known_title_provenance(monkeypatch, tool):
+    w, _ = _watcher(monkeypatch, [{"summary": "story", "name": "Old name", "events": []}])
+    w._boot["%1"] = {"summary": "old", "name": "Old name", "tool": "codex",
+                       "ts": 0, "seq": 0}
+    w._events_seq["%1"] = 1
+    w._state["%1"] = {"tool": "codex", "identity_tool": tool}
+    w._maybe_bootstrap([_Pane()])
+    assert w._boot["%1"]["tool"] == "codex"
 
 
 def test_idle_pane_never_rereads(monkeypatch):

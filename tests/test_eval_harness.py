@@ -231,6 +231,17 @@ def test_a_non_boolean_search_flag_is_not_true():
     assert not ok and any("question" in d for d in diffs)
 
 
+def test_production_prompt_composes_tool_fragments(tmp_path, monkeypatch):
+    from openbus import classify as classifier
+
+    (tmp_path / "parser_prompt.txt").write_text("Shared\n{{codex}}\n{{claude}}\n{{gemini}}\n")
+    for tool in ("codex", "claude", "gemini"):
+        (tmp_path / f"parser_{tool}.txt").write_text(tool + " rules\n")
+    monkeypatch.setattr(classifier, "__file__", str(tmp_path / "classify.py"))
+    monkeypatch.setattr(classifier, "_prompts", {})
+    assert classifier.parser_prompt() == "Shared\ncodex rules\nclaude rules\ngemini rules\n"
+
+
 def test_production_prompt_preserves_candidate_bytes(tmp_path, monkeypatch):
     from openbus import classify as classifier
 

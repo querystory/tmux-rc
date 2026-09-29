@@ -3,6 +3,8 @@ forced reparse — never on a timer. An unchanged screen must cost zero classify
 calls no matter how long it sits, and a slowly-drifting screen must still re-parse on content
 alone (the parse-cadence note atop openbus/watcher.py; the ~58%-duplicate finding)."""
 
+import pytest
+
 import openbus.watcher as W
 from openbus.watcher import Watcher
 
@@ -65,6 +67,173 @@ def test_refined_label_survives_idle_ticks(monkeypatch):
         assert w._tick_pane(pane)["label"] == "agent-name"
     w._forced_this_tick = set()
     assert w._tick_pane(_Pane(label="renamed"))["label"] == "renamed"
+
+
+def test_explicit_title_wins_over_inferred_name_on_parse_cache_and_rename(monkeypatch):
+    w, _ = _harness(monkeypatch, ["Posthog Airbyte Connector · GPT-6-Astra medium"])
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "events": [], "tool": "codex",
+        "session": "Posthog Airbyte Connector",
+        "label": "Posthog Airbyte Connector", "tmux_label": pane.label})
+    pane = _Pane(label="qs-app-0:17")
+    pane.display_title = "Working | qs-app | docs/query-result-metadata"
+    for _ in range(2):
+        w._forced_this_tick = set()
+        state = w._tick_pane(pane)
+        assert state["title"] == pane.display_title
+    pane.label = "renamed:17"
+    w._forced_this_tick = set()
+    renamed = w._tick_pane(pane)
+    assert renamed["title"] == pane.display_title
+    assert renamed["label"] == "renamed:17"
+
+
+def test_codex_title_matching_tmux_label_is_still_a_conversation_name(monkeypatch):
+    w, _ = _harness(monkeypatch, ["work · GPT-6-Astra medium"])
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "events": [], "tool": "codex", "session": pane.label,
+        "label": pane.label, "tmux_label": pane.label})
+    pane = _Pane()
+    pane.display_title = None
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["title"] == "work"
+
+
+@pytest.mark.parametrize("initial_title", [None, "Set title"])
+@pytest.mark.parametrize("initial_tool", [None, "unknown", "codex"])
+@pytest.mark.parametrize("replacement", ["shell", "gemini"])
+def test_bootstrap_title_survives_cached_ticks_but_explicit_title_wins(
+    monkeypatch, initial_title, initial_tool, replacement,
+):
+    w, _ = _harness(monkeypatch, ["unchanged idle screen"])
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "pane_id": pane.id, "label": pane.label, "tool": "codex",
+        "activity": "idle", "events": []})
+    pane = _Pane()
+    pane.display_title = initial_title
+    pane.pid = "100"
+    w._birth[pane.id] = pane.pid
+    w._boot[pane.id] = {"name": "Fix search", "summary": "Worked on search", "tool": initial_tool}
+    monkeypatch.setattr(W.tmux, "server_running", lambda: True)
+    monkeypatch.setattr(W.tmux, "list_panes", lambda: [pane])
+    monkeypatch.setattr(W.tmux, "active_pane_id", lambda: pane.id)
+    w._tick()
+    assert w.states[0]["title"] == (initial_title or "Fix search")
+    pane.display_title = None
+    assert w._tick_pane(pane)["title"] == "Fix search"
+    pane.display_title = "Explicit title"
+    assert w._tick_pane(pane)["title"] == "Explicit title"
+    # Even the full tick (which merges bootstrap again) must not resurrect the
+    # old conversation name after an explicit tool change.
+    pane.display_title = None
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "pane_id": pane.id, "label": pane.label, "tool": replacement,
+        "activity": "idle", "events": []})
+    w._force_parse.add(pane.id)
+    w._tick()
+    assert w.states[0]["title"] is None
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "pane_id": pane.id, "label": pane.label, "tool": "codex",
+        "activity": "idle", "events": []})
+    w._force_parse.add(pane.id)
+    w._tick()
+    assert w.states[0]["title"] is None
+
+
+def test_bootstrap_title_survives_fresh_parse_before_outer_tick_merge(monkeypatch):
+    w, _ = _harness(monkeypatch, ["conversation output"])
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "tool": "codex", "events": [], "label": pane.label})
+    pane = _Pane()
+    pane.display_title = None
+    w._forced_this_tick = set()
+    state = w._tick_pane(pane)
+    state.update(bootstrap_title="Fix search", bootstrap_tool="codex")
+    w._forced_this_tick = {pane.id}
+    # Startup/new-pane progressive publication happens before the outer bootstrap
+    # merge; that intermediate card must retain the already-visible name too.
+    assert w._tick_pane(pane)["title"] == "Fix search"
+
+
+def test_semantic_title_survives_omission_but_new_name_and_tool_win(monkeypatch):
+    w, _ = _harness(monkeypatch, ["conversation output"])
+    parsed = {"tool": "codex", "session": "Fix search"}
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "events": [], "label": pane.label, **parsed})
+    pane = _Pane()
+    pane.display_title = None
+
+    def parse():
+        w._forced_this_tick = {pane.id}
+        return w._tick_pane(pane)["title"]
+
+    assert parse() == "Fix search"
+    parsed.pop("session")
+    assert parse() == "Fix search"
+    # Re-emitting a name during an unknown read must not erase its known owner.
+    parsed.update(tool="unknown", session="Fix search")
+    assert parse() == "Fix search"
+    assert w._state[pane.id]["agent_title_tool"] == "codex"
+    parsed.pop("session")
+    for tool in ("unknown", None, "codex"):
+        parsed["tool"] = tool
+        assert parse() == "Fix search"
+    parsed.update(tool="unknown", parse_ok=False)
+    assert parse() == "Fix search"
+    parsed.update(tool="codex", parse_ok=True, session="New task")
+    assert parse() == "New task"
+    parsed.pop("session")
+    parsed["tool"] = "shell"
+    assert parse() is None
+
+
+@pytest.mark.parametrize("tool_fields", [{}, {"tool": None}, {"tool": "unknown"}])
+@pytest.mark.parametrize("replacement", ["shell", "gemini"])
+def test_unowned_semantic_title_is_not_assigned_to_a_replacement(
+    monkeypatch, tool_fields, replacement,
+):
+    w, _ = _harness(monkeypatch, ["conversation output"])
+    parsed = {"session": "Old conversation", **tool_fields}
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "activity": "idle", "events": [], "label": pane.label, **parsed})
+    pane = _Pane()
+    pane.display_title = None
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["title"] == "Old conversation"
+    parsed.clear()
+    parsed["tool"] = replacement
+    w._forced_this_tick = {pane.id}
+    assert w._tick_pane(pane)["title"] is None
+
+
+@pytest.mark.parametrize("tool_fields", [{}, {"tool": None}, {"tool": "unknown"}])
+def test_missing_tool_does_not_break_known_bootstrap_title(tool_fields):
+    pane = _Pane()
+    pane.display_title = None
+    state = {"bootstrap_title": "Fix search", "bootstrap_tool": "codex", **tool_fields}
+    W._stamp_identity(state, pane)
+    assert state["title"] == "Fix search"
+
+
+@pytest.mark.parametrize("bootstrap_tool", [None, "unknown"])
+@pytest.mark.parametrize("replacement", ["codex", "shell", "gemini"])
+def test_unowned_bootstrap_title_clears_for_shell_not_first_agent(bootstrap_tool, replacement):
+    pane = _Pane()
+    pane.display_title = None
+    state = {"bootstrap_title": "Previous conversation", "bootstrap_tool": bootstrap_tool,
+             "identity_tool": replacement}
+    W._stamp_identity(state, pane)
+    assert state["title"] == (None if replacement == "shell" else "Previous conversation")
+
+
+def test_title_fallback_and_other_tools_keep_terminal_title():
+    pane = _Pane()
+    pane.display_title = "Terminal title"
+    for tool, label in (("codex", pane.label), ("codex", None), ("claude", "Parsed name")):
+        state = {"tool": tool, "label": label, "tmux_label": pane.label,
+                 "agent_title": "Claude conversation" if tool == "claude" else None}
+        W._stamp_identity(state, pane)
+        assert state["title"] == "Terminal title"
 
 
 def test_unchanged_screen_parses_once(monkeypatch):

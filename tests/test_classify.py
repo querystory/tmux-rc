@@ -5,6 +5,15 @@ from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
 
+def test_opaque_session_identifiers_are_not_titles():
+    for name in ("01a0e9d1-093d-7c10-84f4-133c9544c971", " ABCDEF0123456789 "):
+        result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
+        assert "session" not in result
+    for name in ("gpt-5 migration", "airbyte-value-population", "Review 4955", "deadbeef"):
+        result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
+        assert result["session"] == name
+
+
 def _pane(cmd="bash"):
     return Pane("work", "0", "bash", "0", "%0", cmd, "t", "/home/x/proj")
 
@@ -299,7 +308,7 @@ def test_copyables_capped_and_malformed_dropped():
     # rather than repairing it — a clipped paste is worse than no paste.
     r = classify(
         _pane(),
-        "…",
+        "fix: unwrap the thing\npast the malformed ones",
         _llm(
             {
                 "activity": "idle",
@@ -328,7 +337,7 @@ def test_copyables_reemitted_minimally():
     # free, and an enormous label is payload too (the client's 60 cap is only display).
     r = classify(
         _pane(),
-        "…",
+        "paste me\nno label at all",
         _llm(
             {
                 "activity": "idle",
@@ -350,7 +359,7 @@ def test_copyables_validated_before_capping():
     # most-pasteable-first, so capping the raw list would drop a good trailing entry.
     r = classify(
         _pane(),
-        "…",
+        "first\nsecond\nthird",
         _llm(
             {
                 "activity": "idle",
@@ -388,7 +397,7 @@ def test_copyable_duplicating_a_link_is_dropped():
     # duplicate affordance. Text that merely CONTAINS a URL still copies.
     r = classify(
         _pane(),
-        "…",
+        "https://github.com/o/r/pull/5\ncurl https://github.com/o/r/pull/5 -H accept:json",
         _llm(
             {
                 "activity": "idle",
@@ -426,3 +435,114 @@ def test_background_terminal_hint_is_scoped_to_current_section():
     assert prompts[-1] == parser_prompt()
     classify(_pane("node"), "Ready", capture_prompt, prior=["Background terminals:\n old command"])
     assert prompts[-1] == parser_prompt()
+
+
+def test_codex_title_requires_current_ui_evidence():
+    capture = ("› Ask Codex to do anything\n\n"
+               "01a0e9d1-093d-7c10-84f4-133c9544c971 · gpt-6-astra medium · "
+               "Context 52% left · ~/src/tmux-rc · Ready")
+    result = classify(_pane("node"), capture, _llm({
+        "tool": "codex", "session": "Track PRs per live session",
+    }))
+    assert "session" not in result
+    assert result["label"] == _pane("node").label
+
+
+def test_session_grounding_preserves_footer_and_rename_titles():
+    for capture in (
+        "old output\n\n› input\n\nReview 4955 · gpt-6-sol · ~/src/app",
+        "Thread renamed to Review 4955\n" + "output\n" * 10,
+    ):
+        result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "Review 4955"}))
+        assert result["session"] == "Review 4955"
+
+
+def test_null_session_does_not_trigger_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "codex", "session": None, "activity": "idle"}
+    result = classify(_pane("node"), "gpt-6-sol · ~/src/app", read)
+    assert result["session"] is None
+    assert len(calls) == 1
+
+
+def test_session_grounding_rejects_paths_and_quoted_output():
+    for name in ("~/src/app", "/src/app", "app", "other-pane"):
+        capture = "{'session': 'other-pane'}\n\noutput\n\n› input\n\n~/src/app · gpt-6-sol"
+        result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": name}))
+        assert "session" not in result
+
+
+def test_stale_question_is_reread_from_visible_screen_only():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "codex", "activity": "waiting", "question": {"prompt": "Update now?"}}
+        assert "Update now?" not in text
+        return {"tool": "codex", "activity": "idle", "headline": "Ready for a request"}
+    capture = "Update now?\n\x1e[visible screen]\x1f\n› Ask Codex to do anything"
+    result = classify(_pane("node"), capture, read)
+    assert len(calls) == 2
+    assert "question" not in result and "waiting_on" not in result
+    assert result["activity"] == "idle"
+
+
+def test_visible_question_is_preserved_without_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "codex", "question": {"prompt": "Allow this command?"}}
+    capture = ("history\n\x1e[visible screen]\x1f\nAllow this command?\n"
+               "1. Yes\n2. No\n[visible screen]")
+    result = classify(_pane("node"), capture, read)
+    assert len(calls) == 1
+    assert result["question"]["prompt"] == "Allow this command?"
+    assert result["activity"] == "waiting"
+
+
+def test_copyable_table_rows_are_not_duplicated():
+    result = classify(_pane(), "text", _llm({
+        "tables": [{"headers": ["PR", "State"], "rows": [["12", "Open"], ["13", "Merged"]]}],
+        "copyables": [{"label": "PR list", "text": "12  Open\n13  Merged"}],
+    }))
+    assert "copyables" not in result
+    assert len(result["tables"]) == 1
+
+
+def test_cursor_search_binding_requires_visible_footer_evidence():
+    for capture, expected in (
+        ("Resume session\nType to search · Esc to cancel", True),
+        ("Type to search\n\x1e[visible screen]\x1f\nResume session\nEsc to cancel", False),
+        ("Resume session\nSearch is not available", False),
+    ):
+        result = classify(_pane("node"), capture, _llm({
+            "tool": "claude", "question": {"prompt": "Resume session",
+            "answer_style": "cursor", "keymap": {"select": "Enter", "search": False}},
+        }))
+        assert result["question"]["keymap"]["search"] is expected
+
+
+def test_menu_command_becomes_context_not_paste_action():
+    result = classify(_pane(), "Allow?\ngit apply patch.diff", _llm({
+        "question": {"prompt": "Allow?", "answer_style": "menu", "options": ["Yes", "No"]},
+        "copyables": [{"label": "Command", "text": "git apply patch.diff"}],
+    }))
+    assert "copyables" not in result
+    assert result["tables"][0]["rows"] == [["git apply patch.diff"]]
+    assert result["question"]["options"] == ["Yes", "No"]
+
+
+def test_copyable_cannot_cut_a_summary_out_of_prose():
+    result = classify(_pane(), "• Tests reject malformed input. No PR was opened.", _llm({
+        "copyables": [{"label": "Summary", "text": "Tests reject malformed input."}],
+    }))
+    assert "copyables" not in result
+
+
+def test_copyable_can_quote_inline_code_and_wrapped_box():
+    result = classify(_pane(), "Run `git status` first.\n│ A wrapped │\n│ message.  │", _llm({
+        "copyables": [{"text": "git status"}, {"text": "A wrapped message."}],
+    }))
+    assert [c["text"] for c in result["copyables"]] == ["git status", "A wrapped message."]

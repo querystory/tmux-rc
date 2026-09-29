@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -466,6 +467,9 @@ def _materialize_links(text: str) -> str:
 # (glyphs chosen for near-zero collision with pane text) that survive the ANSI strip.
 _SGR = re.compile(r"\x1b\[([0-9;:]*)m")
 DIM_OPEN, DIM_CLOSE = "⟪dim⟫", "⟪/dim⟫"
+# C0 record/unit separators are inserted after capture, not terminal cells:
+# a pane printing the readable label cannot impersonate this capture boundary.
+VISIBLE_SCREEN = "\x1e[visible screen]\x1f"
 # A faint run sitting right after a prompt glyph in an EMPTY input box is the agent's
 # greyed suggestion text (a placeholder) — categorically NOT the user's typed input,
 # which renders near-white. Marking it distinctly stops every LLM path from reading the
@@ -488,7 +492,7 @@ def strip_dim(text: str) -> str:
     """Collapse a marked capture back to the plain text the phone renders."""
     for a, b in ((DIM_OPEN, DIM_CLOSE), (PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE)):
         text = text.replace(a, "").replace(b, "")
-    return text
+    return text.replace(VISIBLE_SCREEN + "\n", "")
 
 
 _OPENS = (DIM_OPEN, PLACEHOLDER_OPEN)
@@ -593,16 +597,25 @@ def capture_pane(
     escape sequences so OSC 8 hyperlinks can be materialized before the rest are
     stripped. Two independent, orthogonal flags on that stripped-by-default output:
 
-      - `mark_dim` (LLM-bound captures): re-encode faint/gray runs as ⟪dim⟫ markers
-        before the strip, so the parser can tell drafts/suggestions from real output.
+      - `mark_dim` (LLM-bound captures): label the history/viewport boundary and
+        re-encode faint/gray runs as ⟪dim⟫ markers before stripping colors.
       - `keep_colors` (live view): skip the strip entirely and return the raw SGR
         runs, which the client renders as colored spans (docs/design/live-view.md).
 
     The live path keeps colors and does NOT mark dim (the client renders color itself);
     the parser path marks dim and strips. Phone-facing snapshots use neither."""
-    out = _materialize_links(
-        _run(["capture-pane", "-p", "-J", "-e", "-t", pane_id, "-S", f"-{lines}"])
-    )
+    capture = ["capture-pane", "-p", "-J", "-e", "-t", pane_id]
+    nonce = os.urandom(16).hex()  # tmux <3.5 vis-escapes C0 in display-message.
+    args = [*capture, "-S", f"-{lines}"]
+    if mark_dim and not keep_colors:
+        # Split in tmux's physical row coordinates BEFORE -J joins wrapped rows.
+        # One command queue captures both regions; no second-process resize race.
+        # -E -1 with no history clamps to row zero, so skip that capture entirely.
+        history = shlex.join([*capture, "-S", f"-{lines}", "-E", "-1"])
+        args = ["if-shell", "-F", "-t", pane_id, "#{>:#{history_size},0}", history,
+                ";", "display-message", "-p", nonce,
+                ";", *capture, "-S", "0"]
+    out = _materialize_links(_run(args)).replace(nonce, VISIBLE_SCREEN, 1)
     if keep_colors:
         return out.rstrip("\n")  # live view: raw SGR, client colorizes
     if mark_dim:

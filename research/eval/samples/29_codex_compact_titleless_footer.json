@@ -1,0 +1,11 @@
+{
+  "description": "Compact model/cwd Codex footer has no title and no Context field; do not promote session names from command output.",
+  "current_command": "node",
+  "capture": "\u2022 Ran a pane status check\n  {'session': 'qs-app-0', 'title': 'Other conversation'}\n\n\u2022 Check complete.\n\nWorked for 2m 10s\n\n\u203a Ask Codex to do anything\n\n  gpt-5.5 xhigh fast \u00b7 ~/src/example-app",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Pane status check complete; ready for another request"
+  }
+}

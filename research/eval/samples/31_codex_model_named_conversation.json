@@ -1,0 +1,11 @@
+{
+  "description": "A human task name can include a model name; interpret the live UI semantically rather than discarding the first model-looking segment.",
+  "current_command": "node",
+  "capture": "OpenAI Codex\n\n• Migration complete and tests passed.\n\nWorked for 2m 10s\n\n› Ask Codex to do anything\n\n  gpt-5 migration · gpt-6-astra medium · Context 52% left · ~/src/tmux-rc · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": "gpt-5 migration",
+    "headline": "Migration complete and tests passed"
+  }
+}

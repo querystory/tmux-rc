@@ -1,0 +1,11 @@
+{
+  "description": "A Codex footer without a thread title leads with the checkout path; do not use the path or names in output as the conversation name.",
+  "current_command": "node",
+  "capture": "\u2022 Finished checking the build. All tests passed.\n\nWorked for 2m 10s\n\n\u203a Ask Codex to do anything\n\n~/src/tmux-rc \u00b7 gpt-6-astra medium \u00b7 Context 52% left \u00b7 Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Build checked and tests passed; ready for another request"
+  }
+}
