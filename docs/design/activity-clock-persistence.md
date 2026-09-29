@@ -66,14 +66,14 @@ after startup as a screen change, so an unconditional write-on-change would stam
 every row with "now" on each restart: the bug again.
 
 Memory stays the runtime source of truth. SQLite is a write-through checkpoint, read
-only on a pane's first sighting after startup and never on the tick path, so a slow or
-locked database can only cost restart seeding, never live UI latency. A crash between
+once in bulk at startup into memory and never per pane or per tick, so a slow or
+locked database costs at most one timeout and restart seeding. A crash between
 a change and its write is harmless: the hash mismatches and seeding falls back to
 `window_activity`, which is accurate for a pane that just changed.
 
 ### Seeding
 
-On a pane's first sighting after startup, the watcher looks up its row. If the stored
+On a pane's first sighting after startup, the watcher looks up its preloaded row. If the stored
 hash matches the current screen, the stored times replace `window_activity` wherever
 the code now seeds from it: `last_activity_at`, and `state_since` on a pane that is
 already idle. If the hash differs, or there is no row, or the database can't be read,
@@ -109,9 +109,12 @@ and copies watching the same tmux server compute identical pane keys. The condit
 write makes this safe: the first copy to see a change records it, the other's write is
 a no-op, and they converge.
 
-- Copies running different fingerprint code hash the same screen differently. Writes
-  still happen only on real changes, so stored times stay honest, but a restart may
-  mismatch and fall back to `window_activity`. Accepted, as with versioning below.
+- Copies running different fingerprint code hash the same screen differently, so each
+  restart of one copy mismatches the other's rows, falls back to `window_activity`,
+  and re-stamps them. That is today's behavior, confined to a mixed-version setup.
+  Accepted, as with versioning below.
+- Two copies racing on one change can leave the older observation in the row. The
+  loser's next tick sees the new screen and rewrites it, so the error lasts one poll.
 - The existing inventory history has the same two-writer exposure. An instance lock or
   a per-instance database is the real fix and belongs in its own change.
 
@@ -169,7 +172,9 @@ direction, so a version column isn't worth it. Rejected.
 
 - **Database missing, locked, or corrupt:** seed from `window_activity`, as today.
   A failed write is not retried; the row stays stale until the pane's next real
-  change, and a restart before then falls back to `window_activity`.
+  change, and a restart before then falls back to `window_activity`. Writes back off
+  for a minute after a failure, as history recording does, so a failing disk can't
+  slow the watcher.
 - **Screen changed while down:** hash mismatch, fall back to `window_activity`, and
   the pane shows as recent. That's correct.
 - **Screen changed and changed back while down** (a command run, then cleared): the
