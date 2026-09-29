@@ -50,6 +50,8 @@ func ReadEntry(path string) (Entry, error) {
 	err = json.Unmarshal(obj, &e)
 	if e.SourceMissing { // the harness deleted it: still findable, no longer resumable
 		e.ResumeArgv, e.Resume = nil, ""
+	} else if e.ResumeArgv == nil && e.Resume != "" { // format 1, until reconcile rebuilds it
+		e.ResumeArgv = claudeResume(e.ID)
 	}
 	e.named = normalize(e.Title + " " + strings.Join(e.Branches, " ") + " " + strings.Join(e.PRs, " "))
 	e.body = normalize(body)
@@ -118,15 +120,18 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 			p.Score += s.Score
 		}
 		p.Sessions = p.Sessions[:min(len(p.Sessions), max(opt.MaxSessions, 0))]
-		// Round for display only, after the sums that rank.
-		p.Score = round(p.Score)
-		for i := range p.Sessions {
-			p.Sessions[i].Score = round(p.Sessions[i].Score)
-		}
 		projects = append(projects, *p)
 	}
 	slices.SortFunc(projects, func(a, b Project) int { return cmp.Compare(b.Score, a.Score) })
-	return projects[:min(len(projects), max(opt.MaxProjects, 0))]
+	projects = projects[:min(len(projects), max(opt.MaxProjects, 0))]
+	// Round only after ranking and selecting projects; tiny differences still decide.
+	for i := range projects {
+		projects[i].Score = round(projects[i].Score)
+		for j := range projects[i].Sessions {
+			projects[i].Sessions[j].Score = round(projects[i].Sessions[j].Score)
+		}
+	}
+	return projects
 }
 
 // idf weights each query term by how rare it is across sessions, so a word like "fix"

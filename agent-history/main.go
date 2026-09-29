@@ -43,7 +43,10 @@ func main() {
 	case "reconcile":
 		Reconcile()
 	case "resolve":
-		resolveCmd(os.Args[2:])
+		if err := resolveCmd(os.Args[2:]); err != nil {
+			report(err)
+			os.Exit(1)
+		}
 	case "get":
 		getCmd(os.Args[2:])
 	default:
@@ -52,7 +55,7 @@ func main() {
 	}
 }
 
-func resolveCmd(args []string) {
+func resolveCmd(args []string) error {
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
 	opt.Running, opt.RunningErr = RunningClaude()
@@ -69,15 +72,18 @@ func resolveCmd(args []string) {
 		os.Exit(2)
 	}
 	paths, err := find(filepath.Join(Root(), "index"), ".md", 2)
-	report(err)
+	if err != nil {
+		return err
+	}
 	nested, err := find(filepath.Join(Root(), "index"), ".md", 3)
-	report(err)
+	if err != nil {
+		return err
+	}
 	var entries []Entry
 	for _, p := range append(paths, nested...) {
 		e, err := ReadEntry(p)
 		if err != nil {
-			report(err)
-			continue
+			return fmt.Errorf("read index entry %s: %w", p, err)
 		}
 		entries = append(entries, e)
 	}
@@ -86,8 +92,7 @@ func resolveCmd(args []string) {
 		out := json.NewEncoder(os.Stdout)
 		out.SetEscapeHTML(false)
 		out.SetIndent("", "  ")
-		out.Encode(map[string]any{"query": query, "projects": projects})
-		return
+		return out.Encode(map[string]any{"query": query, "projects": projects})
 	}
 	for _, p := range projects {
 		fmt.Printf("%s  (score %.2f)\n", p.Repo, p.Score)
@@ -102,6 +107,7 @@ func resolveCmd(args []string) {
 			}
 		}
 	}
+	return nil
 }
 
 // getCmd prints one top-level session as JSON, with whether it is running, for a

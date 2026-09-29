@@ -87,11 +87,40 @@ func TestResolveEdgeCases(t *testing.T) {
 	if s := got[0].Sessions[0]; len(s.ResumeArgv) != 0 || s.Resume != "" || !s.SourceMissing {
 		t.Errorf("deleted session still resumable: %+v", s)
 	}
+	// A format-1 entry has only the resume line; resolve must not wait for reconcile.
+	must(t, os.WriteFile(path, []byte(strings.Replace(string(data), "\nresume_argv:", "\nx:", 1)), 0o600))
+	legacy, err := ReadEntry(path)
+	must(t, err)
+	check(t, "legacy argv", strings.Join(legacy.ResumeArgv, " "), "claude --resume gone")
 
 	negative := defaults
 	negative.MaxProjects, negative.MaxSessions = -1, -1
 	if got := Resolve([]Entry{gone}, "otlp", negative); len(got) != 0 {
 		t.Errorf("negative limits = %v", got)
+	}
+}
+
+func TestResolveRanksBeforeRounding(t *testing.T) {
+	entries := []Entry{
+		entry(t, Session{ID: "older", Cwd: "/a", LastActive: now.Add(-time.Second).Format(time.RFC3339)}, "ranking"),
+		entry(t, Session{ID: "newer", Cwd: "/z"}, "ranking"),
+	}
+	opt := defaults
+	opt.MaxProjects = 1
+	for range 50 {
+		got := Resolve(entries, "ranking", opt)
+		check(t, "higher score despite same display rounding", got[0].Repo, "/z")
+	}
+}
+
+func TestResolveCommandReportsUnreadableEntry(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_HISTORY_DIR", root)
+	dir := filepath.Join(root, "index", "claude")
+	must(t, os.MkdirAll(dir, 0o700))
+	must(t, os.WriteFile(filepath.Join(dir, "broken.md"), []byte("---\ntitle: invalid-json\n---\nquery"), 0o600))
+	if err := resolveCmd([]string{"-json", "query"}); err == nil {
+		t.Fatal("corrupt index was reported as a successful empty search")
 	}
 }
 

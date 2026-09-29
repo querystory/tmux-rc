@@ -97,7 +97,7 @@ func ReadClaude(path string) (Session, error) {
 		s.Title = aiTitle
 	}
 	if !subagent && s.Cwd != "" {
-		s.ResumeArgv = []string{"claude", "--resume", s.ID}
+		s.ResumeArgv = claudeResume(s.ID)
 	}
 	return s, nil
 }
@@ -188,6 +188,8 @@ func subagentDescription(metaPath string) string {
 	}
 	return meta.Description
 }
+
+func claudeResume(id string) []string { return []string{"claude", "--resume", id} }
 
 // ResumeLine is the copy-paste form of the resume command, for humans. Programs use
 // Cwd and ResumeArgv directly and never go through a shell.
