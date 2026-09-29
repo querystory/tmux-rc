@@ -191,3 +191,11 @@ text was added for either fix.
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked
 on #249. Next: finish the current-head Copilot loop; no merge or deployment authorized.
+
+Copilot's review of 77ae2bf found two more structural identity edges. The no-input
+fallback now accepts a Codex model only on a standalone status-shaped row, rather
+than inside quoted tool output. Relative path/branch-shaped names are rejected as
+sessions alongside absolute paths and opaque IDs. Eval samples 41 and 42 cover both
+cases. Final validation on this revision: **741 unit tests**, Ruff clean, target
+repetition **30/30**, and full Vertex candidate eval **44/45**. The sole failure is
+still sample 16's supporting table, which also fails on main. No prompt text changed.

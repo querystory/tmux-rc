@@ -526,6 +526,12 @@ def test_session_grounding_rejects_paths_and_quoted_output():
         capture = "{'session': 'other-pane'}\n\noutput\n\n› input\n\n~/src/app · gpt-6-sol"
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": name}))
         assert "session" not in result
+    capture = ("› input\n\nairbyte-value-population · gpt-5.6-sol medium · "
+               "docs/query-result-metadata-design · ~/src/app · Ready")
+    result = classify(_pane("node"), capture, _llm({
+        "tool": "codex", "session": "docs/query-result-metadata-design",
+    }))
+    assert "session" not in result
 
 
 def test_short_capture_does_not_promote_tool_output_to_status_evidence():
@@ -535,6 +541,8 @@ def test_short_capture_does_not_promote_tool_output_to_status_evidence():
         "log: Thread renamed to other-pane\n› input\n~/src/app · gpt-6-sol",
         ("› old input\n\x1e[visible screen]\x1f\n{'session': 'other-pane'}\n"
          "Inspecting parser\nWorking\n~/src/app · gpt-6-sol"),
+        ("\x1e[visible screen]\x1f\nDone\n"
+         "{'footer': 'other-pane · gpt-6-sol · Ready'}"),
     ):
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "other-pane"}))
         assert "session" not in result

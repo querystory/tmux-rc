@@ -26,6 +26,12 @@ _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
 _OPAQUE_SESSION_RE = re.compile(
     r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{16,})", re.IGNORECASE,
 )
+_RELATIVE_PATH_RE = re.compile(r"^(?:[^/\s]+/)+[^/\s]+$")
+_CODEX_STATUS_ROW_RE = re.compile(
+    r"^\s*(?:[^{}\[\]'\"]+\s+·\s+)?(?:gpt-[\w.-]+|o\d[\w.-]*)"
+    r"(?:\s+[^·{}\[\]'\"]+)?(?:\s+·\s+[^{}\[\]'\"]+)*\s*$",
+    re.IGNORECASE,
+)
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
@@ -121,7 +127,7 @@ def _session_evidence(text: str) -> str:
     footer = lines[max(input_row + 1, len(lines) - 4):]
     if input_row < 0:
         footer = [line for line in footer if re.match(r"^\s*(?:~/|/)", line)
-                  or re.search(r"(?:^|·\s*)(?:gpt-[\w.-]+|o\d[\w.-]*)(?:\s|·|$)", line)]
+                  or _CODEX_STATUS_ROW_RE.fullmatch(line)]
     renamed = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*(?:[•●]\s*)?Thread renamed to \S", line)]
     return "\n".join(footer + renamed)
@@ -131,7 +137,8 @@ def _supported_session(name, visible: str, tool) -> bool:
     if not isinstance(name, str) or not name.strip():
         return False
     name = name.strip()
-    if name.startswith(("~/", "/")) or _OPAQUE_SESSION_RE.fullmatch(name):
+    if (name.startswith(("~/", "/")) or _RELATIVE_PATH_RE.fullmatch(name)
+            or _OPAQUE_SESSION_RE.fullmatch(name)):
         return False
     if tool not in ("codex", "claude"):
         return True
