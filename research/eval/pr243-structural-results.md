@@ -207,3 +207,13 @@ quoted session output between the input and real Codex footer. Validation remain
 **741 unit tests**, Ruff clean, target repetition **30/30**, and the expanded full
 Vertex candidate eval is **45/46**, with only main's known sample 16 failure. No
 prompt text changed.
+
+Copilot's read-only audit of bd3ab9a supplied three final reproductions and explicitly
+found no others. OpenCode/Gemini session names now require viewport evidence; a bounded
+question retry cannot resurrect a rewind unless the visible picker includes both its
+heading and restore hint; bootstrap names use the same path/opaque-ID shape rejection
+as live titles. Samples 44 and 45 cover the live classifier cases, with focused unit
+coverage for bootstrap. Final validation: **744 unit tests**, Ruff clean, target
+repetition **30/30**, and full Vertex candidate eval **47/48**, with only main's known
+sample 16 failure. One identical full run was aborted by Vertex with 499 CANCELLED and
+provided no verdict before the successful rerun. No prompt text changed.

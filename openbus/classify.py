@@ -137,17 +137,22 @@ def _session_evidence(text: str) -> str:
     return "\n".join(footer + renamed)
 
 
-def _supported_session(name, visible: str, tool) -> bool:
+def _valid_session_shape(name) -> bool:
     if not isinstance(name, str) or not name.strip():
         return False
     name = name.strip()
-    if (name.startswith(("~/", "/")) or _RELATIVE_PATH_RE.fullmatch(name)
-            or _OPAQUE_SESSION_RE.fullmatch(name)):
+    return not (name.startswith(("~/", "/")) or _RELATIVE_PATH_RE.fullmatch(name)
+                or _OPAQUE_SESSION_RE.fullmatch(name))
+
+
+def _supported_session(name, visible: str, tool) -> bool:
+    if not _valid_session_shape(name):
         return False
-    if tool not in ("codex", "claude"):
-        return True
+    name = name.strip()
     pattern = r"(?<![\w/.-])" + re.escape(name) + r"(?![\w/.-])"
-    return bool(re.search(pattern, _session_evidence(visible)))
+    evidence = (_session_evidence(visible) if tool in ("codex", "claude") else
+                strip_dim(visible.rsplit(VISIBLE_SCREEN, 1)[-1]))
+    return bool(re.search(pattern, evidence))
 
 
 def _supported_question(question, visible: str) -> bool:
@@ -155,6 +160,11 @@ def _supported_question(question, visible: str) -> bool:
     return isinstance(prompt, str) and bool(prompt.strip()) and (
         " ".join(prompt.split()).casefold() in " ".join(visible.split()).casefold()
     )
+
+
+def _supported_rewind(rewind, visible: str) -> bool:
+    text = " ".join(visible.split()).casefold()
+    return bool(rewind) and "rewind to a previous point" in text and "enter to restore" in text
 
 
 def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: str) -> None:
@@ -167,17 +177,22 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
         bool(result.get("question")) and VISIBLE_SCREEN in text
         and not _supported_question(result["question"], visible)
     )
+    bad_rewind = (
+        bool(result.get("rewind")) and VISIBLE_SCREEN in text
+        and not _supported_rewind(result["rewind"], visible)
+    )
     bad_session = result.get("session") is not None and not _supported_session(
         result["session"], identity, result.get("tool"),
     )
-    if not (bad_question or bad_session):
+    if not (bad_question or bad_rewind or bad_session):
         return
     # A rejected old menu can also contaminate activity/headline. Re-read only the
     # viewport; for identity alone, restrict the same model to the status evidence.
-    evidence = visible if bad_question else _session_evidence(identity)
+    bad_action = bad_question or bad_rewind
+    evidence = visible if bad_action else _session_evidence(identity)
     retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
-    if bad_question:
+    if bad_action:
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
         for key in state_fields:
             result.pop(key, None)
@@ -188,7 +203,10 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
         else:
             result["activity"] = "unknown"
             result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
-        if result.get("question") and not _supported_question(result["question"], visible):
+        unsupported_action = (
+            result.get("question") and not _supported_question(result["question"], visible)
+        ) or (result.get("rewind") and not _supported_rewind(result["rewind"], visible))
+        if unsupported_action:
             for key in state_fields:
                 result.pop(key, None)
             result["activity"] = "unknown"
@@ -298,9 +316,10 @@ def bootstrap(
         if isinstance(e, dict) and e.get("text")
     ][:12]
     name = result.get("name")
+    name = name.strip()[:60] if _valid_session_shape(name) else None
     return {
         "summary": result["summary"].strip(),
-        "name": name.strip()[:60] if isinstance(name, str) and name.strip() else None,
+        "name": name,
         "events": events,
         "working_prs": _working_prs(result.get("working_prs")),
     }

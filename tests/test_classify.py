@@ -10,7 +10,7 @@ def test_opaque_session_identifiers_are_not_titles():
         result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
         assert "session" not in result
     for name in ("gpt-5 migration", "airbyte-value-population", "Review 4955", "deadbeef"):
-        result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
+        result = classify(_pane(), name, _llm({"session": name, "activity": "idle"}))
         assert result["session"] == name
 
 
@@ -45,6 +45,15 @@ def test_bootstrap_rejects_junk():
     assert bootstrap(_pane(), "…", _llm(["not a dict"])) is None
     assert bootstrap(_pane(), "…", _llm({"summary": 3})) is None
     assert bootstrap(_pane(), "…", lambda s, t: None) is None
+
+
+def test_bootstrap_rejects_non_title_names():
+    for name in ("~/src/app", "/src/app", "docs/metadata-design",
+                 "01a0e9d1-093d-7c10-84f4-133c9544c971"):
+        result = bootstrap(_pane("node"), "ordinary history", _llm({
+            "summary": "Working on parser behavior", "name": name,
+        }))
+        assert result["name"] is None
 
 
 def test_bootstrap_prompt_explains_opencode_model_identity():
@@ -519,6 +528,28 @@ def test_failed_question_retry_does_not_retire_the_screen():
         assert not any(key in result for key in ("rewind", "waiting_on", "headline"))
         assert result["activity"] == "unknown"
         assert result["parse_ok"] is False
+
+
+def test_question_retry_cannot_resurrect_stale_rewind():
+    replies = iter([
+        {"tool": "codex", "question": {"prompt": "Old approval?"}},
+        {"tool": "codex", "activity": "idle",
+         "rewind": {"entries": [{"text": "old turn"}]}},
+    ])
+    result = classify(
+        _pane("node"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+        lambda _prompt, _text: next(replies),
+    )
+    assert not any(key in result for key in ("question", "rewind", "waiting_on"))
+    assert result["activity"] == "unknown" and result["parse_ok"] is False
+
+
+def test_non_codex_session_requires_visible_evidence():
+    for tool in ("opencode", "gemini"):
+        result = classify(_pane(tool), "\x1e[visible screen]\x1f\n› Ready", _llm({
+            "tool": tool, "session": "Unrelated title", "activity": "idle",
+        }))
+        assert "session" not in result
 
 
 def test_session_grounding_rejects_paths_and_quoted_output():
