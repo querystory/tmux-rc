@@ -93,7 +93,7 @@ and VAPID keys survive the restart.
 
 Before the phone steps, serve the app over authenticated HTTPS with WebSocket
 support and configure Live Mode (`TMUXRC_LIVE_MODE=1` plus credentials for the
-selected provider). See [Live Mode](design/live-mode.md) and [deployment](../deploy/).
+selected provider). See [Live Mode](design/live-mode.md) and [deployment](deploy/_index.md).
 The server must keep running even when the phone is asleep.
 
 The sender contact defaults to `mailto:tmux-rc@openbus.io`; no configuration is
