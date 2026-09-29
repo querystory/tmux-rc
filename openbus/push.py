@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 
 SETTLE_SECONDS = 5.0
 PRESENCE_SECONDS = 40.0
-TMUX_ACTIVE_SECONDS = 30.0
 RATE_WINDOW_SECONDS = 15 * 60.0
 RATE_MAX = 3
 NONCE_SECONDS = 10 * 60.0
@@ -269,7 +268,7 @@ class PushSender:
             # pywebpush mutates this dict with endpoint-specific aud/exp claims,
             # so every endpoint receives the independent copy returned by the store.
             claims = {"sub": os.environ.get(
-                "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@localhost"
+                "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@openbus.io"
             )}
             webpush(
                 subscription_info=subscription,
@@ -441,8 +440,7 @@ class PushManager:
         while True:
             await asyncio.sleep(1)
             try:
-                # client_active_within shells out to tmux. Keep that bounded subprocess
-                # and the rest of notification evaluation off the server event loop.
+                # Keep notification evaluation off the server event loop.
                 await asyncio.to_thread(self.evaluate)
             except Exception:
                 logger.warning("push evaluation failed", exc_info=True)
@@ -488,9 +486,6 @@ class PushManager:
             for nonce, issued in list(self._nonces.items()):
                 if issued["expires"] < now or (issued["pane_id"], issued["fingerprint"]) in cleared:
                     self._nonces.pop(nonce, None)
-            visible = bool(self._presence)
-        if visible or tmux.client_active_within(TMUX_ACTIVE_SECONDS):
-            return
 
         for pane, fp, question in candidates:
             pane_id = pane["pane_id"]

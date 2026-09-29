@@ -173,6 +173,19 @@ def test_sender_delivers_to_devices_in_parallel(monkeypatch):
     assert sorted(delivered) == sorted(item["endpoint"] for item in subscriptions)
 
 
+@pytest.mark.parametrize("override", [None, "mailto:operator@example.com"])
+def test_sender_vapid_contact_default_and_override(monkeypatch, override):
+    monkeypatch.delenv("TMUXRC_PUSH_SUBJECT", raising=False)
+    if override is not None:
+        monkeypatch.setenv("TMUXRC_PUSH_SUBJECT", override)
+    sent = []
+    monkeypatch.setattr(push, "webpush", lambda **kwargs: sent.append(kwargs))
+    sender = object.__new__(push.PushSender)
+    sender._deliver(subscription(), {"title": "Question"}, "test-key")
+    assert len(sent) == 1
+    assert sent[0]["vapid_claims"]["sub"] == (override or "mailto:tmux-rc@openbus.io")
+
+
 def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
     assert push.option_keys(question, 0) == "y"
@@ -271,18 +284,18 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     assert len(sender.payloads) == 2
 
 
-def test_visible_presence_suppresses_until_the_lease_is_gone(tmp_path, monkeypatch):
+def test_visible_browser_and_active_tmux_do_not_suppress_push(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
     watcher.states = [waiting()]
     service, sender = manager(tmp_path, watcher, clock)
-    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: True)
     service.note_presence("phone", visible=True)
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
-    assert sender.payloads == []
-    service.note_presence("phone", visible=False)
+    assert len(sender.payloads) == 1
+    # Activity must not bypass duplicate prevention either.
     service.evaluate()
     assert len(sender.payloads) == 1
 
