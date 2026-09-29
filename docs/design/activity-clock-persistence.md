@@ -120,8 +120,9 @@ a no-op, and they converge.
 
 ### Pruning
 
-After the first successful listing of every pane on the tmux server, we delete that
-server's rows for panes not in it. The listing must be the full one, not the watch
+After the first successful listing of every pane on the tmux server, we delete the
+preloaded rows for that server whose panes are not in it. Limiting the delete to the
+preload means a row another daemon inserted meanwhile can't be pruned. The listing must be the full one, not the watch
 list, which `TMUXRC_TARGET` narrows to one pane. Expiring
 rows by age instead would drop a long-idle live pane back to `window_activity`, which
 the footer redraws above keep fresh: the very bug this fixes. If tmux can't be listed,
