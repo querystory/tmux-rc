@@ -97,13 +97,13 @@ def test_opencode_stale_checklist_does_not_validate_current_bullets():
 
 
 def test_opencode_standalone_checkboxes_own_their_line_and_done_state():
-    tasks = [{"text": t, "done": False} for t in ("Ship the parser fix", "Prose")]
+    tasks = [{"text": t, "done": False} for t in ("Ship it", "Test it", "Drop it", "Prose")]
     r = classify(
         _pane(cmd="opencode"),
-        "Plan\n[X] Ship the parser fix\n[ ]\nProse\n\nOpenCode 1.18.32",
+        "Plan\n[✓] Ship it\n[•] Test it\n~[ ] Drop it~\n[ ]\nProse\n\nOpenCode 1.18.32",
         _llm({"tool": "opencode", "activity": "running", "tasks": tasks}),
     )
-    assert r["tasks"] == [{"text": "Ship the parser fix", "done": True}]
+    assert r["tasks"] == [{"text": "Ship it", "done": True}, *tasks[1:3]]
 
 
 def test_opencode_interrupt_spinner_forces_running():
