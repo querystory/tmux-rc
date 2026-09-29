@@ -167,17 +167,19 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if bad_question:
-        result.pop("question", None)
+        state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
+        for key in state_fields:
+            result.pop(key, None)
         if retry:
-            for key in ("activity", "waiting_on", "headline", "question", "rewind"):
-                result.pop(key, None)
+            for key in state_fields:
                 if key in retry:
                     result[key] = retry[key]
         else:
             result["activity"] = "unknown"
             result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
         if result.get("question") and not _supported_question(result["question"], visible):
-            result.pop("question", None)
+            for key in state_fields:
+                result.pop(key, None)
             result["activity"] = "unknown"
             result["parse_ok"] = False
     if bad_session:

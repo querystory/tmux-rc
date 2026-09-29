@@ -162,6 +162,13 @@ also a failed parse, not a successful state. The existing failure-path regressio
 now includes that response. Inspected the two-line change and reran all **738 tests**
 and Ruff successfully; the successful-response path and prompt are unchanged.
 
+An independent failure-path reproduction found a retained old `rewind` could override
+`activity=unknown` back to `waiting` after a failed stale-question retry. Clear all
+old state fields before either retry outcome, and clear unsupported retry state as
+well. The strengthened regression seeds an old rewind/headline and checks None, {},
+and unsupported-question responses all stay unknown without actions or a headline.
+All **738 tests** and Ruff pass. Successful re-read output and prompt are unchanged.
+
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked
 on #249. Next: finish the current-head Copilot loop; no merge or deployment authorized.
