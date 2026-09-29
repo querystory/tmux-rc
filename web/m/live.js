@@ -1,3 +1,4 @@
+import { liveClose } from "/live-close.js";
 // Audio wire contract mirrors lmCapture/lmPlayChunk in /app.js. Keep rates, resampling,
 // PCM scaling, and base64 chunk bounds in sync with those desktop implementations.
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
@@ -245,15 +246,14 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     ws.onclose = (event) => {
       if (run !== current || current.ws !== ws) return;
       clearTimeout(current.deadline); current.listening = false;
-      if (event.code !== 1000 && event.code !== 1005 && current.up && current.tries < MAX_RECONNECT_TRIES) {
+      const { retry, refusal } = liveClose(event);
+      if (retry && current.up && current.tries < MAX_RECONNECT_TRIES) {
         current.connectionStatus = "Connection lost. Reconnecting...";
         audioStatus(current);
         current.retry = setTimeout(() => connect(current), 1000 * 2 ** current.tries++);
-      // 1008 is a refusal before the accept — no socket to send an error frame on, so the
-      // explanation rides on the close itself, and it is the only thing that says whether
-      // to reload the tab or go set a key. "Try again" is worse than nothing there: it
-      // names the one action that cannot help.
-      } else if (event.code === 1008 && event.reason) stop(event.reason);
+      // A refusal says whether to reload the tab or go set a key; "Try again" names the
+      // one action that cannot help.
+      } else if (refusal) stop(refusal);
       else stop(event.code === 1000 ? "Session ended" : "Live Mode disconnected. Try again.");
     };
   }

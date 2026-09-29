@@ -53,6 +53,7 @@ import { paneLinks } from "/pr-links.js";
 import { renderCaptureLines, linkifyText } from "./terminal.js";
 import { pickCursorRow } from "./cursor-pick.js";
 import { sendPresence, stateUrl } from "./push.js";
+import { liveClose } from "./live-close.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -4401,16 +4402,14 @@ function lmConnect() {
     const abnormal = e.code !== 1000 && e.code !== 1005;
     if (abnormal)
       reportError("ws", { name: "close " + e.code, message: e.reason || "" });
-    // A refusal happens BEFORE the accept, so there is no socket to send an error frame
-    // on: the explanation rides on the close itself. Without this the button simply goes
-    // dark — the server has carefully said "reload the page" or "no configured model has
-    // its key set" and nobody reads it. Set before the reconnect branch so it survives one,
-    // and cleared by lmStatus when a session does come back.
-    if (e.code === 1008 && e.reason) lmFatal = e.reason;
+    // A refusal (web/live-close.js) is shown, never retried: without this the button
+    // simply goes dark and the server's "reload the page" / "set a key" goes unread.
+    const { retry, refusal } = liveClose(e);
+    if (refusal) lmFatal = refusal;
     // Dropped MID-SESSION (it was up): almost always the tunnel resetting its relay
     // link, which is back within seconds — hold the mic and reopen with the same session
     // id: 1,2,4,8,16s. A drop before the session was ever up, or a spent budget, stops.
-    if (abnormal && lmUp && lmTries < 5) {
+    if (retry && lmUp && lmTries < 5) {
       lmWs = null;
       lmStatus("reconnecting");
       lmAdd("err", `connection lost — reconnecting (${lmTries + 1}/5)`);
