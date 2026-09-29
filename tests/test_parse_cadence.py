@@ -184,6 +184,7 @@ def test_semantic_title_survives_omission_but_new_name_and_tool_win(monkeypatch)
     assert parse() == "New task"
     parsed.pop("session")
     parsed["tool"] = "shell"
+    parsed["parse_ok"] = False
     assert parse() is None
 
 

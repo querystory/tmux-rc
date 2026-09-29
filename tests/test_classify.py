@@ -460,6 +460,14 @@ def test_codex_title_requires_current_ui_evidence():
     assert result["label"] == _pane("node").label
 
 
+def test_status_fields_are_not_session_title_evidence():
+    for name in ("gpt-5.5", "xhigh fast", "fast", "~/src/app"):
+        result = classify(_pane("node"), "gpt-5.5 xhigh fast · ~/src/app", _llm({
+            "tool": "codex", "session": name, "activity": "idle",
+        }))
+        assert "session" not in result
+
+
 def test_session_grounding_preserves_footer_and_rename_titles():
     for capture in (
         "old output\n\n› input\n\nReview 4955 · gpt-6-sol · ~/src/app",
@@ -651,7 +659,10 @@ def test_scrolled_rename_is_evidence_for_initial_read_and_retry():
         calls = []
         def read(_prompt, text, calls=calls, initial=initial):
             calls.append(text)
-            assert "Thread renamed to Fix login redirects" in text
+            if len(calls) == 1:
+                assert "Thread renamed to Fix login redirects" in text
+            else:
+                assert text.endswith("Thread renamed to Fix login redirects")
             return {"tool": "codex", "session": initial if len(calls) == 1
                     else "Fix login redirects", "activity": "idle"}
         result = classify(_pane("node"), capture, read)

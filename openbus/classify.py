@@ -118,23 +118,45 @@ def bootstrap_prompt() -> str:
     return _load_prompt("bootstrap_prompt.txt")
 
 
-def _session_evidence(text: str) -> str:
+def _session_chrome(text: str) -> list[str]:
     lines = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()
     # The input row separates conversation output from the bottom status chrome.
     # A short capture can put quoted tool output in the last four rows too.
     input_row = max((i for i, line in enumerate(lines)
                      if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
     candidates = lines[max(input_row + 1, len(lines) - 4):]
-    footer = []
+    chrome = []
     for i, line in enumerate(candidates):
         path_status = re.match(r"^\s*(?:~/|/)", line)
-        if path_status and i and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1]):
-            footer.append(candidates[i - 1])  # Claude title immediately above its status.
+        if (path_status and i
+                and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
+            chrome.append(candidates[i - 1])  # Claude title immediately above status.
         if path_status or _CODEX_STATUS_ROW_RE.fullmatch(line):
-            footer.append(line)
-    renamed = [line for line in strip_dim(text).splitlines()
-               if re.match(r"^\s*(?:[•●]\s*)?Thread renamed to \S", line)]
-    return "\n".join(footer + renamed)
+            chrome.append(line)
+    chrome.extend(line for line in strip_dim(text).splitlines()
+                  if re.match(r"^\s*(?:[•●]\s*)?Thread renamed to \S", line))
+    return chrome
+
+
+def _session_evidence(text: str) -> str:
+    titles = []
+    for line in _session_chrome(text):
+        match = re.match(r"^\s*[─━]+\s+(\S.*?)\s*$", line)
+        if match:
+            titles.append(match.group(1))
+            continue
+        if _CODEX_STATUS_ROW_RE.fullmatch(line):
+            segments = [segment.strip() for segment in line.split("·")]
+            models = [j for j, segment in enumerate(segments) if re.match(
+                r"^(?:gpt-[\w.-]+|o\d[\w.-]*)(?:\s|$)", segment, re.IGNORECASE,
+            )]
+            model = models[-1] if models else 0
+            if model:
+                titles.append(" · ".join(segments[:model]))
+        match = re.match(r"^\s*(?:[•●]\s*)?Thread renamed to (\S.*?)\s*$", line)
+        if match:
+            titles.append(match.group(1))
+    return "\n".join(titles)
 
 
 def _valid_session_shape(name) -> bool:
@@ -187,7 +209,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     # A rejected old menu can also contaminate activity/headline. Re-read only the
     # viewport; for identity alone, restrict the same model to the status evidence.
     bad_action = bad_question or bad_rewind
-    evidence = visible if bad_action else _session_evidence(identity)
+    evidence = visible if bad_action else "\n".join(_session_chrome(identity))
     retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if bad_action:

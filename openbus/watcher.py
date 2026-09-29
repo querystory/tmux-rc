@@ -1107,7 +1107,6 @@ class Watcher:
         # Do not carry it into a different tool after the conversation exits.
         if not state["agent_title"] and previous and (
             title_tool in (None, "unknown", previous_title_tool)
-            or not state.get("parse_ok", True)
         ):
             state["agent_title"] = previous.get("agent_title")
         if title_tool in (None, "unknown"):
@@ -1220,7 +1219,16 @@ class Watcher:
             # is worse than a stale card. We failed to read the screen, so the honest
             # card is the last one we actually read: keep it whole and retry next tick.
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
+            replacement_tool = state.get("identity_tool")
+            previous_tool = previous.get("identity_tool", previous.get("tool"))
+            known_replacement = (
+                replacement_tool not in (None, "unknown")
+                and replacement_tool != previous_tool
+            )
             state = dict(previous)
+            if known_replacement:
+                state.update(tool=replacement_tool, identity_tool=replacement_tool,
+                             agent_title=None, agent_title_tool=None)
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 

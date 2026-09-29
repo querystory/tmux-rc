@@ -225,3 +225,13 @@ session evidence. Sample 45 includes the quoted-output reproducer. Validation re
 **744 unit tests**, Ruff clean, and full Vertex candidate eval **47/48**, with only
 main's known sample 16 failure. The Codex-specific target path is unchanged from its
 latest **30/30** run. No prompt text changed.
+
+The review of de0a2c7 found two additional structural cases. Session validation now
+extracts only the actual Codex footer title segment (or Claude's dedicated title row),
+while the bounded retry receives the complete recognized chrome so it retains tool
+context. Model/effort/mode/path/status segments cannot become titles; model-named
+titles still work by selecting the last model-shaped footer segment as the model slot.
+A known tool replacement also survives failed-parse state fallback and clears the old
+agent title. Sample 46 and watcher tests cover both paths. Final validation:
+**745 unit tests**, Ruff clean, target repetition **30/30**, and full Vertex candidate
+eval **48/49**, with only main's known sample 16 failure. No prompt text changed.
