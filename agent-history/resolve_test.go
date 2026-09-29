@@ -92,9 +92,11 @@ func TestResolveEdgeCases(t *testing.T) {
 	legacy, err := ReadEntry(path)
 	must(t, err)
 	check(t, "legacy argv", strings.Join(legacy.ResumeArgv, " "), "claude --resume gone")
-	must(t, os.WriteFile(path, data[:strings.Index(string(data), "\n---\n")], 0o600))
-	if _, err := ReadEntry(path); err == nil {
-		t.Error("truncated entry read without error")
+	for _, bad := range [][]byte{data[:strings.Index(string(data), "\n---\n")], data[4:]} {
+		must(t, os.WriteFile(path, bad, 0o600))
+		if _, err := ReadEntry(path); err == nil {
+			t.Errorf("malformed entry read without error: %q", bad)
+		}
 	}
 
 	negative := defaults

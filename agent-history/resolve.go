@@ -39,9 +39,10 @@ func ReadEntry(path string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	header, body, ok := strings.Cut(strings.TrimPrefix(string(data), "---\n"), "\n---\n")
-	if !ok { // entries are written whole, so this one is damaged or not ours
-		return Entry{}, errors.New("no end of front matter")
+	rest, opened := strings.CutPrefix(string(data), "---\n")
+	header, body, closed := strings.Cut(rest, "\n---\n")
+	if !opened || !closed { // entries are written whole, so this one is damaged or not ours
+		return Entry{}, errors.New("no front matter")
 	}
 	fields := map[string]json.RawMessage{}
 	for line := range strings.Lines(header) {
