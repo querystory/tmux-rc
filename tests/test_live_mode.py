@@ -135,6 +135,17 @@ def test_system_prompt_has_rules_and_panes():
     assert "# Panes (live state)" in p and 'window 3 "work" (id=%1)' in p
 
 
+def test_explicit_pr_target_precedes_conversational_continuity():
+    prompt = L._system_prompt(_Watcher())
+    window = prompt.index("1. A window the user names")
+    pr = prompt.index("2. If the user names a repository and PR number")
+    continuity = prompt.index("3. Otherwise the conversation you're already in")
+    active = prompt.index("4. Otherwise ACTIVE")
+    assert window < pr < continuity < active
+    assert "belongs in matching window B, not A" in prompt
+    assert "If no association matches, inspect current pane context or ask which window" in prompt
+
+
 def _dispatch(fc, monkeypatch, watcher=None):
     w = watcher or _Watcher()
     ws, session = _WS(), _Session()
