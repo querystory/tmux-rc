@@ -121,7 +121,7 @@ async def main():
         )
     ).stdout
     browser = Browser(bytes(16000) + pcm)
-    meter = live._Meter("gpt-live-smoke", "smoke")
+    meter = live._Meter("gpt-live-smoke", "smoke", gpt_live.ENTRY)
     actions = []
     with (
         patch.object(live.tmux, "send_keys", side_effect=lambda *a: actions.append(a)),
