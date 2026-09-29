@@ -185,9 +185,8 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     # An explicitly set terminal title wins over an inferred conversation name.
     boot_title = s.get("bootstrap_title")
     tool = s.get("identity_tool", s.get("tool"))
-    if tool not in (None, "unknown") and (
-        s.get("bootstrap_tool") not in (None, "unknown", tool)
-        or (s.get("bootstrap_tool") in (None, "unknown") and tool == "shell")
+    if tool == "shell" or (
+        tool not in (None, "unknown") and s.get("bootstrap_tool") not in (None, "unknown", tool)
     ):
         boot_title = None  # history from a previous agent must not name its replacement
     s["title"] = p.display_title or s.get("agent_title") or boot_title
@@ -626,9 +625,7 @@ class Watcher:
             # that title on an unchanged screen reveals the semantic name immediately.
             tool = s.get("identity_tool", s.get("tool"))
             if tool not in (None, "unknown"):
-                if b.get("tool") not in (None, "unknown", tool) or (
-                    b.get("tool") in (None, "unknown") and tool == "shell"
-                ):
+                if tool == "shell" or b.get("tool") not in (None, "unknown", tool):
                     b["name"] = None  # never resurrect it if this tool returns later
                 b["tool"] = tool
             s["bootstrap_title"] = b["name"]

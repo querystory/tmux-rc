@@ -169,6 +169,14 @@ well. The strengthened regression seeds an old rewind/headline and checks None, 
 and unsupported-question responses all stay unknown without actions or a headline.
 All **738 tests** and Ruff pass. Successful re-read output and prompt are unchanged.
 
+Copilot's read-only audit of 778b281 identified two remaining concrete cases. Failed
+identity-only retries (None, {}, or another unsupported name) now mark the parse
+unsuccessful so the displayed title can be reread. An explicit shell now rejects an
+agent bootstrap name even when its recorded bootstrap owner was also shell; a full
+watcher bootstrap/publication test covers this startup path and explicit-title
+precedence. **740 unit tests**, Ruff clean, final target matrix **30/30**, final full
+candidate-file eval **40/41**, failing only the known main sample 16 missing table.
+
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked
 on #249. Next: finish the current-head Copilot loop; no merge or deployment authorized.

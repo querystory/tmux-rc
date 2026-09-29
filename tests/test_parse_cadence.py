@@ -236,6 +236,35 @@ def test_title_fallback_and_other_tools_keep_terminal_title():
         assert state["title"] == "Terminal title"
 
 
+def test_initial_shell_bootstrap_does_not_name_the_shell_from_agent_history(monkeypatch):
+    w, _ = _harness(monkeypatch, ["user@host:~$ "])
+    pane = _Pane()
+    pane.pid, pane.display_title = "100", None
+    w._birth[pane.id] = pane.pid
+    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: {
+        "pane_id": pane.id, "label": pane.label, "tool": "shell",
+        "activity": "idle", "events": []})
+    monkeypatch.setattr(W.tmux, "server_running", lambda: True)
+    monkeypatch.setattr(W.tmux, "list_panes", lambda: [pane])
+    monkeypatch.setattr(W.tmux, "active_pane_id", lambda: pane.id)
+    w._tick()
+    monkeypatch.setattr(W, "backing_off", lambda: False)
+    monkeypatch.setattr(W.tmux, "capture_pane", lambda *a, **kw: "old conversation\nuser@host:~$ ")
+    monkeypatch.setattr(W, "bootstrap", lambda *a, **kw: {
+        "name": "Old agent name", "summary": "Old work", "events": []})
+    w._maybe_bootstrap([pane])
+    assert w._boot[pane.id]["tool"] == "shell"
+    state = {"bootstrap_title": "Old agent name", "bootstrap_tool": "shell", "tool": "shell"}
+    W._stamp_identity(state, pane)
+    assert state["title"] is None
+    w._tick()
+    assert w.states[0]["title"] is None
+    assert w._boot[pane.id]["name"] is None
+    pane.display_title = "My terminal"
+    w._tick()
+    assert w.states[0]["title"] == "My terminal"
+
+
 def test_unchanged_screen_parses_once(monkeypatch):
     frame = ["$ idle prompt"]
     w, calls = _harness(monkeypatch, frame)

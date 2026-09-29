@@ -467,6 +467,15 @@ def test_null_session_does_not_trigger_retry():
     assert len(calls) == 1
 
 
+def test_failed_identity_retry_does_not_retire_the_screen():
+    for retry in (None, {}, {"session": "Still another title"}):
+        replies = iter([{"tool": "codex", "session": "Other title"}, retry])
+        result = classify(_pane("codex"), "› input\nReview 4955 · gpt-6-sol · ~/src/app",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert "session" not in result
+        assert result["parse_ok"] is False
+
+
 def test_shell_drops_scrolled_agent_title_without_retry():
     calls = []
     def read(_prompt, text):

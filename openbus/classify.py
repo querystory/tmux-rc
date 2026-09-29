@@ -184,10 +184,14 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["parse_ok"] = False
     if bad_session:
         result.pop("session", None)
-        if isinstance(retry, dict) and _supported_session(
+        if not retry:
+            result["parse_ok"] = False
+        elif _supported_session(
             retry.get("session"), identity, result.get("tool"),
         ):
             result["session"] = retry["session"].strip()
+        elif retry.get("session") is not None:
+            result["parse_ok"] = False
 
 
 def _obvious_idle(text: str) -> bool:
