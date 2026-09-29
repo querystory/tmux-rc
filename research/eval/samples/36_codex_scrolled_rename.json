@@ -1,0 +1,11 @@
+{
+  "description": "An explicit Thread-renamed event in history remains conversation identity evidence after it leaves the viewport. Current activity and question checks still use only the visible screen; the footer has no title.",
+  "current_command": "codex",
+  "capture": "• Thread renamed to Fix login redirects\n\nEarlier work on the redirect fix.\n\u001e[visible screen]\u001f\n• Fixed redirect target validation; all tests passed.\n\n─ Worked for 2m 10s · 10:28 PM ─────────\n\n› Ask Codex to do anything\n\ngpt-6-sol · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": "Fix login redirects",
+    "headline": "Fixed redirect target validation and passed all tests"
+  }
+}

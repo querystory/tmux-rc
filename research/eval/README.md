@@ -185,6 +185,13 @@ occurrence.
 
 ## Running it
 
+The production parser composes `openbus/parser_prompt.txt` with the Codex, Claude,
+and Gemini fragments beside it. Eval uses that same loader. For `--prompt` A/B runs,
+provide the composed text, not a template containing fragment placeholders.
+LLM captures label `[visible screen]` after history; synthetic samples should place
+that boundary explicitly when testing scrollback behavior. The capture layer splits
+physical tmux ranges before joining wrapped rows, not by counting joined text lines.
+
 Needs the three Vertex vars in the environment:
 
 ```

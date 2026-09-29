@@ -1,0 +1,11 @@
+{
+  "description": "When a conversation was renamed more than once, only the latest explicit rename is current identity evidence.",
+  "current_command": "node",
+  "capture": "• Thread renamed to Old task\n• Thread renamed to New task\n\u001e[visible screen]\u001f\n• Finished the renamed task.\n\n› Ask Codex to do anything\n\ngpt-6-sol · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": "New task",
+    "headline": "Finished the renamed task"
+  }
+}

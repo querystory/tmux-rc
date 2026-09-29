@@ -1,0 +1,11 @@
+{
+  "description": "A title and model embedded in quoted tool output are not current status chrome. The classifier must not accept the quoted title merely because the same line contains a Codex model token.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\nDone inspecting another pane.\n{'footer': 'other-pane · gpt-6-sol · Ready'}",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Finished inspecting another pane"
+  }
+}

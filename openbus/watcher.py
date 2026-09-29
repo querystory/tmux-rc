@@ -180,9 +180,16 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     only on a tmux-side RENAME (tmux_label tracks what tmux last said): the parse
     path may have refined it to the agent's own session name (classify.py), and an
     unchanged-screen tick must not revert that refinement."""
-    s["title"] = p.display_title
     if s.get("tmux_label") != p.label:
         s["label"] = p.label
+    # An explicitly set terminal title wins over an inferred conversation name.
+    boot_title = s.get("bootstrap_title")
+    tool = s.get("identity_tool", s.get("tool"))
+    if tool == "shell" or (
+        tool not in (None, "unknown") and s.get("bootstrap_tool") not in (None, "unknown", tool)
+    ):
+        boot_title = None  # history from a previous agent must not name its replacement
+    s["title"] = p.display_title or s.get("agent_title") or boot_title
     s["tmux_label"] = p.label
     s["session"] = p.session
     s["cwd"] = getattr(p, "cwd", "")
@@ -607,15 +614,23 @@ class Watcher:
         # (re)fetch /api/panes/{id}/events.
         if self.use_llm:
             self._maybe_bootstrap(panes)
-        for s in states:
+        for s, p in zip(states, panes, strict=True):
             s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
             s["prs"] = self._pr_titles.enrich(self._prs.get(s.get("pane_id"), []))
             b = self._boot.get(s.get("pane_id"))
             if not b:
                 continue
             s["session_summary"] = b["summary"]
-            if b["name"] and not s.get("title"):
-                s["title"] = b["name"]
+            # Retain the fallback even while an explicit title hides it, so clearing
+            # that title on an unchanged screen reveals the semantic name immediately.
+            tool = s.get("identity_tool", s.get("tool"))
+            if tool not in (None, "unknown"):
+                if tool == "shell" or b.get("tool") not in (None, "unknown", tool):
+                    b["name"] = None  # never resurrect it if this tool returns later
+                b["tool"] = tool
+            s["bootstrap_title"] = b["name"]
+            s["bootstrap_tool"] = b.get("tool")
+            _stamp_identity(s, p)
         # Keep tmux's natural order (session/window/pane, as list-panes emits it) —
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
@@ -754,6 +769,9 @@ class Watcher:
                 # dropped it this round.
                 boot["summary"] = result["summary"]
                 boot["name"] = result["name"] or boot["name"]
+                if result["name"] and boot.get("tool") in (None, "unknown"):
+                    current = self._state.get(p.id, {})
+                    boot["tool"] = current.get("identity_tool", current.get("tool"))
                 boot["seq"] = self._events_seq.get(p.id, 0)
                 logger.info("%s: summary refreshed", p.id)
             elif result:
@@ -770,7 +788,11 @@ class Watcher:
                 recent.extend((e["text"], now) for e in result["events"])
                 # seq snapshots AFTER seeding: the seeded events themselves must not
                 # count as "new activity" and trigger an immediate refresh.
-                self._boot[p.id] = {**result, "ts": now, "seq": self._events_seq[p.id]}
+                current = self._state.get(p.id, {})
+                self._boot[p.id] = {
+                    **result, "ts": now, "seq": self._events_seq[p.id],
+                    "tool": current.get("identity_tool", current.get("tool")),
+                }
                 logger.info("%s: bootstrapped (%d events)", p.id, len(result["events"]))
             return  # at most one bootstrap attempt per tick
 
@@ -1068,6 +1090,28 @@ class Watcher:
             prev_activity=(previous or {}).get("activity"),
             repository=self._repository_for(pane) if self.use_llm else None,
         )
+        # Preserve the parsed conversation name before session is stamped with the
+        # tmux session. It must survive cached ticks and tmux renames independently.
+        parsed_title = state.get("session")
+        # The short sticky-tool bridge is for icons, not proof that the old
+        # conversation still exists after the classifier explicitly sees a shell.
+        state["identity_tool"] = state.get("tool")
+        if previous:
+            for key in ("bootstrap_title", "bootstrap_tool"):
+                state[key] = previous.get(key)
+        state["agent_title"] = (parsed_title.strip()[:200]
+                                if isinstance(parsed_title, str) and parsed_title.strip() else None)
+        previous_title_tool = (previous or {}).get("agent_title_tool")
+        title_tool = state.get("tool")
+        # A name can scroll out of view; absence is not evidence of a rename.
+        # Do not carry it into a different tool after the conversation exits.
+        if not state["agent_title"] and previous and (
+            title_tool in (None, "unknown", previous_title_tool)
+        ):
+            state["agent_title"] = previous.get("agent_title")
+        if title_tool in (None, "unknown"):
+            title_tool = previous_title_tool
+        state["agent_title_tool"] = title_tool if state["agent_title"] else None
         self._parse_valid[pane.id] = state.get("parse_ok", True)
         if state.get("parse_ok", True):
             self._accumulate_prs(pane.id, state.get("working_prs") or [])
@@ -1175,7 +1219,16 @@ class Watcher:
             # is worse than a stale card. We failed to read the screen, so the honest
             # card is the last one we actually read: keep it whole and retry next tick.
             # Identity, timers and the snapshot id are re-stamped below from live tmux.
+            replacement_tool = state.get("identity_tool")
+            previous_tool = previous.get("identity_tool", previous.get("tool"))
+            known_replacement = (
+                replacement_tool not in (None, "unknown")
+                and replacement_tool != previous_tool
+            )
             state = dict(previous)
+            if known_replacement:
+                state.update(tool=replacement_tool, identity_tool=replacement_tool,
+                             agent_title=None, agent_title_tool=None)
         state.pop("parse_ok", None)
         state["prs"] = list(self._prs.get(pane.id, []))
 
@@ -1200,8 +1253,7 @@ class Watcher:
             else:
                 self._tool.pop(pane.id, None)  # agent is genuinely gone; forget it
 
-        # The pane's names (its self-published title beats anything parsed off the
-        # screen), window number as the user reads it in tmux's status bar, and
+        # The pane's display name, window number as shown in tmux's status bar, and
         # per-session focus — see _stamp_identity.
         _stamp_identity(state, pane)
         hist = self.snapshots.get(pane.id, [])

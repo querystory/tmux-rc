@@ -18,11 +18,20 @@ import re
 from itertools import islice
 from pathlib import Path
 
-from .tmux import Pane
+from .tmux import VISIBLE_SCREEN, Pane, strip_dim
 
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
 _SHELL_PROMPT_RE = re.compile(r"[\w.-]+@[\w.-]+.*[$#]\s*$")
+_OPAQUE_SESSION_RE = re.compile(
+    r"(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{16,})", re.IGNORECASE,
+)
+_RELATIVE_PATH_RE = re.compile(r"^(?:[^/\s]+/)+[^/\s]+$")
+_CODEX_MODEL_TOKEN_RE = re.compile(r"(?:gpt-[\w.-]+|o\d[\w.-]*)", re.IGNORECASE)
+_OUTPUT_LABELS = frozenset({
+    "debug", "error", "footer", "info", "log", "output", "result", "session",
+    "status", "title", "warn", "warning",
+})
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
@@ -107,6 +116,161 @@ def parser_prompt() -> str:
 
 def bootstrap_prompt() -> str:
     return _load_prompt("bootstrap_prompt.txt")
+
+
+def _codex_model_segments(line: str) -> list[int]:
+    stripped = line.strip()
+    wrapped = (stripped[:1], stripped[-1:])
+    if wrapped in {("{", "}"), ("'", "'"), ('"', '"')}:
+        return []
+    if wrapped == ("[", "]") and any(char in stripped for char in "{'\""):
+        return []
+    segments = [segment.strip() for segment in line.split("·")]
+    label = re.match(r"^([A-Za-z][\w-]*):\s+", segments[0])
+    if label and (label.group(1).islower() or label.group(1).casefold() in _OUTPUT_LABELS):
+        return []
+    if not any(
+        re.match(r"^(?:~/|/)", segment)
+        or re.search(r"(?:\bcontext\b|\bweekly\b|%)", segment, re.IGNORECASE)
+        for segment in segments
+    ):
+        return []
+    return [i for i, segment in enumerate(segments)
+            if segment and _CODEX_MODEL_TOKEN_RE.fullmatch(segment.split(maxsplit=1)[0])]
+
+
+def _session_chrome(text: str) -> list[str]:
+    lines = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()
+    # The input row separates conversation output from the bottom status chrome.
+    # A short capture can put quoted tool output in the last four rows too.
+    input_row = max((i for i, line in enumerate(lines)
+                     if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
+    candidates = lines[max(input_row + 1, len(lines) - 4):]
+    chrome = []
+    status_rows = [(i, line, re.match(r"^\s*(?:~/|/)", line))
+                   for i, line in enumerate(candidates)
+                   if re.match(r"^\s*(?:~/|/)", line) or _codex_model_segments(line)]
+    if status_rows:
+        i, line, path_status = status_rows[-1]  # The bottommost recognized row is live chrome.
+        if (path_status and i
+                and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
+            chrome.append(candidates[i - 1])  # Claude title immediately above status.
+        chrome.append(line)
+    renames = [line for line in strip_dim(text).splitlines()
+               if re.match(r"^\s*[•●]\s+Thread renamed to \S", line)]
+    if renames:
+        chrome.append(renames[-1])
+    return chrome
+
+
+def _session_evidence(text: str) -> str:
+    titles = []
+    for line in _session_chrome(text):
+        match = re.match(r"^\s*[─━]+\s+(\S.*?)\s*$", line)
+        if match:
+            titles.append(match.group(1))
+            continue
+        if models := _codex_model_segments(line):
+            segments = [segment.strip() for segment in line.split("·")]
+            model = models[-1]
+            if model:
+                titles.append(" · ".join(segments[:model]))
+        match = re.match(r"^\s*[•●]\s+Thread renamed to (\S.*?)\s*$", line)
+        if match:
+            titles.append(match.group(1))
+    return "\n".join(titles)
+
+
+def _valid_session_shape(name) -> bool:
+    if not isinstance(name, str) or not name.strip():
+        return False
+    name = name.strip()
+    return not (name.startswith(("~/", "/")) or _RELATIVE_PATH_RE.fullmatch(name)
+                or _OPAQUE_SESSION_RE.fullmatch(name))
+
+
+def _canonical_session(name, visible: str) -> str | None:
+    if not _valid_session_shape(name):
+        return None
+    name = name.strip()
+    titles = _session_evidence(visible).splitlines()
+    exact = [title for title in titles if title.casefold() == name.casefold()]
+    if exact:
+        return exact[-1]
+    pattern = r"(?<![\w/.-])" + re.escape(name) + r"(?![\w/.-])"
+    matches = [title for title in titles if re.search(pattern, title)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _supported_question(question, visible: str) -> bool:
+    prompt = question.get("prompt") if isinstance(question, dict) else None
+    return isinstance(prompt, str) and bool(prompt.strip()) and (
+        " ".join(prompt.split()).casefold() in " ".join(visible.split()).casefold()
+    )
+
+
+def _supported_rewind(rewind, visible: str) -> bool:
+    text = " ".join(visible.split()).casefold()
+    return bool(rewind) and "rewind to a previous point" in text and "enter to restore" in text
+
+
+def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: str) -> None:
+    """Validate actionable fields against their UI evidence, retrying once on that slice."""
+    if result.get("tool") == "shell":
+        result.pop("session", None)  # Old agent scrollback cannot name its replacement shell.
+    visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
+    identity = text  # Keep the boundary: only explicit rename events may come from history.
+    bad_question = (
+        bool(result.get("question")) and VISIBLE_SCREEN in text
+        and not _supported_question(result["question"], visible)
+    )
+    bad_rewind = (
+        bool(result.get("rewind")) and VISIBLE_SCREEN in text
+        and not _supported_rewind(result["rewind"], visible)
+    )
+    session = result.get("session")
+    canonical_session = _canonical_session(session, identity)
+    bad_session = session is not None and canonical_session is None
+    if canonical_session:
+        result["session"] = canonical_session
+    if not (bad_question or bad_rewind or bad_session):
+        return
+    # A rejected old menu can also contaminate activity/headline. Re-read only the
+    # viewport; for identity alone, restrict the same model to the status evidence.
+    bad_action = bad_question or bad_rewind
+    identity_chrome = "\n".join(_session_chrome(identity))
+    evidence = visible if bad_action else identity_chrome
+    if bad_action and bad_session and identity_chrome:
+        evidence = f"{evidence}\n\n{identity_chrome}"
+    retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
+    retry = dict(retry) if isinstance(retry, dict) else None
+    if bad_action:
+        state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
+        for key in state_fields:
+            result.pop(key, None)
+        if retry:
+            for key in state_fields:
+                if key in retry:
+                    result[key] = retry[key]
+        else:
+            result["activity"] = "unknown"
+            result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
+        unsupported_action = (
+            result.get("question") and not _supported_question(result["question"], visible)
+        ) or (result.get("rewind") and not _supported_rewind(result["rewind"], visible))
+        if unsupported_action:
+            for key in state_fields:
+                result.pop(key, None)
+            result["activity"] = "unknown"
+            result["parse_ok"] = False
+    if bad_session:
+        result.pop("session", None)
+        if not retry:
+            result["parse_ok"] = False
+        elif retry_session := _canonical_session(retry.get("session"), identity):
+            result["session"] = retry_session
+        elif retry.get("session") is not None:
+            result["parse_ok"] = False
 
 
 def _obvious_idle(text: str) -> bool:
@@ -202,9 +366,10 @@ def bootstrap(
         if isinstance(e, dict) and e.get("text")
     ][:12]
     name = result.get("name")
+    name = name.strip()[:60] if _valid_session_shape(name) else None
     return {
         "summary": result["summary"].strip(),
-        "name": name.strip()[:60] if isinstance(name, str) and name.strip() else None,
+        "name": name,
         "events": events,
         "working_prs": _working_prs(result.get("working_prs")),
     }
@@ -231,6 +396,7 @@ def classify(
     # log printing gemini-… lines is not the Gemini CLI).
     payload = f"{_parser_context(pane, repository)}\n\n{payload}"
     result = None
+    prompt = ""
     if llm_fn:
         prompt = parser_prompt()
         if re.search(
@@ -276,6 +442,15 @@ def classify(
     # names (OpenCode showing "Claude Opus" is still OpenCode).
     if process_tool := _PROCESS_TOOLS.get(pane.current_command):
         result["tool"] = process_tool
+    elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(
+        strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]),
+    ):
+        # A returned shell prompt is stronger evidence than an agent in history.
+        if result.get("tool") != "shell":
+            result["headline"] = "Shell ready for a command"
+        result.update(tool="shell", activity="idle")
+        result.pop("question", None)
+        result.pop("rewind", None)
     # OpenCode renders ordinary answer bullets immediately above its model/footer. The
     # parser sometimes promotes those review findings to the agent's live task plan.
     # Validate each model-returned task against an actual visible checkbox/progress line,
@@ -300,11 +475,19 @@ def classify(
             result["tasks"] = validated
         else:
             result.pop("tasks", None)
-    # OpenCode shows this animated block row only while a turn can be interrupted. It is
-    # application state, not decorative spinner noise, and is stronger than a stale
-    # completed answer above it.
+    _ground_visible_fields(result, text, pane, llm_fn, prompt)
+    # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
+    # A cursor picker's advertised search binding is evidence, not a model guess.
+    question = result.get("question")
+    if isinstance(question, dict) and question.get("answer_style") == "cursor":
+        keymap = question.get("keymap")
+        footer = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()[-3:]
+        if isinstance(keymap, dict) and any(re.search(
+            r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", line, re.IGNORECASE,
+        ) for line in footer):
+            keymap["search"] = True
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
     # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any
@@ -356,7 +539,26 @@ def classify(
         for link in (result.get("links") or [])
         if isinstance(link, dict) and link.get("href")
     }
+    # Structured tables already render this content; don't duplicate their rows as
+    # a copy button just because the model also emitted the terminal's plain text.
+    tables = result.get("tables")
+    table_text = set()
+    for table in tables if isinstance(tables, list) else []:
+        rows = table.get("rows") if isinstance(table, dict) else None
+        if isinstance(rows, list) and rows and all(
+            isinstance(row, list) and all(isinstance(v, str) for v in row) for row in rows
+        ):
+            headers = table.get("headers")
+            table_text.add(" ".join(" ".join(v for row in rows for v in row).split()))
+            if isinstance(headers, list) and all(isinstance(value, str) for value in headers):
+                table_text.add(" ".join(" ".join(
+                    value for row in [headers, *rows] for value in row
+                ).split()))
+            table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
+    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "",
+                         strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]))
+    copy_source = copy_source.replace("\\\n", "")
 
     def _valid(cps):
         """Validated entries, lazily — islice below stops us at 3 without validating the
@@ -367,11 +569,27 @@ def classify(
             # strip() not len(): whitespace-only text is nothing to paste, and the client
             # discards it anyway — dropping here keeps it off every poll for every client.
             stripped = c["text"].strip()
-            if not stripped or len(c["text"]) > 4000 or stripped in hrefs:
+            if (not stripped or len(c["text"]) > 4000 or stripped in hrefs
+                    or " ".join(stripped.split()) in table_text):
+                continue
+            # Copy whole displayed blocks/inline code, not invented summaries or
+            # fragments cut out of a longer prose paragraph. Permit terminal wraps.
+            words = r"\s+".join(re.escape(word) for word in stripped.split())
+            if f"`{stripped}`" not in copy_source and not re.search(
+                r"(?m)^[ \t]*(?:[•●›❯$][ \t]+)?" + words + r"[ \t]*$", copy_source,
+            ):
                 continue
             yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
 
     good = list(islice(_valid(cps), 3)) if isinstance(cps, list) else []
+    question = result.get("question")
+    if good and isinstance(question, dict) and question.get("answer_style") in ("menu", "cursor"):
+        # A held selection expects a key, not a pasted command. Keep the payload as
+        # supporting question context instead of offering the wrong input affordance.
+        result["tables"] = (tables if isinstance(tables, list) else []) + [
+            {"title": c["label"], "headers": ["Context"], "rows": [[c["text"]]]} for c in good
+        ]
+        good = []
     if good:
         result["copyables"] = good
     else:

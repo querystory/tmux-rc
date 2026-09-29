@@ -30,11 +30,12 @@ pane reads as *Review 4745* or *airbyte-value-population* rather than as its com
 
 That is the one setting worth changing for Codex: **include `"thread-title"` in
 `status_line`.** The parser will also take the title from a `Thread renamed to <name>`
-line, but that is a single line of transcript — it scrolls away and the pane loses its
-name again. The status bar is the only place the title stays on screen to be read.
+line. Once observed, the watcher retains the name while the same agent remains, even
+when that line scrolls away. Keeping it in the status bar also supports restart recovery.
 
 Agents that set the *terminal* title get a second route on **both desktop and phone**.
-Both prefer `title` over `label`; the phone also falls back to `window_name`, then
+An explicit terminal title wins over the classifier's retained conversation name and
+bootstrap fallback. Both clients prefer `title` over `label`; the phone falls back to `window_name`, then
 `pane_id`, when neither is available. Keeping a session name on screen still helps
 the classifier identify the work when the agent does not publish a terminal title.
 

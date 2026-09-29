@@ -1,0 +1,6 @@
+{
+  "description": "A UUID before the model is an opaque session identifier, not a conversation title.",
+  "current_command": "node",
+  "capture": "OpenAI Codex\n\nAll tests passed. Ready for your next request.\n\n› Ask Codex to do anything\n\n01a0e9d1-093d-7c10-84f4-133c9544c971 · gpt-6-astra medium · Context 52% left · ~/src/tmux-rc · Ready",
+  "expected": {"tool": "codex", "activity": "idle", "session": null, "headline": "Tests passed; ready for the next request"}
+}
