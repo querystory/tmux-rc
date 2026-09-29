@@ -837,7 +837,7 @@ async def live_mode(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         reason = "client gone"  # phone lock / tab close / tunnel drop — the normal ends
     except Exception as e:  # noqa: BLE001 - the session's last stop: report it, never crash the WS
-        outcome = reason = "error"
+        reason, outcome = "error", f"error: {type(e).__name__}"  # the class, never provider text
         # A model that can't be reached (bad deployment name, rejected key) says exactly
         # what to fix — the user fixes config, not the retry count. Anything else stays a
         # generic line so internal detail never reaches the browser. The adapter's
