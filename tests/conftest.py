@@ -4,6 +4,13 @@ from openbus import tmux
 
 
 @pytest.fixture(autouse=True)
+def _vertex_project(monkeypatch):
+    """Vertex entries are offered only when a project is set. Supply one so the suite does
+    not depend on the checkout's .env (a worktree has none) for what it offers."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+
+@pytest.fixture(autouse=True)
 def _no_enter_settle(monkeypatch):
     """send_keys waits before the Return so a TUI doesn't read it as a newline
     (tmux._ENTER_SETTLE_S). Real time in every send would tax the whole suite for a

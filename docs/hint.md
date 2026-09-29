@@ -187,28 +187,48 @@ that's what makes watch-time summable (below). Attributes:
 
 ### Live Mode voice turns (`scope_name = 'tmux-rc.live'`, `kind = 'live_turn'`)
 
-Live Mode is the spoken-agent surface: a Gemini Live (native-audio) session that watches
-the whole tmux state, talks back by voice, and acts via two tools (type into a pane, press
-a key). Its cost is dominated by AUDIO tokens the flash-lite parser never sees, so it meters
-itself here. **One record = one voice turn**; a `final = true` record closes each session
-with cumulative totals. Filter `WHERE kind = 'live_turn'`. Attributes:
+Live Mode is the spoken-agent surface: a voice session that watches the whole tmux state,
+talks back by voice, and acts via two tools (type into a pane, press a key). WHICH model
+answers is a server-side table (`TMUXRC_LIVE_MODELS`), so these rows span providers —
+Gemini Live on Vertex or AI Studio, OpenAI Realtime on OpenAI or Azure, and GPT-Live, which
+bills differently again (see `voice_seconds`). **Always group by `model`/`provider` before
+comparing cost**: a mean across the table is a mean across different rate cards. Its cost is
+dominated by AUDIO tokens the flash-lite parser never sees, so it meters itself here.
+**One record = one voice turn**; a `final = true` record closes each session with cumulative
+totals. Filter `WHERE kind = 'live_turn'`. Attributes:
 
 - **`session`** — per-voice-session UUID, the summable spine. The SAME key the watch-time
   rounds use, so a session's voice spend can be joined to its screen watch-time. Sum per
   `session` for per-session cost; use the `final = true` row for the authoritative session
   total (per-turn rows are cumulative snapshots, so **do not `SUM` the per-turn rows** — you'd
   multi-count; take the `final` row, or `MAX` per session).
-- **`cost_usd`** — this turn's cumulative session cost in USD, priced with a four-way rate
-  card (text-in / text-out / audio-in / audio-out) because audio-out bills ~24× text.
+- **`cost_usd`** — this turn's cumulative session cost in USD, priced with the ENTRY's own
+  six-way rate card (text / audio × in / out, plus a cached rate for each) because audio-out
+  bills ~24× text and cached input is cheaper again. Cards differ per entry, so this column
+  is only comparable within one `model`.
 - **`in_tokens`** / **`out_tokens`** — total prompt / response tokens (text + audio). Big
   input (thousands): the system prompt carries every pane's live state each turn.
 - **`audio_in_tokens`** / **`audio_out_tokens`** — the audio-modality slice of in/out. Text
   tokens = `in_tokens - audio_in_tokens` (same for out). Audio out is the cost driver.
+- **`cached_tokens`** — the part of `in_tokens` that was served from cache and billed at the
+  entry's cached rate. A SUBSET of `in_tokens`, not an addition: never add it in. Large on
+  OpenAI Realtime, which re-bills the whole context on every response with most of it cached
+  at a 97-99% discount; `0` where the provider reports no cache.
 - **`turns`** — voice turns so far this session (monotonic; equals the count on the `final` row).
 - **`duration_s`** — wall-clock seconds since the session opened (cumulative).
 - **`final`** — `true` on the one end-of-session summary row, `false` on per-turn rows. Use
   `WHERE final = true` for one authoritative row per session.
-- **`model`** (`gemini-live-2.5-flash-native-audio`), **`provider`** (`vertex`) — the Live model.
+- **`model`**, **`provider`** — the entry that answered: the provider's model id (for Azure,
+  the deployment name) and its backend, one of `vertex`, `gemini-api`, `openai`,
+  `azure-openai`. The picker's LABEL is deliberately not recorded — it is an operator's
+  free-text name for an entry and would not join across machines.
+- **`voice_seconds`**, **`usage_final`**, **`backend_model`** — GPT-Live only, absent on
+  every other entry. That adapter prices voice by connected DURATION rather than by audio
+  tokens ($0.05/min, silence included), so its `audio_*` and `cached_tokens` are `0` by
+  construction and its voice spend lives in `voice_seconds`; `backend_model` names the
+  Responses model behind it, and `usage_final` says whether the provider confirmed the
+  final usage before the socket closed (`false` means the last reported figure is being
+  retained, so treat the cost as a floor).
 - **`actor`** — the tunnel owner's email when known, else a `local:<ip>` marker. Same
   loopback-trust model as elsewhere.
 - **`transcript`** — the turn's rolling voice transcript (`user:` / `model:` lines and

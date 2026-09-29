@@ -311,8 +311,10 @@ def emit_live_turn(  # noqa: PLR0913
     session: str,
     actor: str | None,
     model: str,
+    provider: str,
     in_tokens: int,
     out_tokens: int,
+    cached_tokens: int,
     audio_in_tokens: int,
     audio_out_tokens: int,
     cost: float,
@@ -320,7 +322,6 @@ def emit_live_turn(  # noqa: PLR0913
     duration_s: float,
     final: bool,
     transcript: str | None = None,
-    provider: str = "vertex",
     voice_seconds: float | None = None,
     usage_final: bool | None = None,
     backend_model: str | None = None,
@@ -343,6 +344,7 @@ def emit_live_turn(  # noqa: PLR0913
         attrs = {
             "kind": "live_turn",
             "model": model,
+            # the entry's backend: vertex / gemini-api / openai / azure-openai
             "provider": provider,
             "session": session[:64],
             "turns": turns,
@@ -350,6 +352,7 @@ def emit_live_turn(  # noqa: PLR0913
             "final": final,
             "in_tokens": in_tokens,
             "out_tokens": out_tokens,
+            "cached_tokens": cached_tokens,  # subset of in_tokens, billed at the cached rate
             "audio_in_tokens": audio_in_tokens,
             "audio_out_tokens": audio_out_tokens,
             "cost_usd": round(cost, 6),
