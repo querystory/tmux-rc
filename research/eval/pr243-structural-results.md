@@ -199,3 +199,11 @@ sessions alongside absolute paths and opaque IDs. Eval samples 41 and 42 cover b
 cases. Final validation on this revision: **741 unit tests**, Ruff clean, target
 repetition **30/30**, and full Vertex candidate eval **44/45**. The sole failure is
 still sample 16's supporting table, which also fails on main. No prompt text changed.
+
+The review of a3b2252 found the same quoted-output risk after an input row. Footer
+evidence is now filtered to recognizable status rows in both paths; Claude's explicit
+title line is retained only immediately above its path/status row. Sample 43 covers
+quoted session output between the input and real Codex footer. Validation remains
+**741 unit tests**, Ruff clean, target repetition **30/30**, and the expanded full
+Vertex candidate eval is **45/46**, with only main's known sample 16 failure. No
+prompt text changed.

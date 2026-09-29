@@ -124,10 +124,14 @@ def _session_evidence(text: str) -> str:
     # A short capture can put quoted tool output in the last four rows too.
     input_row = max((i for i, line in enumerate(lines)
                      if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
-    footer = lines[max(input_row + 1, len(lines) - 4):]
-    if input_row < 0:
-        footer = [line for line in footer if re.match(r"^\s*(?:~/|/)", line)
-                  or _CODEX_STATUS_ROW_RE.fullmatch(line)]
+    candidates = lines[max(input_row + 1, len(lines) - 4):]
+    footer = []
+    for i, line in enumerate(candidates):
+        path_status = re.match(r"^\s*(?:~/|/)", line)
+        if path_status and i and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1]):
+            footer.append(candidates[i - 1])  # Claude title immediately above its status.
+        if path_status or _CODEX_STATUS_ROW_RE.fullmatch(line):
+            footer.append(line)
     renamed = [line for line in strip_dim(text).splitlines()
                if re.match(r"^\s*(?:[•●]\s*)?Thread renamed to \S", line)]
     return "\n".join(footer + renamed)

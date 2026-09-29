@@ -543,6 +543,8 @@ def test_short_capture_does_not_promote_tool_output_to_status_evidence():
          "Inspecting parser\nWorking\n~/src/app · gpt-6-sol"),
         ("\x1e[visible screen]\x1f\nDone\n"
          "{'footer': 'other-pane · gpt-6-sol · Ready'}"),
+        ("\x1e[visible screen]\x1f\n› Ask Codex to do anything\n"
+         "{'session': 'other-pane'}\ngpt-6-sol · ~/src/app"),
     ):
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "other-pane"}))
         assert "session" not in result
