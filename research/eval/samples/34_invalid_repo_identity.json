@@ -1,0 +1,12 @@
+{
+  "description": "A local path is not a valid GitHub owner/repository; dot path segments must not survive PR-association validation.",
+  "current_command": "codex",
+  "repository": "../bad",
+  "capture": "OpenAI Codex | gpt-6-sol\n\n• Implemented the requested timeout change and finished tests. PR #7 is ready for review.\n\n› Ask Codex to do anything\n\nTimeout change · gpt-6-sol medium · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "working_prs": [],
+    "headline": "Implemented timeout change and finished tests; PR 7 is ready for review"
+  }
+}

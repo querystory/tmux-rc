@@ -4,7 +4,9 @@ import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { sendPresence, setupPush, stateUrl } from "/push.js";
+import { paneLinks } from "/pr-links.js";
+import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
@@ -39,6 +41,7 @@ const LUCIDE = {
   circle: '<circle cx="12" cy="12" r="9"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
+  bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -78,6 +81,7 @@ const drafts = new Map();
 let dashboard = false;
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
 let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
+let focusPushComposer = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
@@ -181,6 +185,7 @@ function route() {
   const next = params.get("pane");
   const changed = next !== active;
   active = next;
+  focusPushComposer = params.get("compose") === "1";
   dashboard = !active && params.get("view") === "dashboard";
   view = params.get("view") === "terminal" ? "terminal" : "summary";
   filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
@@ -237,9 +242,7 @@ function emptyMessage(query) {
 }
 function renderList() {
   const query = $("search").value.trim().toLowerCase();
-  const subset = panes.filter((p) => matchesFilter(p, filter) && [p.session, p.title, p.label, p.window_name, p.pane_id, p.tool, p.model,
-    p.question?.prompt, p.headline, p.status_line, p.session_summary, activityLabel(p),
-    p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : ""].filter(Boolean).join(" ").toLowerCase().includes(query));
+  const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
     ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
@@ -531,7 +534,7 @@ function render() {
   const answered = pendingAnswer && pendingAnswer.id === active && pendingAnswer.signature === JSON.stringify(question);
   show("answer-status", !!answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
-  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
   reconcile($("options"), options, (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
     button.onclick = () => {
@@ -556,15 +559,17 @@ function render() {
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
+  if (focusPushComposer && pane?.question && needsYou(pane)) {
+    focusPushComposer = false;
+    requestAnimationFrame(() => $("reply").focus({ preventScroll: true }));
+  }
   if (pane && overviewVisible()) loadEvents(pane);
 }
 
 function renderRichContent(pane) {
-  const links = (Array.isArray(pane?.links) ? pane.links : []).filter((link) => {
-    try { return /^https?:$/.test(new URL(link.href).protocol); } catch { return false; }
-  });
+  const links = paneLinks(pane);
   show("link-section", !!links.length);
-  reconcile($("links"), links, (link, i) => `${i}:${link.href}`, () => {
+  reconcile($("links"), links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);
@@ -573,7 +578,7 @@ function renderRichContent(pane) {
     const host = new URL(link.href).host;
     anchor.href = link.href;
     text(anchor.firstChild, Array.from(String(link.text || host).replace(/[\u202A-\u202E\u2066-\u2069]/g, "")).slice(0, 160).join(""));
-    text(anchor.querySelector("small"), host);
+    text(anchor.querySelector("small"), link.detail || host);
   });
   const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter((table) => table && Array.isArray(table.rows));
   show("table-section", !!tables.length);
@@ -747,7 +752,7 @@ async function pollState(signal) {
   let version = null;
   while (!signal.aborted) {
     try {
-      const data = await request(`/api/state${version ? `?v=${version}` : ""}`, { signal }, LONG_POLL_TIMEOUT_MS);
+      const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
@@ -1070,11 +1075,12 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { startState(); restartDetail(); });
+document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
+setupPush($("push"), notice, licon("bell"));
 const live = setupLiveMode({ request, session: liveSession, licon, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {
