@@ -27,7 +27,8 @@ AUTOINCREMENT creation number only for local pagination.
 
 A persisted machine UUID identifies the originating installation across daemon/OS
 restarts; hostnames and boot IDs are not machine identity. New installations get a new
-machine UUID. Imports preserve the originating IDs rather than relabeling old records.
+machine UUID. Store it in the database metadata, replacing today's hostname guard;
+other machines' records arrive through exports, not by opening a copied database.
 The conversation has one authoritative writer; cross-machine analysis can combine copies
 by their global keys, but concurrent editing of one copied thread is not a replication
 feature promised here. A separately writable copy gets a new conversation UUID.
@@ -65,7 +66,8 @@ accept text and produce visible replies while local audio is disabled; do not re
 the provider session just to hide audio controls. If a provider requires a new session,
 say it is reconnecting and restore bounded context explicitly rather than silently
 starting from scratch. Never present an outgoing local text bubble as acknowledged
-until accepted; show pending/failed sends and make retry reuse that message entry.
+until accepted; show pending/failed/unknown sends. Offer retry, reusing that message
+entry, only for a known failure: a lost acknowledgment may already be a delivered turn.
 Mode switches neither resend inputs nor replay tool calls. If a reply is interrupted,
 keep the partial text labeled as such; already-sent pane actions are not undone.
 
@@ -145,8 +147,7 @@ prompt order. Recording disabled means no retained image copy; the same content 
 applies to images as text, including Live-origin pane inputs.
 
 Exports intended to preserve images bundle their referenced bytes and part manifests;
-text-only exports clearly mark omitted images. On import, verify bytes against the hash
-and preserve entry identity. Hash deduplication is not authorization: enforce owner access
+text-only exports clearly mark omitted images. Hash deduplication is not authorization: enforce owner access
 for image reads and never expose files through a public hash URL. Deleting history removes
 unreferenced owner-scoped blobs through serialized cleanup, retaining blobs still referenced
 by another saved entry. Orphan files from failed commits can be swept by the same cleanup.
@@ -161,13 +162,15 @@ Use one bounded writer queue off the audio loop. Assign a message its entry numb
 once and reuse it on a database retry. Do not replay provider history on reconnect or
 try to reconstruct missed fragments after a daemon crash.
 
-A browser reconnect to a still-running handler keeps the same conversation. A daemon
+One live handler writes a conversation at a time. A browser reconnect reattaches to the
+conversation only once the server has closed the previous handler; otherwise it starts
+a new conversation. A daemon
 restart marks previously active Live Mode conversations interrupted; a new Live Mode start
 creates a new conversation. Starting history is explicit, not a side effect of an
 incoming message: late writes may insert entries only under an existing active parent.
 
-Flush accepted entries before marking a conversation ended. On a write failure or
-queue overflow, show “History not saving” and leave its history incomplete. A crash
+Flush accepted entries before marking a conversation ended. On a write failure (including
+a full disk) or queue overflow, show “History not saving” and leave its history incomplete. A crash
 can lose the current message or an action sent just before its entry was saved. Show
 that limitation on interrupted history; this is a saved conversation, not an audit log.
 
@@ -178,7 +181,8 @@ snapshots, signed pagination tokens, archive tree, or fork graph in the first ve
 ## Duration, usage, and cost
 
 Keep one usage totals JSON value on the conversation, updated from the existing
-provider meter and flushed when it ends. It includes provider/model, available token
+provider meter and checkpointed through the writer as it advances, so a crash loses
+at most the latest samples; interrupted conversations mark their totals incomplete. It includes provider/model, available token
 and audio-duration counters, and whether the totals are incomplete. Usage can be saved
 even if nobody finishes a spoken message. Do not attach usage to individual messages.
 
@@ -232,7 +236,7 @@ finished messages, action notices and meter totals into the writer. Add list/rea
 UI. Pane input history can follow using the same tables and shared writer, with composer,
 API and Live Mode logical sends covered together. Test message ordering/retries, reconnect without duplication, crash/write failure,
 usage without messages, cross-machine identifiers, pane identity/restarts, send-time context, missing origin links,
-ordered image pastes, missing blobs, export/import integrity and shared-blob deletion,
+ordered image pastes, missing blobs, export integrity and shared-blob deletion,
 recording opt-out, owner isolation and deletion races. No
 backfill and no changes to provider tool dispatch. Review that small implementation
 before designing restart-time continuation or sharing. In parallel, add the Live Mode
