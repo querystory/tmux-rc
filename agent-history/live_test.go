@@ -16,7 +16,7 @@ func TestRunningClaude(t *testing.T) {
 		must(t, os.WriteFile(filepath.Join(dir, fmt.Sprint(pid)+".json"), []byte(body), 0o600))
 	}
 	me := os.Getpid()
-	start, err := procStart(me)
+	start, err := procStat(me, 22)
 	must(t, err)
 	register("live", me, start, "work:@3.%12")
 	register("reused-pid", os.Getppid(), "1", "work:@4.%13") // pid alive, but a different process

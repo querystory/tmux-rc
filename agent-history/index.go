@@ -31,6 +31,20 @@ func indexPath(harness, parent, id string) string {
 // rebuilds everything once when the recorded format differs.
 const Format = "2" // 2: resume_argv
 
+// A harness is one coding agent whose sessions are indexed.
+type harness struct {
+	name     string
+	sessions func() ([][]string, error)            // each session's transcript files, oldest first
+	identity func(path string) (id, parent string) // from the path alone, so freshness needs no parsing
+	read     func(files []string) (Session, error)
+	running  func() (map[string]Running, error) // live sessions by ID; an error means unknown
+}
+
+var (
+	claude    = harness{"claude", claudeSessions, claudeIdentity, func(f []string) (Session, error) { return ReadClaude(f[0]) }, RunningClaude}
+	harnesses = []harness{claude, {"codex", codexSessions, codexIdentity, ReadCodex, RunningCodex}}
+)
+
 // IndexTranscript indexes a Claude session and its subagents, skipping any whose
 // entry is already up to date unless force is set.
 func IndexTranscript(path string, force bool) error {
@@ -48,32 +62,62 @@ func IndexTranscript(path string, force bool) error {
 	}
 	var errs []error
 	for _, p := range paths {
-		errs = append(errs, indexFile(p, force))
+		errs = append(errs, indexFile(claude, []string{p}, force))
 	}
 	return errors.Join(errs...)
 }
 
-func indexFile(path string, force bool) error {
-	src, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil // sessions run without persistence never write a transcript
+// claudeSessions lists every transcript, subagents included, so a subagent whose
+// parent transcript is gone is still indexed.
+func claudeSessions() ([][]string, error) {
+	projects := filepath.Join(claudeDir(), "projects")
+	paths, err := find(projects, ".jsonl", 2)
+	nested, nestedErr := find(projects, ".jsonl", 4)
+	for _, t := range nested {
+		if filepath.Base(filepath.Dir(t)) == "subagents" {
+			paths = append(paths, t)
+		}
 	}
-	if err != nil {
-		return err
+	out := make([][]string, len(paths))
+	for i, p := range paths {
+		out[i] = []string{p}
 	}
-	id, parent := claudeIdentity(path)
-	dst := indexPath("claude", parent, id)
-	// An entry carries the mtime of the transcript it was built from, so it is fresh
-	// exactly when the two match (and a transcript rewritten to an older mtime still
-	// gets rebuilt).
-	if idx, err := os.Stat(dst); !force && err == nil && idx.ModTime().Equal(src.ModTime()) {
+	return out, errors.Join(err, nestedErr)
+}
+
+func indexFile(h harness, files []string, force bool) error {
+	// An entry carries the mtime of the newest transcript file it was built from, so it
+	// is fresh exactly when the two match (and a transcript rewritten to an older mtime
+	// still gets rebuilt).
+	var mtime time.Time
+	for _, f := range files {
+		src, err := os.Stat(f)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // sessions run without persistence never write a transcript
+		}
+		if err != nil {
+			return err
+		}
+		if src.ModTime().After(mtime) {
+			mtime = src.ModTime()
+		}
+	}
+	if mtime.IsZero() {
 		return nil
 	}
-	s, err := ReadClaude(path)
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+	id, parent := h.identity(files[0])
+	dst := indexPath(h.name, parent, id)
+	if idx, err := os.Stat(dst); !force && err == nil && idx.ModTime().Equal(mtime) {
+		return nil
 	}
-	return writeAtomic(dst, Render(s), src.ModTime())
+	s, err := h.read(files)
+	if errors.Is(err, errNotIndexed) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", files[0], err)
+	}
+	return writeAtomic(dst, Render(s), mtime)
 }
 
 // Render is the index entry format: a front-matter header of JSON-quoted values (valid

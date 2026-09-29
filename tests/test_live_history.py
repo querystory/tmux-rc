@@ -20,7 +20,7 @@ from tests.test_live_mode import _FC, _WS, _run, _Session, _Watcher
 _REAL_ANCESTORS = L._ancestors  # before the autouse stub replaces it
 
 LIVE = {
-    "session_id": "live-1", "title": "tmuxrc live mode", "cwd": "/repo",
+    "harness": "claude", "session_id": "live-1", "title": "tmuxrc live mode", "cwd": "/repo",
     "last_active": "2026-09-05T15:29:22Z", "resume_argv": ["claude", "--resume", "live-1"],
 }
 
@@ -61,13 +61,14 @@ def _call(name, args, watcher=None):
     return ws, session.responses[0][1]
 
 
-def test_resume_opens_the_indexed_command_in_its_directory(history):
+@pytest.mark.parametrize("argv", [["claude", "--resume", "live-1"], ["codex", "resume", "live-1"]])
+def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     sessions, opened = history
-    sessions["live-1"] = LIVE
+    sessions["live-1"] = {**LIVE, "resume_argv": argv}
     ws, r = _call("resume_session", {"session_id": "live-1"})
     assert r == {"status": "opened", "pane_id": "%40", "window": "tmuxrc live mode"}
     # argv and cwd are the index's, in the tmux session already working in that repo.
-    assert opened == [("work", "tmuxrc live mode", ["claude", "--resume", "live-1"], "/repo")]
+    assert opened == [("work", "tmuxrc live mode", argv, "/repo")]
     assert any(m["type"] == "typed" and m["pane_id"] == "%40" for m in ws.sent)
 
 
@@ -179,20 +180,23 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
             {**LIVE, "session_id": "old", "title": "", "running_unknown": True},
             {**LIVE, "session_id": "new", "running": {"pid": 6, "tmux_pane": "%77"}},
             {**LIVE, "session_id": "ide", "running": {"pid": 7}},
+            {**LIVE, "session_id": "cx", "harness": "codex"},
         ],
     }])
     w = _Watcher()
     _, r = _call("find_sessions", {"query": "live mode"}, w)
     assert w.reparsed == ["%77"]  # the unpublished running pane is woken
     assert r == {"status": "ok", "results": [{"repo": "~/src/tmux-rc", "sessions": [
-        {"session_id": "live-1", "title": "tmuxrc live mode", "last_active": "2026-09-05",
-         "running_in": "work", "pane_id": "%1"},
-        {"session_id": "old", "title": "(untitled)", "last_active": "2026-09-05",
-         "running_unknown": True},
-        {"session_id": "new", "title": "tmuxrc live mode", "last_active": "2026-09-05",
-         "running_in": "%77", "pane_id": "%77"},
-        {"session_id": "ide", "title": "tmuxrc live mode", "last_active": "2026-09-05",
-         "running_elsewhere": True},
+        {"session_id": "live-1", "tool": "claude", "title": "tmuxrc live mode",
+         "last_active": "2026-09-05", "running_in": "work", "pane_id": "%1"},
+        {"session_id": "old", "tool": "claude", "title": "(untitled)",
+         "last_active": "2026-09-05", "running_unknown": True},
+        {"session_id": "new", "tool": "claude", "title": "tmuxrc live mode",
+         "last_active": "2026-09-05", "running_in": "%77", "pane_id": "%77"},
+        {"session_id": "ide", "tool": "claude", "title": "tmuxrc live mode",
+         "last_active": "2026-09-05", "running_elsewhere": True},
+        {"session_id": "cx", "tool": "codex", "title": "tmuxrc live mode",
+         "last_active": "2026-09-05"},
     ]}]}
     monkeypatch.setattr(agent_history, "resolve", lambda q: None)
     assert _call("find_sessions", {"query": "x"})[1]["status"] == "error"
@@ -223,6 +227,8 @@ def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):
     monkeypatch.setenv("TMUXRC_AGENT_HISTORY", str(fake))
     [p] = agent_history.resolve("-all live mode")
     assert p["argv"].endswith("-- -all live mode")  # never read as a flag
+    assert "-harness" not in p["argv"]  # every harness Live can resume is searched
+    assert "codex" in agent_history.RESUMABLE
 
     fake.write_text("#!/bin/sh\nexit 1\n")
     assert agent_history.get("x") is None

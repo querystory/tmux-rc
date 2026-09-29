@@ -58,9 +58,9 @@ func main() {
 func resolveCmd(args []string) error {
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
-	opt.Running, opt.RunningErr = RunningClaude()
+	opt.Running, opt.RunningErr = LiveSessions()
 	report(opt.RunningErr)
-	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude)")
+	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude, codex)")
 	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
 	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
 	flags.IntVar(&opt.MaxSessions, "sessions", 5, "max sessions per repo")
@@ -71,16 +71,12 @@ func resolveCmd(args []string) error {
 		fmt.Fprintln(os.Stderr, "resolve: missing query")
 		os.Exit(2)
 	}
-	paths, err := find(filepath.Join(Root(), "index"), ".md", 2)
-	if err != nil {
-		return err
-	}
-	nested, err := find(filepath.Join(Root(), "index"), ".md", 3)
+	paths, err := indexEntries()
 	if err != nil {
 		return err
 	}
 	var entries []Entry
-	for _, p := range append(paths, nested...) {
+	for _, p := range paths {
 		e, err := ReadEntry(p)
 		if err != nil {
 			return fmt.Errorf("read index entry %s: %w", p, err)
@@ -119,13 +115,19 @@ func getCmd(args []string) {
 		os.Exit(2)
 	}
 	id := args[0]
-	e, err := ReadEntry(indexPath("claude", "", id))
+	var e Entry
+	var err error
+	for _, h := range harnesses {
+		if e, err = ReadEntry(indexPath(h.name, "", id)); !errors.Is(err, os.ErrNotExist) {
+			break
+		}
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "get:", err)
 		os.Exit(1)
 	}
 	out := Scored{Entry: e}
-	running, err := RunningClaude()
+	running, err := LiveSessions()
 	report(err)
 	out.RunningUnknown = err != nil
 	if r, ok := running[id]; ok {
@@ -190,30 +192,28 @@ func reconcileAll(force bool) (ok bool) {
 		report(err)
 		ok = ok && err == nil
 	}
-	projects := filepath.Join(claudeDir(), "projects")
-	transcripts, err := find(projects, ".jsonl", 2)
-	check(err)
-	for _, t := range transcripts {
-		check(IndexTranscript(t, force))
-	}
-	// Subagents are normally reached through their parent; scan them too so one whose
-	// parent transcript is gone is still indexed. Fresh entries are skipped cheaply.
-	nested, err := find(projects, ".jsonl", 4)
-	check(err)
-	for _, t := range nested {
-		if filepath.Base(filepath.Dir(t)) == "subagents" {
-			check(indexFile(t, force))
+	for _, h := range harnesses {
+		sessions, err := h.sessions()
+		check(err)
+		for _, files := range sessions {
+			check(indexFile(h, files, force))
 		}
 	}
-	index := filepath.Join(Root(), "index", "claude")
-	entries, err := find(index, ".md", 1)
+	entries, err := indexEntries()
 	check(err)
-	subentries, err := find(index, ".md", 2)
-	check(err)
-	for _, e := range append(entries, subentries...) {
+	for _, e := range entries {
 		check(MarkMissing(e))
 	}
 	return ok
+}
+
+// indexEntries lists every entry: <harness>/<session>.md and, for subagents,
+// <harness>/<parent>/<agent>.md.
+func indexEntries() ([]string, error) {
+	index := filepath.Join(Root(), "index")
+	top, err := find(index, ".md", 2)
+	nested, nestedErr := find(index, ".md", 3)
+	return append(top, nested...), errors.Join(err, nestedErr)
 }
 
 // find lists files ending in ext at the given depth below root (1 = root's own

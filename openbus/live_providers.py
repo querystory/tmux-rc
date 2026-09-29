@@ -239,9 +239,9 @@ _HISTORY_TOOLS = [
             "Look up the user's past coding-agent sessions by topic, across every repo — "
             "including sessions no window shows now. Use only when the user asks to "
             "resume, continue, or find earlier work (“resume the live mode session”, "
-            "“where was I on the auth fix”). Returns repos, each with sessions: id, "
-            "title, last active date, and the window running it if one is. Titles are "
-            "hints for choosing, not facts about the work."
+            "“where was I on the auth fix”). Returns repos, each with sessions: id, the "
+            "agent tool (claude or codex), title, last active date, and the window running "
+            "it if one is. Titles are hints for choosing, not facts about the work."
         ),
         "parameters": {
             "type": "object",

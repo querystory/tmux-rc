@@ -22,7 +22,7 @@ type Session struct {
 	Source     string
 	Cwd        string
 	Branches   []string
-	Entrypoint string // "cli" is interactive; "sdk-cli" is headless (claude -p, Agent SDK)
+	Entrypoint string // the harness's word for how it was started; see headless
 	Title      string
 	Started    string
 	LastActive string
@@ -64,12 +64,6 @@ var toolResult = []byte(`"type":"tool_result"`)
 // <project>/<parent-session>/subagents/agent-<id>.jsonl; their first user message is
 // the task the parent gave them, not something the human typed.
 func ReadClaude(path string) (Session, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return Session{}, err
-	}
-	defer f.Close()
-
 	s := Session{Harness: "claude", Source: path}
 	s.ID, s.Parent = claudeIdentity(path)
 	subagent := s.Parent != ""
@@ -77,21 +71,15 @@ func ReadClaude(path string) (Session, error) {
 		s.Title = subagentDescription(strings.TrimSuffix(path, ".jsonl") + ".meta.json")
 	}
 	aiTitle := ""
-	r := bufio.NewReader(f)
-	for {
-		line, err := r.ReadBytes('\n')
-		if len(line) > 0 && !bytes.Contains(line, toolResult) {
-			var rec record
-			if json.Unmarshal(line, &rec) == nil {
-				s.apply(rec, subagent, &aiTitle)
-			}
+	err := scanLines(path, func(line []byte) error {
+		var rec record
+		if !bytes.Contains(line, toolResult) && json.Unmarshal(line, &rec) == nil {
+			s.apply(rec, subagent, &aiTitle)
 		}
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return Session{}, err
-		}
+		return nil
+	})
+	if err != nil {
+		return Session{}, err
 	}
 	if s.Title == "" {
 		s.Title = aiTitle
@@ -100,6 +88,30 @@ func ReadClaude(path string) (Session, error) {
 		s.ResumeArgv = claudeResume(s.ID)
 	}
 	return s, nil
+}
+
+// scanLines calls fn with each line of a JSONL file, stopping at the first error.
+func scanLines(path string, fn func(line []byte) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	for {
+		line, err := r.ReadBytes('\n')
+		if len(line) > 0 {
+			if err := fn(line); err != nil {
+				return err
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // claudeIdentity derives the session ID, and for subagents the parent session, from
@@ -113,18 +125,7 @@ func claudeIdentity(path string) (id, parent string) {
 }
 
 func (s *Session) apply(rec record, subagent bool, aiTitle *string) {
-	if rec.Timestamp != "" {
-		if s.Started == "" {
-			s.Started = rec.Timestamp
-		}
-		s.LastActive = rec.Timestamp
-	}
-	if rec.Cwd != "" {
-		s.Cwd = rec.Cwd
-	}
-	if rec.GitBranch != "" && !slices.Contains(s.Branches, rec.GitBranch) {
-		s.Branches = append(s.Branches, rec.GitBranch)
-	}
+	s.seen(rec.Timestamp, rec.Cwd, rec.GitBranch)
 	if s.Entrypoint == "" {
 		s.Entrypoint = rec.Entrypoint
 	}
@@ -138,17 +139,39 @@ func (s *Session) apply(rec record, subagent bool, aiTitle *string) {
 			s.PRs = append(s.PRs, rec.PRURL)
 		}
 	case "user":
-		kind := rec.PromptSource
 		// A headless run's prompt ("sdk") is not marked human, but it is the session's task.
-		if rec.Origin.Kind != "human" && kind != "sdk" {
-			if !subagent || len(s.Messages) > 0 {
-				return
-			}
-			kind = "prompt"
+		human := rec.Origin.Kind == "human" || rec.PromptSource == "sdk"
+		s.said(rec.Timestamp, rec.PromptSource, rec.Message.Content, human, subagent)
+	}
+}
+
+// seen folds one line's context into the session: when, where, and on which branch.
+func (s *Session) seen(timestamp, cwd, branch string) {
+	if timestamp != "" {
+		if s.Started == "" {
+			s.Started = timestamp
 		}
-		if text := messageText(rec.Message.Content); text != "" {
-			s.Messages = append(s.Messages, Message{Time: rec.Timestamp, Kind: kind, Text: text})
+		s.LastActive = timestamp
+	}
+	if cwd != "" {
+		s.Cwd = cwd
+	}
+	if branch != "" && !slices.Contains(s.Branches, branch) {
+		s.Branches = append(s.Branches, branch)
+	}
+}
+
+// said records a user message if the human wrote it. A subagent has no human, so its
+// first message, the task its parent gave it, is kept as its "prompt".
+func (s *Session) said(timestamp, kind string, content json.RawMessage, human, subagent bool) {
+	if !human {
+		if !subagent || len(s.Messages) > 0 {
+			return
 		}
+		kind = "prompt"
+	}
+	if text := messageText(content); text != "" {
+		s.Messages = append(s.Messages, Message{Time: timestamp, Kind: kind, Text: text})
 	}
 }
 

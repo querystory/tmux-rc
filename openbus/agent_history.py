@@ -18,7 +18,7 @@ _TIMEOUT = 5
 
 # Harnesses whose resume command the daemon will start. resume_argv comes from the
 # index, but it is still data from disk, so argv[0] must be a known agent.
-RESUMABLE = frozenset({"claude"})
+RESUMABLE = frozenset({"claude", "codex"})
 
 
 def binary() -> str | None:
@@ -55,8 +55,7 @@ def _run(*args: str) -> dict | None:
 def resolve(query: str) -> list[dict] | None:
     """Likeliest repos for `query`, each with a few sessions; None if unavailable."""
     # "--" so a query that starts with "-" is never read as a flag.
-    result = _run("resolve", "-json", "-harness", "claude", "-projects", "3",
-                  "-sessions", "3", "--", query)
+    result = _run("resolve", "-json", "-projects", "3", "-sessions", "3", "--", query)
     return None if result is None else result.get("projects") or []
 
 

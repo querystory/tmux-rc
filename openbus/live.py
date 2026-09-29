@@ -424,6 +424,7 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
                 watcher.request_reparse(pane)  # publish it before the model types there
             sessions.append({
                 "session_id": s["session_id"],
+                "tool": s.get("harness"),  # which agent CLI it resumes in
                 "title": s.get("title") or "(untitled)",
                 "last_active": (s.get("last_active") or "")[:10],
                 # Named the way windows are everywhere else, once the watcher has it.
@@ -436,10 +437,11 @@ async def _find_sessions(_websocket, args: dict, watcher, _actor: str) -> dict:
     return {"status": "ok", "results": results}
 
 
-# A resumed Claude process takes a moment to register itself as running, so a repeat
-# call before then would see nothing running and start a second copy on the same
-# transcript. Resumes are serialized, and each launch holds its session for as long as
-# the pane it opened lives. The pane's pid, not its id, is the identity: tmux reuses ids.
+# A resumed agent takes a moment to show as running (Claude registers itself, Codex
+# opens its rollout), so a repeat call before then would see nothing running and
+# start a second copy on the same transcript. Resumes are serialized, and each launch
+# holds its session for as long as the pane it opened lives. The pane's pid, not its
+# id, is the identity: tmux reuses ids.
 _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str]] = {}  # session id -> (pane id, pane pid)
 
@@ -456,9 +458,9 @@ def _ancestors(pid: int):
 
 
 def _pane_of(running: dict) -> str | None:
-    """A registry entry's pane in THIS tmux server, or None. Its %N comes from whatever
-    server Claude ran under, so it counts only if that pane's process here is an
-    ancestor of the registered pid."""
+    """A running session's pane in THIS tmux server, or None. Its %N comes from whatever
+    server the agent ran under, so it counts only if that pane's process here is an
+    ancestor of the agent's pid."""
     pane, pid = running.get("tmux_pane"), running.get("pid")
     root = pane and isinstance(pid, int) and tmux.pane_pid(pane)
     return pane if root and int(root) in _ancestors(pid) else None

@@ -63,6 +63,10 @@ func ReadEntry(path string) (Entry, error) {
 	return e, err
 }
 
+// headless are the entrypoints of runs with no human at the keyboard: Claude's
+// `claude -p` and Agent SDK, and `codex exec`.
+var headless = []string{"sdk-cli", "exec"}
+
 type Project struct {
 	Repo     string   `json:"repo"`
 	Score    float64  `json:"score"`
@@ -84,7 +88,7 @@ type ResolveOptions struct {
 	MaxProjects int
 	MaxSessions int
 	Now         time.Time
-	Running     map[string]Running // by session ID; see RunningClaude
+	Running     map[string]Running // by session ID; see LiveSessions
 	RunningErr  error              // set when Running could not be determined
 }
 
@@ -95,7 +99,7 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 	terms := terms(query)
 	entries = slices.DeleteFunc(slices.Clone(entries), func(e Entry) bool {
 		return (opt.Harness != "" && e.Harness != opt.Harness) ||
-			(!opt.All && (e.Parent != "" || e.Entrypoint == "sdk-cli"))
+			(!opt.All && (e.Parent != "" || slices.Contains(headless, e.Entrypoint)))
 	})
 	weights := idf(entries, terms)
 
