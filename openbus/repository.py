@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import subprocess
-from functools import lru_cache
 
 _GITHUB_REMOTE = re.compile(
     r"^(?:git@github\.com:|ssh://git@github\.com/|https?://github\.com/)"
@@ -12,12 +11,11 @@ _GITHUB_REMOTE = re.compile(
 )
 
 
-@lru_cache(maxsize=256)
 def github_repository(cwd: str) -> str | None:
     """Return ``owner/name`` for cwd's origin, or None when it is not a GitHub repo.
 
-    ``git remote get-url`` reads local configuration only. Caching by cwd keeps it out
-    of the classification hot path after a pane's first parse.
+    ``git remote get-url`` reads local configuration only. The watcher owns the
+    bounded-lifetime cache, so a failed lookup or changed origin can be retried.
     """
     if not cwd:
         return None

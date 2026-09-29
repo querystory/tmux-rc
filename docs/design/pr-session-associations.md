@@ -57,7 +57,9 @@ decision stays in the semantic classifier that already reads the pane trajectory
 
 The watcher resolves the pane cwd's local `origin` with `git remote get-url origin` and
 passes an exact GitHub `owner/name` into the classifier. This uses no network access and
-is cached for the pane's current cwd (and refreshed when that cwd changes). Repository
+is cached for the pane's current cwd and refreshed when it changes or the next semantic
+read occurs after 60 seconds. Failures expire too, so transient Git errors do not
+disable tracking for the rest of a pane's lifetime. Repository
 lookup is skipped when LLM classification is disabled. The model
 uses that value for bare PR numbers; it may name another
 repository only when the screen gives the complete owner/name unambiguously. If no

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 1.5
 MAX_PRS_PER_PANE = 64  # retain recent evidence, bound state/Live payloads
+REPOSITORY_REFRESH_SECONDS = 60.0
 # Between full ticks, re-check ONLY the focused pane id this often (one cheap tmux call,
 # no capture/LLM) so a pane switch reflects on the phone near-instantly (see _loop). 0.1s
 # is the perceived floor for "instant" switching; the cost is one local `display-message`
@@ -255,8 +256,8 @@ class Watcher:
             str, dict
         ] = {}  # pane_id -> cached {from,to,text} idle summary
         self._repositories: dict[
-            str, tuple[str, str | None]
-        ] = {}  # pane_id -> (cwd, GitHub owner/name)
+            str, tuple[str, str | None, float]
+        ] = {}  # pane_id -> (cwd, GitHub owner/name, monotonic expiry)
         self._prs: dict[str, list[dict]] = {}  # pane_id -> accumulated semantic associations
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
         self._boot: dict[
@@ -668,7 +669,7 @@ class Watcher:
                 # The structural identity the phone RENDERS (headers, window numbers):
                 # a renumber/rename with unchanged content must still bump the version.
                 s.get("session"), s.get("window_index"), s.get("window_name"),
-                s.get("label"), s.get("title"),
+                s.get("label"), s.get("title"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
                 tuple((p.get("repo"), p.get("number")) for p in (s.get("prs") or [])),
                 # The card renders it, and a refresh can land with no other deck
@@ -794,8 +795,9 @@ class Watcher:
     def _repository_for(self, pane) -> str | None:
         cwd = getattr(pane, "cwd", "")
         cached = self._repositories.get(pane.id)
-        if cached is None or cached[0] != cwd:
-            cached = (cwd, github_repository(cwd))
+        now = time.monotonic()
+        if cached is None or cached[0] != cwd or now >= cached[2]:
+            cached = (cwd, github_repository(cwd), now + REPOSITORY_REFRESH_SECONDS)
             self._repositories[pane.id] = cached
         return cached[1]
 

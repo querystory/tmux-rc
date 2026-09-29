@@ -15,7 +15,6 @@ from openbus import repository
     ],
 )
 def test_github_repository_parses_local_origin(monkeypatch, remote, expected):
-    repository.github_repository.cache_clear()
     calls = []
 
     def run(args, **kwargs):
@@ -25,13 +24,12 @@ def test_github_repository_parses_local_origin(monkeypatch, remote, expected):
     monkeypatch.setattr(repository.subprocess, "run", run)
     assert repository.github_repository("/repo/worktree") == expected
     assert repository.github_repository("/repo/worktree") == expected
-    assert len(calls) == 1
+    assert len(calls) == 2  # cache lifetime belongs to the watcher, not this reader
     assert calls[0][0] == ["git", "-C", "/repo/worktree", "remote", "get-url", "origin"]
     assert calls[0][1]["timeout"] == 2
 
 
 def test_github_repository_degrades_on_git_failure(monkeypatch):
-    repository.github_repository.cache_clear()
     monkeypatch.setattr(
         repository.subprocess,
         "run",

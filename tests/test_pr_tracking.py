@@ -139,6 +139,22 @@ def test_repository_context_follows_a_pane_that_changes_directory(monkeypatch):
     assert seen == ["/repo/worktree", "/repo/other"]
 
 
+def test_repository_cache_retries_failures_and_refreshes_changed_origins(monkeypatch):
+    now = [0.0]
+    results = iter([None, "org/recovered", "org/renamed"])
+    monkeypatch.setattr(W.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(W, "github_repository", lambda cwd: next(results))
+    w = Watcher(None)
+    pane = _Pane()
+    assert w._repository_for(pane) is None
+    assert w._repository_for(pane) is None
+    now[0] += W.REPOSITORY_REFRESH_SECONDS
+    assert w._repository_for(pane) == "org/recovered"
+    assert w._repository_for(pane) == "org/recovered"
+    now[0] += W.REPOSITORY_REFRESH_SECONDS
+    assert w._repository_for(pane) == "org/renamed"
+
+
 def test_scrollback_bootstrap_rehydrates_pr_associations(monkeypatch):
     monkeypatch.setattr(W, "backing_off", lambda: False)
     monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: "scrollback")
