@@ -126,13 +126,15 @@ def _session_chrome(text: str) -> list[str]:
                      if re.match(r"^\s*[›❯](?:\s|$)", line)), default=-1)
     candidates = lines[max(input_row + 1, len(lines) - 4):]
     chrome = []
-    for i, line in enumerate(candidates):
-        path_status = re.match(r"^\s*(?:~/|/)", line)
+    status_rows = [(i, line, re.match(r"^\s*(?:~/|/)", line))
+                   for i, line in enumerate(candidates)
+                   if re.match(r"^\s*(?:~/|/)", line) or _CODEX_STATUS_ROW_RE.fullmatch(line)]
+    if status_rows:
+        i, line, path_status = status_rows[-1]  # The bottommost recognized row is live chrome.
         if (path_status and i
                 and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
             chrome.append(candidates[i - 1])  # Claude title immediately above status.
-        if path_status or _CODEX_STATUS_ROW_RE.fullmatch(line):
-            chrome.append(line)
+        chrome.append(line)
     chrome.extend(line for line in strip_dim(text).splitlines()
                   if re.match(r"^\s*[•●]\s+Thread renamed to \S", line))
     return chrome
@@ -209,7 +211,10 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     # A rejected old menu can also contaminate activity/headline. Re-read only the
     # viewport; for identity alone, restrict the same model to the status evidence.
     bad_action = bad_question or bad_rewind
-    evidence = visible if bad_action else "\n".join(_session_chrome(identity))
+    identity_chrome = "\n".join(_session_chrome(identity))
+    evidence = visible if bad_action else identity_chrome
+    if bad_action and bad_session and identity_chrome:
+        evidence = f"{evidence}\n\n{identity_chrome}"
     retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if bad_action:
@@ -364,6 +369,7 @@ def classify(
     # log printing gemini-… lines is not the Gemini CLI).
     payload = f"{_parser_context(pane, repository)}\n\n{payload}"
     result = None
+    prompt = ""
     if llm_fn:
         prompt = parser_prompt()
         if re.search(
@@ -442,7 +448,7 @@ def classify(
             result["tasks"] = validated
         else:
             result.pop("tasks", None)
-    _ground_visible_fields(result, text, pane, llm_fn, parser_prompt())
+    _ground_visible_fields(result, text, pane, llm_fn, prompt)
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"

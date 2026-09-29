@@ -243,3 +243,11 @@ the agent's bullet-marked event form; sample 47 distinguishes printed output fro
 real scrolled rename in sample 36. Final validation remains **745 unit tests**, Ruff
 clean, target repetition **30/30**, and the expanded full Vertex candidate eval is
 **49/50**, with only main's known sample 16 failure. No prompt text changed.
+
+The review of 72dd58f found three more concrete paths. Identity now anchors to the
+bottommost recognized status row; combined action/identity retries carry the visible
+slice plus recognized rename chrome; and no-LLM mode reuses an empty prompt instead of
+composing prompt files it cannot send. Sample 48 covers the footer ordering, with unit
+coverage for combined retries and no-LLM composition. Final validation: **747 unit
+tests**, Ruff clean, target repetition **30/30**, and full Vertex candidate eval
+**50/51**, with only main's known sample 16 failure. No prompt text changed.

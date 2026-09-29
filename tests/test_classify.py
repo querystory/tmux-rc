@@ -82,6 +82,13 @@ def test_payload_leads_with_foreground_process():
     assert "foreground process" in first_line and "python3" in first_line
 
 
+def test_no_llm_skips_prompt_composition(monkeypatch):
+    def fail():
+        raise AssertionError("no-LLM mode must not compose the parser prompt")
+    monkeypatch.setattr("openbus.classify.parser_prompt", fail)
+    assert classify(_pane("node"), "plain output")["tool"] == "unknown"
+
+
 def test_foreground_agent_process_beats_selected_model_identity():
     r = classify(
         _pane(cmd="opencode"),
@@ -591,6 +598,8 @@ def test_short_capture_does_not_promote_tool_output_to_status_evidence():
          "{'session': 'other-pane'}\ngpt-6-sol · ~/src/app"),
         ("Thread renamed to other-pane\n\x1e[visible screen]\x1f\n"
          "› Ask Codex to do anything\ngpt-6-sol · ~/src/app"),
+        ("\x1e[visible screen]\x1f\n› Ask Codex to do anything\n"
+         "other-pane · gpt-6-sol · Ready\ngpt-6-sol · ~/src/app · Ready"),
     ):
         result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "other-pane"}))
         assert "session" not in result
@@ -670,6 +679,22 @@ def test_scrolled_rename_is_evidence_for_initial_read_and_retry():
         result = classify(_pane("node"), capture, read)
         assert result["session"] == "Fix login redirects"
         assert len(calls) == (1 if initial == "Fix login redirects" else 2)
+
+
+def test_action_and_identity_retry_keeps_scrolled_rename_evidence():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "codex", "session": "Wrong title", "activity": "waiting",
+                    "question": {"prompt": "Old approval?"}}
+        assert "› Ready" in text and "• Thread renamed to Fix login redirects" in text
+        return {"tool": "codex", "session": "Fix login redirects", "activity": "idle"}
+    capture = ("Old approval?\n• Thread renamed to Fix login redirects\n"
+               "\x1e[visible screen]\x1f\n› Ready\ngpt-6-sol · ~/src/app")
+    result = classify(_pane("node"), capture, read)
+    assert result["session"] == "Fix login redirects" and result["activity"] == "idle"
+    assert "question" not in result and len(calls) == 2
 
 
 def test_cursor_search_binding_requires_visible_footer_evidence():
