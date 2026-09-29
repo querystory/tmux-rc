@@ -163,9 +163,9 @@ Use one bounded writer queue off the audio loop. Assign a message its entry numb
 once and reuse it on a database retry; a retry never overwrites an entry. Do not replay provider history on reconnect or
 try to reconstruct missed fragments after a daemon crash.
 
-One live handler writes a conversation at a time. A browser reconnect reattaches to the
-conversation only once the server has closed the previous handler; otherwise it starts
-a new conversation. A daemon
+One live handler owns a conversation at a time, so a browser reconnect waits for the
+server to close the previous handler and then reattaches; it never forks a second
+session that could also act on panes. A daemon
 restart marks previously active Live Mode conversations interrupted; a new Live Mode start
 creates a new conversation. Starting history is explicit, not a side effect of an
 incoming message: late writes may insert entries only under an existing active parent.
