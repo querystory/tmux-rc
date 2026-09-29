@@ -32,7 +32,7 @@ def test_title_lookup_failure_falls_back(monkeypatch):
     def fail(*args, **kwargs):
         raise OSError("gh unavailable")
 
-    monkeypatch.setattr("openbus.pr_titles.subprocess.run", fail)
+    monkeypatch.setattr("openbus.pr_titles.subprocess.Popen", fail)
     assert fetch_title("querystory/tmux-rc", 245) is None
 
 
@@ -85,3 +85,31 @@ def test_shutdown_between_closed_check_and_submit_is_safe():
     cache._closed = False
     pr = {"repo": "querystory/tmux-rc", "number": 245}
     assert cache.enrich([pr]) == [pr]
+
+
+def test_shutdown_terminates_a_running_lookup(monkeypatch):
+    import subprocess
+    import sys
+    from threading import Event
+
+    started = Event()
+    processes = []
+    popen = subprocess.Popen
+
+    def slow_lookup(_args, **kwargs):
+        process = popen([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
+        processes.append(process)
+        started.set()
+        return process
+
+    monkeypatch.setattr("openbus.pr_titles.subprocess.Popen", slow_lookup)
+    cache = PRTitles()
+    try:
+        cache.enrich([{"repo": "querystory/tmux-rc", "number": 245}])
+        assert started.wait(2)
+        future = next(iter(cache._pending.values()))
+        cache.close()
+        assert future.result(timeout=2) is None
+        assert processes[0].poll() is not None
+    finally:
+        cache.close()
