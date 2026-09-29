@@ -96,14 +96,16 @@ support and configure Live Mode (`TMUXRC_LIVE_MODE=1` plus credentials for the
 selected provider). See [Live Mode](design/live-mode.md) and [deployment](../deploy/).
 The server must keep running even when the phone is asleep.
 
-Set a real operator contact in the daemon's root `.env`, then restart the service:
+The sender contact defaults to `mailto:tmux-rc@openbus.io`; no configuration is
+required. This identifies the push sender, not the tunnel URL. To use your own
+contact, set it in the daemon's root `.env` and restart the service:
 
 ```dotenv
 TMUXRC_PUSH_SUBJECT=mailto:you@your-real-domain.com
 ```
 
-Replace that example with your actual address. Do not rely on the fallback
-`mailto:tmux-rc@localhost`: during iPhone testing Apple rejected delivery with
+Replace that example with your actual address. The old default
+`mailto:tmux-rc@localhost` caused Apple to reject delivery during iPhone testing with
 **403 BadJwtToken**, and using a real mail contact fixed it. Use `mailto:` with the
 current VAPID library; an HTTPS subject failed its validation in our setup.
 

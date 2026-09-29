@@ -173,6 +173,19 @@ def test_sender_delivers_to_devices_in_parallel(monkeypatch):
     assert sorted(delivered) == sorted(item["endpoint"] for item in subscriptions)
 
 
+@pytest.mark.parametrize("override", [None, "mailto:operator@example.com"])
+def test_sender_vapid_contact_default_and_override(monkeypatch, override):
+    monkeypatch.delenv("TMUXRC_PUSH_SUBJECT", raising=False)
+    if override is not None:
+        monkeypatch.setenv("TMUXRC_PUSH_SUBJECT", override)
+    sent = []
+    monkeypatch.setattr(push, "webpush", lambda **kwargs: sent.append(kwargs))
+    sender = object.__new__(push.PushSender)
+    sender._deliver(subscription(), {"title": "Question"}, "test-key")
+    assert len(sent) == 1
+    assert sent[0]["vapid_claims"]["sub"] == (override or "mailto:tmux-rc@openbus.io")
+
+
 def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
     assert push.option_keys(question, 0) == "y"

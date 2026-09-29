@@ -268,7 +268,7 @@ class PushSender:
             # pywebpush mutates this dict with endpoint-specific aud/exp claims,
             # so every endpoint receives the independent copy returned by the store.
             claims = {"sub": os.environ.get(
-                "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@localhost"
+                "TMUXRC_PUSH_SUBJECT", "mailto:tmux-rc@openbus.io"
             )}
             webpush(
                 subscription_info=subscription,

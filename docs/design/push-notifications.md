@@ -182,9 +182,9 @@ commit, and which doesn't exist when running installed as a wheel) — owner-onl
 not observations — holds the VAPID keypair (generated on
 first use; it must stay stable, since subscriptions bind to the public key), the
 subscription list. The VAPID `sub` contact claim comes from `TMUXRC_PUSH_SUBJECT` at
-send time, since the daemon has no logged-in identity to derive it from. Configure a
-real `mailto:` contact: the localhost fallback caused Apple `403 BadJwtToken` in
-field testing. See the setup guide above. Clients still re-POST their subscription at boot as
+send time, defaulting to `mailto:tmux-rc@openbus.io`. Operators may override this
+contact; it is independent of the tunnel URL. The old localhost default caused
+Apple `403 BadJwtToken` in field testing. Clients still re-POST their subscription at boot as
 self-healing — the store upserts keyed by endpoint, so a re-register is idempotent,
 never a duplicate delivery — and prunes endpoints on `410 Gone`.
 

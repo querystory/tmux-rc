@@ -130,8 +130,8 @@ Subscriptions and the VAPID key are stored owner-only at
 from the same bell; `POST /api/push/revoke-all` revokes every saved device.
 Delivery is deliberately best-effort: relay failures are logged and dropped instead of
 replaying a stale question after an outage.
-Operators must set `TMUXRC_PUSH_SUBJECT=mailto:<real-contact-address>` in the daemon
-environment: the localhost fallback caused Apple `403 BadJwtToken` during testing.
+The push sender contact defaults to `mailto:tmux-rc@openbus.io`; operators can override
+it with `TMUXRC_PUSH_SUBJECT=mailto:<real-contact-address>` in the daemon environment.
 
 The checkout *is* the deploy — the unit runs this directory and loads its `.env`, so
 upgrading is `git pull` + `restart`. For iterating on the daemon itself, stop the unit
@@ -196,7 +196,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
 | `TMUXRC_LAUNCHERS` | Claude/Codex/Gemini | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/shell) or an image URL |
-| `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@localhost` | set a real operator `mailto:` contact for VAPID; the localhost fallback caused Apple `403 BadJwtToken`, and the current library rejected an HTTPS subject in testing |
+| `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | optional operator `mailto:` contact override for VAPID; unrelated to the tunnel URL |
 | `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft push relays | comma-separated exact hosts or dot-prefixed domain suffixes accepted as subscription endpoints; extend only for a trusted browser push service |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | e.g. `authorization=Bearer <token>` for the receiver |
