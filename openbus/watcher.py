@@ -18,6 +18,7 @@ from functools import partial
 from . import tmux
 from .classify import bootstrap, classify
 from .llm import backing_off, classify_text, summarize_events
+from .pr_titles import PRTitles
 from .repository import github_repository
 from .telemetry import emit_pane_event
 
@@ -259,6 +260,7 @@ class Watcher:
             str, tuple[str, str | None, float]
         ] = {}  # pane_id -> (cwd, GitHub owner/name, monotonic expiry)
         self._prs: dict[str, list[dict]] = {}  # pane_id -> accumulated semantic associations
+        self._pr_titles = PRTitles()
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
         self._boot: dict[
             str, dict
@@ -339,6 +341,7 @@ class Watcher:
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
+        self._pr_titles.close()
         if self._task:
             self._task.cancel()
 
@@ -603,7 +606,7 @@ class Watcher:
             self._maybe_bootstrap(panes)
         for s in states:
             s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
-            s["prs"] = list(self._prs.get(s.get("pane_id"), []))
+            s["prs"] = self._pr_titles.enrich(self._prs.get(s.get("pane_id"), []))
             b = self._boot.get(s.get("pane_id"))
             if not b:
                 continue
@@ -671,7 +674,8 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
-                tuple((p.get("repo"), p.get("number")) for p in (s.get("prs") or [])),
+                tuple((p.get("repo"), p.get("number"), p.get("title"))
+                      for p in (s.get("prs") or [])),
                 # The card renders it, and a refresh can land with no other deck
                 # change (idle pane, cadence elapsed) — the hold must still return.
                 s.get("session_summary"),

@@ -7,7 +7,10 @@ export function paneLinks(pane) {
         !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(pr.repo) ||
         pr.repo.split("/").some((part) => part === "." || part === "..") ||
         !Number.isSafeInteger(pr.number) || pr.number <= 0) return [];
-    return [{ href: `https://github.com/${pr.repo}/pull/${pr.number}`, text: `${pr.repo}#${pr.number}` }];
+    const ref = `${pr.repo}#${pr.number}`;
+    const title = typeof pr.title === "string" && pr.title.trim();
+    return [{ href: `https://github.com/${pr.repo}/pull/${pr.number}`,
+      text: title || ref, ...(title ? { detail: ref } : {}) }];
   });
   const seen = new Set();
   const accept = (link) => {
@@ -21,6 +24,7 @@ export function paneLinks(pane) {
     } catch { return false; }
   };
   const prs = tracked.filter(accept).slice(0, 64);
-  const transient = (Array.isArray(pane?.links) ? pane.links : []).filter(accept).slice(0, 3);
+  const transient = (Array.isArray(pane?.links) ? pane.links : [])
+    .filter(accept).slice(0, 3).map(({ href, text }) => ({ href, text }));
   return [...prs, ...transient];
 }

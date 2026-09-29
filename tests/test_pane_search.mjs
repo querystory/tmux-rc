@@ -3,10 +3,24 @@ import { test } from "node:test";
 import { matchesSearch, matchesFilter } from "../web/m/pane-model.js";
 import { paneLinks } from "../web/pr-links.js";
 
+test("PR titles are primary, with the repository and number beneath", () => {
+  const [link] = paneLinks({ prs: [{ repo: "querystory/tmux-rc", number: 245,
+    title: "Track PR associations" }] });
+  assert.equal(link.text, "Track PR associations");
+  assert.equal(link.detail, "querystory/tmux-rc#245");
+  assert.equal(link.href, "https://github.com/querystory/tmux-rc/pull/245");
+});
+
 const pane = {
   pane_id: "%7", session: "work", title: "Address review", activity: "idle",
   window_index: "2", tool: "codex", prs: [{ repo: "querystory/qs-app", number: 4955 }],
 };
+
+test("transient link metadata cannot spoof the destination host", () => {
+  assert.deepEqual(paneLinks({ links: [{ href: "https://evil.example/", text: "Preview",
+    detail: "github.com", extra: "untrusted" }] }),
+  [{ href: "https://evil.example/", text: "Preview" }]);
+});
 
 test("tracked PRs stay tappable without a current-frame link and preserve other links", () => {
   const pr = { href: "https://github.com/querystory/qs-app/pull/4955", text: "querystory/qs-app#4955" };

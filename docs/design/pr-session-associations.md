@@ -94,7 +94,13 @@ the results, including several sessions for the same PR. Existing status filters
 apply; select **All** to find an idle pane. Search does not create associations.
 
 The pane overview's **Links** section also offers every tracked PR as a tappable
-`owner/repo#number` GitHub link, on mobile and desktop. These links survive the URL
+GitHub title with `owner/repo#number` beneath it, on mobile and desktop. Titles come
+from `gh pr view --json title`, not the LLM. Two background workers fetch titles with
+an eight-second timeout; a shared 512-entry cache refreshes successes after 15 minutes
+and retries failures after one minute. Failed refreshes retain the last title. If gh,
+authentication or network access is unavailable, the link falls back to the reference.
+Title updates participate in the state change signal even while a pane is idle.
+These links survive the URL
 scrolling off-screen, open externally like existing links, and deduplicate matching
 links from the current frame. Unrelated preview/auth links remain available.
 
