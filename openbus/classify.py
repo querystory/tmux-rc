@@ -269,8 +269,9 @@ def classify(
     # OpenCode renders ordinary answer bullets immediately above its model/footer. The
     # parser sometimes promotes those review findings to the agent's live task plan.
     # Validate each model-returned task against an actual visible checkbox/progress line,
-    # rather than treating any old checklist in scrollback as permission for an unrelated
-    # current bullet list. Standalone markdown checkboxes (`[ ] task`) are valid too.
+    # rather than treating any checklist on screen as permission for an unrelated bullet
+    # list. Standalone markdown checkboxes (`[ ] task`) are valid too. OpenCode's TUI runs
+    # on the alternate screen, so its capture has no scrollback: `text` is the live screen.
     if result.get("tool") == "opencode" and "tasks" in result:
         # The visible marker, not the model, is authoritative for completion state.
         visible_tasks = {
