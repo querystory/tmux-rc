@@ -217,3 +217,11 @@ coverage for bootstrap. Final validation: **744 unit tests**, Ruff clean, target
 repetition **30/30**, and full Vertex candidate eval **47/48**, with only main's known
 sample 16 failure. One identical full run was aborted by Vertex with 499 CANCELLED and
 provided no verdict before the successful rerun. No prompt text changed.
+
+The review of ee7ff47 found one further fallback gap: OpenCode/Gemini identity had
+been matched against arbitrary viewport text, so quoted tool output could ground a
+name. All tools now use only recognized status chrome or explicit rename events for
+session evidence. Sample 45 includes the quoted-output reproducer. Validation remains
+**744 unit tests**, Ruff clean, and full Vertex candidate eval **47/48**, with only
+main's known sample 16 failure. The Codex-specific target path is unchanged from its
+latest **30/30** run. No prompt text changed.

@@ -145,14 +145,12 @@ def _valid_session_shape(name) -> bool:
                 or _OPAQUE_SESSION_RE.fullmatch(name))
 
 
-def _supported_session(name, visible: str, tool) -> bool:
+def _supported_session(name, visible: str) -> bool:
     if not _valid_session_shape(name):
         return False
     name = name.strip()
     pattern = r"(?<![\w/.-])" + re.escape(name) + r"(?![\w/.-])"
-    evidence = (_session_evidence(visible) if tool in ("codex", "claude") else
-                strip_dim(visible.rsplit(VISIBLE_SCREEN, 1)[-1]))
-    return bool(re.search(pattern, evidence))
+    return bool(re.search(pattern, _session_evidence(visible)))
 
 
 def _supported_question(question, visible: str) -> bool:
@@ -182,7 +180,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
         and not _supported_rewind(result["rewind"], visible)
     )
     bad_session = result.get("session") is not None and not _supported_session(
-        result["session"], identity, result.get("tool"),
+        result["session"], identity,
     )
     if not (bad_question or bad_rewind or bad_session):
         return
@@ -215,9 +213,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
         result.pop("session", None)
         if not retry:
             result["parse_ok"] = False
-        elif _supported_session(
-            retry.get("session"), identity, result.get("tool"),
-        ):
+        elif _supported_session(retry.get("session"), identity):
             result["session"] = retry["session"].strip()
         elif retry.get("session") is not None:
             result["parse_ok"] = False

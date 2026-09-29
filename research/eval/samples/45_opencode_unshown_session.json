@@ -1,7 +1,7 @@
 {
   "description": "OpenCode has no visible conversation title in this screen. An invented ordinary string must not be accepted merely because the tool is not Codex or Claude.",
   "current_command": "opencode",
-  "capture": "\u001e[visible screen]\u001f\n› Ready\nOpenCode 1.18.32",
+  "capture": "\u001e[visible screen]\u001f\n› Ready\n{'session': 'Unrelated title'}\nOpenCode 1.18.32",
   "expected": {
     "tool": "opencode",
     "activity": "idle",

@@ -10,7 +10,10 @@ def test_opaque_session_identifiers_are_not_titles():
         result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
         assert "session" not in result
     for name in ("gpt-5 migration", "airbyte-value-population", "Review 4955", "deadbeef"):
-        result = classify(_pane(), name, _llm({"session": name, "activity": "idle"}))
+        capture = f"› input\n{name} · gpt-6-sol · ~/src/app"
+        result = classify(_pane("node"), capture, _llm({
+            "tool": "codex", "session": name, "activity": "idle",
+        }))
         assert result["session"] == name
 
 
@@ -546,7 +549,9 @@ def test_question_retry_cannot_resurrect_stale_rewind():
 
 def test_non_codex_session_requires_visible_evidence():
     for tool in ("opencode", "gemini"):
-        result = classify(_pane(tool), "\x1e[visible screen]\x1f\n› Ready", _llm({
+        capture = ("\x1e[visible screen]\x1f\n› Ready\n"
+                   "{'session': 'Unrelated title'}")
+        result = classify(_pane(tool), capture, _llm({
             "tool": tool, "session": "Unrelated title", "activity": "idle",
         }))
         assert "session" not in result
