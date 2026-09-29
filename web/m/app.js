@@ -5,6 +5,7 @@ import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
 import { pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
+import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
@@ -566,11 +567,9 @@ function render() {
 }
 
 function renderRichContent(pane) {
-  const links = (Array.isArray(pane?.links) ? pane.links : []).filter((link) => {
-    try { return /^https?:$/.test(new URL(link.href).protocol); } catch { return false; }
-  });
+  const links = paneLinks(pane);
   show("link-section", !!links.length);
-  reconcile($("links"), links, (link, i) => `${i}:${link.href}`, () => {
+  reconcile($("links"), links, (link) => link.href, () => {
     const anchor = document.createElement("a");
     anchor.target = "_blank"; anchor.rel = "noopener noreferrer";
     anchor.innerHTML = '<span></span><small></small>' + licon("chevron", 16);

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json
 import logging
 import os
 import time
@@ -259,7 +260,8 @@ def _pane_block(d: dict, screen: str | None) -> str:
         head += " — ACTIVE (the pane the user is looking at; 'here'/'this' means this one)"
     parts = [f"## {head}"]
     if d.get("cwd"):
-        parts.append(f"cwd: {d['cwd']}")
+        # Keep untrusted directory names from introducing fake prompt lines.
+        parts.append(f"cwd: {json.dumps(str(d['cwd']), ensure_ascii=True)}")
     if d.get("headline"):
         parts.append(f"now: {d['headline']}")
     if d.get("summary"):

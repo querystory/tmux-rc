@@ -93,6 +93,11 @@ full `owner/repo#4955`, or a GitHub pull-request URL. All matching panes remain 
 the results, including several sessions for the same PR. Existing status filters still
 apply; select **All** to find an idle pane. Search does not create associations.
 
+The pane overview's **Links** section also offers every tracked PR as a tappable
+`owner/repo#number` GitHub link, on mobile and desktop. These links survive the URL
+scrolling off-screen, open externally like existing links, and deduplicate matching
+links from the current frame. Unrelated preview/auth links remain available.
+
 When several panes match, routing considers their current titles, activity, cwd, and
 screens. If those do not distinguish the intended pane, Live Mode asks the user rather
 than silently choosing. This permits several sessions per PR without pretending there

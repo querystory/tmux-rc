@@ -1,3 +1,5 @@
+import { paneLinks } from "/pr-links.js";
+
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step (native ES module — index.html loads type=module).
@@ -2236,7 +2238,7 @@ function applyPaneBody(ui, s, show, rewindable) {
   applyQuestion(ui.q, show && s.question ? s : null, ui);
   applyTasks(ui.tasks, show && Array.isArray(s.tasks) ? s.tasks : []);
   applySubagents(ui.subs, show ? realSubs(s.subagents) : []);
-  applyLinks(ui.links, show && Array.isArray(s.links) ? s.links : []);
+  applyLinks(ui.links, show ? paneLinks(s) : []);
   applyCopy(ui.copy, show && Array.isArray(s.copyables) ? s.copyables : []);
   const log = (eventLog[s.pane_id] || {}).events || [];
   applyEvents(ui.events, show ? log : [], s.pane_id, show ? s.summary : null);
@@ -2740,7 +2742,7 @@ function applyLinks(box, links) {
   const valid = links.filter((l) => {
     if (!l || !l.href || !/^https?:\/\//i.test(l.href)) return false;
     try { new URL(l.href); return true; } catch { return false; }  // pre-cap: malformed can't eat slots
-  }).slice(0, 3);
+  });
   // Index + href, for the same reason as the copyables below: the same URL can appear twice
   // with different labels, and a bare-href key collapsed both onto one cached node.
   keyedList(box, valid, (l, i) => i + "|" + l.href, () => {

@@ -189,8 +189,11 @@ dependency PRs, release notes, logs, or a request to inspect/list/report PRs wit
 working on their changes. Seeing a URL or number is never enough. In particular, a pane
 asked "show all open PRs" must emit NO working_prs even if dozens fill the screen.
 
-Use the exact `owner/name` from the tmux GitHub-repository context line. Use a different
-repository only when the screen explicitly and unambiguously gives its full owner/name.
+An explicit full `owner/name` or GitHub PR URL identifying this work takes precedence
+over the tmux repository context: the agent can work in another checkout while its
+pane stays in the original directory. Otherwise use the exact `owner/name` from the
+tmux GitHub-repository context line. Never attach a PR number to the cwd repository
+when the work explicitly identifies a different repository.
 Never infer an owner, and never guess a PR association. Omit working_prs when none are
 supported. This field is accumulated by the watcher after each successful parse, so emit
 only associations supported by this work; do not repeat incidental history to preserve

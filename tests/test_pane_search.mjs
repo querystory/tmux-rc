@@ -1,11 +1,32 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { matchesSearch, matchesFilter } from "../web/m/pane-model.js";
+import { paneLinks } from "../web/pr-links.js";
 
 const pane = {
   pane_id: "%7", session: "work", title: "Address review", activity: "idle",
   window_index: "2", tool: "codex", prs: [{ repo: "querystory/qs-app", number: 4955 }],
 };
+
+test("tracked PRs stay tappable without a current-frame link and preserve other links", () => {
+  const pr = { href: "https://github.com/querystory/qs-app/pull/4955", text: "querystory/qs-app#4955" };
+  assert.deepEqual(paneLinks(pane), [pr]);
+  const preview = { href: "https://example.com/preview", text: "Preview" };
+  assert.deepEqual(paneLinks({ ...pane, prs: [...pane.prs, ...pane.prs], links: [
+    { href: pr.href + "/", text: "Open PR" }, preview,
+  ] }), [pr, preview]);
+  const other = { repo: "other/qs-app", number: 4955 };
+  assert.equal(paneLinks({ prs: [...pane.prs, other] }).length, 2);
+});
+
+test("PR destinations reject malformed metadata and unsafe links", () => {
+  assert.deepEqual(paneLinks(null), []);
+  assert.deepEqual(paneLinks({ prs: "invalid", links: "invalid" }), []);
+  assert.deepEqual(paneLinks({ prs: [null, {}, { repo: "../bad", number: 1 },
+    { repo: "evil.test/@foo/bar", number: 1 }, { repo: "a/b", number: -1 },
+    { repo: "a/b", number: "1" }, { repo: "a/b", number: Number.MAX_SAFE_INTEGER + 1 }],
+    links: [null, {}, { href: "javascript:alert(1)" }] }), []);
+});
 
 test("sidebar finds accumulated PRs after the number disappears from visible text", () => {
   for (const query of ["4955", "#4955", "PR 4955", "PR #4955", "qs-app#4955",
