@@ -50,6 +50,11 @@ class PRTitles:
             expires, title = self._cache.get(key, (0, None))
             if (not self._closed and expires <= now and key not in self._pending
                     and len(self._pending) < 2):
-                self._pending[key] = self._pool.submit(fetch_title, *key)
+                try:
+                    self._pending[key] = self._pool.submit(fetch_title, *key)
+                except RuntimeError:
+                    # stop() runs on the event loop while enrich() runs in a worker.
+                    if not self._closed:
+                        raise
             out.append({**pr, **({"title": title} if title else {})})
         return out

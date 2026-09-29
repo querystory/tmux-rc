@@ -70,3 +70,18 @@ def test_title_change_publishes_idle_pane():
     before = Watcher._deck_fp([pane])
     pane["prs"][0]["title"] = "Track PRs per session"
     assert Watcher._deck_fp([pane]) != before
+
+
+def test_shutdown_between_closed_check_and_submit_is_safe():
+    cache = PRTitles()
+    cache.close()
+
+    class ClosingPool:
+        def submit(self, *_args):
+            cache._closed = True
+            raise RuntimeError("cannot schedule new futures after shutdown")
+
+    cache._pool = ClosingPool()
+    cache._closed = False
+    pr = {"repo": "querystory/tmux-rc", "number": 245}
+    assert cache.enrich([pr]) == [pr]
