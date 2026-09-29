@@ -1,3 +1,5 @@
+import { paneLinks } from "/pr-links.js";
+
 // tmux-rc PWA. Polls /api/state, renders ONE pane card at a time (the dock — icon
 // tabs, tally filters — and card swipes switch panes), and posts answers back.
 // No framework, no build step (native ES module — index.html loads type=module).
@@ -50,6 +52,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCaptureLines, linkifyText } from "./terminal.js";
 import { pickCursorRow } from "./cursor-pick.js";
+import { sendPresence, stateUrl } from "./push.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -800,7 +803,7 @@ async function poll() {
     // unambiguously "give me current state now" — never conflated with a real echoed
     // version. (The server only holds when v == its current version AND version > 0, so
     // a null here keeps the first paint immediate regardless of startup timing.)
-    const r = await fetch("/api/state" + (_stateVersion !== null ? `?v=${_stateVersion}` : ""));
+    const r = await fetch(stateUrl(_stateVersion));
     // Check status before parsing: when the tunnel/backend is down the relay
     // returns a non-JSON body (e.g. "no tunnel connected for …"), and blindly
     // JSON.parse-ing it throws a cryptic "Unexpected token" that we used to
@@ -970,7 +973,7 @@ function onResume() {
   // but an abandoned gesture leaves only per-instance state that the next touchstart
   // overwrites — no global flag can survive to freeze the returning user's app.
 }
-document.addEventListener("visibilitychange", onResume);
+document.addEventListener("visibilitychange", () => { sendPresence(); onResume(); });
 window.addEventListener("pageshow", onResume); // bfcache restore fires pageshow, not visibilitychange
 
 const usageEl = document.getElementById("usage");
@@ -2235,7 +2238,7 @@ function applyPaneBody(ui, s, show, rewindable) {
   applyQuestion(ui.q, show && s.question ? s : null, ui);
   applyTasks(ui.tasks, show && Array.isArray(s.tasks) ? s.tasks : []);
   applySubagents(ui.subs, show ? realSubs(s.subagents) : []);
-  applyLinks(ui.links, show && Array.isArray(s.links) ? s.links : []);
+  applyLinks(ui.links, show ? paneLinks(s) : []);
   applyCopy(ui.copy, show && Array.isArray(s.copyables) ? s.copyables : []);
   const log = (eventLog[s.pane_id] || {}).events || [];
   applyEvents(ui.events, show ? log : [], s.pane_id, show ? s.summary : null);
@@ -2739,7 +2742,7 @@ function applyLinks(box, links) {
   const valid = links.filter((l) => {
     if (!l || !l.href || !/^https?:\/\//i.test(l.href)) return false;
     try { new URL(l.href); return true; } catch { return false; }  // pre-cap: malformed can't eat slots
-  }).slice(0, 3);
+  });
   // Index + href, for the same reason as the copyables below: the same URL can appear twice
   // with different labels, and a bare-href key collapsed both onto one cached node.
   keyedList(box, valid, (l, i) => i + "|" + l.href, () => {
@@ -2767,7 +2770,8 @@ function applyLinks(box, links) {
     const host = new URL(l.href).host;
     setAttr(a, "href", l.href);
     setText(a._txt, safeText(l.text, 80) || host); // untrusted: bidi-stripped, capped
-    setText(a._host, ` ${host}`);
+    setText(a._host, ` ${safeText(l.detail, 280) || host}`);
+    a._host.style.display = l.detail ? "block" : "";
   });
 }
 
@@ -3691,7 +3695,7 @@ function applyQuestion(ui, s, card) {
   // this is the deck catching up.)
   const realOpts = (s.question.options || [])
     .map((text, index) => ({ text, index }))
-    .filter(({ text }) => !_FREETEXT_OPT.test(text.trim()));
+    .filter(({ text }) => typeof text === "string" && text.trim() && !_FREETEXT_OPT.test(text.trim()));
   keyedList(ui.opts, realOpts, ({ text, index }) => index + " " + text, (opt) => {
     const b = document.createElement("button");
     b.className = "opt";
@@ -3999,13 +4003,9 @@ function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
-// Purge any previously-installed service worker + caches. An old SW (from before we
-// went cache-less) keeps serving a stale app.js on the phone even after edits — which
-// is why new buttons didn't appear on reload. Unregister everything so the phone
-// always fetches fresh from the network. (No SW ⇒ not installable, fine for the PoC.)
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
-}
+// Keep the push-only worker current. It has no fetch handler and writes no caches, so it
+// cannot serve stale app assets (the failure the old unregister-everything block guarded).
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" });
 if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
 pollLoop(); // self-rescheduling long-poll (replaces the fixed 2s interval)
 syncBadgeTick(); // live-tick idle/waiting durations while visible (paused when hidden)

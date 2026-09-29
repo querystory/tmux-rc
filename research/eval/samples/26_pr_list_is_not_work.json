@@ -1,0 +1,12 @@
+{
+  "description": "Listing open PRs is observation/triage, not work on every PR shown; the association list must remain empty.",
+  "current_command": "codex",
+  "repository": "querystory/qs-app",
+  "capture": "OpenAI Codex | gpt-6-sol\n\nUser: Show me all open PRs and their review state. Do not change anything.\n\n$ gh pr list --state open\n4955  Refactor judge timeout       feat/judge-timeout    REVIEW_REQUIRED\n4960  Add narrative diagnostics    feat/diagnostics      APPROVED\n4964  Upgrade ECharts               deps/echarts          REVIEW_REQUIRED\n4971  Remove old model aliases      cleanup/models        APPROVED\n\n• There are four open PRs. PRs 4955 and 4964 still require review; 4960 and 4971 are approved. No files were changed.\n\n› Ask Codex to do anything\n\nList open PRs · gpt-6-sol medium · ~/src/qs/qs-app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "working_prs": [],
+    "headline": "Listed four open PRs and their review state without changing anything"
+  }
+}

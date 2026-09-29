@@ -61,6 +61,9 @@ strictness is correct:
 - `tool`, `activity`, `waiting_on` — compared by value.
 - `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
   background count and the sorted multiset of worker states (including duplicates).
+- `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
+  An explicit empty list pins the important negative case: PRs may be visible without
+  this session actually working on any of them.
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
@@ -95,13 +98,14 @@ loosen the score.
 {
   "description": "why this sample exists / what it asserts",
   "current_command": "node",          // the pane's tmux foreground process
+  "repository": "owner/name",         // optional local GitHub repository context
   "capture": "…the pane text…",       // what the model sees
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```
 
-Coverage (13 samples, quality over quantity) — every state, every tool, and the
-affordances this session actually hit:
+Coverage highlights — every state, every tool, and the affordances this session
+actually hit:
 
 | sample | asserts |
 |---|---|
@@ -118,6 +122,8 @@ affordances this session actually hit:
 | `11_shell_idle` | bare shell prompt → tool=shell, idle |
 | `12_shell_server_gemini_trap` | server log mentioning `gemini-…` → tool=shell (not gemini) |
 | `13_gemini_idle` | Gemini CLI's own chrome → tool=gemini |
+| `25_working_pr_review` | active review work associates the pane with that PR |
+| `26_pr_list_is_not_work` | a visible `gh pr list` does not create associations |
 
 ### Committed vs local — what's repo-safe
 

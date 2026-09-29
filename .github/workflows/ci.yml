@@ -20,6 +20,7 @@ jobs:
           cache: "npm"
       - run: npm ci --ignore-scripts
       - run: npm run vendor:check
+      - run: node --test tests/test_pane_search.mjs
       - run: npm audit --omit=dev --audit-level=moderate
 
   test:

@@ -88,3 +88,20 @@ export function lastActivity(pane) {
 export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
+
+// Search the accumulated associations, not just this frame's headline. A PR may
+// have scrolled away hours ago while its agent still owns the useful context.
+export function matchesSearch(pane, query) {
+  const refs = (Array.isArray(pane.prs) ? pane.prs : []).flatMap((pr) => {
+    if (!pr || typeof pr.repo !== "string" || !Number.isSafeInteger(pr.number) || pr.number <= 0) return [];
+    const names = [pr.repo, pr.repo.split("/").pop()];
+    return [`PR #${pr.number}`, `PR ${pr.number}`, `https://github.com/${pr.repo}/pull/${pr.number}`,
+      ...names.flatMap((repo) => [`${repo}#${pr.number}`, `${repo} #${pr.number}`,
+        `${repo} ${pr.number}`, `${repo} PR ${pr.number}`, `${repo} PR #${pr.number}`])];
+  });
+  const text = [pane.session, pane.title, pane.label, pane.window_name, pane.pane_id, pane.tool, pane.model,
+    pane.question?.prompt, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
+    pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : "", ...refs]
+    .filter(Boolean).join(" ").toLowerCase();
+  return text.includes(String(query).trim().toLowerCase().replace(/\s+/g, " "));
+}
