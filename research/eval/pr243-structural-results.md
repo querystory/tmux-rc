@@ -157,6 +157,11 @@ of permanently retiring an unread screen. No prompt text was added.
 byte-identical to main 27d81e1, 677 tests/lint/CI pass, and current-head Copilot is
 clean. Its current-main eval is **30/31**, failing only the same sample 16.
 
+Copilot's clarification job added 4343568: an empty `{}` bounded question retry is
+also a failed parse, not a successful state. The existing failure-path regression
+now includes that response. Inspected the two-line change and reran all **738 tests**
+and Ruff successfully; the successful-response path and prompt are unchanged.
+
 Only #243 and #249 belong to this workstream. Do not merge either; do not deploy
 integration or push Claude-owned branches. The structural rewrite is pushed, stacked
 on #249. Next: finish the current-head Copilot loop; no merge or deployment authorized.
