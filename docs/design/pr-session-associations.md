@@ -1,5 +1,8 @@
 # PR/session associations
 
+This describes the shipped baseline. The proposed [context and lifecycle follow-up](pr-association-lifecycle.md)
+replaces lifetime accumulation with session-specific context and active/done/removed states.
+
 ## Goal
 
 When a request names a pull request — for example, “review landed on qs-app PR 4955;
