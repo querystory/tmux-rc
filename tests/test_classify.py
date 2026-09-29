@@ -624,11 +624,17 @@ def test_short_capture_does_not_promote_tool_output_to_status_evidence():
 
 
 def test_prose_with_model_and_ready_is_not_status_evidence():
-    capture = "› Ask Codex to do anything\noutput: other-pane · gpt-6-sol · Ready"
+    capture = "› Ask Codex to do anything\noutput: other-pane · gpt-6-sol · ~/src/app · Ready"
     result = classify(_pane("node"), capture, _llm({
         "tool": "codex", "session": "other-pane", "activity": "idle",
     }))
     assert "session" not in result
+
+    title = "Fix: login redirects"
+    result = classify(_pane("node"), f"› input\n{title} · gpt-6-sol · ~/src/app", _llm({
+        "tool": "codex", "session": title, "activity": "idle",
+    }))
+    assert result["session"] == title
 
 
 def test_claude_title_above_status_bar_is_preserved():

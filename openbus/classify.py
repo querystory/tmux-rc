@@ -28,6 +28,10 @@ _OPAQUE_SESSION_RE = re.compile(
 )
 _RELATIVE_PATH_RE = re.compile(r"^(?:[^/\s]+/)+[^/\s]+$")
 _CODEX_MODEL_TOKEN_RE = re.compile(r"(?:gpt-[\w.-]+|o\d[\w.-]*)", re.IGNORECASE)
+_OUTPUT_LABELS = frozenset({
+    "debug", "error", "footer", "info", "log", "output", "result", "session",
+    "status", "title", "warn", "warning",
+})
 _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
@@ -122,6 +126,9 @@ def _codex_model_segments(line: str) -> list[int]:
     if wrapped == ("[", "]") and any(char in stripped for char in "{'\""):
         return []
     segments = [segment.strip() for segment in line.split("·")]
+    label = re.match(r"^([A-Za-z][\w-]*):\s+", segments[0])
+    if label and (label.group(1).islower() or label.group(1).casefold() in _OUTPUT_LABELS):
+        return []
     if not any(
         re.match(r"^(?:~/|/)", segment)
         or re.search(r"(?:\bcontext\b|\bweekly\b|%)", segment, re.IGNORECASE)

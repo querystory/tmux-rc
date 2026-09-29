@@ -284,3 +284,13 @@ affected Vertex samples 36, 47, and 52 pass. Two full 55-sample retries aborted 
 Vertex `ReadTimeout` without a verdict; the last completed full run immediately before
 this isolated rename change was **53/54**, with only main's known sample 16 failure.
 No prompt text changed.
+
+Copilot's review of a8859e4 strengthened the false-footer case to include a cwd and
+found that the real-tmux clear-history test assumed a boundary was always present.
+Field-labeled prose rows are now rejected without rejecting an ordinary capitalized
+title such as `Fix: login redirects`; sample 51 was updated and passes Vertex. The
+clear-history regression accepts both valid transport shapes (no boundary, or an empty
+history before it) while requiring that old history is absent and visible content
+remains. Final validation stays **757 unit tests** and Ruff clean. The full Vertex
+service remained unavailable with `ReadTimeout`; the affected samples pass. No prompt
+text changed.

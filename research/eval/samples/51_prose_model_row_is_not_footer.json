@@ -1,7 +1,7 @@
 {
-  "description": "A prose or tool-output line containing a title-shaped value, OpenAI model, and Ready is not a recognizable Codex footer without path or usage metadata.",
+  "description": "A field-labeled prose or tool-output line containing a title-shaped value, OpenAI model, cwd, and Ready is not Codex footer identity evidence.",
   "current_command": "node",
-  "capture": "\u001e[visible screen]\u001f\n• Finished inspecting another pane.\n\n› Ask Codex to do anything\noutput: other-pane · gpt-6-sol · Ready",
+  "capture": "\u001e[visible screen]\u001f\n• Finished inspecting another pane.\n\n› Ask Codex to do anything\noutput: other-pane · gpt-6-sol · ~/src/app · Ready",
   "expected": {
     "tool": "codex",
     "activity": "idle",

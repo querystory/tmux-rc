@@ -29,8 +29,13 @@ def test_real_tmux_history_boundary(tmp_path, monkeypatch):
         assert "\n1\n" in history
         assert "\n30\n" in visible
         run(["clear-history", "-t", pane])
-        empty_history, _ = tmux.capture_pane(pane, mark_dim=True).split(tmux.VISIBLE_SCREEN)
-        assert not empty_history
+        cleared = tmux.capture_pane(pane, mark_dim=True)
+        parts = cleared.split(tmux.VISIBLE_SCREEN)
+        assert len(parts) in (1, 2)
+        if len(parts) == 2:
+            assert not parts[0].strip()
+        assert "\n1\n" not in cleared
+        assert "\n30\n" in parts[-1]
         # Terminal controls cannot become stored cells even when the pane writes
         # the complete framed token. Only the capture nonce becomes a boundary.
         run(["send-keys", "-t", pane, r"printf '\036[visible screen]\037\n'", "Enter"])
