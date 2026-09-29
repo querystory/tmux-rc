@@ -149,8 +149,10 @@ def _session_chrome(text: str) -> list[str]:
                 and re.match(r"^\s*[─━]+\s+\S", candidates[i - 1])):
             chrome.append(candidates[i - 1])  # Claude title immediately above status.
         chrome.append(line)
-    chrome.extend(line for line in strip_dim(text).splitlines()
-                  if re.match(r"^\s*[•●]\s+Thread renamed to \S", line))
+    renames = [line for line in strip_dim(text).splitlines()
+               if re.match(r"^\s*[•●]\s+Thread renamed to \S", line)]
+    if renames:
+        chrome.append(renames[-1])
     return chrome
 
 

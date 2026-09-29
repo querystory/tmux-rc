@@ -484,6 +484,16 @@ def test_session_grounding_preserves_footer_and_rename_titles():
         assert result["session"] == "Review 4955"
 
 
+def test_only_latest_rename_is_session_evidence():
+    capture = ("• Thread renamed to Old task\n• Thread renamed to New task\n"
+               "\x1e[visible screen]\x1f\n› Ask Codex to do anything\n"
+               "gpt-6-sol · ~/src/app · Ready")
+    old = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "Old task"}))
+    new = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "New task"}))
+    assert "session" not in old
+    assert new["session"] == "New task"
+
+
 def test_session_grounding_preserves_bracketed_footer_title():
     capture = "› input\n\n[PR 123] Fix login · gpt-6-sol · ~/src/app"
     result = classify(_pane("node"), capture, _llm({

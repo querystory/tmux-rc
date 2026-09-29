@@ -276,3 +276,11 @@ the existing compact model-plus-cwd samples retain the supported layouts. Final
 validation: **756 unit tests**, Ruff clean, target repetition **30/30**, and full
 Vertex candidate eval **53/54**, with only main's known sample 16 failure. No prompt
 text changed.
+
+Copilot's review of 6dc43aa found that all historical rename events were accepted as
+identity evidence. Only the latest explicit rename is now authoritative; sample 52
+covers two successive names. Final validation: **757 unit tests**, Ruff clean, and
+affected Vertex samples 36, 47, and 52 pass. Two full 55-sample retries aborted on
+Vertex `ReadTimeout` without a verdict; the last completed full run immediately before
+this isolated rename change was **53/54**, with only main's known sample 16 failure.
+No prompt text changed.
