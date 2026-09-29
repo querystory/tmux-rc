@@ -5,6 +5,7 @@ The scripts that answered "which voice model, and does the whole loop actually w
 uses a fake snapshot or watcher and a mocked `send_keys`. All of them call paid provider
 APIs, so none run in `make test`; run them by hand when the question they answer comes up
 again.
+
 Run from the repo root. Credentials come from two places, never the command line: the
 repo `.env` (`GOOGLE_CLOUD_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS` for Vertex) and
 `~/.config/tmux-rc/openai.env` (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`,
