@@ -5,6 +5,7 @@ tmux (argv, directory) comes from the agent-history index; a session that is alr
 running is never started twice; and without agent-history the tools don't exist."""
 
 import asyncio
+import logging
 import os
 import shutil
 import stat
@@ -15,7 +16,7 @@ import pytest
 import openbus.live as L
 from openbus import agent_history, tmux
 from openbus.tmux import Pane
-from tests.test_live_mode import _FC, _WS, _run, _Session, _Watcher
+from tests.test_live_mode import _FC, _METER, _WS, _run, _Session, _Watcher
 
 _REAL_ANCESTORS = L._ancestors  # before the autouse stub replaces it
 
@@ -57,7 +58,7 @@ def history(monkeypatch, tmp_path):
 def _call(name, args, watcher=None):
     ws, session = _WS(), _Session()
     _run(L._handle_tool_call(ws, session, _FC(name=name, args=args), watcher or _Watcher(),
-                             "tester"))
+                             _METER))
     return ws, session.responses[0][1]
 
 
@@ -79,7 +80,7 @@ def test_resume_is_idempotent_until_the_session_registers(history):
     async def twice():
         return await asyncio.gather(*(
             L._handle_tool_call(_WS(), s, _FC(name="resume_session", args={"session_id": "live-1"}),
-                                _Watcher(), "tester")
+                                _Watcher(), _METER)
             for s in (a, b)))
     a, b = _Session(), _Session()
     _run(twice())
@@ -119,6 +120,35 @@ def test_tmux_failure_is_reported_not_raised(history, monkeypatch, broken):
         raise subprocess.CalledProcessError(1, "tmux")
     monkeypatch.setattr(tmux, broken, fail)
     assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "error"
+
+
+def test_every_call_is_audited_in_the_journal_and_otel(history, monkeypatch, caplog):
+    # One record per call, whatever the outcome: opened, failed, or refused unoffered.
+    sessions, _ = history
+    sessions["live-1"], sessions["live-2"] = LIVE, {**LIVE, "session_id": "live-2"}
+    emitted = []
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: emitted.append(k))
+    monkeypatch.setattr(tmux, "server_uid", lambda: "u")
+    caplog.set_level(logging.INFO, logger="openbus.server.audit")
+    _call("resume_session", {"session_id": "live-1"})
+    monkeypatch.setattr(tmux, "new_window", lambda *a: 1 / 0)
+    _call("resume_session", {"session_id": "live-2"})
+    monkeypatch.setattr(agent_history, "binary", lambda: None)
+    _call("resume_session", {"session_id": "live-1"})
+    ok, err, refused = emitted
+    assert ok.items() >= {
+        "action": "live_resume_session", "pane_uid": "u:%40", "actor": "tester",
+        "outcome": "ok", "session": "s1", "session_id": "live-1", "tool": "claude",
+        "cwd": "/repo", "window": "tmuxrc live mode", "tmux_session": "work",
+    }.items()
+    assert isinstance(ok["latency_ms"], int) and ok["provider"] == _METER.model.backend
+    assert err["outcome"] == "error: could not open a window" and "division" in err["detail"]
+    assert refused["outcome"] == "rejected: session history not available"
+    lines = [r.getMessage() for r in caplog.records if r.name == "openbus.server.audit"]
+    assert lines[0].startswith("AUDIT live_resume_session pane=%40 by tester ")
+    assert "session_id='live-1'" in lines[0] and "window='tmuxrc live mode'" in lines[0]
+    assert lines[1].endswith("[error: could not open a window]")
+    assert lines[2].endswith("[rejected: session history not available]")
 
 
 def test_resume_never_starts_a_second_copy(history):

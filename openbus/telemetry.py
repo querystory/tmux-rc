@@ -38,6 +38,8 @@ import socket
 import time
 from functools import cache
 
+from . import tmux
+
 logger = logging.getLogger(__name__)
 
 # Scope name tags our records so QueryStory can filter them apart from Claude Code's
@@ -136,6 +138,7 @@ def emit_action(
     detail: str | None,
     keys: str | None,
     outcome: str = "ok",
+    **fields,
 ) -> None:
     """Audit record for a state-CHANGING request (send-keys / select / image paste), so
     "what is making changes to my terminals, and who?" is answerable from telemetry.
@@ -144,13 +147,91 @@ def emit_action(
     direct requests. `outcome` distinguishes completed actions from refused/failed
     attempts. Key content attaches only under TMUXRC_QSDEBUG — stricter than pane_text
     in spirit: keys can carry no-echo secrets that pane capture never sees. The
-    action/actor/pane/outcome skeleton is always sent."""
-    attrs = {"event": action, "pane_uid": pane_uid, "actor": actor, "outcome": outcome}
+    action/actor/pane/outcome skeleton is always sent, plus any structural `fields`."""
+    attrs = {"event": action, "pane_uid": pane_uid, "actor": actor, "outcome": outcome, **fields}
     if detail:
         attrs["detail"] = detail[:200]
     if QSDEBUG and keys is not None:
         attrs["keys"] = keys[:500]
     _emit_record("tmux-rc action", attrs)
+
+
+# The journal half of the audit trail. The logger keeps its original name so existing
+# journal filters keep matching; `journalctl --user -u tmux-rc | grep AUDIT` is the trail.
+_audit_log = logging.getLogger("openbus.server.audit")
+
+# Key CONTENT in the audit trail is on by default (the operator asked for exactly this
+# visibility) but can be switched off: keys typed via the phone can include no-echo
+# secrets (sudo/ssh passwords) that nothing else in the system captures — pane capture
+# never sees unechoed input — and a forwarded journal would persist them. Set
+# TMUXRC_AUDIT_KEYS=0 to log actions without key content (local log AND telemetry).
+AUDIT_KEYS = os.environ.get("TMUXRC_AUDIT_KEYS") != "0"
+
+
+def actor(conn, via: bool = False) -> str:
+    """WHO sent this request or opened this socket (a starlette Request or WebSocket).
+
+    Trust model: X-Tunnel-User is honored only from loopback peers — the tunnel-client
+    connects from localhost, and the relay validated the identity via IAP and strips
+    spoofed inbound copies. From any OTHER peer the header is an unauthenticated LAN
+    client's claim, so it is recorded as a claim rather than as the actor — which makes
+    spoof attempts themselves visible in the trail. `via` appends the relay-forwarded
+    XFF first hop (the real browser IP): an untrusted forensics breadcrumb for audit
+    lines, never part of the identity, so billing keys ask without it."""
+    peer = conn.client.host if conn.client else "?"
+    claimed = conn.headers.get("x-tunnel-user")
+    if not claimed:
+        return f"local:{peer}"
+    if peer not in ("127.0.0.1", "::1"):
+        return f"local:{peer} claiming {claimed[:60]!r}"
+    xff = via and conn.headers.get("x-forwarded-for")
+    return f"{claimed[:200]} [via {xff.split(',')[0].strip()[:45]}]" if xff else claimed[:200]
+
+
+def audit(
+    action: str,
+    pane_id: str,
+    actor: str,
+    detail: str = "",
+    keys: str | None = None,
+    outcome: str = "ok",
+    *,
+    speech: bool = False,
+    **fields,
+) -> None:
+    """THE choke point for state-changing actions: one AUDIT journal line plus one
+    emit_action record, so the journal and OTel always tell the same story. `outcome`
+    records what actually happened ("ok", "rejected: ...", "error: ..."), so a forensic
+    reader can tell completed actions from refused/failed attempts. `fields` are
+    structural extras (ids, counts, latency) — never content.
+
+    `keys` is typed content. Phone keys reach the journal unless TMUXRC_AUDIT_KEYS=0;
+    `speech` marks content that came from Live Mode's voice (typed text, a search
+    query), which follows the transcript rule instead: journal only under
+    TMUXRC_QSDEBUG. OTel keys are QSDEBUG-gated either way (emit_action)."""
+    shown = keys is not None and AUDIT_KEYS and (QSDEBUG or not speech)
+    _audit_log.info(
+        "AUDIT %s pane=%s by %s%s%s%s%s",
+        action,
+        pane_id,
+        actor,
+        f" {detail}" if detail else "",
+        "".join(f" {k}={v!r}" for k, v in fields.items()),
+        f" keys={keys[:80]!r}" if shown else "",
+        "" if outcome == "ok" else f" [{outcome}]",
+    )
+    try:
+        emit_action(
+            action=action,
+            pane_uid=f"{tmux.server_uid()}:{pane_id}",
+            actor=actor[:200],
+            detail=detail or None,
+            keys=keys if AUDIT_KEYS else None,
+            outcome=outcome,
+            **fields,
+        )
+    except Exception:  # audit telemetry must never break the request
+        logger.debug("audit emit failed", exc_info=True)
 
 
 def emit_pane_event(*, event: str, pane_uid: str, label: str, tool: str | None) -> None:

@@ -69,6 +69,9 @@ class _WS:
         self.sent.append(obj)
 
 
+_METER = L._Meter("s1", "tester", P._DEFAULT[0])  # a tool call only reads it
+
+
 @pytest.mark.parametrize("debug", [False, True])
 def test_receiver_preserves_transcripts_and_debug_logging(monkeypatch, caplog, debug):
     class Session:
@@ -81,7 +84,7 @@ def test_receiver_preserves_transcripts_and_debug_logging(monkeypatch, caplog, d
     caplog.set_level(logging.INFO, logger=L.logger.name)
     ws = _WS()
     meter = L._Meter("s", "a", P._DEFAULT[0])
-    _run(L._receiver(ws, Session(), _Watcher(), "tester", meter))
+    _run(L._receiver(ws, Session(), _Watcher(), meter))
     assert ws.sent == [
         {"type": "transcript", "role": "user", "text": "private user words"},
         {"type": "transcript", "role": "model", "text": "private model words"},
@@ -185,7 +188,7 @@ def _dispatch(fc, monkeypatch, watcher=None):
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
-    _run(L._handle_tool_call(ws, session, fc, w, "tester"))
+    _run(L._handle_tool_call(ws, session, fc, w, _METER))
     return w, ws, session, typed
 
 
@@ -378,7 +381,7 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
 
     ws = _ScriptedWS([{"action": "stop"}])
     # must not raise
-    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
+    _run(L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
 
     assert client.attempts == 1  # clean stop → no reconnect
     assert _statuses(ws)[-1:] == ["listening"] or "listening" in _statuses(ws)
@@ -398,7 +401,7 @@ def test_run_session_reconnects_once_after_a_drop(monkeypatch):
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
 
     ws = _ScriptedWS([_SILENT, {"action": "stop"}])  # silent through the backoff, then stop
-    _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
+    _run(L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
 
     assert client.attempts == 2  # exactly one reconnect
     assert _statuses(ws).count("reconnecting") == 1
@@ -430,7 +433,7 @@ def test_run_session_reconnects_when_the_provider_stream_ends(monkeypatch):
     # here instead of hanging the suite.
     ws = _ScriptedWS([_SILENT, _SILENT, {"action": "stop"}])
     _run(asyncio.wait_for(
-        L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])), 5
+        L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])), 5
     ))
 
     assert client.attempts == 2  # the dead connection was noticed and replaced
@@ -447,7 +450,7 @@ def test_run_session_websocket_disconnect_does_not_reconnect(monkeypatch):
 
     ws = _ScriptedWS([L.WebSocketDisconnect(code=1006)])
     try:
-        _run(L._run_session(ws, _Watcher(), "tester", L._Meter("s", "a", P._DEFAULT[0])))
+        _run(L._run_session(ws, _Watcher(), L._Meter("s", "a", P._DEFAULT[0])))
         raised = False
     except L.WebSocketDisconnect:
         raised = True
