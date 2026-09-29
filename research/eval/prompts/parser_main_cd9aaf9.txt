@@ -59,9 +59,42 @@ TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just th
 lines. The choices are "claude", "codex", "gemini", "shell", "unknown" — do NOT default
 to "claude"; different coding agents look similar (box-drawn input, permission prompts)
 but have distinct signatures. Decide by the evidence on screen:
-{{codex}}
-{{gemini}}
-{{claude}}
+- "codex" (OpenAI Codex / ChatGPT CLI): an OpenAI model in the pane's OWN live
+  status-bar model slot identifies Codex. OpenAI names start "gpt-" or "o"+digit
+  ("gpt-5", "gpt-6-astra", "o3", "o4-mini"); match that family, not a version list.
+  FIRST distinguish live chrome from printed content: a python/server/log-viewer
+  printing an entire captured Codex footer is still a shell program, even when that
+  quoted footer contains a model, thread title, context usage, and Ready/Working.
+  Other Codex tells: it calls itself "Codex"; its input box prompts "Ask Codex to do
+  anything"; permission prompts are a NUMBERED list ("1. Yes  2. Yes, and don't ask
+  again for commands that start with X  3. No, and tell Codex what to do differently").
+  Its bottom line is a "·"-separated bar whose segments are SELF-DESCRIBING — read each
+  for what it says, not for where it sits, because users configure these differently and
+  segments come and go:
+    "airbyte-value-population · gpt-5.6-sol medium · Context 71% left · 415K used · docs/query-result-metadata-design · ~/src/example-app · weekly 52% left · Ready"
+    "gpt-5.5 xhigh fast · ~/src/example-app"
+  A segment naming an OpenAI model (optionally + effort, "gpt-5.6-sol medium") is the
+  MODEL. One starting "~/" or "/" is the CWD. A percentage or token count ("Context 71%
+  left", "415K used", "weekly 52% left") is a USAGE readout. A bare state word
+  ("Ready", "Working", "fast") is a MODE. A branch-shaped path
+  ("docs/query-result-metadata-design") is a BRANCH.
+  "session" gets Codex's THREAD TITLE: a short task name it wrote itself, and the only
+  per-window identity Codex has — without it every Codex pane in a repo looks alike. It
+  is a segment that is none of the above kinds, appearing BEFORE the model
+  ("airbyte-value-population", "Review 4745"). A "Thread renamed to <name>" line names
+  it too. If every segment is an identifiable kind, there is no title: OMIT "session"
+  rather than promoting a mode word, cwd, branch, or usage readout.
+- "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
+  with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
+  "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.
+- "claude" (Claude Code): model line names a Claude model ("Opus", "Sonnet", "Haiku",
+  "Fable" + a version like "4.8" — the family grows, so an unfamiliar name in the model
+  slot is claude when the rest of the chrome matches); status line shows dir/branch ·
+  model · context% · elapsed · cost · prompts/tools counts; whimsical gerund while
+  working (e.g. "Shimmying…"); permission modes "plan mode"/"accept edits"/"bypass
+  permissions"; Esc-Esc REWIND picker. The CHROME identifies it — an unrecognized model
+  name inside unmistakable Claude Code chrome is still "claude". GPT names in its
+  conversation, logs, or subagent output do not change the identity of the host agent.
 The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
 not screen content. Agents run as node/claude/codex/gemini processes; a pane whose
 process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
@@ -81,7 +114,21 @@ chrome is present — a plain interactive shell, including one running an ordina
 command or server whose output fills the pane. Use "unknown" only
 when you truly cannot tell which agent it is.
 
-{{claude_detail}}
+CLAUDE CODE in detail (one of the agents above — identify it by its chrome plus its
+model name, not merely by being an agent). Recognize it by its style: a rounded input box drawn with
+box characters, and a two-line STATUS LINE near the bottom that typically shows — in order — the working directory and git branch, the
+model name (e.g. "Opus 4.8"), a context-window percentage, an elapsed session time, a
+session cost in dollars, and counts of prompts/tools; plus a permission-mode indicator
+("plan mode", "accept edits", "bypass permissions"). While working it shows a whimsical
+gerund + elapsed time + tokens streamed (e.g. "Shimmying… (6m 55s · ↓18.1k tokens)").
+After Esc-Esc it shows a REWIND picker: a header about restoring to a previous point,
+then a scrollable list of past user messages (each may note "No code changes" or a
+file/diff stat like "app.js +18 -8"), one selected, with "N more above/below" markers.
+It may also show a task/TODO checklist, and — when it has delegated work — a block of
+spawned background sub-agent rows near the bottom ("general-purpose  <task>  Nm  ↓Nk
+tokens"). Ignore editor/multiplexer chrome that isn't the agent's own state (vim's
+"-- INSERT --", tmux's mode footer).
+
 Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
 {
   "tool": "claude"|"codex"|"gemini"|"shell"|"unknown",

@@ -1,0 +1,3 @@
+- "gemini" (Gemini CLI): its own UI — the large "GEMINI" ASCII-art banner, a boxed input
+  with "Press 'i' for INSERT mode and 'Esc' for NORMAL mode", a status bar like
+  "[NORMAL] <cwd> … gemini-2.5-pro (N% context left)", GEMINI.md tips.

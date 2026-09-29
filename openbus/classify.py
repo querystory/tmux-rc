@@ -58,7 +58,12 @@ def _load_prompt(name: str) -> str:
 
 
 def parser_prompt() -> str:
-    return _load_prompt("parser_prompt.txt")
+    prompt = _load_prompt("parser_prompt.txt")
+    for tool in ("codex", "gemini", "claude", "claude_detail"):
+        marker = "{{" + tool + "}}\n"
+        if marker in prompt:
+            prompt = prompt.replace(marker, _load_prompt(f"parser_{tool}.txt"))
+    return prompt
 
 
 def bootstrap_prompt() -> str:
