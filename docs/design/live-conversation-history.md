@@ -2,7 +2,8 @@
 
 Proposal only. Let someone reopen a previous Live Mode conversation, read the message
 thread, and see roughly how long it ran and what it cost. Use the existing private
-SQLite database. Also keep a continuous history of inputs sent to each pane. This
+SQLite database; this ends its “no terminal text” promise in `pane-history.md`, which
+the implementation must update along with its backup advice. Also keep a continuous history of inputs sent to each pane. This
 does not change how Live Mode or the composer sends commands to panes. The main
 interaction goal is one assistant conversation that can move between voice and text.
 
@@ -18,12 +19,12 @@ ongoing input history of a pane. These share storage, not lifecycle or recording
 Connection, or Usage entity. A spoken message, an action notice, and “connection lost”
 are simply different kinds of entries in that thread.
 
-Generate a UUID for each conversation, its primary key. The entry primary key is
+Generate a unique UUID for each conversation. The entry primary key is
 `(conversation_uuid, entry_number)`, with entry numbers 1, 2, 3, and so on allocated
 from the parent counter in the insert transaction. No independent entry UUID is needed
 for this single-writer design. Exports, origin links and cross-machine analysis preserve
 these keys; local SQLite row numbers are never external identities. Keep a separate
-AUTOINCREMENT creation number only for local pagination.
+AUTOINCREMENT creation number (the integer row key) only for local pagination.
 
 A persisted machine UUID identifies the originating installation across daemon/OS
 restarts; hostnames and boot IDs are not machine identity. New installations get a new
@@ -140,8 +141,9 @@ Entry content is an ordered list of parts: for example `[text, image, text, imag
 A plain message has one text part. Each image part holds its content hash, MIME type,
 byte length and optional display name. The hash (for example SHA-256) identifies the
 bytes across machines; no separate image UUID or attachment table is required. Store
-bytes once in the private history attachment directory, scoped to the owner, outside
-temporary upload storage. The entry references the hash, never a temporary path.
+bytes once in a private directory beside the database, with the same modes, scoped to
+the owner by a derived key rather than a raw identifier in the path, outside temporary
+upload storage. The entry references the hash, never a temporary path.
 
 When recording is enabled, atomically save the image before committing its entry
 reference; a recording failure leaves an explicit unavailable-image marker and incomplete
@@ -163,6 +165,8 @@ Use existing upload size/type validation; do not fetch arbitrary remote image UR
 For Live Mode, create the conversation when saved listening starts. For pane history,
 explicitly enabling recording creates or opens that pane thread. The existing live handler builds
 each message from streaming fragments; save the finished message, not every fragment.
+Adapters report where a message ends or was interrupted; the writer never invents
+boundaries.
 Use one bounded writer queue off the audio loop. Assign a message its entry number
 once and reuse it on a database retry; an identical existing row counts as success,
 a different one marks history incomplete, and nothing overwrites an entry. Do not replay provider history on reconnect or
