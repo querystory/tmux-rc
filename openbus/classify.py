@@ -30,7 +30,9 @@ _CHECKLIST_LINE_RE = re.compile(
     r"[ \t]*(?P<text>\S.*?)~?[ \t]*$",
 )
 _OPENCODE_RUNNING_RE = re.compile(
-    r"^[ \t]*[▰▮▯■□▪▫█▓▒░]+[ \t]+esc[ \t]+interrupt[ \t]*$",
+    # OpenCode 1.18's spinner is ■/⬝ blocks, or "[⋯]" with animations off; a first Esc
+    # press turns the label into "esc again to interrupt".
+    r"^[ \t]*(?:[▰▱▮▯■⬝□▪▫█▓▒░]+|\[⋯\])[ \t]+esc[ \t]+(?:again[ \t]+to[ \t]+)?interrupt[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
