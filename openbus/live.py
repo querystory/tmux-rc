@@ -659,15 +659,14 @@ async def _resume_locked(websocket, sid: str, watcher, actor: str) -> dict:
     if not os.path.isdir(cwd):
         return {"status": "rejected", "reason": "session directory is gone"}
 
-    panes = await asyncio.to_thread(tmux.list_panes)
-    target = _session_for(panes, cwd)
-    if target is None:
-        return {"status": "error", "reason": "no tmux session to open a window in"}
     title = entry.get("title") or entry["session_id"][:8]
     name = title[:24]
-    try:
+    try:  # tmux can fail here too; report, don't kill the session
+        target = _session_for(await asyncio.to_thread(tmux.list_panes), cwd)
+        if target is None:
+            return {"status": "error", "reason": "no tmux session to open a window in"}
         pane_id = await asyncio.to_thread(tmux.new_window, target, name, argv, cwd)
-    except Exception as e:  # report, don't kill the session
+    except Exception as e:
         logger.warning("[live] resume_session failed for %s", entry["session_id"], exc_info=True)
         telemetry.emit_action(
             action="live_resume", pane_uid=f"{tmux.server_uid()}:?", actor=actor,

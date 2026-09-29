@@ -102,6 +102,17 @@ def test_launch_without_a_pid_is_a_failed_launch(history, monkeypatch):
     assert L._resumed == {}
 
 
+@pytest.mark.parametrize("broken", ["list_panes", "new_window"])
+def test_tmux_failure_is_reported_not_raised(history, monkeypatch, broken):
+    # An escaped exception would end the Live receiver, and with it the voice session.
+    history[0]["live-1"] = LIVE
+
+    def fail(*a):
+        raise subprocess.CalledProcessError(1, "tmux")
+    monkeypatch.setattr(tmux, broken, fail)
+    assert _call("resume_session", {"session_id": "live-1"})[1]["status"] == "error"
+
+
 def test_resume_never_starts_a_second_copy(history):
     sessions, opened = history
     sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
