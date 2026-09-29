@@ -10,7 +10,7 @@ interaction goal is one assistant conversation that can move between voice and t
 
 | Table | Columns |
 | --- | --- |
-| `conversations` | UUID, originating machine UUID, local creation number for pagination, owner, kind (`live` or `pane`), optional pane lifetime key, title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
+| `conversations` | UUID, originating machine UUID, local creation number for pagination, owner, kind (`live` or `pane`), pane lifetime key (required for `pane`, unique per owner), title, started/ended timestamps, status (`active`, `ended`, `interrupted`), next entry number, usage totals JSON, history-incomplete flag. |
 | `conversation_entries` | Conversation UUID, entry number, timestamp, kind (`user`, `assistant`, `input`, `action`, `notice`), content JSON (ordered text/image parts), optional metadata JSON. |
 
 A conversation is the thread the user sees: either a Live Mode conversation or the
@@ -32,7 +32,9 @@ The conversation has one authoritative writer; cross-machine analysis can combin
 by their global keys, but concurrent editing of one copied thread is not a replication
 feature promised here. A separately writable copy gets a new conversation UUID.
 Foreign keys with ON DELETE CASCADE attach entries to their conversation; enable
-foreign-key enforcement on each connection. IDs do not grant access.
+foreign-key enforcement on each connection. The optional origin link is a plain
+reference, not a cascading key, so deleting its source never deletes the pane input.
+IDs do not grant access.
 
 Provider/model information goes in metadata where useful. Action entries contain the
 server-known operation, pane label and result, without copying raw command arguments
@@ -193,8 +195,8 @@ rates change; we are not promising invoice reconciliation or historical billing 
 ## Recording and deletion
 
 Provide a visible Save conversation toggle before starting. When off, do not persist
-transcript content or send it through content-bearing telemetry/logging, including
-QSDEBUG paths. Do not save microphone audio, provider credentials, or exact action
+transcript content or send it through content-bearing telemetry/logging: that choice is
+checked before serialization and overrides QSDEBUG. Do not save microphone audio, provider credentials, or exact action
 payloads in Live Mode action entries. Exact text belongs only in opted-in pane input
 entries as described above. The saved transcript itself may contain sensitive things the user said.
 
@@ -224,7 +226,8 @@ backups already taken cannot be recalled by deleting the local conversation.
 
 ## First implementation
 
-Add the two tables with a migration that preserves existing pane history, then wire
+Add the two tables in a versioned, transactional migration recorded in the existing
+metadata table; a daemon refuses to open a newer schema rather than guess. Then wire
 finished messages, action notices and meter totals into the writer. Add list/read/delete
 UI. Pane input history can follow using the same tables and shared writer, with composer,
 API and Live Mode logical sends covered together. Test message ordering/retries, reconnect without duplication, crash/write failure,
