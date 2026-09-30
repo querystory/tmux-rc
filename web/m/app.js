@@ -901,11 +901,13 @@ for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running
 // PgUp/PgDn scroll agent TUIs and pagers a screen at a time; they use tmux's canonical
 // names (PPage/NPage, what list-keys prints) and sit beside the arrows they extend.
 //
+// Ctrl-X then Ctrl-S is Claude Code's "send now" chord for flushing queued messages.
+//
 // Fourth slot is the SPOKEN name, defaulting to the visible label. Only a button labelled
 // with a glyph or an abbreviation needs one: a screen reader handed "⇧←" announces two arrow characters,
 // or nothing at all — useless for the very key you opened the row to press. The icon
 // buttons (Up/Down) already carry words, so they need nothing extra.
-for (const [label, key, name, aria = label] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["PgUp", "PPage", null, "Page Up"], ["PgDn", "NPage", null, "Page Down"], ["\u21e7\u2190", "S-Left", null, "Shift+Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
+for (const [label, key, name, aria = label] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["PgUp", "PPage", null, "Page Up"], ["PgDn", "NPage", null, "Page Down"], ["\u21e7\u2190", "S-Left", null, "Shift+Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Ctrl-X", "C-x"], ["Ctrl-S", "C-s"], ["Prefix", "prefix"]]) {
   const button = document.createElement("button"); button.title = aria; button.setAttribute("aria-label", aria);
   if (name) html(button, licon(name, 18)); else text(button, label);
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });

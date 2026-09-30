@@ -122,11 +122,13 @@ def test_key_row_can_answer_a_codex_queued_question():
 
 
 def test_both_key_rows_can_page_a_tui():
-    """PgUp/PgDn scroll agent TUIs and pagers; tmux's canonical names are PPage/NPage."""
+    """PgUp/PgDn scroll agent TUIs and pagers; tmux's canonical names are PPage/NPage.
+    Ctrl-X then Ctrl-S is Claude Code's "send now" for queued messages."""
     root = Path(__file__).resolve().parents[1]
     for rel in ("web/m/app.js", "web/index.html"):
         text = (root / rel).read_text()
-        assert '"PPage"' in text and '"NPage"' in text, f"page keys missing from {rel}"
+        for key in ("PPage", "NPage", "C-x", "C-s"):
+            assert f'"{key}"' in text, f"{key} missing from {rel}"
 
 
 def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
