@@ -15,6 +15,8 @@ import openbus.live_providers as P
 from openbus import live as L
 from openbus import server
 
+DEFAULTS = P._DEFAULT + P._CHAT_DEFAULT  # a table naming no chat model gets text's defaults
+
 TABLE = [
     {
         "label": "Gemini 2.5",
@@ -32,7 +34,8 @@ TABLE = [
 
 def test_default_table_is_the_pre_table_behaviour(monkeypatch):
     monkeypatch.delenv("TMUXRC_LIVE_MODELS", raising=False)
-    (m,) = P.models()
+    m, *chat = P.models()
+    assert chat == P._CHAT_DEFAULT
     assert (m.model, m.backend) == ("gemini-live-2.5-flash-native-audio", "vertex")
     assert m.flags == {"proactive_audio": True} and m.rates == P._RATES_25
     assert m.available()  # Vertex gates on the project alone — creds resolve at call time
@@ -42,7 +45,7 @@ def test_default_table_is_the_pre_table_behaviour(monkeypatch):
 
 def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
-    a, b = P.models()
+    a, b, *_ = P.models()
     assert (a.label, a.backend, a.flags) == (
         "Gemini 2.5",
         "vertex",
@@ -55,7 +58,7 @@ def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
     p = tmp_path / "models.json"
     p.write_text(json.dumps(TABLE[:1]))
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", str(p))
-    assert [m.label for m in P.models()] == ["Gemini 2.5"]
+    assert [m.label for m in P.models()] == ["Gemini 2.5", "Gemini 3 Flash", "Claude Sonnet 5.5"]
     for bad in (
         "nope",
         "[]",
@@ -63,7 +66,7 @@ def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
         json.dumps([TABLE[0], "not an entry"]),  # all-or-nothing: one bad entry sinks the list
     ):
         monkeypatch.setenv("TMUXRC_LIVE_MODELS", bad)
-        assert P.models() == P._DEFAULT
+        assert P.models() == DEFAULTS
 
 
 @pytest.mark.parametrize("field", ["label", "model"])
@@ -71,7 +74,7 @@ def test_table_parses_inline_or_path_and_falls_back(monkeypatch, tmp_path):
 def test_table_rejects_empty_or_nonstring_identity(monkeypatch, field, invalid):
     entry = {**TABLE[0], field: invalid}
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([entry]))
-    assert P.models() == P._DEFAULT
+    assert P.models() == DEFAULTS
 
 
 def test_table_trims_identity_and_round_trips_offered_label(monkeypatch):
@@ -89,15 +92,17 @@ def test_table_rejects_duplicate_normalized_labels(monkeypatch):
         {"label": "Same", "model": "first"},
         {"label": " Same ", "model": "second"},
     ]))
-    assert P.models() == P._DEFAULT
+    assert P.models() == DEFAULTS
 
 
 def test_keyless_entry_is_configured_but_not_offered(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # GPT-Live joins the menu, not the table
-    assert [m.label for m in P.available()] == ["Gemini 2.5"]
+    assert [m.label for m in P.available()] == ["Gemini 2.5", "Gemini 3 Flash"]
     assert L.pick(None).label == "Gemini 2.5"  # no label → the first offered
+    assert L.pick(None, text=True).label == "Gemini 3 Flash"  # ...for the session's mode
+    assert L.pick("Gemini 3 Flash") is None  # the other mode's model is refused too
     assert L.pick("Gemini 3.1") is None  # configured, keyless: refused, not defaulted
     assert L.pick("rm -rf /") is None
     monkeypatch.setenv("GEMINI_API_KEY", "k")
@@ -112,21 +117,34 @@ def test_version_lists_offered_labels_with_hints(monkeypatch):
     # not a table entry) — keep it out so this covers the TABLE's own contribution.
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     got = TestClient(server.app).get("/api/version").json()["live_models"]
-    assert got == [{"label": "Gemini 2.5", "hint": "Vertex · $3/$12 per 1M audio", "text": False}]
+    # Offered first, then keyless entries greyed with the reason, as launchers show them.
+    assert got == [
+        {"label": "Gemini 2.5", "hint": "Vertex · $3/$12 per 1M audio", "text": False},
+        {"label": "Gemini 3 Flash", "hint": "Vertex · $0.5/$3 per 1M text", "text": True},
+        {"label": "Gemini 3.1", "hint": "No credentials: set GEMINI_API_KEY", "text": False,
+         "unavailable": True},
+        {"label": "Claude Sonnet 5.5", "hint": "No credentials: set ANTHROPIC_API_KEY",
+         "text": True, "unavailable": True},
+    ]
 
 
-def test_only_realtime_entries_offer_text_output(monkeypatch):
-    """Text mode lists only models that can answer in text: Realtime, not Gemini's
-    native-audio models, and not GPT-Live, whose replies are only ever spoken."""
+def test_only_chat_entries_are_text_models(monkeypatch):
+    """Text lists chat models and Voice the rest: the realtime models that could reply in
+    text are small, and a typed request deserves a real chat model."""
     from openbus import gpt_live
 
-    assert P.LiveModel("GPT", "gpt-realtime", "openai").text
-    assert P.LiveModel("Azure", "gpt-realtime", "azure-openai").text
+    assert P.LiveModel("Flash", "gemini-3-flash-preview", "vertex-chat").text
+    assert P.LiveModel("Sonnet", "claude-sonnet-5-5", "anthropic").text
+    assert not P.LiveModel("GPT", "gpt-realtime", "openai").text
     assert not P.LiveModel("Gemini", "gemini-live-2.5-flash-native-audio").text
     assert not gpt_live.ENTRY.text
-    rated = P._coerce({"label": "GPT", "model": "m", "backend": "openai",
-                       "rates": {"text_in": 4, "text_out": 24}})
-    assert rated.text_hint == "OpenAI · $4/$24 per 1M text"
+    rated = P._coerce({"label": "Sonnet", "model": "m", "backend": "anthropic",
+                       "rates": {"text_in": 2, "text_out": 10}})
+    assert rated.hint == "Anthropic · $2/$10 per 1M text"
+    # Configuring any chat entry replaces text's defaults rather than adding to them.
+    monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(
+        [TABLE[0], {"label": "Mine", "model": "m", "backend": "vertex-chat"}]))
+    assert [m.label for m in P.models()] == ["Gemini 2.5", "Mine"]
 
 
 def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):
@@ -139,9 +157,13 @@ def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    without = TestClient(server.app).get("/api/version").json()["live_models"]
+    def offered():
+        got = TestClient(server.app).get("/api/version").json()["live_models"]
+        return [m for m in got if not m.get("unavailable")]
+
+    without = offered()
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-key")
-    with_key = TestClient(server.app).get("/api/version").json()["live_models"]
+    with_key = offered()
     assert [m["label"] for m in with_key] == [m["label"] for m in without] + ["GPT-Live 1"]
     # Its own hint, not a rate card: GPT-Live bills voice by the MINUTE, so rendering the
     # per-1M-audio line every table entry gets would put a number on the picker that
@@ -158,7 +180,7 @@ def test_table_rejects_rates_that_cannot_be_money(monkeypatch, bad):
     monkeypatch.setenv(
         "TMUXRC_LIVE_MODELS", json.dumps([{**TABLE[0], "rates": {"audio_out": bad}}])
     )
-    assert P.models() == P._DEFAULT
+    assert P.models() == DEFAULTS
 
 
 def test_a_configured_entry_may_claim_gpt_lives_label_and_wins_it(monkeypatch):
@@ -173,7 +195,8 @@ def test_a_configured_entry_may_claim_gpt_lives_label_and_wins_it(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps([{
         "label": "GPT-Live 1", "model": "gemini-live-2.5-flash-native-audio",
     }]))
-    labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]]
+    labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]
+              if not m["text"]]
     assert labels == ["GPT-Live 1"]
     assert L.pick("GPT-Live 1").model == "gemini-live-2.5-flash-native-audio"
 
@@ -192,7 +215,8 @@ def test_a_keyless_entry_still_owns_its_label_against_gpt_live(monkeypatch):
         {"label": "GPT-Live 1", "model": "gemini-3.1-flash-live-preview",
          "backend": "gemini-api"},
     ]))
-    labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]]
+    labels = [m["label"] for m in TestClient(server.app).get("/api/version").json()["live_models"]
+              if not m["text"] and not m.get("unavailable")]
     assert labels == ["Gemini 2.5"]  # neither the keyless entry nor the adapter squatting it
     assert L.pick("GPT-Live 1") is None
     # The key lands: the label resolves to the model the operator named, never the adapter.
@@ -224,7 +248,9 @@ def test_nothing_offered_hides_live_and_names_the_cause(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE[1:]))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # GPT-Live is key-gated the same way
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")  # and text's default Flash on the project
     c = TestClient(server.app)
     v = c.get("/api/version").json()
-    assert (v["live_enabled"], v["live_models"]) == (False, [])
+    assert v["live_enabled"] is False
+    assert all(m.get("unavailable") for m in v["live_models"])
     assert "key" in _refused(c, "/api/live-mode").reason

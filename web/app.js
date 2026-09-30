@@ -4080,8 +4080,8 @@ bar.attach.innerHTML = licon("paperclip", 15);
 // Live Mode ships behind a server flag (TMUXRC_LIVE_MODE). Hide the mic button unless
 // the server reports it enabled — one source of truth, so a stale tab can't offer a
 // button the /api/live-mode route will just refuse. Hidden until confirmed.
-// The same reply carries the model menu: [{label, hint}] for every model the SERVER has a
-// credential for. Labels are all the client ever sends back (?model=<label>) — never a
+// The same reply carries the model menu: [{label, hint, text}] for every model the SERVER
+// has a credential for, then keyless ones flagged `unavailable` (hint says why). Labels are all the client ever sends back (?model=<label>) — never a
 // model id or backend, same rule as launchers.
 let lmModels = [];
 function applyLiveEnabled(on, models) {
@@ -4334,10 +4334,11 @@ function lmSheet(open) {
     modes.append(b);
   }
   head.append(modes);
-  // Text lists only the models that answer in text; audio-only ones would only talk.
-  const menu = lmInput === "text" ? lmModels.filter((m) => m.text) : lmModels;
+  // Text lists the chat models, Voice the voice ones; a keyless entry shows greyed with why.
+  const menu = lmModels.filter((m) => !!m.text === (lmInput === "text"));
   const rows = menu.map((m) => {
-    const b = row(m.label, lmInput === "text" && m.text_hint || m.hint, m.label === cur);
+    const b = row(m.label, m.hint, m.label === cur);
+    b.disabled = !!m.unavailable;
     b.onclick = () => { lmSheet(false); lmStart(m.label); };
     return b;
   });

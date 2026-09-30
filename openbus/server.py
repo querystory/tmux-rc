@@ -408,7 +408,7 @@ app.add_middleware(GZipMiddleware, minimum_size=512)
 
 # Live Mode (voice): one WebSocket per session — see openbus/live.py and
 # docs/design/live-mode.md.
-from . import live  # noqa: E402
+from . import live, live_providers  # noqa: E402
 from .live import router as live_router  # noqa: E402
 
 app.include_router(live_router)
@@ -455,10 +455,14 @@ def get_version():
     # The menu is live.offered() and nothing else — the same list the socket gates on, so
     # the picker can never show a row the socket would refuse. The label is the only thing
     # the browser ever sends back; hints are rendered by the entry (see LiveModel.hint).
-    offered = [{"label": m.label, "hint": m.hint, "text": m.text,
-                **({"text_hint": m.text_hint} if m.text else {})} for m in live.offered()]
+    # Keyless table entries follow, greyed with the reason, as launchers do: the user
+    # configured them, so the picker says why they can't run instead of hiding them.
+    offered = [{"label": m.label, "hint": m.hint, "text": m.text}
+               for m in live.offered()]
+    keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
+               for m in live_providers.models() if not m.available()]
     return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered),
-            "live_models": offered}
+            "live_models": offered + keyless}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).

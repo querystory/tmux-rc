@@ -417,9 +417,8 @@ class _FakeClient:
         self._connects = list(connects)
         self.attempts = 0
 
-    def connect(self, model, system_prompt, *, text=False):
+    def connect(self, model, system_prompt):
         self.attempts += 1
-        self.text = text
         cm = self._connects.pop(0)
         return cm() if callable(cm) else cm
 
@@ -471,7 +470,7 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
 
 
 def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
-    """A text session asks the provider for text, and a typed turn reaches it through the
+    """A typed turn reaches the provider through the
     user-turn verb (not the reply-less context path), echoed to the browser as the user's
     transcript and kept in the meter's. A blank one goes nowhere; an oversized one is
     refused rather than cut."""
@@ -498,7 +497,6 @@ def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
     meter = L._Meter("s", "a", P._DEFAULT[0], text=True)
     _run(L._run_session(ws, _Watcher(), meter))
 
-    assert client.text is True
     assert session.texts == ["find my codex session"]
     assert {"type": "transcript", "role": "user", "text": "find my codex session",
             "new_segment": True} in ws.sent

@@ -819,7 +819,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
             # (ambient [tmux update]s omit them), so reusing a stale one would leave a
             # reconnected session answering/acting on minutes-old screen state.
             async with live_providers.connect(
-                model, _system_prompt(watcher, text=meter.text), text=meter.text
+                model, _system_prompt(watcher, text=meter.text)
             ) as session:
                 logger.info(
                     "[live] session up (model=%s via %s, actor=%s)",
@@ -914,13 +914,19 @@ def offered() -> list[live_providers.LiveModel]:
     return menu
 
 
-def pick(label: str | None) -> live_providers.LiveModel | None:
-    """Resolve a client-supplied label against `offered()`. Label-only, like launchers: the
-    client names an entry and never a model id, backend or credential. No label at all is
-    the first entry — what a user who never opens the picker gets. Unknown, or configured
-    but keyless, is None: refused, never defaulted, because silently answering with a
-    different model would make a side-by-side comparison lie."""
-    menu = offered()
+def _menu(text: bool) -> list[live_providers.LiveModel]:
+    """The offered models for one mode: chat models for text, the rest for voice."""
+    return [m for m in offered() if m.text == text]
+
+
+def pick(label: str | None, *, text: bool = False) -> live_providers.LiveModel | None:
+    """Resolve a client-supplied label against the mode's `offered()` models. Label-only,
+    like launchers: the client names an entry and never a model id, backend or credential.
+    No label at all is the mode's first entry — what a user who never opens the picker
+    gets. Unknown, configured but keyless, or the other mode's is None: refused, never
+    defaulted, because silently answering with a different model would make a
+    side-by-side comparison lie."""
+    menu = _menu(text)
     if not label:
         return menu[0] if menu else None
     return next((m for m in menu if m.label == label), None)
@@ -937,11 +943,12 @@ async def live_mode(websocket: WebSocket) -> None:
         return
     from . import gpt_live  # noqa: PLC0415 - adapter imports this module's shared handlers
 
-    model = pick(websocket.query_params.get("model"))
+    text = websocket.query_params.get("mode") == "text"
+    model = pick(websocket.query_params.get("model"), text=text)
     if model is None:
         # Nothing offered at all (every entry key-gated, no key set) is the operator's
         # config problem, not a stale tab's — a reload can't fix it, so don't say so.
-        why = "reload the page" if offered() else "no configured model has its key set"
+        why = "reload the page" if _menu(text) else "no configured model has its key set"
         await websocket.close(code=1008, reason=f"Live model not available — {why}")
         return
     # Which runner, decided by identity rather than by re-reading the label: `offered()`
@@ -953,11 +960,6 @@ async def live_mode(websocket: WebSocket) -> None:
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
-    text = websocket.query_params.get("mode") == "text"
-    if text and not model.text:
-        # The client lists only text-capable models in Text; this is a stale tab or probe.
-        await websocket.close(code=1008, reason=f"{model.label} can't answer in text")
-        return
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     outcome, reason = "ok", "stop"
