@@ -16,7 +16,7 @@ function labels(span, width, zoom = [0, 100]) {
   for (let t = END - span; t <= END; t += step) data.push([t, 1]);
   chart.setOption({ grid: { left: 42, right: 14 }, yAxis: { show: false },
     dataZoom: [{ type: "inside", start: zoom[0], end: zoom[1], minValueSpan: MIN_VIEW_SPAN }],
-    xAxis: timeAxis(chart, width), series: [{ type: "bar", data }] });
+    xAxis: timeAxis(chart, width, {}, "en-US"), series: [{ type: "bar", data }] });
   const svg = chart.renderToSVGString();
   chart.dispose();
   return [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map(m => m[1]).sort();
@@ -58,12 +58,12 @@ test("the deepest zoom still reads as clock times, not repeated dates", () => {
 
 test("labels adapt to the unit and the span", () => {
   const noon = Date.parse("2026-09-29T12:00:00-07:00");
-  assert.equal(timeLabel(noon + 15 * 6e4, "minute", HOUR), "12:15");
-  assert.equal(timeLabel(noon + 30e3, "second", 60e3), "12:00:30");
-  assert.equal(timeLabel(noon, "hour", HOUR), "12 PM");
-  assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 24 * HOUR), "Wed 30");
-  assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 90 * 24 * HOUR), "Sep 30");
-  assert.equal(timeLabel(Date.parse("2026-10-01T00:00:00-07:00"), "month", 90 * 24 * HOUR), "Oct");
-  assert.equal(timeLabel(Date.parse("2026-10-01T00:00:00-07:00"), "month", 24 * HOUR), "Oct 1");
-  assert.equal(timeLabel(Date.parse("2027-01-01T00:00:00-08:00"), "year", 400 * 24 * HOUR), "2027");
+  assert.equal(timeLabel(noon + 15 * 6e4, "minute", HOUR, "en-US"), "12:15");
+  assert.equal(timeLabel(noon + 30e3, "second", 60e3, "en-US"), "12:00:30");
+  assert.equal(timeLabel(noon, "hour", HOUR, "en-US"), "12 PM");
+  assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 24 * HOUR, "en-US"), "Wed 30");
+  assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 90 * 24 * HOUR, "en-US"), "Sep 30");
+  assert.equal(timeLabel(Date.parse("2026-10-01T00:00:00-07:00"), "month", 90 * 24 * HOUR, "en-US"), "Oct");
+  assert.equal(timeLabel(Date.parse("2026-10-01T00:00:00-07:00"), "month", 24 * HOUR, "en-US"), "Oct 1");
+  assert.equal(timeLabel(Date.parse("2027-01-01T00:00:00-08:00"), "year", 400 * 24 * HOUR, "en-US"), "2027");
 });
