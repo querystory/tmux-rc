@@ -160,8 +160,7 @@ def _add_checkpoints(db) -> None:
     # docs/design/activity-clock-persistence.md.
     db.execute("CREATE TABLE pane_checkpoints ("
                "uid TEXT PRIMARY KEY, server TEXT NOT NULL, fp TEXT NOT NULL, "
-               "last_activity_at REAL NOT NULL, idle_since REAL, card TEXT, "
-               "updated REAL NOT NULL)")
+               "last_activity_at REAL NOT NULL, idle_since REAL, card TEXT)")
 
 
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
@@ -264,16 +263,15 @@ class History:
             with self.connect() as db:
                 db.executemany(
                     "INSERT INTO pane_checkpoints VALUES (:uid, :server, :fp, "
-                    ":last_activity_at, :idle_since, :card, :updated) "
+                    ":last_activity_at, :idle_since, :card) "
                     "ON CONFLICT(uid) DO UPDATE SET last_activity_at=CASE WHEN fp=excluded.fp "
                     "THEN min(last_activity_at, excluded.last_activity_at) "
                     "ELSE excluded.last_activity_at END, fp=excluded.fp, "
                     "idle_since=CASE WHEN fp=excluded.fp AND idle_since IS NOT NULL "
                     "AND excluded.idle_since IS NOT NULL "
                     "THEN min(idle_since, excluded.idle_since) ELSE excluded.idle_since END, "
-                    "card=excluded.card, "
-                    "updated=excluded.updated",
-                    [{**r, "updated": now, "card": r["card"] and json.dumps(r["card"], default=str)}
+                    "card=excluded.card",
+                    [{**r, "card": r["card"] and json.dumps(r["card"], default=str)}
                      for r in rows],
                 )
         except (OSError, sqlite3.Error):
@@ -283,12 +281,9 @@ class History:
         self._failed = 0.0
         return True
 
-    def prune_checkpoints(self, gone: list[str], server: str, before: float) -> None:
-        """Drop the named rows, and other tmux servers' rows untouched since `before`."""
+    def delete_checkpoints(self, uids: list[str]) -> None:
         with self.connect() as db:
-            db.executemany("DELETE FROM pane_checkpoints WHERE uid=?", [(u,) for u in gone])
-            db.execute("DELETE FROM pane_checkpoints WHERE server!=? AND updated<?",
-                       (server, before))
+            db.executemany("DELETE FROM pane_checkpoints WHERE uid=?", [(u,) for u in uids])
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

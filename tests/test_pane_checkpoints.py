@@ -3,6 +3,7 @@
 Each "daemon" is a fresh Watcher over the same SQLite file. tmux, the clock, the
 parser and the bootstrap are stubbed; a parse or bootstrap call stands for an LLM call."""
 
+import os
 import sqlite3
 
 import pytest
@@ -100,17 +101,19 @@ def test_database_failure_falls_back(monkeypatch, tmp_path):
     assert card(w)["last_activity_at"] == 19000.0
 
 
-def test_prunes_gone_panes_and_stale_foreign_servers(monkeypatch, tmp_path):
+def test_prunes_gone_panes_and_dead_servers(monkeypatch, tmp_path):
     db = tmp_path / "h.db"
     history = History(db)
     row = {"fp": "x", "last_activity_at": 1.0, "idle_since": None, "card": None}
-    history.save_checkpoints([
-        {**row, "uid": "boot:1:%9:5", "server": "boot:1"},    # this server, pane gone
-        {**row, "uid": "old:1:%1:5", "server": "old:1"},      # other server, stale
-    ], now=1.0)
-    history.save_checkpoints([{**row, "uid": "new:1:%1:5", "server": "new:1"}], now=9000.0)
-    daemon(monkeypatch, db, history=history, now=W.CHECKPOINT_TTL + 5000.0)
-    assert set(History(db).load_checkpoints()) == {"new:1:%1:5", "boot:1:%1:101"}
+    live = f"boot:{os.getpid()}"
+    history.save_checkpoints([{**row, "uid": f"{server}:%1:5", "server": server} for server in (
+        "boot:1",           # this server: its %1:5 pane is gone
+        "oldboot:77",       # previous boot
+        "boot:999999999",   # this boot, pid not running
+        live,               # this boot, still running: kept however long it sits still
+    )])
+    daemon(monkeypatch, db, history=history)
+    assert set(History(db).load_checkpoints()) == {f"{live}:%1:5", "boot:1:%1:101"}
 
 
 def test_migrates_old_schema_and_refuses_newer(tmp_path):

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import re
 import subprocess
 import threading
@@ -40,10 +41,8 @@ FAST_POLL = 0.1
 # cheap and none of this reaches the model, so keep enough to scroll back meaningfully.
 SNAPSHOT_HISTORY = 200
 # Restart checkpoints (docs/design/activity-clock-persistence.md): the tail of the
-# activity log stored with each card, and how long another tmux server's rows linger
-# unwritten before we assume that server is gone.
+# activity log stored with each card.
 CHECKPOINT_EVENTS = 100
-CHECKPOINT_TTL = 30 * 86400
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
 CARD_VERSION = 1
@@ -228,6 +227,21 @@ def _activity_ts(pane) -> float | None:
         return float(getattr(pane, "window_activity", "") or 0) or None
     except (TypeError, ValueError):
         return None
+
+
+def _server_alive(server: str, current: str) -> bool:
+    """Whether another tmux server uid ('<boot_id>:<pid>') may still be running: same
+    boot, and its pid exists. A reused pid only keeps a dead server's rows longer."""
+    boot, _, pid = server.rpartition(":")
+    if boot != current.rpartition(":")[0] or not pid.isdigit() or int(pid) <= 0:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        pass  # exists, owned by someone else
+    return True
 
 
 class Watcher:
@@ -985,16 +999,16 @@ class Watcher:
     def _load_checkpoints(self, server: str, panes) -> None:
         """Read every checkpoint once, at startup. Given the FULL listing (not a
         TMUXRC_TARGET watch list), also prune: this server's preloaded rows whose pane
-        is gone, and other servers' rows nobody has written for CHECKPOINT_TTL. Any
+        is gone, and rows of other tmux servers that are provably gone. Any
         failure leaves the preload empty, which is today's seed-from-tmux behavior."""
         self._checkpoints = {}
         try:
             self._checkpoints = self.history.load_checkpoints()
             if panes is not None:
                 alive = {pane_key(server, p.id, p.pid) for p in panes}
-                gone = [u for u, r in self._checkpoints.items()
-                        if r["server"] == server and u not in alive]
-                self.history.prune_checkpoints(gone, server, time.time() - CHECKPOINT_TTL)
+                gone = [u for u, r in self._checkpoints.items() if u not in alive and (
+                    r["server"] == server or not _server_alive(r["server"], server))]
+                self.history.delete_checkpoints(gone)
         except Exception:
             logger.warning("pane checkpoints unavailable; seeding clocks from tmux",
                            exc_info=True)
