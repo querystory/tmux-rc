@@ -228,6 +228,7 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
 
     assert ws.sent[0]["type"] == "propose"
     assert ws.sent[0]["text"] == "Send to work: rebase onto main"
+    assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
         {"status": "done", "pane": "work"} if ok

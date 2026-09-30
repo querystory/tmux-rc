@@ -369,7 +369,11 @@ async def _approved(websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict)
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     try:
         await websocket.send_json({"type": "propose", "id": proposal, "text": summary})
-        rec["consent"] = "approved" if await answer else "declined"
+        ok = await answer
+        rec["consent"] = "approved" if ok else "declined"
+        # The client shows the answer as final only on this, so a reconnect can't leave a
+        # card claiming an action that no longer has anyone waiting on it.
+        await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
     finally:
         meter.approvals.pop(proposal, None)
     return rec["consent"] == "approved"

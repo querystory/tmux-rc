@@ -4158,8 +4158,11 @@ function lmComposer() {
 }
 
 // A pane-changing action in a text session waits for the user: Send runs it, Cancel tells
-// the model the user declined (live._approved). Rebuilt only when its proposal or answer
-// changes, since the keyed node can be handed a different proposal as the log shifts.
+// the model the user declined (live._approved). The final answer is shown only once the
+// daemon confirms it ("decided"); a dropped connection takes the daemon's side of the
+// proposal with it, so lmExpire closes any card still open. Rebuilt only when its
+// proposal or state changes, since the keyed node can be handed a different proposal as
+// the log shifts.
 function lmProposal(d, e) {
   if (d.dataset.id === e.id && d.dataset.state === (e.state || "")) return;
   d.dataset.id = e.id; d.dataset.state = e.state || "";
@@ -4170,14 +4173,19 @@ function lmProposal(d, e) {
     const b = document.createElement("button");
     b.textContent = label;
     b.onclick = () => {
-      e.state = ok ? "Approved" : "Declined";
-      if (lmWs?.readyState === WebSocket.OPEN) lmWs.send(JSON.stringify({ action: "approve", id: e.id, ok }));
+      e.state = lmWs?.readyState === WebSocket.OPEN ? "Sending..." : "Expired";
+      if (e.state !== "Expired") lmWs.send(JSON.stringify({ action: "approve", id: e.id, ok }));
       lmPaint();
     };
     parts.push(b);
   }
   d.replaceChildren(...parts);
 }
+function lmSettle(id, state) {
+  for (const e of lmLog) if (e.role === "propose" && (id ? e.id === id : !lmFinal(e))) e.state = state;
+  lmPaint();
+}
+const lmFinal = (e) => ["Approved", "Declined", "Expired"].includes(e.state);
 
 // Repaint between renders, straight onto the card's PERMANENT .lm-convo node — the card
 // is retargeted rather than rebuilt, so the box a transcript fragment paints into is the
@@ -4273,6 +4281,7 @@ async function lmCapture(ws) {
 // The pulsing mic IS the status line: red pill = session up, pulse = listening.
 function lmStatus(s) {
   lmListening = s === "listening";  // gates mic streaming (see push())
+  if (!lmListening) lmSettle(null, "Expired"); // the daemon dropped its open proposals
   if (!lmListening) lmClearPending?.();
   lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
   if (lmListening) { lmTries = 0; lmFatal = ""; } // a session that came back: budget and error clear
@@ -4433,6 +4442,7 @@ function lmConnect() {
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") { lmFatal = m.message; lmAdd("err", m.message); } // .lm-err red
     else if (m.type === "propose") lmAdd("propose", m.text, true, { id: m.id });
+    else if (m.type === "decided") lmSettle(m.id, m.ok ? "Approved" : "Declined");
   };
   ws.onclose = (e) => {
     if (lmWs !== ws) return;

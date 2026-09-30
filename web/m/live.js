@@ -90,7 +90,9 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     if (follow) log.scrollTop = log.scrollHeight;
   }
   // A pane-changing action in a text session waits for the user: Send runs it, Cancel
-  // tells the model the user declined (live._approved).
+  // tells the model the user declined (live._approved). The card shows a final answer
+  // only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
+  // side of the proposal with it, so any card still open then is expired, never retried.
   function propose(current, { id, text }) {
     add("propose", text);
     const row = $("voice-log").lastElementChild, actions = document.createElement("div");
@@ -99,13 +101,21 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       const button = document.createElement("button"); button.type = "button"; button.textContent = label;
       if (ok) button.className = "primary";
       button.onclick = () => {
-        actions.remove(); row.firstChild.textContent = ok ? "Approved" : "Declined";
-        if (run === current && current.ws?.readyState === WebSocket.OPEN) current.ws.send(JSON.stringify({ action: "approve", id, ok }));
+        if (current.ws?.readyState !== WebSocket.OPEN) return settle(current, id, "Expired");
+        actions.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+        row.firstChild.textContent = "Sending...";
+        current.ws.send(JSON.stringify({ action: "approve", id, ok }));
       };
       actions.append(button);
     }
-    row.append(actions);
+    row.append(actions); current.proposals.set(id, { row, actions });
   }
+  function settle(current, id, label) {
+    const card = current.proposals.get(id);
+    if (!card) return;
+    card.row.firstChild.textContent = label; card.actions.remove(); current.proposals.delete(id);
+  }
+  const expire = (current) => [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
   function silence(current) {
     current.queued.forEach((source) => { try { source.stop(); } catch {} });
     current.queued.clear(); current.playAt = 0;
@@ -262,6 +272,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       if (message.type === "status") {
         current.frameMs = message.frame_ms;
         current.up = true; current.listening = message.status === "listening";
+        if (!current.listening) expire(current);
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
@@ -270,12 +281,13 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
       else if (message.type === "error") add("error", message.message);
       else if (message.type === "propose") propose(current, message);
+      else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : "Declined");
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
     ws.onclose = (event) => {
       if (run !== current || current.ws !== ws) return;
-      clearTimeout(current.deadline); current.listening = false;
+      clearTimeout(current.deadline); current.listening = false; expire(current);
       const { retry, refusal } = liveClose(event);
       if (retry && current.up && current.tries < MAX_RECONNECT_TRIES) {
         current.connectionStatus = "Connection lost. Reconnecting...";
@@ -289,7 +301,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; $("voice-log").replaceChildren(); status("Connecting microphone..."); paint();
     if (current.text) {
       try { localStorage.setItem("tmuxrc-live-model", current.model); } catch {}
