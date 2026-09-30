@@ -480,30 +480,23 @@ async def _running_pane(entry: dict, watcher) -> str | None:
     running = entry.get("running")
     pane = running and await asyncio.to_thread(_pane_of, running)
     if running and not pane and entry.get("harness") == "codex":
-        pane = _codex_pane(watcher, entry)
+        pane = _codex_pane(watcher, entry["session_id"])
     return pane or None
 
 
-def _codex_pane(watcher, entry: dict) -> str | None:
-    """The one watched pane whose Codex status bar names this thread. Codex's
+def _codex_pane(watcher, thread_id: str) -> str | None:
+    """The one watched Codex pane whose status bar shows this thread's id. Codex's
     app-server daemon, not the terminal client, holds a thread's rollout, so the process
-    that proves it's running names no pane; the client's status bar starts with the
-    thread's name, or its id while unnamed ("<id> · <model> · ..."). Only the status
-    chrome the parser validates counts, in panes classified as Codex (a shell can print
-    a captured footer). Names repeat, so a name counts only with the thread's directory
-    on the same bar, and a match in two panes decides nothing."""
+    that proves it's running names no pane; a status bar configured with `session-id`
+    starts with the id ("<id> · <model> · ..."). Only status chrome the parser
+    validates counts, in panes classified as Codex (a shell can print a captured
+    footer). Names aren't used: two live threads can share one."""
     codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
     # A copy: the watcher thread adds and drops panes while this runs.
-    rows = [(pane_id, [s.strip() for s in line.split("·")])
-            for pane_id, hist in list(watcher.snapshots.items()) if hist and pane_id in codex
-            for line in _session_chrome(hist[-1]["text"] or "") if _codex_model_segments(line)]
-
-    def only(match) -> str | None:
-        panes = {pane_id for pane_id, segs in rows if match(segs)}
-        return panes.pop() if len(panes) == 1 else None
-    title, where = entry.get("title"), _home_relative(entry.get("cwd") or "")
-    return (only(lambda segs: segs[0] == entry["session_id"])
-            or (title and only(lambda segs: segs[0] == title and where in segs[1:])) or None)
+    panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
+             if hist and pane_id in codex for line in _session_chrome(hist[-1]["text"] or "")
+             if _codex_model_segments(line) and line.split("·")[0].strip() == thread_id}
+    return panes.pop() if len(panes) == 1 else None
 
 
 def _home_relative(path: str) -> str:

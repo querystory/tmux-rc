@@ -246,3 +246,18 @@ func TestRunningCodex(t *testing.T) {
 		t.Errorf("exited codex counted as running: %+v", r)
 	}
 }
+
+// IDs from transcript data name index paths, so anything but a plain name is refused.
+func TestIndexRefusesPathShapedIDs(t *testing.T) {
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	writeCodex(t)
+	path := filepath.Join(codexSessionsDir(), "2026/09/03/rollout-2026-09-03T10-00-00-0000eeee-0000-7000-8000-000000000005.jsonl")
+	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	must(t, os.WriteFile(path, []byte(`{"timestamp":"t","type":"session_meta","payload":{"parent_thread_id":"../../escape","source":{"subagent":{"thread_spawn":{}}}}}`+"\n"), 0o600))
+	if err := indexFile(harnesses[1], []string{path}, false); err == nil {
+		t.Error("a parent of ../../escape was indexed")
+	}
+	if _, err := os.Stat(filepath.Join(Root(), "escape")); err == nil {
+		t.Error("an entry was written outside the index")
+	}
+}

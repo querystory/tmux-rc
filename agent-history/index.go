@@ -103,6 +103,10 @@ func indexFile(h harness, files []string, force bool) error {
 		return nil
 	}
 	id, parent := h.identity(files[0])
+	// Both come from transcript data and name index paths, so they must be plain names.
+	if !validID.MatchString(id) || (parent != "" && !validID.MatchString(parent)) {
+		return fmt.Errorf("%s: not a plain session ID: %q/%q", files[0], parent, id)
+	}
 	if h.renamed != nil {
 		renamed, err := h.renamed(id)
 		if err != nil {

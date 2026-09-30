@@ -199,8 +199,8 @@ def test_resume_never_starts_a_second_copy(history):
 
 
 def test_daemon_held_codex_thread_is_found_by_its_status_bar(history):
-    # Codex's app-server daemon holds the rollout, so agent-history names no pane; the
-    # client's status bar shows the thread's name, or its id while unnamed.
+    # Codex's app-server daemon holds the rollout, so agent-history names no pane; a
+    # status bar configured with session-id shows the thread id.
     sessions, opened = history
     sid = "0000aaaa-0000-7000-8000-000000000001"
     sessions[sid] = {**LIVE, "harness": "codex", "session_id": sid,
@@ -208,24 +208,21 @@ def test_daemon_held_codex_thread_is_found_by_its_status_bar(history):
     w = _Watcher()
     w.digest = lambda: [{**d, "tool": "codex"} for d in _Watcher.digest(w)]
 
-    def show(pane, head, where="/repo"):
+    def show(pane, head):
         w.snapshots[pane] = [{"id": "s", "ts": 1.0,
-                              "text": f"output\n\n› \n\n  {head} · gpt-6 medium · {where}"}]
+                              "text": f"output\n\n› \n\n  {head} · gpt-6 medium · /repo"}]
 
     def resume():
         return _call("resume_session", {"session_id": sid}, w)[1]
-    for head in (sid, "tmuxrc live mode"):
-        show("%1", head)
-        assert resume() == {"status": "already_running", "pane_id": "%1", "pane": "work"}
-    show("%2", "tmuxrc live mode")  # the name in two panes decides nothing
+    show("%1", sid)
+    assert resume() == {"status": "already_running", "pane_id": "%1", "pane": "work"}
+    show("%1", "tmuxrc live mode")  # a name can belong to another live thread
     assert resume()["status"] == "rejected"
-    del w.snapshots["%2"]
+    show("%1", sid)
     w.digest = _Watcher().digest  # a claude pane printing a Codex footer isn't Codex
     assert resume()["status"] == "rejected"
-    w.digest = lambda: [{**d, "tool": "codex"} for d in _Watcher.digest(w)]
-    show("%1", "tmuxrc live mode", "~/other")  # names repeat: another thread's directory
-    assert resume()["status"] == "rejected"
     # The id in output, not the status bar, isn't evidence either.
+    w.digest = lambda: [{**d, "tool": "codex"} for d in _Watcher.digest(w)]
     w.snapshots = {"%1": [{"id": "s", "ts": 1.0, "text": f"{sid} · resumed ok"}]}
     assert resume()["status"] == "rejected"  # running out of reach: never a second copy
     assert opened == []
