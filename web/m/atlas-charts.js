@@ -110,7 +110,7 @@ export function atlasCharts() {
           const sample = indexed.get(times[items[0]?.dataIndex]);
           if (!sample?.n) return 'No observation';
           return [label(sample.t), sample.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
-            ...items.map(item => `${item.seriesName}: ${item.value} ${unit.toLowerCase()}`)].join('\n');
+            ...items.map(item => `${item.seriesName}: ${item.value[1]} ${unit.toLowerCase()}`)].join('\n');
         } },
       legend: { show: false, selected: selectedStates },
       grid: { left: 42, right: 14, top: 28, bottom: 78 },
@@ -122,16 +122,20 @@ export function atlasCharts() {
         { type: 'inside', xAxisIndex: 0, ...zoom, zoomOnMouseWheel: 'ctrl',
           moveOnMouseWheel: false, preventDefaultMouseMove: false },
       ],
-      xAxis: { type: 'category', data: times.map(label), axisTick: { show: false },
-        axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, hideOverlap: true } },
+      // ECharts' time scale snaps ticks to round units for the visible span (so zoom re-ticks) and
+      // formats each by its unit, emphasising the higher unit where it turns over.
+      xAxis: { type: 'time', axisTick: { show: false }, axisLine: { lineStyle: { color: line } },
+        // One bucket has no extent of its own; ECharts would pad it to two whole days.
+        ...(single && { min: times[0] - step, max: times[0] + step }),
+        axisLabel: { color: muted, hideOverlap: true, formatter: { day: '{MMM} {d}' } } },
       yAxis: { type: 'value', minInterval: 1, name: unit, nameTextStyle: { color: muted },
         splitLine: { lineStyle: { color: line } }, axisLabel: { color: muted } },
       series: order.map(i => ({ name: states[i], type: 'bar', stack: 'panes',
         barMaxWidth: single ? 100 : undefined, barCategoryGap: '0%',
         itemStyle: { color: colors[i] }, emphasis: { focus: 'series' },
-        label: { show: times.length < 8, formatter: p => p.value > 0 ? p.value : '', color: dark ? '#101312' : '#243142', fontWeight: 600 },
-        data: times.map(t => indexed.get(t)?.n != null ? { value: indexed.get(t).n[i],
-          itemStyle: { opacity: indexed.get(t).source === 'logs' ? 0.65 : 1 } } : null),
+        label: { show: times.length < 8, formatter: p => p.value[1] > 0 ? p.value[1] : '', color: dark ? '#101312' : '#243142', fontWeight: 600 },
+        data: times.map(t => indexed.get(t)?.n != null ? { value: [t, indexed.get(t).n[i]],
+          itemStyle: { opacity: indexed.get(t).source === 'logs' ? 0.65 : 1 } } : [t, null]),
       })),
     }, true);
     barChart.resize();
