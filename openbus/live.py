@@ -109,10 +109,14 @@ class _Meter:
     `session` is a per-session UUID — the summable key shared with emit_live's watch-time
     rounds, so a query can join a voice session's cost to its screen-view time."""
 
-    def __init__(self, session: str, actor: str | None, model: LiveModel) -> None:
+    def __init__(
+        self, session: str, actor: str | None, model: LiveModel, *, text: bool = False
+    ) -> None:
         self.session = session
         self.actor = actor
         self.model = model
+        self.text = text  # typed turns, written replies: no mic, no playback
+        self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
         self.started = time.monotonic()
@@ -274,10 +278,23 @@ def _pane_context(watcher, screens: str) -> str:
     return "\n\n".join(blocks) if blocks else "(no panes)"
 
 
-def _system_prompt(watcher) -> str:
+# Appended in a text session, whose relayed messages are labelled by how the user really
+# said them. The prompt's example label is the one place the relay prefix is taught.
+_TEXT_NOTE = (
+    "\nThis session is typed, not spoken: the user types to you and reads your replies. "
+    'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
+    "a pane (type_in_pane, press_key, resume_session) are shown to the user to approve "
+    "first; a declined one did not happen, so don't retry it unless the user asks."
+)
+
+
+def _system_prompt(watcher, *, text: bool = False) -> str:
     stamp = time.strftime("%Y-%m-%d %H:%M %Z")
+    prompt = _load_prompt("live_prompt.txt")
+    if text:
+        prompt = prompt.replace("(via voice)", "(via text)") + _TEXT_NOTE
     return (
-        f"{_load_prompt('live_prompt.txt')}\nNow: {stamp}"
+        f"{prompt}\nNow: {stamp}"
         f"\n\n# Panes (live state)\n\n{_pane_context(watcher, screens='all')}"
     )
 
@@ -305,7 +322,10 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         "status": "rejected", "reason": "unknown tool"}
     try:
         if known:
-            result = await _dispatch(websocket, session, fc, watcher, rec)
+            ok, pid = (await _approved(websocket, fc, watcher, meter, rec)
+                       if meter.text and fc.name in _CONSENT else (True, None))
+            result = (await _dispatch(websocket, session, fc, watcher, rec, expected_pid=pid)
+                      if ok else {"status": "declined", "reason": "the user declined"})
     finally:
         status, reason = result["status"], result.get("reason")
         _audit(
@@ -317,7 +337,58 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     await session.send_tool_result(fc, result)
 
 
-async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> dict:
+# The tools that change a pane. In a text session each waits for the user to tap Send on
+# what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
+# a typed request is read and answered, never acted on unasked. find_sessions only reads,
+# so it runs at once. Voice keeps acting directly — a tap would end hands-free use.
+_CONSENT = {"type_in_pane", "press_key", "resume_session"}
+
+
+async def _approved(
+    websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict
+) -> tuple[bool, str | None]:
+    """Show the user what the call would do, as the model asked it, and wait for Send or
+    Cancel. Returns the answer and the pane's pid when it was proposed: the card named
+    THAT process, and tmux recycles %N, so an approval must not type into whatever holds
+    the id by the time the user taps. A malformed call can be approved and is still
+    refused by _dispatch: this gate only ever removes actions."""
+    args = fc.args if isinstance(fc.args, dict) else {}
+    pane_id = args.get("pane_id")
+    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    known = isinstance(pane_id, str) and pane_id in labels
+    pane = labels[pane_id] if known else pane_id
+    # "" when the lookup finds no process: it matches no pane, so the send is refused
+    # rather than going out unguarded (None would mean "don't check").
+    pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
+    if known:
+        rec["pane_id"] = pane_id  # a real pane: recorded even if declined
+    if fc.name == "resume_session":
+        entry = agent_history.offered() and isinstance(args.get("session_id"), str) and (
+            await asyncio.to_thread(agent_history.get, args["session_id"]))
+        summary = f"Resume {(entry or {}).get('title') or args.get('session_id')}"
+    elif fc.name == "press_key":
+        summary = f"Press {args.get('key')} in {pane}"
+    else:  # the card must say whether approving also presses Enter (runs it)
+        verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
+        summary = f"{verb} {pane}: {args.get('text')}"
+    rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
+    proposal = uuid.uuid4().hex
+    meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
+    try:
+        await websocket.send_json({"type": "propose", "id": proposal, "text": summary})
+        ok = await answer
+        rec["consent"] = "approved" if ok else "declined"
+        # The client shows the answer as final only on this, so a reconnect can't leave a
+        # card claiming an action that no longer has anyone waiting on it.
+        await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
+    finally:
+        meter.approvals.pop(proposal, None)
+    return rec["consent"] == "approved", pid
+
+
+async def _dispatch(
+    websocket: WebSocket, session, fc, watcher, rec: dict, *, expected_pid: str | None = None
+) -> dict:
     """Route a tool call (type_in_pane / press_key, or a history tool) and return its
     answer. The result NEVER rides back through the tool response (echo loops — see
     design doc); the model sees the outcome via the post-action ambient refresh instead."""
@@ -379,7 +450,7 @@ async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> di
     try:
         if invalidate is not None:
             await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
-        await asyncio.to_thread(tmux.send_keys, *send_args)
+        await asyncio.to_thread(tmux.send_keys, *send_args, expected_pid=expected_pid)
     except Exception as e:  # report, don't kill the session
         # The error's text can quote the typed text (send-keys argv): speech, so only
         # the class leaves here unless QSDEBUG.
@@ -654,8 +725,23 @@ async def _context_updater(session, watcher) -> None:
         )
 
 
-async def _forward_audio(websocket: WebSocket, session) -> None:
-    """Client → model: base64 16kHz PCM frames until the client says stop."""
+# A typed turn longer than this is refused, never cut: a cut can drop the very clause
+# ("only look, don't type") that limits what a tool-capable assistant does. Both
+# composers stop at the same length.
+TYPED_TURN_CHARS = 4000
+
+
+async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str, **extra) -> None:
+    """One transcript fragment to the browser and the meter — spoken, or typed."""
+    if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
+        logger.info("[live] %s: %s", role, text)
+    meter.note(f"{role}: {text}")
+    await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
+
+
+async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
+    """Client → model: base64 16kHz PCM frames and typed turns until the client says stop.
+    A typed turn is echoed as the user's transcript, so both clients render it like speech."""
     while True:
         data = await websocket.receive_json()
         action = data.get("action")
@@ -668,6 +754,18 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
             except Exception:  # noqa: BLE001 - skip one bad frame, keep streaming
                 continue
             await session.send_audio(audio)
+        elif action == "text":
+            text = data.get("text")
+            text = text.strip() if isinstance(text, str) else ""
+            if len(text) > TYPED_TURN_CHARS:
+                await websocket.send_json({"type": "error", "message": "Too long; not sent"})
+            elif text:
+                await _transcript(websocket, meter, "user", text, new_segment=True)
+                await session.send_text(text)
+        elif action == "approve":  # the user's Send / Cancel on a proposed action
+            answer = meter.approvals.get(str(data.get("id")))
+            if answer and not answer.done():
+                answer.set_result(data.get("ok") is True)
         elif action == "stop":
             return
         else:
@@ -687,10 +785,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
-            if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
-                logger.info("[live] %s: %s", ev.role, ev.text)
-            meter.note(f"{ev.role}: {ev.text}")
-            await websocket.send_json({"type": "transcript", "role": ev.role, "text": ev.text})
+            await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
             meter.end_turn()
             await websocket.send_json({"type": "turn_complete"})
@@ -723,7 +818,9 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
             # pane snapshot — the connect snapshot is the only place full screens are sent
             # (ambient [tmux update]s omit them), so reusing a stale one would leave a
             # reconnected session answering/acting on minutes-old screen state.
-            async with live_providers.connect(model, _system_prompt(watcher)) as session:
+            async with live_providers.connect(
+                model, _system_prompt(watcher, text=meter.text), text=meter.text
+            ) as session:
                 logger.info(
                     "[live] session up (model=%s via %s, actor=%s)",
                     model.model, model.backend, meter.actor,
@@ -746,7 +843,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                 # and never entered. (The GPT-Live adapter already waits on all of its
                 # tasks together; this is the seam saying the same thing.)
                 pump = asyncio.create_task(
-                    _forward_audio(websocket, session), name="live-audio"
+                    _forward_client(websocket, session, meter), name="live-client"
                 )
                 side.append(pump)  # so the drain below tears this one down too
                 try:
@@ -856,8 +953,13 @@ async def live_mode(websocket: WebSocket) -> None:
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
-    meter = _Meter(session_id, telemetry.actor(websocket), model)
-    _audit(meter, "live_session", detail="start")
+    text = websocket.query_params.get("mode") == "text"
+    if text and not model.text:
+        # The client lists only text-capable models in Text; this is a stale tab or probe.
+        await websocket.close(code=1008, reason=f"{model.label} can't answer in text")
+        return
+    meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
+    _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     outcome, reason = "ok", "stop"
     try:
         if use_gpt:

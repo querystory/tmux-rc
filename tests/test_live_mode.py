@@ -186,7 +186,7 @@ def _dispatch(fc, monkeypatch, watcher=None):
     w = watcher or _Watcher()
     ws, session = _WS(), _Session()
     typed = []
-    monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
     _run(L._handle_tool_call(ws, session, fc, w, _METER))
     return w, ws, session, typed
@@ -203,6 +203,85 @@ def test_typing_dispatches_and_logs(monkeypatch):
     assert payload == {"status": "done", "pane": "work"}
     # the tool result never carries screen content (echo-loop guard)
     assert "screen" not in str(payload)
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch, ok):
+    """In a text session a pane-changing call is proposed, not run: it types only on the
+    user's Send, and Cancel answers the model that the user declined. Both are audited."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Tap(_WS):  # the browser: taps Send or Cancel on the card it is shown
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": ok},
+                                      {"action": "stop"}])
+                await L._forward_client(client, None, meter)
+
+    typed, audits, bound = [], [], []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: (typed.append(a), bound.append(k)))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append({**k, "pane": a[1]}))
+    ws, session = Tap(), _Session()
+    fc = _FC(args={"pane_id": "%1", "text": "rebase onto main"})
+    _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
+
+    assert ws.sent[0]["type"] == "propose"
+    assert ws.sent[0]["text"] == "Send to work: rebase onto main"
+    assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
+    assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
+    assert session.responses[0][1] == (
+        {"status": "done", "pane": "work"} if ok
+        else {"status": "declined", "reason": "the user declined"})
+    assert audits[-1]["consent"] == ("approved" if ok else "declined")
+    assert audits[-1]["pane"] == "%1"  # recorded even when declined
+    # Bound to the pane incarnation the card showed, so a recycled %1 is refused.
+    assert bound == ([{"expected_pid": "4242"}] if ok else [])
+    assert meter.approvals == {}
+
+
+def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
+    """A failed pid lookup must not approve an unguarded send: it binds to "", which no
+    live pane matches, so send_keys's identity check refuses it."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Approve(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(True)
+
+    bound = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: bound.append(k))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: None)
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    _run(L._handle_tool_call(Approve(), _Session(), _FC(args={"pane_id": "%1", "text": "x"}),
+                             _Watcher(), meter))
+    assert bound == [{"expected_pid": ""}]
+
+
+def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Cancel(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(False)
+
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    ws = Cancel()
+    fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
+    _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))
+    assert ws.sent[0]["text"] == "Type (no Enter) into work: draft"
+
+
+def test_text_session_prompt_labels_relays_as_typed():
+    assert "(via voice)" in L._system_prompt(_Watcher())
+    typed = L._system_prompt(_Watcher(), text=True)
+    assert "(via voice)" not in typed and "(via text)" in typed
 
 
 def test_press_key_dispatches_named_key(monkeypatch):
@@ -338,8 +417,9 @@ class _FakeClient:
         self._connects = list(connects)
         self.attempts = 0
 
-    def connect(self, model, system_prompt):
+    def connect(self, model, system_prompt, *, text=False):
         self.attempts += 1
+        self.text = text
         cm = self._connects.pop(0)
         return cm() if callable(cm) else cm
 
@@ -388,6 +468,42 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
 
     assert client.attempts == 1  # clean stop → no reconnect
     assert _statuses(ws)[-1:] == ["listening"] or "listening" in _statuses(ws)
+
+
+def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
+    """A text session asks the provider for text, and a typed turn reaches it through the
+    user-turn verb (not the reply-less context path), echoed to the browser as the user's
+    transcript and kept in the meter's. A blank one goes nowhere; an oversized one is
+    refused rather than cut."""
+    class Typed(_Session):
+        def __init__(self):
+            super().__init__()
+            self.texts = []
+
+        async def send_text(self, text):
+            self.texts.append(text)
+
+        async def send_context(self, text):
+            raise AssertionError("a typed turn is not ambient context")
+
+    monkeypatch.setattr(L, "_receiver", _park)
+    monkeypatch.setattr(L, "_context_updater", _park)
+    session = Typed()
+    client = _FakeClient([_Connect(session)])
+    monkeypatch.setattr(L.live_providers, "connect", client.connect)
+    ws = _ScriptedWS([{"action": "text", "text": "  find my codex session "},
+                      {"action": "text", "text": " "},
+                      {"action": "text", "text": "x" * (L.TYPED_TURN_CHARS + 1)},
+                      {"action": "stop"}])
+    meter = L._Meter("s", "a", P._DEFAULT[0], text=True)
+    _run(L._run_session(ws, _Watcher(), meter))
+
+    assert client.text is True
+    assert session.texts == ["find my codex session"]
+    assert {"type": "transcript", "role": "user", "text": "find my codex session",
+            "new_segment": True} in ws.sent
+    assert {"type": "error", "message": "Too long; not sent"} in ws.sent
+    assert "user: find my codex session" in meter._transcript()
 
 
 def test_run_session_reconnects_once_after_a_drop(monkeypatch):

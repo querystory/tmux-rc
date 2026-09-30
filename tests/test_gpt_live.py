@@ -88,7 +88,7 @@ def call(cid="call-1", args=None):
 
 
 def test_shared_audio_forwarder_reaches_the_adapter():
-    """The adapter borrows live._forward_audio wholesale rather than growing a second mic
+    """The adapter borrows live._forward_client wholesale rather than growing a second mic
     path, so it has to answer to the seam's verb BY NAME: a method spelled anything else
     is an AttributeError on the first spoken frame, and no test of the adapter's own
     methods would ever reach it. Odd-length frames are dropped rather than forwarded —
@@ -104,9 +104,18 @@ def test_shared_audio_forwarder_reaches_the_adapter():
             return script.pop(0)
 
     s = session()
-    asyncio.run(L._forward_audio(Mic(), s))
+    asyncio.run(L._forward_client(Mic(), s, s.meter))
     assert [e["type"] for e in s.ws.sent] == ["session.input_audio.append"]
     assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
+
+
+def test_typed_turn_goes_to_the_backend():
+    """GPT-Live's frontend takes no text, so a typed turn is a backend user item and a
+    continue; the frontend then voices the result like any other."""
+    s = session()
+    asyncio.run(s.send_text("find it"))
+    assert [e["type"] for e in s.ws.sent] == ["response.item.create", "response.create"]
+    assert s.ws.sent[0]["item"]["content"] == [{"type": "input_text", "text": "find it"}]
 
 
 def test_tools_come_from_the_shared_table_unconverted():
@@ -169,7 +178,7 @@ def test_completed_calls_survive_empty_response_output_and_all_results_precede_c
     monkeypatch,
 ):
     typed = []
-    monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **kw: None)
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **kw: None)

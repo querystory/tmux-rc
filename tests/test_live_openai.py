@@ -133,8 +133,32 @@ def test_tool_result_requests_follow_up_now_or_after_active_response():
         kinds = [e.kind async for e in s.events()]
         assert kinds == ["usage", "turn_complete"]
         assert [m["type"] for m in ws.sent][-1] == "response.create"  # released at done
+        assert s._active is True  # ...and active again, so nothing else asks meanwhile
 
     _run(scenario())
+
+
+def test_a_request_that_lost_to_a_server_response_is_retried_at_its_done():
+    """A typed turn's response.create can race one the server started from voice activity;
+    the rejection defers it to that response's done instead of dropping the turn."""
+    busy = {"type": "error", "error": {"code": "conversation_already_has_active_response"}}
+    ws = _WS([busy, {"type": "response.done", "response": {}}])
+    _run(_drain(P._OpenAISession(ws)))
+    assert [m["type"] for m in ws.sent] == ["response.create"]
+
+
+def test_a_refused_request_does_not_leave_the_session_waiting():
+    """If Realtime refuses our response.create outright, no response is coming: the next
+    typed turn must ask again rather than wait for a done that never arrives."""
+    ws = _WS()
+    s = P._OpenAISession(ws)
+    _run(s.send_text("one"))
+    ask = ws.sent[-1]["event_id"]
+    ws.script = [json.dumps({"type": "error", "error": {"code": "x", "event_id": ask}})]
+    _run(s.send_text("two"))  # queued behind the ask that is about to be refused
+    _run(_drain(s))
+    assert [m["type"] for m in ws.sent].count("response.create") == 2  # one replacement
+    assert s._pending is False
 
 
 def test_events_map_to_neutral_kinds_and_usage_accumulates():
@@ -308,6 +332,41 @@ def test_openai_backends_gate_on_their_keys(monkeypatch):
     assert next(m for m in P.available() if m.label == "GPT").hint == (
         "OpenAI · $3/$12 per 1M audio"
     )
+
+
+@pytest.mark.parametrize("text", [False, True])
+def test_text_session_asks_for_text_and_typed_turn_is_a_user_item(monkeypatch, text):
+    import websockets
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    ws = _WS([{"type": "response.output_text.delta", "delta": "Found it"}])
+
+    class _Open:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return ws
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(websockets, "connect", _Open)
+
+    async def go():
+        async with P.connect(P.LiveModel("GPT", "gpt-realtime", "openai"), "p", text=text) as s:
+            await s.send_text("find my session")
+            await s.send_text("and the other one")  # before response.created: waits
+            return await _drain(s)
+
+    events = _run(go())
+    update, item, respond, second = ws.sent
+    assert update["session"]["output_modalities"] == ["text" if text else "audio"]
+    assert item["item"] == {"type": "message", "role": "user",
+                            "content": [{"type": "input_text", "text": "find my session"}]}
+    assert respond["type"] == "response.create"
+    assert second["item"]["content"][0]["text"] == "and the other one"  # no second create
+    assert [(e.kind, e.role, e.text) for e in events] == [("transcript", "model", "Found it")]
 
 
 def test_handshake_rejection_is_unreachable_not_retryable(monkeypatch):

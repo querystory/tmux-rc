@@ -380,6 +380,42 @@ the harness alone (see above). The cost argument against OpenAI stands — ten t
 Gemini's audio rate — which is why the status-bar fold-in must use each session's own
 card: that number is where the comparison will be decided.
 
+## Text mode (prototype)
+
+This is a first cut of the composer described in live-conversation-history.md. It keeps
+the same session, tools, fleet snapshot and audit, with typed turns in place of speech. A
+typed turn is a new adapter verb, `send_text`, deliberately separate from `send_context`.
+Context must never prompt a reply, and a typed turn must always get one. The daemon echoes
+the turn back as the user's transcript. The bubble therefore appears only once the daemon
+has the turn, never as an optimistic local copy, and both clients render typing exactly
+like speech.
+
+**Only models that answer in text are offered.** Realtime can reply in text. Gemini Live's
+native-audio models refuse TEXT output outright (setup fails with 1007), and GPT-Live's
+replies are only ever spoken. The first prototype showed both of them anyway, as
+transcribed speech. On the phone that read as hesitant talk ("Hmm… Okay. Hmm."), and
+GPT-Live additionally had to be fed silence to run at all. A transcript is not a text
+reply, so `LiveModel.text` gates the Text list, and the socket refuses a text session on
+any other model.
+
+**Pane-changing tools wait for a tap.** When the assistant answered a typed "What's going
+on", it typed a relayed question into a live agent that nobody had asked it to touch. In a
+text session, type_in_pane, press_key and resume_session are therefore proposed rather
+than run. The client shows what the call would do, and only Send executes it. Cancel
+answers the model that the user declined, and the audit records either answer. The gate
+sits in `_handle_tool_call`, the one choke point every Live tool call already passes
+through, so no tool can skip it. find_sessions only reads, so it runs at once. This is the
+control plane's risk-tier idea (agentic-control-plane.md) applied at the smallest scale.
+Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
+X into Y" announcement is voice's confirmation.
+
+A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
+and it tells the model its actions are approved first. The mode is fixed when the session
+starts. Switching mid-conversation, as the history doc asks, means reacquiring the mic
+(and a session.update on Realtime), so it waits until the prototype has been used. The
+composer also appears in voice sessions, where it is handy for pane names nobody can
+pronounce.
+
 ## v0.2 candidates (explicitly out of scope now)
 
 Pane creation ("open claude code in a new pane in ~/src/x") once the create-pane

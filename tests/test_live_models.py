@@ -112,7 +112,21 @@ def test_version_lists_offered_labels_with_hints(monkeypatch):
     # not a table entry) — keep it out so this covers the TABLE's own contribution.
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     got = TestClient(server.app).get("/api/version").json()["live_models"]
-    assert got == [{"label": "Gemini 2.5", "hint": "Vertex · $3/$12 per 1M audio"}]
+    assert got == [{"label": "Gemini 2.5", "hint": "Vertex · $3/$12 per 1M audio", "text": False}]
+
+
+def test_only_realtime_entries_offer_text_output(monkeypatch):
+    """Text mode lists only models that can answer in text: Realtime, not Gemini's
+    native-audio models, and not GPT-Live, whose replies are only ever spoken."""
+    from openbus import gpt_live
+
+    assert P.LiveModel("GPT", "gpt-realtime", "openai").text
+    assert P.LiveModel("Azure", "gpt-realtime", "azure-openai").text
+    assert not P.LiveModel("Gemini", "gemini-live-2.5-flash-native-audio").text
+    assert not gpt_live.ENTRY.text
+    rated = P._coerce({"label": "GPT", "model": "m", "backend": "openai",
+                       "rates": {"text_in": 4, "text_out": 24}})
+    assert rated.text_hint == "OpenAI · $4/$24 per 1M text"
 
 
 def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):

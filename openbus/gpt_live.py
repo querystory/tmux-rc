@@ -1,6 +1,6 @@
 """GPT-Live's continuous voice stream and managed Responses tool loop.
 
-The three send_* methods bridge the existing Live Mode audio/context/tool handlers;
+The send_* methods bridge the existing Live Mode audio/context/tool handlers;
 no second terminal control path or new agent harness. Protocol:
 https://developers.openai.com/api/docs/guides/voice-websockets?api=live
 https://developers.openai.com/api/docs/guides/live-delegation
@@ -34,7 +34,7 @@ LABEL = "GPT-Live 1"
 # model that does not bill that way.
 ENTRY = live_providers.LiveModel(
     label=LABEL, model=MODEL, backend="openai",
-    flags={"hint": "OpenAI · $0.05/min + backend"},
+    flags={"hint": "OpenAI · $0.05/min + backend", "text": False},
 )
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
@@ -212,6 +212,25 @@ class Session:
                     "audio": base64.b64encode(pcm16k).decode(),
                 }
             )
+
+    async def send_text(self, text):
+        """The seam's typed-turn verb, for the composer in a voice session (GPT-Live has no
+        text output, so it is never offered for a text one). Its voice frontend takes no
+        text, so the turn goes to the reasoning backend, which runs the same tools, and
+        the frontend voices the result."""
+        if self.closing:
+            return
+        await self.send(
+            {
+                "type": "response.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}],
+                },
+            }
+        )
+        await self.send({"type": "response.create"})
 
     async def send_context(self, text):
         """The seam's ambient-context verb. No turn_complete to pass on: GPT-Live delegates
@@ -471,7 +490,7 @@ async def run_session(browser, watcher, meter):
                 {"type": "status", "status": "listening", "frame_ms": 40}
             )
             tasks = [
-                asyncio.create_task(live._forward_audio(browser, session)),  # noqa: SLF001 - shared Live adapter internals
+                asyncio.create_task(live._forward_client(browser, session, meter)),  # noqa: SLF001 - shared Live adapter internals
                 asyncio.create_task(session.receive()),
                 asyncio.create_task(session.execute()),
                 asyncio.create_task(live._context_updater(session, watcher)),  # noqa: SLF001 - shared Live adapter internals

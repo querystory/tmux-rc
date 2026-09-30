@@ -184,7 +184,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
 #push.active { color: var(--accent); background: var(--accent-bg); }
 /* Keep the conversation scrollable while status and call controls stay visible. */
-#voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); }
+#voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 #voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
 #voice-models { min-height: 0; overflow-y: auto; }
 #voice-status { padding: 4px 0 12px; color: var(--muted); font-size: 12px; }
@@ -201,6 +201,17 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .voice-entry.error, .voice-entry.typed { align-self: stretch; max-width: none; background: transparent; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
 .voice-entry.error, .voice-entry.error strong { color: var(--red); }
 .voice-entry.typed, .voice-entry.typed strong { color: var(--amber); }
+.voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
+.voice-entry.propose strong { color: var(--accent); }
+.voice-actions { display: flex; gap: 8px; margin-top: 10px; }
+.voice-actions button { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
+.voice-mode { display: flex; flex: none; gap: 4px; padding: 3px; margin-top: 8px; border: 1px solid var(--line); border-radius: 999px; align-self: flex-start; }
+.voice-mode button { min-height: 36px; padding: 0 16px; border-radius: 999px; }
+.voice-mode button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+.voice-compose { display: flex; flex: none; gap: 8px; padding-top: 12px; }
+/* 16px, not the body's 15: iOS zooms the whole page into any smaller input on focus. */
+.voice-compose input { flex: 1; min-width: 0; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 22px; background: var(--raised); font-size: 16px; }
+.voice-compose button { min-height: 44px; padding: 0 18px; border-radius: 22px; }
 .voice-controls { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .voice-controls button { margin: 0; min-height: 44px; }
 #voice-start { flex: none; padding: 0 18px; color: var(--red); background: transparent; border: 1px solid var(--line); border-radius: 24px; }
