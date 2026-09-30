@@ -126,6 +126,8 @@ export function atlasCharts() {
           moveOnMouseWheel: false, preventDefaultMouseMove: false },
       ],
       xAxis: { ...timeAxis(barChart, bars.clientWidth - GUTTER.left - GUTTER.right, { color: muted }), axisTick: { show: false },
+        // One bucket has no extent of its own; ECharts would pad it to two whole days.
+        ...(single && { min: times[0] - step, max: times[0] + step }),
         axisLine: { lineStyle: { color: line } } },
       yAxis: { type: 'value', minInterval: 1, name: unit, nameTextStyle: { color: muted },
         splitLine: { lineStyle: { color: line } }, axisLabel: { color: muted } },
