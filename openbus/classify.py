@@ -18,7 +18,14 @@ import re
 from itertools import islice
 from pathlib import Path
 
-from .tmux import VISIBLE_SCREEN, Pane, strip_dim
+from .tmux import (
+    PLACEHOLDER_CLOSE,
+    PLACEHOLDER_OPEN,
+    PROMPT_GLYPHS,
+    VISIBLE_SCREEN,
+    Pane,
+    strip_dim,
+)
 
 # Cheap fast-path only (NOT semantic parsing): a bare shell prompt at the tail lets the
 # watcher/fallback call an obviously-idle shell "idle" without an LLM call.
@@ -45,6 +52,23 @@ _OPENCODE_RUNNING_RE = re.compile(
     r"^[ \t]*(?:[▰▱▮▯■⬝□▪▫█▓▒░]+|\[⋯\])[ \t]+esc[ \t]+(?:again[ \t]+to[ \t]+)?interrupt[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
+_CLAUDE_TURN_RE = re.compile(
+    # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
+    # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
+    # A stamp's trailing shell/monitor count is background work, not the agent's turn.
+    r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
+    r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
+    re.MULTILINE,
+)
+# A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
+# capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
+_TURN_ERROR_RE = {
+    "codex": re.compile(r"^[ \t]*■[ \t]+(?!.*\binterrupted\b)(?P<text>.*\S)", re.MULTILINE),
+    "claude": re.compile(r"^[ \t]*⎿[ \t]*(?P<text>API Error\b.*\S)", re.MULTILINE),
+}
+# A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
+_PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
+_USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -202,10 +226,26 @@ def _canonical_session(name, visible: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
-def _supported_question(question, visible: str) -> bool:
+def _visible(text: str) -> str:
+    """The live viewport as the phone renders it, minus greyed input placeholders."""
+    screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
+    return strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
+
+
+def _supported_question(question, visible: str, tool) -> bool:
     prompt = question.get("prompt") if isinstance(question, dict) else None
-    return isinstance(prompt, str) and bool(prompt.strip()) and (
-        " ".join(prompt.split()).casefold() in " ".join(visible.split()).casefold()
+    if not isinstance(prompt, str) or not prompt.strip():
+        return False
+    words = r"\s+".join(map(re.escape, prompt.split()))
+    *_, found = [None, *re.finditer(words, visible, re.IGNORECASE)]
+    # The user's own turn or draft (a ❯/› row) is not the agent asking; a live spinner
+    # below the text means the agent is working again; and a finished turn's question
+    # followed by typed input has been answered.
+    return found is not None and not (
+        re.match(_PROMPT_ROW, visible[visible.rfind("\n", 0, found.start()) + 1:])
+        or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
+               for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
+                            if tool == "claude" else ()))
     )
 
 
@@ -218,11 +258,11 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     """Validate actionable fields against their UI evidence, retrying once on that slice."""
     if result.get("tool") == "shell":
         result.pop("session", None)  # Old agent scrollback cannot name its replacement shell.
-    visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
+    visible = _visible(text)
     identity = text  # Keep the boundary: only explicit rename events may come from history.
     bad_question = (
         bool(result.get("question")) and VISIBLE_SCREEN in text
-        and not _supported_question(result["question"], visible)
+        and not _supported_question(result["question"], visible, result.get("tool"))
     )
     bad_rewind = (
         bool(result.get("rewind")) and VISIBLE_SCREEN in text
@@ -256,7 +296,8 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["activity"] = "unknown"
             result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
         unsupported_action = (
-            result.get("question") and not _supported_question(result["question"], visible)
+            result.get("question")
+            and not _supported_question(result["question"], visible, result.get("tool"))
         ) or (result.get("rewind") and not _supported_rewind(result["rewind"], visible))
         if unsupported_action:
             for key in state_fields:
@@ -269,6 +310,32 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
         # valid activity/question state behind the watcher's previous card.
         if retry and (retry_session := _canonical_session(retry.get("session"), identity)):
             result["session"] = retry_session
+
+
+def _final_ask(visible: str, tool: str) -> dict | None:
+    """What a finished turn leaves blocked on the user: a provider error to retry, or in
+    auto mode (where the agent stops only when it needs the user) a closing question or a
+    `! command` handed over to run. Anything typed after it means the user already acted."""
+    error_re = _TURN_ERROR_RE[tool]
+    turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
+    stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
+    if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
+        return None
+    end = stop.end() if stop.re is error_re else stop.start()
+    message = visible[:end].rsplit("\n● ", 1)[-1]  # the turn's final assistant message
+    lines = [line.strip() for line in message.splitlines() if line.strip()]
+    if not lines:
+        return None
+    if error := error_re.match(lines[-1]):
+        return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
+    if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
+        return None
+    handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
+    if lines[-1].endswith("?"):
+        return {"prompt": lines[-1], "answer_style": "text"}
+    if handoff is None:
+        return None
+    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
 
 
 def _obvious_idle(text: str) -> bool:
@@ -388,6 +455,7 @@ def classify(
     pane's last classified activity, held onto when the parse fails (see below). Returns
     the model's JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic
     dict."""
+    visible = _visible(text)
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
@@ -440,9 +508,7 @@ def classify(
     # names (OpenCode showing "Claude Opus" is still OpenCode).
     if process_tool := _PROCESS_TOOLS.get(pane.current_command):
         result["tool"] = process_tool
-    elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(
-        strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]),
-    ):
+    elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(visible):
         # A returned shell prompt is stronger evidence than an agent in history.
         if result.get("tool") != "shell":
             result["headline"] = "Shell ready for a command"
@@ -477,11 +543,30 @@ def classify(
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
+    *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
+    # Either row is itself a read of the screen, so it stands even after a failed parse.
+    if result.get("tool") == "claude" and turn:
+        if turn["live"] and result.get("activity") in (None, "idle", "unknown"):
+            result["activity"] = "running"
+            result.pop("parse_ok", None)
+        elif (not turn["live"] and result.get("activity") == "running"
+              and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
+            result["activity"] = "idle"  # The turn is over; background shells don't count.
+            result.pop("parse_ok", None)
+    # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
+    # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
+    # The finished turn's own chrome is authoritative over any model question: nothing was
+    # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
+    if result.get("tool") in _TURN_ERROR_RE and (
+        ask := _final_ask(visible, result["tool"])
+    ):
+        result["question"] = ask
+        result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
         keymap = question.get("keymap")
-        footer = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]).splitlines()[-3:]
+        footer = visible.splitlines()[-3:]
         if isinstance(keymap, dict) and any(re.search(
             r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", line, re.IGNORECASE,
         ) for line in footer):
@@ -554,8 +639,7 @@ def classify(
                 ).split()))
             table_text.update(" ".join(" ".join(row).split()) for row in rows)
     cps = result.get("copyables")
-    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "",
-                         strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1]))
+    copy_source = re.sub(r"(?m)^[ \t]*│[ \t]?|[ \t]*│[ \t]*$", "", visible)
     copy_source = copy_source.replace("\\\n", "")
 
     def _valid(cps):

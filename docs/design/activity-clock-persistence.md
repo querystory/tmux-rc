@@ -1,6 +1,7 @@
 # Activity Clocks That Survive a Restart
 
-Status: proposed, not yet implemented.
+Status: implemented, extended from the two clocks to the whole card (see "Restoring
+the card" below).
 
 ## Problem
 
@@ -92,6 +93,27 @@ still holds in spirit. A hash of a low-entropy screen could in principle be matc
 by guessing, but the file is already private to the user (0600 in a 0700 directory),
 so this adds no meaningful exposure.
 
+### Restoring the card
+
+The clocks were the visible symptom, but a restart also threw away every card. Each
+pane came back as "No recent activity", and the daemon re-paid one LLM parse plus one
+scrollback deep read per pane (around forty of each) just to redraw screens that had
+not changed. So the same row also carries the card: the last successful parse, the
+tail of the activity log, and the bootstrap's summary and name.
+
+On a hash match the card goes back into memory as though it had just been parsed and
+bootstrapped, so the unchanged screen costs no LLM call and the summary refresh waits
+its normal cadence. On a mismatch nothing is restored and the pane is read as today.
+A card is only stored alongside the hash it was parsed from. After a failed parse the
+watcher shows the previous card over a newer screen, so that row stores the clocks but
+no card, and a restart re-reads the screen. Writes also happen when a new parse,
+bootstrap summary or idle summary lands, which is still only a handful a minute.
+
+This reverses the earlier rejection below of persisting pane state. The
+concern there was size and terminal text. The stored card is the parser's output plus
+a capped log tail, not the snapshot ring. A card is restored only for a screen whose
+normalized text is byte-identical, under the same card version (see below).
+
 ### Fingerprint the visible screen, not the scrollback window
 
 The fingerprint should cover only the pane's visible rows. Everything that decides
@@ -148,11 +170,10 @@ space by writing a new payload only when the fleet's structure changes. A
 per-pane timestamp would make almost every tick a new payload and defeat that. The
 checkpoint is current state, not history, so it gets its own table. Rejected.
 
-**Persisting the whole in-memory pane state, or the snapshot ring.** That would
-restore more than the clocks: cached parses, events, summaries. But it's far more
-data, it stores terminal text, and it changes what a restart means, including cache
-invalidation of parses made by an older parser. Much more than this bug needs.
-Rejected. It may be worth its own design later.
+**Persisting the whole in-memory pane state, or the snapshot ring.** Originally
+rejected as more than the clock bug needed. The card half is now done (see "Restoring
+the card"); the snapshot ring and the parser's per-pane bookkeeping stay in memory,
+since they are raw terminal text and a restart rebuilds them within a tick.
 
 **Seeding unknown panes as "oldest" instead of `window_activity`.** Needs no storage.
 But a pane that really was active just before a deploy would drop out of Recent after
@@ -168,10 +189,12 @@ fingerprint already does. Rejected.
 some panes and not others, and it breaks when a pane is resized. The pane's own
 height is the natural boundary. Rejected in favor of the visible screen.
 
-**Versioning the fingerprint hash.** A deploy that changes the fingerprint's
-normalization makes every stored hash mismatch once, so that one restart falls back
-to today's behavior. That's rare, self-healing, and never wrong in a harmful
-direction, so a version column isn't worth it. Rejected.
+**Leaving the fingerprint hash unversioned.** For clocks alone this was enough: a
+deploy that changes normalization mismatches every hash once, which is self-healing.
+Restoring cards changes that. A card from an older parser, or from a daemon running
+without the LLM, would come back on an unchanged screen indefinitely. So the hash
+mixes in a card version, bumped when classification changes meaning, and the LLM
+mode. A bump costs one full re-read, the same as a restart used to.
 
 ## Failure modes
 

@@ -316,6 +316,7 @@ def test_parse_failure_and_exhausted_retry_cache_leave_history_gap(inventory, mo
     w, _ = inventory
     w.use_llm = False
     w.history = Mock()
+    w.history.load_checkpoints.return_value = {}
     monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "s")
     frame = ["unread screen"]
     monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: frame[0])

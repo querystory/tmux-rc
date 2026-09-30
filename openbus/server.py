@@ -586,7 +586,8 @@ def get_digest():
 def list_events(pane_id: str):
     """The pane's activity-log cache (bootstrap-seeded history + live events). The
     phone fetches this instead of accumulating client-side, so a page reload doesn't
-    start the feed from zero. In-memory, not persisted (tmux is the state).
+    start the feed from zero. In memory; its tail survives a restart only for an
+    unchanged screen (docs/design/activity-clock-persistence.md).
     states[].events_seq (a monotonic append counter) signals when to refetch. See
     docs/design/activity-log.md."""
     # Snapshot copy: the watcher mutates this list from its worker thread (to_thread),
