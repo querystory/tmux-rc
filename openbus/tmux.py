@@ -29,6 +29,9 @@ _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
 # braille dots idle). The UI has its own activity indicators — strip them.
 _TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
+# tmux stores any APC string (ESC _ ... ESC \) as the pane title, so a Kitty graphics
+# probe ("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA") lands there — a payload, not a title.
+_TITLE_ESCAPE_PAYLOAD = re.compile(r"^G[a-zA-Z]=[^,;]*(?:,[a-zA-Z]=[^,;]*)*;")
 
 # Format string for `list-panes -F`. Fields are tab-separated so pane titles /
 # commands containing spaces don't break parsing.
@@ -90,7 +93,10 @@ class Pane:
     def display_title(self) -> str | None:
         """The title the pane's own app set (agents publish their state here: Claude
         Code writes '<glyph> <task summary>' — free, accurate, no LLM needed). tmux
-        defaults the title to the hostname, which is noise -> None."""
+        defaults the title to the hostname, and stores APC payloads (Kitty graphics
+        probes) as the title — both noise -> None."""
+        if _TITLE_ESCAPE_PAYLOAD.match(self.title):
+            return None
         t = _TITLE_GLYPHS.sub("", self.title).strip()
         return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
 
