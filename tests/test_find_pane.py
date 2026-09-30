@@ -106,3 +106,11 @@ def test_missing_target_warns_once(monkeypatch, caplog):
     hits = [r for r in caplog.records if "matches no pane" in r.getMessage()]
     assert len(hits) == 1, f"expected exactly one warning, got {len(hits)}"
     assert "nope:9" in hits[0].getMessage()
+
+
+def test_display_title_ignores_kitty_graphics_probe_payload():
+    """tmux files APC strings as the pane title; a Kitty graphics query must not win."""
+    def title(t):
+        return Pane("s", "0", "claude", "0", "%0", "node", t).display_title
+    assert title("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA") is None
+    assert title("✳ Fix login bug") == "Fix login bug"
