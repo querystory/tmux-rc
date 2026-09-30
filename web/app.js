@@ -4129,6 +4129,7 @@ function lmMinimize(min) {
   render(Object.values(panesById));
   if (!min && box && lmScroll) box.scrollTop = lmScroll.follow ? box.scrollHeight : lmScroll.top;
   lmBadge();
+  if (min) lmBubble.focus(); // the focused Minimize just vanished with the card's convo
 }
 // The server sends a fatal diagnostic and THEN closes the socket cleanly, so the red line
 // it paints lives in a card body that lmStop's re-render immediately replaces with the
@@ -4459,6 +4460,7 @@ async function lmStart(label, text = false) {
 // this needs no user gesture — which is what lets ws.onclose call it again after a drop.
 function lmConnect() {
   lmRetry = null;
+  lmThumbs = []; // a turn whose echo died with the old socket never gets one: none cross over
   // Same page-load session id as the live-view stream, so voice cost and screen
   // watch-time join under one key in telemetry (docs/design/live-telemetry.md).
   const q = new URLSearchParams();

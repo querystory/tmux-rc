@@ -51,7 +51,9 @@ export function chatComposer(form, { licon, send, error }) {
     let images = [];
     if (files.length) {
       sending = true; composer.editor.contentEditable = "false";
-      try { images = await Promise.all(files.map(imagePart)); }
+      // One at a time: a 20 MB phone photo decodes to far more than that, so decoding
+      // several at once can take a phone tab down before any is downscaled.
+      try { for (const file of files) images.push(await imagePart(file)); }
       catch { return error("Could not read that image; not sent"); }
       finally { sending = false; composer.editor.contentEditable = "true"; }
     }
@@ -69,7 +71,7 @@ export const chatThumb = (src) => Object.assign(document.createElement("img"), {
 // A minimized conversation: a floating button that restores it, with a dot for anything
 // said while it was down and a count of consent cards still waiting on Send or Cancel. A
 // voice session minimizes to the same button under its own name and the mic.
-// Returns paint({shown, voice, unread, pending}).
+// Returns paint({shown, voice, unread, pending}), with paint.focus() for handing focus over.
 export function chatBubble({ licon, open }) {
   const bubble = document.createElement("button"), glyph = document.createElement("span");
   bubble.type = "button"; bubble.className = "chat-bubble"; bubble.hidden = true;
@@ -77,12 +79,12 @@ export function chatBubble({ licon, open }) {
   bubble.append(glyph, badge);
   bubble.onclick = open;
   document.body.append(bubble);
-  return ({ shown, voice, unread, pending }) => {
+  return Object.assign(({ shown, voice, unread, pending }) => {
     bubble.hidden = !shown;
     if (glyph.dataset.voice !== String(!!voice)) { glyph.dataset.voice = !!voice; glyph.innerHTML = licon(voice ? "mic" : "message"); }
     bubble.classList.toggle("unread", !!unread);
     badge.textContent = pending || "";
     const name = voice ? "Live Mode" : "Chat";
     bubble.title = bubble.ariaLabel = `Open ${name}${pending ? `: ${pending} waiting for you` : unread ? ": new messages" : ""}`;
-  };
+  }, { focus: () => bubble.focus() });
 }

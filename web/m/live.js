@@ -295,7 +295,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop("Could not connect to Live Mode."); return; }
-    current.ws = ws;
+    current.ws = ws; current.thumbs = []; // an echo lost with the old socket never comes
     clearTimeout(current.deadline);
     current.deadline = setTimeout(() => { if (run === current && !current.listening) stop("Live Mode connection timed out. Try again."); }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {

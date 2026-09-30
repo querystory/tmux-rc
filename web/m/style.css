@@ -46,7 +46,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #connection.online::before { background: var(--accent); }
 /* A phone header also holds Chat and the mic: the status keeps its dot and drops the word
    (still read out, since the text stays in the node), so the brand never wraps. */
-@media (max-width: 420px) { #connection { font-size: 0; gap: 0; } #brand span { white-space: nowrap; } }
+@media (max-width: 420px) { .app-header { gap: 4px; } #connection { font-size: 0; gap: 0; } #brand span { white-space: nowrap; } }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
