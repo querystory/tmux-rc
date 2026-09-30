@@ -332,14 +332,16 @@ def test_text_session_asks_for_text_and_typed_turn_is_a_user_item(monkeypatch, t
     async def go():
         async with P.connect(P.LiveModel("GPT", "gpt-realtime", "openai"), "p", text=text) as s:
             await s.send_text("find my session")
+            await s.send_text("and the other one")  # before response.created: waits
             return await _drain(s)
 
     events = _run(go())
-    update, item, respond = ws.sent
+    update, item, respond, second = ws.sent
     assert update["session"]["output_modalities"] == ["text" if text else "audio"]
     assert item["item"] == {"type": "message", "role": "user",
                             "content": [{"type": "input_text", "text": "find my session"}]}
     assert respond == {"type": "response.create"}
+    assert second["item"]["content"][0]["text"] == "and the other one"  # no second create
     assert [(e.kind, e.role, e.text) for e in events] == [("transcript", "model", "Found it")]
 
 

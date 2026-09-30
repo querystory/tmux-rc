@@ -655,10 +655,14 @@ class _OpenAISession:
 
     async def _respond(self) -> None:
         """Ask for a response. If one is still streaming, asking now is an error
-        (conversation_already_has_active_response) — defer to its response.done."""
+        (conversation_already_has_active_response) — defer to its response.done. Active
+        from the moment we ask, not from response.created, so a second typed turn sent
+        in between waits too. Turns that pile up behind one response share the next
+        reply; every one of them is already in the conversation it answers."""
         if self._active:
             self._pending = True
         else:
+            self._active = True
             await self._send({"type": "response.create"})
 
     async def events(self) -> AsyncIterator[Event]:
