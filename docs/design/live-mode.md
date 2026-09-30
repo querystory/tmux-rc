@@ -393,7 +393,7 @@ What "text output" means depends on the provider, so each adapter decides and li
 stays out of it. Realtime can answer in text, so a text session asks for that. Gemini
 Live's native-audio models refuse TEXT output outright (setup fails with 1007), so they
 keep speaking; the written reply is the output transcription we already stream, and the
-browser simply doesn't play the audio. GPT-Live's voice frontend accepts no text at all,
+daemon simply doesn't forward the audio. GPT-Live's voice frontend accepts no text at all,
 so a typed turn goes to its reasoning backend, which runs the same tools. The frontend
 only runs while audio flows, though: with no mic it never voices the result, and the
 session dies about 30 seconds in with `context_injection_incomplete`. So a text session

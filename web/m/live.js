@@ -247,7 +247,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
       else if (message.type === "error") add("error", message.message);
       else if (message.type === "interrupted") silence(current);
-      else if (message.type === "audio" && !current.text) { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
+      else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
     ws.onclose = (event) => {
       if (run !== current || current.ws !== ws) return;

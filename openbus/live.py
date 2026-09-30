@@ -657,7 +657,9 @@ async def _context_updater(session, watcher) -> None:
         )
 
 
-# A typed turn longer than this is cut: it is a message to the assistant, not a paste.
+# A typed turn longer than this is refused, never cut: a cut can drop the very clause
+# ("only look, don't type") that limits what a tool-capable assistant does. Both
+# composers stop at the same length.
 TYPED_TURN_CHARS = 4000
 
 
@@ -686,8 +688,10 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
             await session.send_audio(audio)
         elif action == "text":
             text = data.get("text")
-            if isinstance(text, str) and text.strip():
-                text = text.strip()[:TYPED_TURN_CHARS]
+            text = text.strip() if isinstance(text, str) else ""
+            if len(text) > TYPED_TURN_CHARS:
+                await websocket.send_json({"type": "error", "message": "Too long; not sent"})
+            elif text:
                 await _transcript(websocket, meter, "user", text, new_segment=True)
                 await session.send_text(text)
         elif action == "stop":
@@ -706,7 +710,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "tool_call":
             meter.note(f"[typed] {ev.call.args}")
             await _handle_tool_call(websocket, session, ev.call, watcher, meter)
-        elif ev.kind == "audio":
+        elif ev.kind == "audio" and not meter.text:  # a text session never plays it
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
             await _transcript(websocket, meter, ev.role, ev.text)

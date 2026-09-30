@@ -4095,7 +4095,7 @@ let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
 let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
 // Voice, or text: typed turns and written replies, no mic and no playback (lmPlay stays
-// null, so lmPlayChunk drops any audio). The choice is remembered; the phone shares it.
+// null, and the daemon sends no audio). The choice is remembered; the phone shares it.
 let lmInput = "voice"; try { lmInput = localStorage.getItem("tmuxrc-live-input") || lmInput; } catch {}
 let lmText = false; // this session's mode, fixed at start
 let lmClearPending = null;
@@ -4142,6 +4142,7 @@ function lmComposer() {
   const form = document.createElement("form"); form.className = "lm-compose";
   const input = document.createElement("input");
   input.placeholder = "Type to the assistant"; input.autocomplete = "off";
+  input.maxLength = 4000; // live.TYPED_TURN_CHARS: past it the daemon refuses the turn
   input.setAttribute("aria-label", "Message to the Live assistant");
   const send = document.createElement("button"); send.type = "submit"; send.textContent = "Send";
   form.append(input, send);

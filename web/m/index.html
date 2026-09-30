@@ -110,7 +110,7 @@
       <input id="voice-model" type="hidden"><div id="voice-models" class="choice-list" aria-label="Live Mode model"></div>
       <p id="voice-status" role="status"></p>
       <div id="voice-log" role="log" aria-label="Live conversation"></div>
-      <form id="voice-compose" class="voice-compose" hidden><input id="voice-text" autocomplete="off" enterkeyhint="send" placeholder="Type to the assistant" aria-label="Message to the assistant"><button type="submit" class="primary">Send</button></form>
+      <form id="voice-compose" class="voice-compose" hidden><input id="voice-text" maxlength="4000" autocomplete="off" enterkeyhint="send" placeholder="Type to the assistant" aria-label="Message to the assistant"><button type="submit" class="primary">Send</button></form>
       <div id="voice-controls" class="voice-controls" hidden><button id="voice-mute" class="icon-button" aria-label="Mute microphone" title="Mute microphone" aria-pressed="false" hidden></button><button id="voice-start" class="primary" hidden>End Live Mode</button></div>
     </dialog>
   </div>

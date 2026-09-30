@@ -356,7 +356,7 @@ class _GeminiSession:
             )
         # AUDIO even for a text session: Live's native-audio models refuse TEXT output
         # outright (1007), so the written reply is the output transcription below and the
-        # browser simply doesn't play the audio.
+        # daemon doesn't forward the audio.
         cfg = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             tools=[

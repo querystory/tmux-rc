@@ -330,6 +330,8 @@ class Session:
                 # Error messages may quote context; expose codes, not arbitrary content.
                 raise ProviderError(event)
             if kind == "session.output_audio.delta":
+                if self.meter.text:
+                    continue  # a text session never plays it
                 # Live streams continuous audio; it has no Realtime speech-start /
                 # output-done events. Do not infer interruptions from transcripts:
                 # brief user backchannels can intentionally overlap model speech.

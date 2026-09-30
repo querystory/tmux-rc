@@ -394,7 +394,8 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
 def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
     """A text session asks the provider for text, and a typed turn reaches it through the
     user-turn verb (not the reply-less context path), echoed to the browser as the user's
-    transcript and kept in the meter's. A blank one goes nowhere."""
+    transcript and kept in the meter's. A blank one goes nowhere; an oversized one is
+    refused rather than cut."""
     class Typed(_Session):
         def __init__(self):
             super().__init__()
@@ -412,7 +413,9 @@ def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
     client = _FakeClient([_Connect(session)])
     monkeypatch.setattr(L.live_providers, "connect", client.connect)
     ws = _ScriptedWS([{"action": "text", "text": "  find my codex session "},
-                      {"action": "text", "text": " "}, {"action": "stop"}])
+                      {"action": "text", "text": " "},
+                      {"action": "text", "text": "x" * (L.TYPED_TURN_CHARS + 1)},
+                      {"action": "stop"}])
     meter = L._Meter("s", "a", P._DEFAULT[0], text=True)
     _run(L._run_session(ws, _Watcher(), meter))
 
@@ -420,6 +423,7 @@ def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
     assert session.texts == ["find my codex session"]
     assert {"type": "transcript", "role": "user", "text": "find my codex session",
             "new_segment": True} in ws.sent
+    assert {"type": "error", "message": "Too long; not sent"} in ws.sent
     assert "user: find my codex session" in meter._transcript()
 
 
