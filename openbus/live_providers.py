@@ -172,6 +172,8 @@ KEYS = {
     "Down": "Down",
     "Left": "Left",
     "Right": "Right",  # menu navigation
+    "PageUp": "PPage",
+    "PageDown": "NPage",  # scroll a TUI or pager a screen at a time
     "Tab": "Tab",  # cycle / complete
     "C-c": "C-c",  # interrupt what's running
     "C-d": "C-d",  # EOF / exit a REPL
@@ -213,7 +215,8 @@ TOOLS = [
             "Press ONE control key in a pane (no text) — to cancel, interrupt, navigate a "
             "menu, or continue. Escape cancels/rejects the current prompt; C-c interrupts "
             "what's running; Up/Down then Enter picks a menu item; Enter alone "
-            "accepts/continues; Tab cycles or completes; C-d sends EOF."
+            "accepts/continues; PageUp/PageDown scroll a screen; Tab cycles or completes; "
+            "C-d sends EOF."
         ),
         "parameters": {
             "type": "object",

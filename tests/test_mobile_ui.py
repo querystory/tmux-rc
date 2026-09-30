@@ -121,6 +121,14 @@ def test_key_row_can_answer_a_codex_queued_question():
     assert 'aria-label", aria' in body, "the spoken label must be what reaches aria-label"
 
 
+def test_both_key_rows_can_page_a_tui():
+    """PgUp/PgDn scroll agent TUIs and pagers; tmux's canonical names are PPage/NPage."""
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("web/m/app.js", "web/index.html"):
+        text = (root / rel).read_text()
+        assert '"PPage"' in text and '"NPage"' in text, f"page keys missing from {rel}"
+
+
 def test_wide_screens_keep_the_list_and_the_pane_on_screen_together():
     """The phone layout is list-OR-pane; a desktop has room for both. The whole switch is
     one media query plus not hiding the list — if a second render path ever appears here,
