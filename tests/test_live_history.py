@@ -214,8 +214,9 @@ def test_daemon_held_codex_thread_is_found_by_its_status_bar(history):
 
     def resume():
         return _call("resume_session", {"session_id": sid}, w)[1]
-    show("%1", sid)
-    assert resume() == {"status": "already_running", "pane_id": "%1", "pane": "work"}
+    for head in (sid, f"tmuxrc live mode · gpt-6 medium · {sid}"):  # before or after the model
+        show("%1", head)
+        assert resume() == {"status": "already_running", "pane_id": "%1", "pane": "work"}
     show("%1", "tmuxrc live mode")  # a name can belong to another live thread
     assert resume()["status"] == "rejected"
     show("%1", sid)

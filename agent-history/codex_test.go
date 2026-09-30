@@ -39,7 +39,9 @@ var codexRollouts = map[string]string{
 	"2026/09/02/rollout-2026-09-02T09-00-00-" + codexID + "_0000bbbb-0000-7000-8000-000000000002.jsonl": `{"timestamp":"2026-09-02T09:00:00Z","type":"session_meta","payload":{"id":"` + codexID + `","parent_thread_id":null,"cwd":"/src/my repo","source":"cli","git":{"branch":"feat/x"}}}
 {"timestamp":"2026-09-02T09:00:05Z","type":"event_msg","payload":{"type":"user_message","message":"also the tests"}}
 {"timestamp":"2026-09-02T09:00:09Z","type":"event_msg","payload":{"type":"task_complete"}}
-`,
+
+{"timestamp":"2026-09-02T09:00:11Z","type":"event_msg","payl`, // cut short by a crash
+
 	// Work the thread delegated to a subagent: indexed under it.
 	"2026/09/01/rollout-2026-09-01T10-00-05-0000dddd-0000-7000-8000-000000000004.jsonl": `{"timestamp":"2026-09-01T10:00:05Z","type":"session_meta","payload":{"id":"0000dddd-0000-7000-8000-000000000004","parent_thread_id":"` + codexID + `","cwd":"/src/my repo","source":{"subagent":{"thread_spawn":{"parent_thread_id":"` + codexID + `","agent_path":"/root/menu_grounding"}}}}}
 {"timestamp":"2026-09-01T10:00:06Z","type":"response_item","payload":{"type":"agent_message","content":[{"type":"encrypted_content","encrypted_content":"x"}]}}
@@ -82,7 +84,7 @@ func TestReadCodex(t *testing.T) {
 	check(t, "branches", strings.Join(s.Branches, ","), "main,feat/x")
 	check(t, "entrypoint", s.Entrypoint, "cli")
 	check(t, "started", s.Started, "2026-09-01T10:00:00Z")
-	check(t, "last_active", s.LastActive, "2026-09-02T09:00:09Z")
+	check(t, "last_active", s.LastActive, "2026-09-02T09:00:11Z")
 	check(t, "resume", ResumeLine(s.Cwd, s.ResumeArgv), "cd '/src/my repo' && 'codex' 'resume' '"+codexID+"'")
 
 	// An unreadable name log is an error, not an untitled thread, and isn't cached.

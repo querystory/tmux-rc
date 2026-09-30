@@ -98,7 +98,7 @@ That pane is usually missing. New Codex sessions run through a shared app-server
 daemon, which holds the rollout of every thread its terminal clients show, while the
 clients hold none; the daemon has left every terminal, so it reports no pane. tmux-rc
 fills the gap from the screen when it can: a Codex status bar configured to show
-`session-id` starts with the thread ID, so Live treats the one watched Codex pane whose
+`session-id` (see docs/agent-setup.md) shows the thread ID, so Live treats the one watched Codex pane whose
 status bar shows it as the thread's pane. Thread names aren't used for this, since two
 live threads can share one. Otherwise the thread counts as running out of reach, and
 Live still refuses to start a second copy.

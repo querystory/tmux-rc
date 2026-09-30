@@ -61,10 +61,16 @@ func ReadCodex(files []string) (Session, error) {
 	// The source is the latest file, the one retention deletes last.
 	s := Session{Harness: "codex", Source: files[len(files)-1]}
 	s.ID = codexThreadID(files[0])
-	var last []byte
+	lastActive := ""
 	for _, f := range files {
 		err := scanLines(f, func(line []byte) error {
-			last = line
+			// Every line starts with its timestamp; reading it there spares decoding the
+			// rest, and a line cut short by a crash still dates the activity.
+			if rest, ok := bytes.CutPrefix(line, []byte(`{"timestamp":"`)); ok {
+				if ts, _, ok := bytes.Cut(rest, []byte(`"`)); ok {
+					lastActive = string(ts)
+				}
+			}
 			var rec codexRecord
 			if !slices.ContainsFunc(codexKept, func(k []byte) bool { return bytes.Contains(line, k) }) ||
 				json.Unmarshal(line, &rec) != nil {
@@ -94,9 +100,7 @@ func ReadCodex(files []string) (Session, error) {
 			return Session{}, err
 		}
 	}
-	var tail struct{ Timestamp string }
-	json.Unmarshal(last, &tail)
-	s.seen(tail.Timestamp, "", "")
+	s.seen(lastActive, "", "")
 	name, err := codexThreadName(s.ID)
 	if err != nil {
 		return Session{}, err

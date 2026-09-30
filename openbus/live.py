@@ -488,14 +488,15 @@ def _codex_pane(watcher, thread_id: str) -> str | None:
     """The one watched Codex pane whose status bar shows this thread's id. Codex's
     app-server daemon, not the terminal client, holds a thread's rollout, so the process
     that proves it's running names no pane; a status bar configured with `session-id`
-    starts with the id ("<id> · <model> · ..."). Only status chrome the parser
-    validates counts, in panes classified as Codex (a shell can print a captured
-    footer). Names aren't used: two live threads can share one."""
+    shows the id as one of its segments. Only status chrome the parser validates
+    counts, in panes classified as Codex (a shell can print a captured footer). Names
+    aren't used: two live threads can share one."""
     codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
     # A copy: the watcher thread adds and drops panes while this runs.
     panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
              if hist and pane_id in codex for line in _session_chrome(hist[-1]["text"] or "")
-             if _codex_model_segments(line) and line.split("·")[0].strip() == thread_id}
+             if _codex_model_segments(line)
+             and thread_id in (s.strip() for s in line.split("·"))}
     return panes.pop() if len(panes) == 1 else None
 
 

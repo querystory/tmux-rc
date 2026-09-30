@@ -56,6 +56,7 @@ For Codex that is `"model-with-reasoning"` in `status_line`, next to the
 status_line = [
   "thread-title",
   "model-with-reasoning",
+  "session-id",
   "context-remaining",
   "git-branch",
   "current-dir",
@@ -67,7 +68,11 @@ Order mostly does not matter to the parser — it reads each segment for what it
 rather than for where it sits, so segments you add or drop do not shift the meaning of
 the rest. The one exception is `thread-title`: it is identified as the leftover segment
 *before* the model, so keep it ahead of `model-with-reasoning` or the pane loses the
-only per-window identity Codex has. Claude Code prints its model by default; if you
+only per-window identity Codex has. Put `session-id` *after* the model for the same
+reason: it lets Live find which window shows a Codex thread that its shared
+app-server daemon runs (the daemon, not the window, holds the thread open, so nothing
+else ties the two together). Without it, Live reports such a thread as running
+elsewhere and won't point you at it. Claude Code prints its model by default; if you
 have replaced its status line with a custom command, keep the model in what you emit.
 
 This also feeds the card's subtitle, so you can see at a glance which model a pane is
