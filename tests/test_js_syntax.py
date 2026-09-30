@@ -29,6 +29,7 @@ WEB = Path(__file__).resolve().parent.parent / "web"
         "m/composer.js",
         "m/live.js",
         "m/pane-model.js",
+        "m/time-axis.js",
     ],
 )
 def test_module_parses_as_esm(tmp_path, name):

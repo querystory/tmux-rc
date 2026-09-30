@@ -1,3 +1,5 @@
+import { timeAxis } from './time-axis.js';
+
 // Local, pinned distributions: the mobile list never downloads chart libraries.
 let libraries;
 function loadScript(src) {
@@ -17,6 +19,7 @@ function loadCharts() {
   })().catch(error => { libraries = null; throw error; });
   return libraries;
 }
+const GUTTER = { left: 42, right: 14 }; // plot and zoom slider share these insets
 const timeLabel = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 // Keep canvases alive across polls, including when the overview is temporarily hidden.
@@ -110,28 +113,28 @@ export function atlasCharts() {
           const sample = indexed.get(times[items[0]?.dataIndex]);
           if (!sample?.n) return 'No observation';
           return [label(sample.t), sample.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
-            ...items.map(item => `${item.seriesName}: ${item.value} ${unit.toLowerCase()}`)].join('\n');
+            ...items.map(item => `${item.seriesName}: ${item.value[1]} ${unit.toLowerCase()}`)].join('\n');
         } },
       legend: { show: false, selected: selectedStates },
-      grid: { left: 42, right: 14, top: 28, bottom: 78 },
+      grid: { ...GUTTER, top: 28, bottom: 78 },
       dataZoom: [
         { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 4, height: 24,
-          left: 42, right: 14, showDetail: false, borderColor: line,
+          ...GUTTER, showDetail: false, borderColor: line,
           textStyle: { color: muted }, fillerColor: color('--accent-bg'),
           handleStyle: { color: color('--accent'), borderColor: color('--accent') } },
         { type: 'inside', xAxisIndex: 0, ...zoom, zoomOnMouseWheel: 'ctrl',
           moveOnMouseWheel: false, preventDefaultMouseMove: false },
       ],
-      xAxis: { type: 'category', data: times.map(label), axisTick: { show: false },
-        axisLine: { lineStyle: { color: line } }, axisLabel: { color: muted, hideOverlap: true } },
+      xAxis: { ...timeAxis(barChart, bars.clientWidth - GUTTER.left - GUTTER.right, { color: muted }), axisTick: { show: false },
+        axisLine: { lineStyle: { color: line } } },
       yAxis: { type: 'value', minInterval: 1, name: unit, nameTextStyle: { color: muted },
         splitLine: { lineStyle: { color: line } }, axisLabel: { color: muted } },
       series: order.map(i => ({ name: states[i], type: 'bar', stack: 'panes',
         barMaxWidth: single ? 100 : undefined, barCategoryGap: '0%',
         itemStyle: { color: colors[i] }, emphasis: { focus: 'series' },
-        label: { show: times.length < 8, formatter: p => p.value > 0 ? p.value : '', color: dark ? '#101312' : '#243142', fontWeight: 600 },
-        data: times.map(t => indexed.get(t)?.n != null ? { value: indexed.get(t).n[i],
-          itemStyle: { opacity: indexed.get(t).source === 'logs' ? 0.65 : 1 } } : null),
+        label: { show: times.length < 8, formatter: p => p.value[1] > 0 ? p.value[1] : '', color: dark ? '#101312' : '#243142', fontWeight: 600 },
+        data: times.map(t => indexed.get(t)?.n != null ? { value: [t, indexed.get(t).n[i]],
+          itemStyle: { opacity: indexed.get(t).source === 'logs' ? 0.65 : 1 } } : [t, null]),
       })),
     }, true);
     barChart.resize();
