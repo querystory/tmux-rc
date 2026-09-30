@@ -432,10 +432,15 @@ def test_expired_rate_buckets_are_pruned(tmp_path, monkeypatch):
     assert service._rates == {}
 
 
-def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("style", "keys", "enter"), [
+    ("menu", "y", False), ("text", "Yes", True),
+])
+def test_action_nonce_is_one_shot_and_bound_to_live_contract(
+    tmp_path, monkeypatch, style, keys, enter,
+):
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": style,
                                "options": ["Yes", "No"]})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
@@ -450,10 +455,10 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
     service.evaluate()
     nonce = sender.payloads[0]["nonce"]
 
-    assert service.answer(nonce, 0) == ("%1", "y")
-    # No Enter: the menu commits on "y", so an Enter would answer whatever comes next.
-    assert sent == [("%1", "y", {
-        "enter": False, "literal": True, "expected_pid": "123",
+    assert service.answer(nonce, 0) == ("%1", keys)
+    # Menu shortcuts have no Enter; ordinary typed replies still submit their text.
+    assert sent == [("%1", keys, {
+        "enter": enter, "literal": True, "expected_pid": "123",
     })]
     assert watcher.reparsed == ["%1"]
     with pytest.raises(ValueError, match="already used"):

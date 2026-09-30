@@ -20,3 +20,9 @@ test("a typed reply keeps its Enter", () => {
   assert.deepEqual(answerBody({ answer_style: "text", options: ["Ship it"] }, "Ship it", 0),
     { keys: "Ship it", enter: true, literal: true });
 });
+
+test("non-yes/no menus retain their original option indices", () => {
+  const question = menu("Yes", "Other", "No");
+  assert.deepEqual(answerBody(question, "No", 2), digit("3"));
+  assert.deepEqual(answerBody(menu("YES", "NO"), "YES", 0), digit("y"));
+});
