@@ -15,7 +15,8 @@ async function imagePart(file) {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
+  // At least a pixel each way: a 1x4000 strip would otherwise scale to an empty canvas.
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
   const context = canvas.getContext("2d");
   context.fillStyle = "#fff"; context.fillRect(0, 0, canvas.width, canvas.height); // JPEG has no alpha
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);

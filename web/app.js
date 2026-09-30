@@ -4006,7 +4006,8 @@ setInterval(async () => {
     applyLiveEnabled(!!live_enabled, live_models);  // sync the mic button + model menu to the server
     if (_ver === null) _ver = version;
     else if (version !== _ver) {
-      if (composerEmpty()) location.reload();
+      // A running conversation (and its Chat draft) is unsent state too, as on the phone.
+      if (composerEmpty() && !lmWs && !lmRetry) location.reload();
       else showUpdateBanner();
     }
   } catch {}
@@ -4135,7 +4136,8 @@ function lmMinimize(min) {
   render(Object.values(panesById));
   if (!min && box && lmScroll) { box.scrollTop = lmScroll.follow ? box.scrollHeight : lmScroll.top; lmScroll = null; }
   lmBadge();
-  if (min) lmBubble.focus(); // the focused Minimize just vanished with the card's convo
+  // Focus follows the conversation: the focused control on either side just vanished.
+  if (min) lmBubble.focus(); else document.getElementById("chat-input")?.focus();
 }
 // The server sends a fatal diagnostic and THEN closes the socket cleanly, so the red line
 // it paints lives in a card body that lmStop's re-render immediately replaces with the
