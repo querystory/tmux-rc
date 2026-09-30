@@ -357,7 +357,9 @@ async def _approved(
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
     known = isinstance(pane_id, str) and pane_id in labels
     pane = labels[pane_id] if known else pane_id
-    pid = await asyncio.to_thread(tmux.pane_pid, pane_id) if known else None
+    # "" when the lookup finds no process: it matches no pane, so the send is refused
+    # rather than going out unguarded (None would mean "don't check").
+    pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
     if fc.name == "resume_session":

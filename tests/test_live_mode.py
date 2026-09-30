@@ -241,6 +241,26 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     assert meter.approvals == {}
 
 
+def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
+    """A failed pid lookup must not approve an unguarded send: it binds to "", which no
+    live pane matches, so send_keys's identity check refuses it."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Approve(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(True)
+
+    bound = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: bound.append(k))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: None)
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    _run(L._handle_tool_call(Approve(), _Session(), _FC(args={"pane_id": "%1", "text": "x"}),
+                             _Watcher(), meter))
+    assert bound == [{"expected_pid": ""}]
+
+
 def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
     meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
 
