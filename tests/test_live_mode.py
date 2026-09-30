@@ -214,6 +214,9 @@ def test_press_key_dispatches_named_key(monkeypatch):
     assert w.reparsed == ["%1"]
     assert any(m["type"] == "typed" and m["text"] == "[Escape]" for m in ws.sent)
     assert session.responses[0][1] == {"status": "done", "pane": "work"}
+    # The model sees readable names; tmux gets its canonical ones.
+    fc = _FC(name="press_key", args={"pane_id": "%1", "key": "PageUp"})
+    assert _dispatch(fc, monkeypatch)[3] == [("%1", "PPage", False, False)]
 
 
 def test_press_key_rejects_unknown_key(monkeypatch):
