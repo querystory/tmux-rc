@@ -946,7 +946,7 @@
   .hdr-right { display: flex; align-items: center; gap: 10px; }
   /* Live Mode: quiet header pill; red while a session is running, and the mic pulses
      while it's actually listening — that pulse IS the status display. */
-  #lm-btn { background: var(--chrome); border: 1px solid var(--border); color: var(--fg);
+  #lm-btn, #chat-btn { background: var(--chrome); border: 1px solid var(--border); color: var(--fg);
     border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
     cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
   /* Inline-SVG icon buttons (licon): block display centers the glyph in its button. */
@@ -955,6 +955,7 @@
   .lm-exp { font-size: 8px; font-weight: 700; text-transform: uppercase; color: var(--purple);
     margin-left: 3px; vertical-align: super; letter-spacing: .04em; }
   #lm-btn.on { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+  #chat-btn.on { border-color: var(--accent); color: var(--accent); }
   @keyframes lm-pulse { 50% { opacity: .35; } }
   #lm-btn.on.listening { animation: lm-pulse 1.4s ease-in-out infinite; }
   #lm-btn.on.reconnecting { border-style: dashed; } /* socket down, mic held, retrying */
@@ -990,7 +991,7 @@
     min-height: 120px; max-height: 45vh; overflow-y: auto; }
   /* Neutral until something is said — the mic pulse/label carries connect/listen state,
      so this must not claim "listening" during connecting/reconnecting. */
-  .lm-convo:empty::before { content: "Live Mode — your conversation appears here"; color: var(--fg-faint); }
+  .lm-convo:empty::before { content: "Your conversation appears here"; color: var(--fg-faint); }
   .lm-convo .lm-user { color: var(--link); }
   .lm-convo .lm-model { color: var(--fg); }
   /* A typed action: unmissable — this is the model touching a real terminal. */
@@ -1001,15 +1002,16 @@
   .lm-convo .lm-propose button { margin: 6px 6px 0 0; padding: 3px 12px; background: var(--chrome);
     border: 1px solid var(--border); border-radius: 6px; color: var(--fg); }
   .lm-compose { display: flex; gap: 6px; margin: -4px 12px 12px; }
-  .lm-compose input { flex: 1; min-width: 0; padding: 7px 10px; background: var(--surface);
-    border: 1px solid var(--border); border-radius: 8px; color: var(--fg); font: inherit;
-    font-size: 16px; } /* 16px: iOS zooms the page into any smaller input on focus */
-  .lm-compose button { padding: 0 14px; background: var(--chrome); border: 1px solid var(--border);
-    border-radius: 8px; color: var(--fg); }
-  .lm-modes { display: flex; gap: 4px; margin-top: 8px; }
-  .lm-modes button { flex: 1; min-height: 36px; background: var(--chrome); border: 1px solid var(--border);
-    border-radius: 8px; color: var(--fg-dim); font-size: 13px; text-transform: none; letter-spacing: 0; }
-  .lm-modes button[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); }
+  .lm-compose button { min-height: 44px; padding: 0 14px; background: var(--chrome);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--fg); }
+  /* Under the composer: Chat's model switcher left, then Minimize and End. */
+  .lm-bar { display: flex; align-items: center; gap: 6px; margin: -6px 12px 12px; }
+  .lm-bar select { margin-right: auto; min-height: 32px; max-width: 60%; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--fg); font: inherit; font-size: 13px; }
+  .lm-bar button { min-height: 32px; padding: 0 12px; background: var(--chrome); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--fg); display: inline-grid; place-items: center; }
+  .lm-bar button:first-of-type { margin-left: auto; }
+  .lm-bar .lm-end { color: var(--red); }
   /* Tucked behind the status dot: a popover pinned to the header's right edge, shown only
      while the dot is toggled on (#usage[hidden] otherwise). Dim debug chrome, so it reads
      recessed even when open — it's for us, not the operator. */
@@ -1081,6 +1083,7 @@
 .bg-term.stale, .bg-wrap.stale .bg-term, .screen-pre.stale {
   filter: grayscale(1) opacity(.6); transition: filter .3s; }
 </style>
+<link rel="stylesheet" href="/live-chat.css" />
 </head>
 <body>
   <!-- Sticky top block: header + dock. The dock's height never changes (icons for
@@ -1094,6 +1097,7 @@
            scroll off once enough panes fill the width. Built by dock(). -->
       <span id="filters" class="dock-counts"></span>
       <span class="hdr-right">
+        <button id="chat-btn" hidden title="Chat with the assistant" aria-label="Chat with the assistant"></button>
         <button id="lm-btn" hidden title="Live Mode (experimental) — talk to your session" aria-label="Start Live Mode (experimental)"></button>
         <button id="expand-btn" title="Expand card" aria-label="Expand card"></button>
         <button id="theme-btn" title="Switch to light mode" aria-label="Light mode" aria-pressed="false"></button>

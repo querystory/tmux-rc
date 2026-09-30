@@ -54,6 +54,7 @@ import { renderCaptureLines, linkifyText } from "./terminal.js";
 import { answerBody, pickCursorRow } from "./cursor-pick.js";
 import { sendPresence, stateUrl } from "./push.js";
 import { liveClose } from "./live-close.js";
+import { chatBubble, chatComposer, chatThumb } from "./live-chat.js";
 
 // ── In-place write primitives ────────────────────────────────────────────────
 // Each no-ops when the value is already current. The no-op is the POINT (see the invariant
@@ -255,6 +256,8 @@ const logoFor = (tool) => (has(LOGOS, tool) ? LOGOS[tool] : UNKNOWN_LOGO);
 const LUCIDE = {
   circle: '<circle cx="12" cy="12" r="10"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  minus: '<path d="M5 12h14"/>',
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
@@ -572,7 +575,8 @@ function setActive(id, unseen = !panesById[id]) {
   // than the deadline. One scheduled render is what makes the timeout above real. No
   // cancellation needed: a spare render is idempotent, and by then the pane has either
   // arrived (nothing to expire) or the anchor is correctly dropped.
-  if (pending.unseen) setTimeout(() => render(Object.values(panesById)), UNSEEN_PICK_MS);
+  // syncUrl() above can already have dropped the anchor (pending = null).
+  if (pending?.unseen) setTimeout(() => render(Object.values(panesById)), UNSEEN_PICK_MS);
 }
 
 // The activity log lives SERVER-SIDE now (/api/panes/{id}/events — bootstrap-seeded
@@ -2289,7 +2293,7 @@ function buildCard() {
   ui.lm = document.createElement("div");
   ui.lm.className = "lm-convo";
   setAttr(ui.lm, "role", "log"); // announced, so a waiting proposal is heard, not just seen
-  setAttr(ui.lm, "aria-label", "Live conversation");
+  setAttr(ui.lm, "aria-label", "Conversation");
   ui.lmIn = lmComposer();
   ui.body = buildPaneBody(); // the shared pane body — the same component a list row's drawer uses
   el.append(ui.lm, ui.lmIn, ui.body.root);
@@ -2313,7 +2317,7 @@ function applyCard(ui, s, collapsed = cardsCollapsed) {
   // Collapsed: the one-line form, everything below the header hidden. Live Mode: the
   // voice interface owns everything below the header, in place of the pane's summary,
   // question and event views.
-  const lmOwns = !collapsed && !!(lmWs || lmRetry) && s.pane_id === activeId(); // held through a reconnect
+  const lmOwns = !collapsed && !lmMin && !!(lmWs || lmRetry) && s.pane_id === activeId(); // held through a reconnect
   const body = !collapsed && !lmOwns;
   setCls(ui.lm, "hid", !lmOwns);
   setCls(ui.lmIn, "hid", !lmOwns);
@@ -4069,10 +4073,11 @@ if (window.visualViewport && barEl) {
 // every keystroke the model puts into a pane. Nothing overlays the app: the pulsing 🎙
 // header pill is the status, and the rolling conversation renders in the active card's
 // summary slot (see applyCard's `lmOwns`). Design: docs/design/live-mode.md.
-const lm = { btn: document.getElementById("lm-btn"), sheet: document.getElementById("lm-sheet") };
+const lm = { btn: document.getElementById("lm-btn"), sheet: document.getElementById("lm-sheet"), chat: document.getElementById("chat-btn") };
 // The static buttons get their icons here (their HTML ships empty): mic without the
 // word "live" — the pill + beta tag carry the meaning; keyboard/paperclip likewise.
 if (lm.btn) lm.btn.innerHTML = licon("mic", 14) + '<sup class="lm-exp">beta</sup>';
+if (lm.chat) lm.chat.innerHTML = licon("message", 14);
 const mobileBtn = document.getElementById("mobile-btn");
 if (mobileBtn) mobileBtn.innerHTML = licon("smartphone", 14);
 bar.keysToggle.innerHTML = licon("keyboard", 17);
@@ -4087,6 +4092,7 @@ let lmModels = [];
 function applyLiveEnabled(on, models) {
   if (lm.btn) lm.btn.hidden = !on;
   if (models) lmModels = models;
+  if (lm.chat) lm.chat.hidden = !on || !lmModels.some((m) => m.text && !m.unavailable);
 }
 applyLiveEnabled(false);
 // Resolve the flag immediately on load (the 5s version poll also keeps it in sync).
@@ -4096,12 +4102,34 @@ let lmUp = false, lmTries = 0, lmRetry = null; // session was up; reconnect coun
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
 let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
-// Voice, or text: typed turns and written replies, no mic and no playback (lmPlay stays
-// null, and the daemon sends no audio). The choice is remembered; the phone shares it.
-let lmInput = "voice"; try { lmInput = localStorage.getItem("tmuxrc-live-input") || lmInput; } catch {}
+// Voice (Live Mode, from the mic) or text (Chat, from the chat button): typed turns and
+// written replies, no mic and no playback (lmPlay stays null, the daemon sends no audio).
 let lmText = false; // this session's mode, fixed at start
+const lmName = () => (lmText ? "Chat" : "Live Mode"); // "Live Mode" names only a voice session
+const lmPill = () => (lmText ? lm.chat : lm.btn);     // the header button showing the session
+const CHAT_MODEL_KEY = "tmuxrc-chat-model";           // Chat's last model, apart from the picker's
 let lmClearPending = null;
-let lmLog = [];                  // rolling conversation: {role, text, done}
+let lmLog = [];                  // rolling conversation: {role, text, done, images?}
+let lmThumbs = [];               // sent turns' image thumbnails, waiting for their echo
+// Minimized: the card gets its summary back and a floating bubble holds the conversation,
+// with a dot for anything said since and a count of consent cards waiting on the user.
+let lmMin = false, lmUnread = false;
+const lmBubble = chatBubble({ licon, open: () => lmMinimize(false) });
+const lmBadge = () => lmBubble({ shown: lmMin && !!(lmWs || lmRetry), voice: !lmText, unread: lmUnread,
+  pending: lmLog.filter((e) => e.role === "propose" && !e.state).length });
+// Restoring puts the transcript back where minimizing left it: at the tail if it was
+// following there, else at the same offset. The draft survives by itself: the composer
+// node is only hidden.
+let lmScroll = null;
+function lmMinimize(min) {
+  const box = cardUI && cardUI.lm;
+  if (min && box) lmScroll = { top: box.scrollTop, follow: atBottomOf(box) };
+  lmMin = min;
+  if (!min) lmUnread = false;
+  render(Object.values(panesById));
+  if (!min && box && lmScroll) box.scrollTop = lmScroll.follow ? box.scrollHeight : lmScroll.top;
+  lmBadge();
+}
 // The server sends a fatal diagnostic and THEN closes the socket cleanly, so the red line
 // it paints lives in a card body that lmStop's re-render immediately replaces with the
 // pane's static summary. Showing "deployment 'x' not found" for 200ms is the same as not
@@ -4119,6 +4147,7 @@ function lmAdd(role, text, newSegment = false, extra = {}) {
   const last = lmLog[lmLog.length - 1];
   if (!newSegment && grow && last && last.role === role && !last.done) last.text += text;
   else lmLog.push({ role, text, done: !grow, ...extra });
+  if (lmMin) lmUnread = true;
   // Oldest first, but never a proposal still waiting on the user: the daemon would wait
   // forever for a Send/Cancel that is no longer on screen.
   for (let i; lmLog.length > 8 && (i = lmLog.findIndex((e) => e.role !== "propose" || lmFinal(e))) >= 0;)
@@ -4134,32 +4163,57 @@ function lmPaintInto(box) {
   keyedList(box, lmLog, (e, i) => i + ":" + e.role, () => document.createElement("div"),
     (d, e) => {
       setAttr(d, "class", "lm-" + e.role);
-      if (e.role === "propose") lmProposal(d, e);
-      else setText(d, (e.role === "user" ? "🗣 " : "") + e.text);
+      if (e.role === "propose") return lmProposal(d, e);
+      // A turn with pasted images shows them above its text. Rebuilt only when the node is
+      // handed a different entry's images, since keys are positions and the log shifts.
+      if (d._images !== e.images) {
+        d._images = e.images;
+        d.replaceChildren(...(e.images || []).map(chatThumb), document.createTextNode(""));
+      }
+      setText(d.lastChild || d, (e.role === "user" ? "🗣 " : "") + e.text);
     });
   // Follow the tail only when already there, so reading back through the transcript isn't
   // yanked down by the next incoming fragment.
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-// The typed-turn box under the conversation, in voice sessions as well as text ones. The
-// daemon echoes a sent turn back as the user's transcript, so nothing is painted here.
+// The typed-turn box under the conversation, in voice sessions as well as text ones: the
+// shared chat composer (web/live-chat.js), then a row with Chat's model switcher, Minimize
+// and End. The daemon echoes a sent turn back as the user's transcript, so nothing is
+// painted here.
 function lmComposer() {
-  const form = document.createElement("form"); form.className = "lm-compose";
-  const input = document.createElement("input");
-  input.placeholder = "Type to the assistant"; input.autocomplete = "off";
-  input.maxLength = 4000; // live.TYPED_TURN_CHARS: past it the daemon refuses the turn
-  input.setAttribute("aria-label", "Message to the Live assistant");
-  const send = document.createElement("button"); send.type = "submit"; send.textContent = "Send";
-  form.append(input, send);
-  form.onsubmit = (e) => {
-    e.preventDefault();
-    const text = input.value.trim();
-    if (!text || !lmListening || lmWs?.readyState !== WebSocket.OPEN) return;
-    lmWs.send(JSON.stringify({ action: "text", text }));
-    input.value = "";
-  };
-  return form;
+  const box = document.createElement("div"), form = document.createElement("form");
+  form.className = "lm-compose chat-compose";
+  chatComposer(form, {
+    licon, error: (message) => lmAdd("err", message),
+    send(frame, thumbnails) {
+      if (!lmListening || lmWs?.readyState !== WebSocket.OPEN) return false;
+      lmWs.send(JSON.stringify(frame));
+      lmThumbs.push(thumbnails); // for this turn's echo, or its refusal
+    },
+  });
+  const bar = document.createElement("div"); bar.className = "lm-bar";
+  // Switching models starts a fresh session: the new model has none of the old history.
+  lm.switch = document.createElement("select");
+  lm.switch.setAttribute("aria-label", "Chat model");
+  lm.switch.onchange = () => { if (lmText && lm.switch.value !== lmLabel) { const label = lm.switch.value; lmStop(); lmStart(label, true); } };
+  const min = document.createElement("button"), end = document.createElement("button");
+  min.type = end.type = "button";
+  min.innerHTML = licon("minus", 16); min.onclick = () => lmMinimize(true);
+  end.className = "lm-end"; end.onclick = lmStop;
+  bar.append(lm.switch, min, end);
+  box.append(form, bar);
+  return box;
+}
+// What the bar shows for the session that is starting.
+function lmPaintBar() {
+  if (!lm.switch) return;
+  const chats = lmModels.filter((m) => m.text && !m.unavailable);
+  lm.switch.replaceChildren(...chats.map((m) => new Option(m.label, m.label, false, m.label === lmLabel)));
+  lm.switch.hidden = !lmText || chats.length < 2;
+  const [min, end] = lm.switch.parentNode.querySelectorAll("button");
+  min.title = min.ariaLabel = `Minimize ${lmName()}`;
+  end.textContent = `End ${lmName()}`;
 }
 
 // A pane-changing action in a text session waits for the user: Send runs it, Cancel tells
@@ -4198,6 +4252,7 @@ const lmFinal = (e) => ["Approved", "Declined", "Expired"].includes(e.state);
 function lmPaint() {
   const box = cardUI && cardUI.lm;
   if (box) lmPaintInto(box);
+  lmBadge();
 }
 
 // The model's voice: base64 PCM16 chunks, scheduled back-to-back on a dedicated context
@@ -4290,18 +4345,18 @@ function lmStatus(s) {
   if (!lmListening) lmClearPending?.();
   lmUp = true; // any status frame means the server accepted the session; a drop after this is retried
   if (lmListening) { lmTries = 0; lmFatal = ""; } // a session that came back: budget and error clear
-  lm.btn.classList.toggle("listening", lmListening);
+  lmPill().classList.toggle("listening", lmListening);
   // While connected the pill's tag names the model answering — side-by-side testing
   // needs to know WHICH voice this is. "beta" comes back when the session ends.
-  if (lmListening && lmLabel) lm.btn.querySelector(".lm-exp").textContent = lmLabel;
-  lm.btn.classList.toggle("reconnecting", s === "reconnecting");
+  if (lmListening && lmLabel && !lmText) lm.btn.querySelector(".lm-exp").textContent = lmLabel;
+  lmPill().classList.toggle("reconnecting", s === "reconnecting");
 }
 
-// Tap Live: stop a running session, else open the bottom sheet — a Voice/Text toggle, then
-// one thumb-sized row per model, the remembered choice ticked — and the tapped row starts
-// the session at once.
+// Tap Live: stop a running voice session (a running Chat is brought back instead: ending
+// it is its own button), else open the bottom sheet — one thumb-sized row per model, the
+// remembered choice ticked — and the tapped row starts the session at once.
 function lmTap() {
-  if (lmWs || lmRetry) return lmStop();
+  if (lmWs || lmRetry) return lmText ? lmMinimize(false) : lmStop();
   lmSheet(true);
 }
 const lmChoice = () => { try { return localStorage.getItem("tmuxrc-live-model") || ""; } catch { return ""; } };
@@ -4322,29 +4377,16 @@ function lmSheet(open) {
   };
   const head = document.createElement("div"); head.className = "lm-sheet-head";
   head.textContent = "Live Mode — pick a model";
-  const modes = document.createElement("div"); modes.className = "lm-modes";
-  for (const m of ["voice", "text"]) {
-    const b = document.createElement("button");
-    b.textContent = m === "voice" ? "Voice" : "Text";
-    b.setAttribute("aria-pressed", String(m === lmInput));
-    b.onclick = () => {
-      lmInput = m; try { localStorage.setItem("tmuxrc-live-input", m); } catch {}
-      lmSheet(true);
-    };
-    modes.append(b);
-  }
-  head.append(modes);
-  // Text lists only the models that answer in text; audio-only ones would only talk.
-  const menu = lmInput === "text" ? lmModels.filter((m) => m.text) : lmModels;
+  const menu = lmModels;
   const rows = menu.map((m) => {
-    const b = row(m.label, lmInput === "text" && m.text_hint || m.hint, m.label === cur);
+    const b = row(m.label, m.hint, m.label === cur);
     b.onclick = () => { lmSheet(false); lmStart(m.label); };
     return b;
   });
   const close = row("Close", "", false, "close");
   close.onclick = () => lmSheet(false);
   lm.sheet.firstElementChild.replaceChildren(head, ...rows, close);
-  // Land on the remembered choice, or Close when Text has no model to offer.
+  // Land on the remembered choice, or Close when there is no model to offer.
   (rows[Math.max(0, menu.findIndex((m) => m.label === cur))] || close).focus();
 }
 if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
@@ -4359,14 +4401,15 @@ if (lm.sheet) lm.sheet.onkeydown = (e) => {
 let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
 let lmLabel = "";       // the label this session was started with (shown in the pill)
 
-async function lmStart(label) {
+async function lmStart(label, text = false) {
   if (lmStarting) return; // re-tap while the permission prompt is up: not a stop request
   lmStarting = true;
   lmLabel = label || "";
-  if (label) { try { localStorage.setItem("tmuxrc-live-model", label); } catch {} }
-  lm.btn.classList.add("on");
-  lmLog = []; lmFatal = "";
-  lmText = lmInput === "text";
+  lmText = text;
+  if (label) { try { localStorage.setItem(text ? CHAT_MODEL_KEY : "tmuxrc-live-model", label); } catch {} }
+  lmPill().classList.add("on");
+  lmLog = []; lmFatal = ""; lmThumbs = [];
+  lmPaintBar();
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
   // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit
   // rejects getUserMedia with NotAllowedError once the activation has expired, which
@@ -4404,7 +4447,7 @@ async function lmStart(label) {
   lmStarting = false;
   lmConnect();
   if (!lmWs) return; // the constructor threw: lmConnect already stopped and re-rendered
-  lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
+  if (!lmText) lm.btn.title = lm.btn.ariaLabel = "End Live Mode (experimental)";
   render(Object.values(panesById)); // swap the active card's summary for the convo box
 }
 
@@ -4428,7 +4471,7 @@ function lmConnect() {
     // sticks "on" with no session behind it.
     reportError("ws", e);
     lmStop();
-    alert(`Live Mode connection error:\n${e.name || "Error"}: ${e.message}`);
+    alert(`${lmName()} connection error:\n${e.name || "Error"}: ${e.message}`);
     return;
   }
   lmWs = ws;
@@ -4436,7 +4479,7 @@ function lmConnect() {
     if (lmWs !== ws) return;
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     if (m.type === "status") { lmFrameMs = m.frame_ms; lmStatus(m.status); }
-    else if (m.type === "transcript") lmAdd(m.role, m.text, m.new_segment);
+    else if (m.type === "transcript") lmAdd(m.role, m.text, m.new_segment, "images" in m ? { images: lmThumbs.shift() } : {});
     else if (m.type === "turn_complete") lmLog.forEach((e) => { e.done = true; });
     // Per-frame rate, not a constant: Gemini and Realtime send 24 kHz, GPT-Live 16 kHz,
     // and the browser is never told which provider answered.
@@ -4446,7 +4489,10 @@ function lmConnect() {
     else if (m.type === "interrupted") { lmQueued.forEach((s) => { try { s.stop(); } catch {} }); lmQueued = []; lmPlayAt = 0; }
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
-    else if (m.type === "error") { lmFatal = m.message; lmAdd("err", m.message); } // .lm-err red
+    else if (m.type === "error") { // .lm-err red; a refused turn takes its thumbnails with it
+      if (m.refused) lmThumbs.shift(); else lmFatal = m.message;
+      lmAdd("err", m.message);
+    }
     else if (m.type === "propose") lmAdd("propose", m.text, true, { id: m.id });
     else if (m.type === "decided") lmSettle(m.id, m.ok ? "Approved" : "Declined");
   };
@@ -4511,13 +4557,23 @@ function lmStop() {
   if (lmStream) { lmStream.getTracks().forEach((t) => t.stop()); lmStream = null; }
   if (lmCtx) { try { lmCtx.close(); } catch {} lmCtx = null; }
   if (lmPlay) { try { lmPlay.close(); } catch {} lmPlay = null; }
-  lm.btn.classList.remove("on", "listening", "reconnecting");
+  for (const b of [lm.btn, lm.chat]) b?.classList.remove("on", "listening", "reconnecting");
   lm.btn.title = lm.btn.ariaLabel = "Start Live Mode (experimental)";
+  lmMin = lmUnread = false;
   render(Object.values(panesById)); // the active card gets its static summary back
+  lmBadge();
   // ...which has just wiped the error line, so a fatal one is repeated where the render
   // cannot take it away. Same treatment as the audio-graph failure in ws.onopen: it is
   // unrecoverable, and the whole value of the message is that the user reads it.
-  if (lmFatal) { const why = lmFatal; lmFatal = ""; alert(`Live Mode stopped:\n${why}`); }
+  if (lmFatal) { const why = lmFatal; lmFatal = ""; alert(`${lmName()} stopped:\n${why}`); }
 }
 
 if (lm.btn) lm.btn.onclick = lmTap;
+// Chat: straight into a text session on the last chat model used (else the first), no
+// picker and no mic. A conversation already running (either mode) is just brought back.
+if (lm.chat) lm.chat.onclick = () => {
+  if (lmWs || lmRetry) return lmMinimize(false);
+  const chats = lmModels.filter((m) => m.text && !m.unavailable);
+  let last; try { last = localStorage.getItem(CHAT_MODEL_KEY); } catch {}
+  lmStart((chats.find((m) => m.label === last) || chats[0])?.label, true);
+};
