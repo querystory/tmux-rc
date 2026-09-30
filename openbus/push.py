@@ -331,12 +331,9 @@ def option_keys(question: dict, index: int) -> str:
     style = question.get("answer_style", "text")
     if style == "cursor":
         raise ValueError("cursor questions must be answered in the app")
-    if style == "menu":
-        lowered = option.lower()
-        if len(options) == 2 and lowered in {"yes", "no"}:
-            return lowered[0]
-        if len(options) > 2:
-            return str(index + 1)
+    if style == "menu":  # mirrors answerBody in web/cursor-pick.js
+        yes_no = len(options) == 2 and option.lower() in {"yes", "no"}
+        return option[0].lower() if yes_no else str(index + 1)
     return option
 
 
@@ -429,8 +426,9 @@ class PushManager:
             # Reserve the generation while the pane lock is held. Even if two distinct
             # valid nonces somehow coexist, only the first guard can pass.
             self.watcher.invalidate_input_actions(issued["pane_id"])
+        # A menu commits on its shortcut; an Enter would confirm the NEXT menu's default.
         tmux.send_keys(
-            issued["pane_id"], keys, enter=True, literal=True,
+            issued["pane_id"], keys, enter=question.get("answer_style") != "menu", literal=True,
             expected_pid=birth, guard=guard,
         )
         self.watcher.request_reparse(issued["pane_id"])
