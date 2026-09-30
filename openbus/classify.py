@@ -542,10 +542,11 @@ def classify(
             result["activity"] = "idle"  # The turn is over; background shells don't count.
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
-    # A provider error ends the turn, so it also replaces an older question still on screen.
-    ask = (_final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1], result["tool"])
-           if result.get("tool") in _TURN_ERROR_RE else None)
-    if ask and ("options" in ask or not result.get("question")):
+    # The finished turn's own chrome is authoritative over any model question: nothing was
+    # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
+    if result.get("tool") in _TURN_ERROR_RE and (
+        ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1], result["tool"])
+    ):
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     # A cursor picker's advertised search binding is evidence, not a model guess.

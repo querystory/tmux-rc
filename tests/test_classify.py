@@ -862,6 +862,10 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     assert "parse_ok" not in classify(_pane("claude"), screen, lambda _s, _t: None)
     stale = classify(_pane("claude"), screen, _llm({"question": {"prompt": "Fixing the parser."}}))
     assert stale["question"]["options"] == ["try again"]  # the error ended the turn after it
+    menu = {"prompt": "Close them?", "answer_style": "menu", "options": ["Yes", "No"]}
+    decision = classify(_pane("claude"), _sample("56_claude_turn_ends_with_decision"),
+                        _llm({"question": menu}))
+    assert decision["question"]["answer_style"] == "text"
     only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
                     "⏵⏵ auto mode on")
     assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
