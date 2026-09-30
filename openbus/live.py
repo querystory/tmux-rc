@@ -362,6 +362,9 @@ async def _approved(websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict)
         summary = f"Press {args.get('key')} in {pane}"
     else:
         summary = f"Send to {pane}: {args.get('text')}"
+    rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
+    if isinstance(args.get("pane_id"), str) and pane != args["pane_id"]:
+        rec["pane_id"] = args["pane_id"]  # a real pane: record it even if declined
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     try:

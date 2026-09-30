@@ -184,7 +184,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #live-mode.active { color: var(--red); background: var(--raised); box-shadow: inset 0 0 0 1px var(--red); }
 #push.active { color: var(--accent); background: var(--accent-bg); }
 /* Keep the conversation scrollable while status and call controls stay visible. */
-#voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); }
+#voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 #voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
 #voice-models { min-height: 0; overflow-y: auto; }
 #voice-status { padding: 4px 0 12px; color: var(--muted); font-size: 12px; }
