@@ -245,6 +245,7 @@ function emptyMessage(query) {
   return EMPTY_MESSAGE[filter] || EMPTY_MESSAGE.all;
 }
 function renderList() {
+  show("clear-search", !!$("search").value);
   const query = $("search").value.trim().toLowerCase();
   const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
   const sessions = [...new Set(subset.map((p) => p.session))];
@@ -884,7 +885,7 @@ $("attach").onpointerdown = () => { if (active) draft().saveCaret(); };
 $("attach").onclick = () => { fileTarget = active; $("image-file").click(); };
 $("image-file").onchange = () => { if (active === fileTarget && !sending) draft().attach($("image-file").files[0]); $("image-file").value = ""; };
 
-for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui": "monitor", "new-window": "plus", "search-icon": "search", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui": "monitor", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -931,6 +932,7 @@ html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>
 $("dashboard-tab").onclick = () => navigate(null, "dashboard");
 $("back").onclick = () => navigate();
 $("search").oninput = renderList;
+$("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
 $("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
 function applyTheme(light) {

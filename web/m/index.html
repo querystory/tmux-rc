@@ -51,7 +51,7 @@
     <p id="notice" role="status" hidden></p>
     <section id="sessions" aria-label="Sessions">
       <div class="list-heading"><h1>Sessions</h1><select id="sort" aria-label="Sort panes"><option value="updated">Last updated</option><option value="session">Session order</option></select><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
-      <label class="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"></label>
+      <div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div>
       <div id="pane-list"></div>
       <p id="empty" class="empty" role="status">Loading sessions...</p>
     </section>
