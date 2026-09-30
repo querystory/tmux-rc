@@ -187,6 +187,7 @@ _DEFAULT_LAUNCHERS = [
     {"label": "Codex", "command": "codex", "icon": "codex"},
     {"label": "OpenCode", "command": "opencode", "icon": "opencode"},
     {"label": "Gemini", "command": "gemini", "icon": "gemini"},
+    {"label": "Shell", "command": "bash", "icon": "shell"},
 ]
 
 
