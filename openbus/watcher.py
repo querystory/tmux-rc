@@ -44,6 +44,9 @@ SNAPSHOT_HISTORY = 200
 # unwritten before we assume that server is gone.
 CHECKPOINT_EVENTS = 100
 CHECKPOINT_TTL = 30 * 86400
+# Bump when classification or the fingerprint changes meaning: stored cards then miss
+# their hash once and every pane is re-read, instead of restoring an older parser's card.
+CARD_VERSION = 1
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -526,6 +529,9 @@ class Watcher:
             panes = [p] if p else []
         else:
             panes = tmux.dedupe_grouped(tmux.list_panes())
+        if history_server and self._checkpoints is None:
+            self._load_checkpoints(history_server, None if self.target else panes)
+        self._server = history_server
         if not panes:
             self._collection_failed = False
             if not self.target:
@@ -549,9 +555,6 @@ class Watcher:
                 self._forget(p.id)  # recycled id: emits pane_removed for the old occupant
             self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
             self._birth[p.id] = p.pid
-        if history_server and self._checkpoints is None:
-            self._load_checkpoints(history_server, None if self.target else panes)
-        self._server = history_server
         # Publish identity BEFORE the slow work whenever a pane the phone has never seen
         # is in this inventory — at startup (every pane is new) and equally when a window
         # is opened mid-session (#176 generalized). Discovery is cheap; making a brand-new
@@ -988,7 +991,7 @@ class Watcher:
         try:
             self._checkpoints = self.history.load_checkpoints()
             if panes is not None:
-                alive = {pane_key(server, p.id, self._birth.get(p.id)) for p in panes}
+                alive = {pane_key(server, p.id, p.pid) for p in panes}
                 gone = [u for u, r in self._checkpoints.items()
                         if r["server"] == server and u not in alive]
                 self.history.prune_checkpoints(gone, server, time.time() - CHECKPOINT_TTL)
@@ -1009,7 +1012,8 @@ class Watcher:
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._state_key[pid] = (state.get("activity"), self._question_prompt(state))
-            self._state_since[pid] = min(state.get("state_since") or now, now)
+            self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
+                                         now)
             if state.get("summary"):
                 self._summary[pid] = state["summary"]
             self._prs[pid] = list(state.get("prs") or [])
@@ -1089,8 +1093,11 @@ class Watcher:
         # one); snapshot_text() strips the markers at the phone-facing boundary.
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
-        # Hashed: cheap to hold per pane, and the same value the checkpoint stores.
-        fp = hashlib.sha256(_fingerprint(text).encode()).hexdigest()
+        # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
+        # parser version and LLM mode are mixed in so a stored card from a different
+        # classifier misses on restart and is re-read.
+        fp = hashlib.sha256(
+            f"{CARD_VERSION}:{self.use_llm}\n{_fingerprint(text)}".encode()).hexdigest()
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
         row = None if pane.id in self._seen_fp else self._restore(pane, fp, now)
@@ -1144,6 +1151,7 @@ class Watcher:
             cached["state_since"] = self._state_since_for(pane.id, cached, now, idle_seed)
             cached["updated_at"] = now
             cached["last_activity_at"] = last_activity
+            cached["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # a restore's is stale
             # Names/numbers/focus change while the screen sits still (see
             # _stamp_identity) — refresh even when nothing re-parses, or a titleless
             # pane keeps a stale spoken name and focus reads stale.
@@ -1361,8 +1369,7 @@ class Watcher:
         # The pane's display name, window number as shown in tmux's status bar, and
         # per-session focus — see _stamp_identity.
         _stamp_identity(state, pane)
-        hist = self.snapshots.get(pane.id, [])
-        state["snapshot_id"] = hist[-1]["id"] if hist else None
+        state["snapshot_id"] = self.snapshots[pane.id][-1]["id"]  # recorded on first sight
         state["idle_seconds"] = idle
         # When this pane entered its current activity/question state — the client ticks
         # `now - state_since` live so idle/waiting durations stay honest between parses.

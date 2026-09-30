@@ -111,8 +111,8 @@ bootstrap summary or idle summary lands, which is still only a handful a minute.
 
 This reverses the earlier rejection below of persisting pane state. The
 concern there was size and terminal text. The stored card is the parser's output plus
-a capped log tail, not the snapshot ring. Parser changes are covered by the hash: a
-card is restored only for a screen whose normalized text is byte-identical.
+a capped log tail, not the snapshot ring. A card is restored only for a screen whose
+normalized text is byte-identical, under the same card version (see below).
 
 ### Fingerprint the visible screen, not the scrollback window
 
@@ -191,10 +191,12 @@ fingerprint already does. Rejected.
 some panes and not others, and it breaks when a pane is resized. The pane's own
 height is the natural boundary. Rejected in favor of the visible screen.
 
-**Versioning the fingerprint hash.** A deploy that changes the fingerprint's
-normalization makes every stored hash mismatch once, so that one restart falls back
-to today's behavior. That's rare, self-healing, and never wrong in a harmful
-direction, so a version column isn't worth it. Rejected.
+**Leaving the fingerprint hash unversioned.** For clocks alone this was enough: a
+deploy that changes normalization mismatches every hash once, which is self-healing.
+Restoring cards changes that. A card from an older parser, or from a daemon running
+without the LLM, would come back on an unchanged screen indefinitely. So the hash
+mixes in a card version, bumped when classification changes meaning, and the LLM
+mode. A bump costs one full re-read, the same as a restart used to.
 
 ## Failure modes
 

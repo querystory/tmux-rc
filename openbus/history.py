@@ -257,7 +257,7 @@ class History:
 
     def save_checkpoints(self, rows: list[dict], now: float | None = None) -> bool:
         """Upsert pane checkpoints. A fingerprint the row already holds keeps its
-        earliest time, so a second daemon re-seeing the same screen cannot move it."""
+        earliest times, so a second daemon re-seeing the same screen cannot move them."""
         now = time.time() if now is None else now
         if self._failed and now - self._failed < HEARTBEAT: return False
         try:
@@ -268,7 +268,10 @@ class History:
                     "ON CONFLICT(uid) DO UPDATE SET last_activity_at=CASE WHEN fp=excluded.fp "
                     "THEN min(last_activity_at, excluded.last_activity_at) "
                     "ELSE excluded.last_activity_at END, fp=excluded.fp, "
-                    "idle_since=excluded.idle_since, card=excluded.card, "
+                    "idle_since=CASE WHEN fp=excluded.fp AND idle_since IS NOT NULL "
+                    "AND excluded.idle_since IS NOT NULL "
+                    "THEN min(idle_since, excluded.idle_since) ELSE excluded.idle_since END, "
+                    "card=excluded.card, "
                     "updated=excluded.updated",
                     [{**r, "updated": now, "card": r["card"] and json.dumps(r["card"], default=str)}
                      for r in rows],

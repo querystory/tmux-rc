@@ -14,11 +14,11 @@ SCREEN = f"old scrollback\n{W.tmux.VISIBLE_SCREEN}\n› done, tests pass"
 
 
 def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity="9000",
-           history=None):
+           history=None, listed=True):
     pane = W.tmux.Pane("work", "0", "agent", "0", "%1", "node", "Task", pid=pid,
                        window_activity=activity)
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
-    monkeypatch.setattr(W.tmux, "list_panes", lambda: [pane])
+    monkeypatch.setattr(W.tmux, "list_panes", lambda: [pane] if listed else [])
     monkeypatch.setattr(W.tmux, "active_pane_id", lambda: "%1")
     monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "boot:1")
     monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: screen)
@@ -64,6 +64,7 @@ def test_unchanged_screen_restores_clocks_and_card_without_llm(monkeypatch, tmp_
     w, calls = daemon(monkeypatch, db, screen=screen, now=20_000.0, activity="19000")
     assert calls == [], "an unchanged screen must not cost an LLM call"
     assert card(w) == before
+    assert w.snapshot_text("%1", w.states[0]["snapshot_id"]) is not None
     assert [e["text"] for e in w.events_log["%1"]] == ["found the race", "ran the suite"]
     # Unchanged ticks write nothing.
     saves = []
@@ -129,3 +130,22 @@ def test_migrates_old_schema_and_refuses_newer(tmp_path):
     assert h.load_checkpoints() == {}
     with pytest.raises(ValueError, match="newer"):
         History(path)
+
+
+def test_empty_listing_prunes_this_servers_rows(monkeypatch, tmp_path):
+    db = tmp_path / "h.db"
+    daemon(monkeypatch, db)
+    daemon(monkeypatch, db, listed=False)
+    assert History(db).load_checkpoints() == {}
+
+
+def test_same_screen_keeps_earliest_clocks_across_daemons(tmp_path):
+    h = History(tmp_path / "h.db")
+    row = {"uid": "s:%1:5", "server": "s", "fp": "x", "card": None}
+    h.save_checkpoints([{**row, "last_activity_at": 100.0, "idle_since": 150.0}])
+    h.save_checkpoints([{**row, "last_activity_at": 200.0, "idle_since": 250.0}])
+    stored = h.load_checkpoints()["s:%1:5"]
+    assert (stored["last_activity_at"], stored["idle_since"]) == (100.0, 150.0)
+    h.save_checkpoints([{**row, "fp": "y", "last_activity_at": 300.0, "idle_since": None}])
+    stored = h.load_checkpoints()["s:%1:5"]
+    assert (stored["last_activity_at"], stored["idle_since"]) == (300.0, None)
