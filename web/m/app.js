@@ -754,6 +754,7 @@ async function pollState(signal) {
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
+      $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
@@ -884,8 +885,12 @@ for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running
 }
 // The keys worth a thumb on a phone. This row SHARES most of the full UI's key bar but
 // is not a copy of it, and diffing the two lists for parity will mislead you: Tab and
-// S-Left are here and not there, and Ctrl-B — a literal prefix byte, for nested tmux —
-// is there and not here. Each row earns its own entries.
+// S-Left are here and not there. Each row earns its own entries.
+//
+// Ctrl-B is a LITERAL C-b, distinct from Prefix (which sends whatever tmux reports as its
+// prefix — C-a on some hosts). Nested tmux and Claude Code's "ctrl+b to run in background"
+// need the real byte. Like the full UI's #bar-ctrl-b it starts hidden and the state poll
+// reveals it unless the prefix IS C-b, where it would just duplicate Prefix.
 //
 // Ctrl-D and Ctrl-O were missing here at first: this list was written fresh rather than
 // ported, so the two keys you need when a pane has dropped to a bare shell — EOF to
@@ -901,13 +906,16 @@ for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running
 // PgUp/PgDn scroll agent TUIs and pagers a screen at a time; they use tmux's canonical
 // names (PPage/NPage, what list-keys prints) and sit beside the arrows they extend.
 //
+// Ctrl-X then Ctrl-S is Claude Code's "send now" chord for flushing queued messages.
+//
 // Fourth slot is the SPOKEN name, defaulting to the visible label. Only a button labelled
 // with a glyph or an abbreviation needs one: a screen reader handed "⇧←" announces two arrow characters,
 // or nothing at all — useless for the very key you opened the row to press. The icon
 // buttons (Up/Down) already carry words, so they need nothing extra.
-for (const [label, key, name, aria = label] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["PgUp", "PPage", null, "Page Up"], ["PgDn", "NPage", null, "Page Down"], ["\u21e7\u2190", "S-Left", null, "Shift+Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Prefix", "prefix"]]) {
+for (const [label, key, name, aria = label] of [["Esc", "Escape"], ["Tab", "Tab"], ["Up", "Up", "up"], ["Down", "Down", "down"], ["PgUp", "PPage", null, "Page Up"], ["PgDn", "NPage", null, "Page Down"], ["\u21e7\u2190", "S-Left", null, "Shift+Left"], ["Enter", "Enter"], ["Ctrl-C", "C-c"], ["Ctrl-D", "C-d"], ["Ctrl-O", "C-o"], ["Ctrl-X", "C-x"], ["Ctrl-S", "C-s"], ["Ctrl-B", "C-b"], ["Prefix", "prefix"]]) {
   const button = document.createElement("button"); button.title = aria; button.setAttribute("aria-label", aria);
   if (name) html(button, licon(name, 18)); else text(button, label);
+  if (key === "C-b") { button.id = "ctrl-b"; button.hidden = true; }
   button.onclick = () => sendKeys({ keys: key === "prefix" ? prefix : key, enter: false, literal: false });
   $("keys").append(button);
 }
