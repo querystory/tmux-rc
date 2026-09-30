@@ -80,6 +80,94 @@ def grouped(panes: list[dict]) -> tuple[list[int], list[dict]]:
     return counts, list(groups.values())
 
 
+def pane_key(server: str, pane_id: str, birth: str | None) -> str:
+    """A pane identity that survives daemon restarts. The birth (pane pid) makes a
+    recycled tmux pane id a different pane, so it never inherits the old one's rows."""
+    return f"{server}:{pane_id}:{'unknown' if birth is None else birth}"
+
+
+def _extend(db, now: float, payload_id: int) -> None:
+    last = db.execute(
+        "SELECT t, last_seen, payload_id FROM snapshot_intervals ORDER BY t DESC LIMIT 1",
+    ).fetchone()
+    if last and last[2] == payload_id and last[1] <= now <= last[1] + COVERAGE:
+        db.execute("UPDATE snapshot_intervals SET last_seen=? WHERE t=?", (now, last[0]))
+    else:
+        db.execute("INSERT OR REPLACE INTO snapshot_intervals VALUES (?, ?, ?)",
+                   (now, now, payload_id))
+
+
+# Schema migrations, indexed by PRAGMA user_version. Databases from before versioning
+# report 0 but may already have any of the first four applied, so those steps must stay
+# idempotent. Append new steps; never edit or reorder a released one.
+def _create_base(db) -> None:
+    for sql in (
+        "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        ("CREATE TABLE IF NOT EXISTS inventory_payloads ("
+         "id INTEGER PRIMARY KEY, panes TEXT NOT NULL UNIQUE)"),
+        ("CREATE TABLE IF NOT EXISTS snapshot_intervals ("
+         "t REAL PRIMARY KEY, last_seen REAL NOT NULL, "
+         "payload_id INTEGER NOT NULL REFERENCES inventory_payloads(id))"),
+        ("CREATE TABLE IF NOT EXISTS log_observations ("
+         "t REAL NOT NULL, uid TEXT NOT NULL, tool TEXT NOT NULL, "
+         "state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 5), valid_until REAL, "
+         "PRIMARY KEY(t, uid))"),
+    ):
+        db.execute(sql)
+
+
+def _add_valid_until(db) -> None:
+    # Legacy imports lack proof of a pane lifetime. Retain them on disk, but
+    # exclude them from charts until a verified re-import supplies bounds.
+    columns = {r[1] for r in db.execute("PRAGMA table_info(log_observations)")}
+    if "valid_until" not in columns:
+        db.execute("ALTER TABLE log_observations ADD COLUMN valid_until REAL")
+
+
+def _widen_states(db) -> None:
+    # Expand the legacy constraint without rewriting or reinterpreting observations.
+    schema = db.execute(
+        "SELECT sql FROM sqlite_master WHERE name='log_observations'",
+    ).fetchone()[0]
+    if "BETWEEN 0 AND 3" in schema:
+        db.execute("ALTER TABLE log_observations RENAME TO old_log_observations")
+        _create_base(db)
+        db.execute("INSERT INTO log_observations SELECT * FROM old_log_observations")
+        db.execute("DROP TABLE old_log_observations")
+
+
+def _compress_snapshots(db) -> None:
+    # Losslessly compress old heartbeats, including outages.
+    legacy = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='snapshots' AND type='table'",
+    ).fetchone()
+    if legacy:
+        db.execute("INSERT OR IGNORE INTO inventory_payloads(panes) "
+                   "SELECT DISTINCT panes FROM snapshots")
+        rows = db.execute(
+            "SELECT s.t, p.id FROM snapshots s JOIN inventory_payloads p "
+            "ON p.panes=s.panes ORDER BY s.t",
+        )
+        for now, payload_id in rows:
+            _extend(db, now, payload_id)
+        db.execute("DROP TABLE snapshots")
+    db.execute("CREATE VIEW IF NOT EXISTS snapshots AS SELECT t, last_seen, panes "
+               "FROM snapshot_intervals JOIN inventory_payloads ON payload_id=id")
+
+
+def _add_checkpoints(db) -> None:
+    # Current state, not history: one row per pane, replaced in place. See
+    # docs/design/activity-clock-persistence.md.
+    db.execute("CREATE TABLE pane_checkpoints ("
+               "uid TEXT PRIMARY KEY, server TEXT NOT NULL, fp TEXT NOT NULL, "
+               "last_activity_at REAL NOT NULL, idle_since REAL, card TEXT, "
+               "updated REAL NOT NULL)")
+
+
+MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
+              _add_checkpoints)
+
+
 class History:
     def __init__(self, path: Path):
         self.path = path
@@ -101,78 +189,24 @@ class History:
             except FileNotFoundError:
                 pass
         with self.connect() as db:
-            db.execute("PRAGMA journal_mode=WAL")
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS inventory_payloads (
-                    id INTEGER PRIMARY KEY, panes TEXT NOT NULL UNIQUE);
-                CREATE TABLE IF NOT EXISTS snapshot_intervals (
-                    t REAL PRIMARY KEY, last_seen REAL NOT NULL,
-                    payload_id INTEGER NOT NULL REFERENCES inventory_payloads(id));
-                CREATE TABLE IF NOT EXISTS log_observations (
-                    t REAL NOT NULL, uid TEXT NOT NULL, tool TEXT NOT NULL,
-                    state INTEGER NOT NULL CHECK(state BETWEEN 0 AND 5),
-                    valid_until REAL,
-                    PRIMARY KEY(t, uid));
-            """)
-            # Legacy imports lack proof of a pane lifetime. Retain them on disk, but
-            # exclude them from charts until a verified re-import supplies bounds.
-            columns = {r[1] for r in db.execute("PRAGMA table_info(log_observations)")}
-            if "valid_until" not in columns:
-                db.execute("ALTER TABLE log_observations ADD COLUMN valid_until REAL")
-            # Expand the legacy constraint without rewriting or reinterpreting observations.
-            schema = db.execute(
-                "SELECT sql FROM sqlite_master WHERE name='log_observations'",
-            ).fetchone()[0]
-            if "BETWEEN 0 AND 3" in schema:
-                if not db.in_transaction:
-                    db.execute("BEGIN")
-                db.execute("ALTER TABLE log_observations RENAME TO old_log_observations")
-                db.execute("CREATE TABLE log_observations (t REAL NOT NULL, uid TEXT NOT NULL, "
-                           "tool TEXT NOT NULL, state INTEGER NOT NULL "
-                           "CHECK(state BETWEEN 0 AND 5), "
-                           "valid_until REAL, PRIMARY KEY(t, uid))")
-                db.execute("INSERT INTO log_observations SELECT * FROM old_log_observations")
-                db.execute("DROP TABLE old_log_observations")
+            db.execute("PRAGMA journal_mode=WAL")  # not allowed inside a transaction
+            # IMMEDIATE takes the write lock before reading the version, so two daemons
+            # starting together cannot both run the same step.
+            db.execute("BEGIN IMMEDIATE")
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version > len(MIGRATIONS):
+                raise ValueError("History database was written by a newer tmux-rc")
+            for step in MIGRATIONS[version:]:
+                step(db)
+            db.execute(f"PRAGMA user_version={len(MIGRATIONS)}")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('host', ?)", (socket.gethostname(),))
             host = db.execute("SELECT value FROM metadata WHERE key='host'").fetchone()[0]
             if host != socket.gethostname():
                 raise ValueError("History database belongs to another host")
-            self._migrate_snapshots(db)
         path.chmod(0o600)
         self._last = None
         self._written = 0.0
         self._failed = 0.0
-
-    @staticmethod
-    def _extend(db, now: float, payload_id: int) -> None:
-        last = db.execute(
-            "SELECT t, last_seen, payload_id FROM snapshot_intervals ORDER BY t DESC LIMIT 1",
-        ).fetchone()
-        if last and last[2] == payload_id and last[1] <= now <= last[1] + COVERAGE:
-            db.execute("UPDATE snapshot_intervals SET last_seen=? WHERE t=?", (now, last[0]))
-        else:
-            db.execute("INSERT OR REPLACE INTO snapshot_intervals VALUES (?, ?, ?)",
-                       (now, now, payload_id))
-
-    @classmethod
-    def _migrate_snapshots(cls, db) -> None:
-        # Losslessly compress old heartbeats in one transaction, including outages.
-        legacy = db.execute(
-            "SELECT 1 FROM sqlite_master WHERE name='snapshots' AND type='table'",
-        ).fetchone()
-        if legacy:
-            db.execute("INSERT OR IGNORE INTO inventory_payloads(panes) "
-                       "SELECT DISTINCT panes FROM snapshots")
-            rows = db.execute(
-                "SELECT s.t, p.id FROM snapshots s JOIN inventory_payloads p "
-                "ON p.panes=s.panes ORDER BY s.t",
-            )
-            for now, payload_id in rows:
-                cls._extend(db, now, payload_id)
-            db.execute("DROP TABLE snapshots")
-        db.execute("CREATE VIEW IF NOT EXISTS snapshots AS SELECT t, last_seen, panes "
-                   "FROM snapshot_intervals JOIN inventory_payloads ON payload_id=id")
 
     @contextmanager
     def connect(self):
@@ -190,7 +224,7 @@ class History:
         now = time.time() if now is None else now
         births = births or {}
         panes = sorted(({
-            "uid": f"{server}:{p['pane_id']}:{births.get(p['pane_id'], 'unknown')}",
+            "uid": pane_key(server, p["pane_id"], births.get(p["pane_id"])),
             "session": p.get("session") or "",
             "tool": p.get("tool") or "other", "state": state_index(p),
             **agent_counts(p),
@@ -206,12 +240,52 @@ class History:
                 payload_id = db.execute(
                     "SELECT id FROM inventory_payloads WHERE panes=?", (payload,),
                 ).fetchone()[0]
-                self._extend(db, now, payload_id)
+                _extend(db, now, payload_id)
         except (OSError, sqlite3.Error):
             self._failed = now
             logger.warning("Could not persist pane history; retrying in one minute", exc_info=True)
             return
         self._last, self._written, self._failed = payload, now, 0.0
+
+    def load_checkpoints(self) -> dict[str, dict]:
+        """Every pane checkpoint, read once at startup; memory is authoritative after."""
+        with self.connect() as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute("SELECT * FROM pane_checkpoints").fetchall()
+        return {r["uid"]: {**dict(r), "card": r["card"] and json.loads(r["card"])}
+                for r in rows}
+
+    def save_checkpoints(self, rows: list[dict], now: float | None = None) -> bool:
+        """Upsert pane checkpoints. A fingerprint the row already holds keeps its
+        earliest time, so a second daemon re-seeing the same screen cannot move it."""
+        now = time.time() if now is None else now
+        if self._failed and now - self._failed < HEARTBEAT: return False
+        try:
+            with self.connect() as db:
+                db.executemany(
+                    "INSERT INTO pane_checkpoints VALUES (:uid, :server, :fp, "
+                    ":last_activity_at, :idle_since, :card, :updated) "
+                    "ON CONFLICT(uid) DO UPDATE SET last_activity_at=CASE WHEN fp=excluded.fp "
+                    "THEN min(last_activity_at, excluded.last_activity_at) "
+                    "ELSE excluded.last_activity_at END, fp=excluded.fp, "
+                    "idle_since=excluded.idle_since, card=excluded.card, "
+                    "updated=excluded.updated",
+                    [{**r, "updated": now, "card": r["card"] and json.dumps(r["card"], default=str)}
+                     for r in rows],
+                )
+        except (OSError, sqlite3.Error):
+            self._failed = now
+            logger.warning("Could not checkpoint panes; retrying in one minute", exc_info=True)
+            return False
+        self._failed = 0.0
+        return True
+
+    def prune_checkpoints(self, gone: list[str], server: str, before: float) -> None:
+        """Drop the named rows, and other tmux servers' rows untouched since `before`."""
+        with self.connect() as db:
+            db.executemany("DELETE FROM pane_checkpoints WHERE uid=?", [(u,) for u in gone])
+            db.execute("DELETE FROM pane_checkpoints WHERE server!=? AND updated<?",
+                       (server, before))
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

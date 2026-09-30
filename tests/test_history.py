@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from openbus.history import BACKFILL_TTL, History, agent_counts, state_index
+from openbus.history import BACKFILL_TTL, History, _extend, agent_counts, state_index
 from scripts.backfill_history import reconstruct
 
 
@@ -404,7 +404,7 @@ def test_old_history_does_not_invent_worker_counts(tmp_path):
     with h.connect() as db:
         payload = json.dumps([{"uid": "s:%1", "session": "work", "tool": "claude", "state": 1}])
         db.execute("INSERT INTO inventory_payloads(panes) VALUES (?)", (payload,))
-        h._extend(db, 660, db.execute("SELECT id FROM inventory_payloads").fetchone()[0])
+        _extend(db, 660, db.execute("SELECT id FROM inventory_payloads").fetchone()[0])
     sample = h.query(now=660)["samples"][-1]
     assert sample["background"] is None
     assert sample["groups"][0]["foreground"] is None

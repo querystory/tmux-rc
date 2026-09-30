@@ -8,6 +8,7 @@ server and the eventual multi-pane fan-out (Milestone 2) need no change.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import subprocess
@@ -17,6 +18,7 @@ from functools import partial
 
 from . import tmux
 from .classify import _OPENCODE_RUNNING_RE, bootstrap, classify
+from .history import pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
 from .repository import github_repository
@@ -37,6 +39,11 @@ FAST_POLL = 0.1
 # only; each is <=~24KB (200 lines), so 200 of them is ~5MB/pane worst case — memory is
 # cheap and none of this reaches the model, so keep enough to scroll back meaningfully.
 SNAPSHOT_HISTORY = 200
+# Restart checkpoints (docs/design/activity-clock-persistence.md): the tail of the
+# activity log stored with each card, and how long another tmux server's rows linger
+# unwritten before we assume that server is gone.
+CHECKPOINT_EVENTS = 100
+CHECKPOINT_TTL = 30 * 86400
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -144,6 +151,10 @@ _WS_RUN_RE = re.compile(r"[ \t]+")
 def _fingerprint(text: str) -> str:
     """Content signature of a pane, ignoring volatile timer/spinner churn.
 
+    Only the visible screen counts (below tmux.VISIBLE_SCREEN, when marked): rows
+    sliding through the fixed-size scrollback window above it are not activity, and
+    ignoring them keeps a restart's stored hash valid for a screen that sat still.
+
     Rows in the sparkle band (Codex's input line ± _SPARKLE_RADIUS) have their dots
     blanked and their whitespace flattened, so a dot cannot change the signature by
     moving. The band is fixed by the input line's position, not by where dots happen to
@@ -151,6 +162,7 @@ def _fingerprint(text: str) -> str:
     untouched — including single-cell braille, which is real content — because
     collapsing spacing globally would erase the indentation that distinguishes one
     screen from another (a diff, a tree, nested output)."""
+    text = text.rsplit(tmux.VISIBLE_SCREEN, 1)[-1]
     # Share the exact line matcher with classify(): anything decisive enough to force
     # running is normalized here, and nothing else can accidentally become invisible.
     text = _OPENCODE_RUNNING_RE.sub("[opencode-active]", text)
@@ -272,6 +284,11 @@ class Watcher:
         self._prs: dict[str, list[dict]] = {}  # pane_id -> accumulated semantic associations
         self._pr_titles = PRTitles()
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
+        # Restart checkpoints: the preload (uid -> row, None until read), the tmux server
+        # they are keyed under, and pane_id -> what was last written (skip if unchanged).
+        self._checkpoints: dict[str, dict] | None = None
+        self._server: str | None = None
+        self._checkpointed: dict[str, tuple] = {}
         self._boot: dict[
             str, dict
         ] = {}  # pane_id -> bootstrap {summary, name, events, ts, seq}; ts/seq gate refreshes
@@ -532,6 +549,9 @@ class Watcher:
                 self._forget(p.id)  # recycled id: emits pane_removed for the old occupant
             self._pane_event("pane_created", pane_id=p.id, label=p.label, tool=None)
             self._birth[p.id] = p.pid
+        if history_server and self._checkpoints is None:
+            self._load_checkpoints(history_server, None if self.target else panes)
+        self._server = history_server
         # Publish identity BEFORE the slow work whenever a pane the phone has never seen
         # is in this inventory — at startup (every pane is new) and equally when a window
         # is opened mid-session (#176 generalized). Discovery is cheap; making a brand-new
@@ -635,6 +655,7 @@ class Watcher:
         # the UI's dock, list, and swipe direction all key off this array order, and
         # it must match the window numbers the user sees in tmux's own status bar.
         # (Activity grouping is a client concern now; we used to sort waiting-first.)
+        self._checkpoint(states, panes)
         self._collection_failed = not history_complete
         self._publish_states(states, record_history=history_complete and history_server is not None,
                              history_server=history_server)
@@ -882,6 +903,7 @@ class Watcher:
             self._birth,
             self._boot,
             self._boot_tries,
+            self._checkpointed,
             self.events_log,
             self._events_seq,
         )
@@ -957,6 +979,83 @@ class Watcher:
         self._summary[pane_id] = span
         return span
 
+    def _load_checkpoints(self, server: str, panes) -> None:
+        """Read every checkpoint once, at startup. Given the FULL listing (not a
+        TMUXRC_TARGET watch list), also prune: this server's preloaded rows whose pane
+        is gone, and other servers' rows nobody has written for CHECKPOINT_TTL. Any
+        failure leaves the preload empty, which is today's seed-from-tmux behavior."""
+        self._checkpoints = {}
+        try:
+            self._checkpoints = self.history.load_checkpoints()
+            if panes is not None:
+                alive = {pane_key(server, p.id, self._birth.get(p.id)) for p in panes}
+                gone = [u for u, r in self._checkpoints.items()
+                        if r["server"] == server and u not in alive]
+                self.history.prune_checkpoints(gone, server, time.time() - CHECKPOINT_TTL)
+        except Exception:
+            logger.warning("pane checkpoints unavailable; seeding clocks from tmux",
+                           exc_info=True)
+
+    def _restore(self, pane, fp: str, now: float) -> dict | None:
+        """Consume this pane's preloaded checkpoint; return it only if the screen is
+        unchanged. Its card, if any, goes back in as if just parsed and bootstrapped,
+        so an unchanged screen costs no LLM call."""
+        uid = pane_key(self._server, pane.id, self._birth.get(pane.id))
+        row = (self._checkpoints or {}).pop(uid, None)
+        if not row or row["fp"] != fp:
+            return None
+        if card := row["card"]:
+            pid, state = pane.id, card["state"]
+            state.pop("last_activity_at", None)  # the row's column is the source of truth
+            self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
+            self._state_key[pid] = (state.get("activity"), self._question_prompt(state))
+            self._state_since[pid] = min(state.get("state_since") or now, now)
+            if state.get("summary"):
+                self._summary[pid] = state["summary"]
+            self._prs[pid] = list(state.get("prs") or [])
+            self.events_log[pid] = card["events"]
+            self._events_seq[pid] = state.get("events_seq", 0)
+            self._recent_events[pid] = [(e["text"], e["ts"]) for e in card["events"][-30:]]
+            if card["boot"]:
+                self._boot[pid] = {**card["boot"], "events": [], "ts": now,
+                                   "seq": self._events_seq[pid]}
+        return row
+
+    def _checkpoint(self, states: list[dict], panes) -> None:
+        """Write through the panes whose checkpoint would change: a new screen, idle
+        entered or left, or a new parse or summary. Never every tick, and never a
+        startup's "now": the clocks written are the ones the watcher holds."""
+        if self._checkpoints is None or self._server is None:
+            return
+        rows, keys = [], {}
+        for s, p in zip(states, panes, strict=True):
+            fp = self._seen_fp.get(p.id)
+            if fp is None or s is not self._state.get(p.id):
+                continue  # this tick failed for the pane; keep its last checkpoint
+            valid = self._parse_valid.get(p.id, False)
+            idle_since = s.get("state_since") if s.get("activity") == "idle" else None
+            key = (fp, idle_since, valid, s.get("parsed_at"), s.get("events_seq"),
+                   (s.get("summary") or {}).get("text"), s.get("session_summary"),
+                   s.get("bootstrap_title"))
+            if self._checkpointed.get(p.id) == key:
+                continue
+            boot = self._boot.get(p.id)
+            rows.append({
+                "uid": pane_key(self._server, p.id, self._birth.get(p.id)),
+                "server": self._server, "fp": fp, "idle_since": idle_since,
+                "last_activity_at": s["last_activity_at"],
+                # A card from a failed parse describes an older screen: store none, so
+                # a restart re-parses instead of restoring it against this hash.
+                "card": {
+                    "state": s,
+                    "events": self.events_log.get(p.id, [])[-CHECKPOINT_EVENTS:],
+                    "boot": boot and {k: boot.get(k) for k in ("summary", "name", "tool")},
+                } if valid else None,
+            })
+            keys[p.id] = key
+        if rows and self.history.save_checkpoints(rows):
+            self._checkpointed.update(keys)
+
     def _state_since_for(
         self, pane_id: str, state: dict, now: float, activity_ts: float | None = None
     ) -> float:
@@ -990,7 +1089,13 @@ class Watcher:
         # one); snapshot_text() strips the markers at the phone-facing boundary.
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
-        fp = _fingerprint(text)
+        # Hashed: cheap to hold per pane, and the same value the checkpoint stores.
+        fp = hashlib.sha256(_fingerprint(text).encode()).hexdigest()
+        # First sighting since startup (or since a recycled id): resume from the
+        # checkpoint when the screen is unchanged, else seed the clocks from tmux.
+        row = None if pane.id in self._seen_fp else self._restore(pane, fp, now)
+        seed = row["last_activity_at"] if row else _activity_ts(pane)
+        idle_seed = (row and row["idle_since"]) or seed
         # Two different questions, and conflating them is a bug. `moved` = did the SCREEN
         # change since we last looked (drives the snapshot ring, the idle clock and
         # last_activity_at — all of which describe the pane, not our reading of it).
@@ -1009,11 +1114,11 @@ class Watcher:
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")
         if last_activity is None:
-            last_activity = min(_activity_ts(pane) or now, now)
+            last_activity = min(seed or now, now)
         elif moved:
             last_activity = now
         if moved:
-            self._unchanged_since[pane.id] = now
+            self._unchanged_since[pane.id] = last_activity
         idle = int(now - self._unchanged_since.get(pane.id, now))
 
         # Record a snapshot whenever content changed (bounded ring buffer, for timeline).
@@ -1036,7 +1141,7 @@ class Watcher:
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
-            cached["state_since"] = self._state_since_for(pane.id, cached, now, _activity_ts(pane))
+            cached["state_since"] = self._state_since_for(pane.id, cached, now, idle_seed)
             cached["updated_at"] = now
             cached["last_activity_at"] = last_activity
             # Names/numbers/focus change while the screen sits still (see
@@ -1261,7 +1366,7 @@ class Watcher:
         state["idle_seconds"] = idle
         # When this pane entered its current activity/question state — the client ticks
         # `now - state_since` live so idle/waiting durations stay honest between parses.
-        state["state_since"] = self._state_since_for(pane.id, state, now, _activity_ts(pane))
+        state["state_since"] = self._state_since_for(pane.id, state, now, idle_seed)
         state["updated_at"] = now
         state["last_activity_at"] = last_activity
         # parsed_at advances ONLY on a real LLM parse (this path), unlike updated_at

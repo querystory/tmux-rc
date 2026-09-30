@@ -1,6 +1,7 @@
 # Activity Clocks That Survive a Restart
 
-Status: proposed, not yet implemented.
+Status: implemented, extended from the two clocks to the whole card (see "Restoring
+the card" below).
 
 ## Problem
 
@@ -92,6 +93,27 @@ still holds in spirit. A hash of a low-entropy screen could in principle be matc
 by guessing, but the file is already private to the user (0600 in a 0700 directory),
 so this adds no meaningful exposure.
 
+### Restoring the card
+
+The clocks were the visible symptom, but a restart also threw away every card. Each
+pane came back as "No recent activity", and the daemon re-paid one LLM parse plus one
+scrollback deep read per pane (around forty of each) just to redraw screens that had
+not changed. So the same row also carries the card: the last successful parse, the
+tail of the activity log, and the bootstrap's summary and name.
+
+On a hash match the card goes back into memory as though it had just been parsed and
+bootstrapped, so the unchanged screen costs no LLM call and the summary refresh waits
+its normal cadence. On a mismatch nothing is restored and the pane is read as today.
+A card is only stored alongside the hash it was parsed from. After a failed parse the
+watcher shows the previous card over a newer screen, so that row stores the clocks but
+no card, and a restart re-reads the screen. Writes also happen when a new parse,
+bootstrap summary or idle summary lands, which is still only a handful a minute.
+
+This reverses the earlier rejection below of persisting pane state. The
+concern there was size and terminal text. The stored card is the parser's output plus
+a capped log tail, not the snapshot ring. Parser changes are covered by the hash: a
+card is restored only for a screen whose normalized text is byte-identical.
+
 ### Fingerprint the visible screen, not the scrollback window
 
 The fingerprint should cover only the pane's visible rows. Everything that decides
@@ -125,8 +147,10 @@ a no-op, and they converge.
 After the first successful listing of every pane on the tmux server, we delete the
 preloaded rows for that server whose panes are not in it. Limiting the delete to the
 preload means a row another daemon inserted meanwhile can't be pruned. Preloaded rows
-from other tmux servers go once that server is provably gone: a different boot id, or
-a server pid that is no longer running. The listing must be the full one, not the
+from other tmux servers go once nobody has written them for 30 days. Proving a
+server gone (a different boot id, a dead pid) would be exact, but only the watching
+daemon can see a live server's panes change, and a month of silence is a simpler test
+that errs toward keeping rows. The listing must be the full one, not the
 watch list, which `TMUXRC_TARGET` narrows to one pane. If tmux can't be listed,
 nothing is pruned. Expiring rows by age instead would drop a long-idle live pane back
 to `window_activity`, which the footer redraws above keep fresh: the very bug this
@@ -148,11 +172,10 @@ space by writing a new payload only when the fleet's structure changes. A
 per-pane timestamp would make almost every tick a new payload and defeat that. The
 checkpoint is current state, not history, so it gets its own table. Rejected.
 
-**Persisting the whole in-memory pane state, or the snapshot ring.** That would
-restore more than the clocks: cached parses, events, summaries. But it's far more
-data, it stores terminal text, and it changes what a restart means, including cache
-invalidation of parses made by an older parser. Much more than this bug needs.
-Rejected. It may be worth its own design later.
+**Persisting the whole in-memory pane state, or the snapshot ring.** Originally
+rejected as more than the clock bug needed. The card half is now done (see "Restoring
+the card"); the snapshot ring and the parser's per-pane bookkeeping stay in memory,
+since they are raw terminal text and a restart rebuilds them within a tick.
 
 **Seeding unknown panes as "oldest" instead of `window_activity`.** Needs no storage.
 But a pane that really was active just before a deploy would drop out of Recent after

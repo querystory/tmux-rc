@@ -8,8 +8,13 @@ fleet therefore has an explicit observation. Browser visits do not affect collec
 The database defaults to `$XDG_STATE_HOME/tmux-rc/history.sqlite3` (normally
 `~/.local/state/tmux-rc/history.sqlite3`); `TMUXRC_HISTORY_DB` overrides it. Keep it
 outside checkouts, in a private directory (mode `0700`); shared override directories
-are rejected rather than chmodded. The database and WAL/SHM sidecars use `0600`. It is local to one host, contains no terminal text or summaries,
-and uses WAL with short transactions. All history is retained; copy the database
+are rejected rather than chmodded. The database and WAL/SHM sidecars use `0600`. It is local to one host and uses WAL with short transactions.
+The history tables hold no terminal text or summaries; the separate per-pane restart
+checkpoint does hold each card's parsed summary and activity-log tail, so a restart can
+redraw cards without re-reading every pane (see
+[activity-clock-persistence.md](activity-clock-persistence.md)). The schema is versioned
+with `PRAGMA user_version`; a daemon refuses a database written by a newer one rather
+than guessing at it. All history is retained; copy the database
 using SQLite's backup API, or stop its writer before copying the database and WAL.
 Identical inventories share one immutable JSON payload. Consecutive heartbeats extend
 one observation interval rather than inserting a full inventory every minute. State
