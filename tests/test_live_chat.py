@@ -242,6 +242,7 @@ def test_still_quiet_after_acting_shows_no_placeholder(monkeypatch):
     s = _Fake([("", [("type_in_pane", {"pane_id": "%1", "text": "go"})]), ("", []), ("", [])])
     frames, _, typed = _turn(s, "tell it to go", monkeypatch, ok=True)
     assert typed and _said(frames) == [] and not s.script  # asked once, not again
+    assert s.history[-1] == ("model", C._DONE, [])  # the next turn doesn't answer _OUTCOME
     assert frames[-1]["type"] == "turn_complete"
 
 

@@ -241,9 +241,10 @@ def test_live_ws_refuses_unoffered_label(monkeypatch):
         assert "reload" in _refused(c, f"/api/live-mode?model={label}").reason
 
 
-def test_nothing_offered_hides_live_and_names_the_cause(monkeypatch):
-    """Flag on but every entry key-gated and keyless: the button must not appear, and a
-    probe is told it is a credential problem — "reload the page" would be a lie here."""
+def test_nothing_offered_greys_every_row_and_names_the_cause(monkeypatch):
+    """Flag on but every entry key-gated and keyless: the button still appears, so the
+    greyed rows can say which key each needs, and a probe is told it is a credential
+    problem — "reload the page" would be a lie here."""
     monkeypatch.setenv("TMUXRC_LIVE_MODE", "1")
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(TABLE[1:]))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -251,6 +252,6 @@ def test_nothing_offered_hides_live_and_names_the_cause(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")  # and text's default Flash on the project
     c = TestClient(server.app)
     v = c.get("/api/version").json()
-    assert v["live_enabled"] is False
+    assert v["live_enabled"] is True
     assert all(m.get("unavailable") for m in v["live_models"])
     assert "key" in _refused(c, "/api/live-mode").reason

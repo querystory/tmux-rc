@@ -445,8 +445,9 @@ def get_version():
     (see app.js). Cheap to recompute per call — the web dir is tiny. Also reports
     server feature flags the client gates UI on (live_enabled → shows the mic button;
     live_models → the labels the model picker offers, shown only when there are ≥2).
-    live_enabled is false when nothing is offered (every entry key-gated, no key set) even
-    with the flag on, so the client never shows a button the socket would only refuse."""
+    live_enabled is false when the table is empty even with the flag on. An all-keyless
+    table still shows the button: its picker is every row greyed with the key it needs,
+    which is the one place the user can learn why nothing runs."""
     h = hashlib.md5()
     for p in sorted(WEB_DIR.rglob("*")):
         if p.is_file():
@@ -461,7 +462,7 @@ def get_version():
                for m in live.offered()]
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
-    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered),
+    return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered or keyless),
             "live_models": offered + keyless}
 
 

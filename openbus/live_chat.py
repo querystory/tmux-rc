@@ -41,6 +41,7 @@ _EMPTY = "(No response from the model; try again.)"
 # stays quiet the turn shows nothing more: the approved card and the typed row already say
 # what happened, and a placeholder under them reads as a failure.
 _OUTCOME = "(Tell the user the outcome in one sentence.)"
+_DONE = "(Done.)"  # closes a turn that stayed quiet; never shown
 # Typed turns kept in the conversation. Every request resends all of it, so an unbounded
 # session costs more per turn and eventually overflows the context window. Whole turns are
 # dropped from the front, which keeps every tool call next to its result.
@@ -103,13 +104,13 @@ class _Chat:
                     break
                 self._usage = [a + b for a, b in zip(self._usage, usage, strict=True)]
                 yield Event("usage", usage=Split(*self._usage))
-                if not (reply or calls) and acted and not asked:
-                    asked = True
-                    self._user(_OUTCOME)
-                    continue
-                if not (reply or calls or acted):
-                    reply = _EMPTY
-                    self._model(_EMPTY)
+                if not (reply or calls):
+                    if acted and not asked:
+                        asked = True
+                        self._user(_OUTCOME)
+                        continue
+                    self._model(_DONE if acted else _EMPTY)  # closed, like a failed turn
+                    reply = "" if acted else _EMPTY
                 if reply:
                     yield Event("transcript", role="model", text=sep + reply)
                     sep = " "

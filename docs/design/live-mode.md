@@ -430,7 +430,8 @@ under Voice, and the socket refuses the other mode's model. Chat entries live in
 none of them gets Gemini 3 Flash and Claude Sonnet 5.5 appended, so a table written for
 voice never leaves Text empty. A keyless entry is listed greyed with the credential it
 needs, as launchers are, instead of vanishing: the user configured it and should see why it
-can't run. We considered keeping the realtime models as a Text option and rejected it; a
+can't run. For the same reason the Live button stays visible when every entry is keyless;
+hiding it would leave no place to read those reasons. We considered keeping the realtime models as a Text option and rejected it; a
 choice nobody should make is clutter.
 
 **Pane-changing tools wait for a tap.** When the assistant answered a typed "What's going
