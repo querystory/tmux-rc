@@ -59,6 +59,8 @@ So we split the fields by how the UI uses them:
 **Structured fields — exact match (strict).** These drive the badge and behavior, so
 strictness is correct:
 - `tool`, `activity`, `waiting_on` — compared by value.
+- `parse_ok`, `model` — opt-in checks for accepted classifications and model preservation.
+  An omitted `parse_ok` means success, matching the watcher.
 - `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
   background count and the sorted multiset of worker states (including duplicates).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
