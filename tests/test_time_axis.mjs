@@ -64,5 +64,6 @@ test("labels adapt to the unit and the span", () => {
   assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 24 * HOUR), "Wed 30");
   assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 90 * 24 * HOUR), "Sep 30");
   assert.equal(timeLabel(Date.parse("2026-10-01T00:00:00-07:00"), "month", 90 * 24 * HOUR), "Oct");
+  assert.equal(timeLabel(Date.parse("2026-10-01T00:00:00-07:00"), "month", 24 * HOUR), "Oct 1");
   assert.equal(timeLabel(Date.parse("2027-01-01T00:00:00-08:00"), "year", 400 * 24 * HOUR), "2027");
 });

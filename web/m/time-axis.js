@@ -29,11 +29,10 @@ export function timeAxis(chart, width, labelStyle) {
 // Times only, with the date appearing just on the tick where the day turns over. The
 // meridiem rides on whole hours; the ticks between them stay short ("2:15", "2:15:30").
 export function timeLabel(t, unit, span) {
-  const date = new Date(t);
   if (CLOCK_UNITS.has(unit)) return new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit',
-    second: unit === 'minute' ? undefined : '2-digit' }).formatToParts(date).filter(part => part.type !== 'dayPeriod').map(part => part.value).join('').trim();
+    second: unit === 'minute' ? undefined : '2-digit' }).formatToParts(t).filter(part => part.type !== 'dayPeriod').map(part => part.value).join('').trim();
   if (unit === 'hour') return format(t, { hour: 'numeric' });
-  if (span <= TWO_WEEKS) return `${format(t, { weekday: 'short' })} ${date.getDate()}`;
-  if (unit === 'day') return format(t, { month: 'short', day: 'numeric' });
+  if (span <= TWO_WEEKS && unit === 'day') return `${format(t, { weekday: 'short' })} ${format(t, { day: 'numeric' })}`;
+  if (span <= TWO_WEEKS || unit === 'day') return format(t, { month: 'short', day: 'numeric' });
   return format(t, unit === 'year' ? { year: 'numeric' } : { month: 'short' });
 }
