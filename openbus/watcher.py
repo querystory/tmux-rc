@@ -1025,6 +1025,7 @@ class Watcher:
             pid, state = pane.id, card["state"]
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
+            self._checkpointed[pid] = None  # see _checkpoint
             self._state_key[pid] = (state.get("activity"), self._question_prompt(state))
             self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
                                          now)
@@ -1055,7 +1056,10 @@ class Watcher:
             key = (fp, idle_since, valid, s.get("parsed_at"), s.get("events_seq"),
                    (s.get("summary") or {}).get("text"), s.get("session_summary"),
                    s.get("bootstrap_title"))
-            if self._checkpointed.get(p.id) == key:
+            held = self._checkpointed.get(p.id, ())
+            if held is None:  # restored this tick: the row already holds this card
+                self._checkpointed[p.id] = key
+            if held is None or held == key:
                 continue
             boot = self._boot.get(p.id)
             rows.append({
@@ -1283,10 +1287,10 @@ class Watcher:
         self._last_dropped[pane.id] = dropped_texts
         state["events"] = new_events  # dups also don't reach the UI activity feed
         # Per-pane activity-log cache (what /api/panes/{id}/events serves): the phone's
-        # feed no longer starts from zero on page reload. IN-MEMORY, not persisted —
-        # tmux is the state; a daemon restart drops this and bootstrap reconstructs an
-        # approximation from scrollback. Same category as the snapshot ring buffer.
-        # See docs/design/activity-log.md.
+        # feed no longer starts from zero on page reload. Memory is authoritative; its
+        # tail rides the restart checkpoint, restored only for an unchanged screen, and
+        # otherwise bootstrap reconstructs an approximation from scrollback. See
+        # docs/design/activity-log.md.
         if new_events:
             _append_events(self.events_log.setdefault(pane.id, []), new_events, now)
             # Monotonic append counter, NOT len(log): the log is capped, so once it's

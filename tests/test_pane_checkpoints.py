@@ -62,14 +62,15 @@ def test_unchanged_screen_restores_clocks_and_card_without_llm(monkeypatch, tmp_
     assert before["session_summary"] == "Hunting a flaky test"
     # Restart later: tmux saw a footer redraw, and scrollback slid above the screen.
     screen = SCREEN.replace("old scrollback", "newer scrollback")
-    w, calls = daemon(monkeypatch, db, screen=screen, now=20_000.0, activity="19000")
+    history, saves = History(db), []
+    monkeypatch.setattr(history, "save_checkpoints", lambda rows, now=None: saves.append(rows))
+    w, calls = daemon(monkeypatch, db, screen=screen, now=20_000.0, activity="19000",
+                      history=history)
     assert calls == [], "an unchanged screen must not cost an LLM call"
     assert card(w) == before
     assert w.snapshot_text("%1", w.states[0]["snapshot_id"]) is not None
     assert [e["text"] for e in w.events_log["%1"]] == ["found the race", "ran the suite"]
-    # Unchanged ticks write nothing.
-    saves = []
-    monkeypatch.setattr(w.history, "save_checkpoints", lambda rows, now=None: saves.append(rows))
+    # Neither the restore nor later unchanged ticks rewrite the row.
     w._tick()
     assert saves == [] and calls == []
 
