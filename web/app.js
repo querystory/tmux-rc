@@ -4117,7 +4117,10 @@ function lmAdd(role, text, newSegment = false, extra = {}) {
   const last = lmLog[lmLog.length - 1];
   if (!newSegment && grow && last && last.role === role && !last.done) last.text += text;
   else lmLog.push({ role, text, done: !grow, ...extra });
-  while (lmLog.length > 8) lmLog.shift();
+  // Oldest first, but never a proposal still waiting on the user: the daemon would wait
+  // forever for a Send/Cancel that is no longer on screen.
+  for (let i; lmLog.length > 8 && (i = lmLog.findIndex((e) => e.role !== "propose" || lmFinal(e))) >= 0;)
+    lmLog.splice(i, 1);
   lmPaint();
 }
 
@@ -4339,7 +4342,8 @@ function lmSheet(open) {
   const close = row("Close", "", false, "close");
   close.onclick = () => lmSheet(false);
   lm.sheet.firstElementChild.replaceChildren(head, ...rows, close);
-  rows[Math.max(0, menu.findIndex((m) => m.label === cur))]?.focus(); // land on the remembered choice
+  // Land on the remembered choice, or Close when Text has no model to offer.
+  (rows[Math.max(0, menu.findIndex((m) => m.label === cur))] || close).focus();
 }
 if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
 if (lm.sheet) lm.sheet.onkeydown = (e) => {

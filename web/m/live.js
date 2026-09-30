@@ -86,7 +86,9 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       row.append(heading, document.createElement("span")); log.append(row);
     }
     row.lastChild.textContent += message || "";
-    while (log.children.length > TRANSCRIPT_ROWS) log.firstChild.remove();
+    // Oldest first, but never a proposal still waiting on the user: the daemon would wait
+    // forever for a Send/Cancel that is no longer on screen.
+    for (let old; log.children.length > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => !r.querySelector(".voice-actions")));) old.remove();
     if (follow) log.scrollTop = log.scrollHeight;
   }
   // A pane-changing action in a text session waits for the user: Send runs it, Cancel
