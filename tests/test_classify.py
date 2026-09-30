@@ -851,6 +851,8 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
         "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
     # A boxed or indented prompt row with text counts as typed, and a model question
     # from the finished turn is answered once the user types after it.
+    empty_box = decision.replace("\n❯\n", "\n│ ❯                │\n")
+    assert classify(_pane("claude"), empty_box, _llm({}))["question"]["answer_style"] == "text"
     for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
         answered = decision.replace("\n❯\n", f"\n{row}\n")
         ask = "should I start it in the background"
