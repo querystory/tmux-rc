@@ -13,11 +13,13 @@ from fastapi.testclient import TestClient
 import openbus.server as S
 import openbus.tmux as T
 
+DEFAULT_LABELS = [e["label"] for e in S._DEFAULT_LAUNCHERS]
+
 
 def test_default_launchers(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     labels = [e["label"] for e in S._launchers()]
-    assert labels == ["Claude", "Codex", "OpenCode", "Gemini"]
+    assert labels == ["Claude", "Codex", "OpenCode", "Gemini", "Shell"]
 
 
 def test_launchers_inline_json_override(monkeypatch):
@@ -44,9 +46,9 @@ def test_launchers_file_override(monkeypatch, tmp_path):
 
 def test_launchers_bad_config_falls_back(monkeypatch):
     monkeypatch.setenv("TMUXRC_LAUNCHERS", "not json at all")
-    assert [e["label"] for e in S._launchers()] == ["Claude", "Codex", "OpenCode", "Gemini"]
+    assert [e["label"] for e in S._launchers()] == DEFAULT_LABELS
     monkeypatch.setenv("TMUXRC_LAUNCHERS", "[]")  # valid JSON, no valid entries
-    assert [e["label"] for e in S._launchers()] == ["Claude", "Codex", "OpenCode", "Gemini"]
+    assert [e["label"] for e in S._launchers()] == DEFAULT_LABELS
 
 
 def test_one_malformed_launcher_falls_the_whole_list_back(monkeypatch):
@@ -60,7 +62,7 @@ def test_one_malformed_launcher_falls_the_whole_list_back(monkeypatch):
         {"label": "Good", "command": "claude"},
         {"label": "Broken"},  # no command
     ]))
-    assert [e["label"] for e in S._launchers()] == ["Claude", "Codex", "OpenCode", "Gemini"]
+    assert [e["label"] for e in S._launchers()] == DEFAULT_LABELS
 
 
 def _fake_pane(session="work"):
@@ -195,14 +197,14 @@ def test_new_window_allows_a_command_when_tmux_cannot_say(monkeypatch):
 
 
 def test_launchers_endpoint_reads_the_tmux_path_once(monkeypatch):
-    """Four entries, one tmux call: it is the same answer for all of them, and this
+    """Several entries, one tmux call: it is the same answer for all of them, and this
     endpoint is now re-read every time a menu opens."""
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     monkeypatch.setattr(S.shutil, "which", lambda c, path=None: c)
     calls = []
     monkeypatch.setattr(T, "server_path", lambda: (calls.append(1), "/opt/bin")[1])
     client = TestClient(S.app)
-    assert len(client.get("/api/launchers").json()["launchers"]) == 4
+    assert len(client.get("/api/launchers").json()["launchers"]) == len(DEFAULT_LABELS)
     assert len(calls) == 1
 
 
