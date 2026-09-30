@@ -191,6 +191,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
 #voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
 #voice-models { min-height: 0; overflow-y: auto; }
+#voice-models button:disabled { opacity: .5; }
 #voice-status { padding: 4px 0 12px; color: var(--muted); font-size: 12px; }
 #voice-status:empty, #voice-log:empty { display: none; }
 #voice-log { display: flex; flex-direction: column; gap: 12px; min-height: 0; max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; padding: 12px 2px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }

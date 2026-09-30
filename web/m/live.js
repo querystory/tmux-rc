@@ -78,9 +78,9 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   }
   const saved = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
   const chatModels = () => menu.filter((model) => model.text && !model.unavailable);
-  // The voice picker, and the options of Chat's model switcher.
+  // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {
-    const models = menu, last = saved("tmuxrc-live-model");
+    const models = menu.filter((model) => !model.text), last = saved("tmuxrc-live-model");
     const signature = JSON.stringify([models, last]);
     if (signature === modelSignature) return;
     modelSignature = signature;
@@ -93,6 +93,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
       title.textContent = model.label; hint.textContent = [model.hint, (model.value ?? model.label) === last ? "Last used" : ""].filter(Boolean).join(" / ");
       label.append(title, hint); button.append(image, label);
       button.insertAdjacentHTML("beforeend", mic);
+      button.disabled = !!model.unavailable;
       button.onclick = () => { $("voice-model").value = model.value ?? model.label; start(); };
       return button;
     }));

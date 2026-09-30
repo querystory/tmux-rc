@@ -34,7 +34,7 @@ LABEL = "GPT-Live 1"
 # model that does not bill that way.
 ENTRY = live_providers.LiveModel(
     label=LABEL, model=MODEL, backend="openai",
-    flags={"hint": "OpenAI · $0.05/min + backend", "text": False},
+    flags={"hint": "OpenAI · $0.05/min + backend"},
 )
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"

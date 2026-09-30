@@ -37,13 +37,20 @@ _NEEDS = {
     "gemini-api": ("GEMINI_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "azure-openai": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
+    "vertex-chat": ("GOOGLE_CLOUD_PROJECT",),
+    "anthropic": ("ANTHROPIC_API_KEY",),
 }
 _BACKEND_NAME = {
     "vertex": "Vertex",
     "gemini-api": "AI Studio",
     "openai": "OpenAI",
     "azure-openai": "Azure",
+    "vertex-chat": "Vertex",
+    "anthropic": "Anthropic",
 }
+# Request/response chat models (live_chat.py): they answer typed turns and nothing else,
+# while every other backend is a voice session.
+_CHAT = {"vertex-chat", "anthropic"}
 
 
 class Split(NamedTuple):
@@ -89,32 +96,35 @@ class LiveModel:
     @property
     def hint(self) -> str:
         """The picker's one-line 'what am I choosing': where it runs and what talking costs
-        (audio rates dominate; text is noise by comparison). Rendered here so the client
+        (audio rates for a voice model, text rates for a chat one). Rendered here so the client
         stays a dumb list and the backend vocabulary has one home. An entry may state its
         own (`hint` in flags) when its price is not a per-1M-token card at all — GPT-Live
         bills voice BY THE MINUTE, so a rate card would be a fiction dressed as a number."""
         own = self.flags.get("hint")
         if isinstance(own, str) and own:
             return own
-        return f"{_BACKEND_NAME[self.backend]} · ${self.rates[2]:g}/${self.rates[3]:g} per 1M audio"
-
-    @property
-    def text_hint(self) -> str:
-        """The picker line for a text session, which bills at the text rates, not audio."""
-        return f"{_BACKEND_NAME[self.backend]} · ${self.rates[0]:g}/${self.rates[1]:g} per 1M text"
+        kind, i = ("text", 0) if self.text else ("audio", 2)  # a chat model bills text only
+        price = f"${self.rates[i]:g}/${self.rates[i + 1]:g}"
+        return f"{_BACKEND_NAME[self.backend]} · {price} per 1M {kind}"
 
     @property
     def text(self) -> bool:
-        """Whether it can answer in text, and so be offered for a text session. Realtime
-        can; Gemini Live's native-audio models refuse TEXT output outright (setup fails
-        with 1007), and transcribed speech is not a text reply. An entry may opt out."""
-        return self.backend in ("openai", "azure-openai") and self.flags.get("text") is not False
+        """Whether it is a chat model, offered for text sessions only. The voice models
+        stay out of Text: the ones that can reply in text at all are small realtime
+        models, and a typed request deserves a real chat model."""
+        return self.backend in _CHAT
+
+    @property
+    def unavailable(self) -> str | None:
+        """Why it can't be offered — the credentials it still needs — or None."""
+        missing = [v for v in self.needs if not os.environ.get(v)]
+        return f"No credentials: set {', '.join(missing)}" if missing else None
 
     def available(self) -> bool:
         """Offered only when its credential is present. A keyless entry stays in the
-        table — so the picker appears the moment the key lands, no config edit — but is
-        never offered, and live.pick refuses it if a stale client names it anyway."""
-        return all(os.environ.get(v) for v in self.needs)
+        table — so the picker shows it, greyed with the reason, and it goes live the
+        moment the key lands, no config edit — but live.pick refuses it."""
+        return not self.unavailable
 
 
 def _coerce(e: dict) -> LiveModel:
@@ -160,13 +170,24 @@ _DEFAULT = [
 ]
 
 
+# Text mode's models, used whenever the table names no chat entry of its own: a table
+# written for voice (every one before chat entries existed) must not leave Text empty.
+# Listing any chat entry replaces these. Rates: list prices, Sep 2026.
+_CHAT_DEFAULT = [
+    LiveModel("Gemini 3 Flash", "gemini-3-flash-preview", "vertex-chat",
+              Split(0.50, 3.00, 0, 0, 0.05, 0)),
+    LiveModel("Claude Sonnet 5.5", "claude-sonnet-5-5", "anthropic",
+              Split(2.00, 10.00, 0, 0, 0.20, 0)),
+]
+
+
 def models() -> list[LiveModel]:
     """The configured table. Re-read per call (cheap) so it tracks env like enabled()."""
     table = json_list("TMUXRC_LIVE_MODELS", _DEFAULT, _coerce)
     if len({m.label for m in table}) != len(table):
         logger.warning("TMUXRC_LIVE_MODELS has duplicate labels; using defaults")
-        return _DEFAULT
-    return table
+        table = _DEFAULT
+    return table if any(m.text for m in table) else table + _CHAT_DEFAULT
 
 
 def available() -> list[LiveModel]:
@@ -321,17 +342,20 @@ class Unreachable(RuntimeError):  # noqa: N818
     hides the message: the user fixes config, and needs to see which."""
 
 
-def connect(model: LiveModel, system_prompt: str, *, text: bool = False):
+def connect(model: LiveModel, system_prompt: str):
     """Open one connection to `model`: an async context manager yielding a session that
     speaks the protocol. Takes the system prompt per connect so a RECONNECT gets a fresh
-    pane snapshot — the connect snapshot is the only place full screens are sent. `text`
-    asks for a written reply instead of a spoken one where the model can give one."""
+    pane snapshot — the connect snapshot is the only place full screens are sent."""
+    if model.text:
+        from . import live_chat  # noqa: PLC0415 - it imports this module's protocol types
+
+        return live_chat.open_session(model, system_prompt)
     opener = (
         _OpenAISession.open
         if model.backend in ("openai", "azure-openai")
         else _GeminiSession.open
     )
-    return opener(model, system_prompt, text)
+    return opener(model, system_prompt)
 
 
 class _GeminiSession:
@@ -343,7 +367,7 @@ class _GeminiSession:
 
     @staticmethod
     @contextlib.asynccontextmanager
-    async def open(model: LiveModel, system_prompt: str, text: bool):  # noqa: ARG004 - never True
+    async def open(model: LiveModel, system_prompt: str):
         # ~0.9s to import, and only the Gemini backends ever need it — a table with no
         # Gemini entry must not pay for it at daemon start.
         from google import genai  # noqa: PLC0415
@@ -366,8 +390,6 @@ class _GeminiSession:
                 project=project,
                 location=os.environ.get("TMUXRC_LIVE_REGION", "us-central1"),
             )
-        # Always AUDIO: no Gemini entry has text output (LiveModel.text), so live.py never
-        # opens a text session here.
         cfg = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             tools=[
@@ -551,7 +573,7 @@ class _OpenAISession:
 
     @staticmethod
     @contextlib.asynccontextmanager
-    async def open(model: LiveModel, system_prompt: str, text: bool):
+    async def open(model: LiveModel, system_prompt: str):
         # Deferred for symmetry with the genai import above: only the OpenAI backends
         # speak a raw WebSocket, so the Gemini-only case never loads it.
         import websockets  # noqa: PLC0415
@@ -572,7 +594,7 @@ class _OpenAISession:
                             "instructions": system_prompt,
                             "tools": [{"type": "function", **t} for t in tools()],
                             "tool_choice": "auto",
-                            "output_modalities": ["text" if text else "audio"],
+                            "output_modalities": ["audio"],
                             "audio": {
                                 "input": {
                                     "format": {"type": "audio/pcm", "rate": 24000},
@@ -692,7 +714,7 @@ class _OpenAISession:
             t = ev.get("type", "")
             if t == "response.output_audio.delta":
                 yield Event("audio", data=base64.b64decode(ev["delta"]))
-            elif t in ("response.output_audio_transcript.delta", "response.output_text.delta"):
+            elif t == "response.output_audio_transcript.delta":
                 yield Event("transcript", role="model", text=ev["delta"])
             elif t == "conversation.item.input_audio_transcription.completed":
                 yield Event("transcript", role="user", text=ev.get("transcript") or "")
