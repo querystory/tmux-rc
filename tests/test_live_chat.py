@@ -271,3 +271,28 @@ def test_old_turns_are_dropped_whole_from_the_front(monkeypatch):
     users = [h[1] for h in s.history if h[0] == "user"]
     assert users == [f"t{i}" for i in range(3, C.TURNS_KEPT + 3)]
     assert s.history[0] == ("user", "t3") and len(s.history) == 4 * C.TURNS_KEPT
+
+
+class _Client:
+    """The browser end of _forward_client: hands over scripted frames, then stop."""
+
+    def __init__(self, *frames):
+        self.frames, self.sent = [*frames, {"action": "stop"}], []
+
+    async def receive_json(self):
+        return self.frames.pop(0)
+
+    async def send_json(self, obj):
+        self.sent.append(obj)
+
+
+def test_a_turn_past_the_queue_is_refused_not_held():
+    """Turns wait behind a slow answer only up to TURNS_QUEUED; the next is refused (and
+    flagged, so the client drops its thumbnails) instead of piling images up in memory."""
+    s = _Fake([])
+    frames = [{"action": "text", "text": f"t{i}"} for i in range(C.TURNS_QUEUED + 1)]
+    ws = _Client(*frames)
+    asyncio.run(L._forward_client(ws, s, L._Meter("s", "a", _FLASH, text=True)))
+    assert s._inbox.qsize() == C.TURNS_QUEUED
+    assert ws.sent[-1] == {"type": "error", "refused": True,
+                           "message": "Still answering earlier turns; not sent"}

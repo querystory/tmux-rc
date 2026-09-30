@@ -798,9 +798,14 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
             if refusal:
                 await websocket.send_json({"type": "error", "message": refusal, "refused": True})
             elif text or images:
+                try:  # handed over first: a chat session with a full queue refuses the turn
+                    await (session.send_text(text, images) if images else session.send_text(text))
+                except asyncio.QueueFull:
+                    busy = "Still answering earlier turns; not sent"
+                    await websocket.send_json({"type": "error", "refused": True, "message": busy})
+                    continue
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
-                await (session.send_text(text, images) if images else session.send_text(text))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
             answer = meter.approvals.get(str(data.get("id")))
             if answer and not answer.done():

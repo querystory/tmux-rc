@@ -47,6 +47,10 @@ _DONE = "(Done.)"  # closes a turn that stayed quiet; never shown
 # session costs more per turn and eventually overflows the context window. Whole turns are
 # dropped from the front, which keeps every tool call next to its result.
 TURNS_KEPT = 20
+# Typed turns that may wait behind the one being answered. Each can hold images, so an
+# unbounded queue would let a client pile them up while a slow request runs; past this the
+# turn is refused (asyncio.QueueFull, which live._forward_client reports) rather than held.
+TURNS_QUEUED = 4
 
 
 class _Chat:
@@ -55,7 +59,7 @@ class _Chat:
 
     def __init__(self, model: LiveModel, system: str) -> None:
         self.model, self.system, self.history = model, system, []
-        self._inbox: Queue[str] = Queue()
+        self._inbox: Queue[tuple] = Queue(maxsize=TURNS_QUEUED)
         self._context: deque[str] = deque(maxlen=CONTEXT_KEPT)
         self._answers: list[tuple[ToolCall, dict]] = []
         self._usage = [0] * len(Split._fields)

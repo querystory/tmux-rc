@@ -56,12 +56,12 @@ export function chatComposer(form, { licon, send, error, session }) {
     const owner = session(); // the conversation this draft was written in
     let images = [];
     if (files.length) {
-      sending = true; composer.editor.contentEditable = "false";
+      sending = attach.disabled = true; composer.editor.contentEditable = "false";
       // One at a time: a 20 MB phone photo decodes to far more than that, so decoding
       // several at once can take a phone tab down before any is downscaled.
       try { for (const file of files) images.push(await imagePart(file)); }
       catch { return error("Could not read that image; not sent"); }
-      finally { sending = false; composer.editor.contentEditable = "true"; }
+      finally { sending = attach.disabled = false; composer.editor.contentEditable = "true"; }
     }
     const frame = { action: "text", text, images: images.map(({ mime, data }) => ({ mime, data })) };
     // A model switch (a new session) during the transcode keeps the draft unsent: it was
