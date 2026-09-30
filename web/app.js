@@ -51,7 +51,7 @@ import { paneLinks } from "/pr-links.js";
 // Anything else assigning innerHTML or replaceChildren from an apply*/render path is a bug.
 // ══════════════════════════════════════════════════════════════════════════════
 import { renderCaptureLines, linkifyText } from "./terminal.js";
-import { pickCursorRow } from "./cursor-pick.js";
+import { answerBody, pickCursorRow } from "./cursor-pick.js";
 import { sendPresence, stateUrl } from "./push.js";
 import { liveClose } from "./live-close.js";
 
@@ -3689,7 +3689,7 @@ function applyQuestion(ui, s, card) {
   setCls(ui.spin, "on", spinning);
   // Drop any "type something"/"Other" pseudo-option — the bottom bar covers free-text.
   // Each survivor carries its index in question.options, NOT its position in this list:
-  // both keyFor's digit and the cursor walk's row identity are indices into that array,
+  // both answerBody's digit and the cursor walk's row identity are indices into that array,
   // so a dropped pseudo-option ahead of a real row would shift every index after it —
   // sending the wrong digit to a menu, and costing the cursor walk the tapped-row identity
   // it uses to tell two same-titled sessions apart. (/m has always kept the source index;
@@ -3711,7 +3711,7 @@ function applyQuestion(ui, s, card) {
       setActive(paneId);
       // A cursor list can't be answered with one keystroke — it needs a verified walk.
       if (cur.question.answer_style === "cursor") pickCursorRow(cursorIO(paneId), b._optText, i);
-      else answer(cur, keyFor(cur.question, b._optText, i));
+      else send(cur, answerBody(cur.question, b._optText, i));
     };
     return b;
   }, (b, { text, index }) => {
@@ -3725,24 +3725,6 @@ function applyQuestion(ui, s, card) {
 }
 
 const _FREETEXT_OPT = /^(type\b|other\b|something else|let me|custom|free.?text|write )/i;
-
-// Decide what keystroke represents the chosen option. y/n prompts want a letter;
-// numbered menus want the number; otherwise send the literal option text.
-// What to send when an option is tapped, per answer_style:
-//   "menu"   — a real on-screen widget: options map to keystrokes (digit / y|n letter).
-//   "cursor" — a highlighted list you arrow through: NOT keyFor's business, it needs
-//              several keystrokes and a re-read between them (see pickCursorRow).
-//   "text"   — a natural-language question (default): TYPE the option's text as a reply.
-// Getting this wrong is what made tapping option 4 type a stray "4" into a prose
-// question instead of answering it — so default to text unless it's truly a menu.
-function keyFor(question, opt, i) {
-  if (question.answer_style === "menu") {
-    const lc = opt.toLowerCase();
-    if (question.options.length === 2 && (lc === "yes" || lc === "no")) return lc[0];
-    if (question.options.length > 2) return String(i + 1);
-  }
-  return opt; // text style (default): send the option's literal text
-}
 
 // The cursor walk is shared with the phone (web/cursor-pick.js); everything below is
 // just this surface's plumbing plugged into it. The pane is guaranteed present inside the
@@ -3761,12 +3743,6 @@ function cursorIO(paneId) {
     sendText: (t) => send(panesById[paneId], { keys: t, enter: false, literal: true }),
     note: barNote,
   };
-}
-
-async function answer(s, keys) {
-  // A staged image is composer state, sent only by submitComposer — answering a
-  // question (option tap / free-text) leaves it queued for the user's own send.
-  return send(s, { keys, enter: true, literal: true });
 }
 
 // Send a tmux key-name (Escape/Up/C-c) — not literal text, no appended Enter. Leaves

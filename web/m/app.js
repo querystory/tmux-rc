@@ -3,7 +3,7 @@ import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer } from "/m/composer.js";
-import { pickCursorRow } from "/cursor-pick.js";
+import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
@@ -544,19 +544,12 @@ function render() {
     button.onclick = () => {
       const current = panes.find((p) => p.pane_id === active);
       if (!current?.question || !needsYou(current)) return;
-      let keys = button._option.option;
+      const { option, index } = button._option;
       // A cursor list answers to neither of the other two styles: the row's text and a
-      // digit both land in the picker's search box. It needs a verified walk, shared with
-      // the desktop so this surface can't drift behind it again (web/cursor-pick.js).
-      if (current.question.answer_style === "cursor") {
-        pickCursorRow(cursorIO(active), keys, button._option.index);
-        return;
-      }
-      if (current.question.answer_style === "menu") {
-        if (current.question.options.length === 2 && /^(yes|no)$/i.test(keys)) keys = keys[0].toLowerCase();
-        else if (current.question.options.length > 2) keys = String(button._option.index + 1);
-      }
-      sendKeys({ keys, enter: true, literal: true }, true);
+      // digit both land in the picker's search box. It needs a verified walk; both paths
+      // are shared with the desktop so this surface can't drift behind it again.
+      if (current.question.answer_style === "cursor") pickCursorRow(cursorIO(active), option, index);
+      else sendKeys(answerBody(current.question, option, index), true);
     };
     return button;
   }, (button, option) => { button._option = option; text(button, option.option); button.disabled = sending || !!answered; });
