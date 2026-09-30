@@ -31,7 +31,7 @@ whose own comment called a server-side log "the future feature."
 tmux-rc's spine is *the terminal is the interface* (see [the design overview](overview.md)). Nothing we build
 here may pretend to be a system of record. So two rules bound every option:
 
-1. **No persistence to disk.** State lives in tmux. Anything we hold is a bounded
+1. **No persistence to disk** (since amended; see below). State lives in tmux. Anything we hold is a bounded
    in-memory cache of *observations*, lost on daemon restart, and that loss must
    degrade gracefully — not corrupt, not require recovery, just thin out.
 2. **The recovery path is re-observation, not a saved file.** When the cache is empty
@@ -73,10 +73,12 @@ Worst case ~45KB/pane. No new LLM calls, no disk, no schema.
 the client shrinks (delete the accumulate-and-dedup logic — dedup already happens at
 the source, in the parser's feedback loop).
 
-**What it deliberately does NOT do:** persist across daemon restarts. A restart drops
-every `events_log`; bootstrap then reconstructs an approximation from scrollback on
-first sight of each pane. That is the correct behavior under the tmux-is-state rule —
-the log is a cache, and its miss path is re-observation.
+**Amended by [activity-clock-persistence.md](activity-clock-persistence.md):** the
+log's tail (100 events) is now checkpointed with each card, and restored on restart
+only when the pane's visible screen has the same fingerprint as when it was saved (the
+change-detection signature, which already ignores spinners, timers and status metrics). That keeps the
+tmux-is-state rule in spirit: the checkpoint is validated against tmux, never trusted
+over it. On any mismatch the log is dropped and bootstrap re-observes, as before.
 
 ### Why not the alternatives
 
