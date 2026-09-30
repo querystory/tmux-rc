@@ -75,7 +75,8 @@ the source, in the parser's feedback loop).
 
 **Amended by [activity-clock-persistence.md](activity-clock-persistence.md):** the
 log's tail (100 events) is now checkpointed with each card, and restored on restart
-only when the pane's screen is byte-identical to when it was saved. That keeps the
+only when the pane's visible screen has the same fingerprint as when it was saved (the
+change-detection signature, which already ignores spinners, timers and status metrics). That keeps the
 tmux-is-state rule in spirit: the checkpoint is validated against tmux, never trusted
 over it. On any mismatch the log is dropped and bootstrap re-observes, as before.
 
