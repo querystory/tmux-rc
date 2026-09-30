@@ -23,6 +23,18 @@
 // An adapter may assume the pane still exists inside sendKey/sendText — question() is
 // checked immediately before each of them with no await in between.
 
+// What an option tap sends, for the two styles that take one send ("cursor" walks, above).
+// "text" types the option as a reply, so it needs Enter. A "menu" acts on its shortcut
+// alone — Codex commits on the digit itself — so an appended Enter lands on whatever
+// comes NEXT (model picker → reasoning menu) and confirms that menu's default. Nothing
+// follows the shortcut: a follow-up key can misfire into a live agent just the same, and
+// if the tap changed nothing the card simply stays for the user to act on.
+export function answerBody(q, opt, i) {
+  if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
+  const yn = q.options.length === 2 && /^(yes|no)$/i.test(opt);
+  return { keys: yn ? opt[0].toLowerCase() : String(i + 1), enter: false, literal: true };
+}
+
 // How many moves we will walk before handing over to the widget's own search box. A row
 // thirty rows down is better filtered for than arrowed to, and an anchor that is wrong
 // only gets more wrong the further we walk on it.
