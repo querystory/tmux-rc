@@ -124,6 +124,9 @@ def test_only_realtime_entries_offer_text_output(monkeypatch):
     assert P.LiveModel("Azure", "gpt-realtime", "azure-openai").text
     assert not P.LiveModel("Gemini", "gemini-live-2.5-flash-native-audio").text
     assert not gpt_live.ENTRY.text
+    rated = P._coerce({"label": "GPT", "model": "m", "backend": "openai",
+                       "rates": {"text_in": 4, "text_out": 24}})
+    assert rated.text_hint == "OpenAI · $4/$24 per 1M text"
 
 
 def test_gpt_live_joins_the_menu_on_its_key_alone(monkeypatch):

@@ -99,6 +99,11 @@ class LiveModel:
         return f"{_BACKEND_NAME[self.backend]} · ${self.rates[2]:g}/${self.rates[3]:g} per 1M audio"
 
     @property
+    def text_hint(self) -> str:
+        """The picker line for a text session, which bills at the text rates, not audio."""
+        return f"{_BACKEND_NAME[self.backend]} · ${self.rates[0]:g}/${self.rates[1]:g} per 1M text"
+
+    @property
     def text(self) -> bool:
         """Whether it can answer in text, and so be offered for a text session. Realtime
         can; Gemini Live's native-audio models refuse TEXT output outright (setup fails

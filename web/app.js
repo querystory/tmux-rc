@@ -4337,7 +4337,7 @@ function lmSheet(open) {
   // Text lists only the models that answer in text; audio-only ones would only talk.
   const menu = lmInput === "text" ? lmModels.filter((m) => m.text) : lmModels;
   const rows = menu.map((m) => {
-    const b = row(m.label, m.hint, m.label === cur);
+    const b = row(m.label, lmInput === "text" && m.text_hint || m.hint, m.label === cur);
     b.onclick = () => { lmSheet(false); lmStart(m.label); };
     return b;
   });

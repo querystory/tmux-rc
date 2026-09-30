@@ -65,7 +65,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       const image = document.createElement("img"); image.alt = "";
       image.src = /gemini/i.test(model.label) ? "/gemini.svg" : /gpt|openai/i.test(model.label) ? "/openai.svg" : "/icon.svg";
       const label = document.createElement("span"), title = document.createElement("strong"), hint = document.createElement("small");
-      title.textContent = model.label; hint.textContent = [model.hint, (model.value ?? model.label) === saved ? "Last used" : ""].filter(Boolean).join(" / ");
+      title.textContent = model.label; hint.textContent = [mode === "text" && model.text_hint || model.hint, (model.value ?? model.label) === saved ? "Last used" : ""].filter(Boolean).join(" / ");
       label.append(title, hint); button.append(image, label);
       if (mode === "voice") button.insertAdjacentHTML("beforeend", mic);
       button.onclick = () => { $("voice-model").value = model.value ?? model.label; start(); };
@@ -383,6 +383,6 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     if (run) { resumeAudio(run); keepAwake(run); }
     if (!document.hidden) capabilities();
   });
-  capabilities();
+  paint(); capabilities(); // paint shows the restored Voice/Text choice before any fetch
   return { isActive: () => !!run, refresh: capabilities };
 }
