@@ -52,7 +52,7 @@ _STRUCT_SCALAR = ("tool", "activity", "waiting_on")
 # match — but it is read off agent chrome that most screens don't show, so it is scored
 # only when a sample states an expectation (including an explicit null for "must omit").
 # Silently ignoring it would let a naming regression pass with the expectation in place.
-_STRUCT_OPTIONAL = ("session", "agents")
+_STRUCT_OPTIONAL = ("session", "agents", "model")
 
 
 @dataclass
@@ -160,6 +160,11 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     OPT-IN — scored only on a sample whose `expected` names it, and counted present only
     when the phone could actually draw it (a table object carrying rows)."""
     diffs = []
+    if "parse_ok" in expected:
+        # Match the watcher: absent means the current classification is accepted.
+        accepted = candidate.get("parse_ok", True)
+        if accepted != expected["parse_ok"]:
+            diffs.append(f"parse_ok: got {accepted!r} want {expected['parse_ok']!r}")
     for k in _STRUCT_SCALAR:
         c, e = candidate.get(k), expected.get(k)
         if c != e:

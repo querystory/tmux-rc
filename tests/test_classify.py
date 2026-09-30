@@ -512,13 +512,32 @@ def test_null_session_does_not_trigger_retry():
     assert len(calls) == 1
 
 
-def test_failed_identity_retry_does_not_retire_the_screen():
+def test_failed_identity_retry_preserves_valid_current_state():
     for retry in (None, {}, {"session": "Still another title"}):
-        replies = iter([{"tool": "codex", "session": "Other title"}, retry])
+        replies = iter([{"tool": "codex", "session": "Other title", "activity": "idle",
+                         "headline": "Review complete", "model": "gpt-6-sol"}, retry])
         result = classify(_pane("codex"), "› input\nReview 4955 · gpt-6-sol · ~/src/app",
                           lambda _prompt, _text, replies=replies: next(replies))
         assert "session" not in result
-        assert result["parse_ok"] is False
+        assert result.get("parse_ok") is not False
+        assert result["activity"] == "idle"
+        assert result["headline"] == "Review complete"
+        assert result["model"] == "gpt-6-sol"
+
+
+def test_uuid_footer_does_not_freeze_completed_model_selection():
+    uuid = "01a0e9d1-093d-7c10-84f4-133c9544c971"
+    capture = ("Select Model and Effort\n1. GPT-6-Sol\n2. GPT-6-Astra\n"
+               "\x1e[visible screen]\x1f\nWorked for 8m 32s · 5:16 PM\n"
+               f"› Ask Codex to do anything\n{uuid} · GPT-6.1-Sol medium · ~/src/tmux-rc")
+    result = classify(_pane("codex"), capture, _llm({
+        "tool": "codex", "session": uuid, "activity": "idle", "model": "GPT-6.1-Sol",
+    }))
+    assert "session" not in result
+    assert "question" not in result
+    assert result.get("parse_ok") is not False
+    assert result["activity"] == "idle"
+    assert result["model"] == "GPT-6.1-Sol"
 
 
 def test_shell_drops_scrolled_agent_title_without_retry():
