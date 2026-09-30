@@ -482,9 +482,9 @@ VISIBLE_SCREEN = "\x1e[visible screen]\x1f"
 # suggestion as a real, pending instruction. Glyphs: ❯ (U+276F, Claude Code) and › (Codex),
 # each followed by a space (regular, or the non-breaking space Claude Code uses).
 PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE = "⟪placeholder⟫", "⟪/placeholder⟫"
-_PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
+PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
 _PROMPT_DIM = re.compile(
-    "(?m)^([" + _PROMPT_GLYPHS + r"][ \xa0]?)" + re.escape(DIM_OPEN) + r"(.*?)"
+    "(?m)^([" + PROMPT_GLYPHS + r"][ \xa0]?)" + re.escape(DIM_OPEN) + r"(.*?)"
     + re.escape(DIM_CLOSE)
 )
 

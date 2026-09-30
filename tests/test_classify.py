@@ -788,3 +788,117 @@ def test_copyable_can_quote_inline_code_and_wrapped_box():
         "copyables": [{"text": "git status"}, {"text": "A wrapped message."}],
     }))
     assert [c["text"] for c in result["copyables"]] == ["git status", "A wrapped message."]
+
+
+def _sample(name):
+    import json
+    from pathlib import Path
+    path = Path(__file__).parents[1] / "research/eval/samples" / f"{name}.json"
+    return json.loads(path.read_text(encoding="utf-8"))["capture"]
+
+
+def test_users_own_turn_under_a_live_spinner_is_not_a_question():
+    capture = _sample("54_claude_user_turn_is_not_question")
+    user_turn = "should we do that yet or wait a bit longer?"
+    calls = []
+    def read(_prompt, _text):
+        calls.append(1)
+        return {"tool": "claude", "activity": "waiting", "question": {"prompt": user_turn}}
+    result = classify(_pane("claude"), capture, read)
+    assert len(calls) == 2  # rejected, then re-read once
+    assert "question" not in result and "waiting_on" not in result
+    assert result["activity"] == "running"  # the live spinner is authoritative
+    assert "parse_ok" not in result  # so the watcher accepts it over the stale card
+    # Either signal alone rejects it: the ❯ row, or a live spinner below agent text.
+    agent_text = "\x1e[visible screen]\x1f\n● Push now?\n\n✶ Pushing… (3s · esc to interrupt)"
+    # Claude chrome quoted in another tool's pane says nothing about that tool's question.
+    codex = classify(_pane("codex"), agent_text, _llm({"question": {"prompt": "Push now?"}}))
+    assert codex["question"]["prompt"] == "Push now?"
+    for screen, prompt in ((capture.split("· Befuddling")[0], user_turn),
+                           (agent_text, "Push now?")):
+        result = classify(_pane("claude"), screen, _llm({
+            "tool": "claude", "activity": "idle", "question": {"prompt": prompt}}))
+        assert "question" not in result
+
+
+def test_finished_turn_blocked_on_the_user_is_a_text_wait():
+    cases = {
+        "55_claude_turn_ends_with_user_handoff": "The PRD's local fix is committed",
+        "56_claude_turn_ends_with_decision": "- Live text mode prototype: should I start it",
+        "57_codex_turn_aborted_by_provider_error": "Selected model is at capacity.",
+    }
+    for name, prompt in cases.items():
+        # The model's "running" (background shells/monitors) and "idle" both lose.
+        tool = name.split("_")[1]
+        result = classify(_pane("node"), _sample(name), _llm({"tool": tool, "activity": "running"}))
+        assert result["question"]["prompt"].startswith(prompt)
+        assert result["question"]["answer_style"] == "text"
+        assert result["activity"] == "waiting" and result["waiting_on"] == "user"
+    assert result["question"]["options"] == ["try again"]
+
+
+def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
+    decision = _sample("56_claude_turn_ends_with_decision")
+    error = _sample("57_codex_turn_aborted_by_provider_error")
+    for tool, screen in (
+        ("claude", decision.replace("auto mode on", "accept edits on")),  # an optional offer
+        ("claude", decision.replace("\n❯\n", "\n❯ yes start it\n")),  # already answered
+        ("codex", error.replace("⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫",
+                                "try again")),
+        ("codex", error.replace("■ Selected model is at capacity. Please try a different model.",
+                                "■ Conversation interrupted - tell the model what to do.")),
+    ):
+        result = classify(_pane(tool), screen, _llm({"activity": "idle"}))
+        assert "question" not in result
+    assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
+        "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
+    # A boxed or indented prompt row with text counts as typed, and a model question
+    # from the finished turn is answered once the user types after it.
+    insert = decision.replace("⏵⏵ auto mode on", "-- INSERT -- ⏵⏵ auto mode on")
+    assert classify(_pane("claude"), insert, _llm({}))["question"]["answer_style"] == "text"
+    prose = decision.replace("✻ Worked for 40s", "* Wait for 2s").replace("✻ Cooked", "* Cooked")
+    assert classify(_pane("claude"), prose, _llm({"activity": "running"}))["activity"] == "running"
+    quoted = decision.replace("auto mode on", "accept edits on").replace(
+        "Still open:", "● The footer says ⏵⏵ auto mode on when enabled.\n  Still open:")
+    assert "question" not in classify(_pane("claude"), quoted, _llm({}))
+    newer = decision.replace("\n❯\n", "\n❯ run tests\n\n● Running tests\n")
+    assert classify(_pane("claude"), newer, _llm({"activity": "running"}))["activity"] == "running"
+    empty_box = decision.replace("\n❯\n", "\n│ ❯                │\n")
+    assert classify(_pane("claude"), empty_box, _llm({}))["question"]["answer_style"] == "text"
+    for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
+        answered = decision.replace("\n❯\n", f"\n{row}\n")
+        ask = "should I start it in the background"
+        result = classify(_pane("claude"), answered, _llm({"question": {"prompt": ask}}))
+        assert "question" not in result
+    failed = classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"),
+                      lambda _s, _t: None, prev_activity="running")
+    assert failed["activity"] == "idle" and "parse_ok" not in failed
+
+
+def test_claude_api_error_ending_the_turn_offers_a_retry():
+    screen = ("\x1e[visible screen]\x1f\n● Fixing the parser.\n"
+              "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ~/src/app · Opus 5.5")
+    result = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "idle"}))
+    assert result["question"] == {"prompt": "API Error: 529 overloaded_error",
+                                  "answer_style": "text", "options": ["try again"]}
+    # Deterministic chrome is a read of the screen even when the model call failed.
+    assert classify(_pane("claude"), screen, lambda _s, _t: None)["question"] == result["question"]
+    assert "parse_ok" not in classify(_pane("claude"), screen, lambda _s, _t: None)
+    stale = classify(_pane("claude"), screen, _llm({"question": {"prompt": "Fixing the parser."}}))
+    assert stale["question"]["options"] == ["try again"]  # the error ended the turn after it
+    menu = {"prompt": "Close them?", "answer_style": "menu", "options": ["Yes", "No"]}
+    decision = classify(_pane("claude"), _sample("56_claude_turn_ends_with_decision"),
+                        _llm({"question": menu}))
+    assert decision["question"]["answer_style"] == "text"
+    only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
+                    "⏵⏵ auto mode on")
+    assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
+    bare = classify(_pane("claude"), screen.replace("  ⎿  API Error: 529", "API Error handling"),
+                    _llm({}))
+    assert "question" not in bare  # only the ⎿ result marker is provider-error chrome
+    shell = classify(_pane("bash"), "■ Build failed\nuser@host:~$ ", _llm({"activity": "idle"}))
+    assert "question" not in shell and shell["activity"] == "idle"
+    # Another tool's chrome is output, not this pane's turn.
+    claude = classify(_pane("claude"), "● Ran make\n■ Build failed\n\n❯", _llm({}))
+    codex = classify(_pane("codex"), screen.replace("  ⎿  ", "✻ Worked for 3s\n"), _llm({}))
+    assert "question" not in claude and "question" not in codex
