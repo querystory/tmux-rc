@@ -232,7 +232,7 @@ def _visible(text: str) -> str:
     return strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
 
 
-def _supported_question(question, visible: str) -> bool:
+def _supported_question(question, visible: str, tool) -> bool:
     prompt = question.get("prompt") if isinstance(question, dict) else None
     if not isinstance(prompt, str) or not prompt.strip():
         return False
@@ -244,7 +244,8 @@ def _supported_question(question, visible: str) -> bool:
     return found is not None and not (
         re.match(_PROMPT_ROW, visible[visible.rfind("\n", 0, found.start()) + 1:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
-               for turn in _CLAUDE_TURN_RE.finditer(visible, found.end()))
+               for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
+                            if tool == "claude" else ()))
     )
 
 
@@ -261,7 +262,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     identity = text  # Keep the boundary: only explicit rename events may come from history.
     bad_question = (
         bool(result.get("question")) and VISIBLE_SCREEN in text
-        and not _supported_question(result["question"], visible)
+        and not _supported_question(result["question"], visible, result.get("tool"))
     )
     bad_rewind = (
         bool(result.get("rewind")) and VISIBLE_SCREEN in text
@@ -295,7 +296,8 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["activity"] = "unknown"
             result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
         unsupported_action = (
-            result.get("question") and not _supported_question(result["question"], visible)
+            result.get("question")
+            and not _supported_question(result["question"], visible, result.get("tool"))
         ) or (result.get("rewind") and not _supported_rewind(result["rewind"], visible))
         if unsupported_action:
             for key in state_fields:

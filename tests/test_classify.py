@@ -811,6 +811,9 @@ def test_users_own_turn_under_a_live_spinner_is_not_a_question():
     assert "parse_ok" not in result  # so the watcher accepts it over the stale card
     # Either signal alone rejects it: the ❯ row, or a live spinner below agent text.
     agent_text = "\x1e[visible screen]\x1f\n● Push now?\n\n✶ Pushing… (3s · esc to interrupt)"
+    # Claude chrome quoted in another tool's pane says nothing about that tool's question.
+    codex = classify(_pane("codex"), agent_text, _llm({"question": {"prompt": "Push now?"}}))
+    assert codex["question"]["prompt"] == "Push now?"
     for screen, prompt in ((capture.split("· Befuddling")[0], user_turn),
                            (agent_text, "Push now?")):
         result = classify(_pane("claude"), screen, _llm({
