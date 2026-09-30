@@ -16,6 +16,7 @@ test("a menu tap sends only its shortcut, never Enter", () => {
   assert.deepEqual(answerBody(menu("Retry", "Abort"), "Abort", 1), digit("2"));
   assert.deepEqual(answerBody(menu("Yes", "Abort"), "Yes", 0), digit("1"));
   assert.deepEqual(answerBody(menu("Retry", "No"), "No", 1), digit("2"));
+  assert.deepEqual(answerBody(menu("Yes", null), "Yes", 0), digit("1"));
 });
 
 test("a typed reply keeps its Enter", () => {

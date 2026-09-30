@@ -337,7 +337,8 @@ def option_keys(question: dict, index: int) -> str:
     if style == "cursor":
         raise ValueError("cursor questions must be answered in the app")
     if style == "menu":  # mirrors answerBody in web/cursor-pick.js
-        yes_no = len(options) == 2 and {label.lower() for label in options} == {"yes", "no"}
+        yes_no = (len(options) == 2 and all(isinstance(label, str) for label in options)
+                  and {label.lower() for label in options} == {"yes", "no"})
         number = re.match(r"^\s*(?:[❯›>]\s*)?(\d+)[.):]\s+", option)
         keys = option[0].lower() if yes_no else number[1] if number else str(index + 1)
         if len(keys) != 1:

@@ -192,6 +192,9 @@ def test_option_mapping_matches_card_semantics():
     assert push.option_keys({"answer_style": "menu", "options": ["Retry", "Abort"]}, 1) == "2"
     assert push.option_keys({"answer_style": "menu", "options": ["Yes", "Abort"]}, 0) == "1"
     assert push.option_keys({"answer_style": "menu", "options": ["Retry", "No"]}, 1) == "2"
+    malformed = {"answer_style": "menu", "options": ["Yes", None]}
+    assert push.option_keys(malformed, 0) == "1"
+    assert push.renderable_options(malformed) == [(0, "Yes")]
     question = {"answer_style": "menu", "options": ["0. Dismiss", "1. Retry", "10. Other"]}
     assert push.option_keys(question, 0) == "0"
     assert push.option_keys(question, 1) == "1"
