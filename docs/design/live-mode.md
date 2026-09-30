@@ -484,7 +484,10 @@ stray tap on the backdrop never throws one away.
 **Pasted images.** The composer is the pane composer's own editor (m/composer.js), shared
 through web/live-chat.js by both clients, so paste and the attach button behave the same
 and accept the same types and size (PNG, JPEG, WebP or GIF under 20 MB). The daemon
-enforces those same limits, reusing the pane paste's table, and refuses images in a
+checks the types against the pane paste's table, but its size limit is Chat's own: at most
+four images a turn and 8 MB together. Unlike a pane paste, a chat image is resent with
+every later request while its turn is kept, so the per-turn budget is what bounds a
+session's history. The daemon also refuses images in a
 voice session, whose models cannot see them through this seam. The client re-encodes
 each image as a JPEG no longer than 1568 px on its long edge before sending. A phone
 photo sent whole is several megabytes of base64 per turn, it exceeds Claude's per-image

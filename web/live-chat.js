@@ -19,6 +19,7 @@ async function imagePart(file) {
   const context = canvas.getContext("2d");
   context.fillStyle = "#fff"; context.fillRect(0, 0, canvas.width, canvas.height); // JPEG has no alpha
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close(); // free the decoded photo now, not at the next GC
   const url = canvas.toDataURL("image/jpeg", 0.85);
   return { mime: "image/jpeg", data: url.slice(url.indexOf(",") + 1), url };
 }

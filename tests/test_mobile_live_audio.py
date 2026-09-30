@@ -311,7 +311,7 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
   // A pasted image rides the typed turn as a JPEG part, and its thumbnail lands on the
   // turn's echo; a refused turn consumes its own thumbnails, not the next turn's.
   sandbox.Composer.prototype.segments = () => [{text: 'look '}, {file: {type: 'image/png'}}];
-  sandbox.createImageBitmap = async () => ({width: 3000, height: 1000});
+  sandbox.createImageBitmap = async () => ({width: 3000, height: 1000, close() {}});
   const make = document.createElement;
   document.createElement = (tag) => tag !== 'canvas' ? make(tag) : Object.assign(make(tag), {
     getContext: () => ({fillRect() {}, drawImage() {}}),

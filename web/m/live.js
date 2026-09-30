@@ -72,7 +72,9 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
       const data = await request("/api/version");
       onVersion(data.version);
       if (!run) { menu = data.live_models || [{ label: "Default", value: "" }]; renderModels(); }
-      $("live-mode").hidden = !data.live_enabled && !run;
+      // Each button only with something to start: the mic needs a voice row (a keyless one
+      // still says what to set), Chat a usable chat model.
+      $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
       $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }

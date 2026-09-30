@@ -4090,8 +4090,8 @@ bar.attach.innerHTML = licon("paperclip", 15);
 // model id or backend, same rule as launchers.
 let lmModels = [];
 function applyLiveEnabled(on, models) {
-  if (lm.btn) lm.btn.hidden = !on;
   if (models) lmModels = models;
+  if (lm.btn) lm.btn.hidden = !on || !lmModels.some((m) => !m.text); // voice only now
   if (lm.chat) lm.chat.hidden = !on || !lmModels.some((m) => m.text && !m.unavailable);
 }
 applyLiveEnabled(false);

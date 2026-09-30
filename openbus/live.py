@@ -733,19 +733,22 @@ async def _context_updater(session, watcher) -> None:
 TYPED_TURN_CHARS = 4000
 
 
-# Images a turn may carry. Each is resent with every later request while the turn is kept,
-# and every one is held in memory here first; the composer stops at the same count.
+# Images a turn may carry, and their bytes together. Each is resent with every later request
+# while the turn is kept (live_chat.TURNS_KEPT), so the budget bounds a whole session's
+# history, not just one request. The composer stops at the same count and sends each as a
+# JPEG no longer than 1568 px (a few hundred KB), so a current client never nears the bytes.
 CHAT_IMAGES = 4
-_IMAGE_REFUSED = (f"Images go to a text chat, at most {CHAT_IMAGES} a turn, as PNG, JPEG, WebP "
-                  "or GIF under 20 MB; not sent")
+CHAT_IMAGE_BYTES = 8 * 2**20
+_IMAGE_REFUSED = (f"Images go to a text chat, at most {CHAT_IMAGES} a turn and 8 MB together, as "
+                  "PNG, JPEG, WebP or GIF; not sent")
 
 
 def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
-    """A typed turn's pasted images as (mime, bytes); None refuses the whole turn. The
-    limits are the pane paste's (server.send_image), and only a chat model sees images."""
+    """A typed turn's pasted images as (mime, bytes); None refuses the whole turn. The types
+    are the pane paste's (server.send_image), and only a chat model sees images."""
     if raw is None or raw == []:
         return []
-    from .server import _EXT, IMG_MAX_BYTES  # noqa: PLC0415 - server imports this module
+    from .server import _EXT  # noqa: PLC0415 - server imports this module
 
     if not text_session or not isinstance(raw, list) or len(raw) > CHAT_IMAGES:
         return None
@@ -755,10 +758,10 @@ def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
             mime, data = image["mime"], base64.b64decode(image["data"], validate=True)
         except Exception:  # noqa: BLE001 - any malformed entry refuses the turn
             return None
-        if not isinstance(mime, str) or mime not in _EXT or not data or len(data) > IMG_MAX_BYTES:
+        if not isinstance(mime, str) or mime not in _EXT or not data:
             return None
         out.append((mime, data))
-    return out
+    return out if sum(len(data) for _, data in out) <= CHAT_IMAGE_BYTES else None
 
 
 async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str, **extra) -> None:

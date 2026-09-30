@@ -741,6 +741,7 @@ def test_a_pasted_image_reaches_the_session_with_its_turn():
     ({"mime": ["image/png"], "data": "UE5H"}, True),  # not even a string
     ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True),  # too many
     ({}, True),  # not a list at all
+    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True),  # too big
     ({"mime": "image/png", "data": "UE5H"}, False),  # a voice model cannot see it
 ])
 def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
