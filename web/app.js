@@ -4345,8 +4345,9 @@ function lmSheet(open) {
   const close = row("Close", "", false, "close");
   close.onclick = () => lmSheet(false);
   lm.sheet.firstElementChild.replaceChildren(head, ...rows, close);
-  // Land on the remembered choice, or Close when Text has no model to offer.
-  (rows[Math.max(0, menu.findIndex((m) => m.label === cur))] || close).focus();
+  // Land on the remembered choice, else the first live row, else Close (never a greyed row).
+  const enabled = rows.filter((b) => !b.disabled);
+  (enabled.find((b) => menu[rows.indexOf(b)].label === cur) || enabled[0] || close).focus();
 }
 if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
 if (lm.sheet) lm.sheet.onkeydown = (e) => {

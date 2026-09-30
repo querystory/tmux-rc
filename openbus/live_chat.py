@@ -34,6 +34,9 @@ _FAILED = "(The model call failed; try again.)"
 # a model that keeps calling tools instead of answering is stopped, not paid for forever.
 STEPS = 8
 _STOPPED = f"(Stopped after {STEPS} steps without a reply.)"
+# A request can succeed with nothing in it (a blocked prompt, a refusal with no fallback):
+# the typed turn still gets a visible answer rather than silence.
+_EMPTY = "(The model returned no reply.)"
 
 
 class _Chat:
@@ -81,6 +84,8 @@ class _Chat:
                     break
                 self._usage = [a + b for a, b in zip(self._usage, usage, strict=True)]
                 yield Event("usage", usage=Split(*self._usage))
+                if not (reply or calls):
+                    reply = _EMPTY
                 if reply:
                     yield Event("transcript", role="model", text=reply)
                 if not calls:

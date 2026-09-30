@@ -218,3 +218,8 @@ def test_a_model_that_never_stops_calling_tools_is_stopped(monkeypatch):
     frames, audits, _ = _turn(s, "loop", monkeypatch)
     assert len(audits) == C.STEPS and not s.script
     assert _said(frames) == [C._STOPPED] and frames[-1]["type"] == "turn_complete"
+
+
+def test_an_empty_response_still_answers_the_turn(monkeypatch):
+    frames, _, _ = _turn(_Fake([("", [])]), "hi", monkeypatch)
+    assert _said(frames) == [C._EMPTY]
