@@ -849,6 +849,9 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
         assert "question" not in result
     assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
         "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
+    failed = classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"),
+                      lambda _s, _t: None, prev_activity="running")
+    assert failed["activity"] == "idle" and "parse_ok" not in failed
 
 
 def test_claude_api_error_ending_the_turn_offers_a_retry():

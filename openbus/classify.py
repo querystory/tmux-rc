@@ -534,12 +534,14 @@ def classify(
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
+    # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:
         if turn["live"] and result.get("activity") in (None, "idle", "unknown"):
             result["activity"] = "running"
-            result.pop("parse_ok", None)  # The live spinner is itself a read of the screen.
+            result.pop("parse_ok", None)
         elif not turn["live"] and result.get("activity") == "running":
             result["activity"] = "idle"  # The turn is over; background shells don't count.
+            result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
