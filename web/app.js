@@ -2288,6 +2288,8 @@ function buildCard() {
   // BEFORE the question so they act as context above the options.
   ui.lm = document.createElement("div");
   ui.lm.className = "lm-convo";
+  setAttr(ui.lm, "role", "log"); // announced, so a waiting proposal is heard, not just seen
+  setAttr(ui.lm, "aria-label", "Live conversation");
   ui.lmIn = lmComposer();
   ui.body = buildPaneBody(); // the shared pane body — the same component a list row's drawer uses
   el.append(ui.lm, ui.lmIn, ui.body.root);

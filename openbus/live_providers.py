@@ -541,6 +541,8 @@ class _OpenAISession:
         self._usage = [0] * len(Split._fields)  # per-response usage summed to totals
         self._active = False  # a response is streaming (response.created … done)
         self._pending = False  # a tool result is waiting for the turn to end
+        self._asks = 0  # our response.create requests, numbered so an error can name one
+        self._asked = None  # the request not yet answered by a response.created
 
     @staticmethod
     @contextlib.asynccontextmanager
@@ -668,8 +670,9 @@ class _OpenAISession:
         if self._active:
             self._pending = True
         else:
-            self._active = True
-            await self._send({"type": "response.create"})
+            self._active, self._asks = True, self._asks + 1
+            self._asked = f"tmuxrc-ask-{self._asks}"
+            await self._send({"type": "response.create", "event_id": self._asked})
 
     async def events(self) -> AsyncIterator[Event]:
         async for raw in self._ws:
@@ -691,7 +694,7 @@ class _OpenAISession:
             elif t == "input_audio_buffer.speech_started":
                 yield Event("interrupted")
             elif t == "response.created":
-                self._active = True
+                self._active, self._asked = True, None
             elif t == "response.done":
                 self._active = False
                 self._add_usage((ev.get("response") or {}).get("usage") or {})
@@ -701,12 +704,15 @@ class _OpenAISession:
                     self._pending = False
                     await self._respond()
             elif t == "error":
-                code = (ev.get("error") or {}).get("code")
-                if code == "conversation_already_has_active_response":
+                err = ev.get("error") or {}
+                if err.get("code") == "conversation_already_has_active_response":
                     # Our ask lost to a response the server started itself (voice activity)
                     # before its response.created reached us: wait for that one to finish.
                     self._active = self._pending = True
                     continue
+                if self._asked and err.get("event_id") == self._asked:
+                    # Our ask itself was refused: no response is coming, so don't wait on one.
+                    self._active, self._asked = False, None
                 # Session-fatal errors also close the socket, which ends this loop and
                 # hands the reconnect to live.py; the rest are per-event and just logged.
                 logger.warning("[live] realtime error: %s", ev.get("error"))

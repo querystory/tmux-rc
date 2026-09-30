@@ -144,7 +144,20 @@ def test_a_request_that_lost_to_a_server_response_is_retried_at_its_done():
     busy = {"type": "error", "error": {"code": "conversation_already_has_active_response"}}
     ws = _WS([busy, {"type": "response.done", "response": {}}])
     _run(_drain(P._OpenAISession(ws)))
-    assert ws.sent == [{"type": "response.create"}]
+    assert [m["type"] for m in ws.sent] == ["response.create"]
+
+
+def test_a_refused_request_does_not_leave_the_session_waiting():
+    """If Realtime refuses our response.create outright, no response is coming: the next
+    typed turn must ask again rather than wait for a done that never arrives."""
+    ws = _WS()
+    s = P._OpenAISession(ws)
+    _run(s.send_text("one"))
+    ask = ws.sent[-1]["event_id"]
+    ws.script = [json.dumps({"type": "error", "error": {"code": "x", "event_id": ask}})]
+    _run(_drain(s))
+    _run(s.send_text("two"))
+    assert [m["type"] for m in ws.sent].count("response.create") == 2
 
 
 def test_events_map_to_neutral_kinds_and_usage_accumulates():
@@ -350,7 +363,7 @@ def test_text_session_asks_for_text_and_typed_turn_is_a_user_item(monkeypatch, t
     assert update["session"]["output_modalities"] == ["text" if text else "audio"]
     assert item["item"] == {"type": "message", "role": "user",
                             "content": [{"type": "input_text", "text": "find my session"}]}
-    assert respond == {"type": "response.create"}
+    assert respond["type"] == "response.create"
     assert second["item"]["content"][0]["text"] == "and the other one"  # no second create
     assert [(e.kind, e.role, e.text) for e in events] == [("transcript", "model", "Found it")]
 
