@@ -251,9 +251,19 @@ display it separately, with its own explicit control and access design.
 | Native turn completes while an old picker is still visible | Re-observe; completion does not establish that this visible picker was answered |
 | Adapter unavailable or snapshot stale | Exclude native context and continue the existing terminal path |
 
-In particular, native waiting flags do not bypass `_ground_visible_fields` or the
-question's visible-text checks. The adapter may help the LLM understand a capture,
-but cannot manufacture a currently actionable question that is not on the screen.
+Grounding a question is not sufficient to enforce this boundary today.
+`_ground_visible_fields` checks questions, rewind, and identity, but does not ground
+every model-emitted user-wait state. `classify.py` defaults a non-external `waiting`
+result to `waiting_on: user`, and `push.py` can notify on that state without a question.
+These are existing behaviors, not protections supplied by this proposal.
+
+Therefore the first context-enabled phase must omit native activity/waiting status
+from classifier input; it remains shadow diagnostic evidence only. Supplying it later
+requires a separate, tested guard on the published **user-wait state itself**, before
+waiting-state defaults and notification evaluation. Native evidence alone must never
+make a pane notification-eligible. That guard must also preserve terminal-grounded
+user waits that have no structured question. A prompt instruction or a missing question
+is not an adequate substitute for this implementation gate.
 
 ## Integration points in tmux-rc
 
@@ -375,6 +385,10 @@ Supply identity-bound metadata to the existing semantic pass. Add matching eval 
 and A/B terminal-only versus terminal-plus-context, with repeated runs for noisy cases.
 Test both improvement and resistance to conflicting/stale native evidence. Follow the
 repository's mandatory prompt/classifier eval workflow; minimize prompt changes.
+Initially include identity/configuration metadata only: exclude native activity/waiting
+status and history excerpts describing pending input. Enabling either wait-bearing
+source requires the user-wait grounding guard above and notification regression tests,
+not merely successful question-grounding evals.
 
 ### Phase 3: optional discovery and history
 
@@ -396,6 +410,8 @@ Required adapter tests include:
 - Pane reuse, a changed thread in the same pane, quoted foreign IDs, and ambiguous bindings.
 - Explicit title preference and native metadata belonging to a different conversation.
 - Current menu versus stale native idle; empty prompt versus stale native waiting.
+- Native-influenced `activity: waiting` without a question cannot trigger push; real
+  terminal-grounded user waits without structured questions remain supported.
 - Unchanged poll results causing no parse, activity-clock change, or client wakeup.
 - Metadata change coalescing, stale context expiry, and terminal-only fallback.
 - Oversized previews/items, malicious transcript instructions, and secret-free logging.
