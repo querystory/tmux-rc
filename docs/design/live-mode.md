@@ -390,13 +390,49 @@ the turn back as the user's transcript. The bubble therefore appears only once t
 has the turn, never as an optimistic local copy, and both clients render typing exactly
 like speech.
 
-**Only models that answer in text are offered.** Realtime can reply in text. Gemini Live's
-native-audio models refuse TEXT output outright (setup fails with 1007), and GPT-Live's
-replies are only ever spoken. The first prototype showed both of them anyway, as
-transcribed speech. On the phone that read as hesitant talk ("Hmm… Okay. Hmm."), and
-GPT-Live additionally had to be fed silence to run at all. A transcript is not a text
-reply, so `LiveModel.text` gates the Text list, and the socket refuses a text session on
-any other model.
+**Text runs on chat models, not the voice pipeline.** The first prototype reused the
+realtime seam, which meant the only models that could reply in text at all were GPT
+Realtime 2.1 and its mini, since Gemini Live's native-audio models refuse text output and
+GPT-Live only speaks. Those are small models tuned for latency, and in use they were
+noticeably worse at choosing panes and reading results than an ordinary chat model. A
+typed request has no latency budget that forces that trade, so text sessions now run on
+Gemini Flash (through the classifier's existing Vertex client and credentials) or Claude
+Sonnet. `live_chat.py` implements the same session verbs as the voice adapters over a plain
+request/response tool loop: send the conversation, run any tool calls, append the answers,
+repeat until a reply has none. Because it sits behind the same seam, every call still goes
+through `_handle_tool_call`, so the audit and the consent gate below apply unchanged and
+the browser cannot tell which kind of backend answered.
+
+A few differences follow from the wire. A chat API has no reply-less channel, so pane
+updates are held (the last few, since they supersede each other) and sent in front of the
+next typed turn rather than injected as they happen. A failed request costs only that turn:
+reconnecting, as voice does, would throw away the conversation, which here lives in the
+daemon rather than in a server-side session. A rejected key, missing access or unknown
+model still ends the session with the reason, because no retry fixes config. A turn is
+capped at a handful of model requests, so a model that keeps calling tools instead of
+answering stops rather than spending without bound. A turn that ends that way, or fails, is
+closed in the conversation with the same note the user saw; left open, the next typed turn
+would send the abandoned request (or tool chain) again and the model could act on it. The
+conversation keeps the last twenty turns, dropped whole from the front so every tool call
+keeps its result: each request resends everything, so an unbounded session would cost more
+per turn and eventually overflow the context window.
+
+Flash sometimes answers a tool result with nothing at all, after announcing the action
+before calling the tool. The prompt now says to act first and report after, and a silent
+response after tool activity is asked once for a one-sentence outcome. If it stays silent
+the turn ends without a placeholder, because the approved card and the typed row already
+show what happened and a "no reply" line under them reads as a failure. The placeholder is
+kept for a turn with no tool activity, where it is the only sign the request was heard.
+
+The mode picks the list: chat entries appear only under Text and everything else only
+under Voice, and the socket refuses the other mode's model. Chat entries live in the same
+`TMUXRC_LIVE_MODELS` table (backends `vertex-chat` and `anthropic`). A table that names
+none of them gets Gemini 3 Flash and Claude Sonnet 5.5 appended, so a table written for
+voice never leaves Text empty. A keyless entry is listed greyed with the credential it
+needs, as launchers are, instead of vanishing: the user configured it and should see why it
+can't run. For the same reason the Live button stays visible when every entry is keyless;
+hiding it would leave no place to read those reasons. We considered keeping the realtime models as a Text option and rejected it; a
+choice nobody should make is clutter.
 
 **Pane-changing tools wait for a tap.** When the assistant answered a typed "What's going
 on", it typed a relayed question into a live agent that nobody had asked it to touch. In a
@@ -411,8 +447,9 @@ X into Y" announcement is voice's confirmation.
 
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
-starts. Switching mid-conversation, as the history doc asks, means reacquiring the mic
-(and a session.update on Realtime), so it waits until the prototype has been used. The
+starts. Switching mid-conversation, as the history doc asks, now means moving a
+conversation between a chat model and a voice session, so it waits until the prototype
+has been used. The
 composer also appears in voice sessions, where it is handy for pane names nobody can
 pronounce.
 

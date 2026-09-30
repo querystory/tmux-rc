@@ -322,24 +322,27 @@ def test_openai_backends_gate_on_their_keys(monkeypatch):
     monkeypatch.setenv("TMUXRC_LIVE_MODELS", json.dumps(table))
     for v in ("OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"):
         monkeypatch.delenv(v, raising=False)
-    assert P.available() == []
+    def voice():
+        return [m.label for m in P.available() if not m.text]
+
+    assert voice() == []
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "k")  # key alone is not enough for Azure
-    assert [m.label for m in P.available()] == ["GPT"]
+    assert voice() == ["GPT"]
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "h")
-    assert [m.label for m in P.available()] == ["GPT", "GPT (Azure)"]
+    assert voice() == ["GPT", "GPT (Azure)"]
     # no rates given → 2.5's card, visibly
     assert next(m for m in P.available() if m.label == "GPT").hint == (
         "OpenAI · $3/$12 per 1M audio"
     )
 
 
-@pytest.mark.parametrize("text", [False, True])
-def test_text_session_asks_for_text_and_typed_turn_is_a_user_item(monkeypatch, text):
+def test_typed_turn_is_a_user_item_answered_in_voice(monkeypatch):
+    """The composer in a voice session: a typed turn is a user item and one response."""
     import websockets
 
     monkeypatch.setenv("OPENAI_API_KEY", "k")
-    ws = _WS([{"type": "response.output_text.delta", "delta": "Found it"}])
+    ws = _WS([{"type": "response.output_audio_transcript.delta", "delta": "Found it"}])
 
     class _Open:
         def __init__(self, *a, **k):
@@ -354,14 +357,14 @@ def test_text_session_asks_for_text_and_typed_turn_is_a_user_item(monkeypatch, t
     monkeypatch.setattr(websockets, "connect", _Open)
 
     async def go():
-        async with P.connect(P.LiveModel("GPT", "gpt-realtime", "openai"), "p", text=text) as s:
+        async with P.connect(P.LiveModel("GPT", "gpt-realtime", "openai"), "p") as s:
             await s.send_text("find my session")
             await s.send_text("and the other one")  # before response.created: waits
             return await _drain(s)
 
     events = _run(go())
     update, item, respond, second = ws.sent
-    assert update["session"]["output_modalities"] == ["text" if text else "audio"]
+    assert update["session"]["output_modalities"] == ["audio"]
     assert item["item"] == {"type": "message", "role": "user",
                             "content": [{"type": "input_text", "text": "find my session"}]}
     assert respond["type"] == "response.create"

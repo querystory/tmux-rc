@@ -53,9 +53,9 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
-  // Text lists only the models that answer in text; audio-only ones would only talk.
+  // Text lists the chat models, Voice the voice ones; a keyless entry shows greyed with why.
   function renderModels() {
-    const models = mode === "text" ? menu.filter((model) => model.text) : menu;
+    const models = menu.filter((model) => !!model.text === (mode === "text"));
     let saved; try { saved = localStorage.getItem("tmuxrc-live-model"); } catch {}
     const signature = JSON.stringify([models, saved, mode]);
     if (signature === modelSignature) return;
@@ -65,9 +65,10 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       const image = document.createElement("img"); image.alt = "";
       image.src = /gemini/i.test(model.label) ? "/gemini.svg" : /gpt|openai/i.test(model.label) ? "/openai.svg" : "/icon.svg";
       const label = document.createElement("span"), title = document.createElement("strong"), hint = document.createElement("small");
-      title.textContent = model.label; hint.textContent = [mode === "text" && model.text_hint || model.hint, (model.value ?? model.label) === saved ? "Last used" : ""].filter(Boolean).join(" / ");
+      title.textContent = model.label; hint.textContent = [model.hint, (model.value ?? model.label) === saved ? "Last used" : ""].filter(Boolean).join(" / ");
       label.append(title, hint); button.append(image, label);
       if (mode === "voice") button.insertAdjacentHTML("beforeend", mic);
+      button.disabled = !!model.unavailable;
       button.onclick = () => { $("voice-model").value = model.value ?? model.label; start(); };
       return button;
     }));
