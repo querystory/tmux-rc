@@ -198,6 +198,26 @@ def test_resume_never_starts_a_second_copy(history):
     assert opened == []
 
 
+def test_daemon_held_codex_thread_is_found_by_its_footer(history):
+    # Codex's app-server daemon holds the rollout, so agent-history names no pane; the
+    # client's footer on screen shows the thread id.
+    sessions, opened = history
+    cx = {**LIVE, "harness": "codex", "session_id": "0000aaaa-0000-7000-8000-000000000001",
+          "resume_argv": ["codex", "resume", "0000aaaa-0000-7000-8000-000000000001"],
+          "running": {"pid": 5}}
+    sessions[cx["session_id"]] = cx
+    w = _Watcher()
+    w.snapshots["%1"] = [{"id": "s", "ts": 1.0, "text": "› fix it\n\n  "
+                          + cx["session_id"] + " · gpt-6 medium · ~/src/tmux-rc"}]
+    _, r = _call("resume_session", {"session_id": cx["session_id"]}, w)
+    assert r == {"status": "already_running", "pane_id": "%1", "pane": "work"}
+    # The id elsewhere in a line is not the footer.
+    w.snapshots["%1"] = [{"id": "s", "ts": 1.0, "text": "resumed " + cx["session_id"] + " · ok"}]
+    _, r = _call("resume_session", {"session_id": cx["session_id"]}, w)
+    assert r["status"] == "rejected"  # running out of reach: still never a second copy
+    assert opened == []
+
+
 def test_registry_pane_counts_only_if_its_process_runs_there(history, monkeypatch):
     # The registry's %N may belong to another tmux server; here it's an unrelated pane.
     sessions, opened = history

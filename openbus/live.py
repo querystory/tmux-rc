@@ -426,7 +426,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     for p in projects:
         sessions = []
         for s in p["sessions"]:
-            pane = s.get("running") and await asyncio.to_thread(_pane_of, s["running"])
+            pane = await _running_pane(s, watcher)
             if pane and pane not in labels:
                 watcher.request_reparse(pane)  # publish it before the model types there
             sessions.append({
@@ -475,6 +475,28 @@ def _pane_of(running: dict) -> str | None:
     return pane if root and int(root) in _ancestors(pid) else None
 
 
+async def _running_pane(entry: dict, watcher) -> str | None:
+    """The pane a running session is in, in THIS tmux server, or None."""
+    running = entry.get("running")
+    pane = running and await asyncio.to_thread(_pane_of, running)
+    if running and not pane and entry.get("harness") == "codex":
+        pane = _codex_pane(watcher, entry["session_id"])
+    return pane or None
+
+
+def _codex_pane(watcher, thread_id: str) -> str | None:
+    """The watched pane whose Codex footer names this thread. Codex's app-server
+    daemon, not the terminal client, holds a thread's rollout, so the process that
+    proves it's running names no pane; the client's footer starts with the thread id
+    ("<id> · <model> · ...")."""
+    footer = thread_id + " · "
+    for pane_id, hist in watcher.snapshots.items():
+        lines = tmux.strip_dim(hist[-1]["text"] or "").rstrip().splitlines()[-4:] if hist else []
+        if any(line.lstrip().startswith(footer) for line in lines):
+            return pane_id
+    return None
+
+
 def _home_relative(path: str) -> str:
     home = os.path.expanduser("~")
     return "~" + path[len(home):] if path.startswith(home + "/") else path
@@ -512,7 +534,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     running = entry.get("running")
     if running:
         # The registry, not the watcher's last tick, is what says which pane it's in.
-        pane = await asyncio.to_thread(_pane_of, running)
+        pane = await _running_pane(entry, watcher)
         if not pane:
             return {"status": "rejected", "reason": "already running outside this tmux"}
         rec["pane_id"] = pane

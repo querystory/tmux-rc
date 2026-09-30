@@ -18,18 +18,19 @@ type Running struct {
 	Status   string `json:"status,omitempty"`    // the harness's own word: idle, busy, ...
 }
 
-// LiveSessions merges every harness's live sessions. If any harness can't tell, the
-// whole answer is unknown: session IDs don't say which harness to doubt.
-func LiveSessions() (map[string]Running, error) {
-	out := map[string]Running{}
+// LiveSessions merges every harness's live sessions, with the errors of any harness
+// that can't tell: only that harness's sessions are unknown.
+func LiveSessions() (map[string]Running, map[string]error) {
+	out, errs := map[string]Running{}, map[string]error{}
 	for _, h := range harnesses {
 		running, err := h.running()
 		if err != nil {
-			return nil, fmt.Errorf("%s liveness: %w", h.name, err)
+			errs[h.name] = err
+			report(fmt.Errorf("%s liveness: %w", h.name, err))
 		}
 		maps.Copy(out, running)
 	}
-	return out, nil
+	return out, errs
 }
 
 // RunningClaude lists live Claude Code sessions by session ID. Claude Code registers

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -64,7 +65,6 @@ func resolveCmd(args []string) error {
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
 	opt.Running, opt.RunningErr = LiveSessions()
-	report(opt.RunningErr)
 	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude, codex)")
 	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
 	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
@@ -132,9 +132,8 @@ func getCmd(args []string) {
 		os.Exit(1)
 	}
 	out := Scored{Entry: e}
-	running, err := LiveSessions()
-	report(err)
-	out.RunningUnknown = err != nil
+	running, errs := LiveSessions()
+	out.RunningUnknown = errs[e.Harness] != nil
 	if r, ok := running[id]; ok {
 		out.Running = &r
 	}
@@ -158,11 +157,14 @@ func hook() {
 	detach("index", in.TranscriptPath)
 }
 
+// noDetach is set by tests, whose executable is the test binary.
+var noDetach bool
+
 // detach starts agent-history with args in its own session, logging its errors, and
 // returns without waiting for it.
 func detach(args ...string) {
 	self, err := os.Executable()
-	if err != nil {
+	if err != nil || noDetach {
 		return
 	}
 	logPath := filepath.Join(Root(), "state", "agent-history.log")
@@ -227,16 +229,14 @@ func reconcileAll(force bool) (ok bool) {
 // <harness>/<parent>/<agent>.md.
 func indexEntries() ([]string, error) {
 	index := filepath.Join(Root(), "index")
-	top, err := find(index, ".md", 2)
-	nested, nestedErr := find(index, ".md", 3)
-	return append(top, nested...), errors.Join(err, nestedErr)
+	return find(index, ".md", 2, 3)
 }
 
-// find lists files ending in ext at the given depth below root (1 = root's own
-// files), taken literally since a configured root may contain glob syntax. A missing
-// root is empty; any other unreadable directory is an error, so reconcile won't record
-// a run that couldn't see everything.
-func find(root, ext string, depth int) ([]string, error) {
+// find lists files ending in ext at any of the given depths below root (1 = root's
+// own files), taken literally since a configured root may contain glob syntax. A
+// missing root is empty; any other unreadable directory is an error, so reconcile
+// won't record a run that couldn't see everything.
+func find(root, ext string, depths ...int) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -244,15 +244,21 @@ func find(root, ext string, depth int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	var deeper []int
+	for _, d := range depths {
+		if d > 1 {
+			deeper = append(deeper, d-1)
+		}
+	}
 	var out []string
 	var errs []error
 	for _, e := range entries {
 		path := filepath.Join(root, e.Name())
 		switch {
-		case depth == 1 && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
+		case slices.Contains(depths, 1) && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
 			out = append(out, path)
-		case depth > 1 && e.IsDir():
-			sub, err := find(path, ext, depth-1)
+		case len(deeper) > 0 && e.IsDir():
+			sub, err := find(path, ext, deeper...)
 			out, errs = append(out, sub...), append(errs, err)
 		}
 	}

@@ -89,7 +89,7 @@ type ResolveOptions struct {
 	MaxSessions int
 	Now         time.Time
 	Running     map[string]Running // by session ID; see LiveSessions
-	RunningErr  error              // set when Running could not be determined
+	RunningErr  map[string]error   // by harness: whose sessions Running can't vouch for
 }
 
 // Resolve ranks where a request like "fix live mode" most likely belongs: repos, and
@@ -114,7 +114,7 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 			byRepo[repo] = &Project{Repo: repo}
 		}
 		p := byRepo[repo]
-		scored := Scored{Entry: e, Score: score, RunningUnknown: opt.RunningErr != nil}
+		scored := Scored{Entry: e, Score: score, RunningUnknown: opt.RunningErr[e.Harness] != nil}
 		if r, ok := opt.Running[e.ID]; ok {
 			scored.Running = &r
 		}

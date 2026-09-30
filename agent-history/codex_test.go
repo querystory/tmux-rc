@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,7 +18,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("CODEX_HOME", dir)
-	os.Setenv("CLAUDE_CONFIG_DIR", dir) // resolve may reconcile
+	os.Setenv("CLAUDE_CONFIG_DIR", dir)
+	noDetach = true
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -37,6 +39,10 @@ var codexRollouts = map[string]string{
 	"2026/09/02/rollout-2026-09-02T09-00-00-" + codexID + "_0000bbbb-0000-7000-8000-000000000002.jsonl": `{"timestamp":"2026-09-02T09:00:00Z","type":"session_meta","payload":{"id":"` + codexID + `","parent_thread_id":null,"cwd":"/src/my repo","source":"cli","git":{"branch":"feat/x"}}}
 {"timestamp":"2026-09-02T09:00:05Z","type":"event_msg","payload":{"type":"user_message","message":"also the tests"}}
 {"timestamp":"2026-09-02T09:00:09Z","type":"event_msg","payload":{"type":"task_complete"}}
+`,
+	// Work the thread delegated to a subagent: indexed under it.
+	"2026/09/01/rollout-2026-09-01T10-00-05-0000dddd-0000-7000-8000-000000000004.jsonl": `{"timestamp":"2026-09-01T10:00:05Z","type":"session_meta","payload":{"id":"0000dddd-0000-7000-8000-000000000004","parent_thread_id":"` + codexID + `","cwd":"/src/my repo","source":{"subagent":{"thread_spawn":{"parent_thread_id":"` + codexID + `","agent_path":"/root/menu_grounding"}}}}}
+{"timestamp":"2026-09-01T10:00:06Z","type":"response_item","payload":{"type":"agent_message","content":[{"type":"encrypted_content","encrypted_content":"x"}]}}
 `,
 	// An approval review Codex ran as a subagent: not indexed.
 	"2026/09/01/rollout-2026-09-01T10-00-03-0000cccc-0000-7000-8000-000000000003.jsonl": `{"timestamp":"2026-09-01T10:00:03Z","type":"session_meta","payload":{"id":"0000cccc-0000-7000-8000-000000000003","parent_thread_id":"` + codexID + `","cwd":"/src/my repo","source":{"subagent":{"other":"guardian"}}}}
@@ -62,8 +68,8 @@ func writeCodex(t *testing.T) {
 func TestReadCodex(t *testing.T) {
 	writeCodex(t)
 	sessions := sessionsOf(t)
-	if len(sessions) != 2 || len(sessions[0]) != 2 {
-		t.Fatalf("sessions = %v, want the resumed thread's two files together, then the review", sessions)
+	if len(sessions) != 3 || len(sessions[0]) != 2 {
+		t.Fatalf("sessions = %v, want the resumed thread's two files together, then its subagents", sessions)
 	}
 	s, err := ReadCodex(sessions[0])
 	must(t, err)
@@ -109,8 +115,13 @@ func TestReconcileIndexesCodex(t *testing.T) {
 	}
 	entries, err := indexEntries()
 	must(t, err)
-	if len(entries) != 1 {
-		t.Errorf("entries = %v, want only the top-level thread", entries)
+	if len(entries) != 2 {
+		t.Errorf("entries = %v, want the thread and its delegated subagent, not the review", entries)
+	}
+	sub, err := ReadEntry(indexPath("codex", codexID, "0000dddd-0000-7000-8000-000000000004"))
+	must(t, err)
+	if sub.Parent != codexID || sub.Title != "menu_grounding" || sub.ResumeArgv != nil {
+		t.Errorf("delegated subagent entry = %+v", sub)
 	}
 	// An entry is fresh while no file of its thread is newer; resuming writes one.
 	info, err := os.Stat(e.Path)
@@ -168,7 +179,7 @@ func TestRunningCodex(t *testing.T) {
 		name = n
 	}
 	path := filepath.Join(codexSessionsDir(), name)
-	id, _ := codexIdentity(name)
+	id := codexThreadID(name)
 	running := func() (Running, bool) {
 		got, err := RunningCodex()
 		must(t, err)
@@ -184,33 +195,48 @@ func TestRunningCodex(t *testing.T) {
 		t.Errorf("a non-codex process holding the rollout counted: %+v", r)
 	}
 
-	// A process named codex (a shell under that name) holding it open does.
+	// A process named codex (a shell under that name) holding it open does, unless it
+	// is a sandbox helper: those run under the name codex too.
 	codex := filepath.Join(t.TempDir(), "codex")
 	must(t, os.Symlink("/bin/sh", codex))
-	// read is a builtin: the shell itself waits, holding the file (a trailing external
-	// command would be exec'd in its place).
-	cmd := exec.Command(codex, "-c", `exec 3<"$1"; read -r _`, "sh", path)
-	stdin, err := cmd.StdinPipe()
-	must(t, err)
-	defer stdin.Close()
-	cmd.Env = append(os.Environ(), "TMUX_PANE=%99")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	must(t, cmd.Start())
+	hold := func(argv0 string) *exec.Cmd {
+		// read is a builtin: the shell itself waits, holding the file (a trailing
+		// external command would be exec'd in its place).
+		cmd := exec.Command(codex, "-c", `exec 3<"$1"; read -r _`, "sh", path)
+		cmd.Args[0] = argv0
+		stdin, err := cmd.StdinPipe()
+		must(t, err)
+		t.Cleanup(func() { stdin.Close() })
+		cmd.Env = append(os.Environ(), "TMUX_PANE=%99")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		must(t, cmd.Start())
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if _, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/3", cmd.Process.Pid)); err == nil {
+				break
+			}
+		}
+		return cmd
+	}
+	stop := func(cmd *exec.Cmd) {
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		cmd.Wait()
+	}
+	helper := hold("/tmp/arg0/codex-linux-sandbox")
+	if r, ok := running(); ok {
+		t.Errorf("a sandbox helper holding the rollout counted: %+v", r)
+	}
+	stop(helper)
+	cmd := hold(codex)
 	// A process with no terminal (like the app-server daemon, or tests under CI) is in
 	// no pane, whatever its environment says.
 	pane := "%99"
 	if tty, _ := procStat(os.Getpid(), 7); tty == "0" {
 		pane = ""
 	}
-	r, ok := running()
-	for deadline := time.Now().Add(5 * time.Second); !ok && time.Now().Before(deadline); r, ok = running() {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !ok || r.PID != cmd.Process.Pid || r.TmuxPane != pane {
+	if r, ok := running(); !ok || r.PID != cmd.Process.Pid || r.TmuxPane != pane {
 		t.Errorf("codex holding the rollout = %+v, %v", r, ok)
 	}
-	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	cmd.Wait()
+	stop(cmd)
 	if r, ok := running(); ok {
 		t.Errorf("exited codex counted as running: %+v", r)
 	}

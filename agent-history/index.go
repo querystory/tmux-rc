@@ -72,18 +72,14 @@ func IndexTranscript(path string, force bool) error {
 // parent transcript is gone is still indexed.
 func claudeSessions() ([][]string, error) {
 	projects := filepath.Join(claudeDir(), "projects")
-	paths, err := find(projects, ".jsonl", 2)
-	nested, nestedErr := find(projects, ".jsonl", 4)
-	for _, t := range nested {
-		if filepath.Base(filepath.Dir(t)) == "subagents" {
-			paths = append(paths, t)
+	paths, err := find(projects, ".jsonl", 2, 4)
+	var out [][]string
+	for _, p := range paths {
+		if filepath.Dir(filepath.Dir(p)) == projects || filepath.Base(filepath.Dir(p)) == "subagents" {
+			out = append(out, []string{p})
 		}
 	}
-	out := make([][]string, len(paths))
-	for i, p := range paths {
-		out[i] = []string{p}
-	}
-	return out, errors.Join(err, nestedErr)
+	return out, err
 }
 
 func indexFile(h harness, files []string, force bool) error {

@@ -132,8 +132,6 @@ func TestResolveCommandReportsUnreadableEntry(t *testing.T) {
 	dir := filepath.Join(root, "index", "claude")
 	must(t, os.MkdirAll(dir, 0o700))
 	must(t, os.WriteFile(filepath.Join(dir, "broken.md"), []byte("---\ntitle: invalid-json\n---\nquery"), 0o600))
-	must(t, os.MkdirAll(filepath.Dir(stateFile()), 0o700))
-	must(t, os.WriteFile(stateFile(), []byte(Format), 0o600)) // no reconcile due: none spawned
 	if err := resolveCmd([]string{"-json", "query"}); err == nil {
 		t.Fatal("corrupt index was reported as a successful empty search")
 	}

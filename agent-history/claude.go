@@ -139,9 +139,17 @@ func (s *Session) apply(rec record, subagent bool, aiTitle *string) {
 			s.PRs = append(s.PRs, rec.PRURL)
 		}
 	case "user":
+		kind := rec.PromptSource
 		// A headless run's prompt ("sdk") is not marked human, but it is the session's task.
-		human := rec.Origin.Kind == "human" || rec.PromptSource == "sdk"
-		s.said(rec.Timestamp, rec.PromptSource, rec.Message.Content, human, subagent)
+		if rec.Origin.Kind != "human" && kind != "sdk" {
+			// A subagent has no human; its first message, the task its parent gave it, is
+			// kept as its "prompt".
+			if !subagent || len(s.Messages) > 0 {
+				return
+			}
+			kind = "prompt"
+		}
+		s.said(rec.Timestamp, kind, rec.Message.Content)
 	}
 }
 
@@ -161,15 +169,8 @@ func (s *Session) seen(timestamp, cwd, branch string) {
 	}
 }
 
-// said records a user message if the human wrote it. A subagent has no human, so its
-// first message, the task its parent gave it, is kept as its "prompt".
-func (s *Session) said(timestamp, kind string, content json.RawMessage, human, subagent bool) {
-	if !human {
-		if !subagent || len(s.Messages) > 0 {
-			return
-		}
-		kind = "prompt"
-	}
+// said records a message the human (or, for a subagent, its parent) sent.
+func (s *Session) said(timestamp, kind string, content json.RawMessage) {
 	if text := messageText(content); text != "" {
 		s.Messages = append(s.Messages, Message{Time: timestamp, Kind: kind, Text: text})
 	}

@@ -56,13 +56,16 @@ themselves when the last is more than six hours old, so no timer is needed.
 Codex has no such hook here, so its sessions (`~/.codex/sessions`, or `$CODEX_HOME`)
 arrive with reconcile, which `resolve` also starts in the background when one is due.
 No search waits for it, so a search after a long idle period answers from the index as
-it was and starts the refresh; a later search sees the result. An entry is one Codex thread, not one file: resuming a thread
-continues it in a new rollout file under the same ID, so its files are read together
-and the entry is fresh while none is newer. Its title is the thread name Codex keeps in
-`session_index.jsonl`; renaming an idle thread touches no rollout, so the rename's
-time dates the entry as well. The source is the thread's latest file, the one Codex's
-retention deletes last. Codex subagent threads are left out: here they are approval
-reviews whose task is a copy of the parent's transcript, which only adds noise.
+it was and starts the refresh; a later search sees the result.
+
+An entry is one Codex thread, not one file: resuming a thread continues it in a new
+rollout file under the same ID, so its files are read together and the entry is fresh
+while none is newer. Its title is the thread name Codex keeps in `session_index.jsonl`;
+renaming an idle thread touches no rollout, so the rename's time dates the entry as
+well. The source is the thread's latest file, the one Codex's retention deletes last.
+Work a thread delegates (`thread_spawn`) is indexed under it like a Claude subagent,
+named by its task's path, since Codex stores the task itself encrypted. Approval
+reviews (`guardian`) are left out: their task is a copy of the parent's transcript.
 
 ## Resolving a request
 
@@ -87,12 +90,19 @@ start time it registered, since the files outlive crashes and pids get reused.
 
 Codex keeps no registry, but a running Codex holds its thread's rollout open, so the
 open files of the user's `codex` processes say which threads are live — proof that
-needs no start time check, and only a codex process counts, since an editor or
-`tail -f` on a rollout is not the session — and the process's `TMUX_PANE` says where. Codex's shared app-server daemon
-holds the rollouts of the threads its clients show; it has left every terminal, so it
-reports no pane, and a caller treats that thread as running out of reach rather than
-resuming a second copy. If any harness can't tell what is running, the whole answer is
-unknown, since a session ID doesn't say which harness to doubt.
+needs no start time check. Only codex processes count: an editor or `tail -f` on a
+rollout is not the session, and neither are the sandbox helpers that run tool commands
+under the name `codex`. The process's `TMUX_PANE` says where it runs.
+
+That pane is usually missing. New Codex sessions run through a shared app-server
+daemon, which holds the rollout of every thread its terminal clients show, while the
+clients hold none; the daemon has left every terminal, so it reports no pane. tmux-rc
+fills the gap from the screen: the Codex footer shows the thread ID, so Live treats the
+watched pane whose footer names the thread as its pane. Otherwise the thread counts as
+running out of reach, and Live still refuses to start a second copy.
+
+If a harness can't tell what is running, only its own sessions are marked
+`running_unknown`; the other harnesses' answers stand.
 
 `agent-history get <session-id>` prints one session in the same JSON shape, for a caller
 that already chose it; the ID must be a plain name, so it can't reach outside the index.
