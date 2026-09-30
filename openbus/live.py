@@ -743,7 +743,7 @@ _IMAGE_REFUSED = (f"Images go to a text chat, at most {CHAT_IMAGES} a turn, as P
 def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
     """A typed turn's pasted images as (mime, bytes); None refuses the whole turn. The
     limits are the pane paste's (server.send_image), and only a chat model sees images."""
-    if not raw:
+    if raw is None or raw == []:
         return []
     from .server import _EXT, IMG_MAX_BYTES  # noqa: PLC0415 - server imports this module
 

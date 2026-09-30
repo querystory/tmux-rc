@@ -82,7 +82,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   // The voice picker (a keyless entry greyed, with why), and Chat's switcher options.
   function renderModels() {
     const models = menu.filter((model) => !model.text), last = saved("tmuxrc-live-model");
-    const signature = JSON.stringify([models, last]);
+    const signature = JSON.stringify([menu, last]); // the whole menu: the switcher reads it too
     if (signature === modelSignature) return;
     modelSignature = signature;
     $("voice-switch").replaceChildren(...chatModels().map((model) => Object.assign(document.createElement("option"), { value: model.label, textContent: model.label })));

@@ -4121,11 +4121,17 @@ const lmBadge = () => lmBubble({ shown: lmMin && !!(lmWs || lmRetry), voice: !lm
 // following there, else at the same offset. The draft survives by itself: the composer
 // node is only hidden.
 let lmScroll = null;
+// The conversation lives in the active card, so bringing it up means the card view with
+// that card expanded: a pane list or a collapsed card would leave it (and End) hidden.
+function lmShow() {
+  lmUnread = false; cardsCollapsed = false;
+  if (listFilter) { listFilter = null; syncUrl(true); }
+}
 function lmMinimize(min) {
   const box = cardUI && cardUI.lm;
   if (min && box) lmScroll = { top: box.scrollTop, follow: atBottomOf(box) };
   lmMin = min;
-  if (!min) lmUnread = false;
+  if (!min) lmShow();
   render(Object.values(panesById));
   if (!min && box && lmScroll) box.scrollTop = lmScroll.follow ? box.scrollHeight : lmScroll.top;
   lmBadge();
@@ -4171,7 +4177,7 @@ function lmPaintInto(box) {
         d._images = e.images;
         d.replaceChildren(...(e.images || []).map(chatThumb), document.createTextNode(""));
       }
-      setText(d.lastChild || d, (e.role === "user" ? "🗣 " : "") + e.text);
+      setText(d.lastChild || d, (e.role === "user" ? "You: " : "") + e.text);
     });
   // Follow the tail only when already there, so reading back through the transcript isn't
   // yanked down by the next incoming fragment.
@@ -4416,6 +4422,7 @@ async function lmStart(label, text = false) {
   if (label) { try { localStorage.setItem(text ? CHAT_MODEL_KEY : "tmuxrc-live-model", label); } catch {} }
   lmPill().classList.add("on");
   lmLog = []; lmFatal = ""; lmThumbs = []; lmSessionNo++;
+  lmMin = false; lmShow();
   lmPaintBar();
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
   // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit
