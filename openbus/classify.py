@@ -66,7 +66,9 @@ _TURN_ERROR_RE = {
     "codex": re.compile(r"^[ \t]*■[ \t]+(?!.*\binterrupted\b)(?P<text>.*\S)", re.MULTILINE),
     "claude": re.compile(r"^[ \t]*(?:⎿[ \t]*)?(?P<text>API Error\b.*\S)", re.MULTILINE),
 }
-_USER_ROW_RE = re.compile(f"^[{PROMPT_GLYPHS}][ \\xa0]*\\S", re.MULTILINE)
+# A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
+_PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
+_USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*\\S", re.MULTILINE)
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -224,18 +226,25 @@ def _canonical_session(name, visible: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _visible(text: str) -> str:
+    """The live viewport as the phone renders it, minus greyed input placeholders."""
+    screen = text.rsplit(VISIBLE_SCREEN, 1)[-1]
+    return strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
+
+
 def _supported_question(question, visible: str) -> bool:
     prompt = question.get("prompt") if isinstance(question, dict) else None
     if not isinstance(prompt, str) or not prompt.strip():
         return False
     words = r"\s+".join(map(re.escape, prompt.split()))
     *_, found = [None, *re.finditer(words, visible, re.IGNORECASE)]
-    # The user's own turn or draft (a ❯/› row) is not the agent asking, and a live
-    # spinner below the text means the agent is already working again.
+    # The user's own turn or draft (a ❯/› row) is not the agent asking; a live spinner
+    # below the text means the agent is working again; and a finished turn's question
+    # followed by typed input has been answered.
     return found is not None and not (
-        visible[visible.rfind("\n", 0, found.start()) + 1:found.start()].lstrip()
-        .startswith(tuple(PROMPT_GLYPHS))
-        or any(turn["live"] for turn in _CLAUDE_TURN_RE.finditer(visible, found.end()))
+        re.match(_PROMPT_ROW, visible[visible.rfind("\n", 0, found.start()) + 1:])
+        or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
+               for turn in _CLAUDE_TURN_RE.finditer(visible, found.end()))
     )
 
 
@@ -248,7 +257,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     """Validate actionable fields against their UI evidence, retrying once on that slice."""
     if result.get("tool") == "shell":
         result.pop("session", None)  # Old agent scrollback cannot name its replacement shell.
-    visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
+    visible = _visible(text)
     identity = text  # Keep the boundary: only explicit rename events may come from history.
     bad_question = (
         bool(result.get("question")) and VISIBLE_SCREEN in text
@@ -301,11 +310,10 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["session"] = retry_session
 
 
-def _final_ask(screen: str, tool: str) -> dict | None:
+def _final_ask(visible: str, tool: str) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
     `! command` handed over to run. Anything typed after it means the user already acted."""
-    visible = strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
     error_re = _TURN_ERROR_RE[tool]
     turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
     stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
@@ -445,7 +453,7 @@ def classify(
     pane's last classified activity, held onto when the parse fails (see below). Returns
     the model's JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic
     dict."""
-    visible = strip_dim(text.rsplit(VISIBLE_SCREEN, 1)[-1])
+    visible = _visible(text)
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
@@ -547,7 +555,7 @@ def classify(
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
     if result.get("tool") in _TURN_ERROR_RE and (
-        ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1], result["tool"])
+        ask := _final_ask(visible, result["tool"])
     ):
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.

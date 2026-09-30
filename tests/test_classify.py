@@ -849,6 +849,13 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
         assert "question" not in result
     assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
         "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
+    # A boxed or indented prompt row with text counts as typed, and a model question
+    # from the finished turn is answered once the user types after it.
+    for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
+        answered = decision.replace("\n❯\n", f"\n{row}\n")
+        ask = "should I start it in the background"
+        result = classify(_pane("claude"), answered, _llm({"question": {"prompt": ask}}))
+        assert "question" not in result
     failed = classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"),
                       lambda _s, _t: None, prev_activity="running")
     assert failed["activity"] == "idle" and "parse_ok" not in failed
