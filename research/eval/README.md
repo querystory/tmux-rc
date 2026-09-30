@@ -155,6 +155,7 @@ actually hit:
 | `54_claude_user_turn_is_not_question` | the user's own ❯ turn above a live spinner → running, no question |
 | `55_claude_turn_ends_with_user_handoff` | finished turn handing the user a blocked `! command` → text user-wait |
 | `56_claude_turn_ends_with_decision` | finished turn asking the user to decide; "1 shell still running" is not work |
+| `57_codex_turn_aborted_by_provider_error` | Codex "■ …at capacity" above an empty input → text user-wait offering "try again" |
 
 Sample 16 records a known prompt-compliance failure. On 2026-09-18, an authorized
 Vertex run using the production prompt and `gemini-3.1-flash-lite` for both classifier

@@ -534,6 +534,7 @@ def classify(
     if result.get("tool") == "claude" and turn:
         if turn["live"] and result.get("activity") in (None, "idle", "unknown"):
             result["activity"] = "running"
+            result.pop("parse_ok", None)  # The live spinner is itself a read of the screen.
         elif not turn["live"] and result.get("activity") == "running":
             result["activity"] = "idle"  # The turn is over; background shells don't count.
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
@@ -541,6 +542,7 @@ def classify(
     if (result.get("tool") in _TURN_ERROR_RE and not result.get("question")
             and (ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1], result["tool"]))):
         result["question"] = ask
+        result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":

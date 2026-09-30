@@ -808,6 +808,7 @@ def test_users_own_turn_under_a_live_spinner_is_not_a_question():
     assert len(calls) == 2  # rejected, then re-read once
     assert "question" not in result and "waiting_on" not in result
     assert result["activity"] == "running"  # the live spinner is authoritative
+    assert "parse_ok" not in result  # so the watcher accepts it over the stale card
     # Either signal alone rejects it: the ❯ row, or a live spinner below agent text.
     agent_text = "\x1e[visible screen]\x1f\n● Push now?\n\n✶ Pushing… (3s · esc to interrupt)"
     for screen, prompt in ((capture.split("· Befuddling")[0], user_turn),
@@ -836,16 +837,16 @@ def test_finished_turn_blocked_on_the_user_is_a_text_wait():
 def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
     decision = _sample("56_claude_turn_ends_with_decision")
     error = _sample("57_codex_turn_aborted_by_provider_error")
-    for screen in (
-        decision.replace("auto mode on", "accept edits on"),  # an optional offer stays idle
-        decision.replace("\n❯\n", "\n❯ yes start it\n"),  # the user already answered
-        error.replace("⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫", "try again"),
-        error.replace("■ Selected model is at capacity. Please try a different model.",
-                      "■ Conversation interrupted - tell the model what to do differently."),
+    for tool, screen in (
+        ("claude", decision.replace("auto mode on", "accept edits on")),  # an optional offer
+        ("claude", decision.replace("\n❯\n", "\n❯ yes start it\n")),  # already answered
+        ("codex", error.replace("⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫",
+                                "try again")),
+        ("codex", error.replace("■ Selected model is at capacity. Please try a different model.",
+                                "■ Conversation interrupted - tell the model what to do.")),
     ):
-        result = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "running"}))
+        result = classify(_pane(tool), screen, _llm({"activity": "idle"}))
         assert "question" not in result
-    assert result["activity"] == "running"  # nothing in the Codex screens overrides the model
     assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
         "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
 
@@ -856,6 +857,9 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     result = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "idle"}))
     assert result["question"] == {"prompt": "API Error: 529 overloaded_error",
                                   "answer_style": "text", "options": ["try again"]}
+    # Deterministic chrome is a read of the screen even when the model call failed.
+    assert classify(_pane("claude"), screen, lambda _s, _t: None)["question"] == result["question"]
+    assert "parse_ok" not in classify(_pane("claude"), screen, lambda _s, _t: None)
     shell = classify(_pane("bash"), "■ Build failed\nuser@host:~$ ", _llm({"activity": "idle"}))
     assert "question" not in shell and shell["activity"] == "idle"
     # Another tool's chrome is output, not this pane's turn.
