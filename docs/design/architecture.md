@@ -150,8 +150,10 @@ Two subtleties that everything downstream depends on:
   changes, not animation. (The same volatile set is deliberately *not* stripped in live
   mode — there, you want the spinner to spin.)
 - **tmux is the state; caches are bounded observations.** The events log and the snapshot
-  ring buffer live in memory and are lost on daemon restart — that's correct. Their
-  recovery path is re-observation, not a saved file. This is the load-bearing rule of the
+  ring buffer live in memory. The snapshot ring is lost on restart; each card and the
+  tail of its events log are checkpointed, but restored only when the pane's visible
+  screen still has the same fingerprint ([activity-clock-persistence.md](activity-clock-persistence.md)).
+  Otherwise the recovery path is re-observation, not a saved file. This is the load-bearing rule of the
   whole project (see [the activity-log design](activity-log.md) for why it justifies caching
   at all: TUIs redraw in place, so scrollback is *not* a faithful record of what was
   observed).
