@@ -223,3 +223,11 @@ def test_a_model_that_never_stops_calling_tools_is_stopped(monkeypatch):
 def test_an_empty_response_still_answers_the_turn(monkeypatch):
     frames, _, _ = _turn(_Fake([("", [])]), "hi", monkeypatch)
     assert _said(frames) == [C._EMPTY]
+
+
+def test_a_turns_replies_stay_apart_when_the_client_joins_them(monkeypatch):
+    monkeypatch.setattr(L.agent_history, "offered", lambda: True)
+    monkeypatch.setattr(L.agent_history, "resolve", lambda q: [])
+    s = _Fake([("I'll check.", [("find_sessions", {"query": "x"})]), ("None found.", [])])
+    frames, _, _ = _turn(s, "find it", monkeypatch)
+    assert "".join(_said(frames)) == "I'll check. None found."

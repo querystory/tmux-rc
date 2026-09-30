@@ -68,6 +68,7 @@ class _Chat:
             text = await self._inbox.get()
             self._user("\n\n".join([*self._context, text]))
             self._context.clear()
+            sep = ""  # both clients join a turn's model transcripts verbatim
             for _ in range(STEPS):
                 try:
                     reply, calls, usage = await self._complete()
@@ -80,14 +81,15 @@ class _Chat:
                     # Anything else (rate limit, 5xx, timeout) costs this turn, not the
                     # conversation: a reconnect would start over with no history.
                     logger.warning("[live] %s call failed: %r", self.model.model, e)
-                    yield Event("transcript", role="model", text=_FAILED)
+                    yield Event("transcript", role="model", text=sep + _FAILED)
                     break
                 self._usage = [a + b for a, b in zip(self._usage, usage, strict=True)]
                 yield Event("usage", usage=Split(*self._usage))
                 if not (reply or calls):
                     reply = _EMPTY
                 if reply:
-                    yield Event("transcript", role="model", text=reply)
+                    yield Event("transcript", role="model", text=sep + reply)
+                    sep = " "
                 if not calls:
                     break
                 # live._receiver runs each call to completion (consent included) and
@@ -98,7 +100,7 @@ class _Chat:
                 self._results(self._answers)
                 self._answers = []
             else:
-                yield Event("transcript", role="model", text=_STOPPED)
+                yield Event("transcript", role="model", text=sep + _STOPPED)
             yield Event("turn_complete")
 
 
