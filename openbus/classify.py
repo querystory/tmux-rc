@@ -536,7 +536,9 @@ def classify(
             result["activity"] = "running"
         elif not turn["live"] and result.get("activity") == "running":
             result["activity"] = "idle"  # The turn is over; background shells don't count.
-    if not result.get("question") and (ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1])):
+    # The final-turn chrome belongs to the agent TUIs; a shell printing "■ Build failed" is not one.
+    if (result.get("tool") in ("claude", "codex") and not result.get("question")
+            and (ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1]))):
         result["question"] = ask
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")

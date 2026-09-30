@@ -825,7 +825,8 @@ def test_finished_turn_blocked_on_the_user_is_a_text_wait():
     }
     for name, prompt in cases.items():
         # The model's "running" (background shells/monitors) and "idle" both lose.
-        result = classify(_pane("node"), _sample(name), _llm({"activity": "running"}))
+        tool = name.split("_")[1]
+        result = classify(_pane("node"), _sample(name), _llm({"tool": tool, "activity": "running"}))
         assert result["question"]["prompt"].startswith(prompt)
         assert result["question"]["answer_style"] == "text"
         assert result["activity"] == "waiting" and result["waiting_on"] == "user"
@@ -855,3 +856,5 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     result = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "idle"}))
     assert result["question"] == {"prompt": "API Error: 529 overloaded_error",
                                   "answer_style": "text", "options": ["try again"]}
+    shell = classify(_pane("bash"), "■ Build failed\nuser@host:~$ ", _llm({"activity": "idle"}))
+    assert "question" not in shell and shell["activity"] == "idle"
