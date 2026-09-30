@@ -32,7 +32,10 @@
 export function answerBody(q, opt, i) {
   if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
   const yn = q.options.length === 2 && /^(yes|no)$/i.test(opt);
-  return { keys: yn ? opt[0].toLowerCase() : String(i + 1), enter: false, literal: true };
+  const number = opt.match(/^\s*(?:[❯›>]\s*)?(\d+)[.):]\s+/)?.[1] || String(i + 1);
+  const keys = yn ? opt[0].toLowerCase() : number;
+  // A second digit could reach the next menu after the first commits.
+  return keys.length === 1 ? { keys, enter: false, literal: true } : null;
 }
 
 // How many moves we will walk before handing over to the widget's own search box. A row

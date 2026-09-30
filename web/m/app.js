@@ -550,7 +550,11 @@ function render() {
       // digit both land in the picker's search box. It needs a verified walk; both paths
       // are shared with the desktop so this surface can't drift behind it again.
       if (current.question.answer_style === "cursor") pickCursorRow(cursorIO(active), option, index);
-      else sendKeys(answerBody(current.question, option, index), true);
+      else {
+        const body = answerBody(current.question, option, index);
+        if (body) sendKeys(body, true);
+        else notice("Use the keyboard for this option.");
+      }
     };
     return button;
   }, (button, option) => { button._option = option; text(button, option.option); button.disabled = sending || !!answered; });

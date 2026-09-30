@@ -3711,7 +3711,11 @@ function applyQuestion(ui, s, card) {
       setActive(paneId);
       // A cursor list can't be answered with one keystroke — it needs a verified walk.
       if (cur.question.answer_style === "cursor") pickCursorRow(cursorIO(paneId), b._optText, i);
-      else send(cur, answerBody(cur.question, b._optText, i));
+      else {
+        const body = answerBody(cur.question, b._optText, i);
+        if (body) send(cur, body);
+        else barNote("Use the keyboard for this option.");
+      }
     };
     return b;
   }, (b, { text, index }) => {

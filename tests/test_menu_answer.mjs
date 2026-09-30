@@ -26,3 +26,11 @@ test("non-yes/no menus retain their original option indices", () => {
   assert.deepEqual(answerBody(question, "No", 2), digit("3"));
   assert.deepEqual(answerBody(menu("YES", "NO"), "YES", 0), digit("y"));
 });
+
+test("explicit displayed numbers override position; multi-digit shortcuts are refused", () => {
+  const numbered = menu("0. Dismiss", "1. Retry");
+  assert.deepEqual(answerBody(numbered, "0. Dismiss", 0), digit("0"));
+  assert.deepEqual(answerBody(numbered, "1. Retry", 1), digit("1"));
+  assert.equal(answerBody(menu("10. Dangerous"), "10. Dangerous", 0), null);
+  assert.equal(answerBody(menu(...Array(10).fill("Choice")), "Choice", 9), null);
+});

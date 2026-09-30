@@ -300,6 +300,11 @@ def renderable_options(question: dict) -> list[tuple[int, str]]:
         if (not isinstance(option, str) or not option.strip()
                 or _FREETEXT_OPTION.match(option.strip())):
             continue
+        if question.get("answer_style") == "menu":
+            try:
+                option_keys(question, index)
+            except ValueError:
+                continue
         out.append((index, option))
     return out
 
@@ -333,7 +338,11 @@ def option_keys(question: dict, index: int) -> str:
         raise ValueError("cursor questions must be answered in the app")
     if style == "menu":  # mirrors answerBody in web/cursor-pick.js
         yes_no = len(options) == 2 and option.lower() in {"yes", "no"}
-        return option[0].lower() if yes_no else str(index + 1)
+        number = re.match(r"^\s*(?:[❯›>]\s*)?(\d+)[.):]\s+", option)
+        keys = option[0].lower() if yes_no else number[1] if number else str(index + 1)
+        if len(keys) != 1:
+            raise ValueError("use the keyboard for multi-character menu shortcuts")
+        return keys
     return option
 
 
