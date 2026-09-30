@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ func TestRunningClaude(t *testing.T) {
 		must(t, os.WriteFile(filepath.Join(dir, fmt.Sprint(pid)+".json"), []byte(body), 0o600))
 	}
 	me := os.Getpid()
-	start, err := procStart(me)
+	start, err := procStat(me, 22)
 	must(t, err)
 	register("live", me, start, "work:@3.%12")
 	register("reused-pid", os.Getppid(), "1", "work:@4.%13") // pid alive, but a different process
@@ -44,6 +45,20 @@ func TestResolveMarksRunning(t *testing.T) {
 	for _, s := range got[0].Sessions {
 		if (s.Running != nil) != (s.ID == "on") {
 			t.Errorf("%s running = %+v", s.ID, s.Running)
+		}
+	}
+}
+
+// One harness that can't tell what is running leaves the others' sessions trusted.
+func TestResolveUnknownIsPerHarness(t *testing.T) {
+	opt := defaults
+	opt.RunningErr = map[string]error{"codex": errors.New("unreadable")}
+	codex := entry(t, Session{ID: "cx", Cwd: "/r"}, "otlp")
+	codex.Harness = "codex"
+	got := Resolve([]Entry{entry(t, Session{ID: "cl", Cwd: "/r"}, "otlp"), codex}, "otlp", opt)
+	for _, s := range got[0].Sessions {
+		if s.RunningUnknown != (s.Harness == "codex") {
+			t.Errorf("%s (%s) running_unknown = %v", s.ID, s.Harness, s.RunningUnknown)
 		}
 	}
 }

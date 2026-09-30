@@ -23,7 +23,7 @@ import uuid
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import agent_history, live_providers, llm, telemetry, tmux
-from .classify import _load_prompt
+from .classify import _codex_model_segments, _load_prompt, _session_chrome
 from .live_providers import KEYS, LiveModel
 
 logger = logging.getLogger(__name__)
@@ -426,11 +426,12 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     for p in projects:
         sessions = []
         for s in p["sessions"]:
-            pane = s.get("running") and await asyncio.to_thread(_pane_of, s["running"])
+            pane = await _running_pane(s, watcher)
             if pane and pane not in labels:
                 watcher.request_reparse(pane)  # publish it before the model types there
             sessions.append({
                 "session_id": s["session_id"],
+                "tool": s.get("harness"),  # which agent CLI it resumes in
                 "title": s.get("title") or "(untitled)",
                 "last_active": (s.get("last_active") or "")[:10],
                 # Named the way windows are everywhere else, once the watcher has it.
@@ -445,10 +446,11 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     return {"status": "ok", "results": results}
 
 
-# A resumed Claude process takes a moment to register itself as running, so a repeat
-# call before then would see nothing running and start a second copy on the same
-# transcript. Resumes are serialized, and each launch holds its session for as long as
-# the pane it opened lives. The pane's pid, not its id, is the identity: tmux reuses ids.
+# A resumed agent takes a moment to show as running (Claude registers itself, Codex
+# opens its rollout), so a repeat call before then would see nothing running and
+# start a second copy on the same transcript. Resumes are serialized, and each launch
+# holds its session for as long as the pane it opened lives. The pane's pid, not its
+# id, is the identity: tmux reuses ids.
 _resume_lock = asyncio.Lock()
 _resumed: dict[str, tuple[str, str, dict]] = {}  # session id -> (pane id, pid, audit rec)
 
@@ -465,12 +467,37 @@ def _ancestors(pid: int):
 
 
 def _pane_of(running: dict) -> str | None:
-    """A registry entry's pane in THIS tmux server, or None. Its %N comes from whatever
-    server Claude ran under, so it counts only if that pane's process here is an
-    ancestor of the registered pid."""
+    """A running session's pane in THIS tmux server, or None. Its %N comes from whatever
+    server the agent ran under, so it counts only if that pane's process here is an
+    ancestor of the agent's pid."""
     pane, pid = running.get("tmux_pane"), running.get("pid")
     root = pane and isinstance(pid, int) and tmux.pane_pid(pane)
     return pane if root and int(root) in _ancestors(pid) else None
+
+
+async def _running_pane(entry: dict, watcher) -> str | None:
+    """The pane a running session is in, in THIS tmux server, or None."""
+    running = entry.get("running")
+    pane = running and await asyncio.to_thread(_pane_of, running)
+    if running and not pane and entry.get("harness") == "codex":
+        pane = _codex_pane(watcher, entry["session_id"])
+    return pane or None
+
+
+def _codex_pane(watcher, thread_id: str) -> str | None:
+    """The one watched Codex pane whose status bar shows this thread's id. Codex's
+    app-server daemon, not the terminal client, holds a thread's rollout, so the process
+    that proves it's running names no pane; a status bar configured with `session-id`
+    shows the id as one of its segments. Only status chrome the parser validates
+    counts, in panes classified as Codex (a shell can print a captured footer). Names
+    aren't used: two live threads can share one."""
+    codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
+    # A copy: the watcher thread adds and drops panes while this runs.
+    panes = {pane_id for pane_id, hist in list(watcher.snapshots.items())
+             if hist and pane_id in codex for line in _session_chrome(hist[-1]["text"] or "")
+             if _codex_model_segments(line)
+             and thread_id in (s.strip() for s in line.split("·"))}
+    return panes.pop() if len(panes) == 1 else None
 
 
 def _home_relative(path: str) -> str:
@@ -510,7 +537,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
     running = entry.get("running")
     if running:
         # The registry, not the watcher's last tick, is what says which pane it's in.
-        pane = await asyncio.to_thread(_pane_of, running)
+        pane = await _running_pane(entry, watcher)
         if not pane:
             return {"status": "rejected", "reason": "already running outside this tmux"}
         rec["pane_id"] = pane

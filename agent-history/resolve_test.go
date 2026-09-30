@@ -142,12 +142,13 @@ func TestResolveFilters(t *testing.T) {
 		entry(t, Session{ID: "human", Cwd: "/r", Entrypoint: "cli"}, "judge"),
 		entry(t, Session{ID: "headless", Cwd: "/r", Entrypoint: "sdk-cli"}, "judge"),
 		entry(t, Session{ID: "sub", Parent: "human", Cwd: "/r"}, "judge"),
+		entry(t, Session{ID: "codex-exec", Cwd: "/r", Entrypoint: "exec"}, "judge"),
 	}
 	check(t, "default", strings.Join(ids(Resolve(entries, "judge", defaults)[0]), ","), "human")
 	all := defaults
 	all.All = true
-	if n := len(Resolve(entries, "judge", all)[0].Sessions); n != 3 {
-		t.Errorf("-all sessions = %d, want 3", n)
+	if n := len(Resolve(entries, "judge", all)[0].Sessions); n != 4 {
+		t.Errorf("-all sessions = %d, want 4", n)
 	}
 	other := defaults
 	other.Harness = "codex"

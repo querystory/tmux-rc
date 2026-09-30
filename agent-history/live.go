@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +16,21 @@ type Running struct {
 	PID      int    `json:"pid"`
 	TmuxPane string `json:"tmux_pane,omitempty"` // e.g. "%48"; empty when not in tmux
 	Status   string `json:"status,omitempty"`    // the harness's own word: idle, busy, ...
+}
+
+// LiveSessions merges every harness's live sessions, with the errors of any harness
+// that can't tell: only that harness's sessions are unknown.
+func LiveSessions() (map[string]Running, map[string]error) {
+	out, errs := map[string]Running{}, map[string]error{}
+	for _, h := range harnesses {
+		running, err := h.running()
+		if err != nil {
+			errs[h.name] = err
+			report(fmt.Errorf("%s liveness: %w", h.name, err))
+		}
+		maps.Copy(out, running)
+	}
+	return out, errs
 }
 
 // RunningClaude lists live Claude Code sessions by session ID. Claude Code registers
@@ -48,7 +64,7 @@ func RunningClaude() (map[string]Running, error) {
 		if err := json.Unmarshal(data, &reg); err != nil || reg.SessionID == "" || reg.ProcStart == "" || reg.PID <= 0 {
 			return nil, fmt.Errorf("%s: unreadable registration", f)
 		}
-		start, err := procStart(reg.PID)
+		start, err := procStat(reg.PID, 22)
 		if err != nil {
 			return nil, err
 		}
@@ -64,11 +80,12 @@ func RunningClaude() (map[string]Running, error) {
 	return out, nil
 }
 
-// procStart is field 22 of /proc/<pid>/stat, the process start time in clock ticks,
-// or "" if there is no such process. Any other failure is an error: it proves nothing
-// about whether the process is alive. The command name (field 2) may contain spaces
-// and parentheses, so fields are counted from its closing parenthesis.
-func procStart(pid int) (string, error) {
+// procStat is one numbered field of /proc/<pid>/stat (22 is the start time in clock
+// ticks, 7 the controlling terminal), or "" if there is no such process. Any other
+// failure is an error: it proves nothing about whether the process is alive. The
+// command name (field 2) may contain spaces and parentheses, so fields are counted
+// from its closing parenthesis.
+func procStat(pid, field int) (string, error) {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -81,5 +98,5 @@ func procStart(pid int) (string, error) {
 	if i < 0 || len(fields) < 20 {
 		return "", fmt.Errorf("pid %d: unrecognized /proc stat", pid)
 	}
-	return fields[19], nil
+	return fields[field-3], nil
 }

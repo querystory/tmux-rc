@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -37,7 +38,7 @@ func main() {
 				report(IndexTranscript(p, false))
 			}
 		})
-		if since(stateFile()) > reconcileEvery || recordedFormat() != Format {
+		if reconcileDue() {
 			Reconcile()
 		}
 	case "reconcile":
@@ -56,11 +57,15 @@ func main() {
 }
 
 func resolveCmd(args []string) error {
+	// Codex has no hook here, so searching is also what keeps its sessions current. In
+	// the background: a search is on someone's clock, and a first reconcile is not.
+	if reconcileDue() {
+		detach("reconcile")
+	}
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
-	opt.Running, opt.RunningErr = RunningClaude()
-	report(opt.RunningErr)
-	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude)")
+	opt.Running, opt.RunningErr = LiveSessions()
+	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude, codex)")
 	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
 	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
 	flags.IntVar(&opt.MaxSessions, "sessions", 5, "max sessions per repo")
@@ -71,16 +76,12 @@ func resolveCmd(args []string) error {
 		fmt.Fprintln(os.Stderr, "resolve: missing query")
 		os.Exit(2)
 	}
-	paths, err := find(filepath.Join(Root(), "index"), ".md", 2)
-	if err != nil {
-		return err
-	}
-	nested, err := find(filepath.Join(Root(), "index"), ".md", 3)
+	paths, err := indexEntries()
 	if err != nil {
 		return err
 	}
 	var entries []Entry
-	for _, p := range append(paths, nested...) {
+	for _, p := range paths {
 		e, err := ReadEntry(p)
 		if err != nil {
 			return fmt.Errorf("read index entry %s: %w", p, err)
@@ -119,15 +120,20 @@ func getCmd(args []string) {
 		os.Exit(2)
 	}
 	id := args[0]
-	e, err := ReadEntry(indexPath("claude", "", id))
+	var e Entry
+	var err error
+	for _, h := range harnesses {
+		if e, err = ReadEntry(indexPath(h.name, "", id)); !errors.Is(err, os.ErrNotExist) {
+			break
+		}
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "get:", err)
 		os.Exit(1)
 	}
 	out := Scored{Entry: e}
-	running, err := RunningClaude()
-	report(err)
-	out.RunningUnknown = err != nil
+	running, errs := LiveSessions()
+	out.RunningUnknown = errs[e.Harness] != nil
 	if r, ok := running[id]; ok {
 		out.Running = &r
 	}
@@ -148,8 +154,17 @@ func hook() {
 	if json.NewDecoder(os.Stdin).Decode(&in) != nil || in.TranscriptPath == "" {
 		return
 	}
+	detach("index", in.TranscriptPath)
+}
+
+// noDetach is set by tests, whose executable is the test binary.
+var noDetach bool
+
+// detach starts agent-history with args in its own session, logging its errors, and
+// returns without waiting for it.
+func detach(args ...string) {
 	self, err := os.Executable()
-	if err != nil {
+	if err != nil || noDetach {
 		return
 	}
 	logPath := filepath.Join(Root(), "state", "agent-history.log")
@@ -158,7 +173,7 @@ func hook() {
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(self, "index", in.TranscriptPath)
+	cmd := exec.Command(self, args...)
 	cmd.Stderr = log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Start()
@@ -178,6 +193,11 @@ func Reconcile() {
 	})
 }
 
+// reconcileDue says the last completed reconcile is too old or wrote an older format.
+func reconcileDue() bool {
+	return since(stateFile()) > reconcileEvery || recordedFormat() != Format
+}
+
 // recordedFormat is the entry format the last completed reconcile wrote.
 func recordedFormat() string {
 	data, _ := os.ReadFile(stateFile())
@@ -190,37 +210,33 @@ func reconcileAll(force bool) (ok bool) {
 		report(err)
 		ok = ok && err == nil
 	}
-	projects := filepath.Join(claudeDir(), "projects")
-	transcripts, err := find(projects, ".jsonl", 2)
-	check(err)
-	for _, t := range transcripts {
-		check(IndexTranscript(t, force))
-	}
-	// Subagents are normally reached through their parent; scan them too so one whose
-	// parent transcript is gone is still indexed. Fresh entries are skipped cheaply.
-	nested, err := find(projects, ".jsonl", 4)
-	check(err)
-	for _, t := range nested {
-		if filepath.Base(filepath.Dir(t)) == "subagents" {
-			check(indexFile(t, force))
+	for _, h := range harnesses {
+		sessions, err := h.sessions()
+		check(err)
+		for _, files := range sessions {
+			check(indexFile(h, files, force))
 		}
 	}
-	index := filepath.Join(Root(), "index", "claude")
-	entries, err := find(index, ".md", 1)
+	entries, err := indexEntries()
 	check(err)
-	subentries, err := find(index, ".md", 2)
-	check(err)
-	for _, e := range append(entries, subentries...) {
+	for _, e := range entries {
 		check(MarkMissing(e))
 	}
 	return ok
 }
 
-// find lists files ending in ext at the given depth below root (1 = root's own
-// files), taken literally since a configured root may contain glob syntax. A missing
-// root is empty; any other unreadable directory is an error, so reconcile won't record
-// a run that couldn't see everything.
-func find(root, ext string, depth int) ([]string, error) {
+// indexEntries lists every entry: <harness>/<session>.md and, for subagents,
+// <harness>/<parent>/<agent>.md.
+func indexEntries() ([]string, error) {
+	index := filepath.Join(Root(), "index")
+	return find(index, ".md", 2, 3)
+}
+
+// find lists files ending in ext at any of the given depths below root (1 = root's
+// own files), taken literally since a configured root may contain glob syntax. A
+// missing root is empty; any other unreadable directory is an error, so reconcile
+// won't record a run that couldn't see everything.
+func find(root, ext string, depths ...int) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -228,15 +244,21 @@ func find(root, ext string, depth int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	var deeper []int
+	for _, d := range depths {
+		if d > 1 {
+			deeper = append(deeper, d-1)
+		}
+	}
 	var out []string
 	var errs []error
 	for _, e := range entries {
 		path := filepath.Join(root, e.Name())
 		switch {
-		case depth == 1 && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
+		case slices.Contains(depths, 1) && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
 			out = append(out, path)
-		case depth > 1 && e.IsDir():
-			sub, err := find(path, ext, depth-1)
+		case len(deeper) > 0 && e.IsDir():
+			sub, err := find(path, ext, deeper...)
 			out, errs = append(out, sub...), append(errs, err)
 		}
 	}
