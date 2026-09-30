@@ -320,9 +320,12 @@ def _final_ask(screen: str, tool: str) -> dict | None:
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*⏵⏵ auto mode on\b", visible):
         return None
-    handoff = next((i for i in range(len(lines) - 1, 0, -1) if lines[i].startswith("! ")), 0)
-    ask = lines[-1] if lines[-1].endswith("?") else " ".join(lines[handoff - 1:handoff + 1])
-    return {"prompt": ask, "answer_style": "text"} if ask.endswith("?") or handoff else None
+    handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
+    if lines[-1].endswith("?"):
+        return {"prompt": lines[-1], "answer_style": "text"}
+    if handoff is None:
+        return None
+    return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
 
 
 def _obvious_idle(text: str) -> bool:
@@ -539,8 +542,10 @@ def classify(
             result["activity"] = "idle"  # The turn is over; background shells don't count.
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
-    if (result.get("tool") in _TURN_ERROR_RE and not result.get("question")
-            and (ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1], result["tool"]))):
+    # A provider error ends the turn, so it also replaces an older question still on screen.
+    ask = (_final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1], result["tool"])
+           if result.get("tool") in _TURN_ERROR_RE else None)
+    if ask and ("options" in ask or not result.get("question")):
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     # A cursor picker's advertised search binding is evidence, not a model guess.

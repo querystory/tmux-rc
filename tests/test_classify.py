@@ -860,6 +860,11 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     # Deterministic chrome is a read of the screen even when the model call failed.
     assert classify(_pane("claude"), screen, lambda _s, _t: None)["question"] == result["question"]
     assert "parse_ok" not in classify(_pane("claude"), screen, lambda _s, _t: None)
+    stale = classify(_pane("claude"), screen, _llm({"question": {"prompt": "Fixing the parser."}}))
+    assert stale["question"]["options"] == ["try again"]  # the error ended the turn after it
+    only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
+                    "⏵⏵ auto mode on")
+    assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
     shell = classify(_pane("bash"), "■ Build failed\nuser@host:~$ ", _llm({"activity": "idle"}))
     assert "question" not in shell and shell["activity"] == "idle"
     # Another tool's chrome is output, not this pane's turn.
