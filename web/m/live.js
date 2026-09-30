@@ -57,6 +57,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
     if (run) run.scroll = { top: log.scrollTop, follow: log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX };
   }
   chatComposer($("voice-compose"), {
+    session: () => run,
     licon, error: (message) => add("error", message),
     send(frame, thumbnails) {
       if (!run?.listening || run.ws?.readyState !== WebSocket.OPEN) return false;
@@ -113,7 +114,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
     }
     row.lastChild.textContent += message || "";
     row.lastChild.before(...images.map(chatThumb));
-    if (!dialog.open) { unread = true; badge(); }
+    if (!dialog.open && role !== "user") { unread = true; badge(); } // not the user's own echo
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
     for (let old; log.children.length > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => !r.querySelector(".voice-actions")));) old.remove();

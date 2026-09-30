@@ -739,11 +739,13 @@ def test_a_pasted_image_reaches_the_session_with_its_turn():
     ({"mime": "image/png", "data": "not base64!"}, True),
     ({"mime": "image/png", "data": ""}, True),
     ({"mime": ["image/png"], "data": "UE5H"}, True),  # not even a string
+    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True),  # too many
     ({"mime": "image/png", "data": "UE5H"}, False),  # a voice model cannot see it
 ])
 def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
     session = _TypedSession()
-    ws = _ScriptedWS([{"action": "text", "text": "look", "images": [image]}, {"action": "stop"}])
+    images = image if isinstance(image, list) else [image]
+    ws = _ScriptedWS([{"action": "text", "text": "look", "images": images}, {"action": "stop"}])
     _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=text)))
     assert session.turns == []
     assert ws.sent == [{"type": "error", "message": L._IMAGE_REFUSED, "refused": True}]

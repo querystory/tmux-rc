@@ -733,7 +733,11 @@ async def _context_updater(session, watcher) -> None:
 TYPED_TURN_CHARS = 4000
 
 
-_IMAGE_REFUSED = "Images go to a text chat, as PNG, JPEG, WebP or GIF under 20 MB; not sent"
+# Images a turn may carry. Each is resent with every later request while the turn is kept,
+# and every one is held in memory here first; the composer stops at the same count.
+CHAT_IMAGES = 4
+_IMAGE_REFUSED = (f"Images go to a text chat, at most {CHAT_IMAGES} a turn, as PNG, JPEG, WebP "
+                  "or GIF under 20 MB; not sent")
 
 
 def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
@@ -743,7 +747,7 @@ def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
         return []
     from .server import _EXT, IMG_MAX_BYTES  # noqa: PLC0415 - server imports this module
 
-    if not text_session or not isinstance(raw, list):
+    if not text_session or not isinstance(raw, list) or len(raw) > CHAT_IMAGES:
         return None
     out = []
     for image in raw:

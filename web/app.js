@@ -4148,7 +4148,7 @@ function lmAdd(role, text, newSegment = false, extra = {}) {
   const last = lmLog[lmLog.length - 1];
   if (!newSegment && grow && last && last.role === role && !last.done) last.text += text;
   else lmLog.push({ role, text, done: !grow, ...extra });
-  if (lmMin) lmUnread = true;
+  if (lmMin && role !== "user") lmUnread = true; // not the user's own echo
   // Oldest first, but never a proposal still waiting on the user: the daemon would wait
   // forever for a Send/Cancel that is no longer on screen.
   for (let i; lmLog.length > 8 && (i = lmLog.findIndex((e) => e.role !== "propose" || lmFinal(e))) >= 0;)
@@ -4186,6 +4186,7 @@ function lmComposer() {
   const box = document.createElement("div"), form = document.createElement("form");
   form.className = "lm-compose chat-compose";
   chatComposer(form, {
+    session: () => lmSessionNo, // one per session, surviving its reconnects
     licon, error: (message) => lmAdd("err", message),
     send(frame, thumbnails) {
       if (!lmListening || lmWs?.readyState !== WebSocket.OPEN) return false;
@@ -4403,6 +4404,7 @@ if (lm.sheet) lm.sheet.onkeydown = (e) => {
   if (e.target === (e.shiftKey ? first : last)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
 };
 
+let lmSessionNo = 0;     // counts sessions, so a draft transcoding across a switch is caught
 let lmStarting = false; // getUserMedia is in flight; ignore toggle taps until it settles
 let lmLabel = "";       // the label this session was started with (shown in the pill)
 
@@ -4413,7 +4415,7 @@ async function lmStart(label, text = false) {
   lmText = text;
   if (label) { try { localStorage.setItem(text ? CHAT_MODEL_KEY : "tmuxrc-live-model", label); } catch {} }
   lmPill().classList.add("on");
-  lmLog = []; lmFatal = ""; lmThumbs = [];
+  lmLog = []; lmFatal = ""; lmThumbs = []; lmSessionNo++;
   lmPaintBar();
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
   // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit

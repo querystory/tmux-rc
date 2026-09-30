@@ -4,6 +4,7 @@
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 
 const TYPED_TURN_CHARS = 4000; // live.TYPED_TURN_CHARS: past it the daemon refuses the turn
+const CHAT_IMAGES = 4; // live.CHAT_IMAGES: images one turn may carry
 // Long edge a pasted image is sent at. Claude downsamples anything larger, and a phone
 // photo sent whole is several MB of base64 per turn, past its per-image cap.
 const IMAGE_EDGE = 1568;
@@ -25,8 +26,9 @@ async function imagePart(file) {
 // Fills `form` with the pane composer's editor (paste and the attach button add images in
 // line, with the same types and size limit), an attach button and Send. Enter sends.
 // send(frame, thumbnails) gets the socket's text frame and each image's thumbnail URL; it
-// returns false (not connected) to keep the draft.
-export function chatComposer(form, { licon, send, error }) {
+// returns false (not connected) to keep the draft. session() names the current
+// conversation, so a turn is never sent into a different one than it was written in.
+export function chatComposer(form, { licon, send, error, session }) {
   const composer = new Composer(() => {}, error, { id: "chat-input", label: "Message the assistant" });
   const attach = document.createElement("button"), picker = document.createElement("input");
   const submit = document.createElement("button");
@@ -48,6 +50,8 @@ export function chatComposer(form, { licon, send, error }) {
     const files = segments.filter((segment) => segment.file).map((segment) => segment.file);
     if (sending || (!text && !files.length)) return;
     if (text.length > TYPED_TURN_CHARS) return error("Too long; not sent");
+    if (files.length > CHAT_IMAGES) return error(`At most ${CHAT_IMAGES} images a turn; not sent`);
+    const owner = session(); // the conversation this draft was written in
     let images = [];
     if (files.length) {
       sending = true; composer.editor.contentEditable = "false";
@@ -58,8 +62,9 @@ export function chatComposer(form, { licon, send, error }) {
       finally { sending = false; composer.editor.contentEditable = "true"; }
     }
     const frame = { action: "text", text, images: images.map(({ mime, data }) => ({ mime, data })) };
-    // send() refuses (false) unless its session is up: after a model switch mid-transcode
-    // the new one is still connecting, so the draft is kept rather than sent there.
+    // A model switch (a new session) during the transcode keeps the draft unsent: it was
+    // written to the other model, and the new one has none of that conversation.
+    if (session() !== owner) return error("The conversation changed; not sent");
     if (send(frame, images.map((image) => image.url)) !== false) composer.replace([]);
   };
   form.append(attach, composer.editor, submit, picker);
