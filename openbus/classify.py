@@ -326,7 +326,7 @@ def _final_ask(visible: str, tool: str) -> dict | None:
         return None
     if error := error_re.match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
-    if "⏵⏵ auto mode on" not in visible:  # also behind vim's "-- INSERT --" prefix
+    if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
     handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
     if lines[-1].endswith("?"):
@@ -547,7 +547,8 @@ def classify(
         if turn["live"] and result.get("activity") in (None, "idle", "unknown"):
             result["activity"] = "running"
             result.pop("parse_ok", None)
-        elif not turn["live"] and result.get("activity") == "running":
+        elif (not turn["live"] and result.get("activity") == "running"
+              and not _USER_ROW_RE.search(visible, turn.end())):  # no newer turn began
             result["activity"] = "idle"  # The turn is over; background shells don't count.
             result.pop("parse_ok", None)
     # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not

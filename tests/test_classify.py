@@ -855,6 +855,11 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
     assert classify(_pane("claude"), insert, _llm({}))["question"]["answer_style"] == "text"
     prose = decision.replace("✻ Worked for 40s", "* Wait for 2s").replace("✻ Cooked", "* Cooked")
     assert classify(_pane("claude"), prose, _llm({"activity": "running"}))["activity"] == "running"
+    quoted = decision.replace("auto mode on", "accept edits on").replace(
+        "Still open:", "● The footer says ⏵⏵ auto mode on when enabled.\n  Still open:")
+    assert "question" not in classify(_pane("claude"), quoted, _llm({}))
+    newer = decision.replace("\n❯\n", "\n❯ run tests\n\n● Running tests\n")
+    assert classify(_pane("claude"), newer, _llm({"activity": "running"}))["activity"] == "running"
     empty_box = decision.replace("\n❯\n", "\n│ ❯                │\n")
     assert classify(_pane("claude"), empty_box, _llm({}))["question"]["answer_style"] == "text"
     for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
