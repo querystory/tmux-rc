@@ -489,15 +489,19 @@ def _codex_pane(watcher, entry: dict) -> str | None:
     app-server daemon, not the terminal client, holds a thread's rollout, so the process
     that proves it's running names no pane; the client's status bar starts with the
     thread's name, or its id while unnamed ("<id> · <model> · ..."). Only the status
-    chrome the parser validates counts, and a name shown in two panes decides nothing."""
-    shown: dict[str, list[str]] = {}
+    chrome the parser validates counts. Names repeat, so a name counts only with the
+    thread's directory on the same bar, and a match in two panes decides nothing."""
     # A copy: the watcher thread adds and drops panes while this runs.
-    for pane_id, hist in list(watcher.snapshots.items()):
-        for line in _session_chrome(hist[-1]["text"] or "") if hist else ():
-            if _codex_model_segments(line):
-                shown.setdefault(line.split("·")[0].strip(), []).append(pane_id)
-    panes = shown.get(entry["session_id"]) or shown.get(entry.get("title") or "", [])
-    return panes[0] if len(panes) == 1 else None
+    rows = [(pane_id, [s.strip() for s in line.split("·")])
+            for pane_id, hist in list(watcher.snapshots.items()) if hist
+            for line in _session_chrome(hist[-1]["text"] or "") if _codex_model_segments(line)]
+
+    def only(match) -> str | None:
+        panes = {pane_id for pane_id, segs in rows if match(segs)}
+        return panes.pop() if len(panes) == 1 else None
+    title, where = entry.get("title"), _home_relative(entry.get("cwd") or "")
+    return (only(lambda segs: segs[0] == entry["session_id"])
+            or (title and only(lambda segs: segs[0] == title and where in segs[1:])) or None)
 
 
 def _home_relative(path: str) -> str:

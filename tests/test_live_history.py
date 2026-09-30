@@ -207,9 +207,9 @@ def test_daemon_held_codex_thread_is_found_by_its_status_bar(history):
                      "resume_argv": ["codex", "resume", sid], "running": {"pid": 5}}
     w = _Watcher()
 
-    def show(pane, head):
+    def show(pane, head, where="/repo"):
         w.snapshots[pane] = [{"id": "s", "ts": 1.0,
-                              "text": f"output\n\n› \n\n  {head} · gpt-6 medium · ~/src/tmux-rc"}]
+                              "text": f"output\n\n› \n\n  {head} · gpt-6 medium · {where}"}]
 
     def resume():
         return _call("resume_session", {"session_id": sid}, w)[1]
@@ -217,6 +217,9 @@ def test_daemon_held_codex_thread_is_found_by_its_status_bar(history):
         show("%1", head)
         assert resume() == {"status": "already_running", "pane_id": "%1", "pane": "work"}
     show("%2", "tmuxrc live mode")  # the name in two panes decides nothing
+    assert resume()["status"] == "rejected"
+    del w.snapshots["%2"]
+    show("%1", "tmuxrc live mode", "~/other")  # names repeat: another thread's directory
     assert resume()["status"] == "rejected"
     # The id in output, not the status bar, isn't evidence either.
     w.snapshots = {"%1": [{"id": "s", "ts": 1.0, "text": f"{sid} · resumed ok"}]}

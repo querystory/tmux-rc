@@ -99,8 +99,9 @@ daemon, which holds the rollout of every thread its terminal clients show, while
 clients hold none; the daemon has left every terminal, so it reports no pane. tmux-rc
 fills the gap from the screen: the Codex status bar starts with the thread's name, or
 its ID while unnamed, so Live treats the one watched pane whose status bar names the
-thread as its pane. Otherwise (no such pane, or a name shown in two) the thread counts
-as running out of reach, and Live still refuses to start a second copy.
+thread as its pane (a name, which can repeat, only alongside the thread's directory).
+Otherwise the thread counts as running out of reach, and Live still refuses to start a
+second copy.
 
 If a harness can't tell what is running, only its own sessions are marked
 `running_unknown`; the other harnesses' answers stand.
