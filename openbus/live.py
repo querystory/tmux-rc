@@ -490,7 +490,8 @@ def _codex_pane(watcher, thread_id: str) -> str | None:
     proves it's running names no pane; the client's footer starts with the thread id
     ("<id> · <model> · ...")."""
     footer = thread_id + " · "
-    for pane_id, hist in watcher.snapshots.items():
+    # A copy: the watcher thread adds and drops panes while this runs.
+    for pane_id, hist in list(watcher.snapshots.items()):
         lines = tmux.strip_dim(hist[-1]["text"] or "").rstrip().splitlines()[-4:] if hist else []
         if any(line.lstrip().startswith(footer) for line in lines):
             return pane_id
