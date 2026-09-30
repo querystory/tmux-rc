@@ -77,7 +77,10 @@ func ReadCodex(files []string) (Session, error) {
 				if json.Unmarshal(p.Source, &sub) == nil && sub.Subagent.Other == "guardian" {
 					return errNotIndexed
 				}
-				s.Parent, s.Title = p.Parent, filepath.Base(sub.Subagent.ThreadSpawn.AgentPath)
+				if path := sub.Subagent.ThreadSpawn.AgentPath; path != "" {
+					s.Title = filepath.Base(path)
+				}
+				s.Parent = p.Parent
 				s.seen(rec.Timestamp, p.Cwd, p.Git.Branch)
 				json.Unmarshal(p.Source, &s.Entrypoint)
 			case p.Type == "user_message":

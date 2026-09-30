@@ -98,6 +98,11 @@ func TestReadCodex(t *testing.T) {
 		must(t, err)
 		check(t, "title after the log is readable", s.Title, "live mode fix")
 	}
+	// A thread nobody named stays untitled.
+	must(t, os.Remove(filepath.Join(codexDir(), "session_index.jsonl")))
+	s, err = ReadCodex(sessions[0])
+	must(t, err)
+	check(t, "unnamed title", s.Title, "")
 }
 
 func TestReconcileIndexesCodex(t *testing.T) {
