@@ -1,4 +1,4 @@
-import { timeAxis } from './time-axis.js';
+import { MIN_VIEW_SPAN, timeAxis } from './time-axis.js';
 
 // Local, pinned distributions: the mobile list never downloads chart libraries.
 let libraries;
@@ -118,11 +118,11 @@ export function atlasCharts() {
       legend: { show: false, selected: selectedStates },
       grid: { ...GUTTER, top: 28, bottom: 78 },
       dataZoom: [
-        { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 4, height: 24,
+        { type: 'slider', xAxisIndex: 0, ...zoom, minValueSpan: MIN_VIEW_SPAN, bottom: 4, height: 24,
           ...GUTTER, showDetail: false, borderColor: line,
           textStyle: { color: muted }, fillerColor: color('--accent-bg'),
           handleStyle: { color: color('--accent'), borderColor: color('--accent') } },
-        { type: 'inside', xAxisIndex: 0, ...zoom, zoomOnMouseWheel: 'ctrl',
+        { type: 'inside', xAxisIndex: 0, ...zoom, minValueSpan: MIN_VIEW_SPAN, zoomOnMouseWheel: 'ctrl',
           moveOnMouseWheel: false, preventDefaultMouseMove: false },
       ],
       xAxis: { ...timeAxis(barChart, bars.clientWidth - GUTTER.left - GUTTER.right, { color: muted }), axisTick: { show: false },

@@ -3,6 +3,9 @@
 // span is visible, so zoom and pan re-tick for free; this module only decides how many
 // ticks the width can hold and how each one reads.
 const TWO_WEEKS = 14 * 864e5;
+// History buckets are ≥1 min, so zooming past one minute only magnifies a single bar.
+export const MIN_VIEW_SPAN = 60e3;
+const CLOCK_UNITS = new Set(['minute', 'second', 'millisecond']);
 const format = (t, options) => new Date(t).toLocaleString([], options);
 
 // The visible span (after zoom/pan) decides whether dates read as weekdays or months.
@@ -24,10 +27,11 @@ export function timeAxis(chart, width, labelStyle) {
 }
 
 // Times only, with the date appearing just on the tick where the day turns over. The
-// meridiem rides on whole hours; the minute ticks between them stay short ("2:15").
+// meridiem rides on whole hours; the ticks between them stay short ("2:15", "2:15:30").
 export function timeLabel(t, unit, span) {
   const date = new Date(t);
-  if (unit === 'minute') return format(t, { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/i, '');
+  if (CLOCK_UNITS.has(unit)) return new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit',
+    second: unit === 'minute' ? undefined : '2-digit' }).formatToParts(date).filter(part => part.type !== 'dayPeriod').map(part => part.value).join('').trim();
   if (unit === 'hour') return format(t, { hour: 'numeric' });
   if (span <= TWO_WEEKS) return `${format(t, { weekday: 'short' })} ${date.getDate()}`;
   if (unit === 'day') return format(t, { month: 'short', day: 'numeric' });

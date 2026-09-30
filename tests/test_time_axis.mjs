@@ -4,7 +4,7 @@ process.env.TZ = "America/Los_Angeles";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { test } from "node:test";
-import { timeAxis, timeLabel } from "../web/m/time-axis.js";
+import { MIN_VIEW_SPAN, timeAxis, timeLabel } from "../web/m/time-axis.js";
 
 const echarts = createRequire(import.meta.url)("../web/m/vendor/echarts.min.js");
 const HOUR = 3600e3, END = Date.parse("2026-09-30T02:24:00-07:00");
@@ -15,7 +15,7 @@ function labels(span, width, zoom = [0, 100]) {
   const step = span / 288, data = [];
   for (let t = END - span; t <= END; t += step) data.push([t, 1]);
   chart.setOption({ grid: { left: 42, right: 14 }, yAxis: { show: false },
-    dataZoom: [{ type: "inside", start: zoom[0], end: zoom[1] }],
+    dataZoom: [{ type: "inside", start: zoom[0], end: zoom[1], minValueSpan: MIN_VIEW_SPAN }],
     xAxis: timeAxis(chart, width), series: [{ type: "bar", data }] });
   const svg = chart.renderToSVGString();
   chart.dispose();
@@ -50,9 +50,16 @@ test("zooming re-ticks to the visible span, keeping the midnight marker", () => 
   assert.ok(desktop.includes("Wed 30") && desktop.includes("11:30"), desktop);
 });
 
+test("the deepest zoom still reads as clock times, not repeated dates", () => {
+  const deepest = labels(HOUR, DESKTOP, [50, 51]);
+  assert.ok(deepest.length >= 3, deepest);
+  for (const label of deepest) assert.match(label, /^\d{1,2}(:\d\d){1,2}$|^\d{1,2} [AP]M$/);
+});
+
 test("labels adapt to the unit and the span", () => {
   const noon = Date.parse("2026-09-29T12:00:00-07:00");
   assert.equal(timeLabel(noon + 15 * 6e4, "minute", HOUR), "12:15");
+  assert.equal(timeLabel(noon + 30e3, "second", 60e3), "12:00:30");
   assert.equal(timeLabel(noon, "hour", HOUR), "12 PM");
   assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 24 * HOUR), "Wed 30");
   assert.equal(timeLabel(Date.parse("2026-09-30T00:00:00-07:00"), "day", 90 * 24 * HOUR), "Sep 30");
