@@ -109,18 +109,13 @@ def test_shared_audio_forwarder_reaches_the_adapter():
     assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
 
 
-@pytest.mark.parametrize("text", [False, True])
-def test_typed_turn_goes_to_the_backend_and_only_text_sessions_show_its_answer(text):
-    """GPT-Live's frontend takes no text, so a typed turn runs the backend; a text session
-    shows the backend's written answer, a voice session leaves it to be spoken."""
-    s = session([response("response.output_text.delta", delta="Found it")])
-    s.meter.text = text
+def test_typed_turn_goes_to_the_backend():
+    """GPT-Live's frontend takes no text, so a typed turn is a backend user item and a
+    continue; the frontend then voices the result like any other."""
+    s = session()
     asyncio.run(s.send_text("find it"))
     assert [e["type"] for e in s.ws.sent] == ["response.item.create", "response.create"]
-    assert s.ws.sent[0]["item"]["role"] == "user"
-    asyncio.run(s.receive())
-    shown = {"type": "transcript", "role": "model", "text": "Found it"} in s.browser.messages
-    assert shown is text
+    assert s.ws.sent[0]["item"]["content"] == [{"type": "input_text", "text": "find it"}]
 
 
 def test_tools_come_from_the_shared_table_unconverted():

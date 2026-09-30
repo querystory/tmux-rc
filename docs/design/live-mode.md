@@ -394,8 +394,11 @@ stays out of it. Realtime can answer in text, so a text session asks for that. G
 Live's native-audio models refuse TEXT output outright (setup fails with 1007), so they
 keep speaking; the written reply is the output transcription we already stream, and the
 browser simply doesn't play the audio. GPT-Live's voice frontend accepts no text at all,
-so a typed turn goes to its reasoning backend, which runs the same tools. Fed no audio,
-the frontend never speaks the answer, so a text session shows the backend's own text.
+so a typed turn goes to its reasoning backend, which runs the same tools. The frontend
+only runs while audio flows, though: with no mic it never voices the result, and the
+session dies about 30 seconds in with `context_injection_incomplete`. So a text session
+feeds it silence at the mic's pace, the same frames a muted mic already sends. The
+frontend's transcript then becomes the reply, just as with Gemini.
 
 The mode is chosen when the session starts and stays fixed. Switching mid-conversation, which the
 history doc calls for, means reacquiring the mic, and on Realtime a session.update. It
