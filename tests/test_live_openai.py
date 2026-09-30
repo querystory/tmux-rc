@@ -138,6 +138,15 @@ def test_tool_result_requests_follow_up_now_or_after_active_response():
     _run(scenario())
 
 
+def test_a_request_that_lost_to_a_server_response_is_retried_at_its_done():
+    """A typed turn's response.create can race one the server started from voice activity;
+    the rejection defers it to that response's done instead of dropping the turn."""
+    busy = {"type": "error", "error": {"code": "conversation_already_has_active_response"}}
+    ws = _WS([busy, {"type": "response.done", "response": {}}])
+    _run(_drain(P._OpenAISession(ws)))
+    assert ws.sent == [{"type": "response.create"}]
+
+
 def test_events_map_to_neutral_kinds_and_usage_accumulates():
     audio = base64.b64encode(b"\1\2\3\4").decode()
     usage1 = {

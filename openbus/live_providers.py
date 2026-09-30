@@ -701,6 +701,12 @@ class _OpenAISession:
                     self._pending = False
                     await self._respond()
             elif t == "error":
+                code = (ev.get("error") or {}).get("code")
+                if code == "conversation_already_has_active_response":
+                    # Our ask lost to a response the server started itself (voice activity)
+                    # before its response.created reached us: wait for that one to finish.
+                    self._active = self._pending = True
+                    continue
                 # Session-fatal errors also close the socket, which ends this loop and
                 # hands the reconnect to live.py; the rest are per-event and just logged.
                 logger.warning("[live] realtime error: %s", ev.get("error"))
