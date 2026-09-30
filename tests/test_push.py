@@ -190,6 +190,8 @@ def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
     assert push.option_keys(question, 0) == "y"
     assert push.option_keys({"answer_style": "menu", "options": ["Retry", "Abort"]}, 1) == "2"
+    assert push.option_keys({"answer_style": "menu", "options": ["Yes", "Abort"]}, 0) == "1"
+    assert push.option_keys({"answer_style": "menu", "options": ["Retry", "No"]}, 1) == "2"
     question = {"answer_style": "menu", "options": ["0. Dismiss", "1. Retry", "10. Other"]}
     assert push.option_keys(question, 0) == "0"
     assert push.option_keys(question, 1) == "1"

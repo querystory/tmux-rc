@@ -31,7 +31,7 @@
 // if the tap changed nothing the card simply stays for the user to act on.
 export function answerBody(q, opt, i) {
   if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
-  const yn = q.options.length === 2 && /^(yes|no)$/i.test(opt);
+  const yn = q.options.length === 2 && q.options.map(o => o.toLowerCase()).sort().join() === "no,yes";
   const number = opt.match(/^\s*(?:[❯›>]\s*)?(\d+)[.):]\s+/)?.[1] || String(i + 1);
   const keys = yn ? opt[0].toLowerCase() : number;
   // A second digit could reach the next menu after the first commits.
