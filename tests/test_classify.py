@@ -788,3 +788,70 @@ def test_copyable_can_quote_inline_code_and_wrapped_box():
         "copyables": [{"text": "git status"}, {"text": "A wrapped message."}],
     }))
     assert [c["text"] for c in result["copyables"]] == ["git status", "A wrapped message."]
+
+
+def _sample(name):
+    import json
+    from pathlib import Path
+    path = Path(__file__).parents[1] / "research/eval/samples" / f"{name}.json"
+    return json.loads(path.read_text(encoding="utf-8"))["capture"]
+
+
+def test_users_own_turn_under_a_live_spinner_is_not_a_question():
+    capture = _sample("54_claude_user_turn_is_not_question")
+    user_turn = "should we do that yet or wait a bit longer?"
+    calls = []
+    def read(_prompt, _text):
+        calls.append(1)
+        return {"tool": "claude", "activity": "waiting", "question": {"prompt": user_turn}}
+    result = classify(_pane("claude"), capture, read)
+    assert len(calls) == 2  # rejected, then re-read once
+    assert "question" not in result and "waiting_on" not in result
+    assert result["activity"] == "running"  # the live spinner is authoritative
+    # Either signal alone rejects it: the ❯ row, or a live spinner below agent text.
+    agent_text = "\x1e[visible screen]\x1f\n● Push now?\n\n✶ Pushing… (3s · esc to interrupt)"
+    for screen, prompt in ((capture.split("· Befuddling")[0], user_turn),
+                           (agent_text, "Push now?")):
+        result = classify(_pane("claude"), screen, _llm({
+            "tool": "claude", "activity": "idle", "question": {"prompt": prompt}}))
+        assert "question" not in result
+
+
+def test_finished_turn_blocked_on_the_user_is_a_text_wait():
+    cases = {
+        "55_claude_turn_ends_with_user_handoff": "The PRD's local fix is committed",
+        "56_claude_turn_ends_with_decision": "- Live text mode prototype: should I start it",
+        "57_codex_turn_aborted_by_provider_error": "Selected model is at capacity.",
+    }
+    for name, prompt in cases.items():
+        # The model's "running" (background shells/monitors) and "idle" both lose.
+        result = classify(_pane("node"), _sample(name), _llm({"activity": "running"}))
+        assert result["question"]["prompt"].startswith(prompt)
+        assert result["question"]["answer_style"] == "text"
+        assert result["activity"] == "waiting" and result["waiting_on"] == "user"
+    assert result["question"]["options"] == ["try again"]
+
+
+def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
+    decision = _sample("56_claude_turn_ends_with_decision")
+    error = _sample("57_codex_turn_aborted_by_provider_error")
+    for screen in (
+        decision.replace("auto mode on", "accept edits on"),  # an optional offer stays idle
+        decision.replace("\n❯\n", "\n❯ yes start it\n"),  # the user already answered
+        error.replace("⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫", "try again"),
+        error.replace("■ Selected model is at capacity. Please try a different model.",
+                      "■ Conversation interrupted - tell the model what to do differently."),
+    ):
+        result = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "running"}))
+        assert "question" not in result
+    assert result["activity"] == "running"  # nothing in the Codex screens overrides the model
+    assert classify(_pane("claude"), decision.replace("auto mode on", "plan mode on"), _llm({
+        "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
+
+
+def test_claude_api_error_ending_the_turn_offers_a_retry():
+    screen = ("\x1e[visible screen]\x1f\n● Fixing the parser.\n"
+              "  ⎿  API Error: 529 overloaded_error\n\n❯\n  ~/src/app · Opus 5.5")
+    result = classify(_pane("claude"), screen, _llm({"tool": "claude", "activity": "idle"}))
+    assert result["question"] == {"prompt": "API Error: 529 overloaded_error",
+                                  "answer_style": "text", "options": ["try again"]}

@@ -1,0 +1,10 @@
+{
+  "description": "Claude working (live spinner) under the user's own just-submitted question: the ❯ user turn is not the agent asking, and the live spinner below it means running, not Needs you.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n\n❯ yes to all\n\n● Doing both: committing the research to PR #5006, and pushing the PRD branch with a planning PR:\n\n  Ran 1 shell command\n\n● The research is in PR #5006 and passes the strict build. Before pushing the PRD, I'm reading it:\n\n  Ran 1 shell command\n\n● Solid and well sourced. One stale line: it says the research file is \"not yet committed\", and it now is, so I'll fix that. Then pushing and opening the planning PR:\n\n  Ran 1 shell command\n\n❯ so that article you linked suggests disabling and re-enabling agents, should we do that yet or wait a bit longer?\n\n· Befuddling… (1m 19s · ↓ 2.4k tokens)\n  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work\n  bash denied by auto mode · [External System Writes] · /permissions\n──────────────────────────────────────────────────────────────────────────────── crm rollout ─\n❯\n────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/app on feat/claude-opus-5-5 | Opus 5.5 | user@example.com | telemetry: •stats •prompts •tools\n  session: +1529/-0 lines · 60% ctx · 30h56m · $50.38   |  history: 453 prompts · 355 tools · 17.5MB · 50 imgs | limit: 65%/57%/6% 5h/7d/Fable (resets 43m/38h)\n  ⏵⏵ auto mode on · 2 monitors · ← for agents",
+  "expected": {
+    "tool": "claude",
+    "activity": "running",
+    "headline": "Working on the research commit and PRD push; a user follow-up is queued"
+  }
+}

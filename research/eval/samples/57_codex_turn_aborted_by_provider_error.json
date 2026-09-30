@@ -1,0 +1,14 @@
+{
+  "description": "Codex turn aborted by a provider error ('■ Selected model is at capacity…') above the empty input (a marked placeholder): the user has to act, so a text Needs-you offering 'try again'.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n\n• Ran rg -n 'isTrustedContent|allow-scripts|sandbox|completedAt' ../app/ui/src/pages/OutputViewPage.tsx ../app/ui/src/pages/OutputPage.tsx ../app/ui/src/domains/outputs -g '*.tsx' | head -35; confidence_lab/qscli-replay project update --help\n  └ ../app/ui/src/pages/OutputViewPage.tsx:503:  // sandbox from describing a different output than the content.\n    ../app/ui/src/pages/OutputViewPage.tsx:612:          isTrustedContent={!!iframeOutput?.isTrustedContent}\n    ../app/ui/src/domains/outputs/OutputIframe.test.tsx:37:  isTrustedContent: false,\n    +53 lines (ctrl+t to view transcript)\n\n• Ran rg -n 'function contentSandbox|allow-downloads|download' ../app/ui/src/domains/outputs/OutputIframe.tsx ../app/ui/src/lib/outputContent* ../app/ui/src/domains/outputs/*sandbox* 2>/dev/null | head -20; rg --files ../app/ui/src | rg 'sandbox|contentUrl|outputContent'; confidence_lab/qscli-replay project\n  │ pin-output --help\n  └ ../app/ui/src/domains/queries/sandbox.ts\n    ../app/ui/src/domains/queries/sandbox.test.ts\n    Pin an output to a project\n    +17 lines (ctrl+t to view transcript)\n\n• Explored\n  └ Search contentSandbox in ui\n    Read OutputIframe.tsx\n\n■ Selected model is at capacity. Please try a different model.\n\n\n› ⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫\n\n  01a0efa9-f0af-7650-bea0-3cba2ab1a731 · GPT-6.1-Sol medium · Context 28% left · Context 72% used · main · ~/src/acme/research · weekly 35% left · Ready · ← for agents  ⚠ 6 warnings · f2 to view",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    },
+    "headline": "Turn stopped: selected model is at capacity"
+  }
+}
