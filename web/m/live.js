@@ -23,7 +23,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   const mic = licon("mic");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-close").innerHTML = licon("x");
-  let run = null, sequence = 0, fetching = false, modelSignature = null;
+  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [];
   // Voice, or text: typed turns and written replies, with no mic and no playback.
   let mode = "voice"; try { mode = localStorage.getItem("tmuxrc-live-input") || mode; } catch {}
   const status = (message) => { $("voice-status").textContent = message; };
@@ -48,23 +48,29 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       onVersion(data.version);
       $("live-mode").hidden = !data.live_enabled && !run;
       if (run) return;
-      const models = data.live_models || [{ label: "Default", value: "" }];
-      let saved; try { saved = localStorage.getItem("tmuxrc-live-model"); } catch {}
-      const signature = JSON.stringify([models, saved]);
-      if (signature === modelSignature) return;
-      modelSignature = signature;
-      $("voice-models").replaceChildren(...models.map((model) => {
-        const button = document.createElement("button");
-        const image = document.createElement("img"); image.alt = "";
-        image.src = /gemini/i.test(model.label) ? "/gemini.svg" : /gpt|openai/i.test(model.label) ? "/openai.svg" : "/icon.svg";
-        const label = document.createElement("span"), title = document.createElement("strong"), hint = document.createElement("small");
-        title.textContent = model.label; hint.textContent = [model.hint, (model.value ?? model.label) === saved ? "Last used" : ""].filter(Boolean).join(" / ");
-        label.append(title, hint); button.append(image, label); button.insertAdjacentHTML("beforeend", mic);
-        button.onclick = () => { $("voice-model").value = model.value ?? model.label; start(); };
-        return button;
-      }));
+      menu = data.live_models || [{ label: "Default", value: "" }];
+      renderModels();
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
+  }
+  // Text lists only the models that answer in text; audio-only ones would only talk.
+  function renderModels() {
+    const models = mode === "text" ? menu.filter((model) => model.text) : menu;
+    let saved; try { saved = localStorage.getItem("tmuxrc-live-model"); } catch {}
+    const signature = JSON.stringify([models, saved, mode]);
+    if (signature === modelSignature) return;
+    modelSignature = signature;
+    $("voice-models").replaceChildren(...models.map((model) => {
+      const button = document.createElement("button");
+      const image = document.createElement("img"); image.alt = "";
+      image.src = /gemini/i.test(model.label) ? "/gemini.svg" : /gpt|openai/i.test(model.label) ? "/openai.svg" : "/icon.svg";
+      const label = document.createElement("span"), title = document.createElement("strong"), hint = document.createElement("small");
+      title.textContent = model.label; hint.textContent = [model.hint, (model.value ?? model.label) === saved ? "Last used" : ""].filter(Boolean).join(" / ");
+      label.append(title, hint); button.append(image, label);
+      if (mode === "voice") button.insertAdjacentHTML("beforeend", mic);
+      button.onclick = () => { $("voice-model").value = model.value ?? model.label; start(); };
+      return button;
+    }));
   }
   function add(role, message, newSegment = false) {
     const log = $("voice-log"), previous = log.lastElementChild;
@@ -74,14 +80,31 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     if (!grow) {
       row = document.createElement("div"); row.className = "voice-entry";
       row.dataset.role = role;
-      row.classList.add(["user", "model", "typed", "error"].includes(role) ? role : "model");
+      row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
-      heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection" }[role] || "Assistant";
+      heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("span")); log.append(row);
     }
     row.lastChild.textContent += message || "";
     while (log.children.length > TRANSCRIPT_ROWS) log.firstChild.remove();
     if (follow) log.scrollTop = log.scrollHeight;
+  }
+  // A pane-changing action in a text session waits for the user: Send runs it, Cancel
+  // tells the model the user declined (live._approved).
+  function propose(current, { id, text }) {
+    add("propose", text);
+    const row = $("voice-log").lastElementChild, actions = document.createElement("div");
+    actions.className = "voice-actions";
+    for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
+      const button = document.createElement("button"); button.type = "button"; button.textContent = label;
+      if (ok) button.className = "primary";
+      button.onclick = () => {
+        actions.remove(); row.firstChild.textContent = ok ? "Approved" : "Declined";
+        if (run === current && current.ws?.readyState === WebSocket.OPEN) current.ws.send(JSON.stringify({ action: "approve", id, ok }));
+      };
+      actions.append(button);
+    }
+    row.append(actions);
   }
   function silence(current) {
     current.queued.forEach((source) => { try { source.stop(); } catch {} });
@@ -246,6 +269,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       else if (message.type === "turn_complete") [...$("voice-log").children].forEach((row) => { row.dataset.done = "true"; });
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
       else if (message.type === "error") add("error", message.message);
+      else if (message.type === "propose") propose(current, message);
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
@@ -320,7 +344,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   $("voice-mode").onclick = ({ target }) => {
     const button = target.closest("button[data-mode]");
     if (!button || run) return;
-    mode = button.dataset.mode; paint();
+    mode = button.dataset.mode; paint(); renderModels();
     try { localStorage.setItem("tmuxrc-live-input", mode); } catch {}
   };
   $("voice-compose").onsubmit = (event) => {

@@ -4112,11 +4112,11 @@ let lmListening = false;         // true only while the daemon reports "listenin
 
 // Transcription arrives as fragments; grow the current entry for that role until the
 // turn completes. Typed actions and errors are single whole entries.
-function lmAdd(role, text, newSegment = false) {
+function lmAdd(role, text, newSegment = false, extra = {}) {
   const grow = role === "user" || role === "model";
   const last = lmLog[lmLog.length - 1];
   if (!newSegment && grow && last && last.role === role && !last.done) last.text += text;
-  else lmLog.push({ role, text, done: !grow });
+  else lmLog.push({ role, text, done: !grow, ...extra });
   while (lmLog.length > 8) lmLog.shift();
   lmPaint();
 }
@@ -4129,7 +4129,8 @@ function lmPaintInto(box) {
   keyedList(box, lmLog, (e, i) => i + ":" + e.role, () => document.createElement("div"),
     (d, e) => {
       setAttr(d, "class", "lm-" + e.role);
-      setText(d, (e.role === "user" ? "🗣 " : "") + e.text);
+      if (e.role === "propose") lmProposal(d, e);
+      else setText(d, (e.role === "user" ? "🗣 " : "") + e.text);
     });
   // Follow the tail only when already there, so reading back through the transcript isn't
   // yanked down by the next incoming fragment.
@@ -4154,6 +4155,28 @@ function lmComposer() {
     input.value = "";
   };
   return form;
+}
+
+// A pane-changing action in a text session waits for the user: Send runs it, Cancel tells
+// the model the user declined (live._approved). Rebuilt only when its proposal or answer
+// changes, since the keyed node can be handed a different proposal as the log shifts.
+function lmProposal(d, e) {
+  if (d.dataset.id === e.id && d.dataset.state === (e.state || "")) return;
+  d.dataset.id = e.id; d.dataset.state = e.state || "";
+  const text = document.createElement("span");
+  text.textContent = `${e.state || "Wants to act"}: ${e.text}`;
+  const parts = [text];
+  if (!e.state) for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.onclick = () => {
+      e.state = ok ? "Approved" : "Declined";
+      if (lmWs?.readyState === WebSocket.OPEN) lmWs.send(JSON.stringify({ action: "approve", id: e.id, ok }));
+      lmPaint();
+    };
+    parts.push(b);
+  }
+  d.replaceChildren(...parts);
 }
 
 // Repaint between renders, straight onto the card's PERMANENT .lm-convo node — the card
@@ -4297,7 +4320,9 @@ function lmSheet(open) {
     modes.append(b);
   }
   head.append(modes);
-  const rows = lmModels.map((m) => {
+  // Text lists only the models that answer in text; audio-only ones would only talk.
+  const menu = lmInput === "text" ? lmModels.filter((m) => m.text) : lmModels;
+  const rows = menu.map((m) => {
     const b = row(m.label, m.hint, m.label === cur);
     b.onclick = () => { lmSheet(false); lmStart(m.label); };
     return b;
@@ -4305,7 +4330,7 @@ function lmSheet(open) {
   const close = row("Close", "", false, "close");
   close.onclick = () => lmSheet(false);
   lm.sheet.firstElementChild.replaceChildren(head, ...rows, close);
-  rows[Math.max(0, lmModels.findIndex((m) => m.label === cur))].focus(); // land on the remembered choice
+  rows[Math.max(0, menu.findIndex((m) => m.label === cur))]?.focus(); // land on the remembered choice
 }
 if (lm.sheet) lm.sheet.onclick = (e) => { if (e.target === lm.sheet) lmSheet(false); }; // scrim tap
 if (lm.sheet) lm.sheet.onkeydown = (e) => {
@@ -4407,6 +4432,7 @@ function lmConnect() {
     else if (m.type === "typed")
       lmAdd("typed", `⌨ ${m.label} (${m.pane_id})${m.submitted ? "" : " (not submitted)"}: ${m.text}`);
     else if (m.type === "error") { lmFatal = m.message; lmAdd("err", m.message); } // .lm-err red
+    else if (m.type === "propose") lmAdd("propose", m.text, true, { id: m.id });
   };
   ws.onclose = (e) => {
     if (lmWs !== ws) return;

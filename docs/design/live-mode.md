@@ -382,28 +382,39 @@ card: that number is where the comparison will be decided.
 
 ## Text mode (prototype)
 
-A first cut of the composer in live-conversation-history.md: the same session, tools,
-fleet snapshot and audit, with typed turns in place of speech. A typed turn is a new
-adapter verb, `send_text`, deliberately separate from `send_context`. Context must never
-prompt a reply, and a typed turn must always get one. The daemon echoes the turn back as
-the user's transcript. The bubble therefore appears only once the daemon has the turn,
-never as an optimistic local copy, and both clients render typing exactly like speech.
+This is a first cut of the composer described in live-conversation-history.md. It keeps
+the same session, tools, fleet snapshot and audit, with typed turns in place of speech. A
+typed turn is a new adapter verb, `send_text`, deliberately separate from `send_context`.
+Context must never prompt a reply, and a typed turn must always get one. The daemon echoes
+the turn back as the user's transcript. The bubble therefore appears only once the daemon
+has the turn, never as an optimistic local copy, and both clients render typing exactly
+like speech.
 
-What "text output" means depends on the provider, so each adapter decides and live.py
-stays out of it. Realtime can answer in text, so a text session asks for that. Gemini
-Live's native-audio models refuse TEXT output outright (setup fails with 1007), so they
-keep speaking; the written reply is the output transcription we already stream, and the
-daemon simply doesn't forward the audio. GPT-Live's voice frontend accepts no text at all,
-so a typed turn goes to its reasoning backend, which runs the same tools. The frontend
-only runs while audio flows, though: with no mic it never voices the result, and the
-session dies about 30 seconds in with `context_injection_incomplete`. So a text session
-feeds it silence at the mic's pace, the same frames a muted mic already sends. The
-frontend's transcript then becomes the reply, just as with Gemini.
+**Only models that answer in text are offered.** Realtime can reply in text. Gemini Live's
+native-audio models refuse TEXT output outright (setup fails with 1007), and GPT-Live's
+replies are only ever spoken. The first prototype showed both of them anyway, as
+transcribed speech. On the phone that read as hesitant talk ("Hmm… Okay. Hmm."), and
+GPT-Live additionally had to be fed silence to run at all. A transcript is not a text
+reply, so `LiveModel.text` gates the Text list, and the socket refuses a text session on
+any other model.
 
-The mode is chosen when the session starts and stays fixed. Switching mid-conversation, which the
-history doc calls for, means reacquiring the mic, and on Realtime a session.update. It
-is left for after the prototype has been used. The composer also appears in voice
-sessions, because typing a pane name nobody can pronounce is useful there too.
+**Pane-changing tools wait for a tap.** When the assistant answered a typed "What's going
+on", it typed a relayed question into a live agent that nobody had asked it to touch. In a
+text session, type_in_pane, press_key and resume_session are therefore proposed rather
+than run. The client shows what the call would do, and only Send executes it. Cancel
+answers the model that the user declined, and the audit records either answer. The gate
+sits in `_handle_tool_call`, the one choke point every Live tool call already passes
+through, so no tool can skip it. find_sessions only reads, so it runs at once. This is the
+control plane's risk-tier idea (agentic-control-plane.md) applied at the smallest scale.
+Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
+X into Y" announcement is voice's confirmation.
+
+A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
+and it tells the model its actions are approved first. The mode is fixed when the session
+starts. Switching mid-conversation, as the history doc asks, means reacquiring the mic
+(and a session.update on Realtime), so it waits until the prototype has been used. The
+composer also appears in voice sessions, where it is handy for pane names nobody can
+pronounce.
 
 ## v0.2 candidates (explicitly out of scope now)
 

@@ -98,6 +98,13 @@ class LiveModel:
             return own
         return f"{_BACKEND_NAME[self.backend]} · ${self.rates[2]:g}/${self.rates[3]:g} per 1M audio"
 
+    @property
+    def text(self) -> bool:
+        """Whether it can answer in text, and so be offered for a text session. Realtime
+        can; Gemini Live's native-audio models refuse TEXT output outright (setup fails
+        with 1007), and transcribed speech is not a text reply. An entry may opt out."""
+        return self.backend in ("openai", "azure-openai") and self.flags.get("text") is not False
+
     def available(self) -> bool:
         """Offered only when its credential is present. A keyless entry stays in the
         table — so the picker appears the moment the key lands, no config edit — but is
@@ -331,7 +338,7 @@ class _GeminiSession:
 
     @staticmethod
     @contextlib.asynccontextmanager
-    async def open(model: LiveModel, system_prompt: str, text: bool):  # noqa: ARG004 - see cfg
+    async def open(model: LiveModel, system_prompt: str, text: bool):  # noqa: ARG004 - never True
         # ~0.9s to import, and only the Gemini backends ever need it — a table with no
         # Gemini entry must not pay for it at daemon start.
         from google import genai  # noqa: PLC0415
@@ -354,9 +361,8 @@ class _GeminiSession:
                 project=project,
                 location=os.environ.get("TMUXRC_LIVE_REGION", "us-central1"),
             )
-        # AUDIO even for a text session: Live's native-audio models refuse TEXT output
-        # outright (1007), so the written reply is the output transcription below and the
-        # daemon doesn't forward the audio.
+        # Always AUDIO: no Gemini entry has text output (LiveModel.text), so live.py never
+        # opens a text session here.
         cfg = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             tools=[

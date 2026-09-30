@@ -34,11 +34,10 @@ LABEL = "GPT-Live 1"
 # model that does not bill that way.
 ENTRY = live_providers.LiveModel(
     label=LABEL, model=MODEL, backend="openai",
-    flags={"hint": "OpenAI · $0.05/min + backend"},
+    flags={"hint": "OpenAI · $0.05/min + backend", "text": False},
 )
 BACKEND = "gpt-5.6-luna"
 URL = "wss://api.openai.com/v1/live/sessions"
-FRAME_MS = 40  # the mic batch GPT-Live asks for, for conversational timing
 logger = logging.getLogger(__name__)
 
 VOICE_PROMPT = """You are the voice of the user's tmux terminal session.
@@ -215,9 +214,10 @@ class Session:
             )
 
     async def send_text(self, text):
-        """The seam's typed-turn verb. GPT-Live's voice frontend takes no text, so the turn
-        goes to the reasoning backend, which runs the same tools; the frontend voices the
-        result, and its transcript is the reply a text session shows."""
+        """The seam's typed-turn verb, for the composer in a voice session (GPT-Live has no
+        text output, so it is never offered for a text one). Its voice frontend takes no
+        text, so the turn goes to the reasoning backend, which runs the same tools, and
+        the frontend voices the result."""
         if self.closing:
             return
         await self.send(
@@ -231,15 +231,6 @@ class Session:
             }
         )
         await self.send({"type": "response.create"})
-
-    async def silence(self):
-        """A text session's stand-in for the mic. GPT-Live's frontend only runs while audio
-        flows: without it no backend result is voiced or transcribed, and after ~30s the
-        session dies with context_injection_incomplete. Silence at the mic's pace."""
-        frame = bytes(16000 * 2 * FRAME_MS // 1000)
-        while True:
-            await self.send_audio(frame)
-            await asyncio.sleep(FRAME_MS / 1000)
 
     async def send_context(self, text):
         """The seam's ambient-context verb. No turn_complete to pass on: GPT-Live delegates
@@ -330,8 +321,6 @@ class Session:
                 # Error messages may quote context; expose codes, not arbitrary content.
                 raise ProviderError(event)
             if kind == "session.output_audio.delta":
-                if self.meter.text:
-                    continue  # a text session never plays it
                 # Live streams continuous audio; it has no Realtime speech-start /
                 # output-done events. Do not infer interruptions from transcripts:
                 # brief user backchannels can intentionally overlap model speech.
@@ -498,14 +487,13 @@ async def run_session(browser, watcher, meter):
         tasks = []
         try:
             await browser.send_json(
-                {"type": "status", "status": "listening", "frame_ms": FRAME_MS}
+                {"type": "status", "status": "listening", "frame_ms": 40}
             )
             tasks = [
                 asyncio.create_task(live._forward_client(browser, session, meter)),  # noqa: SLF001 - shared Live adapter internals
                 asyncio.create_task(session.receive()),
                 asyncio.create_task(session.execute()),
                 asyncio.create_task(live._context_updater(session, watcher)),  # noqa: SLF001 - shared Live adapter internals
-                *([asyncio.create_task(session.silence())] if meter.text else []),
             ]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:

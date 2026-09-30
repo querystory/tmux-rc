@@ -205,6 +205,43 @@ def test_typing_dispatches_and_logs(monkeypatch):
     assert "screen" not in str(payload)
 
 
+@pytest.mark.parametrize("ok", [True, False])
+def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch, ok):
+    """In a text session a pane-changing call is proposed, not run: it types only on the
+    user's Send, and Cancel answers the model that the user declined. Both are audited."""
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Tap(_WS):  # the browser: taps Send or Cancel on the card it is shown
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                client = _ScriptedWS([{"action": "approve", "id": obj["id"], "ok": ok},
+                                      {"action": "stop"}])
+                await L._forward_client(client, None, meter)
+
+    typed, audits = [], []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
+    ws, session = Tap(), _Session()
+    fc = _FC(args={"pane_id": "%1", "text": "rebase onto main"})
+    _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
+
+    assert ws.sent[0]["type"] == "propose"
+    assert ws.sent[0]["text"] == "Send to work: rebase onto main"
+    assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
+    assert session.responses[0][1] == (
+        {"status": "done", "pane": "work"} if ok
+        else {"status": "declined", "reason": "the user declined"})
+    assert audits[-1]["consent"] == ("approved" if ok else "declined")
+    assert meter.approvals == {}
+
+
+def test_text_session_prompt_labels_relays_as_typed():
+    assert "(via voice)" in L._system_prompt(_Watcher())
+    typed = L._system_prompt(_Watcher(), text=True)
+    assert "(via voice)" not in typed and "(via text)" in typed
+
+
 def test_press_key_dispatches_named_key(monkeypatch):
     # press_key sends a named key non-literally with no auto-Enter — the way to reach
     # Escape / C-c / arrows that type_in_pane can't.
