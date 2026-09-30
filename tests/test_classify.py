@@ -858,3 +858,7 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
                                   "answer_style": "text", "options": ["try again"]}
     shell = classify(_pane("bash"), "■ Build failed\nuser@host:~$ ", _llm({"activity": "idle"}))
     assert "question" not in shell and shell["activity"] == "idle"
+    # Another tool's chrome is output, not this pane's turn.
+    claude = classify(_pane("claude"), "● Ran make\n■ Build failed\n\n❯", _llm({}))
+    codex = classify(_pane("codex"), screen.replace("  ⎿  ", "✻ Worked for 3s\n"), _llm({}))
+    assert "question" not in claude and "question" not in codex

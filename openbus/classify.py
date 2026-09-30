@@ -60,13 +60,12 @@ _CLAUDE_TURN_RE = re.compile(
     r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
     re.MULTILINE,
 )
-# A provider error that aborted the turn: Codex's "■ Selected model is at capacity…"
-# (not its "■ Conversation interrupted", nor OpenCode's "■⬝" spinner), Claude Code's
-# "⎿ API Error: 529 …".
-_TURN_ERROR_RE = re.compile(
-    r"^[ \t]*(?:■[ \t]+(?!.*\binterrupted\b)|(?:⎿[ \t]*)?(?=API Error\b))(?P<text>.*\S)",
-    re.MULTILINE,
-)
+# A provider error that aborted the turn, per tool: Codex's "■ Selected model is at
+# capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
+_TURN_ERROR_RE = {
+    "codex": re.compile(r"^[ \t]*■[ \t]+(?!.*\binterrupted\b)(?P<text>.*\S)", re.MULTILINE),
+    "claude": re.compile(r"^[ \t]*(?:⎿[ \t]*)?(?P<text>API Error\b.*\S)", re.MULTILINE),
+}
 _USER_ROW_RE = re.compile(f"^[{PROMPT_GLYPHS}][ \\xa0]*\\S", re.MULTILINE)
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
@@ -302,21 +301,22 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["session"] = retry_session
 
 
-def _final_ask(screen: str) -> dict | None:
+def _final_ask(screen: str, tool: str) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
     `! command` handed over to run. Anything typed after it means the user already acted."""
     visible = strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
-    stop = max([*_CLAUDE_TURN_RE.finditer(visible), *_TURN_ERROR_RE.finditer(visible)],
-               key=re.Match.start, default=None)
+    error_re = _TURN_ERROR_RE[tool]
+    turns = _CLAUDE_TURN_RE.finditer(visible) if tool == "claude" else ()
+    stop = max([*turns, *error_re.finditer(visible)], key=re.Match.start, default=None)
     if stop is None or stop.groupdict().get("live") or _USER_ROW_RE.search(visible, stop.end()):
         return None
-    end = stop.end() if stop.re is _TURN_ERROR_RE else stop.start()
+    end = stop.end() if stop.re is error_re else stop.start()
     message = visible[:end].rsplit("\n● ", 1)[-1]  # the turn's final assistant message
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return None
-    if error := _TURN_ERROR_RE.match(lines[-1]):
+    if error := error_re.match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*⏵⏵ auto mode on\b", visible):
         return None
@@ -536,9 +536,10 @@ def classify(
             result["activity"] = "running"
         elif not turn["live"] and result.get("activity") == "running":
             result["activity"] = "idle"  # The turn is over; background shells don't count.
-    # The final-turn chrome belongs to the agent TUIs; a shell printing "■ Build failed" is not one.
-    if (result.get("tool") in ("claude", "codex") and not result.get("question")
-            and (ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1]))):
+    # Each agent's own turn chrome only: a shell or Claude printing "■ Build failed" is not
+    # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
+    if (result.get("tool") in _TURN_ERROR_RE and not result.get("question")
+            and (ask := _final_ask(text.rsplit(VISIBLE_SCREEN, 1)[-1], result["tool"]))):
         result["question"] = ask
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
