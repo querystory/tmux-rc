@@ -109,10 +109,13 @@ class _Meter:
     `session` is a per-session UUID — the summable key shared with emit_live's watch-time
     rounds, so a query can join a voice session's cost to its screen-view time."""
 
-    def __init__(self, session: str, actor: str | None, model: LiveModel) -> None:
+    def __init__(
+        self, session: str, actor: str | None, model: LiveModel, *, text: bool = False
+    ) -> None:
         self.session = session
         self.actor = actor
         self.model = model
+        self.text = text  # typed turns, written replies: no mic, no playback
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
         self.started = time.monotonic()
@@ -654,8 +657,21 @@ async def _context_updater(session, watcher) -> None:
         )
 
 
-async def _forward_audio(websocket: WebSocket, session) -> None:
-    """Client → model: base64 16kHz PCM frames until the client says stop."""
+# A typed turn longer than this is cut: it is a message to the assistant, not a paste.
+TYPED_TURN_CHARS = 4000
+
+
+async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str, **extra) -> None:
+    """One transcript fragment to the browser and the meter — spoken, or typed."""
+    if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
+        logger.info("[live] %s: %s", role, text)
+    meter.note(f"{role}: {text}")
+    await websocket.send_json({"type": "transcript", "role": role, "text": text, **extra})
+
+
+async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
+    """Client → model: base64 16kHz PCM frames and typed turns until the client says stop.
+    A typed turn is echoed as the user's transcript, so both clients render it like speech."""
     while True:
         data = await websocket.receive_json()
         action = data.get("action")
@@ -668,6 +684,12 @@ async def _forward_audio(websocket: WebSocket, session) -> None:
             except Exception:  # noqa: BLE001 - skip one bad frame, keep streaming
                 continue
             await session.send_audio(audio)
+        elif action == "text":
+            text = data.get("text")
+            if isinstance(text, str) and text.strip():
+                text = text.strip()[:TYPED_TURN_CHARS]
+                await _transcript(websocket, meter, "user", text, new_segment=True)
+                await session.send_text(text)
         elif action == "stop":
             return
         else:
@@ -687,10 +709,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "audio":
             await websocket.send_json({"type": "audio", "data": base64.b64encode(ev.data).decode()})
         elif ev.kind == "transcript":
-            if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
-                logger.info("[live] %s: %s", ev.role, ev.text)
-            meter.note(f"{ev.role}: {ev.text}")
-            await websocket.send_json({"type": "transcript", "role": ev.role, "text": ev.text})
+            await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
             meter.end_turn()
             await websocket.send_json({"type": "turn_complete"})
@@ -723,7 +742,9 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
             # pane snapshot — the connect snapshot is the only place full screens are sent
             # (ambient [tmux update]s omit them), so reusing a stale one would leave a
             # reconnected session answering/acting on minutes-old screen state.
-            async with live_providers.connect(model, _system_prompt(watcher)) as session:
+            async with live_providers.connect(
+                model, _system_prompt(watcher), text=meter.text
+            ) as session:
                 logger.info(
                     "[live] session up (model=%s via %s, actor=%s)",
                     model.model, model.backend, meter.actor,
@@ -746,7 +767,7 @@ async def _run_session(websocket: WebSocket, watcher, meter: _Meter) -> None:
                 # and never entered. (The GPT-Live adapter already waits on all of its
                 # tasks together; this is the seam saying the same thing.)
                 pump = asyncio.create_task(
-                    _forward_audio(websocket, session), name="live-audio"
+                    _forward_client(websocket, session, meter), name="live-client"
                 )
                 side.append(pump)  # so the drain below tears this one down too
                 try:
@@ -856,8 +877,9 @@ async def live_mode(websocket: WebSocket) -> None:
     # Per-session UUID — the summable key that ties this voice session's cost (emit_live_turn)
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
-    meter = _Meter(session_id, telemetry.actor(websocket), model)
-    _audit(meter, "live_session", detail="start")
+    text = websocket.query_params.get("mode") == "text"
+    meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
+    _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     outcome, reason = "ok", "stop"
     try:
         if use_gpt:

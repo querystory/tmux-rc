@@ -310,6 +310,39 @@ def test_openai_backends_gate_on_their_keys(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("text", [False, True])
+def test_text_session_asks_for_text_and_typed_turn_is_a_user_item(monkeypatch, text):
+    import websockets
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    ws = _WS([{"type": "response.output_text.delta", "delta": "Found it"}])
+
+    class _Open:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return ws
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(websockets, "connect", _Open)
+
+    async def go():
+        async with P.connect(P.LiveModel("GPT", "gpt-realtime", "openai"), "p", text=text) as s:
+            await s.send_text("find my session")
+            return await _drain(s)
+
+    events = _run(go())
+    update, item, respond = ws.sent
+    assert update["session"]["output_modalities"] == ["text" if text else "audio"]
+    assert item["item"] == {"type": "message", "role": "user",
+                            "content": [{"type": "input_text", "text": "find my session"}]}
+    assert respond == {"type": "response.create"}
+    assert [(e.kind, e.role, e.text) for e in events] == [("transcript", "model", "Found it")]
+
+
 def test_handshake_rejection_is_unreachable_not_retryable(monkeypatch):
     import websockets
 

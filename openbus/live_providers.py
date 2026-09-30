@@ -3,7 +3,7 @@ exist and HOW each is reached.
 
 live.py owns everything that is NOT the wire — prompt assembly, tool dispatch guardrails,
 metering, the browser protocol. It talks to the model through the tiny session protocol
-below (send_audio / send_context / send_tool_result / events) so that adding a provider
+below (send_audio / send_text / send_context / send_tool_result / events) so that adding a provider
 is a new adapter class here, never an `if provider:` inside the coroutines. The browser
 only ever names a LABEL from the table (same rule as launchers: the HTTP/WS surface never
 carries a model id, backend, or credential). Rationale: docs/design/live-mode.md
@@ -309,16 +309,17 @@ class Unreachable(RuntimeError):  # noqa: N818
     hides the message: the user fixes config, and needs to see which."""
 
 
-def connect(model: LiveModel, system_prompt: str):
+def connect(model: LiveModel, system_prompt: str, *, text: bool = False):
     """Open one connection to `model`: an async context manager yielding a session that
     speaks the protocol. Takes the system prompt per connect so a RECONNECT gets a fresh
-    pane snapshot — the connect snapshot is the only place full screens are sent."""
+    pane snapshot — the connect snapshot is the only place full screens are sent. `text`
+    asks for a written reply instead of a spoken one where the model can give one."""
     opener = (
         _OpenAISession.open
         if model.backend in ("openai", "azure-openai")
         else _GeminiSession.open
     )
-    return opener(model, system_prompt)
+    return opener(model, system_prompt, text)
 
 
 class _GeminiSession:
@@ -330,7 +331,7 @@ class _GeminiSession:
 
     @staticmethod
     @contextlib.asynccontextmanager
-    async def open(model: LiveModel, system_prompt: str):
+    async def open(model: LiveModel, system_prompt: str, text: bool):  # noqa: ARG004 - see cfg
         # ~0.9s to import, and only the Gemini backends ever need it — a table with no
         # Gemini entry must not pay for it at daemon start.
         from google import genai  # noqa: PLC0415
@@ -353,6 +354,9 @@ class _GeminiSession:
                 project=project,
                 location=os.environ.get("TMUXRC_LIVE_REGION", "us-central1"),
             )
+        # AUDIO even for a text session: Live's native-audio models refuse TEXT output
+        # outright (1007), so the written reply is the output transcription below and the
+        # browser simply doesn't play the audio.
         cfg = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             tools=[
@@ -383,6 +387,10 @@ class _GeminiSession:
         await self._s.send_realtime_input(
             audio=types.Blob(data=pcm16k, mime_type="audio/pcm;rate=16000")
         )
+
+    async def send_text(self, text: str) -> None:
+        """A typed user turn: realtime input, so the model answers it as if spoken."""
+        await self._s.send_realtime_input(text=text)
 
     async def send_context(self, text: str) -> None:
         """turn_complete=False adds the content to the conversation but no model turn
@@ -530,7 +538,7 @@ class _OpenAISession:
 
     @staticmethod
     @contextlib.asynccontextmanager
-    async def open(model: LiveModel, system_prompt: str):
+    async def open(model: LiveModel, system_prompt: str, text: bool):
         # Deferred for symmetry with the genai import above: only the OpenAI backends
         # speak a raw WebSocket, so the Gemini-only case never loads it.
         import websockets  # noqa: PLC0415
@@ -551,7 +559,7 @@ class _OpenAISession:
                             "instructions": system_prompt,
                             "tools": [{"type": "function", **t} for t in tools()],
                             "tool_choice": "auto",
-                            "output_modalities": ["audio"],
+                            "output_modalities": ["text" if text else "audio"],
                             "audio": {
                                 "input": {
                                     "format": {"type": "audio/pcm", "rate": 24000},
@@ -601,6 +609,20 @@ class _OpenAISession:
             }
         )
 
+    async def send_text(self, text: str) -> None:
+        """A typed user turn, and the response it asks for."""
+        await self._send(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}],
+                },
+            }
+        )
+        await self._respond()
+
     async def send_context(self, text: str) -> None:
         """A system-role item and NO response.create — the analogue of turn_complete=False:
         it lands in the conversation and nothing fires until the user next speaks. System
@@ -628,9 +650,12 @@ class _OpenAISession:
             }
         )
         # Unlike Gemini, Realtime does not continue the turn on its own after a tool
-        # result: ask for the follow-up so the model confirms what it did. If the response
-        # that made the call is still streaming, asking now is an error
-        # (conversation_already_has_active_response) — defer to its response.done.
+        # result: ask for the follow-up so the model confirms what it did.
+        await self._respond()
+
+    async def _respond(self) -> None:
+        """Ask for a response. If one is still streaming, asking now is an error
+        (conversation_already_has_active_response) — defer to its response.done."""
         if self._active:
             self._pending = True
         else:
@@ -642,7 +667,7 @@ class _OpenAISession:
             t = ev.get("type", "")
             if t == "response.output_audio.delta":
                 yield Event("audio", data=base64.b64decode(ev["delta"]))
-            elif t == "response.output_audio_transcript.delta":
+            elif t in ("response.output_audio_transcript.delta", "response.output_text.delta"):
                 yield Event("transcript", role="model", text=ev["delta"])
             elif t == "conversation.item.input_audio_transcription.completed":
                 yield Event("transcript", role="user", text=ev.get("transcript") or "")

@@ -88,7 +88,7 @@ def call(cid="call-1", args=None):
 
 
 def test_shared_audio_forwarder_reaches_the_adapter():
-    """The adapter borrows live._forward_audio wholesale rather than growing a second mic
+    """The adapter borrows live._forward_client wholesale rather than growing a second mic
     path, so it has to answer to the seam's verb BY NAME: a method spelled anything else
     is an AttributeError on the first spoken frame, and no test of the adapter's own
     methods would ever reach it. Odd-length frames are dropped rather than forwarded —
@@ -104,9 +104,23 @@ def test_shared_audio_forwarder_reaches_the_adapter():
             return script.pop(0)
 
     s = session()
-    asyncio.run(L._forward_audio(Mic(), s))
+    asyncio.run(L._forward_client(Mic(), s, s.meter))
     assert [e["type"] for e in s.ws.sent] == ["session.input_audio.append"]
     assert base64.b64decode(s.ws.sent[0]["audio"]) == b"\x01\x02\x03\x04"
+
+
+@pytest.mark.parametrize("text", [False, True])
+def test_typed_turn_goes_to_the_backend_and_only_text_sessions_show_its_answer(text):
+    """GPT-Live's frontend takes no text, so a typed turn runs the backend; a text session
+    shows the backend's written answer, a voice session leaves it to be spoken."""
+    s = session([response("response.output_text.delta", delta="Found it")])
+    s.meter.text = text
+    asyncio.run(s.send_text("find it"))
+    assert [e["type"] for e in s.ws.sent] == ["response.item.create", "response.create"]
+    assert s.ws.sent[0]["item"]["role"] == "user"
+    asyncio.run(s.receive())
+    shown = {"type": "transcript", "role": "model", "text": "Found it"} in s.browser.messages
+    assert shown is text
 
 
 def test_tools_come_from_the_shared_table_unconverted():

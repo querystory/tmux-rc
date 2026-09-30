@@ -996,6 +996,15 @@
   /* A typed action: unmissable — this is the model touching a real terminal. */
   .lm-convo .lm-typed { color: var(--green-bright); font-family: ui-monospace, monospace; }
   .lm-convo .lm-err { color: var(--red); }
+  .lm-compose { display: flex; gap: 6px; margin: -4px 12px 12px; }
+  .lm-compose input { flex: 1; min-width: 0; padding: 7px 10px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--fg); font: inherit; }
+  .lm-compose button { padding: 0 14px; background: var(--chrome); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--fg); }
+  .lm-modes { display: flex; gap: 4px; margin-top: 8px; }
+  .lm-modes button { flex: 1; min-height: 36px; background: var(--chrome); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--fg-dim); font-size: 13px; text-transform: none; letter-spacing: 0; }
+  .lm-modes button[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); }
   /* Tucked behind the status dot: a popover pinned to the header's right edge, shown only
      while the dot is toggled on (#usage[hidden] otherwise). Dim debug chrome, so it reads
      recessed even when open — it's for us, not the operator. */

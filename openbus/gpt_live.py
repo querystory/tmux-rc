@@ -1,6 +1,6 @@
 """GPT-Live's continuous voice stream and managed Responses tool loop.
 
-The three send_* methods bridge the existing Live Mode audio/context/tool handlers;
+The send_* methods bridge the existing Live Mode audio/context/tool handlers;
 no second terminal control path or new agent harness. Protocol:
 https://developers.openai.com/api/docs/guides/voice-websockets?api=live
 https://developers.openai.com/api/docs/guides/live-delegation
@@ -213,6 +213,25 @@ class Session:
                 }
             )
 
+    async def send_text(self, text):
+        """The seam's typed-turn verb. GPT-Live has no text input for its voice frontend,
+        so the turn goes to the reasoning backend, which runs the same tools; in a text
+        session receive() shows the backend's written answer (the frontend, fed no audio,
+        never speaks it)."""
+        if self.closing:
+            return
+        await self.send(
+            {
+                "type": "response.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}],
+                },
+            }
+        )
+        await self.send({"type": "response.create"})
+
     async def send_context(self, text):
         """The seam's ambient-context verb. No turn_complete to pass on: GPT-Live delegates
         turn boundaries to the frontend, so context never fires a response by itself."""
@@ -332,6 +351,10 @@ class Session:
                 nk = nested.get("type")
                 if nk == "response.created":
                     self.calls[delegation] = []
+                elif nk == "response.output_text.delta" and self.meter.text:
+                    await live._transcript(  # noqa: SLF001 - shared Live adapter internals
+                        self.browser, self.meter, "model", nested.get("delta", "")
+                    )
                 elif nk == "response.output_item.done":
                     item = nested.get("item", {})
                     if item.get("type") == "function_call":
@@ -471,7 +494,7 @@ async def run_session(browser, watcher, meter):
                 {"type": "status", "status": "listening", "frame_ms": 40}
             )
             tasks = [
-                asyncio.create_task(live._forward_audio(browser, session)),  # noqa: SLF001 - shared Live adapter internals
+                asyncio.create_task(live._forward_client(browser, session, meter)),  # noqa: SLF001 - shared Live adapter internals
                 asyncio.create_task(session.receive()),
                 asyncio.create_task(session.execute()),
                 asyncio.create_task(live._context_updater(session, watcher)),  # noqa: SLF001 - shared Live adapter internals

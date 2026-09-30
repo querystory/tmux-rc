@@ -2288,8 +2288,9 @@ function buildCard() {
   // BEFORE the question so they act as context above the options.
   ui.lm = document.createElement("div");
   ui.lm.className = "lm-convo";
+  ui.lmIn = lmComposer();
   ui.body = buildPaneBody(); // the shared pane body — the same component a list row's drawer uses
-  el.append(ui.lm, ui.body.root);
+  el.append(ui.lm, ui.lmIn, ui.body.root);
   // The swipe listens on the card for the life of the page; it reads the pane it acts on
   // from cardUI.pane at gesture time.
   swipeNav(el, ui);
@@ -2313,6 +2314,7 @@ function applyCard(ui, s, collapsed = cardsCollapsed) {
   const lmOwns = !collapsed && !!(lmWs || lmRetry) && s.pane_id === activeId(); // held through a reconnect
   const body = !collapsed && !lmOwns;
   setCls(ui.lm, "hid", !lmOwns);
+  setCls(ui.lmIn, "hid", !lmOwns);
   if (lmOwns) lmPaintInto(ui.lm); else keyedList(ui.lm, [], (x) => x, () => null);
   if (ui.hdr.caret) {
     setCls(ui.hdr.caret, "open", !collapsed);
@@ -4092,6 +4094,10 @@ let lmUp = false, lmTries = 0, lmRetry = null; // session was up; reconnect coun
 let lmPlay = null, lmPlayAt = 0; // playback context + scheduled-until clock
 let lmQueued = [];               // scheduled-but-unfinished sources, so barge-in can cut them
 let lmFrameMs = null; // GPT-Live requests smaller mic batches for conversational timing.
+// Voice, or text: typed turns and written replies, no mic and no playback (lmPlay stays
+// null, so lmPlayChunk drops any audio). The choice is remembered; the phone shares it.
+let lmInput = "voice"; try { lmInput = localStorage.getItem("tmuxrc-live-input") || lmInput; } catch {}
+let lmText = false; // this session's mode, fixed at start
 let lmClearPending = null;
 let lmLog = [];                  // rolling conversation: {role, text, done}
 // The server sends a fatal diagnostic and THEN closes the socket cleanly, so the red line
@@ -4128,6 +4134,25 @@ function lmPaintInto(box) {
   // Follow the tail only when already there, so reading back through the transcript isn't
   // yanked down by the next incoming fragment.
   if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// The typed-turn box under the conversation, in voice sessions as well as text ones. The
+// daemon echoes a sent turn back as the user's transcript, so nothing is painted here.
+function lmComposer() {
+  const form = document.createElement("form"); form.className = "lm-compose";
+  const input = document.createElement("input");
+  input.placeholder = "Type to the assistant"; input.autocomplete = "off";
+  input.setAttribute("aria-label", "Message to the Live assistant");
+  const send = document.createElement("button"); send.type = "submit"; send.textContent = "Send";
+  form.append(input, send);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || !lmListening || lmWs?.readyState !== WebSocket.OPEN) return;
+    lmWs.send(JSON.stringify({ action: "text", text }));
+    input.value = "";
+  };
+  return form;
 }
 
 // Repaint between renders, straight onto the card's PERMANENT .lm-convo node — the card
@@ -4234,13 +4259,11 @@ function lmStatus(s) {
   lm.btn.classList.toggle("reconnecting", s === "reconnecting");
 }
 
-// Tap Live: stop a running session, else start one. With one model on the menu that is
-// the whole story (the single-model experience is unchanged); with several, the bottom
-// sheet picks — one thumb-sized row per model, the remembered choice ticked — and the
-// tapped row starts the session at once.
+// Tap Live: stop a running session, else open the bottom sheet — a Voice/Text toggle, then
+// one thumb-sized row per model, the remembered choice ticked — and the tapped row starts
+// the session at once.
 function lmTap() {
   if (lmWs || lmRetry) return lmStop();
-  if (lmModels.length < 2) return lmStart(lmModels[0]?.label);
   lmSheet(true);
 }
 const lmChoice = () => { try { return localStorage.getItem("tmuxrc-live-model") || ""; } catch { return ""; } };
@@ -4261,6 +4284,18 @@ function lmSheet(open) {
   };
   const head = document.createElement("div"); head.className = "lm-sheet-head";
   head.textContent = "Live Mode — pick a model";
+  const modes = document.createElement("div"); modes.className = "lm-modes";
+  for (const m of ["voice", "text"]) {
+    const b = document.createElement("button");
+    b.textContent = m === "voice" ? "Voice" : "Text";
+    b.setAttribute("aria-pressed", String(m === lmInput));
+    b.onclick = () => {
+      lmInput = m; try { localStorage.setItem("tmuxrc-live-input", m); } catch {}
+      lmSheet(true);
+    };
+    modes.append(b);
+  }
+  head.append(modes);
   const rows = lmModels.map((m) => {
     const b = row(m.label, m.hint, m.label === cur);
     b.onclick = () => { lmSheet(false); lmStart(m.label); };
@@ -4290,14 +4325,16 @@ async function lmStart(label) {
   if (label) { try { localStorage.setItem("tmuxrc-live-model", label); } catch {} }
   lm.btn.classList.add("on");
   lmLog = []; lmFatal = "";
+  lmText = lmInput === "text";
   // The mic is requested HERE, inside the tap's user activation — not in ws.onopen,
   // where it used to live. Every iOS browser is WebKit (Chrome included), and WebKit
   // rejects getUserMedia with NotAllowedError once the activation has expired, which
   // it has by the time a websocket opens. Desktop Chrome masked this by persisting
   // mic grants across visits, so no live gesture was ever needed there.
   // The capture AudioContext is created in the same breath for the same reason:
-  // created later, iOS starts it suspended and the worklet never runs.
-  try {
+  // created later, iOS starts it suspended and the worklet never runs. A text session
+  // takes neither: no mic, no playback.
+  if (!lmText) try {
     lmPlay = new AudioContext(); // in the click handler: autoplay-policy safe. INSIDE the
     lmPlayAt = 0;                // guard: thrown here, lmStarting must not stick true.
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -4339,6 +4376,7 @@ function lmConnect() {
   const q = new URLSearchParams();
   if (SESSION_ID) q.set("session", SESSION_ID);
   if (lmLabel) q.set("model", lmLabel);  // a label from the server's own menu, nothing else
+  if (lmText) q.set("mode", "text");
   const qs = q.toString();
   let ws;
   try {
@@ -4399,7 +4437,8 @@ function lmConnect() {
     // Mic permission was settled in lmStart (inside the gesture); this can still fail
     // on worklet/graph construction, which is a platform bug worth showing, not a
     // permission issue — so no settings advice here.
-    if (lmNodes.length) return; // reconnect: the graph from the first socket is still live
+    // Reconnect: the graph from the first socket is still live. Text: there is none.
+    if (lmNodes.length || lmText) return;
     try { await lmCapture(ws); }
     catch (e) {
       reportError("mic", e);

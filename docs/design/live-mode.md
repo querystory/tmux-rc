@@ -380,6 +380,28 @@ the harness alone (see above). The cost argument against OpenAI stands — ten t
 Gemini's audio rate — which is why the status-bar fold-in must use each session's own
 card: that number is where the comparison will be decided.
 
+## Text mode (prototype)
+
+A first cut of the composer in live-conversation-history.md: the same session, tools,
+fleet snapshot and audit, with typed turns in place of speech. A typed turn is a new
+adapter verb, `send_text`, deliberately separate from `send_context`. Context must never
+prompt a reply, and a typed turn must always get one. The daemon echoes the turn back as
+the user's transcript. The bubble therefore appears only once the daemon has the turn,
+never as an optimistic local copy, and both clients render typing exactly like speech.
+
+What "text output" means depends on the provider, so each adapter decides and live.py
+stays out of it. Realtime can answer in text, so a text session asks for that. Gemini
+Live's native-audio models refuse TEXT output outright (setup fails with 1007), so they
+keep speaking; the written reply is the output transcription we already stream, and the
+browser simply doesn't play the audio. GPT-Live's voice frontend accepts no text at all,
+so a typed turn goes to its reasoning backend, which runs the same tools. Fed no audio,
+the frontend never speaks the answer, so a text session shows the backend's own text.
+
+The mode is chosen when the session starts and stays fixed. Switching mid-conversation, which the
+history doc calls for, means reacquiring the mic, and on Realtime a session.update. It
+is left for after the prototype has been used. The composer also appears in voice
+sessions, because typing a pane name nobody can pronounce is useful there too.
+
 ## v0.2 candidates (explicitly out of scope now)
 
 Pane creation ("open claude code in a new pane in ~/src/x") once the create-pane

@@ -24,6 +24,8 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-close").innerHTML = licon("x");
   let run = null, sequence = 0, fetching = false, modelSignature = null;
+  // Voice, or text: typed turns and written replies, with no mic and no playback.
+  let mode = "voice"; try { mode = localStorage.getItem("tmuxrc-live-input") || mode; } catch {}
   const status = (message) => { $("voice-status").textContent = message; };
   function paint() {
     $("live-mode").classList.toggle("active", !!run);
@@ -31,7 +33,9 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     $("voice-start").textContent = run ? "End conversation" : "Start Live Mode";
     $("voice-start").hidden = !run;
     $("voice-controls").hidden = !run;
-    $("voice-models").hidden = !!run;
+    $("voice-models").hidden = $("voice-mode").hidden = !!run;
+    [...$("voice-mode").children].forEach((button) => button.setAttribute("aria-pressed", button.dataset.mode === mode));
+    $("voice-compose").hidden = !run;
     $("voice-mute").hidden = !run?.stream;
     $("voice-mute").setAttribute("aria-pressed", !!run?.muted);
     $("voice-mute").title = $("voice-mute").ariaLabel = run?.muted ? "Unmute microphone" : "Mute microphone";
@@ -96,6 +100,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   }
   function audioStatus(current) {
     if (run !== current) return;
+    if (current.text) return status(current.listening ? `Text / ${current.model || "Default"}` : current.connectionStatus || "Connecting...");
     const tracks = current.stream?.getAudioTracks() || [];
     const interrupted = current.capture?.state !== "running" ||
       tracks.some((track) => track.muted) || current.output?.paused || current.audioSession?.state === "interrupted";
@@ -221,6 +226,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
     const query = new URLSearchParams();
     if (session) query.set("session", session);
     if (current.model) query.set("model", current.model);
+    if (current.text) query.set("mode", "text");
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop("Could not connect to Live Mode."); return; }
@@ -241,7 +247,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
       else if (message.type === "error") add("error", message.message);
       else if (message.type === "interrupted") silence(current);
-      else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
+      else if (message.type === "audio" && !current.text) { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
     ws.onclose = (event) => {
       if (run !== current || current.ws !== ws) return;
@@ -259,8 +265,12 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; $("voice-log").replaceChildren(); status("Connecting microphone..."); paint();
+    if (current.text) {
+      try { localStorage.setItem("tmuxrc-live-model", current.model); } catch {}
+      audioStatus(current); connect(current); return;
+    }
     current.deadline = setTimeout(() => {
       if (run === current) stop("Microphone setup timed out. Start Live Mode again.");
     }, CONNECT_DEADLINE_MS);
@@ -307,6 +317,18 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   $("live-mode").onclick = () => { $("voice-dialog").showModal(); if (run) resumeAudio(run, true); };
   $("voice-close").onclick = () => $("voice-dialog").close();
   $("voice-start").onclick = () => run ? stop() : start();
+  $("voice-mode").onclick = ({ target }) => {
+    const button = target.closest("button[data-mode]");
+    if (!button || run) return;
+    mode = button.dataset.mode; paint();
+    try { localStorage.setItem("tmuxrc-live-input", mode); } catch {}
+  };
+  $("voice-compose").onsubmit = (event) => {
+    event.preventDefault();
+    const text = $("voice-text").value.trim();
+    if (!text || !run?.listening || run.ws?.readyState !== WebSocket.OPEN) return;
+    run.ws.send(JSON.stringify({ action: "text", text })); $("voice-text").value = "";
+  };
   $("voice-mute").onclick = () => {
     if (!run?.stream) return;
     run.muted = !run.muted;

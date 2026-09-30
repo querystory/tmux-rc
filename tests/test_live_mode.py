@@ -338,8 +338,9 @@ class _FakeClient:
         self._connects = list(connects)
         self.attempts = 0
 
-    def connect(self, model, system_prompt):
+    def connect(self, model, system_prompt, *, text=False):
         self.attempts += 1
+        self.text = text
         cm = self._connects.pop(0)
         return cm() if callable(cm) else cm
 
@@ -388,6 +389,38 @@ def test_run_session_clean_stop_absorbs_cancellation(monkeypatch):
 
     assert client.attempts == 1  # clean stop → no reconnect
     assert _statuses(ws)[-1:] == ["listening"] or "listening" in _statuses(ws)
+
+
+def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
+    """A text session asks the provider for text, and a typed turn reaches it through the
+    user-turn verb (not the reply-less context path), echoed to the browser as the user's
+    transcript and kept in the meter's. A blank one goes nowhere."""
+    class Typed(_Session):
+        def __init__(self):
+            super().__init__()
+            self.texts = []
+
+        async def send_text(self, text):
+            self.texts.append(text)
+
+        async def send_context(self, text):
+            raise AssertionError("a typed turn is not ambient context")
+
+    monkeypatch.setattr(L, "_receiver", _park)
+    monkeypatch.setattr(L, "_context_updater", _park)
+    session = Typed()
+    client = _FakeClient([_Connect(session)])
+    monkeypatch.setattr(L.live_providers, "connect", client.connect)
+    ws = _ScriptedWS([{"action": "text", "text": "  find my codex session "},
+                      {"action": "text", "text": " "}, {"action": "stop"}])
+    meter = L._Meter("s", "a", P._DEFAULT[0], text=True)
+    _run(L._run_session(ws, _Watcher(), meter))
+
+    assert client.text is True
+    assert session.texts == ["find my codex session"]
+    assert {"type": "transcript", "role": "user", "text": "find my codex session",
+            "new_segment": True} in ws.sent
+    assert "user: find my codex session" in meter._transcript()
 
 
 def test_run_session_reconnects_once_after_a_drop(monkeypatch):
