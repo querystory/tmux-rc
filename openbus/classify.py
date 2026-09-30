@@ -56,7 +56,7 @@ _CLAUDE_TURN_RE = re.compile(
     # Claude Code's turn status row: a live spinner ("✶ Befuddling… (1m 7s · ↓ 2k tokens)")
     # or the finished stamp ("✻ Worked for 40s · done 4:47 AM · 1 shell still running").
     # A stamp's trailing shell/monitor count is background work, not the agent's turn.
-    r"^[ \t]*[·✢✳✶✻✽*][ \t]+[A-Z][\w' -]*?"
+    r"^[ \t]*[·✢✳✶✻✽][ \t]+[A-Z][\w' -]*?"
     r"(?:(?P<live>…[ \t]*\((?:\d+[hms]|esc to interrupt))| for \d+[hms][\dhms ]*(?:·|$))",
     re.MULTILINE,
 )
@@ -64,7 +64,7 @@ _CLAUDE_TURN_RE = re.compile(
 # capacity…" (not its "■ Conversation interrupted"), Claude Code's "⎿ API Error: 529 …".
 _TURN_ERROR_RE = {
     "codex": re.compile(r"^[ \t]*■[ \t]+(?!.*\binterrupted\b)(?P<text>.*\S)", re.MULTILINE),
-    "claude": re.compile(r"^[ \t]*(?:⎿[ \t]*)?(?P<text>API Error\b.*\S)", re.MULTILINE),
+    "claude": re.compile(r"^[ \t]*⎿[ \t]*(?P<text>API Error\b.*\S)", re.MULTILINE),
 }
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
@@ -326,7 +326,7 @@ def _final_ask(visible: str, tool: str) -> dict | None:
         return None
     if error := error_re.match(lines[-1]):
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
-    if not re.search(r"(?m)^[ \t]*⏵⏵ auto mode on\b", visible):
+    if "⏵⏵ auto mode on" not in visible:  # also behind vim's "-- INSERT --" prefix
         return None
     handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
     if lines[-1].endswith("?"):

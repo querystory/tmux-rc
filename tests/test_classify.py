@@ -851,6 +851,10 @@ def test_finished_turn_is_not_blocked_once_answered_or_outside_auto_mode():
         "tool": "claude", "activity": "running"}))["activity"] == "idle"  # the turn is over
     # A boxed or indented prompt row with text counts as typed, and a model question
     # from the finished turn is answered once the user types after it.
+    insert = decision.replace("⏵⏵ auto mode on", "-- INSERT -- ⏵⏵ auto mode on")
+    assert classify(_pane("claude"), insert, _llm({}))["question"]["answer_style"] == "text"
+    prose = decision.replace("✻ Worked for 40s", "* Wait for 2s").replace("✻ Cooked", "* Cooked")
+    assert classify(_pane("claude"), prose, _llm({"activity": "running"}))["activity"] == "running"
     empty_box = decision.replace("\n❯\n", "\n│ ❯                │\n")
     assert classify(_pane("claude"), empty_box, _llm({}))["question"]["answer_style"] == "text"
     for row in ("│ ❯ yes start it │", "  ❯ yes start it"):
@@ -881,6 +885,9 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     only_command = ("\x1e[visible screen]\x1f\n● ! git push\n✻ Worked for 3s\n❯\n"
                     "⏵⏵ auto mode on")
     assert classify(_pane("claude"), only_command, _llm({}))["question"]["prompt"] == "! git push"
+    bare = classify(_pane("claude"), screen.replace("  ⎿  API Error: 529", "API Error handling"),
+                    _llm({}))
+    assert "question" not in bare  # only the ⎿ result marker is provider-error chrome
     shell = classify(_pane("bash"), "■ Build failed\nuser@host:~$ ", _llm({"activity": "idle"}))
     assert "question" not in shell and shell["activity"] == "idle"
     # Another tool's chrome is output, not this pane's turn.
