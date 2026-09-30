@@ -155,9 +155,10 @@ def test_a_refused_request_does_not_leave_the_session_waiting():
     _run(s.send_text("one"))
     ask = ws.sent[-1]["event_id"]
     ws.script = [json.dumps({"type": "error", "error": {"code": "x", "event_id": ask}})]
+    _run(s.send_text("two"))  # queued behind the ask that is about to be refused
     _run(_drain(s))
-    _run(s.send_text("two"))
-    assert [m["type"] for m in ws.sent].count("response.create") == 2
+    assert [m["type"] for m in ws.sent].count("response.create") == 2  # one replacement
+    assert s._pending is False
 
 
 def test_events_map_to_neutral_kinds_and_usage_accumulates():

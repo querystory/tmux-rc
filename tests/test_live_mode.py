@@ -237,6 +237,22 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     assert meter.approvals == {}
 
 
+def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+
+    class Cancel(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(False)
+
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    ws = Cancel()
+    fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
+    _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))
+    assert ws.sent[0]["text"] == "Type (no Enter) into work: draft"
+
+
 def test_text_session_prompt_labels_relays_as_typed():
     assert "(via voice)" in L._system_prompt(_Watcher())
     typed = L._system_prompt(_Watcher(), text=True)

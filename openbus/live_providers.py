@@ -674,6 +674,13 @@ class _OpenAISession:
             self._asked = f"tmuxrc-ask-{self._asks}"
             await self._send({"type": "response.create", "event_id": self._asked})
 
+    async def _release(self) -> None:
+        """No response is running any more: send the one that was waiting, if any."""
+        self._active = False
+        if self._pending:
+            self._pending = False
+            await self._respond()
+
     async def events(self) -> AsyncIterator[Event]:
         async for raw in self._ws:
             ev = json.loads(raw)
@@ -696,13 +703,10 @@ class _OpenAISession:
             elif t == "response.created":
                 self._active, self._asked = True, None
             elif t == "response.done":
-                self._active = False
                 self._add_usage((ev.get("response") or {}).get("usage") or {})
                 yield Event("usage", usage=Split(*self._usage))
                 yield Event("turn_complete")
-                if self._pending:
-                    self._pending = False
-                    await self._respond()
+                await self._release()
             elif t == "error":
                 err = ev.get("error") or {}
                 if err.get("code") == "conversation_already_has_active_response":
@@ -711,8 +715,10 @@ class _OpenAISession:
                     self._active = self._pending = True
                     continue
                 if self._asked and err.get("event_id") == self._asked:
-                    # Our ask itself was refused: no response is coming, so don't wait on one.
-                    self._active, self._asked = False, None
+                    # Our ask itself was refused: no response is coming, so don't wait on
+                    # one; anything queued behind it gets one replacement ask.
+                    self._asked = None
+                    await self._release()
                 # Session-fatal errors also close the socket, which ends this loop and
                 # hands the reconnect to live.py; the rest are per-event and just logged.
                 logger.warning("[live] realtime error: %s", ev.get("error"))

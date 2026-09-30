@@ -360,8 +360,9 @@ async def _approved(websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict)
         summary = f"Resume {(entry or {}).get('title') or args.get('session_id')}"
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
-    else:
-        summary = f"Send to {pane}: {args.get('text')}"
+    else:  # the card must say whether approving also presses Enter (runs it)
+        verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
+        summary = f"{verb} {pane}: {args.get('text')}"
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
     if isinstance(args.get("pane_id"), str) and pane != args["pane_id"]:
         rec["pane_id"] = args["pane_id"]  # a real pane: record it even if declined
