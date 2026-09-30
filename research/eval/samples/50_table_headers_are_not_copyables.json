@@ -1,0 +1,13 @@
+{
+  "description": "A rendered table, including its header, is structured context rather than a duplicate paste action.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n• PR inventory:\n\n  PR  State\n  12  Open\n  13  Merged\n\nWorked for 8s\n\n› Ask Codex to do anything\n\nReview pull requests · gpt-6-sol medium · Context 76% left · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": "Review pull requests",
+    "tables": true,
+    "copyables": false,
+    "headline": "Showing the current pull request inventory"
+  }
+}

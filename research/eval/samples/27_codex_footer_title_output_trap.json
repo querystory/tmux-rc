@@ -1,0 +1,11 @@
+{
+  "description": "Codex command output contains other panes titles and tmux session names; the live footer below the input is the authoritative conversation name.",
+  "current_command": "node",
+  "capture": "\u2022 Ran a check of pane titles\n  {'title': 'Posthog Airbyte Connector', 'session': 'qs-app-0'}\n  {'title': 'llm timeouts', 'session': 'qs-app-0'}\n\n\u2022 Both fixes are deployed and all tests passed.\n\nWorked for 17m 43s\n\n\u203a Ask Codex to do anything\n\n  Experiment with home state visuals \u00b7 gpt-6-astra medium \u00b7 Context 52% left \u00b7 5M used \u00b7 Context 48% used \u00b7 ~/src/tmux-rc \u00b7 weekly 65% left \u00b7 Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": "Experiment with home state visuals",
+    "headline": "Deployed the fixes and verified passing tests"
+  }
+}

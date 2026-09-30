@@ -1,0 +1,11 @@
+{
+  "description": "An old input row belongs to history. A busy current viewport has no input row, and its final four rows include quoted tool metadata; that metadata must not become status-row identity evidence.",
+  "current_command": "codex",
+  "capture": "› Inspect the parser\n\u001e[visible screen]\u001f\n{'session': 'other-pane', 'title': 'Other conversation'}\n• Inspecting parser validation.\n• Working (2s • esc to interrupt)\ngpt-6-sol · ~/src/app",
+  "expected": {
+    "tool": "codex",
+    "activity": "running",
+    "session": null,
+    "headline": "Inspecting parser validation"
+  }
+}

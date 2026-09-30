@@ -1,0 +1,11 @@
+{
+  "description": "A relative branch/path segment in the Codex footer is not the conversation title, even when the model returns it as session identity.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n• Finished the metadata design.\n\n› Ask Codex to do anything\n\n  gpt-5.6-sol medium · docs/query-result-metadata-design · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Finished the metadata design"
+  }
+}

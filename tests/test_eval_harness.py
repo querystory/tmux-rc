@@ -29,6 +29,14 @@ def test_structured_exact_match_passes():
     assert ok and diffs == []
 
 
+def test_successful_parse_and_model_expectations_are_opt_in():
+    assert score_structured({"parse_ok": False}, {})[0]
+    assert score_structured({}, {"parse_ok": True})[0]
+    assert not score_structured({"parse_ok": False}, {"parse_ok": True})[0]
+    assert score_structured({"model": "GPT-6.1-Sol"}, {"model": "GPT-6.1-Sol"})[0]
+    assert not score_structured({"model": "old-model"}, {"model": "GPT-6.1-Sol"})[0]
+
+
 def test_structured_scalar_mismatch_fails():
     ok, diffs = score_structured({"activity": "waiting"}, {"activity": "idle"})
     assert not ok and any("activity" in d for d in diffs)
@@ -229,6 +237,17 @@ def test_a_non_boolean_search_flag_is_not_true():
                       "keymap": {"select": "Enter", "search": "false"}}},
         {"question": pinned})
     assert not ok and any("question" in d for d in diffs)
+
+
+def test_production_prompt_composes_tool_fragments(tmp_path, monkeypatch):
+    from openbus import classify as classifier
+
+    (tmp_path / "parser_prompt.txt").write_text("Shared\n{{codex}}\n{{claude}}\n{{gemini}}\n")
+    for tool in ("codex", "claude", "gemini"):
+        (tmp_path / f"parser_{tool}.txt").write_text(tool + " rules\n")
+    monkeypatch.setattr(classifier, "__file__", str(tmp_path / "classify.py"))
+    monkeypatch.setattr(classifier, "_prompts", {})
+    assert classifier.parser_prompt() == "Shared\ncodex rules\nclaude rules\ngemini rules\n"
 
 
 def test_production_prompt_preserves_candidate_bytes(tmp_path, monkeypatch):

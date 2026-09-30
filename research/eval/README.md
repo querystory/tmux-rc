@@ -59,6 +59,8 @@ So we split the fields by how the UI uses them:
 **Structured fields — exact match (strict).** These drive the badge and behavior, so
 strictness is correct:
 - `tool`, `activity`, `waiting_on` — compared by value.
+- `parse_ok`, `model` — opt-in checks for accepted classifications and model preservation.
+  An omitted `parse_ok` means success, matching the watcher.
 - `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
   background count and the sorted multiset of worker states (including duplicates).
 - `working_prs` — opt-in exact comparison of semantic `owner/name#number` associations.
@@ -184,6 +186,13 @@ occurrence.
    reveals a real prompt gap, that's a finding — file it like #85).
 
 ## Running it
+
+The production parser composes `openbus/parser_prompt.txt` with the Codex, Claude,
+and Gemini fragments beside it. Eval uses that same loader. For `--prompt` A/B runs,
+provide the composed text, not a template containing fragment placeholders.
+LLM captures label `[visible screen]` after history; synthetic samples should place
+that boundary explicitly when testing scrollback behavior. The capture layer splits
+physical tmux ranges before joining wrapped rows, not by counting joined text lines.
 
 Needs the three Vertex vars in the environment:
 

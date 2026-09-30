@@ -1,0 +1,11 @@
+{
+  "description": "A quoted status-shaped line above the real footer is not identity. The bottommost recognized status row is authoritative, and this real footer is titleless.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n› Ask Codex to do anything\nother-pane · gpt-6-sol · Ready\ngpt-6-sol · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Ready for a request"
+  }
+}

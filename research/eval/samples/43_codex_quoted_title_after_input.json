@@ -1,0 +1,11 @@
+{
+  "description": "Quoted session output between the current input row and real Codex footer is not title evidence. Only recognizable status chrome after the input may ground identity.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n› Ask Codex to do anything\n{'session': 'other-pane'}\ngpt-6-sol · ~/src/app",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Ready for a request"
+  }
+}

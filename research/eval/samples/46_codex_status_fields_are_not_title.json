@@ -1,0 +1,11 @@
+{
+  "description": "A titleless Codex footer begins with its model. Model, effort, mode, cwd, and readiness fields are not conversation identity and cannot become the session title.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n› Ask Codex to do anything\n\ngpt-5.5 xhigh fast · ~/src/app",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Ready for a request"
+  }
+}

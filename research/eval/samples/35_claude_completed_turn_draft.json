@@ -1,0 +1,10 @@
+{
+  "description": "Completed Claude turn with a clock time and an unsent input draft, not an active spinner.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\nI fixed the notification delivery and all tests passed.\n✻ Churned for 1m 13s · done 10:28 PM\n─────────────────────────\n❯ yeah list the old ones\n─────────────────────────\n-- INSERT --\n~/src/tmux-rc · Opus 4.8 · 30% context · $1.25",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "headline": "Fixed notification delivery; tests passed"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "description": "A rewind picker in history cannot keep the current ready screen waiting. Rewind is actionable only when its picker and restore hint are in the visible viewport.",
+  "current_command": "node",
+  "capture": "Rewind to a previous point in the conversation\n❯ Old turn\n↑/↓ to select · enter to restore · esc to cancel\n\u001e[visible screen]\u001f\n› Ready",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "rewind": null,
+    "headline": "Ready for a request"
+  }
+}

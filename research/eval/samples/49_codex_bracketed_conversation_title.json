@@ -1,0 +1,11 @@
+{
+  "description": "Punctuation in a real Codex footer title is valid identity; reject serialized tool output by row shape rather than banning brackets from titles.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n• Login redirect tests now pass.\n\n› Ask Codex to do anything\n\n[PR 123] Fix login · gpt-6-sol medium · Context 42% left · ~/src/app · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": "[PR 123] Fix login",
+    "headline": "Login redirect tests now pass"
+  }
+}

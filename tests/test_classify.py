@@ -5,6 +5,18 @@ from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
 
+def test_opaque_session_identifiers_are_not_titles():
+    for name in ("01a0e9d1-093d-7c10-84f4-133c9544c971", " ABCDEF0123456789 "):
+        result = classify(_pane(), "text", _llm({"session": name, "activity": "idle"}))
+        assert "session" not in result
+    for name in ("gpt-5 migration", "airbyte-value-population", "Review 4955", "deadbeef"):
+        capture = f"› input\n{name} · gpt-6-sol · ~/src/app"
+        result = classify(_pane("node"), capture, _llm({
+            "tool": "codex", "session": name, "activity": "idle",
+        }))
+        assert result["session"] == name
+
+
 def _pane(cmd="bash"):
     return Pane("work", "0", "bash", "0", "%0", cmd, "t", "/home/x/proj")
 
@@ -38,6 +50,15 @@ def test_bootstrap_rejects_junk():
     assert bootstrap(_pane(), "…", lambda s, t: None) is None
 
 
+def test_bootstrap_rejects_non_title_names():
+    for name in ("~/src/app", "/src/app", "docs/metadata-design",
+                 "01a0e9d1-093d-7c10-84f4-133c9544c971"):
+        result = bootstrap(_pane("node"), "ordinary history", _llm({
+            "summary": "Working on parser behavior", "name": name,
+        }))
+        assert result["name"] is None
+
+
 def test_bootstrap_prompt_explains_opencode_model_identity():
     seen = {}
 
@@ -59,6 +80,13 @@ def test_payload_leads_with_foreground_process():
     classify(_pane(cmd="python3"), "some screen", llm)
     first_line = seen["text"].splitlines()[0]
     assert "foreground process" in first_line and "python3" in first_line
+
+
+def test_no_llm_skips_prompt_composition(monkeypatch):
+    def fail():
+        raise AssertionError("no-LLM mode must not compose the parser prompt")
+    monkeypatch.setattr("openbus.classify.parser_prompt", fail)
+    assert classify(_pane("node"), "plain output")["tool"] == "unknown"
 
 
 def test_foreground_agent_process_beats_selected_model_identity():
@@ -299,7 +327,7 @@ def test_copyables_capped_and_malformed_dropped():
     # rather than repairing it — a clipped paste is worse than no paste.
     r = classify(
         _pane(),
-        "…",
+        "fix: unwrap the thing\npast the malformed ones",
         _llm(
             {
                 "activity": "idle",
@@ -328,7 +356,7 @@ def test_copyables_reemitted_minimally():
     # free, and an enormous label is payload too (the client's 60 cap is only display).
     r = classify(
         _pane(),
-        "…",
+        "paste me\nno label at all",
         _llm(
             {
                 "activity": "idle",
@@ -350,7 +378,7 @@ def test_copyables_validated_before_capping():
     # most-pasteable-first, so capping the raw list would drop a good trailing entry.
     r = classify(
         _pane(),
-        "…",
+        "first\nsecond\nthird",
         _llm(
             {
                 "activity": "idle",
@@ -388,7 +416,7 @@ def test_copyable_duplicating_a_link_is_dropped():
     # duplicate affordance. Text that merely CONTAINS a URL still copies.
     r = classify(
         _pane(),
-        "…",
+        "https://github.com/o/r/pull/5\ncurl https://github.com/o/r/pull/5 -H accept:json",
         _llm(
             {
                 "activity": "idle",
@@ -426,3 +454,337 @@ def test_background_terminal_hint_is_scoped_to_current_section():
     assert prompts[-1] == parser_prompt()
     classify(_pane("node"), "Ready", capture_prompt, prior=["Background terminals:\n old command"])
     assert prompts[-1] == parser_prompt()
+
+
+def test_codex_title_requires_current_ui_evidence():
+    capture = ("› Ask Codex to do anything\n\n"
+               "01a0e9d1-093d-7c10-84f4-133c9544c971 · gpt-6-astra medium · "
+               "Context 52% left · ~/src/tmux-rc · Ready")
+    result = classify(_pane("node"), capture, _llm({
+        "tool": "codex", "session": "Track PRs per live session",
+    }))
+    assert "session" not in result
+    assert result["label"] == _pane("node").label
+
+
+def test_status_fields_are_not_session_title_evidence():
+    for name in ("gpt-5.5", "xhigh fast", "fast", "~/src/app"):
+        result = classify(_pane("node"), "gpt-5.5 xhigh fast · ~/src/app", _llm({
+            "tool": "codex", "session": name, "activity": "idle",
+        }))
+        assert "session" not in result
+
+
+def test_session_grounding_preserves_footer_and_rename_titles():
+    for capture in (
+        "old output\n\n› input\n\nReview 4955 · gpt-6-sol · ~/src/app",
+        "• Thread renamed to Review 4955\n" + "output\n" * 10,
+    ):
+        result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "Review 4955"}))
+        assert result["session"] == "Review 4955"
+
+
+def test_only_latest_rename_is_session_evidence():
+    capture = ("• Thread renamed to Old task\n• Thread renamed to New task\n"
+               "\x1e[visible screen]\x1f\n› Ask Codex to do anything\n"
+               "gpt-6-sol · ~/src/app · Ready")
+    old = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "Old task"}))
+    new = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "New task"}))
+    assert "session" not in old
+    assert new["session"] == "New task"
+
+
+def test_session_grounding_preserves_bracketed_footer_title():
+    capture = "› input\n\n[PR 123] Fix login · gpt-6-sol · ~/src/app"
+    result = classify(_pane("node"), capture, _llm({
+        "tool": "codex", "session": "PR 123",
+    }))
+    assert result["session"] == "[PR 123] Fix login"
+
+
+def test_null_session_does_not_trigger_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "codex", "session": None, "activity": "idle"}
+    result = classify(_pane("node"), "gpt-6-sol · ~/src/app", read)
+    assert result["session"] is None
+    assert len(calls) == 1
+
+
+def test_failed_identity_retry_preserves_valid_current_state():
+    for retry in (None, {}, {"session": "Still another title"}):
+        replies = iter([{"tool": "codex", "session": "Other title", "activity": "idle",
+                         "headline": "Review complete", "model": "gpt-6-sol"}, retry])
+        result = classify(_pane("codex"), "› input\nReview 4955 · gpt-6-sol · ~/src/app",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert "session" not in result
+        assert result.get("parse_ok") is not False
+        assert result["activity"] == "idle"
+        assert result["headline"] == "Review complete"
+        assert result["model"] == "gpt-6-sol"
+
+
+def test_uuid_footer_does_not_freeze_completed_model_selection():
+    uuid = "01a0e9d1-093d-7c10-84f4-133c9544c971"
+    capture = ("Select Model and Effort\n1. GPT-6-Sol\n2. GPT-6-Astra\n"
+               "\x1e[visible screen]\x1f\nWorked for 8m 32s · 5:16 PM\n"
+               f"› Ask Codex to do anything\n{uuid} · GPT-6.1-Sol medium · ~/src/tmux-rc")
+    result = classify(_pane("codex"), capture, _llm({
+        "tool": "codex", "session": uuid, "activity": "idle", "model": "GPT-6.1-Sol",
+    }))
+    assert "session" not in result
+    assert "question" not in result
+    assert result.get("parse_ok") is not False
+    assert result["activity"] == "idle"
+    assert result["model"] == "GPT-6.1-Sol"
+
+
+def test_shell_drops_scrolled_agent_title_without_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "shell", "session": "Fix login redirects", "activity": "idle"}
+    result = classify(_pane(), "Thread renamed to Fix login redirects\nuser@host:~$ ", read)
+    assert "session" not in result
+    assert len(calls) == 1
+
+
+def test_returned_shell_prompt_overrides_old_agent_identity_and_actions():
+    result = classify(_pane("bash"), "Thread renamed to Fix login redirects\nuser@host:~$ ", _llm({
+        "tool": "codex", "session": "Fix login redirects", "activity": "waiting",
+        "question": {"prompt": "Old approval?"}, "rewind": {"rows": ["old"]},
+    }))
+    assert result["tool"] == "shell" and result["activity"] == "idle"
+    assert not any(key in result for key in ("session", "question", "rewind", "waiting_on"))
+
+
+def test_visible_opencode_spinner_wins_over_stale_question_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "opencode", "question": {"prompt": "Old approval?"}}
+        return {"tool": "opencode", "activity": "idle"}
+    capture = "Old approval?\n\x1e[visible screen]\x1f\n■⬝ esc interrupt"
+    result = classify(_pane("opencode"), capture, read)
+    assert len(calls) == 2
+    assert "question" not in result
+    assert result["activity"] == "running"
+
+
+def test_failed_question_retry_does_not_retire_the_screen():
+    for retry in (None, {}, {"question": {"prompt": "Still an old question?"}}):
+        replies = iter([{"tool": "codex", "question": {"prompt": "Old approval?"},
+                         "rewind": {"rows": ["old turn"]}, "headline": "Old menu"}, retry])
+        result = classify(_pane("codex"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+                          lambda _prompt, _text, replies=replies: next(replies))
+        assert "question" not in result
+        assert not any(key in result for key in ("rewind", "waiting_on", "headline"))
+        assert result["activity"] == "unknown"
+        assert result["parse_ok"] is False
+
+
+def test_question_retry_cannot_resurrect_stale_rewind():
+    replies = iter([
+        {"tool": "codex", "question": {"prompt": "Old approval?"}},
+        {"tool": "codex", "activity": "idle",
+         "rewind": {"entries": [{"text": "old turn"}]}},
+    ])
+    result = classify(
+        _pane("node"), "Old approval?\n\x1e[visible screen]\x1f\n› Ready",
+        lambda _prompt, _text: next(replies),
+    )
+    assert not any(key in result for key in ("question", "rewind", "waiting_on"))
+    assert result["activity"] == "unknown" and result["parse_ok"] is False
+
+
+def test_non_codex_session_requires_visible_evidence():
+    for tool in ("opencode", "gemini"):
+        capture = ("\x1e[visible screen]\x1f\n› Ready\n"
+                   "{'session': 'Unrelated title'}")
+        result = classify(_pane(tool), capture, _llm({
+            "tool": tool, "session": "Unrelated title", "activity": "idle",
+        }))
+        assert "session" not in result
+
+
+def test_session_grounding_rejects_paths_and_quoted_output():
+    for name in ("~/src/app", "/src/app", "app", "other-pane"):
+        capture = "{'session': 'other-pane'}\n\noutput\n\n› input\n\n~/src/app · gpt-6-sol"
+        result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": name}))
+        assert "session" not in result
+    capture = ("› input\n\nairbyte-value-population · gpt-5.6-sol medium · "
+               "docs/query-result-metadata-design · ~/src/app · Ready")
+    result = classify(_pane("node"), capture, _llm({
+        "tool": "codex", "session": "docs/query-result-metadata-design",
+    }))
+    assert "session" not in result
+
+
+def test_short_capture_does_not_promote_tool_output_to_status_evidence():
+    for capture in (
+        "{'session': 'other-pane'}\noutput\n› input\n~/src/app · gpt-6-sol",
+        "{'session': 'other-pane'}\noutput\n~/src/app · gpt-6-sol",
+        "log: Thread renamed to other-pane\n› input\n~/src/app · gpt-6-sol",
+        ("› old input\n\x1e[visible screen]\x1f\n{'session': 'other-pane'}\n"
+         "Inspecting parser\nWorking\n~/src/app · gpt-6-sol"),
+        ("\x1e[visible screen]\x1f\nDone\n"
+         "{'footer': 'other-pane · gpt-6-sol · Ready'}"),
+        ("\x1e[visible screen]\x1f\n› Ask Codex to do anything\n"
+         "{'session': 'other-pane'}\ngpt-6-sol · ~/src/app"),
+        ("Thread renamed to other-pane\n\x1e[visible screen]\x1f\n"
+         "› Ask Codex to do anything\ngpt-6-sol · ~/src/app"),
+        ("\x1e[visible screen]\x1f\n› Ask Codex to do anything\n"
+         "other-pane · gpt-6-sol · Ready\ngpt-6-sol · ~/src/app · Ready"),
+    ):
+        result = classify(_pane("node"), capture, _llm({"tool": "codex", "session": "other-pane"}))
+        assert "session" not in result
+
+
+def test_prose_with_model_and_ready_is_not_status_evidence():
+    capture = "› Ask Codex to do anything\noutput: other-pane · gpt-6-sol · ~/src/app · Ready"
+    result = classify(_pane("node"), capture, _llm({
+        "tool": "codex", "session": "other-pane", "activity": "idle",
+    }))
+    assert "session" not in result
+
+    title = "Fix: login redirects"
+    result = classify(_pane("node"), f"› input\n{title} · gpt-6-sol · ~/src/app", _llm({
+        "tool": "codex", "session": title, "activity": "idle",
+    }))
+    assert result["session"] == title
+
+
+def test_claude_title_above_status_bar_is_preserved():
+    capture = ("› input\n──────────────────── Fix login redirects\n"
+               "~/src/app · Opus 5.5 · 30% context")
+    result = classify(_pane("claude"), capture, _llm({
+        "tool": "claude", "session": "Fix login redirects",
+    }))
+    assert result["session"] == "Fix login redirects"
+
+
+def test_stale_question_is_reread_from_visible_screen_only():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "codex", "activity": "waiting", "question": {"prompt": "Update now?"}}
+        assert "Update now?" not in text
+        return {"tool": "codex", "activity": "idle", "headline": "Ready for a request"}
+    capture = "Update now?\n\x1e[visible screen]\x1f\n› Ask Codex to do anything"
+    result = classify(_pane("node"), capture, read)
+    assert len(calls) == 2
+    assert "question" not in result and "waiting_on" not in result
+    assert result["activity"] == "idle"
+
+
+def test_visible_question_is_preserved_without_retry():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        return {"tool": "codex", "question": {"prompt": "Allow this command?"}}
+    capture = ("history\n\x1e[visible screen]\x1f\nAllow this command?\n"
+               "1. Yes\n2. No\n[visible screen]")
+    result = classify(_pane("node"), capture, read)
+    assert len(calls) == 1
+    assert result["question"]["prompt"] == "Allow this command?"
+    assert result["activity"] == "waiting"
+
+
+def test_copyable_table_rows_are_not_duplicated():
+    for payload in (
+        "PR  State\n12  Open\n13  Merged",
+        "12  Open\n13  Merged",
+        "12 Open",
+        "13 Merged",
+    ):
+        result = classify(_pane(), "PR State\n12 Open\n13 Merged", _llm({
+            "tables": [{"headers": ["PR", "State"], "rows": [["12", "Open"], ["13", "Merged"]]}],
+            "copyables": [{"label": "PR list", "text": payload}],
+        }))
+        assert "copyables" not in result
+        assert len(result["tables"]) == 1
+
+
+def test_copyables_require_payload_in_current_viewport():
+    for capture, expected in (
+        ("git commit -m stale\n\x1e[visible screen]\x1f\nUnrelated output", False),
+        ("history\n\x1e[visible screen]\x1f\ngit commit -m stale", True),
+    ):
+        result = classify(_pane(), capture, _llm({
+            "copyables": [{"label": "Command", "text": "git commit -m stale"}],
+        }))
+        assert bool(result.get("copyables")) is expected
+
+
+def test_scrolled_rename_is_evidence_for_initial_read_and_retry():
+    capture = ("• Thread renamed to Fix login redirects\n\x1e[visible screen]\x1f\n"
+               "Done\n\n› Ask Codex to do anything\n\ngpt-6-sol · ~/src/app")
+    for initial in ("Fix login redirects", "wrong quoted name"):
+        calls = []
+        def read(_prompt, text, calls=calls, initial=initial):
+            calls.append(text)
+            if len(calls) == 1:
+                assert "• Thread renamed to Fix login redirects" in text
+            else:
+                assert text.endswith("• Thread renamed to Fix login redirects")
+            return {"tool": "codex", "session": initial if len(calls) == 1
+                    else "Fix login redirects", "activity": "idle"}
+        result = classify(_pane("node"), capture, read)
+        assert result["session"] == "Fix login redirects"
+        assert len(calls) == (1 if initial == "Fix login redirects" else 2)
+
+
+def test_action_and_identity_retry_keeps_scrolled_rename_evidence():
+    calls = []
+    def read(_prompt, text):
+        calls.append(text)
+        if len(calls) == 1:
+            return {"tool": "codex", "session": "Wrong title", "activity": "waiting",
+                    "question": {"prompt": "Old approval?"}}
+        assert "› Ready" in text and "• Thread renamed to Fix login redirects" in text
+        return {"tool": "codex", "session": "Fix login redirects", "activity": "idle"}
+    capture = ("Old approval?\n• Thread renamed to Fix login redirects\n"
+               "\x1e[visible screen]\x1f\n› Ready\ngpt-6-sol · ~/src/app")
+    result = classify(_pane("node"), capture, read)
+    assert result["session"] == "Fix login redirects" and result["activity"] == "idle"
+    assert "question" not in result and len(calls) == 2
+
+
+def test_cursor_search_binding_requires_visible_footer_evidence():
+    for capture, expected in (
+        ("Resume session\nType to search · Esc to cancel", True),
+        ("Type to search\n\x1e[visible screen]\x1f\nResume session\nEsc to cancel", False),
+        ("Resume session\nSearch is not available", False),
+    ):
+        result = classify(_pane("node"), capture, _llm({
+            "tool": "claude", "question": {"prompt": "Resume session",
+            "answer_style": "cursor", "keymap": {"select": "Enter", "search": False}},
+        }))
+        assert result["question"]["keymap"]["search"] is expected
+
+
+def test_menu_command_becomes_context_not_paste_action():
+    result = classify(_pane(), "Allow?\ngit apply patch.diff", _llm({
+        "question": {"prompt": "Allow?", "answer_style": "menu", "options": ["Yes", "No"]},
+        "copyables": [{"label": "Command", "text": "git apply patch.diff"}],
+    }))
+    assert "copyables" not in result
+    assert result["tables"][0]["rows"] == [["git apply patch.diff"]]
+    assert result["question"]["options"] == ["Yes", "No"]
+
+
+def test_copyable_cannot_cut_a_summary_out_of_prose():
+    result = classify(_pane(), "• Tests reject malformed input. No PR was opened.", _llm({
+        "copyables": [{"label": "Summary", "text": "Tests reject malformed input."}],
+    }))
+    assert "copyables" not in result
+
+
+def test_copyable_can_quote_inline_code_and_wrapped_box():
+    result = classify(_pane(), "Run `git status` first.\n│ A wrapped │\n│ message.  │", _llm({
+        "copyables": [{"text": "git status"}, {"text": "A wrapped message."}],
+    }))
+    assert [c["text"] for c in result["copyables"]] == ["git status", "A wrapped message."]

@@ -1,0 +1,11 @@
+{
+  "description": "An answered update menu remains in scrollback above a newer Codex welcome screen and empty input. It must not produce a stale Needs you notification. Synthetic viewport boundary: the answered menu is in history; the welcome card and input are visible.",
+  "current_command": "node",
+  "capture": "Update available! 0.154.0 -> 0.158.0\n\n1. Update now (runs npm install -g @openai/codex)\n› 2. Skip\n3. Skip until next version\n\nPress enter to continue\n\n\u001e[visible screen]\u001f\nOpenAI Codex (v0.154.0)\nmodel: gpt-5.6-sol medium\ndirectory: ~/src/tmux-rc\n\nTip: Use /fast to enable our fastest inference at 2x plan usage.\n\n› Ask Codex to do anything\n\n01a0e931-79ca-7e91-9948-8a66cff7492c · gpt-5.6-sol medium · Context 100% left · ~/src/tmux-rc · weekly 59% left · Ready",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "headline": "Codex is ready for a new request"
+  }
+}
