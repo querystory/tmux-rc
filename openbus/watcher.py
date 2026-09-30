@@ -1057,7 +1057,15 @@ class Watcher:
                 } if valid else None,
             })
             keys[p.id] = key
-        if rows and self.history.save_checkpoints(rows):
+        if not rows:
+            return
+        # tmux may have restarted mid-tick; never file a new server's panes under the old
+        # key (the history inventory makes the same check in _publish_states).
+        try:
+            same = tmux.server_uid(strict=True) == self._server
+        except (OSError, subprocess.CalledProcessError):
+            same = False
+        if same and self.history.save_checkpoints(rows):
             self._checkpointed.update(keys)
 
     def _state_since_for(

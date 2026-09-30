@@ -14,13 +14,13 @@ SCREEN = f"old scrollback\n{W.tmux.VISIBLE_SCREEN}\n› done, tests pass"
 
 
 def daemon(monkeypatch, db, *, screen=SCREEN, pid="101", now=10_000.0, activity="9000",
-           history=None, listed=True):
+           history=None, listed=True, server=lambda **_kwargs: "boot:1"):
     pane = W.tmux.Pane("work", "0", "agent", "0", "%1", "node", "Task", pid=pid,
                        window_activity=activity)
     monkeypatch.setattr(W.tmux, "server_running", lambda: True)
     monkeypatch.setattr(W.tmux, "list_panes", lambda: [pane] if listed else [])
     monkeypatch.setattr(W.tmux, "active_pane_id", lambda: "%1")
-    monkeypatch.setattr(W.tmux, "server_uid", lambda **_kwargs: "boot:1")
+    monkeypatch.setattr(W.tmux, "server_uid", server)
     monkeypatch.setattr(W.tmux, "capture_pane", lambda *args, **kwargs: screen)
     monkeypatch.setattr(W.time, "time", lambda: now)
     monkeypatch.setattr(W, "backing_off", lambda: False)
@@ -149,3 +149,14 @@ def test_same_screen_keeps_earliest_clocks_across_daemons(tmp_path):
     h.save_checkpoints([{**row, "fp": "y", "last_activity_at": 300.0, "idle_since": None}])
     stored = h.load_checkpoints()["s:%1:5"]
     assert (stored["last_activity_at"], stored["idle_since"]) == (300.0, None)
+
+
+def test_tmux_restart_mid_tick_writes_no_checkpoint(monkeypatch, tmp_path):
+    seen = []
+
+    def server(**_kwargs):
+        seen.append(1)
+        return "boot:1" if len(seen) == 1 else "boot:2"
+
+    w, _ = daemon(monkeypatch, tmp_path / "h.db", server=server)
+    assert w.history.load_checkpoints() == {}
