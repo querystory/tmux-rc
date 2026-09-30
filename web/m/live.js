@@ -24,13 +24,14 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   let mode = "voice";
   const status = (message) => { $("voice-status").textContent = message; };
   // "Live Mode" names only a voice session; the typed one is Chat, everywhere it shows.
+  const name = (current) => (current.text ? "Chat" : "Live Mode");
   function paint() {
-    const text = run ? run.text : mode === "text", name = text ? "Chat" : "Live Mode";
+    const text = run ? run.text : mode === "text", title = name({ text });
     $("live-mode").classList.toggle("active", !!run && !run.text);
     $("chat").classList.toggle("active", !!run?.text);
     $("live-mode").title = $("live-mode").ariaLabel = run && !run.text ? "Live Mode active" : "Live Mode";
-    $("voice-title").textContent = name;
-    $("voice-start").textContent = `End ${name}`;
+    $("voice-title").textContent = title;
+    $("voice-start").textContent = `End ${title}`;
     $("voice-start").hidden = !run;
     $("voice-controls").hidden = !run;
     $("voice-models").hidden = !!run || text;
@@ -41,7 +42,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
     $("voice-mute").title = $("voice-mute").ariaLabel = run?.muted ? "Unmute microphone" : "Mute microphone";
     // Closing the sheet mid-conversation only minimizes it: say so, and show the bubble.
     $("voice-close").innerHTML = licon(run ? "minus" : "x");
-    $("voice-close").title = $("voice-close").ariaLabel = run ? `Minimize ${name}` : "Close panel";
+    $("voice-close").title = $("voice-close").ariaLabel = run ? `Minimize ${title}` : "Close panel";
     badge();
   }
   const badge = () => bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size });
@@ -50,7 +51,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   // there, else at the same offset (read before closing, since a closed log has no layout).
   function show() {
     if (!dialog.open) dialog.showModal();
-    if (run?.scroll) log.scrollTop = run.scroll.follow ? log.scrollHeight : run.scroll.top;
+    if (run?.scroll) { log.scrollTop = run.scroll.follow ? log.scrollHeight : run.scroll.top; run.scroll = null; }
     unread = false; badge();
   }
   function minimize() {
@@ -297,10 +298,10 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
     if (current.text) query.set("mode", "text");
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
-    catch { stop("Could not connect to Live Mode."); return; }
+    catch { stop(`Could not connect to ${name(current)}.`); return; }
     current.ws = ws; current.thumbs = []; // an echo lost with the old socket never comes
     clearTimeout(current.deadline);
-    current.deadline = setTimeout(() => { if (run === current && !current.listening) stop("Live Mode connection timed out. Try again."); }, CONNECT_DEADLINE_MS);
+    current.deadline = setTimeout(() => { if (run === current && !current.listening) stop(`${name(current)} connection timed out. Try again.`); }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {
       if (run !== current || current.ws !== ws) return;
       let message; try { message = JSON.parse(data); } catch { return; }
@@ -331,7 +332,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
       // A refusal says whether to reload the tab or go set a key; "Try again" names the
       // one action that cannot help.
       } else if (refusal) stop(refusal);
-      else stop(event.code === 1000 ? "Session ended" : "Live Mode disconnected. Try again.");
+      else stop(event.code === 1000 ? "Session ended" : `${name(current)} disconnected. Try again.`);
     };
   }
   async function start() {

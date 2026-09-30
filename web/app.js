@@ -4133,7 +4133,7 @@ function lmMinimize(min) {
   lmMin = min;
   if (!min) lmShow();
   render(Object.values(panesById));
-  if (!min && box && lmScroll) box.scrollTop = lmScroll.follow ? box.scrollHeight : lmScroll.top;
+  if (!min && box && lmScroll) { box.scrollTop = lmScroll.follow ? box.scrollHeight : lmScroll.top; lmScroll = null; }
   lmBadge();
   if (min) lmBubble.focus(); // the focused Minimize just vanished with the card's convo
 }
