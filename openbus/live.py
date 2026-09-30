@@ -284,7 +284,9 @@ _TEXT_NOTE = (
     "\nThis session is typed, not spoken: the user types to you and reads your replies. "
     'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
     "a pane (type_in_pane, press_key, resume_session) are shown to the user to approve "
-    "first; a declined one did not happen, so don't retry it unless the user asks."
+    "first; a declined one did not happen, so don't retry it unless the user asks. Act "
+    "first, then report the outcome briefly; don't narrate what you're about to do before "
+    "calling a tool."
 )
 
 

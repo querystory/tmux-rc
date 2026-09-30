@@ -417,6 +417,13 @@ conversation keeps the last twenty turns, dropped whole from the front so every 
 keeps its result: each request resends everything, so an unbounded session would cost more
 per turn and eventually overflow the context window.
 
+Flash sometimes answers a tool result with nothing at all, after announcing the action
+before calling the tool. The prompt now says to act first and report after, and a silent
+response after tool activity is asked once for a one-sentence outcome. If it stays silent
+the turn ends without a placeholder, because the approved card and the typed row already
+show what happened and a "no reply" line under them reads as a failure. The placeholder is
+kept for a turn with no tool activity, where it is the only sign the request was heard.
+
 The mode picks the list: chat entries appear only under Text and everything else only
 under Voice, and the socket refuses the other mode's model. Chat entries live in the same
 `TMUXRC_LIVE_MODELS` table (backends `vertex-chat` and `anthropic`). A table that names

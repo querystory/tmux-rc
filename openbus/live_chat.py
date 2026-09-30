@@ -35,8 +35,12 @@ _FAILED = "(The model call failed; try again.)"
 STEPS = 8
 _STOPPED = f"(Stopped after {STEPS} steps without a reply.)"
 # A request can succeed with nothing in it (a blocked prompt, a refusal with no fallback):
-# the typed turn still gets a visible answer rather than silence.
-_EMPTY = "(The model returned no reply.)"
+# a turn with nothing else to show still gets a visible answer rather than silence.
+_EMPTY = "(No response from the model; try again.)"
+# Asked once when the model goes quiet after acting (Flash does, after a tool result). If it
+# stays quiet the turn shows nothing more: the approved card and the typed row already say
+# what happened, and a placeholder under them reads as a failure.
+_OUTCOME = "(Tell the user the outcome in one sentence.)"
 # Typed turns kept in the conversation. Every request resends all of it, so an unbounded
 # session costs more per turn and eventually overflows the context window. Whole turns are
 # dropped from the front, which keeps every tool call next to its result.
@@ -81,6 +85,7 @@ class _Chat:
             self._user("\n\n".join([*self._context, text]))
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
+            acted = asked = False
             for _ in range(STEPS):
                 try:
                     reply, calls, usage = await self._complete()
@@ -98,7 +103,11 @@ class _Chat:
                     break
                 self._usage = [a + b for a, b in zip(self._usage, usage, strict=True)]
                 yield Event("usage", usage=Split(*self._usage))
-                if not (reply or calls):
+                if not (reply or calls) and acted and not asked:
+                    asked = True
+                    self._user(_OUTCOME)
+                    continue
+                if not (reply or calls or acted):
                     reply = _EMPTY
                     self._model(_EMPTY)
                 if reply:
@@ -106,6 +115,7 @@ class _Chat:
                     sep = " "
                 if not calls:
                     break
+                acted = True
                 # live._receiver runs each call to completion (consent included) and
                 # answers it through send_tool_result before asking for the next event,
                 # so every answer is in by the time this generator resumes.

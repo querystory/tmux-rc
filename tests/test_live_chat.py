@@ -230,6 +230,21 @@ def test_an_empty_response_still_answers_the_turn(monkeypatch):
     assert _said(frames) == [C._EMPTY]
 
 
+def test_quiet_after_acting_is_asked_once_for_the_outcome(monkeypatch):
+    s = _Fake([("", [("type_in_pane", {"pane_id": "%1", "text": "go"})]), ("", []),
+               ("Told it to go.", [])])
+    frames, _, typed = _turn(s, "tell it to go", monkeypatch, ok=True)
+    assert typed and _said(frames) == ["Told it to go."]
+    assert s.history[3:5] == [("model", "", []), ("user", C._OUTCOME)]
+
+
+def test_still_quiet_after_acting_shows_no_placeholder(monkeypatch):
+    s = _Fake([("", [("type_in_pane", {"pane_id": "%1", "text": "go"})]), ("", []), ("", [])])
+    frames, _, typed = _turn(s, "tell it to go", monkeypatch, ok=True)
+    assert typed and _said(frames) == [] and not s.script  # asked once, not again
+    assert frames[-1]["type"] == "turn_complete"
+
+
 def test_a_turns_replies_stay_apart_when_the_client_joins_them(monkeypatch):
     monkeypatch.setattr(L.agent_history, "offered", lambda: True)
     monkeypatch.setattr(L.agent_history, "resolve", lambda q: [])
