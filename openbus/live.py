@@ -751,7 +751,7 @@ def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
             mime, data = image["mime"], base64.b64decode(image["data"], validate=True)
         except Exception:  # noqa: BLE001 - any malformed entry refuses the turn
             return None
-        if mime not in _EXT or not data or len(data) > IMG_MAX_BYTES:
+        if not isinstance(mime, str) or mime not in _EXT or not data or len(data) > IMG_MAX_BYTES:
             return None
         out.append((mime, data))
     return out

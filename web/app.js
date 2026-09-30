@@ -4352,11 +4352,12 @@ function lmStatus(s) {
   lmPill().classList.toggle("reconnecting", s === "reconnecting");
 }
 
-// Tap Live: stop a running voice session (a running Chat is brought back instead: ending
-// it is its own button), else open the bottom sheet — one thumb-sized row per model, the
-// remembered choice ticked — and the tapped row starts the session at once.
+// Tap Live: stop a running voice session that is on screen (a minimized one, or a running
+// Chat, is brought back instead: ending those is their own button), else open the bottom
+// sheet — one thumb-sized row per model, the remembered choice ticked — and the tapped
+// row starts the session at once.
 function lmTap() {
-  if (lmWs || lmRetry) return lmText ? lmMinimize(false) : lmStop();
+  if (lmWs || lmRetry) return lmText || lmMin ? lmMinimize(false) : lmStop();
   lmSheet(true);
 }
 const lmChoice = () => { try { return localStorage.getItem("tmuxrc-live-model") || ""; } catch { return ""; } };

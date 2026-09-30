@@ -36,16 +36,28 @@ export function chatComposer(form, { licon, send, error }) {
   submit.type = "submit"; submit.className = "primary"; submit.textContent = "Send";
   bindAttach(attach, picker, () => composer);
   enterSubmits(form, (target) => composer.editor.contains(target));
+  // One turn at a time. Only a turn with images awaits (the transcode), and for that
+  // moment the editor is locked (the Composer ignores paste and attach then), so a second
+  // Enter cannot resend it and nothing typed meanwhile is cleared with the sent draft. A
+  // plain turn stays synchronous and keeps the editor, and a phone keyboard, up.
+  let sending = false;
   form.onsubmit = async (event) => {
     event.preventDefault();
     const segments = composer.segments();
     const text = segments.map((segment) => segment.text || "").join("").trim();
     const files = segments.filter((segment) => segment.file).map((segment) => segment.file);
-    if (!text && !files.length) return;
+    if (sending || (!text && !files.length)) return;
     if (text.length > TYPED_TURN_CHARS) return error("Too long; not sent");
-    let images;
-    try { images = await Promise.all(files.map(imagePart)); } catch { return error("Could not read that image; not sent"); }
+    let images = [];
+    if (files.length) {
+      sending = true; composer.editor.contentEditable = "false";
+      try { images = await Promise.all(files.map(imagePart)); }
+      catch { return error("Could not read that image; not sent"); }
+      finally { sending = false; composer.editor.contentEditable = "true"; }
+    }
     const frame = { action: "text", text, images: images.map(({ mime, data }) => ({ mime, data })) };
+    // send() refuses (false) unless its session is up: after a model switch mid-transcode
+    // the new one is still connecting, so the draft is kept rather than sent there.
     if (send(frame, images.map((image) => image.url)) !== false) composer.replace([]);
   };
   form.append(attach, composer.editor, submit, picker);

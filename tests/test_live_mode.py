@@ -738,6 +738,7 @@ def test_a_pasted_image_reaches_the_session_with_its_turn():
     ({"mime": "image/svg+xml", "data": "UE5H"}, True),  # not a pane-paste type
     ({"mime": "image/png", "data": "not base64!"}, True),
     ({"mime": "image/png", "data": ""}, True),
+    ({"mime": ["image/png"], "data": "UE5H"}, True),  # not even a string
     ({"mime": "image/png", "data": "UE5H"}, False),  # a voice model cannot see it
 ])
 def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
