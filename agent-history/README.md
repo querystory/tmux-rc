@@ -97,9 +97,10 @@ under the name `codex`. The process's `TMUX_PANE` says where it runs.
 That pane is usually missing. New Codex sessions run through a shared app-server
 daemon, which holds the rollout of every thread its terminal clients show, while the
 clients hold none; the daemon has left every terminal, so it reports no pane. tmux-rc
-fills the gap from the screen: the Codex footer shows the thread ID, so Live treats the
-watched pane whose footer names the thread as its pane. Otherwise the thread counts as
-running out of reach, and Live still refuses to start a second copy.
+fills the gap from the screen: the Codex status bar starts with the thread's name, or
+its ID while unnamed, so Live treats the one watched pane whose status bar names the
+thread as its pane. Otherwise (no such pane, or a name shown in two) the thread counts
+as running out of reach, and Live still refuses to start a second copy.
 
 If a harness can't tell what is running, only its own sessions are marked
 `running_unknown`; the other harnesses' answers stand.

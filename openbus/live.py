@@ -23,7 +23,7 @@ import uuid
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import agent_history, live_providers, llm, telemetry, tmux
-from .classify import _load_prompt
+from .classify import _codex_model_segments, _load_prompt, _session_chrome
 from .live_providers import KEYS, LiveModel
 
 logger = logging.getLogger(__name__)
@@ -480,22 +480,24 @@ async def _running_pane(entry: dict, watcher) -> str | None:
     running = entry.get("running")
     pane = running and await asyncio.to_thread(_pane_of, running)
     if running and not pane and entry.get("harness") == "codex":
-        pane = _codex_pane(watcher, entry["session_id"])
+        pane = _codex_pane(watcher, entry)
     return pane or None
 
 
-def _codex_pane(watcher, thread_id: str) -> str | None:
-    """The watched pane whose Codex footer names this thread. Codex's app-server
-    daemon, not the terminal client, holds a thread's rollout, so the process that
-    proves it's running names no pane; the client's footer starts with the thread id
-    ("<id> · <model> · ...")."""
-    footer = thread_id + " · "
+def _codex_pane(watcher, entry: dict) -> str | None:
+    """The one watched pane whose Codex status bar names this thread. Codex's
+    app-server daemon, not the terminal client, holds a thread's rollout, so the process
+    that proves it's running names no pane; the client's status bar starts with the
+    thread's name, or its id while unnamed ("<id> · <model> · ..."). Only the status
+    chrome the parser validates counts, and a name shown in two panes decides nothing."""
+    shown: dict[str, list[str]] = {}
     # A copy: the watcher thread adds and drops panes while this runs.
     for pane_id, hist in list(watcher.snapshots.items()):
-        lines = tmux.strip_dim(hist[-1]["text"] or "").rstrip().splitlines()[-4:] if hist else []
-        if any(line.lstrip().startswith(footer) for line in lines):
-            return pane_id
-    return None
+        for line in _session_chrome(hist[-1]["text"] or "") if hist else ():
+            if _codex_model_segments(line):
+                shown.setdefault(line.split("·")[0].strip(), []).append(pane_id)
+    panes = shown.get(entry["session_id"]) or shown.get(entry.get("title") or "", [])
+    return panes[0] if len(panes) == 1 else None
 
 
 def _home_relative(path: str) -> str:
