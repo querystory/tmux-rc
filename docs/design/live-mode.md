@@ -410,7 +410,12 @@ reconnecting, as voice does, would throw away the conversation, which here lives
 daemon rather than in a server-side session. A rejected key, missing access or unknown
 model still ends the session with the reason, because no retry fixes config. A turn is
 capped at a handful of model requests, so a model that keeps calling tools instead of
-answering stops rather than spending without bound.
+answering stops rather than spending without bound. A turn that ends that way, or fails, is
+closed in the conversation with the same note the user saw; left open, the next typed turn
+would send the abandoned request (or tool chain) again and the model could act on it. The
+conversation keeps the last twenty turns, dropped whole from the front so every tool call
+keeps its result: each request resends everything, so an unbounded session would cost more
+per turn and eventually overflow the context window.
 
 The mode picks the list: chat entries appear only under Text and everything else only
 under Voice, and the socket refuses the other mode's model. Chat entries live in the same

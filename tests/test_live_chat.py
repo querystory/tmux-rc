@@ -30,6 +30,9 @@ class _Fake(C._Chat):
     def _user(self, text):
         self.history.append(("user", text))
 
+    def _model(self, text):
+        self.history.append(("model", text, []))
+
     async def _complete(self):
         item = self.script.pop(0)
         if isinstance(item, Exception):
@@ -140,6 +143,7 @@ def test_a_failed_call_costs_the_turn_not_the_conversation(monkeypatch):
     s._inbox = asyncio.Queue()  # the next turn runs on a new event loop in this harness
     frames, _, _ = _turn(s, "two", monkeypatch)
     assert _said(frames) == ["back"] and s.history[0] == ("user", "one")
+    assert s.history[1] == ("model", C._FAILED, [])  # closed, so "two" cannot resume "one"
 
 
 def test_a_refused_entry_ends_the_session_with_the_reason(monkeypatch):
@@ -218,6 +222,7 @@ def test_a_model_that_never_stops_calling_tools_is_stopped(monkeypatch):
     frames, audits, _ = _turn(s, "loop", monkeypatch)
     assert len(audits) == C.STEPS and not s.script
     assert _said(frames) == [C._STOPPED] and frames[-1]["type"] == "turn_complete"
+    assert s.history[-1] == ("model", C._STOPPED, [])  # the chain ends before the next turn
 
 
 def test_an_empty_response_still_answers_the_turn(monkeypatch):
@@ -231,3 +236,16 @@ def test_a_turns_replies_stay_apart_when_the_client_joins_them(monkeypatch):
     s = _Fake([("I'll check.", [("find_sessions", {"query": "x"})]), ("None found.", [])])
     frames, _, _ = _turn(s, "find it", monkeypatch)
     assert "".join(_said(frames)) == "I'll check. None found."
+
+
+def test_old_turns_are_dropped_whole_from_the_front(monkeypatch):
+    monkeypatch.setattr(L.agent_history, "offered", lambda: True)
+    monkeypatch.setattr(L.agent_history, "resolve", lambda q: [])
+    s = _Fake([])
+    for i in range(C.TURNS_KEPT + 3):
+        s.script = [("", [("find_sessions", {"query": "x"})]), (f"r{i}", [])]
+        s._inbox = asyncio.Queue()  # each turn runs on a new event loop in this harness
+        _turn(s, f"t{i}", monkeypatch)
+    users = [h[1] for h in s.history if h[0] == "user"]
+    assert users == [f"t{i}" for i in range(3, C.TURNS_KEPT + 3)]
+    assert s.history[0] == ("user", "t3") and len(s.history) == 4 * C.TURNS_KEPT

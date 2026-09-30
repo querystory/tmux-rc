@@ -37,11 +37,15 @@ _STOPPED = f"(Stopped after {STEPS} steps without a reply.)"
 # A request can succeed with nothing in it (a blocked prompt, a refusal with no fallback):
 # the typed turn still gets a visible answer rather than silence.
 _EMPTY = "(The model returned no reply.)"
+# Typed turns kept in the conversation. Every request resends all of it, so an unbounded
+# session costs more per turn and eventually overflows the context window. Whole turns are
+# dropped from the front, which keeps every tool call next to its result.
+TURNS_KEPT = 20
 
 
 class _Chat:
     """The loop, independent of the vendor. A subclass keeps the conversation in its own
-    wire format and supplies _user / _complete / _results."""
+    wire format and supplies _user / _model / _complete / _results."""
 
     def __init__(self, model: LiveModel, system: str) -> None:
         self.model, self.system, self.history = model, system, []
@@ -49,6 +53,7 @@ class _Chat:
         self._context: deque[str] = deque(maxlen=CONTEXT_KEPT)
         self._answers: list[tuple[ToolCall, dict]] = []
         self._usage = [0] * len(Split._fields)
+        self._starts: list[int] = []  # where each kept turn begins in history
 
     async def send_audio(self, _pcm: bytes) -> None:
         """A text session has no mic; a stray frame is dropped."""
@@ -64,8 +69,15 @@ class _Chat:
         self._answers.append((call, payload))
 
     async def events(self):
+        """A turn the model did not finish (failed, stopped, empty) is closed in history with
+        the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
             text = await self._inbox.get()
+            self._starts.append(len(self.history))
+            if len(self._starts) > TURNS_KEPT:
+                cut = self._starts[-TURNS_KEPT]
+                del self.history[:cut]
+                self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
             self._user("\n\n".join([*self._context, text]))
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
@@ -82,11 +94,13 @@ class _Chat:
                     # conversation: a reconnect would start over with no history.
                     logger.warning("[live] %s call failed: %r", self.model.model, e)
                     yield Event("transcript", role="model", text=sep + _FAILED)
+                    self._model(_FAILED)
                     break
                 self._usage = [a + b for a, b in zip(self._usage, usage, strict=True)]
                 yield Event("usage", usage=Split(*self._usage))
                 if not (reply or calls):
                     reply = _EMPTY
+                    self._model(_EMPTY)
                 if reply:
                     yield Event("transcript", role="model", text=sep + reply)
                     sep = " "
@@ -100,6 +114,7 @@ class _Chat:
                 self._results(self._answers)
                 self._answers = []
             else:
+                self._model(_STOPPED)
                 yield Event("transcript", role="model", text=sep + _STOPPED)
             yield Event("turn_complete")
 
@@ -121,6 +136,10 @@ class _Gemini(_Chat):
     def _user(self, text: str) -> None:
         t = llm.genai_types()
         self.history.append(t.Content(role="user", parts=[t.Part(text=text)]))
+
+    def _model(self, text: str) -> None:
+        t = llm.genai_types()
+        self.history.append(t.Content(role="model", parts=[t.Part(text=text)]))
 
     async def _complete(self):
         r = await llm._client().aio.models.generate_content(  # noqa: SLF001 - reuse, see class doc
@@ -162,6 +181,9 @@ class _Claude(_Chat):
 
     def _user(self, text: str) -> None:
         self.history.append({"role": "user", "content": text})
+
+    def _model(self, text: str) -> None:
+        self.history.append({"role": "assistant", "content": text})
 
     async def _complete(self):
         r = await self._client.beta.messages.create(
