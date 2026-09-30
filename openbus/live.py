@@ -489,11 +489,13 @@ def _codex_pane(watcher, entry: dict) -> str | None:
     app-server daemon, not the terminal client, holds a thread's rollout, so the process
     that proves it's running names no pane; the client's status bar starts with the
     thread's name, or its id while unnamed ("<id> · <model> · ..."). Only the status
-    chrome the parser validates counts. Names repeat, so a name counts only with the
-    thread's directory on the same bar, and a match in two panes decides nothing."""
+    chrome the parser validates counts, in panes classified as Codex (a shell can print
+    a captured footer). Names repeat, so a name counts only with the thread's directory
+    on the same bar, and a match in two panes decides nothing."""
+    codex = {d["pane_id"] for d in watcher.digest() if d.get("tool") == "codex"}
     # A copy: the watcher thread adds and drops panes while this runs.
     rows = [(pane_id, [s.strip() for s in line.split("·")])
-            for pane_id, hist in list(watcher.snapshots.items()) if hist
+            for pane_id, hist in list(watcher.snapshots.items()) if hist and pane_id in codex
             for line in _session_chrome(hist[-1]["text"] or "") if _codex_model_segments(line)]
 
     def only(match) -> str | None:

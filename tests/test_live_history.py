@@ -206,6 +206,7 @@ def test_daemon_held_codex_thread_is_found_by_its_status_bar(history):
     sessions[sid] = {**LIVE, "harness": "codex", "session_id": sid,
                      "resume_argv": ["codex", "resume", sid], "running": {"pid": 5}}
     w = _Watcher()
+    w.digest = lambda: [{**d, "tool": "codex"} for d in _Watcher.digest(w)]
 
     def show(pane, head, where="/repo"):
         w.snapshots[pane] = [{"id": "s", "ts": 1.0,
@@ -219,6 +220,9 @@ def test_daemon_held_codex_thread_is_found_by_its_status_bar(history):
     show("%2", "tmuxrc live mode")  # the name in two panes decides nothing
     assert resume()["status"] == "rejected"
     del w.snapshots["%2"]
+    w.digest = _Watcher().digest  # a claude pane printing a Codex footer isn't Codex
+    assert resume()["status"] == "rejected"
+    w.digest = lambda: [{**d, "tool": "codex"} for d in _Watcher.digest(w)]
     show("%1", "tmuxrc live mode", "~/other")  # names repeat: another thread's directory
     assert resume()["status"] == "rejected"
     # The id in output, not the status bar, isn't evidence either.
