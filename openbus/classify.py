@@ -265,12 +265,10 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["parse_ok"] = False
     if bad_session:
         result.pop("session", None)
-        if not retry:
-            result["parse_ok"] = False
-        elif retry_session := _canonical_session(retry.get("session"), identity):
+        # A missing title is safe; rejecting identity must not freeze otherwise
+        # valid activity/question state behind the watcher's previous card.
+        if retry and (retry_session := _canonical_session(retry.get("session"), identity)):
             result["session"] = retry_session
-        elif retry.get("session") is not None:
-            result["parse_ok"] = False
 
 
 def _obvious_idle(text: str) -> bool:

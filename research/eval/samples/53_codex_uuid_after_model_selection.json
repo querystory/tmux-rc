@@ -1,0 +1,12 @@
+{
+  "description": "Completed model selection: an opaque footer identity must not invalidate current idle state and preserve an obsolete model picker card.",
+  "current_command": "codex",
+  "capture": "Select Model and Effort\n1. GPT-6-Sol\n2. GPT-6-Astra\n\u001e[visible screen]\u001f\nPR #255 is ready: persistent clear button, tests passing, Copilot clean.\nPR #255 is not merged or deployed yet.\n\nWorked for 8m 32s · 5:16 PM\n\n› Ask Codex to do anything\n\n01a0e9d1-093d-7c10-84f4-133c9544c971 · GPT-6.1-Sol medium · Context 60% left · ~/src/tmux-rc",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle",
+    "session": null,
+    "question": false,
+    "headline": "PR #255 is ready with passing tests and a clean Copilot review, awaiting merge and deployment"
+  }
+}
