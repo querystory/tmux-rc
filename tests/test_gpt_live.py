@@ -178,7 +178,7 @@ def test_completed_calls_survive_empty_response_output_and_all_results_precede_c
     monkeypatch,
 ):
     typed = []
-    monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.tmux, "server_uid", lambda: "test")
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **kw: None)
     monkeypatch.setattr(L.telemetry, "emit_live_turn", lambda **kw: None)

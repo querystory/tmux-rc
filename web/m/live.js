@@ -176,6 +176,7 @@ export function setupLiveMode({ request, session, licon = fallbackIcon, onVersio
   function stop(message = "Session ended") {
     const current = run; run = null; sequence++;
     if (current) {
+      expire(current); // the daemon drops its open proposals with the session
       clearTimeout(current.retry); clearTimeout(current.deadline);
       current.resolveReady?.();
       current.wakeLock?.release().catch(() => {});

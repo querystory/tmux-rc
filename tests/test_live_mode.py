@@ -186,7 +186,7 @@ def _dispatch(fc, monkeypatch, watcher=None):
     w = watcher or _Watcher()
     ws, session = _WS(), _Session()
     typed = []
-    monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
     _run(L._handle_tool_call(ws, session, fc, w, _METER))
     return w, ws, session, typed
@@ -219,9 +219,10 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
                                       {"action": "stop"}])
                 await L._forward_client(client, None, meter)
 
-    typed, audits = [], []
-    monkeypatch.setattr(L.tmux, "send_keys", lambda *a: typed.append(a))
-    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
+    typed, audits, bound = [], [], []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: (typed.append(a), bound.append(k)))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append({**k, "pane": a[1]}))
     ws, session = Tap(), _Session()
     fc = _FC(args={"pane_id": "%1", "text": "rebase onto main"})
     _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
@@ -234,6 +235,9 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
         {"status": "done", "pane": "work"} if ok
         else {"status": "declined", "reason": "the user declined"})
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
+    assert audits[-1]["pane"] == "%1"  # recorded even when declined
+    # Bound to the pane incarnation the card showed, so a recycled %1 is refused.
+    assert bound == ([{"expected_pid": "4242"}] if ok else [])
     assert meter.approvals == {}
 
 
@@ -247,6 +251,7 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
                 meter.approvals[obj["id"]].set_result(False)
 
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
     ws = Cancel()
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
     _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))

@@ -321,12 +321,11 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     result = {"status": "error", "reason": "aborted"} if known else {
         "status": "rejected", "reason": "unknown tool"}
     try:
-        if known and meter.text and fc.name in _CONSENT and not await _approved(
-            websocket, fc, watcher, meter, rec
-        ):
-            result = {"status": "declined", "reason": "the user declined"}
-        elif known:
-            result = await _dispatch(websocket, session, fc, watcher, rec)
+        if known:
+            ok, pid = (await _approved(websocket, fc, watcher, meter, rec)
+                       if meter.text and fc.name in _CONSENT else (True, None))
+            result = (await _dispatch(websocket, session, fc, watcher, rec, expected_pid=pid)
+                      if ok else {"status": "declined", "reason": "the user declined"})
     finally:
         status, reason = result["status"], result.get("reason")
         _audit(
@@ -345,15 +344,22 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
 _CONSENT = {"type_in_pane", "press_key", "resume_session"}
 
 
-async def _approved(websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict) -> bool:
-    """Show the user what the call would do, as the model asked it, and wait for Send
-    (True) or Cancel (False). A malformed call can be approved and is still refused by
-    _dispatch: this gate only ever removes actions."""
+async def _approved(
+    websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict
+) -> tuple[bool, str | None]:
+    """Show the user what the call would do, as the model asked it, and wait for Send or
+    Cancel. Returns the answer and the pane's pid when it was proposed: the card named
+    THAT process, and tmux recycles %N, so an approval must not type into whatever holds
+    the id by the time the user taps. A malformed call can be approved and is still
+    refused by _dispatch: this gate only ever removes actions."""
     args = fc.args if isinstance(fc.args, dict) else {}
-    pane = args.get("pane_id")
-    if isinstance(pane, str):
-        pane = next((d.get("label") or pane for d in watcher.digest() if d["pane_id"] == pane),
-                    pane)
+    pane_id = args.get("pane_id")
+    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    known = isinstance(pane_id, str) and pane_id in labels
+    pane = labels[pane_id] if known else pane_id
+    pid = await asyncio.to_thread(tmux.pane_pid, pane_id) if known else None
+    if known:
+        rec["pane_id"] = pane_id  # a real pane: recorded even if declined
     if fc.name == "resume_session":
         entry = agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))
@@ -364,8 +370,6 @@ async def _approved(websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
-    if isinstance(args.get("pane_id"), str) and pane != args["pane_id"]:
-        rec["pane_id"] = args["pane_id"]  # a real pane: record it even if declined
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     try:
@@ -377,10 +381,12 @@ async def _approved(websocket: WebSocket, fc, watcher, meter: _Meter, rec: dict)
         await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
     finally:
         meter.approvals.pop(proposal, None)
-    return rec["consent"] == "approved"
+    return rec["consent"] == "approved", pid
 
 
-async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> dict:
+async def _dispatch(
+    websocket: WebSocket, session, fc, watcher, rec: dict, *, expected_pid: str | None = None
+) -> dict:
     """Route a tool call (type_in_pane / press_key, or a history tool) and return its
     answer. The result NEVER rides back through the tool response (echo loops — see
     design doc); the model sees the outcome via the post-action ambient refresh instead."""
@@ -442,7 +448,7 @@ async def _dispatch(websocket: WebSocket, session, fc, watcher, rec: dict) -> di
     try:
         if invalidate is not None:
             await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
-        await asyncio.to_thread(tmux.send_keys, *send_args)
+        await asyncio.to_thread(tmux.send_keys, *send_args, expected_pid=expected_pid)
     except Exception as e:  # report, don't kill the session
         # The error's text can quote the typed text (send-keys argv): speech, so only
         # the class leaves here unless QSDEBUG.
