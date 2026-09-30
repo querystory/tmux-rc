@@ -133,6 +133,7 @@ def test_tool_result_requests_follow_up_now_or_after_active_response():
         kinds = [e.kind async for e in s.events()]
         assert kinds == ["usage", "turn_complete"]
         assert [m["type"] for m in ws.sent][-1] == "response.create"  # released at done
+        assert s._active is True  # ...and active again, so nothing else asks meanwhile
 
     _run(scenario())
 

@@ -693,7 +693,7 @@ class _OpenAISession:
                 yield Event("turn_complete")
                 if self._pending:
                     self._pending = False
-                    await self._send({"type": "response.create"})
+                    await self._respond()
             elif t == "error":
                 # Session-fatal errors also close the socket, which ends this loop and
                 # hands the reconnect to live.py; the rest are per-event and just logged.
