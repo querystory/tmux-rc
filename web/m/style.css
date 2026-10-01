@@ -78,6 +78,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   .working { animation: logo-clench 1.4s ease-in-out infinite; }
   .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; }
 }
+@media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
 @keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
 @keyframes logo-spin { to { transform: rotate(1turn); } }
 .needs-you .pane-icon { background: transparent; color: var(--amber); }
