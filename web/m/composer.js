@@ -1,4 +1,4 @@
-// Keep the same ordered text/image model as the full UI composer.
+// Ordered text/image model: what is sent is the draft in the order it was typed.
 export class Composer {
   // The Live chat (/live-chat.js) reuses this editor under its own id and label.
   constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity } = {}) {
@@ -81,8 +81,7 @@ export class Composer {
     let text = "", started = false, pending = 0;
     const flush = () => { if (text) { segments.push({ text }); text = ""; } };
     const content = () => { text += "\n".repeat(pending); pending = 0; started = true; };
-    // Port of composerSegments() in /app.js; keep the filler-BR rule in sync.
-    // See that function for why trailing DIV filler BRs differ from explicit newlines.
+    // Trailing DIV filler BRs differ from explicit newlines, so they are not counted.
     const walk = (node) => {
       [...node.childNodes].forEach((child, index, children) => {
         if (child.nodeType === Node.TEXT_NODE && child.nodeValue) { content(); text += child.nodeValue; }

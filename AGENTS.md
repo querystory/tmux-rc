@@ -69,12 +69,12 @@ Emoji render as platform-colored bitmaps: they ignore `currentColor` so they can
 theme (glaring since light mode), they clash with the chrome, and they look different
 on every device.
 
-Instead, use the inline Lucide icons in `web/app.js`: the `LUCIDE` path map +
+Instead, use the inline Lucide icons in `web/m/app.js`: the `LUCIDE` path map +
 `licon(name, size)` helper emit stroke-`currentColor` SVGs that theme for free and
-render identically everywhere (same approach as the ⤢ fullscreen button). To add an
+render identically everywhere. To add an
 icon, copy its path data from lucide.dev into the map — **inline only, never a CDN or
 external fetch** (the app stays self-contained behind IAP). Static buttons ship empty
-in `index.html` and get their icon injected at boot.
+in `web/m/index.html` and get their icon injected at boot.
 
 Emoji in *content* (terminal captures, transcripts, pane text) is data, not chrome —
 pass it through untouched.

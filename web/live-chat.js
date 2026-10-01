@@ -1,4 +1,4 @@
-// Live Mode's text chat pieces, shared by the full UI (app.js) and the phone (m/live.js):
+// Live Mode's text chat pieces, used by the phone UI (m/live.js):
 // the typed-turn composer, the bubble a minimized chat shrinks to, and transcript thumbnails.
 // Rationale: docs/design/live-mode.md § Chat entry.
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";

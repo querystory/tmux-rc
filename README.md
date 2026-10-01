@@ -21,21 +21,10 @@ the tmux prefix):
   <img src="docs/img/mobile-terminal.png" alt="The Terminal tab on the phone, showing the live tmux pane rendered in colour above a horizontally scrolling row of Esc, Tab, arrow, Enter and Ctrl key buttons" width="280">
 </p>
 
-The same daemon serves a wider layout for the desktop — a dock of every pane across
-every session, and the focused pane's card above its live terminal:
-
-<p align="center">
-  <img src="docs/img/card.png" alt="The desktop dashboard: a dock of pane icons grouped by tmux session, above the focused pane's card with its summary, sub-agents and activity, and the live terminal below" width="620">
-</p>
-
-Start a new agent in a new window without touching the machine: tap the **+** at the end
-of a session's dock. When that session has idle panes folded away the slot shows **+N**
-instead, where a tap already means *unfold* — so there the launcher sits behind a press
-and hold:
-
-<p align="center">
-  <img src="docs/img/launcher.png" alt="The launcher menu open over the dashboard, listing Claude, Claude (Sonnet), Claude (Bedrock), Codex and Gemini as the agents available to start" width="620">
-</p>
+On a wide window the same page lays out as three columns — the session list, the
+pane's Overview, and its live terminal — and `/` redirects to it. Start a new agent in a
+new window without touching the machine: tap **+** beside the Sessions heading and pick
+a session and an agent (`TMUXRC_LAUNCHERS` sets the choices).
 
 **Why not `/remote-control`?** Every vendor's coordination story stops at its own
 walls, and Claude Code's remote control is the clearest example: it is locked to the
@@ -195,7 +184,7 @@ Loaded from `.env` at startup (real shell env vars still override). See `.env.ex
 | `TMUXRC_HOST` / `TMUXRC_PORT` | `127.0.0.1` / `18030` | HTTP bind |
 | `TMUXRC_NO_LLM` | unset | set `1` to run heuristics-only (no Vertex calls) |
 | `TMUXRC_ENTER_SETTLE_S` | `0.3` | pause between typed text and the Return that submits it. Agent TUIs tell "submit" from "newline" by timing, so a Return arriving inside the paste burst is read as a newline and the message sits composed but unsent. Raise it if a TUI still swallows submits; `0` disables the wait |
-| `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/Gemini/Shell | dock "+" menu entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/shell) or an image URL |
+| `TMUXRC_LAUNCHERS` | Claude/Codex/OpenCode/Gemini/Shell | "New window" dialog entries — inline JSON or a path to a JSON file: `[{"label":"Codex (high)","command":"codex -c model_reasoning_effort=high","icon":"codex"}, …]`; `icon` is a built-in logo name (claude/codex/gemini/opencode/shell) or an image URL |
 | `TMUXRC_PUSH_SUBJECT` | `mailto:tmux-rc@openbus.io` | optional operator `mailto:` contact override for VAPID; unrelated to the tunnel URL |
 | `TMUXRC_PUSH_ALLOWED_HOSTS` | Apple, Google, Mozilla, Microsoft push relays | comma-separated exact hosts or dot-prefixed domain suffixes accepted as subscription endpoints; extend only for a trusted browser push service |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/gRPC receiver for per-parse benchmark telemetry; unset = telemetry off |

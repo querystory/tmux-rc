@@ -117,7 +117,7 @@ export function linkifyText(text) {
 
 // renderCaptureLines(text, {color}) — the SAME render, delivered as one HTML string per
 // screen line, so a caller can diff a streaming frame line-by-line instead of swapping the
-// whole subtree (web/app.js's terminal paint; see THE RENDER INVARIANT there).
+// whole subtree (see paintLines in web/m/app.js).
 //
 // It is deliberately a thin wrapper around renderCapture rather than a second renderer:
 // renderCapture stays the ONE authority on what a line's markup looks like, and — crucially
