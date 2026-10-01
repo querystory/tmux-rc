@@ -93,8 +93,8 @@ Why this, for now:
   We never see that stream; tmux composed it away. Rendering an already-composed frame is
   just SGR→span, which is the small, boring part of what xterm.js contains — so we'd be
   vendoring a large emulator to use ~5% of it.
-- **Full control of the theme + our bolt-ons.** The palette is tuned for the dark card
-  background, the link anchoring reuses the same OSC-8 materialization as the static peek,
+- **Full control of the theme + our bolt-ons.** The palette is tuned for the dark terminal
+  background, the link anchoring reuses the same OSC-8 materialization as the static views,
   and the "decolor when stale" is a CSS filter over our own spans. Bending xterm.js to all
   three (custom theme, our link handling, a stale filter) is possible but not obviously
   less code than the ~170 lines we wrote.

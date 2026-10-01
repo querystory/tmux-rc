@@ -774,7 +774,7 @@ async function pollState(signal) {
       $("connection").classList.toggle("online", !data.stale);
       const u = data.usage; // LLM spend this run: parser + voice, the debug readout the old UI kept under its status dot
       $("connection").title = (data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected")
-        + (u ? ` | LLM $${u.cost.toFixed(3)}, ${Math.round((u.in_tokens + u.out_tokens) / 1000)}k tokens` : "");
+        + (u ? ` | LLM $${u.cost.toFixed(3)}, ${Math.round((u.in_tokens + u.out_tokens + (u.live?.in_tokens || 0) + (u.live?.out_tokens || 0)) / 1000)}k tokens` : "");
       render();
       await pause(version ? 100 : 1500, signal);
     } catch {

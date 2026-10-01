@@ -188,11 +188,11 @@ bindings stay reachable:
 ```mermaid
 flowchart TD
   poll["poll /api/state (2s)"] --> cards["render list + Overview<br/>+ meta chips"]
-  subgraph peek["raw terminal (peek + fullscreen)"]
+  subgraph peek["Terminal view"]
     live["long-poll /api/panes/{id}/live"]
     live --> render["terminal.js:<br/>SGR → colored spans<br/>+ link anchoring"]
   end
-  cards -.->|"card floats over"| peek
+  cards --- peek
   input["composer: text · keys · image"] --> send["POST /send or /image"]
   send --> tmux2[("tmux send-keys")]
 ```
