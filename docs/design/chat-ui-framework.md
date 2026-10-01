@@ -60,7 +60,8 @@ design tokens. Versions: @assistant-ui/react 0.15.22 (core 0.3.21), React and Re
 React DOM is 205 KB of the island; assistant-ui and its core, store, tap and stream
 packages are about 310 KB. The island is roughly 29 times our chat's code. That is
 tolerable beside ECharts, but the production dependency tree is about 100 packages
-(mostly the Radix meta package), against two today.
+(mostly the Radix meta package), against four today (ECharts, wordcloud and their two
+transitive packages).
 
 It works: in headless Chromium at 390x844 (dark and light) and 1440x900 it streamed text,
 accepted two images from one picker call, kept the input at 44px with both attached (the
@@ -79,8 +80,9 @@ Streaming text, the transcript and the consent card map cleanly: the daemon's tr
 frames become message growth, a propose frame becomes a tool call awaiting a result, and
 the decided frame fills it in. The "echo, never optimistic" rule survives because the
 runtime only shows what we put in the store. Images need our own adapter to keep the
-1568px JPEG transcode. The pane-identity guard lives in the daemon and the approve frame,
-so it is unaffected, but the "image, caption and Enter as one locked draft" client logic
+1568px JPEG transcode. The approve frame carries only the proposal id and the decision, and the
+pane-identity check happens entirely in the daemon, so it is unaffected as long as a
+replacement renderer keeps that contract, but the "image, caption and Enter as one locked draft" client logic
 would have to be redone on the library's composer.
 
 Not provided, and still ours: the pane-bound consent semantics and expiry on disconnect,
@@ -135,10 +137,11 @@ build step is not new, but the kind is: ECharts is copied verbatim from its tarb
 whereas the island would be our JSX compiled by a pinned esbuild, a minified 554 KB file
 whose diff is unreviewable and changes on every dependency bump. A CI-only build is
 rejected: the daemon and wheels must serve the UI with no Node at runtime. The JS test
-setup (node test, no DOM) cannot render React, so island logic would need jsdom and a test
-runner, or stay untested like the rest of the browser code. Dependabot would open a
+runner (node test) has no DOM, so rendering React would need a DOM implementation and a
+testing utility added as dev dependencies, beyond the targeted DOM stubs the browser logic
+has today. Dependabot would open a
 weekly PR against a package that releases daily, and the audit gate would cover a tree
-fifty times larger, each advisory needing a decision as the orval exceptions did. License
+about twenty-five times larger, each advisory needing a decision as the orval exceptions did. License
 compliance is easy (MIT throughout) but the Radix and zod licenses would need copying
 into the vendor directory as ECharts' do.
 
