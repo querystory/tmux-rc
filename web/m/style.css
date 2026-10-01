@@ -89,7 +89,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .session-chip { max-width: 100%; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); overflow-wrap: anywhere; }
 .badge { font-size: 11px; line-height: 1.6; font-weight: 600; white-space: nowrap; color: var(--muted); }
 .badge.waiting { color: var(--amber); }
-.badge.running { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the animated logo says it; the text stays for screen readers */
+.badge.running { color: var(--accent); }
+.pane-row .badge.running { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the animated logo says it; the text stays for screen readers */
 .badge.compacting { color: var(--purple); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
 #list-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 8px max(8px, env(safe-area-inset-bottom)); gap: 4px; }
