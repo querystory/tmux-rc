@@ -33,8 +33,10 @@ from openbus.tmux import Pane
 from .harness import SAMPLES_DIR, Sample, score_structured
 
 CLOSING_DIR = Path(__file__).parent / "closing_questions"
-_ACCEPT = re.compile(r"(yes|yeah|yep|sure|ok|okay|go ahead|do it|proceed|please|push|merge)\b", re.I)
-_DECLINE = re.compile(r"(no|not|don't|do not|hold|wait|skip|stop|cancel|leave|never|later)\b", re.I)
+_ACCEPT = re.compile(
+    r"(yes|yeah|yep|sure|ok|okay|go ahead|do it|proceed|please|push|merge)\b", re.IGNORECASE)
+_DECLINE = re.compile(
+    r"(no|not|don't|do not|hold|wait|skip|stop|cancel|leave|never|later)\b", re.IGNORECASE)
 _JUDGE = (
     "You grade reply buttons that a phone shows under a coding agent's closing question. "
     "Given the QUESTION and the OPTIONS, rule PASS only if ALL hold: the first option accepts "
@@ -43,7 +45,7 @@ _JUDGE = (
     "or topic the question does not mention; every option is a short, natural, complete reply "
     "a user could type. If the question is open-ended (what/which/how/where, a choice between "
     "alternatives, a request for content) the correct OPTIONS list is empty, so any option "
-    "FAILS. Reply JSON only: {\"verdict\":\"PASS\"|\"FAIL\",\"reason\":\"<short>\"}."
+    'FAILS. Reply JSON only: {"verdict":"PASS"|"FAIL","reason":"<short>"}.'
 )
 _tl = threading.local()
 
@@ -90,7 +92,7 @@ def _grade(kind: str, steps: list[str], result: dict) -> dict:
     elif kind == "error":
         ok = waiting and opts == ["try again"]
     else:
-        checks = [o for o in opts if re.search(r"\bcheck\b", o, re.I)]
+        checks = [o for o in opts if re.search(r"\bcheck\b", o, re.IGNORECASE)]
         ok = (waiting and 2 <= len(opts) <= 4 and bool(_ACCEPT.match(opts[0]))
               and bool(_DECLINE.match(opts[1])))
         if kind == "gated":
@@ -164,8 +166,9 @@ def report(args: argparse.Namespace) -> None:
         for kind in ("yn", "gated", "none", "idle", "error"):
             k = [r for r in closing if r["kind"] == kind]
             judged = [r for r in k if r.get("judge")]
-            print(f"  {kind:6} rubric {sum(r['grade']['ok'] for r in k):3}/{len(k):3}"
-                  f"   judge PASS {sum(r['judge']['verdict'] == 'PASS' for r in judged):3}/{len(judged):3}")
+            ok = sum(r["grade"]["ok"] for r in k)
+            jp = sum(r["judge"]["verdict"] == "PASS" for r in judged)
+            print(f"  {kind:6} rubric {ok:3}/{len(k):3}   judge PASS {jp:3}/{len(judged):3}")
         idle = [r for r in closing if r["kind"] == "idle"]
         fp = [r for r in rows if r["raw_closing_replies"] and not r["asked"]]
         print(f"  idle stayed idle {sum(r['grade']['ok'] for r in idle)}/{len(idle)};"
@@ -176,13 +179,14 @@ def report(args: argparse.Namespace) -> None:
         retries = sum(sum(c["kind"] == "parse" for c in r["calls"]) > 1 for r in rows)
         extra = [c for r in rows for c in r["calls"] if c["kind"] == "replies"]
         if parses:
-            print(f"  parse: in {st.mean(c['in'] for c in parses):.0f} tok, out "
-                  f"{st.mean(c['out'] for c in parses):.1f}, think {st.mean(c['think'] for c in parses):.1f},"
-                  f" lat {st.mean(c['s'] for c in parses):.2f}s (median {st.median(c['s'] for c in parses):.2f}s)"
-                  f" n={len(parses)}, retried {retries}")
+            m = {k: st.mean(c[k] for c in parses) for k in ("in", "out", "think", "s")}
+            print(f"  parse: in {m['in']:.0f} tok, out {m['out']:.1f}, think {m['think']:.1f}, "
+                  f"lat {m['s']:.2f}s (median {st.median(c['s'] for c in parses):.2f}s) "
+                  f"n={len(parses)}, retried {retries}")
         if extra:
-            print(f"  replies call: {len(extra)} calls, in {st.mean(c['in'] for c in extra):.0f},"
-                  f" out {st.mean(c['out'] for c in extra):.1f}, lat {st.mean(c['s'] for c in extra):.2f}s")
+            m = {k: st.mean(c[k] for c in extra) for k in ("in", "out", "s")}
+            print(f"  replies call: {len(extra)} calls, in {m['in']:.0f}, out {m['out']:.1f}, "
+                  f"lat {m['s']:.2f}s")
         ex = [r for r in rows if r["corpus"] == "existing"]
         if ex:
             print(f"  existing corpus structured ok: {sum(r['struct_ok'] for r in ex)}/{len(ex)};"
