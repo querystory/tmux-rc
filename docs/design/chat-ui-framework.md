@@ -69,7 +69,7 @@ composer is a textarea, so the pasted-image jump cannot occur), showed the conse
 with its thumbnail, sent Approve over the socket from the result setter, and showed the
 decision. No horizontal overflow, 16px input, no console errors. **Not measured:** real
 iOS Safari, the keyboard and standalone viewport, the bottom-sheet dialog's focus
-handling, minimize, the desktop card, voice, and a screen reader. The spike also showed
+handling, minimize, the island inside the product's existing desktop Live card (only a desktop-sized page was tested), voice, and a screen reader. The spike also showed
 what "headless" costs: the stock attachment thumb renders the file extension, not the
 image, so image chips needed our own component, and the tool part nested inside a message
 bubble until restyled.
