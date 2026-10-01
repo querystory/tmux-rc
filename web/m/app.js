@@ -1094,7 +1094,7 @@ else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 dismissable($("pane-menu"));
 html($("kill-pane"), `${licon("trash", 18)}<span>Kill window</span>`);
 $("kill-pane").onclick = async () => {
-  $("pane-menu").open = false;
+  $("pane-menu").open = false; $("pane-menu-button").focus(); // the item just hid: keep keyboard focus on a visible control
   if (!active || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
   try { await post(paneUrl(active, "close")); } catch (error) { if (error.status !== 404) notice("Could not kill this window."); }
 };
