@@ -312,6 +312,29 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["session"] = retry_session
 
 
+_LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+
+
+def _final_paragraph(message: str) -> str:
+    """The message's last paragraph as one line: terminal wrapping splits a long question
+    across rows. Reading back from the end it stops at a blank row, and at a list item (kept
+    when it is the last row or the rows after it are its indented continuation)."""
+    rows: list[str] = []
+    for row in reversed(message.splitlines()):
+        text = row.strip()
+        if not text:
+            if rows:
+                break
+            continue
+        if _LIST_ITEM_RE.match(text):
+            indent = len(row) - len(row.lstrip())
+            if not rows or len(rows[-1]) - len(rows[-1].lstrip()) > indent:
+                rows.append(row)  # the item itself, or the one the wrapped rows continue
+            break
+        rows.append(row)
+    return " ".join(r.strip() for r in reversed(rows))
+
+
 def _final_ask(visible: str, tool: str) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
@@ -330,9 +353,10 @@ def _final_ask(visible: str, tool: str) -> dict | None:
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
+    paragraph = _final_paragraph(message)
     handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if lines[-1].endswith("?"):
-        return {"prompt": lines[-1], "answer_style": "text"}
+    if paragraph.endswith("?"):
+        return {"prompt": paragraph, "answer_style": "text"}
     if handoff is None:
         return None
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}

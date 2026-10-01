@@ -996,3 +996,20 @@ def test_model_options_survive_the_deterministic_closing_ask():
     out = classify(_pane("claude"), err, _llm(
         {"question": {"prompt": "API Error: 529 overloaded_error", "options": ["x"]}}))
     assert out["question"]["options"] == ["try again"]
+
+
+def _auto_screen(message):
+    return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
+
+
+@pytest.mark.parametrize("message", [
+    "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
+    "Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n  Copilot?",
+    "Done.\n  - item one. Should I send this to\n    Copilot, then the reviewer?",
+])
+def test_wrapped_closing_question_is_read_whole(message):
+    result = classify(_pane("claude"), _auto_screen(message), _llm({"tool": "claude"}))
+    prompt = result["question"]["prompt"]
+    assert "Should I send this to Copilot" in prompt and prompt.endswith("?")
+    assert "first item" not in prompt
+    assert result["question"]["options"][:2] == ["Yes", "No"]
