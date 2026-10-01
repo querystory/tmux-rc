@@ -339,10 +339,28 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 
 
 _YES_NO_RE = re.compile(
-    r"(?:should|shall|do|does|did|can|could|will|would|want|is|are|was|were|have|has|may|ok|okay)\b",
+    r"(?:should|shall|do|does|did|can|could|will|would|want|is|are|was|were|have|has|may|ok|okay)\b(?!,)",
     re.IGNORECASE,
 )
 _OR_RE = re.compile(r"\bor\b", re.IGNORECASE)
+_GATED_RE = re.compile(r"\bthen\b|,\s+and\b", re.IGNORECASE)  # several steps, each a gate
+
+
+def _model_options(model_q: object, ask: dict) -> list[str]:
+    """The model's own suggested replies, kept when a deterministic ask replaces its
+    question: strings only, short, deduped, none that just repeat the prompt, at most 4.
+    Only for the same question (one prompt contains the other)."""
+    if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
+        return []
+    old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
+    raw = model_q.get("options")
+    if not old or not (old in new or new in old) or not isinstance(raw, list):
+        return []
+    picks: dict[str, str] = {}
+    for o in raw:
+        if isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.strip() != new:
+            picks.setdefault(o.strip().lower(), o.strip())
+    return list(picks.values())[:4]
 
 
 def _yes_no_options(question: dict) -> None:
@@ -354,7 +372,8 @@ def _yes_no_options(question: dict) -> None:
     sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
     last = sentences[-1].lstrip("*_\"'`(")
     if last.endswith("?") and _YES_NO_RE.match(last) and not _OR_RE.search(last):
-        question["options"] = ["Yes", "No"]
+        gated = ["Yes, but check with me first"] if _GATED_RE.search(last) else []
+        question["options"] = ["Yes", *gated, "No"]
 
 
 def _obvious_idle(text: str) -> bool:
@@ -579,6 +598,8 @@ def classify(
     if result.get("tool") in _TURN_ERROR_RE and (
         ask := _final_ask(visible, result["tool"])
     ):
+        if not ask.get("options") and (kept := _model_options(result.get("question"), ask)):
+            ask["options"] = kept
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     if isinstance(result.get("question"), dict):

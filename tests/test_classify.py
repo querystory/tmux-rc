@@ -922,6 +922,7 @@ def test_yes_no_question_gets_yes_no_buttons(verb):
     "Should I continue",  # not a question
     "Done. What next?",
     "If so, then what?",
+    "Okay, what should I do next?",  # "okay" only opens a yes/no as "okay to ..."
     "Redis or Postgres: Can you choose?",  # a colon is not a sentence boundary
 ])
 def test_non_yes_no_question_gets_no_buttons(prompt):
@@ -948,7 +949,38 @@ def test_yes_no_buttons_never_replace_model_options_or_menus():
 def test_closing_yes_no_question_in_auto_mode_offers_yes_no():
     result = classify(_pane("claude"), _sample("58_claude_yes_no_closing_question"),
                       _llm({"tool": "claude", "activity": "idle"}))
-    assert result["question"]["options"] == ["Yes", "No"]
+    assert result["question"]["options"] == ["Yes", "Yes, but check with me first", "No"]
     # A model-supplied text question gets them too, anywhere on the screen.
     asked = classify(_pane("claude"), "x", _llm({"question": {"prompt": "Want me to push?"}}))
     assert asked["question"]["options"] == ["Yes", "No"]
+
+
+def test_gated_yes_no_question_also_offers_a_checkpoint():
+    q = {"prompt": "Should I send it to Copilot, then the reviewer, and merge?",
+         "answer_style": "text"}
+    _yes_no_options(q)
+    assert q["options"] == ["Yes", "Yes, but check with me first", "No"]
+    ok = {"prompt": "Okay to merge?", "answer_style": "text"}
+    _yes_no_options(ok)
+    assert ok["options"] == ["Yes", "No"]
+
+
+def test_model_options_survive_the_deterministic_closing_ask():
+    screen = _sample("58_claude_yes_no_closing_question")
+    ask = ("Should I send it to Copilot, then reviewer once it's clean, "
+           "and merge after approval?")
+    model = {"prompt": ask,
+             "answer_style": "text",
+             "options": ["Yes, do all three", " yes, do all three ", "Not yet", "x" * 61, 7,
+                         "a", "b", "c"]}
+    kept = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": model}))
+    assert kept["question"]["options"] == ["Yes, do all three", "Not yet", "a", "b"]
+    # A different question of the model's is not this one's options.
+    other = classify(_pane("claude"), screen, _llm(
+        {"tool": "claude", "question": {"prompt": "Pick a color", "options": ["red"]}}))
+    assert other["question"]["options"] == ["Yes", "Yes, but check with me first", "No"]
+    # Provider-error retry keeps its own option.
+    err = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
+    out = classify(_pane("claude"), err, _llm(
+        {"question": {"prompt": "API Error: 529 overloaded_error", "options": ["x"]}}))
+    assert out["question"]["options"] == ["try again"]
