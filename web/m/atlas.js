@@ -1,5 +1,5 @@
 import { atlasCharts } from './atlas-charts.js';
-import { needsYou, isRunning, paneName } from './pane-model.js';
+import { needsYou, isRunning, markWorking, paneName } from './pane-model.js';
 
 const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting'];
 const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
@@ -134,6 +134,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
       const logo = el('img', 'atlas-agent-icon');
       logo.src = Object.prototype.hasOwnProperty.call(logos, p.tool) ? logos[p.tool] : '/tmux-logomark.svg';
       logo.alt = p.tool || 'tmux';
+      markWorking(logo, p);
       dot.append(logo, el('span', 'atlas-dot-name', paneName(p)));
       dot.onclick = () => navigate(p.pane_id);
       dots.append(dot);

@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
@@ -228,6 +228,7 @@ function updateRow(button, pane) {
   const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
   if (logo.getAttribute("src") !== src) logo.src = src;
   logo.alt = pane.tool || "tmux";
+  markWorking(logo, pane);
   text(button.querySelector("strong"), paneName(pane));
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;

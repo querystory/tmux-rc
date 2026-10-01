@@ -71,6 +71,15 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row[aria-current="true"] .row-title strong { color: var(--accent); }
 .pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; }
 .pane-icon img { object-fit: contain; }
+/* Working logo: one treatment for the list row and the dashboard tile (see markWorking). A soft
+   glow ring that breathes with the logo; transform only, so it never relayouts or repaints. */
+.working { border-radius: 50%; background: var(--accent-bg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--glow, var(--accent)) 22%, transparent), 0 0 0 1px var(--glow, var(--accent)); }
+@media (prefers-reduced-motion: no-preference) {
+  .working { animation: logo-clench 1.4s ease-in-out infinite; }
+  .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; }
+}
+@keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
+@keyframes logo-spin { to { transform: rotate(1turn); } }
 .needs-you .pane-icon { background: transparent; color: var(--amber); }
 .row-body { flex: 1; min-width: 0; }
 .row-title { display: flex; align-items: baseline; gap: 8px; }
@@ -80,7 +89,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .session-chip { max-width: 100%; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); overflow-wrap: anywhere; }
 .badge { font-size: 11px; line-height: 1.6; font-weight: 600; white-space: nowrap; color: var(--muted); }
 .badge.waiting { color: var(--amber); }
-.badge.running { color: var(--accent); }
+.badge.running { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the animated logo says it; the text stays for screen readers */
 .badge.compacting { color: var(--purple); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
 #list-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 8px max(8px, env(safe-area-inset-bottom)); gap: 4px; }
@@ -333,9 +342,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 10px; align-items: start; }
 .atlas-dot { min-width: 0; padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .atlas-agent-icon { width: 26px; height: 26px; object-fit: contain; padding: 2px; }
-.atlas-dot.s1 .atlas-agent-icon { border-radius: 8px; outline: 1px solid var(--accent); outline-offset: 2px; background: var(--accent-bg); animation: atlas-working 2s ease-out infinite; }
 .atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; background: var(--amber-bg); outline: 2px solid var(--amber); outline-offset: 4px; }
-@keyframes atlas-working { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent); } }
 .atlas-dot-name { font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .atlas-lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-top: 16px; }
 .atlas-panel { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
@@ -344,8 +351,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-matches:not(:empty) { margin-top: 16px; max-height: 220px; overflow-y: auto; }
 .atlas-chart { height: 320px; width: 100%; margin-top: 20px; }
 .atlas-history-note { margin-top: 12px; }
-@media (prefers-reduced-motion: reduce) { .atlas-dot.s1 .atlas-agent-icon { animation: none; } }
-/* The state legend is also the keyboard/touch filter; avoid duplicate controls. */
+@media (prefers-reduced-motion: reduce) { /* The state legend is also the keyboard/touch filter; avoid duplicate controls. */
 .atlas-history-pickers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .atlas-history-pickers select { min-width: 0; max-width: 100%; flex: 1; }
 .atlas-state-legend { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 12px; }
@@ -444,8 +450,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .standalone-fill #app { position: absolute; top: var(--app-top, 0px); bottom: auto; height: min(100vh, var(--app-height, calc(100dvh + env(safe-area-inset-top)))); }
 
 /* Compacting remains busy, but is distinct from running work. */
-.atlas-dot.s4 .atlas-agent-icon { border-radius: 8px; outline: 1px solid var(--state-color); outline-offset: 2px; animation: atlas-working 2s ease-out infinite; }
-@media (prefers-reduced-motion: reduce) { .atlas-dot.s4 .atlas-agent-icon { animation: none; } }
+.atlas-dot.s4 .atlas-agent-icon { --glow: var(--state-color); }
 
 /* Fill the topic panel with the cloud instead of stretching empty space below it. */
 .atlas-topics { display: flex; flex-direction: column; }
