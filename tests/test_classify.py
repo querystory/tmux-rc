@@ -922,11 +922,18 @@ def test_yes_no_question_gets_yes_no_buttons(verb):
     "Should I continue",  # not a question
     "Done. What next?",
     "If so, then what?",
+    "Redis or Postgres: Can you choose?",  # a colon is not a sentence boundary
 ])
 def test_non_yes_no_question_gets_no_buttons(prompt):
     q = {"prompt": prompt, "answer_style": "text"}
     _yes_no_options(q)
     assert "options" not in q
+
+
+def test_colon_clause_keeps_its_leading_auxiliary():
+    q = {"prompt": "Should I do this: deploy the tested build?", "answer_style": "text"}
+    _yes_no_options(q)
+    assert q["options"] == ["Yes", "No"]
 
 
 def test_yes_no_buttons_never_replace_model_options_or_menus():

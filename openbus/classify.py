@@ -351,7 +351,7 @@ def _yes_no_options(question: dict) -> None:
     "A or B" alternatives. The buttons type the word into the agent's input box."""
     if question.get("answer_style", "text") != "text" or question.get("options"):
         return
-    sentences = re.split(r"(?<=[.!?:])\s+", str(question.get("prompt", "")).strip())
+    sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
     last = sentences[-1].lstrip("*_\"'`(")
     if last.endswith("?") and _YES_NO_RE.match(last) and not _OR_RE.search(last):
         question["options"] = ["Yes", "No"]

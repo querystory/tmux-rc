@@ -258,3 +258,16 @@ def test_production_prompt_preserves_candidate_bytes(tmp_path, monkeypatch):
     monkeypatch.setattr(classifier, "__file__", str(tmp_path / "classify.py"))
     monkeypatch.setattr(classifier, "_prompts", {})
     assert classifier.parser_prompt() == prompt
+
+
+def test_question_options_scored_only_when_the_sample_pins_them():
+    got = {"question": {"answer_style": "text", "options": ["Yes", "No"]}}
+    ok, _ = score_structured(got, {"question": {"answer_style": "text"}})
+    assert ok  # unpinned options are ignored
+    ok, _ = score_structured(got, {"question": {"answer_style": "text", "options": ["Yes", "No"]}})
+    assert ok
+    ok, diffs = score_structured(got, {"question": {"answer_style": "text", "options": ["Go"]}})
+    assert not ok and any("question" in d for d in diffs)
+    ok, _ = score_structured({"question": {"answer_style": "text"}},
+                             {"question": {"answer_style": "text", "options": ["Yes", "No"]}})
+    assert not ok
