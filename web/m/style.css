@@ -423,8 +423,13 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .header-picker summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #review-layout-picker summary { background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
-.header-picker-menu label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
+/* The pane's overflow menu: an icon trigger (no picker chevron) holding the one destructive action. */
+#pane-menu { flex: none; }
+#pane-menu summary { padding: 0; }
+#pane-menu summary::after { display: none; }
+#kill-pane { width: 100%; color: var(--red); white-space: nowrap; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
