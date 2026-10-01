@@ -226,7 +226,7 @@ open-ended requests, destructive wording, code identifiers, a wrapped paragraph,
 question, a `! command` handoff, a provider error, and offers that must stay idle (not auto
 mode, user already typed, old question already answered, Codex). Each carries a
 `closing_replies` block (kind, and the step words a checkpoint button may name).
-`python -m research.eval.closing_replies run` pushes them, plus the 60 regular samples,
+`python -m research.eval.closing_replies run` pushes them, plus the 62 regular samples,
 through the production `classify()` five times per condition (gemini-3.1-flash-lite,
 temperature 0, the production Vertex path) and records every call's tokens and latency,
 the parse's raw output, a deterministic rubric, and a judge-model verdict on button
