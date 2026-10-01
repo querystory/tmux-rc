@@ -1,19 +1,19 @@
 import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
-// Audio wire contract mirrors lmCapture/lmPlayChunk in /app.js. Keep rates, resampling,
-// PCM scaling, and base64 chunk bounds in sync with those desktop implementations.
+// Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
+// what the server expects (see docs/design/live-mode.md).
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
 const PLAYBACK_RATE = 24000; // Rate of the PCM the server streams back.
 const MIN_FRAME_SAMPLES = 4096; // Batch mic samples so each WebSocket frame is worth its JSON overhead.
 const MAX_SOCKET_BACKLOG = 65536; // Drop mic audio once this much is unsent, instead of piling up latency.
-const CHAR_CHUNK = 0x8000; // Same fromCharCode chunk bound as desktop lmCapture.
+const CHAR_CHUNK = 0x8000; // fromCharCode argument-count bound.
 const CONNECT_DEADLINE_MS = 30000; // Give up if the server never reports "listening".
 const MAX_RECONNECT_TRIES = 5; // Exponential backoff attempts before declaring the session lost.
 const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this count.
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
 
-export function setupLiveMode({ request, session, licon, onVersion = () => {} }) {
+export function setupLiveMode({ request, session, licon, report = () => {}, onVersion = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -251,8 +251,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
     source.start(current.playAt); current.playAt += buffer.duration;
   }
   async function capture(current) {
-    // The tap worklet is shared with the desktop Live Mode; see lm-tap.js for why it
-    // has to be a same-origin file rather than an inline blob: module.
+    // See lm-tap.js for why the tap worklet has to be a same-origin file rather than an inline blob: module.
     await current.capture.audioWorklet.addModule("/lm-tap.js");
     if (run !== current) return;
     const source = current.capture.createMediaStreamSource(current.stream);
@@ -384,6 +383,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
       audioStatus(current); connect(current);
     } catch (error) {
       if (run !== current) return;
+      report("mic", error);
       stop(`${error.name === "NotAllowedError" ? "Microphone access denied. Allow microphone access for this site." : "Live Mode could not start: " + error.message}`);
     }
   }

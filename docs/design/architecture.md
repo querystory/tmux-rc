@@ -64,8 +64,8 @@ stay attached to the same session at the same time.
 - **The FastAPI server** — serves the PWA and a small JSON API (`/api/state`, per-pane
   endpoints for events, snapshots, live frames, and input). Runs on the event loop;
   the watcher runs its blocking work in a worker thread.
-- **The PWA** — a no-framework, no-build vanilla-JS single page. Renders one pane's card
-  at a time with a dock of the others; the raw terminal streams live behind the card.
+- **The PWA** — a no-framework, no-build vanilla-JS single page. A session list, the
+  selected pane's Overview, and its raw terminal streaming live.
 - **The tunnel** — the daemon has no inbound port. A tunnel-client process dials *out* to
   a Cloud Run relay over a WebSocket; the relay forwards phone HTTP requests down that
   socket and pipes responses back. The phone reaches `https://<slug>.<tunnel-domain>`; IAP +
@@ -160,25 +160,13 @@ Two subtleties that everything downstream depends on:
 
 ## What the phone shows
 
-There are two front ends over the same API. The **wide layout** at `/` puts one pane in
-an **active card**: headline, activity badge, the pending question rendered as tappable
-buttons, a task list, links, a feed of recent events. The other panes are a **dock** of
-icons across the top, grouped by tmux session; the selected icon joins visually to the
-card like a browser tab. Behind and below the card, the pane's **raw terminal** shows
-through — and that raw view is *live*.
+One front end, served at `/m/` (`/` redirects there), over the JSON API. It is laid
+out for a thumb first and widens into three columns — sessions, Overview, terminal — when
+the window has room, so a desktop browser gets the same app rather than a second one.
+A **New window** dialog starts a fresh agent in a session — the entries come from
+`TMUXRC_LAUNCHERS`.
 
-![The wide dashboard: a dock of pane icons grouped by tmux session, above the focused pane's card with its summary, sub-agents and activity list, and the live terminal below it](../img/card.png)
-
-The **launcher** starts a fresh agent in a new window in a session — the entries come
-from `TMUXRC_LAUNCHERS`. Which gesture opens it depends on what that session's last tray
-slot is already doing. With nothing parked it is a bare `+` and a plain tap is enough;
-once panes are folded away it becomes `+N`, whose tap already means *unfold*, so the
-launcher retreats to a press and hold. Only the overloaded slot pays for the extra
-gesture:
-
-![The launcher menu open over the dashboard, listing Claude, Claude (Sonnet), Claude (Bedrock), Codex and Gemini as the agents available to start](../img/launcher.png)
-
-The **phone layout** at `/m` is built for a thumb rather than a pointer, so it splits the
+On a phone the layout splits the
 same data across two screens instead of layering it. A **session list** groups every pane
 under its tmux session, one row each — agent name, activity badge, and the one-line
 summary — with a search box, a recency sort, and a bottom bar that filters to All,
@@ -199,7 +187,7 @@ bindings stay reachable:
 
 ```mermaid
 flowchart TD
-  poll["poll /api/state (2s)"] --> cards["render active card<br/>+ dock + meta chips"]
+  poll["poll /api/state (2s)"] --> cards["render list + Overview<br/>+ meta chips"]
   subgraph peek["raw terminal (peek + fullscreen)"]
     live["long-poll /api/panes/{id}/live"]
     live --> render["terminal.js:<br/>SGR → colored spans<br/>+ link anchoring"]

@@ -2,12 +2,9 @@
 // neither a digit nor the row's own text selects anything (both land in the widget's
 // search box, which is what made tapping a /resume session do nothing, issue #206).
 //
-// SHARED BY BOTH SURFACES. The deck and the phone PWA have entirely different send
-// plumbing but the identical problem, and a copy on each side is how one of them ends up
-// several fixes behind — which is precisely where the phone was while this lived only in
-// web/app.js: the classifier had started saying "cursor" and the phone went on typing the
-// row's text into the search box. Everything surface-specific arrives as `io`, so the
-// walk itself is one implementation with one set of tests:
+// Everything surface-specific arrives as `io`, so the walk itself is one implementation
+// with one set of tests (the classifier says "cursor" for a picker, and typing the row's
+// text into its search box is the failure this exists to prevent):
 //
 //   io.question()   → the pane's current question object, or null if it is gone
 //   io.parsedAt()   → parsed_at of the frame that question() came from (seconds, float)

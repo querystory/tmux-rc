@@ -108,14 +108,10 @@ def test_the_settle_is_inside_the_send_lock(monkeypatch):
     assert order == ["mine", "Enter", "theirs", "Enter"], order
 
 
-def test_both_composers_send_one_complete_draft():
-    web = Path(__file__).resolve().parents[1] / "web"
-    desktop = (web / "app.js").read_text()
-    mobile = (web / "m/app.js").read_text()
-    for source in (desktop, mobile):
-        assert 'form.append("text",' in source
-        assert 'form.append("image",' in source
-    assert "}/compose`" in desktop
+def test_composer_sends_one_complete_draft():
+    mobile = (Path(__file__).resolve().parents[1] / "web/m/app.js").read_text()
+    assert 'form.append("text",' in mobile
+    assert 'form.append("image",' in mobile
     assert 'paneUrl(id, "compose")' in mobile
 
 

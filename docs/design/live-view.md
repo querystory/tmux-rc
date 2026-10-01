@@ -4,13 +4,13 @@ Status: **implemented (v1)** — this documents the shipped design and the paths
 
 ## The want
 
-When a raw pane is on screen — the peek behind the card, and the full-screen ⤢ view —
+When a raw pane is on screen — the Terminal view —
 it should behave like a terminal you're looking at, not a screenshot you re-request:
 updates land within a few hundred ms of the pane changing, and the text carries the
 terminal's **colors**. Color isn't decoration: TUIs use it to separate drafts from
 output, errors from noise, spinners from content (the same reason the parser needed
-dim-awareness). Before this, the peek re-rendered on the watcher's snapshot cadence, the
-full-screen view was a frozen one-shot, and all color was stripped server-side.
+dim-awareness). Before this, the terminal re-rendered on the watcher's snapshot cadence
+and all color was stripped server-side.
 
 ## Constraints that shaped it
 
@@ -55,8 +55,8 @@ full-screen view was a frozen one-shot, and all color was stripped server-side.
 - `renderCapture(text, {color})`: SGR → styled spans (256-color + faint/bold/italic/
   underline) and link anchoring (OSC-8 markdown, bare, and cross-line wrapped URLs) in a
   single module. This replaced a bolted-on `linkifyCapture` that had started to drift
-  from the color path; app.js is now a native ES module importing it.
-- A shared `liveStream()` drives both surfaces: the long-poll loop, an `AbortController`
+  from the color path; the app is a native ES module importing it.
+- One long-poll loop drives the terminal: an `AbortController`
   to stop on close / pane-switch, and the stale look. Late frames that resolve after a
   pane switch are ignored (the callback captures its pane id).
 - **Color = live, gray = stale.** A colored frame is fresh; when the *connection* goes
@@ -68,7 +68,7 @@ full-screen view was a frozen one-shot, and all color was stripped server-side.
   watchdog with no response at all.
 - **Instant stale-on-mount.** Switching to a pane paints its last-known frame gray
   immediately from a per-pane cache, and the stream colors over it — no blank flash. On
-  a same-pane re-render (the deck rebuilds every poll) the mount reflects the stream's
+  a same-pane re-render (the list re-renders every poll) the mount reflects the stream's
   real liveness rather than blanket-graying, which is what removed both the idle-gray and
   the per-poll repaint flicker (they were the same bug).
 
@@ -82,7 +82,7 @@ be earned.
 **What we do (hand-rolled).** `terminal.js` parses the SGR runs `capture-pane -e` emits
 — 16-color, 256-color, 24-bit, bold/faint/italic/underline — into styled `<span>`s, and
 anchors links (OSC-8 markdown, bare, wrapped). It is the *one* capture→HTML path, shared
-by the peek and the fullscreen view.
+by every terminal view.
 
 Why this, for now:
 - **No build step, no framework, no vendored bundle.** The whole PWA is hand-served
@@ -145,7 +145,7 @@ the 170 lines are cheaper than the dependency.
 
 ## Open questions
 
-- Peek vs. full-screen: both stream today (one at a time). If two-viewer or
+- If two-viewer or
   battery pressure ever bites, share one 250ms capture loop per pane across waiters.
 - The 250ms floor is a server constant, not a client knob — clients shouldn't bid the
   capture rate up.

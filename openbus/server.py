@@ -5,7 +5,7 @@ Endpoints:
   GET  /api/panes/{id}/snapshots  -> recent snapshot ids + timestamps
   GET  /api/panes/{id}/snapshots/{snap} -> raw captured text of one snapshot
   POST /api/panes/{id}/send       -> inject keys / answer a prompt
-  GET  /                          -> PWA (static)
+  GET  /                          -> redirect to the PWA at /m/ (static)
 """
 
 from __future__ import annotations
@@ -312,7 +312,7 @@ def _launchers() -> list[dict]:
 
 
 class ClientErrorBody(BaseModel):
-    """A browser-side failure report (see /api/client-error, web/app.js reportError).
+    """A browser-side failure report (see /api/client-error, web/m/app.js reportError).
     All optional so a partial report still lands; fields are length-capped in the
     endpoint before they reach telemetry."""
 
@@ -442,7 +442,7 @@ async def no_cache(request, call_next):
 @app.get("/api/version")
 def get_version():
     """Hash of the web assets, so the client can reload itself when they change
-    (see app.js). Cheap to recompute per call — the web dir is tiny. Also reports
+    (see web/m/app.js). Cheap to recompute per call — the web dir is tiny. Also reports
     server feature flags the client gates UI on (live_enabled → shows the mic button;
     live_models → the labels the model picker offers, shown only when there are ≥2).
     live_enabled is false when the table is empty even with the flag on. An all-keyless
@@ -1178,7 +1178,18 @@ def mobile_ui() -> FileResponse | HTMLResponse:
     return FileResponse(entrypoint)
 
 
-# PWA static files last so /api/* and /docs win. html=True serves index.html at /.
+# "/" was the retired desktop UI's address, so bookmarks and Home Screen apps installed from
+# it still land here. Redirect rather than move the app: /m/ keeps its manifest, scope and
+# service-worker registration, so a phone app installed from /m is untouched. The Location is
+# relative for the same TLS-terminating-tunnel reason as /m above, and the browser carries
+# the fragment across the redirect itself; m/app.js rewrites the old desktop hash routes.
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+def root_redirect(request: Request) -> RedirectResponse:
+    query = request.url.query
+    return RedirectResponse("/m/" + (f"?{query}" if query else ""))
+
+
+# Static files last so /api/* and /docs win. html=True serves index.html at /m/.
 if WEB_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
