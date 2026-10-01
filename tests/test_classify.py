@@ -3,6 +3,7 @@ with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
 import pytest
 
+from openbus import classify as classify_mod
 from openbus.classify import _yes_no_options, bootstrap, classify
 from openbus.tmux import Pane
 
@@ -1013,3 +1014,58 @@ def test_wrapped_closing_question_is_read_whole(message):
     assert "Should I send this to Copilot" in prompt and prompt.endswith("?")
     assert "first item" not in prompt
     assert result["question"]["options"][:2] == ["Yes", "No"]
+
+
+GATED = "Should I send it to Copilot, then the reviewer, and merge?"
+
+
+def _replies_llm(answer, calls):
+    def fn(system, text):
+        if system == classify_mod._REPLIES_SYSTEM:
+            calls.append(text)
+            return answer
+        return {}
+    return fn
+
+
+@pytest.fixture
+def fresh_replies():
+    classify_mod._replies.clear()
+    yield
+    classify_mod._replies.clear()
+
+
+def test_gated_question_gets_model_written_replies_once(fresh_replies):
+    calls = []
+    answer = {"options": ["Yes, do all three", "Yes, but check with me before merging",
+                          "No, hold off", GATED]}
+    fn = _replies_llm(answer, calls)
+    for _ in range(2):  # a second parse of the same question must not call again
+        q = {"prompt": GATED, "answer_style": "text"}
+        _yes_no_options(q, fn)
+        # Push shows two options, so the decline moves up to second place.
+        assert q["options"] == ["Yes, do all three", "No, hold off",
+                                "Yes, but check with me before merging"]
+    assert calls == [GATED]  # only the question text is sent
+
+
+def test_gated_replies_fall_back_to_the_heuristic_and_retry(fresh_replies):
+    calls = []
+    for answer in (None, {"options": ["only one"]}, {"options": "junk"}):
+        q = {"prompt": GATED, "answer_style": "text"}
+        _yes_no_options(q, _replies_llm(answer, calls))
+        assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
+    assert len(calls) == 3  # nothing was cached, so each parse tries again
+    q = {"prompt": GATED, "answer_style": "text"}
+    _yes_no_options(q)  # no model at all
+    assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
+
+
+@pytest.mark.parametrize("prompt", ["Should I delete the old branch?", "Should I use A or B?",
+                                    "Which branch should I use?"])
+def test_only_gated_questions_cost_a_model_call(fresh_replies, prompt):
+    calls = []
+    q = {"prompt": prompt, "answer_style": "text"}
+    _yes_no_options(q, _replies_llm({"options": ["x", "y"]}, calls))
+    assert not calls
+    assert q.get("options", ["Yes", "No"]) == ["Yes", "No"]

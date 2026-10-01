@@ -1,0 +1,18 @@
+{
+  "description": "Claude auto-mode turn ending with a plain single-step yes/no closing question ('Should I send it to Copilot?'): a text Needs-you with exactly Yes/No buttons, no extra model call.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● The sync from main succeeded.\n\n  Nothing else is running. The 8:00 PM fleet run will pick up the change.\n\n✻ Cooked for 8s · done 7:56 PM\n\n❯ what is 41 again\n\n● #41 turns off the tool's \"Update available! Update now\" prompt, the one that failed with EACCES and started this whole thread. It adds check_for_update_on_startup = false to /etc/tool/managed_config.toml.\n\n  The tool lives in the root-owned tool directory, so its own updater can never write there. The fleet playbook updates the tool instead, so the prompt only ever offers an option that fails. It's a 4-line change, and I\n  tested it in tmux: with the setting the prompt is gone, without it the prompt is back.\n\n  The fleet now runs main, which doesn't have this setting. So the 8:00 PM run will rewrite this machine's managed_config.toml without it, and the prompt will come back here too. Merging #41 is what keeps it off for\n  everyone.\n\n  It has no review yet. Should I send it to Copilot?\n\n✻ Baked for 16s · done 10:01 PM\n\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fleet settings ─\n❯\n─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/qs/acme-infra on integration | Opus 5.5 | dev@example.com | telemetry: •stats •prompts •tools\n  session: +0/-0 lines · 21% ctx · 51h45m · $13.37   |  history: 157 prompts · 131 tools · 4.6MB · 6 imgs | limit: 38%/81%/6% 5h/7d/Fable (resets 58m/22h)\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text",
+      "options": [
+        "Yes",
+        "No"
+      ]
+    },
+    "headline": "Explained that PR #41 disables the tool update prompt"
+  }
+}
