@@ -141,9 +141,10 @@ runner (node test) has no DOM, so rendering React would need a DOM implementatio
 testing utility added as dev dependencies, beyond the targeted DOM stubs the browser logic
 has today. Dependabot would open a
 weekly PR against a package that releases daily, and the audit gate would cover a tree
-about twenty-five times larger, each advisory needing a decision as the orval exceptions did. License
-compliance is easy (MIT throughout) but the Radix and zod licenses would need copying
-into the vendor directory as ECharts' do.
+about twenty-five times larger, each advisory needing a fix-or-except decision. License compliance is easy
+(the packages checked are MIT) but every bundled package's notice, React, React DOM,
+assistant-ui and its dependencies, would need copying into the vendor directory as
+ECharts' are.
 
 ## Recommendation
 
