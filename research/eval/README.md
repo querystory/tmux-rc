@@ -68,7 +68,8 @@ strictness is correct:
   this session actually working on any of them.
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
-  is behavior). The prompt body is prose, left to the judge.
+  is behavior). The prompt body is prose, left to the judge. A sample can opt in to
+  exact `options` (and cursor `selected`/`keymap`) by naming them under `question`.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.
 - `tables` — presence too, but **opt-in**: scored only on a sample whose `expected`
   names it. Most screens have no table and take no position, so scoring it everywhere

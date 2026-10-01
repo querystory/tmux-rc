@@ -15,7 +15,7 @@ JSON. It then scores the candidate against the sample's blessed `expected`:
 
   STRUCTURED fields (exact match) — these drive the badge and behavior, so brittleness
   is correct here: `tool`, `activity`, `waiting_on`, plus the PRESENCE/shape of
-  `question` (present-or-absent, and if present its `answer_style`), `rewind`, `tasks`,
+  `question` (present-or-absent, and if present its `answer_style`, plus `options`/`selected`/`keymap` where a sample pins them), `rewind`, `tasks`,
   `copyables`, and — only where a sample names it — a RENDERABLE `tables`.
   A single structured mismatch fails the sample.
 
