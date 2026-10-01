@@ -65,16 +65,16 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #sort-picker summary { padding: 0; }
 .list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
-.pane-row { display: flex; width: calc(100% - 12px); margin: 2px 6px; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
+.pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
 .pane-row.needs-you { background: var(--amber-bg); }
 /* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
-   raised card with a 2px ink outline and a thick ink bar, plus a heavier title. It layers
-   over the status background, so a selected Needs-you row stays amber. Every row already
-   carries the inset margin, so nothing shifts when selection moves. The ring is an inset
-   box-shadow, leaving the focus outline free to look different. :not(:disabled) outranks
-   the global button hover rule, so hover cannot repaint a selected row. */
+   raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. It
+   layers over the status background, so a selected Needs-you row stays amber. Only the
+   selected row is inset, so the other rows' full-width dividers are untouched. The ring is
+   an inset box-shadow, leaving the focus outline free to look different. :not(:disabled)
+   outranks the global button hover rule, so hover cannot repaint a selected row. */
 .row-title strong { font-weight: 600; }
-.pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); border-radius: 12px; border-bottom-color: transparent; position: relative; box-shadow: inset 0 0 0 2px var(--fg), inset 8px 0 var(--fg), 0 4px 14px rgb(0 0 0 / .28); }
+.pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); width: calc(100% - 12px); margin-inline: 6px; border-radius: 10px; border-bottom-color: transparent; position: relative; box-shadow: inset 4px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent), 0 2px 10px rgb(0 0 0 / .2); }
 .pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
 .pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; }
