@@ -67,12 +67,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
 .pane-row.needs-you { background: var(--amber-bg); }
-/* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
+/* (:not(:disabled) outranks the global button hover rule, so hover cannot repaint a selected row.)
+   Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
    thick ink-coloured bar, a heavier title and a neutral lift. It layers over the status
    background instead of replacing it, so a selected Needs-you row stays amber. */
 .row-title strong { font-weight: 600; }
-.pane-row[aria-current="true"] { background: var(--lift); box-shadow: inset 6px 0 var(--fg), 0 1px 8px rgb(0 0 0 / .22); position: relative; }
-.pane-row.needs-you[aria-current="true"] { background: var(--amber-bg); }
+.pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); box-shadow: inset 6px 0 var(--fg), 0 1px 8px rgb(0 0 0 / .22); position: relative; }
+.pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
 .pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; }
 .pane-icon img { object-fit: contain; }
