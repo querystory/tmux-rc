@@ -1,0 +1,22 @@
+{
+  "description": "Closing-question corpus (gated): gated_two_clause_wrapped",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● Tests pass on the branch and the diff is clean.\n\n✻ Cooked for 8s · done 7:56 PM\n\n❯ what next\n\n● It has no review yet.\n\n  Should I send it to Copilot for review, then ask the reviewer once it is clean, and merge it after approval, even if the nightly job has not finished running yet?\n\n✻ Baked for 16s · done 10:01 PM\n\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fleet settings ─\n❯\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/tool on feat/work | Opus 5.5 | dev@example.com | telemetry: •stats •prompts •tools\n  session: +41/-9 lines · 21% ctx · 3h12m · $4.20   |  history: 57 prompts · 131 tools · 4.6MB · 6 imgs | limit: 38%/81%/6% 5h/7d/Fable (resets 58m/22h)\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "text"
+    }
+  },
+  "closing_replies": {
+    "kind": "gated",
+    "steps": [
+      "review",
+      "reviewer",
+      "merge",
+      "copilot"
+    ]
+  }
+}
