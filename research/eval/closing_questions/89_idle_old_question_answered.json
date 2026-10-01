@@ -1,0 +1,13 @@
+{
+  "description": "Closing-question corpus (idle): idle_old_question_answered",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● Checked the diff.\n\n● Should I rebase onto main first?\n\n✻ Brewed for 12s · done 9:41 PM\n\n❯ yes\n\n● Rebased onto main, no conflicts, and all tests still pass.\n\n  The branch is now one commit ahead of main and the working tree is clean.\n\n  Nothing else is pending.\n\n✻ Baked for 16s · done 10:01 PM\n\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fleet settings ─\n❯\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/tool on feat/work | Opus 5.5 | dev@example.com | telemetry: •stats •prompts •tools\n  session: +41/-9 lines · 21% ctx · 3h12m · $4.20   |  history: 57 prompts · 131 tools · 4.6MB · 6 imgs | limit: 38%/81%/6% 5h/7d/Fable (resets 58m/22h)\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle"
+  },
+  "closing_replies": {
+    "kind": "idle",
+    "steps": []
+  }
+}
