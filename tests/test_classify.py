@@ -925,6 +925,7 @@ def test_yes_no_question_gets_yes_no_buttons(verb):
     "Done. What next?",
     "If so, then what?",
     "Can you tell me which branch I should use?",  # embedded wh-request
+    "Can you tell me whether CI passed?",
     "Okay, what should I do next?",  # "okay" only opens a yes/no as "okay to ..."
     "Redis or Postgres: Can you choose?",  # a colon is not a sentence boundary
 ])
@@ -1110,3 +1111,10 @@ def test_unusable_model_options_do_not_suppress_the_fallback(junk):
     q = {"prompt": "Should I merge?", "answer_style": "text", "options": junk}
     _yes_no_options(q)
     assert q["options"] == ["Yes", "No"]
+
+
+def test_model_options_must_belong_to_the_closing_sentence():
+    screen = _auto_screen("Do the tests pass? Should I merge?")
+    model = {"prompt": "Do the tests pass?", "options": ["pass", "fail"]}
+    result = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": model}))
+    assert result["question"]["options"] == ["Yes", "No"]

@@ -369,7 +369,7 @@ _YES_NO_RE = re.compile(
 )
 # An alternative, or a wh-word anywhere (so indirect "tell me which..." asks) rules out yes/no.
 _NOT_YES_NO_RE = re.compile(
-    r"\b(?:or|what|which|how|why|where|when|who|whom|whose)\b", re.IGNORECASE)
+    r"\b(?:or|what|which|how|why|where|when|who|whom|whose|whether)\b", re.IGNORECASE)
 _GATED_RE = re.compile(r"\bthen\s+\w|,\s+and\b", re.IGNORECASE)  # several steps, each a gate
 
 
@@ -390,7 +390,8 @@ def _model_options(model_q: object, ask: dict) -> list[str]:
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return []
     old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    same = old.casefold() in new.casefold() or new.casefold() in old.casefold()
+    final = re.split(r"(?<=[.!?])\s+", new)[-1]  # the closing sentence, not the paragraph
+    same = old.casefold() in final.casefold() or final.casefold() in old.casefold()
     return _clean_options(model_q.get("options"), old, new) if old and same else []
 
 
