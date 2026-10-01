@@ -1084,3 +1084,21 @@ def test_only_gated_questions_cost_a_model_call(fresh_replies, prompt):
     _yes_no_options(q, _replies_llm({"options": ["x", "y"]}, calls))
     assert not calls
     assert q.get("options", ["Yes", "No"]) == ["Yes", "No"]
+
+
+def test_wrapped_closing_question_with_trailing_markup_is_detected():
+    screen = _auto_screen("Done.\n  **Should I merge?**")
+    result = classify(_pane("claude"), screen, _llm({"tool": "claude"}))
+    assert result["question"]["options"] == ["Yes", "No"]
+
+
+def test_reply_calls_are_tagged_apart_from_parse_telemetry(fresh_replies):
+    from functools import partial
+    seen = []
+
+    def fake(system, text, kind="parse"):
+        seen.append(kind)
+        return {"options": ["Yes, all", "Check first", "No"]}
+
+    _yes_no_options({"prompt": GATED, "answer_style": "text"}, partial(fake, kind="parse"))
+    assert seen == ["replies"]

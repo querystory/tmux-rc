@@ -15,6 +15,7 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import re
+from functools import partial
 from itertools import islice
 from pathlib import Path
 
@@ -355,7 +356,7 @@ def _final_ask(visible: str, tool: str) -> dict | None:
         return None
     paragraph = _final_paragraph(message)
     handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if paragraph.endswith("?"):
+    if paragraph.rstrip("*_\"'`)").endswith("?"):
         return {"prompt": paragraph, "answer_style": "text"}
     if handoff is None:
         return None
@@ -411,6 +412,8 @@ def _gated_replies(prompt: str, llm_fn) -> list[str]:
     next parse retries) when there is no model or its answer is unusable. Push shows only
     the first two options, so the final decline moves up to second place."""
     if prompt not in _replies and llm_fn:
+        if isinstance(llm_fn, partial):  # the watcher's: keep these calls out of "parse" telemetry
+            llm_fn = partial(llm_fn, kind="replies")
         reply = llm_fn(_REPLIES_SYSTEM, prompt)
         got = _clean_options(reply.get("options") if isinstance(reply, dict) else None,
                              prompt, cap=99)
