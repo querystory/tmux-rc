@@ -922,6 +922,7 @@ def test_yes_no_question_gets_yes_no_buttons(verb):
     "Should I continue",  # not a question
     "Done. What next?",
     "If so, then what?",
+    "Can you tell me which branch I should use?",  # embedded wh-request
     "Okay, what should I do next?",  # "okay" only opens a yes/no as "okay to ..."
     "Redis or Postgres: Can you choose?",  # a colon is not a sentence boundary
 ])
@@ -968,6 +969,9 @@ def test_gated_yes_no_question_also_offers_a_checkpoint():
          "answer_style": "text"}
     _yes_no_options(q)
     assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
+    then = {"prompt": "Should I merge then?", "answer_style": "text"}
+    _yes_no_options(then)
+    assert then["options"] == ["Yes", "No"]  # sentence-final "then" is not a second step
     ok = {"prompt": "Okay to merge?", "answer_style": "text"}
     _yes_no_options(ok)
     assert ok["options"] == ["Yes", "No"]
@@ -979,8 +983,8 @@ def test_model_options_survive_the_deterministic_closing_ask():
            "and merge after approval?")
     model = {"prompt": ask.lower(),
              "answer_style": "text",
-             "options": ["Yes, do all three", " yes, do all three ", "Not yet", "x" * 61, 7,
-                         "a", "b", "c"]}
+             "options": ["Yes, do all three", " yes, do all three ", "Not yet",
+                         ask.lower(), "x" * 61, 7, "a", "b", "c"]}
     kept = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": model}))
     assert kept["question"]["options"] == ["Yes, do all three", "Not yet", "a", "b"]
     # A different question of the model's is not this one's options.

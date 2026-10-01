@@ -342,8 +342,10 @@ _YES_NO_RE = re.compile(
     r"(?:should|shall|do|does|did|can|could|will|would|want|is|are|was|were|have|has|may|ok|okay)\b(?!,)",
     re.IGNORECASE,
 )
-_OR_RE = re.compile(r"\bor\b", re.IGNORECASE)
-_GATED_RE = re.compile(r"\bthen\b|,\s+and\b", re.IGNORECASE)  # several steps, each a gate
+# An alternative, or a wh-word anywhere (so indirect "tell me which..." asks) rules out yes/no.
+_NOT_YES_NO_RE = re.compile(
+    r"\b(?:or|what|which|how|why|where|when|who|whom|whose)\b", re.IGNORECASE)
+_GATED_RE = re.compile(r"\bthen\s+\w|,\s+and\b", re.IGNORECASE)  # several steps, each a gate
 
 
 def _model_options(model_q: object, ask: dict) -> list[str]:
@@ -357,9 +359,10 @@ def _model_options(model_q: object, ask: dict) -> list[str]:
     raw = model_q.get("options")
     if not old or not same or not isinstance(raw, list):
         return []
+    repeats = {old.casefold(), new.casefold()}
     picks: dict[str, str] = {}
     for o in raw:
-        if isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.strip() != new:
+        if isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.strip().casefold() not in repeats:
             picks.setdefault(o.strip().lower(), o.strip())
     return list(picks.values())[:4]
 
@@ -372,7 +375,7 @@ def _yes_no_options(question: dict) -> None:
         return
     sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
     last = sentences[-1].lstrip("*_\"'`(").rstrip("*_\"'`)")
-    if last.endswith("?") and _YES_NO_RE.match(last) and not _OR_RE.search(last):
+    if last.endswith("?") and _YES_NO_RE.match(last) and not _NOT_YES_NO_RE.search(last):
         gated = ["Yes, but check with me first"] if _GATED_RE.search(last) else []
         question["options"] = ["Yes", "No", *gated]  # push shows only the first two
 
