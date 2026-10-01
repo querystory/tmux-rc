@@ -654,6 +654,8 @@ class Watcher:
         for s, p in zip(states, panes, strict=True):
             s["events_seq"] = self._events_seq.get(s.get("pane_id"), 0)
             s["prs"] = self._pr_titles.enrich(self._prs.get(s.get("pane_id"), []))
+            if s.get("pane_id") in self._prs:  # retire merged/closed for every consumer
+                self._prs[s["pane_id"]] = list(s["prs"])
             b = self._boot.get(s.get("pane_id"))
             if not b:
                 continue

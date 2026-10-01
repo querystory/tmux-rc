@@ -1,6 +1,6 @@
 from concurrent.futures import Future
 
-from openbus.pr_titles import PRTitles, fetch_title
+from openbus.pr_titles import PRTitles, fetch_pr
 
 
 def test_title_cache_nonblocking_deduplicates_and_reuses():
@@ -23,7 +23,7 @@ def test_title_cache_nonblocking_deduplicates_and_reuses():
     assert cache.enrich([pr]) == [pr]
     assert cache.enrich([pr]) == [pr]
     assert len(pool.calls) == 1
-    pool.future.set_result("Track PRs per session")
+    pool.future.set_result({"title": "Track PRs per session", "state": "OPEN"})
     assert cache.enrich([pr]) == [{**pr, "title": "Track PRs per session"}]
     assert len(pool.calls) == 1
 
@@ -33,20 +33,20 @@ def test_title_lookup_failure_falls_back(monkeypatch):
         raise OSError("gh unavailable")
 
     monkeypatch.setattr("openbus.pr_titles.subprocess.Popen", fail)
-    assert fetch_title("querystory/tmux-rc", 245) is None
+    assert fetch_pr("querystory/tmux-rc", 245) is None
 
 
 def test_title_refresh_retains_stale_value_and_backs_off(monkeypatch):
     cache = PRTitles()
     cache.close()
     key = ("querystory/tmux-rc", 245)
-    cache._cache[key] = (100, "Existing title")
+    cache._cache[key] = (100, {"title": "Existing title", "state": "OPEN"})
     future = Future()
     future.set_result(None)
     cache._pending[key] = future
     monkeypatch.setattr("openbus.pr_titles.time.monotonic", lambda: 100)
     assert cache.enrich([{"repo": key[0], "number": key[1]}])[0]["title"] == "Existing title"
-    assert cache._cache[key] == (160, "Existing title")
+    assert cache._cache[key][0] == 160 and cache._cache[key][1]["state"] == "OPEN"
     assert cache._pending == {}
 
 
@@ -113,3 +113,44 @@ def test_shutdown_terminates_a_running_lookup(monkeypatch):
         assert processes[0].poll() is not None
     finally:
         cache.close()
+
+
+def _gh(monkeypatch, out):
+    import subprocess
+
+    class Done:
+        returncode = 0
+
+        def __init__(self, *_a, **_k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def communicate(self, timeout=None):
+            return out, ""
+
+    monkeypatch.setattr(subprocess, "Popen", Done)
+
+
+def test_fetch_reads_title_and_state(monkeypatch):
+    _gh(monkeypatch, '{"title": " T ", "state": "MERGED"}')
+    assert fetch_pr("o/r", 1) == {"title": "T", "state": "MERGED"}
+
+
+def test_merged_and_closed_prs_are_dropped_open_kept_failure_keeps_state():
+    cache = PRTitles()
+    cache.close()
+    prs = [{"repo": "o/r", "number": n} for n in (1, 2, 3, 4)]
+    for n, state in ((1, "MERGED"), (2, "CLOSED"), (3, "OPEN")):
+        cache._cache[("o/r", n)] = (float("inf"), {"title": f"t{n}", "state": state})
+    assert [p["number"] for p in cache.enrich(prs)] == [3, 4]
+    # a failed refresh falls back to the last known info, so a merged PR stays retired
+    future = Future()
+    future.set_result(None)
+    cache._pending[("o/r", 1)] = future
+    cache._cache[("o/r", 1)] = (0, {"title": "t1", "state": "MERGED"})
+    assert [p["number"] for p in cache.enrich(prs)] == [3, 4]

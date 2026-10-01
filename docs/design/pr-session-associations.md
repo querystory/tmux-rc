@@ -98,7 +98,11 @@ apply; select **All** to find an idle pane. Search does not create associations.
 
 The pane overview's **Links** section also offers every tracked PR as a tappable
 GitHub title with `owner/repo#number` beneath it, on mobile and desktop. Titles come
-from `gh pr view --json title`, not the LLM. Two background workers fetch titles with
+from `gh pr view --json title,state`, not the LLM. The same lookup carries the PR's GitHub
+state: once it reports merged or closed, the PR is retired from the pane's published `prs`
+(and the accumulator) so finished work stops cluttering Links, search and routing. This is a
+interim, state-only retirement until the lifecycle follow-up's per-session status lands; a failed
+lookup keeps the last known state. Two background workers fetch titles with
 an eight-second timeout; a shared 512-entry cache refreshes successes after 15 minutes
 and retries failures after one minute. Failed refreshes retain the last title. If gh,
 authentication or network access is unavailable, the link falls back to the reference.
