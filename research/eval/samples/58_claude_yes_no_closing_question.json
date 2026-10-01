@@ -10,8 +10,8 @@
       "answer_style": "text",
       "options": [
         "Yes",
-        "Yes, but check with me first",
-        "No"
+        "No",
+        "Yes, but check with me first"
       ]
     },
     "headline": "Explained that PR #41 disables the tool update prompt"

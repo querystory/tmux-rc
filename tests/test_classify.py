@@ -931,6 +931,14 @@ def test_non_yes_no_question_gets_no_buttons(prompt):
     assert "options" not in q
 
 
+@pytest.mark.parametrize("prompt", [
+    "**Should I merge?**", '"Should I merge?"', "(Should I merge?)"])
+def test_wrapped_yes_no_question_still_gets_buttons(prompt):
+    q = {"prompt": prompt, "answer_style": "text"}
+    _yes_no_options(q)
+    assert q["options"] == ["Yes", "No"]
+
+
 def test_colon_clause_keeps_its_leading_auxiliary():
     q = {"prompt": "Should I do this: deploy the tested build?", "answer_style": "text"}
     _yes_no_options(q)
@@ -949,7 +957,7 @@ def test_yes_no_buttons_never_replace_model_options_or_menus():
 def test_closing_yes_no_question_in_auto_mode_offers_yes_no():
     result = classify(_pane("claude"), _sample("58_claude_yes_no_closing_question"),
                       _llm({"tool": "claude", "activity": "idle"}))
-    assert result["question"]["options"] == ["Yes", "Yes, but check with me first", "No"]
+    assert result["question"]["options"] == ["Yes", "No", "Yes, but check with me first"]
     # A model-supplied text question gets them too, anywhere on the screen.
     asked = classify(_pane("claude"), "x", _llm({"question": {"prompt": "Want me to push?"}}))
     assert asked["question"]["options"] == ["Yes", "No"]
@@ -959,7 +967,7 @@ def test_gated_yes_no_question_also_offers_a_checkpoint():
     q = {"prompt": "Should I send it to Copilot, then the reviewer, and merge?",
          "answer_style": "text"}
     _yes_no_options(q)
-    assert q["options"] == ["Yes", "Yes, but check with me first", "No"]
+    assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
     ok = {"prompt": "Okay to merge?", "answer_style": "text"}
     _yes_no_options(ok)
     assert ok["options"] == ["Yes", "No"]
@@ -978,7 +986,7 @@ def test_model_options_survive_the_deterministic_closing_ask():
     # A different question of the model's is not this one's options.
     other = classify(_pane("claude"), screen, _llm(
         {"tool": "claude", "question": {"prompt": "Pick a color", "options": ["red"]}}))
-    assert other["question"]["options"] == ["Yes", "Yes, but check with me first", "No"]
+    assert other["question"]["options"] == ["Yes", "No", "Yes, but check with me first"]
     # Provider-error retry keeps its own option.
     err = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
     out = classify(_pane("claude"), err, _llm(

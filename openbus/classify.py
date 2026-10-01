@@ -370,10 +370,10 @@ def _yes_no_options(question: dict) -> None:
     if question.get("answer_style", "text") != "text" or question.get("options"):
         return
     sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
-    last = sentences[-1].lstrip("*_\"'`(")
+    last = sentences[-1].lstrip("*_\"'`(").rstrip("*_\"'`)")
     if last.endswith("?") and _YES_NO_RE.match(last) and not _OR_RE.search(last):
         gated = ["Yes, but check with me first"] if _GATED_RE.search(last) else []
-        question["options"] = ["Yes", *gated, "No"]
+        question["options"] = ["Yes", "No", *gated]  # push shows only the first two
 
 
 def _obvious_idle(text: str) -> bool:
