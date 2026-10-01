@@ -48,7 +48,7 @@ log role or composer label by default in the spike; we would add them.
 A throwaway island was built outside the tree: thread, viewport, composer with
 multi-image attachment, and one tool UI for the consent card, fed from a stand-in for the
 `/api/live-mode` protocol through the external-store runtime, skinned with the phone's
-design tokens. esbuild, minified, React 19. Screenshots are in the PR.
+design tokens. Versions: @assistant-ui/react 0.15.22 (core 0.3.21), React and React DOM 19.3.0, esbuild 0.28.2 bundling to one ESM file with minify on and NODE_ENV production defined; sizes are of that file, with gzip at level 9 and brotli at quality 11 (the spike lived in a scratch directory and is not committed). Screenshots are in the PR.
 
 | | JS min | gzip | brotli | CSS min |
 |---|---|---|---|---|
@@ -58,7 +58,7 @@ design tokens. esbuild, minified, React 19. Screenshots are in the PR.
 | ECharts, already vendored | 1.1 MB | 368 KB | n/a | n/a |
 
 React DOM is 205 KB of the island; assistant-ui and its core, store, tap and stream
-packages are about 310 KB. The island is roughly 25 times our chat's code. That is
+packages are about 310 KB. The island is roughly 29 times our chat's code. That is
 tolerable beside ECharts, but the production dependency tree is about 100 packages
 (mostly the Radix meta package), against two today.
 
@@ -101,7 +101,7 @@ would be mounted inside our sheet, so every one of these still wraps it.
 | 16px iOS zoom | No: still a CSS rule we set |
 | Overflow at 390px | No: our skin |
 
-Two of seven, and both were one-line fixes on the existing composer.
+Two of seven, and both were small fixes on the existing composer (the multi-select one touches the picker in live-chat.js and the shared composer's file handling).
 
 ## Options
 
