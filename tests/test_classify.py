@@ -980,10 +980,19 @@ def test_model_options_for_the_same_question_skip_the_extra_call(replies):
     assert calls == [ASK]
 
 
+def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
+    make, calls = replies
+    five = {"options": ["Yes, all", "Check a", "Check b", "Check c", "No"]}
+    assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a", "Check b"]
+    assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
+    assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
+    assert len(calls) == 3  # the lone option was not cached
+
+
 def test_reply_options_are_sanitized(replies):
     make, _ = replies
     raw = ["Yes", "yes", "ok\x1b[A", "no\n", "x" * 61, 7, ASK, "Maybe", "Later", "Never", "No"]
-    assert _ask(make({"options": raw}))["options"] == ["Yes", "Never", "Maybe", "Later"]
+    assert _ask(make({"options": raw}))["options"] == ["Yes", "No", "Maybe", "Later"]
 
 
 def test_provider_error_retry_is_deterministic(replies):

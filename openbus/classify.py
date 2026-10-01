@@ -364,14 +364,14 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 
 def _clean_options(raw: object, *prompts: str) -> list[str]:
     """Suggested replies as buttons: strings only, short, deduped, printable (an option is
-    typed into the agent's input box), none that just repeat a prompt, at most 4."""
+    typed into the agent's input box), none that just repeat a prompt. Callers cap the count."""
     repeats = {p.casefold() for p in prompts}
     picks: dict[str, str] = {}
     for o in raw if isinstance(raw, list) else []:
         if (isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.isprintable()
                 and o.strip().casefold() not in repeats):
             picks.setdefault(o.strip().lower(), o.strip())
-    return list(picks.values())[:4]
+    return list(picks.values())
 
 
 def _model_options(model_q: object, ask: dict) -> list[str]:
@@ -380,7 +380,7 @@ def _model_options(model_q: object, ask: dict) -> list[str]:
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return []
     old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    return _clean_options(model_q.get("options"), old, new) if old and (
+    return _clean_options(model_q.get("options"), old, new)[:4] if old and (
         old.casefold() in new.casefold() or new.casefold() in old.casefold()) else []
 
 
@@ -408,10 +408,11 @@ def _reply_options(prompt: str, replies_fn) -> list[str]:
         if isinstance(reply, dict) and isinstance(reply.get("options"), list):
             got = _clean_options(reply["options"], prompt)
             if len(got) > 2:
-                got.insert(1, got.pop())
-            if len(_replies) > 256:
-                _replies.clear()
-            _replies[prompt] = got
+                got.insert(1, got.pop())  # the decline, before the cap can drop it
+            if len(got) != 1:  # a lone option is no choice: unusable, not cached
+                if len(_replies) > 256:
+                    _replies.clear()
+                _replies[prompt] = got[:4]
     return _replies.get(prompt, [])
 
 
