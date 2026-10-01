@@ -161,6 +161,9 @@ def report(args: argparse.Namespace) -> None:
         d = json.loads(Path(path).read_text())
         rows = d["rows"]
         closing = [r for r in rows if r["corpus"] == "closing"]
+        want = {p.stem: json.loads(p.read_text())["expected"] for p in CLOSING_DIR.glob("*.json")}
+        for r in closing:  # the sample's expected tool/activity/question shape, plus the buttons
+            r["struct_ok"] = score_structured(r["result"], want[r["sample"]])[0]
         print(f"\n== {d['tag']} ({len(closing)} closing runs) ==")
         for kind in ("yn", "gated", "none", "idle", "error"):
             k = [r for r in closing if r["kind"] == kind]
@@ -168,10 +171,13 @@ def report(args: argparse.Namespace) -> None:
             ok = sum(r["grade"]["ok"] for r in k)
             jp = sum(r["judge"]["verdict"] == "PASS" for r in judged)
             print(f"  {kind:6} rubric {ok:3}/{len(k):3}   judge PASS {jp:3}/{len(judged):3}")
+        print(f"  closing samples matching their expected contract: "
+              f"{sum(r['struct_ok'] for r in closing)}/{len(closing)}; both contract and rubric: "
+              f"{sum(r['struct_ok'] and r['grade']['ok'] for r in closing)}/{len(closing)}")
         idle = [r for r in closing if r["kind"] == "idle"]
         fp = [r for r in rows if r["raw_closing_replies"] and not r["result"].get("question")]
         print(f"  idle stayed idle {sum(r['grade']['ok'] for r in idle)}/{len(idle)};"
-              f" parses with closing_replies but no closing question: {len(fp)}/{len(rows)}")
+              f" screen runs with closing_replies but no question: {len(fp)}/{len(rows)}")
         # First parse only: classify() re-reads a slice after a rejected session/question,
         # and that retry is the same cost under every design.
         parses = [next(c for c in r["calls"] if c["kind"] == "parse") for r in rows if r["calls"]]
