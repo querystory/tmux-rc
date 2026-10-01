@@ -973,11 +973,8 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
         raise HTTPException(400, "empty upload")
     detail = f"{mime} {len(data)}B"
 
-    _invalidate_input_actions(pane.id)
     try:
-        path = _stage_image(data, mime)
-        # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
-        mode = await asyncio.to_thread(_deliver_image, pane.id, data, path, pane.pid)
+        path, mode = await attach_image(pane.id, pane.pid, data, mime)
     except Exception as error:
         _audit(request, "paste_image", pane_id, outcome=f"error: {error}"[:80])
         if isinstance(error, tmux.PaneChangedError):
@@ -986,6 +983,16 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
     app.state.watcher.request_reparse(pane.id)
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
+
+
+async def attach_image(pane_id: str, expected_pid: str, data: bytes, mime: str) -> tuple[str, str]:
+    """Stage an already-validated image and deliver it to the pane, bound to the process
+    the caller saw there (PaneChangedError if it changed). Returns (path, mode). The one
+    delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane."""
+    _invalidate_input_actions(pane_id)
+    path = _stage_image(data, mime)
+    # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
+    return path, await asyncio.to_thread(_deliver_image, pane_id, data, path, expected_pid)
 
 
 def _stage_image(data: bytes, mime: str) -> str:

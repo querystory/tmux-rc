@@ -303,10 +303,10 @@ def test_tools_offered_only_with_agent_history(monkeypatch):
     monkeypatch.setattr(agent_history, "resolve", lambda q: [])
     assert {"find_sessions", "resume_session"} <= offered()
     monkeypatch.setenv("TMUXRC_TARGET", "%3")  # single-pane mode can't address new windows
-    assert offered() == {"type_in_pane", "press_key"}
+    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
     monkeypatch.delenv("TMUXRC_TARGET")
     monkeypatch.setattr(agent_history, "binary", lambda: None)
-    assert offered() == {"type_in_pane", "press_key"}
+    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
 
 
 def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):

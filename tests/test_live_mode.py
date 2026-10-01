@@ -729,8 +729,10 @@ def test_a_pasted_image_reaches_the_session_with_its_turn():
         {"action": "text", "images": [{"mime": "image/jpeg", "data": "SlBH"}]},
         {"action": "text", "text": "plain"}, {"action": "stop"}])
     _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=True)))
-    assert session.turns == [("look", [("image/png", b"PNG")]), ("", [("image/jpeg", b"JPG")]),
-                             ("plain", [])]
+    # Each image is numbered in the turn text, so the model can name it in a tool call.
+    assert session.turns == [
+        ("look\n(image 1 attached)", [("image/png", b"PNG")]),
+        ("(image 2 attached)", [("image/jpeg", b"JPG")]), ("plain", [])]
     assert [(f["text"], f["images"]) for f in ws.sent] == [("look", 1), ("", 1), ("plain", 0)]
 
 
@@ -751,3 +753,87 @@ def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
     _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=text)))
     assert session.turns == []
     assert ws.sent == [{"type": "error", "message": L._IMAGE_REFUSED, "refused": True}]
+
+
+def _forwarding(monkeypatch, *, ok, text=True, images=((("image/png", b"PNG")),)):
+    """A chat meter holding `images`, a browser tapping `ok` on the card, and the pane
+    delivery faked at server.attach_image."""
+    from openbus import server
+
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=text)
+    meter.keep_images(list(images))
+    events, audits = [], []
+
+    class Tap(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(ok)
+
+    async def attach(pane_id, pid, data, mime):
+        events.append(("attach", pane_id, pid, data, mime))
+        return "/tmp/x.png", "path"
+
+    monkeypatch.setattr(server, "attach_image", attach)
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: events.append(("keys", a, k)))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
+    return meter, Tap(), events, audits
+
+
+def _forward(meter, ws, **args):
+    session = _Session()
+    fc = _FC(name="send_image_to_pane", args={"pane_id": "%1", **args})
+    _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
+    return session.responses[0][1]
+
+
+def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
+    meter, ws, events, audits = _forwarding(monkeypatch, ok=True)
+    assert _forward(meter, ws, image_number=1, caption="what is this?") == {
+        "status": "done", "pane": "work"}
+    card = ws.sent[0]
+    assert card["text"] == "Send image 1 to work: what is this?"
+    assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
+    assert events == [  # delivered once, bound to the pid the card showed, then caption + Enter
+        ("attach", "%1", "4242", b"PNG", "image/png"),
+        ("keys", ("%1", "what is this?"), {"expected_pid": "4242"})]
+    assert len(audits) == 1 and audits[0]["consent"] == "approved"
+    assert audits[0]["detail"] == "image/png 3B into work via path"
+    assert b"PNG" not in repr(audits).encode()  # type and size, never the bytes
+
+
+def test_cancelling_an_image_card_sends_nothing(monkeypatch):
+    meter, ws, events, audits = _forwarding(monkeypatch, ok=False)
+    assert _forward(meter, ws) == {"status": "declined", "reason": "the user declined"}
+    assert events == [] and audits[0]["consent"] == "declined"
+
+
+@pytest.mark.parametrize("args", [{"image_number": 2}, {"image_number": True}, {"caption": 5}])
+def test_forwarding_refuses_a_missing_image_or_bad_args(monkeypatch, args):
+    meter, ws, events, _ = _forwarding(monkeypatch, ok=True)
+    assert _forward(meter, ws, **args)["status"] == "rejected"
+    assert events == []
+
+
+def test_forwarding_refuses_when_no_image_was_attached(monkeypatch):
+    meter, ws, events, _ = _forwarding(monkeypatch, ok=True, images=())
+    assert _forward(meter, ws)["status"] == "rejected"
+    assert events == []
+
+
+def test_forwarding_is_refused_in_a_voice_session(monkeypatch):
+    meter, ws, events, audits = _forwarding(monkeypatch, ok=True, text=False)
+    assert _forward(meter, ws)["status"] == "rejected"
+    assert events == [] and ws.sent == [] and len(audits) == 1
+
+
+def test_images_stay_numbered_across_turns_until_their_turn_ages_out():
+    meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
+    meter.keep_images([("image/png", b"a"), ("image/png", b"b")])
+    meter.keep_images([("image/jpeg", b"c")])
+    assert meter.image(2) == (2, "image/png", b"b")
+    assert meter.image(None) == (3, "image/jpeg", b"c")  # the latest
+    for _ in range(L.TURNS_KEPT):
+        meter.keep_images([])  # the chat model forgets turns; so do we
+    assert meter.image(1) is None and meter.image(None) is None

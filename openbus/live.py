@@ -19,11 +19,13 @@ import logging
 import os
 import time
 import uuid
+from collections import deque
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import agent_history, live_providers, llm, telemetry, tmux
 from .classify import _codex_model_segments, _load_prompt, _session_chrome
+from .live_chat import TURNS_KEPT
 from .live_providers import KEYS, LiveModel
 
 logger = logging.getLogger(__name__)
@@ -117,6 +119,10 @@ class _Meter:
         self.model = model
         self.text = text  # typed turns, written replies: no mic, no playback
         self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
+        # Pasted images by conversation-wide number, kept for the turns the chat model still
+        # remembers (live_chat.TURNS_KEPT) so send_image_to_pane can name an earlier one.
+        self.image_total = 0
+        self._image_turns: deque[dict[int, tuple[str, bytes]]] = deque(maxlen=TURNS_KEPT)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
         self.started = time.monotonic()
@@ -125,6 +131,19 @@ class _Meter:
         # adds voice_seconds / usage_final / backend_model). Empty for the seam's own
         # providers, which report everything through `usage`.
         self.details: dict = {}
+
+    def keep_images(self, images: list[tuple[str, bytes]]) -> None:
+        """Number a delivered turn's images (a turn without any still ages the older ones)."""
+        self._image_turns.append(
+            {self.image_total + i + 1: image for i, image in enumerate(images)})
+        self.image_total += len(images)
+
+    def image(self, number) -> tuple[int, str, bytes] | None:
+        """(number, mime, bytes) of that image, the latest when none is named; None when it
+        is unknown, or aged out with its turn."""
+        kept = {n: image for turn in self._image_turns for n, image in turn.items()}
+        number = max(kept, default=None) if number is None else number
+        return (number, *kept[number]) if type(number) is int and number in kept else None
 
     def note(self, line: str) -> None:
         """Record a transcript fragment (voice in/out, or a typed action). Bounded so a
@@ -283,10 +302,11 @@ def _pane_context(watcher, screens: str) -> str:
 _TEXT_NOTE = (
     "\nThis session is typed, not spoken: the user types to you and reads your replies. "
     'Keep them short and plain. Label relayed messages "(via text)". Actions that change '
-    "a pane (type_in_pane, press_key, resume_session) are shown to the user to approve "
-    "first; a declined one did not happen, so don't retry it unless the user asks. Act "
-    "first, then report the outcome briefly; don't narrate what you're about to do before "
-    "calling a tool."
+    "a pane (type_in_pane, press_key, resume_session, send_image_to_pane) are shown to the "
+    "user to approve first; a declined one did not happen, so don't retry it unless the user "
+    "asks. Act first, then report the outcome briefly; don't narrate what you're about to "
+    "do before calling a tool. Pasted images are numbered in the turn text; to give one to "
+    'an agent ("send this to window 3") use send_image_to_pane.'
 )
 
 
@@ -326,7 +346,8 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         if known:
             ok, pid = (await _approved(websocket, fc, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
-            result = (await _dispatch(websocket, session, fc, watcher, rec, expected_pid=pid)
+            result = (await _dispatch(websocket, session, fc, watcher, rec, expected_pid=pid,
+                                      meter=meter)
                       if ok else {"status": "declined", "reason": "the user declined"})
     finally:
         status, reason = result["status"], result.get("reason")
@@ -343,7 +364,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
 # what it would do (the control plane's risk tiers: docs/design/agentic-control-plane.md):
 # a typed request is read and answered, never acted on unasked. find_sessions only reads,
 # so it runs at once. Voice keeps acting directly — a tap would end hands-free use.
-_CONSENT = {"type_in_pane", "press_key", "resume_session"}
+_CONSENT = {"type_in_pane", "press_key", "resume_session", "send_image_to_pane"}
 
 
 async def _approved(
@@ -370,14 +391,24 @@ async def _approved(
         summary = f"Resume {(entry or {}).get('title') or args.get('session_id')}"
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
+    elif fc.name == "send_image_to_pane":
+        image = meter.image(args.get("image_number"))
+        caption = args.get("caption")
+        summary = f"Send image {image[0] if image else args.get('image_number')} to {pane}" + (
+            f": {caption}" if caption else "")
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
+    card = {"type": "propose", "text": summary}
+    if fc.name == "send_image_to_pane":
+        image = meter.image(args.get("image_number"))
+        if image:  # the card shows what would be sent; no image: refused below, as approved
+            card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     try:
-        await websocket.send_json({"type": "propose", "id": proposal, "text": summary})
+        await websocket.send_json({**card, "id": proposal})
         ok = await answer
         rec["consent"] = "approved" if ok else "declined"
         # The client shows the answer as final only on this, so a reconnect can't leave a
@@ -389,7 +420,8 @@ async def _approved(
 
 
 async def _dispatch(
-    websocket: WebSocket, session, fc, watcher, rec: dict, *, expected_pid: str | None = None
+    websocket: WebSocket, session, fc, watcher, rec: dict, *,
+    expected_pid: str | None = None, meter: _Meter | None = None,
 ) -> dict:
     """Route a tool call (type_in_pane / press_key, or a history tool) and return its
     answer. The result NEVER rides back through the tool response (echo loops — see
@@ -399,6 +431,8 @@ async def _dispatch(
         if not agent_history.offered():
             return {"status": "rejected", "reason": "session history not available"}
         return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
+    if fc.name == "send_image_to_pane":
+        return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
 
     # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
     # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
@@ -481,6 +515,41 @@ async def _dispatch(
 
     _background(asyncio.create_task(refresh()))
     return {"status": "done", "pane": label}
+
+
+async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, meter) -> dict:
+    """Forward a pasted chat image to a pane through the pane composer's delivery
+    (server.attach_image), then type the caption, if any, and submit. Bytes never reach
+    the audit record: only type, size and target."""
+    from .server import attach_image  # noqa: PLC0415 - server imports this module
+
+    pane_id, caption = args.get("pane_id"), args.get("caption", "")
+    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    if not meter.text:
+        return {"status": "rejected", "reason": "images are only available in a text chat"}
+    if (set(args) - {"pane_id", "image_number", "caption"} or not isinstance(caption, str)
+            or not isinstance(pane_id, str) or pane_id not in labels):
+        return {"status": "rejected", "reason": "malformed call or unknown pane"}
+    rec["pane_id"] = pane_id
+    image = meter.image(args.get("image_number"))
+    if not image:
+        return {"status": "rejected", "reason": "no such image in this conversation"}
+    _, mime, data = image
+    rec["detail"] = f"{mime} {len(data)}B into {labels[pane_id]}"
+    rec["keys"] = caption  # speech, like typed text
+    try:
+        _, mode = await attach_image(pane_id, expected_pid, data, mime)
+        await asyncio.to_thread(tmux.send_keys, pane_id, caption, expected_pid=expected_pid)
+    except Exception as e:  # report, don't kill the session
+        rec["detail"] += f" ({type(e).__name__})"
+        logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,
+                       exc_info=telemetry.QSDEBUG)
+        return {"status": "error", "reason": "pane did not accept the image"}
+    rec["detail"] += f" via {mode}"
+    watcher.request_reparse(pane_id)
+    await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
+                               "text": f"[image] {caption}".strip(), "submitted": True})
+    return {"status": "done", "pane": labels[pane_id]}
 
 
 async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
@@ -675,7 +744,7 @@ def _session_for(panes, cwd: str) -> str | None:
 
 
 _HISTORY_TOOLS = {"find_sessions": _find_sessions, "resume_session": _resume_session}
-_TOOLS = {"type_in_pane", "press_key", *_HISTORY_TOOLS}
+_TOOLS = {"type_in_pane", "press_key", "send_image_to_pane", *_HISTORY_TOOLS}
 
 
 # Keep strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.
@@ -798,12 +867,18 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
             if refusal:
                 await websocket.send_json({"type": "error", "message": refusal, "refused": True})
             elif text or images:
+                # The model reads each image's number off its turn, and names it in a tool call.
+                numbers = range(meter.image_total + 1, meter.image_total + len(images) + 1)
+                labelled = "\n".join(
+                    filter(None, [text, *(f"(image {n} attached)" for n in numbers)]))
                 try:  # handed over first: a chat session with a full queue refuses the turn
-                    await (session.send_text(text, images) if images else session.send_text(text))
+                    await (session.send_text(labelled, images) if images
+                           else session.send_text(text))
                 except asyncio.QueueFull:
                     busy = "Still answering earlier turns; not sent"
                     await websocket.send_json({"type": "error", "refused": True, "message": busy})
                     continue
+                meter.keep_images(images)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "approve":  # the user's Send / Cancel on a proposed action

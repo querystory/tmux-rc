@@ -165,3 +165,17 @@ def test_composer_image_keeps_original_identity(monkeypatch):
     with pytest.raises(tmux.PaneChangedError):
         server._deliver_composer("%1", "1234", [(b"image", "/tmp/test.png")])
     assert events == []
+
+
+def test_chat_forwarding_uses_the_endpoints_delivery(client, monkeypatch):
+    """The endpoint and Live Chat's send_image_to_pane share server.attach_image, so both
+    stage and deliver the same way and bind to the pid they were given."""
+    import asyncio
+
+    calls = []
+    monkeypatch.setattr(server, "_deliver_image", lambda *a: calls.append(a) or "path")
+    path, mode = asyncio.run(server.attach_image("%1", "1234", b"image", "image/png"))
+    assert mode == "path" and calls == [("%1", b"image", path, "1234")]
+    response = client.post("/api/panes/%1/image",
+                           files=[("file", ("test.png", b"image", "image/png"))])
+    assert response.json()["mode"] == "path" and calls[1][3] == "1234"
