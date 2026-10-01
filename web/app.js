@@ -3395,8 +3395,8 @@ if (bar.input) {
   bar.input.onpaste = (e) => {
     e.preventDefault();
     const cd = e.clipboardData;
-    const images = [...(cd?.items || [])].filter((i) => i.type.startsWith("image/"));
-    if (images.length) { images.forEach((i) => insertImage(i.getAsFile())); return; }
+    const item = [...(cd?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (item) { insertImage(item.getAsFile()); return; }
     insertTextAtCaret(cd ? cd.getData("text/plain") : "");
   };
   // Drag/drop bypasses onpaste and would drop rich HTML / foreign <img src> straight
