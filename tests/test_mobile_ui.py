@@ -191,6 +191,17 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
     assert html.index('id="detail"') < html.index('id="heading"'), "the title belongs over the pane"
 
 
+def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
+    root = Path(__file__).resolve().parents[1] / "web"
+    css = (root / "live-chat.css").read_text()
+    # A chip taller than the 22px line stretches the field the moment an image is pasted.
+    assert "#chat-input .attach-chip { width: 22px; height: 22px;" in css
+    html = (root / "m/index.html").read_text()
+    assert 'id="voice-end"' in html
+    live = (root / "m/live.js").read_text()
+    assert '$("voice-end").onclick = () => { stop(); dialog.close(); }' in live
+
+
 def test_voice_sheet_takes_initial_focus_not_its_first_button():
     """showModal() focuses the first button (the minimize button) and its :focus-visible ring
     paints on open; the sheet itself takes focus instead, with no ring on that container."""

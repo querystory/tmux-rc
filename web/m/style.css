@@ -198,6 +198,7 @@ dialog::backdrop { background: #0008; }
 .choice-list span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .choice-list strong { display: block; font-size: 16px; font-weight: 550; }
 .choice-list small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+#voice-close { margin-left: auto; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 dialog label { display: block; margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
 dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; background: var(--bg); font-size: 16px; }

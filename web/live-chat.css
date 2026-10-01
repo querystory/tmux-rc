@@ -7,6 +7,9 @@
   color: var(--fg); font-size: 16px; line-height: 22px; } /* 16px: iOS zooms smaller inputs */
 #chat-input:empty::before { content: attr(data-placeholder); color: var(--fg-dim, var(--muted)); pointer-events: none; }
 #chat-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A pasted image sits in the line, so it must not outgrow the 22px line or the field gets
+   taller the moment one is attached. The pane composer's chips are 24-32px. */
+#chat-input .attach-chip { width: 22px; height: 22px; margin: 0 0 0 2px; vertical-align: top; }
 .chat-compose { align-items: flex-end; }
 .chat-compose .chat-attach, .chat-compose .chat-min { flex: none; width: 44px; height: 44px; padding: 0;
   display: grid; place-items: center; }

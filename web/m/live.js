@@ -17,6 +17,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
+  $("voice-end").innerHTML = licon("x");
   $("chat").innerHTML = licon("message");
   let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false;
   // Voice comes from the mic button, through the model picker. Chat (typed turns and
@@ -33,7 +34,8 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
     $("voice-title").textContent = title;
     $("voice-start").textContent = `End ${title}`;
     $("voice-start").hidden = !run;
-    $("voice-controls").hidden = !run;
+    $("voice-controls").hidden = !run || run.text; // a chat ends from the header X
+    $("voice-end").hidden = !run?.text;
     $("voice-models").hidden = !!run || text;
     $("voice-switch").hidden = !run?.text || $("voice-switch").children.length < 2;
     $("voice-compose").hidden = !run;
@@ -402,6 +404,9 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   $("voice-close").onclick = () => { minimize(); dialog.close(); };
   dialog.addEventListener("cancel", minimize); // Escape
   dialog.addEventListener("close", badge);
+  // The X beside minimize: end the chat AND dismiss the sheet, so nothing is left to close.
+  // (Voice keeps End Live Mode: its sheet stays up for the model picker to start again.)
+  $("voice-end").onclick = () => { stop(); dialog.close(); };
   $("voice-start").onclick = () => run ? stop() : start();
   $("voice-mute").onclick = () => {
     if (!run?.stream) return;
