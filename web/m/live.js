@@ -50,7 +50,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   // Restoring puts the log back where minimizing left it: at the tail if it was following
   // there, else at the same offset (read before closing, since a closed log has no layout).
   function show() {
-    if (!dialog.open) dialog.showModal();
+    if (!dialog.open) { dialog.showModal(); dialog.focus(); } // not the first button: its ring would show on open
     if (run?.scroll) { log.scrollTop = run.scroll.follow ? log.scrollHeight : run.scroll.top; run.scroll = null; }
     unread = false; badge();
   }
@@ -127,8 +127,8 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   // tells the model the user declined (live._approved). The card shows a final answer
   // only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
-  function propose(current, { id, text }) {
-    add("propose", text);
+  function propose(current, { id, text, image }) {
+    add("propose", text, false, image ? [image] : []);
     const row = $("voice-log").lastElementChild, actions = document.createElement("div");
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {

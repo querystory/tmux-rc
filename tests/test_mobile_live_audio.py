@@ -83,6 +83,7 @@ const element = () => {
     classList: {add: (c) => classes.add(c), contains: (c) => classes.has(c),
       toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
     setAttribute() {}, insertAdjacentHTML() {}, remove() {}, showModal() {node.open = true;},
+    focus() {},
     close() {node.open = false; node.dispatchEvent(new Event('close'));},
     before(...nodes) {thumbs.push(...nodes.map((image) => image.src));},
     replaceChildren(...children) {node.children = children;},

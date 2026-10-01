@@ -31,12 +31,12 @@ async function imagePart(file) {
 // returns false (not connected) to keep the draft. session() names the current
 // conversation, so a turn is never sent into a different one than it was written in.
 export function chatComposer(form, { licon, send, error, session }) {
-  const composer = new Composer(() => {}, error, { id: "chat-input", label: "Message the assistant" });
+  const composer = new Composer(() => {}, error, { id: "chat-input", label: "Message the assistant", max: CHAT_IMAGES });
   const attach = document.createElement("button"), picker = document.createElement("input");
   const submit = document.createElement("button");
   attach.type = "button"; attach.className = "icon-button chat-attach"; attach.innerHTML = licon("paperclip");
   attach.title = attach.ariaLabel = "Attach image";
-  picker.type = "file"; picker.accept = "image/png,image/jpeg,image/webp,image/gif"; picker.hidden = true;
+  picker.type = "file"; picker.multiple = true; picker.accept = "image/png,image/jpeg,image/webp,image/gif"; picker.hidden = true;
   submit.type = "submit"; submit.className = "primary"; submit.textContent = "Send";
   bindAttach(attach, picker, () => composer);
   enterSubmits(form, (target) => composer.editor.contains(target));

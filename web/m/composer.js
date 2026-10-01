@@ -1,9 +1,10 @@
 // Ordered text/image model: what is sent is the draft in the order it was typed.
 export class Composer {
   // The Live chat (/live-chat.js) reuses this editor under its own id and label.
-  constructor(changed, error, { id = "reply", label = "Message this pane" } = {}) {
+  constructor(changed, error, { id = "reply", label = "Message this pane", max = Infinity } = {}) {
     this.changed = changed;
     this.error = error;
+    this.max = max; // images one draft may hold (the chat turn limit); the pane composer has none
     this.files = new Map();
     this.editor = document.createElement("div");
     this.editor.id = id;
@@ -17,7 +18,7 @@ export class Composer {
       event.preventDefault();
       if (this.editor.contentEditable !== "true") return;
       const files = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
-      if (files.length) files.forEach((file) => this.attach(file));
+      if (files.length) this.attachMany(files);
       else this.insert(document.createTextNode(event.clipboardData?.getData("text/plain") || ""));
     };
     this.editor.ondrop = this.editor.ondragover = (event) => event.preventDefault();
@@ -46,6 +47,14 @@ export class Composer {
     range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.collapse(true);
     selection?.removeAllRanges(); selection?.addRange(range);
     this.edited();
+  }
+  // A multi-select or multi-paste: attach in order what fits under `max`, and say so
+  // for the rest, rather than dropping them silently.
+  attachMany(files) {
+    for (const file of files) {
+      if (this.files.size >= this.max) { this.error(`At most ${this.max} images; the rest were not attached.`); return; }
+      this.attach(file);
+    }
   }
   attach(file) {
     if (!file || this.editor.contentEditable !== "true") return;
@@ -111,5 +120,5 @@ export function bindAttach(button, input, target) {
   let picking = null;
   button.onpointerdown = () => target()?.saveCaret();
   button.onclick = () => { picking = target(); input.click(); };
-  input.onchange = () => { if (picking && picking === target()) picking.attach(input.files[0]); input.value = ""; };
+  input.onchange = () => { if (picking && picking === target()) picking.attachMany([...input.files]); input.value = ""; };
 }

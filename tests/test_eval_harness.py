@@ -258,3 +258,16 @@ def test_production_prompt_preserves_candidate_bytes(tmp_path, monkeypatch):
     monkeypatch.setattr(classifier, "__file__", str(tmp_path / "classify.py"))
     monkeypatch.setattr(classifier, "_prompts", {})
     assert classifier.parser_prompt() == prompt
+
+
+def test_reply_buttons_expectation_wants_accept_then_decline():
+    want = {"question": {"answer_style": "text", "reply_buttons": True}}
+    good = {"question": {"answer_style": "text", "options": ["Yes, go", "No"]}}
+    ok, _ = score_structured(good, want)
+    assert ok
+    for opts in (["No", "Yes"], ["Yes"], None, ["Yesterday", "No"], ["Yes", "Nothing"]):
+        bad = {"question": {"answer_style": "text", "options": opts}}
+        ok, diffs = score_structured(bad, want)
+        assert not ok and any("options" in d for d in diffs)
+    ok, _ = score_structured({"question": "free text"}, want)  # malformed: a mismatch, no crash
+    assert not ok

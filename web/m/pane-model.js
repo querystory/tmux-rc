@@ -11,6 +11,11 @@ export const activityLabel = (pane) => needsYou(pane) ? "Needs you" : ({ running
 // busy, it just isn't our turn.
 export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
 export const isRunning = (pane) => ["running", "compacting"].includes(activityClass(pane));
+// Animate a pane's logo while it works; CSS keys the motion off .working and data-tool.
+export function markWorking(img, pane) {
+  img.classList.toggle("working", isRunning(pane));
+  img.dataset.tool = pane.tool || "";
+}
 export function isRecent(pane, nowMs = Date.now()) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
