@@ -3384,7 +3384,7 @@ if (bar.input) {
   // caret here — insertNodeAtCaret restores it when the live selection is gone.
   bar.attach.onclick = () => { saveCaret(); bar.file.click(); };
   bar.file.onchange = () => {
-    if (bar.file.files[0]) insertImage(bar.file.files[0]);
+    for (let i = 0; i < bar.file.files.length; i++) insertImage(bar.file.files.item(i));
     bar.file.value = ""; // else picking the SAME photo again never fires change
   };
   // Paste into the composer. Two jobs: (1) an image on the clipboard becomes an inline
@@ -3395,8 +3395,8 @@ if (bar.input) {
   bar.input.onpaste = (e) => {
     e.preventDefault();
     const cd = e.clipboardData;
-    const item = [...(cd?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (item) { insertImage(item.getAsFile()); return; }
+    const images = [...(cd?.items || [])].filter((i) => i.type.startsWith("image/"));
+    if (images.length) { images.forEach((i) => insertImage(i.getAsFile())); return; }
     insertTextAtCaret(cd ? cd.getData("text/plain") : "");
   };
   // Drag/drop bypasses onpaste and would drop rich HTML / foreign <img src> straight
