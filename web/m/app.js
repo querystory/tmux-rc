@@ -205,7 +205,15 @@ function route() {
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
   }
-  if (active && changed) post(paneUrl(active, "select")).catch(() => notice("Could not focus this pane on the host."));
+  if (active && changed) {
+    const id = active;
+    // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
+    // rejection after the user moved on must not overwrite whatever notice that left.
+    post(paneUrl(id, "select")).catch((error) => {
+      if (error.status === 404) leaveMissingPane(id);
+      else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
+    });
+  }
   if (changed && active) $("back").focus({ preventScroll: true });
 }
 
