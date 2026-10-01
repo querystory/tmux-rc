@@ -409,7 +409,7 @@ def _reply_options(prompt: str, replies_fn) -> list[str]:
             got = _clean_options(reply["options"], prompt)
             if len(got) > 2:
                 got.insert(1, got.pop())  # the decline, before the cap can drop it
-            if len(got) != 1:  # a lone option is no choice: unusable, not cached
+            if len(got) != 1 and (got or not reply["options"]):  # lone or all-junk: unusable
                 if len(_replies) > 256:
                     _replies.clear()
                 _replies[prompt] = got[:4]

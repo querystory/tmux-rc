@@ -986,7 +986,8 @@ def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
     assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a", "Check b"]
     assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
     assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
-    assert len(calls) == 3  # the lone option was not cached
+    assert "options" not in _ask(make({"options": ["\x1b", ""]}), message="Should I stop?")
+    assert len(calls) == 4  # neither the lone option nor all-junk was cached
 
 
 def test_reply_options_are_sanitized(replies):

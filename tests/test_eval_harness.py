@@ -265,7 +265,7 @@ def test_reply_buttons_expectation_wants_accept_then_decline():
     good = {"question": {"answer_style": "text", "options": ["Yes, go", "No"]}}
     ok, _ = score_structured(good, want)
     assert ok
-    for opts in (["No", "Yes"], ["Yes"], None):
+    for opts in (["No", "Yes"], ["Yes"], None, ["Yesterday", "No"], ["Yes", "Nothing"]):
         bad = {"question": {"answer_style": "text", "options": opts}}
         ok, diffs = score_structured(bad, want)
         assert not ok and any("options" in d for d in diffs)
