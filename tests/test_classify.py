@@ -1118,3 +1118,11 @@ def test_model_options_must_belong_to_the_closing_sentence():
     model = {"prompt": "Do the tests pass?", "options": ["pass", "fail"]}
     result = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": model}))
     assert result["question"]["options"] == ["Yes", "No"]
+
+
+def test_options_with_control_characters_are_dropped():
+    # An option is typed into the agent's input box: an escape or newline must never ride along.
+    q = {"prompt": "Should I merge?", "answer_style": "text",
+         "options": ["yes\r", "ok\x1b[A", "fine\nrm -rf", "Go ahead"]}
+    _yes_no_options(q)
+    assert q["options"] == ["Go ahead"]

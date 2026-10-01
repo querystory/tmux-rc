@@ -379,7 +379,8 @@ def _clean_options(raw: object, *prompts: str, cap: int = 4) -> list[str]:
     repeats = {p.casefold() for p in prompts}
     picks: dict[str, str] = {}
     for o in raw if isinstance(raw, list) else []:
-        if isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.strip().casefold() not in repeats:
+        if (isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.isprintable()
+                and o.strip().casefold() not in repeats):
             picks.setdefault(o.strip().lower(), o.strip())
     return list(picks.values())[:cap]
 
