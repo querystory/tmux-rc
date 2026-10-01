@@ -1,6 +1,9 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
+import pytest
+
+from openbus import classify as classify_mod
 from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
@@ -902,3 +905,99 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     claude = classify(_pane("claude"), "● Ran make\n■ Build failed\n\n❯", _llm({}))
     codex = classify(_pane("codex"), screen.replace("  ⎿  ", "✻ Worked for 3s\n"), _llm({}))
     assert "question" not in claude and "question" not in codex
+
+
+def _auto_screen(message):
+    return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
+
+
+@pytest.mark.parametrize("message", [
+    "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
+    ("Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n"
+     "  Copilot, then merge after approval?"),
+    ("Done.\n  - item one. Should I send this to\n"
+     "    Copilot, then merge after approval?"),
+    "Done.\n  **Should I send this to Copilot, then merge after approval?**",
+])
+def test_wrapped_closing_question_is_read_whole(message):
+    result = classify(_pane("claude"), _auto_screen(message), _llm({"tool": "claude"}))
+    prompt = result["question"]["prompt"]
+    assert "Should I send this to Copilot, then merge after approval?" in prompt
+    assert "first item" not in prompt
+    assert "options" not in result["question"]  # no replies_fn: no buttons
+
+
+@pytest.fixture
+def replies():
+    classify_mod._replies.clear()
+    calls = []
+
+    def make(answer):
+        def fn(system, text):
+            assert system == classify_mod._REPLIES_SYSTEM
+            calls.append(text)
+            return answer
+        return fn
+
+    yield make, calls
+    classify_mod._replies.clear()
+
+
+ASK = "Should I send it to Copilot, then merge?"
+
+
+def _ask(replies_fn, model_q=None, message=ASK):
+    result = classify(_pane("claude"), _auto_screen(message),
+                      _llm({"tool": "claude", "question": model_q}), replies_fn=replies_fn)
+    return result["question"]
+
+
+def test_closing_question_gets_model_replies_accept_then_decline_once(replies):
+    make, calls = replies
+    answer = {"options": ["Yes, do both", "Yes, but check before merging", "Hold off", ASK]}
+    for _ in range(2):
+        assert _ask(make(answer))["options"] == [
+            "Yes, do both", "Hold off", "Yes, but check before merging"]
+    assert calls == [ASK]  # one call per distinct question, and it sees only the question
+
+
+def test_open_ended_or_failed_replies_show_no_buttons(replies):
+    make, calls = replies
+    for answer in (None, {"options": "junk"}, ["Yes"], {}, {"options": []}):
+        assert "options" not in _ask(make(answer), message="Which env should I use?")
+    assert len(calls) == 5  # failures retry; the empty list is an answer and is cached
+    asked = "Which env should I use?"
+    assert "options" not in _ask(make({"options": ["Yes", "No"]}), message=asked)
+    assert len(calls) == 5  # ... so the cached empty answer stood
+
+
+def test_model_options_for_the_same_question_skip_the_extra_call(replies):
+    make, calls = replies
+    own = {"prompt": ASK.lower(), "options": ["go", "wait"]}
+    assert _ask(make({"options": ["x", "y"]}), own)["options"] == ["go", "wait"]
+    other = {"prompt": "Pick a color", "options": ["red"]}
+    assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
+    assert calls == [ASK]
+
+
+def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
+    make, calls = replies
+    five = {"options": ["Yes, all", "Check a", "Check b", "Check c", "No"]}
+    assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a", "Check b"]
+    assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
+    assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
+    assert "options" not in _ask(make({"options": ["\x1b", ""]}), message="Should I stop?")
+    assert len(calls) == 4  # neither the lone option nor all-junk was cached
+
+
+def test_reply_options_are_sanitized(replies):
+    make, _ = replies
+    raw = ["Yes", "yes", "ok\x1b[A", "no\n", "x" * 61, 7, ASK, "Maybe", "Later", "Never", "No"]
+    assert _ask(make({"options": raw}))["options"] == ["Yes", "No", "Maybe", "Later"]
+
+
+def test_provider_error_retry_is_deterministic(replies):
+    make, calls = replies
+    screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
+    out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
+    assert out["question"]["options"] == ["try again"] and not calls

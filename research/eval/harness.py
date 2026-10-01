@@ -36,6 +36,7 @@ bench) — one place that assembles the production payload and calls the model.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -103,7 +104,7 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         title=sample.name,
     )
     return classify(
-        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository
+        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository, replies_fn=llm_fn
     )
 
 
@@ -195,6 +196,14 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
+    # Model-written reply buttons vary in wording: a sample opts in to "accept first, decline
+    # second" with `reply_buttons`, instead of pinning text.
+    if isinstance(want_q, dict) and want_q.get("reply_buttons"):
+        got_q = candidate.get("question")
+        opts = got_q.get("options") if isinstance(got_q, dict) else None
+        first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
+        if len(first) < 2 or not re.match(r"yes\b", first[0]) or not re.match(r"no\b", first[1]):
+            diffs.append(f"question.options: want accept then decline, got {opts!r}")
     # Presence-only fields. `copyables` is here rather than compared by content: the
     # LABEL is free prose and the TEXT is a verbatim payload whose exact whitespace we
     # don't want to bless brittlely — what must not regress is "the model noticed there
