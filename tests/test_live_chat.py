@@ -27,8 +27,8 @@ class _Fake(C._Chat):
         super().__init__(_FLASH, "system")
         self.script = list(script)
 
-    def _user(self, text):
-        self.history.append(("user", text))
+    def _user(self, text, images=()):
+        self.history.append(("user", text, *images))
 
     def _model(self, text):
         self.history.append(("model", text, []))
@@ -180,7 +180,10 @@ def test_gemini_wire_shapes(monkeypatch):
     client = Ns(aio=Ns(models=Ns(generate_content=generate_content)))
     monkeypatch.setattr(C.llm, "_client", lambda: client)
     s = C._Gemini(_FLASH, "sys")
-    s._user("find it")
+    s._user("find it", [("image/png", b"PNG")])
+    image, text = s.history[0].parts
+    assert (image.inline_data.mime_type, image.inline_data.data, text.text) == (
+        "image/png", b"PNG", "find it")
     reply, calls, split = asyncio.run(s._complete())
     assert (reply, split) == ("Looking.", P.Split(60, 10, 0, 0, 40, 0))
     assert [(c.id, c.name, c.args) for c in calls] == [("f1", "find_sessions", {"query": "x"})]
@@ -204,7 +207,10 @@ def test_claude_wire_shapes():
         return Ns(content=blocks, usage=usage)
 
     s = C._Claude(P._CHAT_DEFAULT[1], "sys", Ns(beta=Ns(messages=Ns(create=create))))
-    s._user("find it")
+    s._user("find it", [("image/png", b"PNG")])
+    assert s.history[0]["content"] == [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "UE5H"}},
+        {"type": "text", "text": "find it"}]
     reply, calls, split = asyncio.run(s._complete())
     assert (reply, split) == ("Checking.", P.Split(105, 20, 0, 0, 900, 0))
     assert seen["model"] == "claude-sonnet-5-5" and seen["system"] == "sys"
@@ -265,3 +271,28 @@ def test_old_turns_are_dropped_whole_from_the_front(monkeypatch):
     users = [h[1] for h in s.history if h[0] == "user"]
     assert users == [f"t{i}" for i in range(3, C.TURNS_KEPT + 3)]
     assert s.history[0] == ("user", "t3") and len(s.history) == 4 * C.TURNS_KEPT
+
+
+class _Client:
+    """The browser end of _forward_client: hands over scripted frames, then stop."""
+
+    def __init__(self, *frames):
+        self.frames, self.sent = [*frames, {"action": "stop"}], []
+
+    async def receive_json(self):
+        return self.frames.pop(0)
+
+    async def send_json(self, obj):
+        self.sent.append(obj)
+
+
+def test_a_turn_past_the_queue_is_refused_not_held():
+    """Turns wait behind a slow answer only up to TURNS_QUEUED; the next is refused (and
+    flagged, so the client drops its thumbnails) instead of piling images up in memory."""
+    s = _Fake([])
+    frames = [{"action": "text", "text": f"t{i}"} for i in range(C.TURNS_QUEUED + 1)]
+    ws = _Client(*frames)
+    asyncio.run(L._forward_client(ws, s, L._Meter("s", "a", _FLASH, text=True)))
+    assert s._inbox.qsize() == C.TURNS_QUEUED
+    assert ws.sent[-1] == {"type": "error", "refused": True,
+                           "message": "Still answering earlier turns; not sent"}

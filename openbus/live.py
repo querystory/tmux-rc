@@ -733,6 +733,37 @@ async def _context_updater(session, watcher) -> None:
 TYPED_TURN_CHARS = 4000
 
 
+# Images a turn may carry, and their bytes together. Each is resent with every later request
+# while the turn is kept (live_chat.TURNS_KEPT), so the budget bounds a whole session's
+# history, not just one request. The composer stops at the same count and sends each as a
+# JPEG no longer than 1568 px (a few hundred KB), so a current client never nears the bytes.
+CHAT_IMAGES = 4
+CHAT_IMAGE_BYTES = 8 * 2**20
+_IMAGE_REFUSED = (f"Images go to a text chat, at most {CHAT_IMAGES} a turn and 8 MB together, as "
+                  "PNG, JPEG, WebP or GIF; not sent")
+
+
+def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
+    """A typed turn's pasted images as (mime, bytes); None refuses the whole turn. The types
+    are the pane paste's (server.send_image), and only a chat model sees images."""
+    if raw is None or raw == []:
+        return []
+    from .server import _EXT  # noqa: PLC0415 - server imports this module
+
+    if not text_session or not isinstance(raw, list) or len(raw) > CHAT_IMAGES:
+        return None
+    out = []
+    for image in raw:
+        try:
+            mime, data = image["mime"], base64.b64decode(image["data"], validate=True)
+        except Exception:  # noqa: BLE001 - any malformed entry refuses the turn
+            return None
+        if not isinstance(mime, str) or mime not in _EXT or not data:
+            return None
+        out.append((mime, data))
+    return out if sum(len(data) for _, data in out) <= CHAT_IMAGE_BYTES else None
+
+
 async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str, **extra) -> None:
     """One transcript fragment to the browser and the meter — spoken, or typed."""
     if telemetry.QSDEBUG:  # content reaches the journal under the same flag as OTel
@@ -759,11 +790,22 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
         elif action == "text":
             text = data.get("text")
             text = text.strip() if isinstance(text, str) else ""
-            if len(text) > TYPED_TURN_CHARS:
-                await websocket.send_json({"type": "error", "message": "Too long; not sent"})
-            elif text:
-                await _transcript(websocket, meter, "user", text, new_segment=True)
-                await session.send_text(text)
+            images = _images(data.get("images"), meter.text)
+            # Each typed turn gets exactly one answer, the echo (with its image count) or a
+            # refusal, which is how the client pairs its thumbnails with the right turn.
+            refusal = ("Too long; not sent" if len(text) > TYPED_TURN_CHARS
+                       else _IMAGE_REFUSED if images is None else None)
+            if refusal:
+                await websocket.send_json({"type": "error", "message": refusal, "refused": True})
+            elif text or images:
+                try:  # handed over first: a chat session with a full queue refuses the turn
+                    await (session.send_text(text, images) if images else session.send_text(text))
+                except asyncio.QueueFull:
+                    busy = "Still answering earlier turns; not sent"
+                    await websocket.send_json({"type": "error", "refused": True, "message": busy})
+                    continue
+                await _transcript(websocket, meter, "user", text, new_segment=True,
+                                  images=len(images))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
             answer = meter.approvals.get(str(data.get("id")))
             if answer and not answer.done():

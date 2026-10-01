@@ -1,5 +1,7 @@
 """Exercise the shipped worklet callback without a microphone or provider connection."""
 
+import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -57,16 +59,43 @@ assert.equal(sent.length, 2);
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-def test_live_audio_background_resume_and_cleanup():
-    script = r"""
+def _run_live(body: str, version: dict | None = None) -> None:
+    """Run `body` against web/m/live.js (and the modules it imports) in a stubbed DOM with
+    fake audio, microphone, wake lock and sockets; see _HARNESS. `version` is what
+    /api/version answers; None is offline."""
+    web = Path(__file__).resolve().parents[1] / "web"
+    args = [str(web / p) for p in ("m/live.js", "live-close.js", "live-chat.js", "m/composer.js")]
+    result = subprocess.run(["node", "-e", _HARNESS + body, *args],
+                            capture_output=True, text=True, timeout=30,
+                            env={**os.environ, "LIVE_VERSION": json.dumps(version)})
+    assert result.returncode == 0, result.stderr
+
+
+_HARNESS = r"""
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const elements = new Map();
-const element = () => ({classList: {toggle() {}}, setAttribute() {}, replaceChildren() {},
-  showModal() {}, close() {}, value: '', children: []});
+const thumbs = []; // every image put ahead of a transcript row's text
+const element = () => {
+  const classes = new Set();
+  const node = Object.assign(new EventTarget(), {
+    classList: {add: (c) => classes.add(c), contains: (c) => classes.has(c),
+      toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
+    setAttribute() {}, insertAdjacentHTML() {}, remove() {}, showModal() {node.open = true;},
+    close() {node.open = false; node.dispatchEvent(new Event('close'));},
+    before(...nodes) {thumbs.push(...nodes.map((image) => image.src));},
+    replaceChildren(...children) {node.children = children;},
+    append(...children) {node.children.push(...children);},
+    value: '', textContent: '', dataset: {}, children: []});
+  Object.defineProperty(node, 'firstChild', {get: () => node.children[0]});
+  Object.defineProperty(node, 'lastChild', {get: () => node.children.at(-1)});
+  Object.defineProperty(node, 'lastElementChild', {get: () => node.children.at(-1)});
+  return node;
+};
 const document = new EventTarget();
+document.createElement = element;
+document.body = element();
 document.getElementById = (id) => {
   if (!elements.has(id)) elements.set(id, element());
   return elements.get(id);
@@ -97,8 +126,8 @@ class Context {
 }
 class Socket {
   static OPEN = 1;
-  constructor() { this.readyState = 1; sockets.push(this); }
-  send() {}
+  constructor(url) { this.url = url; this.readyState = 1; this.sent = []; sockets.push(this); }
+  send(data) { this.sent.push(data); }
   close() { this.readyState = 3; }
 }
 let initiallyEnded = false;
@@ -125,12 +154,21 @@ const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: 
   localStorage: {getItem() {}, setItem() {}},
   setTimeout: (fn) => {timers.add(fn); return fn;}, clearTimeout: (fn) => timers.delete(fn)};
 const strip = (path) =>
-  fs.readFileSync(path, 'utf8').replace(/^import .*\n/m, '').replace(/export /, '');
-const source = strip(process.argv[2]) + strip(process.argv[1]);
-vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode;', sandbox);
-const live = sandbox.setup({request: async () => {throw Error('offline');}});
+  fs.readFileSync(path, 'utf8').replace(/^import .*\n/gm, '').replace(/^export /gm, '');
+const source = process.argv.slice(1).reverse().map(strip).join('\n');
+vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode; globalThis.Composer = Composer;',
+  sandbox);
+const version = JSON.parse(process.env.LIVE_VERSION || 'null');
+const live = sandbox.setup({licon: (name) => name,
+  request: async () => { if (!version) throw Error('offline'); return version; }});
 const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_live_audio_background_resume_and_cleanup():
+    _run_live(r"""
 let completed = false;
 process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pending promise'));
 (async () => {
@@ -234,9 +272,59 @@ process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pen
   resolveLock(lateLock); await flush(); assert.equal(lateLock.released, true);
   completed = true;
 })().catch((error) => {console.error(error); process.exitCode = 1;});
-"""
-    web = Path(__file__).resolve().parents[1] / "web"
-    args = [str(web / "m/live.js"), str(web / "live-close.js")]
-    result = subprocess.run(["node", "-e", script, *args],
-                            capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0, result.stderr
+""")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
+    _run_live(r"""
+(async () => {
+  navigator.mediaDevices.getUserMedia = async () => { throw Error('the mic was asked for'); };
+  const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
+  await live.refresh();
+  assert.equal($('chat').hidden, false);
+  // The chat icon goes straight to a text session on the chat model: no picker, no mic.
+  $('chat').onclick(); await flush();
+  assert.equal(dialog.open, true); assert.equal(live.isActive(), true);
+  assert.equal($('voice-models').hidden, true); assert.equal($('voice-title').textContent, 'Chat');
+  assert.equal(contexts.length, 0); assert.equal(sockets.length, 1);
+  assert.match(sockets[0].url, /[?&]mode=text/); assert.match(sockets[0].url, /[?&]model=Sonnet/);
+  sockets[0].onmessage({data: JSON.stringify({type: 'status', status: 'listening'})});
+  assert.equal(status(), 'Connected');
+  // Minimized, the conversation keeps running; a reply dots the bubble and a consent
+  // card counts on it.
+  const [bubble] = document.body.children, badge = bubble.children[1];
+  assert.equal(bubble.hidden, true);
+  $('voice-close').onclick();
+  assert.equal(dialog.open, false); assert.equal(bubble.hidden, false);
+  assert.equal(live.isActive(), true); assert.equal(sockets[0].readyState, 1);
+  sockets[0].onmessage({data: JSON.stringify({type: 'transcript', role: 'model', text: 'hi'})});
+  assert.equal(bubble.classList.contains('unread'), true);
+  sockets[0].onmessage({data: JSON.stringify({type: 'propose', id: 'p1', text: 'Send to work'})});
+  assert.equal(badge.textContent, 1);
+  sockets[0].onmessage({data: JSON.stringify({type: 'decided', id: 'p1', ok: true})});
+  assert.equal(badge.textContent, '');
+  bubble.onclick(); assert.equal(dialog.open, true); assert.equal(bubble.hidden, true);
+  // Tapping chat again brings the running conversation back rather than starting another.
+  $('chat').onclick(); await flush();
+  assert.equal(sockets.length, 1);
+  // A pasted image rides the typed turn as a JPEG part, and its thumbnail lands on the
+  // turn's echo; a refused turn consumes its own thumbnails, not the next turn's.
+  sandbox.Composer.prototype.segments = () => [{text: 'look '}, {file: {type: 'image/png'}}];
+  sandbox.createImageBitmap = async () => ({width: 3000, height: 1000, close() {}});
+  const make = document.createElement;
+  document.createElement = (tag) => tag !== 'canvas' ? make(tag) : Object.assign(make(tag), {
+    getContext: () => ({fillRect() {}, drawImage() {}}),
+    toDataURL: () => 'data:image/jpeg;base64,QUJD'});
+  await $('voice-compose').onsubmit({preventDefault() {}}); await flush();
+  sockets[0].onmessage({data: JSON.stringify({type: 'error', message: 'Too long', refused: true})});
+  await $('voice-compose').onsubmit({preventDefault() {}}); await flush();
+  assert.deepEqual(JSON.parse(sockets[0].sent.at(-1)),
+    {action: 'text', text: 'look', images: [{mime: 'image/jpeg', data: 'QUJD'}]});
+  sockets[0].onmessage({data: JSON.stringify(
+    {type: 'transcript', role: 'user', text: 'look', new_segment: true, images: 1})});
+  assert.deepEqual(thumbs, ['data:image/jpeg;base64,QUJD']);
+  completed = true;
+})().catch((error) => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True,
+      "live_models": [{"label": "Gemini", "hint": "voice"}, {"label": "Sonnet", "text": True}]})

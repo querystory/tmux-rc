@@ -12,6 +12,7 @@ Rationale: docs/design/live-mode.md § Text mode.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import logging
@@ -46,6 +47,10 @@ _DONE = "(Done.)"  # closes a turn that stayed quiet; never shown
 # session costs more per turn and eventually overflows the context window. Whole turns are
 # dropped from the front, which keeps every tool call next to its result.
 TURNS_KEPT = 20
+# Typed turns that may wait behind the one being answered. Each can hold images, so an
+# unbounded queue would let a client pile them up while a slow request runs; past this the
+# turn is refused (asyncio.QueueFull, which live._forward_client reports) rather than held.
+TURNS_QUEUED = 4
 
 
 class _Chat:
@@ -54,7 +59,7 @@ class _Chat:
 
     def __init__(self, model: LiveModel, system: str) -> None:
         self.model, self.system, self.history = model, system, []
-        self._inbox: Queue[str] = Queue()
+        self._inbox: Queue[tuple] = Queue(maxsize=TURNS_QUEUED)
         self._context: deque[str] = deque(maxlen=CONTEXT_KEPT)
         self._answers: list[tuple[ToolCall, dict]] = []
         self._usage = [0] * len(Split._fields)
@@ -63,8 +68,9 @@ class _Chat:
     async def send_audio(self, _pcm: bytes) -> None:
         """A text session has no mic; a stray frame is dropped."""
 
-    async def send_text(self, text: str) -> None:
-        self._inbox.put_nowait(text)
+    async def send_text(self, text: str, images: list[tuple[str, bytes]] = ()) -> None:
+        """A typed turn, with any pasted images as (mime, bytes) ahead of its text."""
+        self._inbox.put_nowait((text, images))
 
     async def send_context(self, text: str) -> None:
         """No reply-less channel exists on a chat API, so updates wait for the next turn."""
@@ -77,13 +83,13 @@ class _Chat:
         """A turn the model did not finish (failed, stopped, empty) is closed in history with
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
-            text = await self._inbox.get()
+            text, images = await self._inbox.get()
             self._starts.append(len(self.history))
             if len(self._starts) > TURNS_KEPT:
                 cut = self._starts[-TURNS_KEPT]
                 del self.history[:cut]
                 self._starts = [start - cut for start in self._starts[-TURNS_KEPT:]]
-            self._user("\n\n".join([*self._context, text]))
+            self._user("\n\n".join(filter(None, [*self._context, text])), images)
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
             acted = asked = False
@@ -144,9 +150,12 @@ class _Gemini(_Chat):
             http_options=t.HttpOptions(timeout=60_000),
         )
 
-    def _user(self, text: str) -> None:
+    def _user(self, text: str, images=()) -> None:
         t = llm.genai_types()
-        self.history.append(t.Content(role="user", parts=[t.Part(text=text)]))
+        parts = [t.Part.from_bytes(data=data, mime_type=mime) for mime, data in images]
+        if text:
+            parts.append(t.Part(text=text))
+        self.history.append(t.Content(role="user", parts=parts))
 
     def _model(self, text: str) -> None:
         t = llm.genai_types()
@@ -190,8 +199,12 @@ class _Claude(_Chat):
         self._tools = [{"name": d["name"], "description": d["description"],
                         "input_schema": d["parameters"]} for d in tools()]
 
-    def _user(self, text: str) -> None:
-        self.history.append({"role": "user", "content": text})
+    def _user(self, text: str, images=()) -> None:
+        blocks = [{"type": "image", "source": {"type": "base64", "media_type": mime,
+                   "data": base64.b64encode(data).decode()}} for mime, data in images]
+        if text:
+            blocks.append({"type": "text", "text": text})
+        self.history.append({"role": "user", "content": blocks})
 
     def _model(self, text: str) -> None:
         self.history.append({"role": "assistant", "content": text})

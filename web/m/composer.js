@@ -1,16 +1,17 @@
 // Keep the same ordered text/image model as the full UI composer.
 export class Composer {
-  constructor(changed, error) {
+  // The Live chat (/live-chat.js) reuses this editor under its own id and label.
+  constructor(changed, error, { id = "reply", label = "Message this pane" } = {}) {
     this.changed = changed;
     this.error = error;
     this.files = new Map();
     this.editor = document.createElement("div");
-    this.editor.id = "reply";
+    this.editor.id = id;
     this.editor.contentEditable = "true";
     this.editor.setAttribute("role", "textbox");
     this.editor.setAttribute("aria-multiline", "true");
-    this.editor.setAttribute("aria-label", "Message this pane");
-    this.editor.dataset.placeholder = "Message this pane...";
+    this.editor.setAttribute("aria-label", label);
+    this.editor.dataset.placeholder = `${label}...`;
     this.editor.oninput = () => this.edited();
     this.editor.onpaste = (event) => {
       event.preventDefault();
@@ -90,4 +91,26 @@ export class Composer {
     this.editor.replaceChildren(...segments.map((segment) => segment.chip || document.createTextNode(segment.text)));
     this.edited();
   }
+}
+
+// Enter sends, Shift+Enter is a newline, and mid-composition Enter (IME) commits the
+// candidate word. Delegated from the form, so it only acts on the editor it names: a
+// keyboard user pressing Enter on the attach button gets the file picker, not a send.
+export function enterSubmits(form, isEditor) {
+  form.addEventListener("keydown", (event) => {
+    if (!isEditor(event.target) || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    form.requestSubmit();
+  });
+}
+
+// The attach button and its hidden file input. `target` names the composer a picked file
+// belongs to, or null; it is asked again when the file arrives, and a pick that no longer
+// has the same target (the user switched panes, a send started) is dropped. The caret is
+// saved on pointerdown, before the picker blurs the editor, so the chip lands where it was.
+export function bindAttach(button, input, target) {
+  let picking = null;
+  button.onpointerdown = () => target()?.saveCaret();
+  button.onclick = () => { picking = target(); input.click(); };
+  input.onchange = () => { if (picking && picking === target()) picking.attach(input.files[0]); input.value = ""; };
 }

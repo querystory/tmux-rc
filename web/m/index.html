@@ -23,9 +23,11 @@
     })();
   </script>
   <link rel="stylesheet" href="/m/style.css">
+  <link rel="stylesheet" href="/live-chat.css">
   <link rel="modulepreload" href="/terminal.js">
   <link rel="modulepreload" href="/m/live.js">
   <link rel="modulepreload" href="/live-close.js">
+  <link rel="modulepreload" href="/live-chat.js">
   <link rel="modulepreload" href="/m/composer.js">
   <link rel="modulepreload" href="/m/pane-model.js">
   <link rel="modulepreload" href="/cursor-pick.js">
@@ -37,6 +39,7 @@
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
       <span id="connection" role="status">Connecting</span>
       <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
+      <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
       <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
       <!-- Mirror of the full UI's phone button (#mobile-btn in web/index.html, added in
@@ -105,12 +108,11 @@
     <dialog id="launch-dialog" aria-labelledby="launch-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><label for="launch-session">Session</label><select id="launch-session" required></select><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></dialog>
     <dialog id="voice-dialog" aria-labelledby="voice-title">
       <div class="sheet-handle"></div>
-      <div class="dialog-heading"><h2 id="voice-title">Live Mode</h2><button id="voice-close" class="icon-button" aria-label="Close Live Mode panel" title="Close panel"></button></div>
-      <div id="voice-mode" class="voice-mode" role="group" aria-label="Conversation mode"><button type="button" data-mode="voice" aria-pressed="true">Voice</button><button type="button" data-mode="text" aria-pressed="false">Text</button></div>
+      <div class="dialog-heading"><h2 id="voice-title">Live Mode</h2><select id="voice-switch" aria-label="Chat model" hidden></select><button id="voice-close" class="icon-button" aria-label="Close panel" title="Close panel"></button></div>
       <input id="voice-model" type="hidden"><div id="voice-models" class="choice-list" aria-label="Live Mode model"></div>
       <p id="voice-status" role="status"></p>
-      <div id="voice-log" role="log" aria-label="Live conversation"></div>
-      <form id="voice-compose" class="voice-compose" hidden><input id="voice-text" maxlength="4000" autocomplete="off" enterkeyhint="send" placeholder="Type to the assistant" aria-label="Message to the assistant"><button type="submit" class="primary">Send</button></form>
+      <div id="voice-log" role="log" aria-label="Conversation"></div>
+      <form id="voice-compose" class="voice-compose chat-compose" hidden></form>
       <div id="voice-controls" class="voice-controls" hidden><button id="voice-mute" class="icon-button" aria-label="Mute microphone" title="Mute microphone" aria-pressed="false" hidden></button><button id="voice-start" class="primary" hidden>End Live Mode</button></div>
     </dialog>
   </div>

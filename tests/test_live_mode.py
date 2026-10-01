@@ -499,8 +499,8 @@ def test_text_session_sends_typed_turns_as_user_turns(monkeypatch):
 
     assert session.texts == ["find my codex session"]
     assert {"type": "transcript", "role": "user", "text": "find my codex session",
-            "new_segment": True} in ws.sent
-    assert {"type": "error", "message": "Too long; not sent"} in ws.sent
+            "new_segment": True, "images": 0} in ws.sent
+    assert {"type": "error", "message": "Too long; not sent", "refused": True} in ws.sent
     assert "user: find my codex session" in meter._transcript()
 
 
@@ -709,3 +709,45 @@ def test_audit_line_cannot_be_forged(caplog):
     forged = "\nAUDIT kill_window pane=%2"
     L.telemetry.audit("x", "%1" + forged, "me" + forged, "w" + forged, outcome="error" + forged)
     assert len(caplog.text.splitlines()) == 1
+
+
+class _TypedSession:
+    """Records what reaches a session's typed-turn verb."""
+
+    def __init__(self):
+        self.turns = []
+
+    async def send_text(self, text, images=()):
+        self.turns.append((text, list(images)))
+
+
+def test_a_pasted_image_reaches_the_session_with_its_turn():
+    """Base64 on the socket, bytes at the session; the echo counts the images so the client
+    can put its thumbnails on it; an image-only turn is still a turn."""
+    session, ws = _TypedSession(), _ScriptedWS([
+        {"action": "text", "text": " look ", "images": [{"mime": "image/png", "data": "UE5H"}]},
+        {"action": "text", "images": [{"mime": "image/jpeg", "data": "SlBH"}]},
+        {"action": "text", "text": "plain"}, {"action": "stop"}])
+    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=True)))
+    assert session.turns == [("look", [("image/png", b"PNG")]), ("", [("image/jpeg", b"JPG")]),
+                             ("plain", [])]
+    assert [(f["text"], f["images"]) for f in ws.sent] == [("look", 1), ("", 1), ("plain", 0)]
+
+
+@pytest.mark.parametrize(("image", "text"), [
+    ({"mime": "image/svg+xml", "data": "UE5H"}, True),  # not a pane-paste type
+    ({"mime": "image/png", "data": "not base64!"}, True),
+    ({"mime": "image/png", "data": ""}, True),
+    ({"mime": ["image/png"], "data": "UE5H"}, True),  # not even a string
+    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True),  # too many
+    ({}, True),  # not a list at all
+    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True),  # too big
+    ({"mime": "image/png", "data": "UE5H"}, False),  # a voice model cannot see it
+])
+def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
+    session = _TypedSession()
+    images = image if isinstance(image, list) or image == {} else [image]
+    ws = _ScriptedWS([{"action": "text", "text": "look", "images": images}, {"action": "stop"}])
+    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=text)))
+    assert session.turns == []
+    assert ws.sent == [{"type": "error", "message": L._IMAGE_REFUSED, "refused": True}]

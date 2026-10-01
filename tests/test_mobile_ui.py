@@ -35,6 +35,8 @@ def test_mobile_assets_and_manifest():
         "/m/pane-model.js",
         "/lm-tap.js",
         "/live-close.js",
+        "/live-chat.js",
+        "/live-chat.css",
         "/terminal.js",
         "/push.js",
         "/pr-links.js",

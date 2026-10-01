@@ -453,6 +453,52 @@ has been used. The
 composer also appears in voice sessions, where it is handy for pane names nobody can
 pronounce.
 
+## Chat entry
+
+Typing to the assistant used to start at the mic button, then a Voice/Text picker, then a
+model list. That is three taps and a microphone icon for something that needs no
+microphone, and the picker's remembered mode meant a voice user who typed once got Text
+the next time. The header now has a chat button next to the mic on both clients. It
+starts a text session on the chat model used last (else the first) without any picker and
+never asks for the mic; a small switcher inside Chat changes the model, which starts a
+fresh session because the new model has none of the old history. The mic button is voice
+only, so the Voice/Text toggle and its remembered mode are gone. If a conversation is
+already running, in either mode, either button brings that one back instead of starting
+another. The chat button hides when no chat model has its key, rather than opening onto a
+refusal.
+
+**Naming.** The typed experience is "Chat" in every title, button and label; "Live Mode"
+names only a voice session. Users read "Live" as "it is listening", which a typed chat
+never is. Code identifiers keep their live/lm names: renaming them would churn every file
+this touches for no behavior.
+
+**Minimize, not close.** A text conversation is most useful next to the pane it is about,
+and both layouts cover that pane with the conversation. Minimizing hands the space back
+(the phone's sheet closes and reveals the pane; the desktop card gets its summary back)
+and leaves a floating bubble. The session keeps running. The bubble carries a dot for
+anything said since and a count of consent cards still waiting, because a card nobody
+sees holds the model's turn open indefinitely. Restoring keeps the draft and the
+transcript's scroll position. Ending the conversation stays an explicit button, so a
+stray tap on the backdrop never throws one away.
+
+**Pasted images.** The composer is the pane composer's own editor (m/composer.js), shared
+through web/live-chat.js by both clients, so paste and the attach button behave the same
+and accept the same types and size (PNG, JPEG, WebP or GIF under 20 MB). The daemon
+checks the types against the pane paste's table, but its size limit is Chat's own: at most
+four images a turn and 8 MB together. Unlike a pane paste, a chat image is resent with
+every later request while its turn is kept, so the per-turn budget is what bounds a
+session's history. The daemon also refuses images in a
+voice session, whose models cannot see them through this seam. The client re-encodes
+each image as a JPEG no longer than 1568 px on its long edge before sending. A phone
+photo sent whole is several megabytes of base64 per turn, it exceeds Claude's per-image
+cap, and it is resent with every later request until the turn ages out of the kept
+history; past that size neither model sees more detail. The transcript shows the
+thumbnail on the user's echoed turn, not as an optimistic local copy, for the same reason
+typed text waits for the echo. The echo carries only an image count and the client
+matches its own thumbnails to it, so the daemon never sends the image back. Every typed
+turn gets exactly one answer, its echo or a refusal flagged as such, so a refused turn
+cannot shift the next turn's thumbnails onto the wrong echo.
+
 ## v0.2 candidates (explicitly out of scope now)
 
 Pane creation ("open claude code in a new pane in ~/src/x") once the create-pane
