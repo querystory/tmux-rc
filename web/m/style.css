@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
-  --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c;
+  --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
   --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696; --purple: #a371f7;
 }
 :root.light {
   color-scheme: light;
   --bg: #f5f7f6; --surface: #fff; --raised: #e7ede9; --line: #ccd7d0;
-  --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7;
+  --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7; --lift: #fff;
   --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36; --purple: #8250df;
 }
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
@@ -67,8 +67,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
 .pane-row.needs-you { background: var(--amber-bg); }
-.pane-row[aria-current="true"] { background: var(--accent-bg); box-shadow: inset 4px 0 var(--accent); }
-.pane-row[aria-current="true"] .row-title strong { color: var(--accent); }
+/* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
+   thick ink-coloured bar, a heavier title and a neutral lift. It layers over the status
+   background instead of replacing it, so a selected Needs-you row stays amber. */
+.row-title strong { font-weight: 600; }
+.pane-row[aria-current="true"] { background: var(--lift); box-shadow: inset 6px 0 var(--fg), 0 1px 8px rgb(0 0 0 / .22); position: relative; }
+.pane-row.needs-you[aria-current="true"] { background: var(--amber-bg); }
+.pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
 .pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; }
 .pane-icon img { object-fit: contain; }
 .needs-you .pane-icon { background: transparent; color: var(--amber); }
