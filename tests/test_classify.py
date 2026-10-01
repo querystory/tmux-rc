@@ -1053,11 +1053,11 @@ def test_gated_replies_fall_back_to_the_heuristic_and_retry(fresh_replies):
     calls = []
     for answer in (None, {"options": ["Yes", "No"]}, {"options": "junk"}, ["Yes", "No", "x"], "x"):
         q = {"prompt": GATED, "answer_style": "text"}
-        _yes_no_options(q, _replies_llm(answer, calls))
+        assert _yes_no_options(q, _replies_llm(answer, calls))  # provisional: read again
         assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
     assert len(calls) == 5  # nothing was cached, so each parse tries again
     q = {"prompt": GATED, "answer_style": "text"}
-    _yes_no_options(q)  # no model at all
+    assert not _yes_no_options(q)  # no model at all: nothing to retry
     assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
 
 

@@ -1252,6 +1252,7 @@ class Watcher:
             title_tool = previous_title_tool
         state["agent_title_tool"] = title_tool if state["agent_title"] else None
         self._parse_valid[pane.id] = state.get("parse_ok", True)
+        refine_failed = state.pop("refine_failed", False)  # card is good, buttons provisional
         if state.get("parse_ok", True):
             self._accumulate_prs(pane.id, state.get("working_prs") or [])
         state.pop("working_prs", None)
@@ -1316,7 +1317,7 @@ class Watcher:
         # the screen next changed. A finished agent's screen does not change again, so
         # the freeze was permanent. Leaving the mark unset on failure costs one re-read
         # of the same text on the next tick, which is exactly the retry this needs.
-        if state.get("parse_ok", True):
+        if state.get("parse_ok", True) and not refine_failed:
             self._prev_fp[pane.id] = fp
             self._parse_fails.pop(pane.id, None)
         elif backing_off():

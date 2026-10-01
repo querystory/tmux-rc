@@ -421,20 +421,26 @@ def _gated_replies(prompt: str, llm_fn) -> list[str]:
     return _replies.get(prompt, [])
 
 
-def _yes_no_options(question: dict, llm_fn=None) -> None:
+def _yes_no_options(question: dict, llm_fn=None) -> bool:
     """Give an option-less prose question Yes/No buttons when its last sentence is a plain
     yes/no ask: opens with an auxiliary or modal (so never a wh-question) and offers no
-    "A or B" alternatives. The buttons type the reply into the agent's input box."""
+    "A or B" alternatives. The buttons type the reply into the agent's input box. True when
+    a model was available but its replies were unusable, so the heuristic buttons are
+    provisional and the caller should read the screen again."""
     if question.get("answer_style", "text") != "text" or question.get("options"):
-        return
+        return False
     sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
     last = sentences[-1].lstrip("*_\"'`(").rstrip("*_\"'`)")
-    if last.endswith("?") and _YES_NO_RE.match(last) and not _NOT_YES_NO_RE.search(last):
-        if not _GATED_RE.search(last):
-            question["options"] = ["Yes", "No"]
-        else:  # push shows only the first two options
-            question["options"] = (_gated_replies(last, llm_fn)
-                                   or ["Yes", "No", "Yes, but check with me first"])
+    if not (last.endswith("?") and _YES_NO_RE.match(last) and not _NOT_YES_NO_RE.search(last)):
+        return False
+    if not _GATED_RE.search(last):
+        question["options"] = ["Yes", "No"]
+    elif replies := _gated_replies(last, llm_fn):
+        question["options"] = replies
+    else:  # push shows only the first two options
+        question["options"] = ["Yes", "No", "Yes, but check with me first"]
+        return llm_fn is not None
+    return False
 
 
 def _obvious_idle(text: str) -> bool:
@@ -663,8 +669,8 @@ def classify(
             ask["options"] = kept
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    if isinstance(result.get("question"), dict):
-        _yes_no_options(result["question"], llm_fn)
+    if isinstance(result.get("question"), dict) and _yes_no_options(result["question"], llm_fn):
+        result["refine_failed"] = True  # the watcher pops this and retries the screen
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":
