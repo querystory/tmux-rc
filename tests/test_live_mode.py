@@ -828,12 +828,29 @@ def test_forwarding_is_refused_in_a_voice_session(monkeypatch):
     assert events == [] and ws.sent == [] and len(audits) == 1
 
 
-def test_images_stay_numbered_across_turns_until_their_turn_ages_out():
+def test_images_stay_numbered_until_no_request_can_show_their_turn():
     meter = L._Meter("s1", "tester", P._DEFAULT[0], text=True)
     meter.keep_images([("image/png", b"a"), ("image/png", b"b")])
     meter.keep_images([("image/jpeg", b"c")])
     assert meter.image(2) == (2, "image/png", b"b")
     assert meter.image(None) == (3, "image/jpeg", b"c")  # the latest
-    for _ in range(L.TURNS_KEPT):
-        meter.keep_images([])  # the chat model forgets turns; so do we
-    assert meter.image(1) is None and meter.image(None) is None
+    for _ in range(L.TURNS_KEPT + L.TURNS_QUEUED - 1):
+        meter.keep_images([])  # still shown: the queued turns are not in the history yet
+    assert meter.image(1) == (1, "image/png", b"a")
+    meter.keep_images([])  # now past anything the chat model can still show
+    assert meter.image(1) is None
+
+
+def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch):
+    """A turn pasted while the card waits must not change which image Send delivers."""
+    meter, ws, events, _ = _forwarding(monkeypatch, ok=True)
+    send = ws.send_json
+
+    async def paste_meanwhile(obj):
+        if obj["type"] == "propose":
+            meter.keep_images([("image/jpeg", b"NEW")])
+        await send(obj)
+
+    ws.send_json = paste_meanwhile
+    _forward(meter, ws)
+    assert events[0][3:] == (b"PNG", "image/png")

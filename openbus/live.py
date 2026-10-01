@@ -20,12 +20,13 @@ import os
 import time
 import uuid
 from collections import deque
+from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import agent_history, live_providers, llm, telemetry, tmux
 from .classify import _codex_model_segments, _load_prompt, _session_chrome
-from .live_chat import TURNS_KEPT
+from .live_chat import TURNS_KEPT, TURNS_QUEUED
 from .live_providers import KEYS, LiveModel
 
 logger = logging.getLogger(__name__)
@@ -119,10 +120,12 @@ class _Meter:
         self.model = model
         self.text = text  # typed turns, written replies: no mic, no playback
         self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
-        # Pasted images by conversation-wide number, kept for the turns the chat model still
-        # remembers (live_chat.TURNS_KEPT) so send_image_to_pane can name an earlier one.
+        # Pasted images by conversation-wide number, kept for every turn the chat model's next
+        # request can still show: the kept history, plus the queued turns and the one being
+        # answered, which are numbered here before they enter that history.
         self.image_total = 0
-        self._image_turns: deque[dict[int, tuple[str, bytes]]] = deque(maxlen=TURNS_KEPT)
+        self._image_turns: deque[dict[int, tuple[str, bytes]]] = deque(
+            maxlen=TURNS_KEPT + TURNS_QUEUED + 1)
         self.usage = _LiveUsage(model.rates)
         self.turns = 0
         self.started = time.monotonic()
@@ -337,6 +340,14 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
     call that raises (say, the socket dropping after the keys went in) is audited too,
     with whatever `rec` already shows it did."""
     started, rec = time.monotonic(), {}
+    # Pin an omitted image_number to the latest image NOW: the user approves the thumbnail
+    # on the card, and a turn pasted while it waits must not change which image is sent.
+    call = fc
+    if fc.name == "send_image_to_pane" and isinstance(fc.args, dict):
+        pinned = meter.image(fc.args.get("image_number"))
+        if pinned:  # a bad or aged-out number stays as asked, and is refused at dispatch
+            call = SimpleNamespace(
+                id=fc.id, name=fc.name, args={**fc.args, "image_number": pinned[0]})
     # The name is provider data: anything but a known string (a list is unhashable) is
     # refused here, before it can reach a set lookup.
     known = isinstance(fc.name, str) and fc.name in _TOOLS
@@ -344,9 +355,9 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         "status": "rejected", "reason": "unknown tool"}
     try:
         if known:
-            ok, pid = (await _approved(websocket, fc, watcher, meter, rec)
+            ok, pid = (await _approved(websocket, call, watcher, meter, rec)
                        if meter.text and fc.name in _CONSENT else (True, None))
-            result = (await _dispatch(websocket, session, fc, watcher, rec, expected_pid=pid,
+            result = (await _dispatch(websocket, session, call, watcher, rec, expected_pid=pid,
                                       meter=meter)
                       if ok else {"status": "declined", "reason": "the user declined"})
     finally:
