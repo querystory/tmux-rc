@@ -20,7 +20,6 @@ WEB = Path(__file__).resolve().parent.parent / "web"
 @pytest.mark.parametrize(
     "name",
     [
-        "app.js",
         "terminal.js",
         "push.js",
         "live-close.js",

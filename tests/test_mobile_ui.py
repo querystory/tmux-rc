@@ -47,9 +47,25 @@ def test_mobile_assets_and_manifest():
     manifest = client.get("/m/manifest.json").json()
     assert manifest["start_url"] == "/m"
     assert manifest["scope"] == "/m"
-    assert 'src="/app.js"' in client.get("/").text
     assert 'id="push"' in client.get("/m").text
     assert 'addEventListener("fetch"' not in client.get("/sw.js").text
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_root_redirects_to_the_app(method):
+    """The retired desktop UI's address: relative Location (the tunnel terminates TLS, so
+    an absolute one would name an origin the phone cannot reach), query kept, no 301 for
+    a browser to cache forever."""
+    client = TestClient(app)
+    for url, target in (("/", "/m/"), ("/?x=1", "/m/?x=1")):
+        response = client.request(method, url, follow_redirects=False)
+        assert response.status_code == 307
+        assert response.headers["location"] == target
+
+
+@pytest.mark.parametrize("path", ["/app.js", "/index.html", "/manifest.json", "/tmux-logo.svg"])
+def test_retired_desktop_assets_are_gone(path):
+    assert TestClient(app).get(path).status_code == 404
 
 
 def test_failed_push_repair_retries_before_unsubscribe():
@@ -123,15 +139,14 @@ def test_key_row_can_answer_a_codex_queued_question():
     assert 'aria-label", aria' in body, "the spoken label must be what reaches aria-label"
 
 
-def test_both_key_rows_can_page_a_tui():
+def test_key_row_can_page_a_tui():
     """PgUp/PgDn scroll agent TUIs and pagers; tmux's canonical names are PPage/NPage.
     Ctrl-X then Ctrl-S is Claude Code's "send now" for queued messages; Ctrl-B is a literal
     C-b for when tmux's prefix is something else."""
     root = Path(__file__).resolve().parents[1]
-    for rel in ("web/m/app.js", "web/index.html"):
-        text = (root / rel).read_text()
-        for key in ("PPage", "NPage", "C-x", "C-s"):
-            assert f'"{key}"' in text, f"{key} missing from {rel}"
+    text = (root / "web/m/app.js").read_text()
+    for key in ("PPage", "NPage", "C-x", "C-s"):
+        assert f'"{key}"' in text, f"{key} missing from the key row"
     assert '["Ctrl-B", "C-b"]' in (root / "web/m/app.js").read_text(), "phone has no literal Ctrl-B"
 
 

@@ -1,6 +1,6 @@
 r"""renderCaptureLines splits a rendered capture into ONE HTML string per screen line, so
 the terminal paint can diff a streamed frame line-by-line instead of swapping the whole
-subtree (web/app.js paintTerm, and THE RENDER INVARIANT at the top of that file).
+subtree (web/m/app.js paintLines).
 
 The split is not String.split("\n"): renderCapture emits spans and anchors that STRADDLE
 newlines (a color run over three rows is one <span>; a URL a TUI hard-wrapped is one <a>

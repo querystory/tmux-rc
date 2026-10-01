@@ -43,13 +43,7 @@
       <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
       <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
-      <!-- Mirror of the full UI's phone button (#mobile-btn in web/index.html, added in
-           #184), same slot next to the theme toggle, so the two UIs are each other's
-           escape hatch — this is the return leg. In the header rather than
-           the composer because the composer only renders on the pane DETAIL screen — from
-           the session LIST there was previously no way back to the full UI at all. A plain
-           <a href="/">: it works before app.js runs, and with no JS at all. -->
-      <a id="full-ui" class="icon-button" href="/" aria-label="Switch to the full UI" title="Switch to the full UI"></a>
+      <a id="docs" class="icon-button" href="/docs/" aria-label="Documentation" title="Documentation"></a>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
@@ -79,6 +73,7 @@
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
       <div id="heading" hidden><div class="pane-heading-text"><h1 id="pane-title"></h1><p id="pane-location"></p></div>
         <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><span>Layout</span><select id="review-layout" aria-label="Session view"><option value="auto">Auto</option><option value="side">Side by side</option><option value="stack">Overview above</option><option value="summary">Overview</option><option value="terminal">Terminal</option></select></div>
+        <button id="close-pane" class="icon-button" aria-label="Close window" title="Close window"></button>
       </div>
       <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
       <div id="overview" class="scroller">

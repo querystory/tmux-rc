@@ -36,7 +36,7 @@ already-visible snapshot before its version notification.
 ## Mid-Session Panes
 
 A window opened while the app is running deserves the same answer, and for a sharper
-reason: the dock's "+" navigates to the new pane the instant the endpoint returns the
+reason: the New window dialog navigates to the new pane the instant the endpoint returns the
 id, so the client is asking about a pane the daemon has not published yet. Waiting for
 classification there is not a slow start, it is a card that does not exist — which the
 client can only read as "gone".

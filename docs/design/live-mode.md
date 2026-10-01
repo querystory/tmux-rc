@@ -473,8 +473,7 @@ never is. Code identifiers keep their live/lm names: renaming them would churn e
 this touches for no behavior.
 
 **Minimize, not close.** A text conversation is most useful next to the pane it is about,
-and both layouts cover that pane with the conversation. Minimizing hands the space back
-(the phone's sheet closes and reveals the pane; the desktop card gets its summary back)
+and the sheet covers that pane. Minimizing hands the space back
 and leaves a floating bubble. The session keeps running. The bubble carries a dot for
 anything said since and a count of consent cards still waiting, because a card nobody
 sees holds the model's turn open indefinitely. Restoring keeps the draft and the

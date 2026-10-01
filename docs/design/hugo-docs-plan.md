@@ -62,9 +62,8 @@ The docs should be *beautiful*, not stock-Hextra. Hextra's defaults are clean bu
 "a Nextra clone"); shipping them unchanged would look like every other Hugo doc site. Treat visual design
 as a Phase of its own, informed by tmux-rc's existing identity rather than invented fresh.
 
-- **Borrow the brand that already exists.** `web/` has real assets — `icon.svg`, `tmux-logo.svg` /
-  `tmux-logomark.svg`, `apple-touch-icon.png`, the model glyphs (`claude`, `gemini`, `openai`), and the
-  PWA's own CSS in `web/index.html` / `web/app.js`. The docs should feel like the same product as the
+- **Borrow the brand that already exists.** `web/` has real assets — `icon.svg`, `tmux-logomark.svg`, `apple-touch-icon.png`, the model glyphs (`claude`, `gemini`, `openai`), and the
+  PWA's own CSS in `web/m/style.css`. The docs should feel like the same product as the
   PWA: pull the PWA's color variables, font stack, and accent treatment into the Hextra theme override so
   `/docs` and `/` look like siblings, not strangers. This is the concrete version of the main app's "match the
   app" goal — except our "app" is the terminal PWA, and the assets are sitting right there in `web/`.

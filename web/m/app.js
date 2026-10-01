@@ -50,7 +50,7 @@ const LUCIDE = {
   keyboard: '<rect width="20" height="12" x="2" y="6" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
-  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   pointer: '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
   cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
 };
@@ -95,7 +95,7 @@ let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
-  catch { return ""; } // Like desktop SESSION_ID: CSPRNG-random or omitted, never guessed.
+  catch { return ""; } // CSPRNG-random or omitted, never guessed.
 })();
 
 function draft(id = active) {
@@ -143,6 +143,19 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
   }
 }
 const post = (url, body) => request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+// Browser failures -> /api/client-error -> OTel (#57): a phone has no devtools, so a swallowed
+// mic denial or uncaught exception is otherwise invisible. Best-effort, deduped and capped, and
+// a failed report is never itself reported (no recursion).
+const reported = new Set();
+function reportError(kind, detail) {
+  const message = String(detail?.message ?? detail ?? ""), key = `${kind}|${message}`;
+  if (reported.has(key) || reported.size >= 50) return;
+  reported.add(key);
+  fetch("/api/client-error", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind, name: detail?.name, message: message || undefined, session: liveSession || undefined }) }).catch(() => {});
+}
+window.addEventListener("error", (e) => reportError("onerror", e.error || e.message));
+window.addEventListener("unhandledrejection", (e) => reportError("unhandledrejection", e.reason));
 function pause(ms, signal) {
   return new Promise((resolve) => {
     const finish = () => { clearTimeout(timer); signal?.removeEventListener("abort", finish); resolve(); };
@@ -553,8 +566,7 @@ function render() {
       if (!current?.question || !needsYou(current)) return;
       const { option, index } = button._option;
       // A cursor list answers to neither of the other two styles: the row's text and a
-      // digit both land in the picker's search box. It needs a verified walk; both paths
-      // are shared with the desktop so this surface can't drift behind it again.
+      // digit both land in the picker's search box. It needs a verified walk.
       if (current.question.answer_style === "cursor") pickCursorRow(cursorIO(active), option, index);
       else sendKeys(answerBody(current.question, option, index), true);
     };
@@ -689,7 +701,7 @@ function selectionDirty(selection, lines) {
   if (!captureLines.length || lines.length !== captureLines.length) return true;
   return captureLines.some((node, i) => node._html !== lines[i] && range.intersectsNode(node));
 }
-// Line-diff painter (desktop paintTerm): only lines whose markup changed are written, so
+// Line-diff painter: only lines whose markup changed are written, so
 // a busy pane repaints a few rows per frame and untouched rows keep their selection.
 function paintLines(lines) {
   const pre = $("capture");
@@ -765,7 +777,9 @@ async function pollState(signal) {
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
-      $("connection").title = data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected";
+      const u = data.usage; // LLM spend this run: parser + voice, the debug readout the old UI kept under its status dot
+      $("connection").title = (data.stale ? "Watcher stalled; pane summaries may be out of date" : "Connected")
+        + (u ? ` | LLM $${u.cost.toFixed(3)}, ${Math.round((u.in_tokens + u.out_tokens + (u.live?.in_tokens || 0) + (u.live?.out_tokens || 0)) / 1000)}k tokens` : "");
       render();
       await pause(version ? 100 : 1500, signal);
     } catch {
@@ -862,8 +876,8 @@ $("reply-form").onsubmit = async (event) => {
   } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); }
   finally { sending = false; render(); }
 };
-// Enter SENDS, Shift+Enter inserts a newline — the same contract as the full UI's
-// composer, which this one is a port of. It shipped requiring Cmd/Ctrl+Enter, a shortcut
+// Enter SENDS, Shift+Enter inserts a newline — the standard chat-composer contract.
+// It shipped requiring Cmd/Ctrl+Enter, a shortcut
 // a phone keyboard cannot type at all, so the most obvious way to send did nothing and
 // silently added a blank line instead. Cmd/Ctrl+Enter still sends, for a hardware
 // keyboard and for anyone whose fingers already learned it. isComposing guards IME
@@ -877,17 +891,15 @@ $("reply-form").onsubmit = async (event) => {
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ back: "back", theme: "sun", "full-ui": "monitor", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ back: "back", theme: "sun", docs: "book", "close-pane": "x", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
-// The keys worth a thumb on a phone. This row SHARES most of the full UI's key bar but
-// is not a copy of it, and diffing the two lists for parity will mislead you: Tab and
-// S-Left are here and not there. Each row earns its own entries.
+// The keys worth a thumb on a phone.
 //
 // Ctrl-B is a LITERAL C-b, distinct from Prefix (which sends whatever tmux reports as its
 // prefix — C-a on some hosts). Nested tmux and Claude Code's "ctrl+b to run in background"
-// need the real byte. Like the full UI's #bar-ctrl-b it starts hidden and the state poll
+// need the real byte. It starts hidden and the state poll
 // reveals it unless the prefix IS C-b, where it would just duplicate Prefix.
 //
 // Ctrl-D and Ctrl-O were missing here at first: this list was written fresh rather than
@@ -1073,11 +1085,16 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // repaints — and narrowing it leaves a sidebar with no room, which is the worse half.
 // Older iOS Safari has only the deprecated addListener, and calling the modern name
 // unguarded would throw here and abort the whole module — breaking the phone UI to add
-// a wide-screen affordance those browsers can never show. Same feature test as the
-// desktop app's scheme listener.
+// a wide-screen affordance those browsers can never show.
 const resizeWorkspace = () => { restartDetail(); render(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
+// Close the pane's whole tmux window. The poll drops it and leaveMissingPane does the rest;
+// 404 means it is already gone, which is the outcome asked for.
+$("close-pane").onclick = async () => {
+  if (!active || !confirm("Close this tmux window? Whatever is running in it will end.")) return;
+  try { await post(paneUrl(active, "close")); } catch (error) { if (error.status !== 404) notice("Could not close this window."); }
+};
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
@@ -1085,9 +1102,15 @@ document.addEventListener("visibilitychange", () => { sendPresence(); startState
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
+// Bookmarks and Home Screen links from the retired desktop UI: #/pane/%251 -> #pane=%251, #/list/waiting -> #filter=attention.
+const legacyHash = /^#\/(pane|list)\/(.+)$/.exec(location.hash);
+if (legacyHash) {
+  let value = legacyHash[2]; try { value = decodeURIComponent(value); } catch {}
+  history.replaceState(null, "", "#" + new URLSearchParams(legacyHash[1] === "pane" ? { pane: value } : { filter: value === "waiting" ? "attention" : value }));
+}
 fitViewport(); route(); startState();
 setupPush($("push"), notice, licon("bell"));
-const live = setupLiveMode({ request, session: liveSession, licon, onVersion: observeVersion });
+const live = setupLiveMode({ request, session: liveSession, licon, report: reportError, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {
   return [...drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
