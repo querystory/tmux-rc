@@ -215,7 +215,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .voice-compose { display: flex; flex: none; gap: 8px; padding-top: 12px; }
 .voice-compose button { min-height: 44px; padding: 0 18px; border-radius: 22px; }
 .voice-controls { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
-/* The rule separates the log from the controls; under the chat composer it would just underline the paperclip and the input's focus ring. */
+/* The rule would separate the log from the controls, but the composer (shown in voice sessions too) sits between them, so it only underlined the paperclip and the input's focus ring. */
 .voice-compose:not([hidden]) + .voice-controls { border-top: 0; }
 .voice-controls button { margin: 0; min-height: 44px; }
 #voice-start { flex: none; padding: 0 18px; color: var(--red); background: transparent; border: 1px solid var(--line); border-radius: 24px; }
