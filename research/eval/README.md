@@ -69,6 +69,8 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
+- `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
+  ("Yes…") then a decline ("No…"); their wording is not pinned.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.
 - `tables` — presence too, but **opt-in**: scored only on a sample whose `expected`
   names it. Most screens have no table and take no position, so scoring it everywhere

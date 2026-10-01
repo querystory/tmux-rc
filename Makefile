@@ -32,6 +32,7 @@ install-units:
 
 test:
 	uv run pytest -q tests/
+	node --test tests/*.mjs
 
 # Lint the whole tree against the ruleset in pyproject.toml. Read-only — this is the
 # gate; `make fmt` is the same rules with the safe fixes applied. Deliberately NOT

@@ -3384,7 +3384,7 @@ if (bar.input) {
   // caret here — insertNodeAtCaret restores it when the live selection is gone.
   bar.attach.onclick = () => { saveCaret(); bar.file.click(); };
   bar.file.onchange = () => {
-    if (bar.file.files[0]) insertImage(bar.file.files[0]);
+    for (let i = 0; i < bar.file.files.length; i++) insertImage(bar.file.files.item(i));
     bar.file.value = ""; // else picking the SAME photo again never fires change
   };
   // Paste into the composer. Two jobs: (1) an image on the clipboard becomes an inline
@@ -3395,8 +3395,8 @@ if (bar.input) {
   bar.input.onpaste = (e) => {
     e.preventDefault();
     const cd = e.clipboardData;
-    const item = [...(cd?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (item) { insertImage(item.getAsFile()); return; }
+    const images = [...(cd?.items || [])].filter((i) => i.type.startsWith("image/"));
+    if (images.length) { images.forEach((i) => insertImage(i.getAsFile())); return; }
     insertTextAtCaret(cd ? cd.getData("text/plain") : "");
   };
   // Drag/drop bypasses onpaste and would drop rich HTML / foreign <img src> straight
@@ -4238,6 +4238,7 @@ function lmProposal(d, e) {
   const text = document.createElement("span");
   text.textContent = `${e.state || "Wants to act"}: ${e.text}`;
   const parts = [text];
+  if (e.image) parts.unshift(Object.assign(chatThumb(e.image), { alt: "Image to send" }));
   if (!e.state) for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
     const b = document.createElement("button");
     b.textContent = label;
@@ -4510,7 +4511,7 @@ function lmConnect() {
       if (m.refused) lmThumbs.shift(); else lmFatal = m.message;
       lmAdd("err", m.message);
     }
-    else if (m.type === "propose") lmAdd("propose", m.text, true, { id: m.id });
+    else if (m.type === "propose") lmAdd("propose", m.text, true, { id: m.id, image: m.image });
     else if (m.type === "decided") lmSettle(m.id, m.ok ? "Approved" : "Declined");
   };
   ws.onclose = (e) => {

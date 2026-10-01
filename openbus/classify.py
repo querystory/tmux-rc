@@ -312,6 +312,29 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["session"] = retry_session
 
 
+_LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
+
+
+def _final_paragraph(message: str) -> str:
+    """The message's last paragraph as one line: terminal wrapping splits a long question
+    across rows. Reading back from the end it stops at a blank row, and at a list item (kept
+    when it is the last row or the rows after it are its indented continuation)."""
+    rows: list[str] = []
+    for row in reversed(message.splitlines()):
+        text = row.strip()
+        if not text:
+            if rows:
+                break
+            continue
+        if _LIST_ITEM_RE.match(text):
+            indent = len(row) - len(row.lstrip())
+            if not rows or len(rows[-1]) - len(rows[-1].lstrip()) > indent:
+                rows.append(row)  # the item itself, or the one the wrapped rows continue
+            break
+        rows.append(row)
+    return " ".join(r.strip() for r in reversed(rows))
+
+
 def _final_ask(visible: str, tool: str) -> dict | None:
     """What a finished turn leaves blocked on the user: a provider error to retry, or in
     auto mode (where the agent stops only when it needs the user) a closing question or a
@@ -330,12 +353,68 @@ def _final_ask(visible: str, tool: str) -> dict | None:
         return {"prompt": error["text"], "answer_style": "text", "options": ["try again"]}
     if not re.search(r"(?m)^[ \t]*(?:-- INSERT --[ \t]*)?⏵⏵ auto mode on\b", visible):
         return None
+    paragraph = _final_paragraph(message)
     handoff = next((i for i in reversed(range(len(lines))) if lines[i].startswith("! ")), None)
-    if lines[-1].endswith("?"):
-        return {"prompt": lines[-1], "answer_style": "text"}
+    if paragraph.rstrip("*_\"'`)").endswith("?"):
+        return {"prompt": paragraph, "answer_style": "text"}
     if handoff is None:
         return None
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
+
+
+def _clean_options(raw: object, *prompts: str) -> list[str]:
+    """Suggested replies as buttons: strings only, short, deduped, printable (an option is
+    typed into the agent's input box), none that just repeat a prompt. Callers cap the count."""
+    repeats = {p.casefold() for p in prompts}
+    picks: dict[str, str] = {}
+    for o in raw if isinstance(raw, list) else []:
+        if (isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.isprintable()
+                and o.strip().casefold() not in repeats):
+            picks.setdefault(o.strip().lower(), o.strip())
+    return list(picks.values())
+
+
+def _model_options(model_q: object, ask: dict) -> list[str]:
+    """The parser's own suggested replies, kept when the deterministic ask replaces its
+    question. Only for the same question (one prompt contains the other)."""
+    if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
+        return []
+    old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
+    return _clean_options(model_q.get("options"), old, new)[:4] if old and (
+        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else []
+
+
+# What kind of question it is, and so what the buttons are, is the model's call: one small
+# request per distinct question, seeing only the question text. It lives here, not in the
+# parser prompt. Empty means open-ended: no buttons, the free-text box is always there.
+_REPLIES_SYSTEM = (
+    "The coding agent just asked the user the question below. Reply as JSON "
+    '{"options": [...]} with reply buttons for it: short (under 8 words), distinct, each a '
+    "complete reply the user could type. Use an EMPTY list when the question is open-ended "
+    "(what, which, how, a choice between alternatives, a request for content). For a "
+    "yes/no question give the natural accept and decline. If it bundles several steps, "
+    'add between them one "Yes, but check with me before <step>" per step, naming only '
+    "steps the question names. The first option accepts; the last declines."
+)
+_replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
+
+
+def _reply_options(prompt: str, replies_fn) -> list[str]:
+    """The model's reply buttons for `prompt`, or [] without a model or on an unusable
+    answer (not cached: retried when the screen next changes or the daemon restarts, since
+    an unchanged screen is never re-parsed). Push shows only the first two
+    options, so the final decline moves up to second place."""
+    if prompt not in _replies and replies_fn:
+        reply = replies_fn(_REPLIES_SYSTEM, prompt)
+        if isinstance(reply, dict) and isinstance(reply.get("options"), list):
+            got = _clean_options(reply["options"], prompt)
+            if len(got) > 2:
+                got.insert(1, got.pop())  # the decline, before the cap can drop it
+            if len(got) != 1 and (got or not reply["options"]):  # lone or all-junk: unusable
+                if len(_replies) > 256:
+                    _replies.clear()
+                _replies[prompt] = got[:4]
+    return _replies.get(prompt, [])
 
 
 def _obvious_idle(text: str) -> bool:
@@ -448,6 +527,7 @@ def classify(
     recent_events: list[str] | None = None,
     prev_activity: str | None = None,
     repository: str | None = None,
+    replies_fn=None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
@@ -560,6 +640,11 @@ def classify(
     if result.get("tool") in _TURN_ERROR_RE and (
         ask := _final_ask(visible, result["tool"])
     ):
+        if not ask.get("options") and (
+            options := _model_options(result.get("question"), ask)
+            or _reply_options(ask["prompt"], replies_fn)
+        ):
+            ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
     # A cursor picker's advertised search binding is evidence, not a model guess.

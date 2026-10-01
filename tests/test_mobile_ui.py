@@ -200,3 +200,13 @@ def test_chat_pasted_image_keeps_input_height_and_header_ends_chat():
     assert 'id="voice-end"' in html
     live = (root / "m/live.js").read_text()
     assert '$("voice-end").onclick = () => { stop(); dialog.close(); }' in live
+
+
+def test_voice_sheet_takes_initial_focus_not_its_first_button():
+    """showModal() focuses the first button (the minimize button) and its :focus-visible ring
+    paints on open; the sheet itself takes focus instead, with no ring on that container."""
+    web = Path(__file__).resolve().parent.parent / "web" / "m"
+    html = (web / "index.html").read_text()
+    assert 'id="voice-dialog" aria-labelledby="voice-title" tabindex="-1"' in html
+    assert "dialog.showModal(); dialog.focus();" in (web / "live.js").read_text()
+    assert "#voice-dialog:focus { outline: none; }" in (web / "style.css").read_text()

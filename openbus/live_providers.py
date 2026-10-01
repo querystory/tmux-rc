@@ -267,6 +267,30 @@ TOOLS = [
 ]
 
 
+# Text sessions only (the handler refuses it in voice): forwards a pasted image to a pane.
+TOOLS.append({
+    "name": "send_image_to_pane",
+    "description": (
+        "Give an agent in one tmux pane an image the user pasted into this chat, with an "
+        "optional caption typed after it, then submit. Use only when the user asks to send, "
+        "show or forward the image to a window or agent. Images are numbered in the order "
+        "they were attached, as the turn text says (image 1, image 2, ...)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "pane_id": _PANE_ID,
+            "image_number": {
+                "type": "integer",
+                "description": "Which attached image; omit for the most recent one",
+            },
+            "caption": {"type": "string", "description": "Text to type with the image"},
+        },
+        "required": ["pane_id"],
+    },
+})
+
+
 # Past-session lookup (agent_history), offered only where it can work.
 _HISTORY_TOOLS = [
     {

@@ -30,6 +30,7 @@ def _harness(monkeypatch, frame_holder):
     def fake_classify(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1  # one call == one LLM parse
         return {"activity": "idle", "events": [], "label": pane.label, "tool": "shell"}
@@ -331,6 +332,7 @@ def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch
     def flaky(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         got = outcomes.pop(0) if outcomes else {"activity": "idle", "events": [], "tool": "claude"}
@@ -366,6 +368,7 @@ def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
     def always_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
@@ -396,6 +399,7 @@ def test_service_backoff_does_not_spend_the_pane_budget(monkeypatch):
     def refused(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if braked["on"]:
@@ -427,6 +431,7 @@ def test_a_new_screen_clears_the_failure_budget(monkeypatch):
     def always_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
@@ -479,6 +484,7 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
     def then_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if seq:
@@ -514,6 +520,7 @@ def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     def then_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if seq:
@@ -545,6 +552,7 @@ def test_failed_forced_reparse_still_retries(monkeypatch):
     def then_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if seq:
