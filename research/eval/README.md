@@ -226,7 +226,8 @@ open-ended requests, destructive wording, code identifiers, a wrapped paragraph,
 question, a `! command` handoff, a provider error, and offers that must stay idle (not auto
 mode, user already typed, old question already answered, Codex). Each carries a
 `closing_replies` block (kind, and the step words a checkpoint button may name).
-`python -m research.eval.closing_replies run` pushes them, plus the 62 regular samples,
+`python -m research.eval.closing_replies run --tag X --out X.json --existing` (run it in a tree
+with #282 for A, add `--no-replies` there for C, in the experiment branch for B) pushes them, plus the 62 regular samples,
 through the production `classify()` five times per condition (gemini-3.1-flash-lite,
 temperature 0, the production Vertex path) and records every call's tokens and latency,
 the parse's raw output, a deterministic rubric, and a judge-model verdict on button
@@ -247,12 +248,13 @@ and both are reported.
 | offers that must stay idle (of 30) | 30 | 30 | 30 |
 | regular corpus structured pass (of 310) | 305 | 300 | 295 |
 | regular corpus failures | 16 | 16, 59 | 16, 58, 59 |
-| parses proposing buttons with no closing question | 0/470 | 35/470 | 0/470 |
+| screen runs proposing buttons with no question (of 470) | 0 | 35 | 0 |
 | first-parse input tokens (mean) | 8706 | 8794 (+88, +1.0%) | 8706 |
 | first-parse output tokens (mean) | 155.8 | 156.8 | 154.6 |
 | first-parse latency (mean) | 1.51 s | 1.50 s | 1.44 s |
 | extra call | 101 over 5 runs, 145 in, 33 out tokens, 0.90 s mean, 1.18 s p90 | none | none |
-| production lines (openbus/) vs pre-#282 | +87 net | +10 net (about 20 fewer than A, one new prompt field) | 0 |
+| production lines (openbus/) vs pre-#282 | +86 net | +66 net (20 fewer than A, including the 4-line prompt field) | 0 |
+| all three: closing samples matching their expected tool/activity/question shape (of 160) | 160 | 160 | 160 |
 
 **What the numbers say.**
 
@@ -267,7 +269,7 @@ and both are reported.
   ("Commit and push only") instead. A single schema comment carrying a conditional rule
   (checkpoint only steps the question names) is not followed by this model; the separate
   call, whose whole input is the question, is.
-- B proposes buttons on screens where no closing question is detected (35 of 470 parses:
+- B proposes buttons on screens where no closing question is detected (35 of 470 screen runs, one count per run even where `classify()` re-read a slice:
   the not-auto-mode offers, the user-already-typed draft, Codex, and regular samples
   03, 04 and 16). `classify()` discards them, so nothing wrong reaches the phone, but they are
   paid-for output tokens.
