@@ -179,8 +179,9 @@ function navigate(id = null, nextView = "summary", { mode } = {}) {
 }
 
 // Filter and sort change the list, not the screen: with the sidebar beside an open pane
-// (wide layout) the pane, its tab and a dashboard view must survive them.
-const stayPut = () => navigate(active, active ? view : dashboard ? "dashboard" : "summary");
+// (wide layout) the pane, its tab and a dashboard view must survive them; on a phone a
+// filter tap is a request for the list.
+const stayPut = () => navigate(active, active ? view : dashboard && WIDE.matches ? "dashboard" : "summary");
 
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
 // named one that is gone. Replace, never push: Back would land on the dead deep link and
