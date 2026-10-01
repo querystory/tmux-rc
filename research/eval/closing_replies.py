@@ -96,8 +96,9 @@ def _grade(kind: str, steps: list[str], result: dict) -> dict:
         ok = (waiting and 2 <= len(opts) <= 4 and bool(_ACCEPT.match(opts[0]))
               and bool(_DECLINE.match(opts[1])))
         if kind == "gated":
-            ok = ok and bool(checks) and all(
-                any(s in o.lower() for s in steps) for o in checks)
+            alias = "|".join(map(re.escape, steps))
+            named = re.compile(rf"\b(?:{alias})(?:s|es|ing|ed)?\b", re.IGNORECASE)
+            ok = ok and bool(checks) and all(named.search(o) for o in checks)
         else:
             ok = ok and not checks
     return {"ok": ok, "options": opts}
@@ -150,7 +151,9 @@ def run(args: argparse.Namespace) -> None:
             q = row["result"].get("question") or {}
             payload = json.dumps({"question": q.get("prompt"), "options": q.get("options", [])})
             v = _call(args.model, _JUDGE, payload, "judge")
-            return v if isinstance(v, dict) else {"verdict": "FAIL", "reason": "no verdict"}
+            if isinstance(v, dict) and v.get("verdict") in ("PASS", "FAIL"):
+                return v
+            return {"verdict": "FAIL", "reason": "no verdict"}
         for row, v in zip(rows, pool.map(judge, rows), strict=True):
             row["judge"] = v
     Path(args.out).write_text(json.dumps({"tag": args.tag, "rows": rows}, ensure_ascii=False))
@@ -162,7 +165,10 @@ def report(args: argparse.Namespace) -> None:
         rows = d["rows"]
         closing = [r for r in rows if r["corpus"] == "closing"]
         want = {p.stem: json.loads(p.read_text())["expected"] for p in CLOSING_DIR.glob("*.json")}
+        steps = {p.stem: json.loads(p.read_text())["closing_replies"]["steps"]
+                 for p in CLOSING_DIR.glob("*.json")}
         for r in closing:  # the sample's expected tool/activity/question shape, plus the buttons
+            r["grade"] = _grade(r["kind"], steps[r["sample"]], r["result"])  # current rubric
             r["struct_ok"] = score_structured(r["result"], want[r["sample"]])[0]
         print(f"\n== {d['tag']} ({len(closing)} closing runs) ==")
         for kind in ("yn", "gated", "none", "idle", "error"):
