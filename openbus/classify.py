@@ -338,6 +338,25 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
 
 
+_YES_NO_RE = re.compile(
+    r"(?:should|shall|do|does|did|can|could|will|would|want|is|are|was|were|have|has|may|ok|okay)\b",
+    re.IGNORECASE,
+)
+_OR_RE = re.compile(r"\bor\b", re.IGNORECASE)
+
+
+def _yes_no_options(question: dict) -> None:
+    """Give an option-less prose question Yes/No buttons when its last sentence is a plain
+    yes/no ask: opens with an auxiliary or modal (so never a wh-question) and offers no
+    "A or B" alternatives. The buttons type the word into the agent's input box."""
+    if question.get("answer_style", "text") != "text" or question.get("options"):
+        return
+    sentences = re.split(r"(?<=[.!?:])\s+", str(question.get("prompt", "")).strip())
+    last = sentences[-1].lstrip("*_\"'`(")
+    if last.endswith("?") and _YES_NO_RE.match(last) and not _OR_RE.search(last):
+        question["options"] = ["Yes", "No"]
+
+
 def _obvious_idle(text: str) -> bool:
     for ln in reversed(text.splitlines()):
         if ln.strip():
@@ -562,6 +581,8 @@ def classify(
     ):
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
+    if isinstance(result.get("question"), dict):
+        _yes_no_options(result["question"])
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":

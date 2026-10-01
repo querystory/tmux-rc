@@ -191,7 +191,9 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
     # question — presence + answer_style, plus whichever cursor fields the sample pins
     want_q = expected.get("question")
-    extra = tuple(k for k in ("selected", "keymap") if isinstance(want_q, dict) and k in want_q)
+    extra = tuple(
+        k for k in ("selected", "keymap", "options") if isinstance(want_q, dict) and k in want_q
+    )
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")

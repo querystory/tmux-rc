@@ -1,7 +1,9 @@
 """classify() is now a raw-JSON pipe: it returns the LLM's dict (plus pane_id/label),
 with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
-from openbus.classify import bootstrap, classify
+import pytest
+
+from openbus.classify import _yes_no_options, bootstrap, classify
 from openbus.tmux import Pane
 
 
@@ -902,3 +904,44 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     claude = classify(_pane("claude"), "● Ran make\n■ Build failed\n\n❯", _llm({}))
     codex = classify(_pane("codex"), screen.replace("  ⎿  ", "✻ Worked for 3s\n"), _llm({}))
     assert "question" not in claude and "question" not in codex
+
+
+@pytest.mark.parametrize("verb", ["Should", "Shall", "Do", "Does", "Did", "Can", "Could", "Will",
+                                  "Would", "Want", "Is", "Are", "Have", "Has", "May", "OK",
+                                  "Okay", "Was", "Were"])
+def test_yes_no_question_gets_yes_no_buttons(verb):
+    q = {"prompt": f"It has no review yet. {verb} we go ahead?", "answer_style": "text"}
+    _yes_no_options(q)
+    assert q["options"] == ["Yes", "No"]
+
+
+@pytest.mark.parametrize("prompt", [
+    "Should I use Redis or Postgres?",  # an either/or is not yes/no
+    "Which branch should I use?",  # wh-question
+    "How should I proceed?",
+    "Should I continue",  # not a question
+    "Done. What next?",
+    "If so, then what?",
+])
+def test_non_yes_no_question_gets_no_buttons(prompt):
+    q = {"prompt": prompt, "answer_style": "text"}
+    _yes_no_options(q)
+    assert "options" not in q
+
+
+def test_yes_no_buttons_never_replace_model_options_or_menus():
+    own = {"prompt": "Should I merge?", "answer_style": "text", "options": ["merge", "wait"]}
+    _yes_no_options(own)
+    assert own["options"] == ["merge", "wait"]
+    menu = {"prompt": "Should I merge?", "answer_style": "menu"}
+    _yes_no_options(menu)
+    assert "options" not in menu
+
+
+def test_closing_yes_no_question_in_auto_mode_offers_yes_no():
+    result = classify(_pane("claude"), _sample("58_claude_yes_no_closing_question"),
+                      _llm({"tool": "claude", "activity": "idle"}))
+    assert result["question"]["options"] == ["Yes", "No"]
+    # A model-supplied text question gets them too, anywhere on the screen.
+    asked = classify(_pane("claude"), "x", _llm({"question": {"prompt": "Want me to push?"}}))
+    assert asked["question"]["options"] == ["Yes", "No"]
