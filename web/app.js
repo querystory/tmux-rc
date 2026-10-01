@@ -4238,6 +4238,7 @@ function lmProposal(d, e) {
   const text = document.createElement("span");
   text.textContent = `${e.state || "Wants to act"}: ${e.text}`;
   const parts = [text];
+  if (e.image) parts.unshift(Object.assign(chatThumb(e.image), { alt: "Image to send" }));
   if (!e.state) for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
     const b = document.createElement("button");
     b.textContent = label;
@@ -4510,7 +4511,7 @@ function lmConnect() {
       if (m.refused) lmThumbs.shift(); else lmFatal = m.message;
       lmAdd("err", m.message);
     }
-    else if (m.type === "propose") lmAdd("propose", m.text, true, { id: m.id });
+    else if (m.type === "propose") lmAdd("propose", m.text, true, { id: m.id, image: m.image });
     else if (m.type === "decided") lmSettle(m.id, m.ok ? "Approved" : "Declined");
   };
   ws.onclose = (e) => {

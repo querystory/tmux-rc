@@ -165,3 +165,44 @@ def test_composer_image_keeps_original_identity(monkeypatch):
     with pytest.raises(tmux.PaneChangedError):
         server._deliver_composer("%1", "1234", [(b"image", "/tmp/test.png")])
     assert events == []
+
+
+def test_chat_forwarding_uses_the_endpoints_delivery(client, monkeypatch):
+    """The endpoint and Live Chat's send_image_to_pane share server.attach_image, so both
+    stage and deliver the same way and bind to the pid they were given."""
+    import asyncio
+
+    calls = []
+    monkeypatch.setattr(server, "_deliver_image", lambda *a: calls.append(a) or "path")
+    path, mode = asyncio.run(server.attach_image("%1", "1234", b"image", "image/png"))
+    assert mode == "path" and calls == [("%1", b"image", path, "1234")]
+    response = client.post("/api/panes/%1/image",
+                           files=[("file", ("test.png", b"image", "image/png"))])
+    assert response.json()["mode"] == "path" and calls[1][3] == "1234"
+
+
+def test_captioned_image_is_one_draft_under_one_lock(monkeypatch):
+    """What the chat tool sends: image, caption and Enter share one pane transaction."""
+    import asyncio
+
+    events = []
+    monkeypatch.setattr(server, "_stage_image", lambda data, mime: "/tmp/x")
+    monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append("IMAGE") or "path")
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: "1234")
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+    _, mode = asyncio.run(server.attach_image("%1", "1234", b"i", "image/png", "caption"))
+    assert mode == "path" and events == ["IMAGE", "caption", "Enter"]
+
+
+def test_caption_is_not_typed_into_a_pane_recycled_after_the_image(monkeypatch):
+    events, pid = [], ["1234"]
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: pid[0])
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+
+    def image(*args):
+        pid[0] = "replacement"  # the approved process exits right after the paste
+
+    monkeypatch.setattr(server, "_deliver_image", image)
+    with pytest.raises(tmux.PaneChangedError):
+        server._deliver_composer("%1", "1234", [(b"i", "/tmp/x"), "caption"])
+    assert events == []

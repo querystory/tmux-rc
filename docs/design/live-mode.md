@@ -499,6 +499,21 @@ matches its own thumbnails to it, so the daemon never sends the image back. Ever
 turn gets exactly one answer, its echo or a refusal flagged as such, so a refused turn
 cannot shift the next turn's thumbnails onto the wrong echo.
 
+**Forwarding images to agents.** `send_image_to_pane` is how a pasted image reaches a pane
+("send this to window 3"). The daemon numbers each pasted image across the conversation and
+tells the model the number in the turn text, since the model cannot otherwise name an image
+from an earlier turn. The numbered copies are kept only for as many turns as the chat model
+keeps, so the memory the numbering holds is the history's own bound. The tool goes through
+the same consent card as `type_in_pane`, with a thumbnail of the image on it, so nothing
+reaches the pane before Send, and the approval is bound to the pane's process like any other.
+Delivery is not a second implementation: the tool calls the same function as the pane
+composer's image endpoint (`server.attach_image`), so the agent gets the image in the form a
+manual paste produces (inline via the clipboard, or the staged path when the session is
+locked), followed by the caption and Enter. Rejected alternative: a loopback HTTP call to the
+endpoint, which would add an auth hop and lose the pane-identity binding. Voice sessions
+refuse the tool, because voice has no images. The audit record carries the image type, size
+and target, never the bytes.
+
 ## v0.2 candidates (explicitly out of scope now)
 
 Pane creation ("open claude code in a new pane in ~/src/x") once the create-pane
