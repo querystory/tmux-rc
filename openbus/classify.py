@@ -353,8 +353,9 @@ def _model_options(model_q: object, ask: dict) -> list[str]:
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return []
     old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
+    same = old.casefold() in new.casefold() or new.casefold() in old.casefold()
     raw = model_q.get("options")
-    if not old or not (old in new or new in old) or not isinstance(raw, list):
+    if not old or not same or not isinstance(raw, list):
         return []
     picks: dict[str, str] = {}
     for o in raw:

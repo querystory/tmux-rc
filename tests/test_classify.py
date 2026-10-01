@@ -977,7 +977,7 @@ def test_model_options_survive_the_deterministic_closing_ask():
     screen = _sample("58_claude_yes_no_closing_question")
     ask = ("Should I send it to Copilot, then reviewer once it's clean, "
            "and merge after approval?")
-    model = {"prompt": ask,
+    model = {"prompt": ask.lower(),
              "answer_style": "text",
              "options": ["Yes, do all three", " yes, do all three ", "Not yet", "x" * 61, 7,
                          "a", "b", "c"]}
