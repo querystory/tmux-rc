@@ -1102,3 +1102,10 @@ def test_reply_calls_are_tagged_apart_from_parse_telemetry(fresh_replies):
 
     _yes_no_options({"prompt": GATED, "answer_style": "text"}, partial(fake, kind="parse"))
     assert seen == ["replies"]
+
+
+@pytest.mark.parametrize("junk", [[""], [7], "none", [None, " "]])
+def test_unusable_model_options_do_not_suppress_the_fallback(junk):
+    q = {"prompt": "Should I merge?", "answer_style": "text", "options": junk}
+    _yes_no_options(q)
+    assert q["options"] == ["Yes", "No"]

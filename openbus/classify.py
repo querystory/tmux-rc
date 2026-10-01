@@ -433,8 +433,13 @@ def _yes_no_options(question: dict, llm_fn=None) -> bool:
     "A or B" alternatives. The buttons type the reply into the agent's input box. True when
     a model was available but its replies were unusable, so the heuristic buttons are
     provisional and the caller should read the screen again."""
-    if question.get("answer_style", "text") != "text" or question.get("options"):
+    if question.get("answer_style", "text") != "text":
         return False
+    if question.get("options"):
+        if kept := _clean_options(question["options"]):
+            question["options"] = kept
+            return False
+        del question["options"]  # unusable model output ([""], [7], "none") is no options
     sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
     last = _LIST_ITEM_RE.sub("", sentences[-1], count=1).lstrip("*_\"'`(").rstrip("*_\"'`)")
     if not (last.endswith("?") and _YES_NO_RE.match(last) and not _NOT_YES_NO_RE.search(last)):
