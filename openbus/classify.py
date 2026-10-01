@@ -370,7 +370,7 @@ _YES_NO_RE = re.compile(
 # Rules out yes/no: an alternative, a wh-word anywhere ("tell me which..."), or "can you ...".
 _NOT_YES_NO_RE = re.compile(
     r"\b(?:or|what|which|how|why|where|when|who|whom|whose|whether)\b"
-    r"|^(?:can|could|would|will)n?['’]?t?\s+you\b",  # a request for content, not a yes/no
+    r"|^(?:can|could|will)n?['’]?t?\s+you\b",  # a request for content, not a yes/no
     re.IGNORECASE)
 _GATED_RE = re.compile(r"\bthen\s+\w|,\s+and\b", re.IGNORECASE)  # several steps, each a gate
 

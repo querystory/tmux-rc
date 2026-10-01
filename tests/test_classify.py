@@ -1128,3 +1128,9 @@ def test_options_with_control_characters_are_dropped():
          "options": ["yes\r", "ok\x1b[A", "fine\nrm -rf", "Go ahead"]}
     _yes_no_options(q)
     assert q["options"] == ["Go ahead"]
+
+
+def test_would_you_like_permission_question_gets_buttons():
+    q = {"prompt": "Would you like me to merge it?", "answer_style": "text"}
+    _yes_no_options(q)
+    assert q["options"] == ["Yes", "No"]
