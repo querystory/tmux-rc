@@ -384,37 +384,14 @@ def _model_options(model_q: object, ask: dict) -> list[str]:
         old.casefold() in new.casefold() or new.casefold() in old.casefold()) else []
 
 
-# What kind of question it is, and so what the buttons are, is the model's call: one small
-# request per distinct question, seeing only the question text. It lives here, not in the
-# parser prompt. Empty means open-ended: no buttons, the free-text box is always there.
-_REPLIES_SYSTEM = (
-    "The coding agent just asked the user the question below. Reply as JSON "
-    '{"options": [...]} with reply buttons for it: short (under 8 words), distinct, each a '
-    "complete reply the user could type. Use an EMPTY list when the question is open-ended "
-    "(what, which, how, a choice between alternatives, a request for content). For a "
-    "yes/no question give the natural accept and decline. If it bundles several steps, "
-    'add between them one "Yes, but check with me before <step>" per step, naming only '
-    "steps the question names. The first option accepts; the last declines."
-)
-_replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
-
-
-def _reply_options(prompt: str, replies_fn) -> list[str]:
-    """The model's reply buttons for `prompt`, or [] without a model or on an unusable
-    answer (not cached: retried when the screen next changes or the daemon restarts, since
-    an unchanged screen is never re-parsed). Push shows only the first two
-    options, so the final decline moves up to second place."""
-    if prompt not in _replies and replies_fn:
-        reply = replies_fn(_REPLIES_SYSTEM, prompt)
-        if isinstance(reply, dict) and isinstance(reply.get("options"), list):
-            got = _clean_options(reply["options"], prompt)
-            if len(got) > 2:
-                got.insert(1, got.pop())  # the decline, before the cap can drop it
-            if len(got) != 1 and (got or not reply["options"]):  # lone or all-junk: unusable
-                if len(_replies) > 256:
-                    _replies.clear()
-                _replies[prompt] = got[:4]
-    return _replies.get(prompt, [])
+def _closing_options(raw: object, prompt: str) -> list[str]:
+    """The parse's `closing_replies` as buttons. Empty is the model saying the question is
+    open-ended; a lone option or all-junk is unusable. Push shows only the first two, so a
+    final decline moves up to second place before the cap can drop it."""
+    got = _clean_options(raw, prompt)
+    if len(got) > 2:
+        got.insert(1, got.pop())
+    return got[:4] if len(got) > 1 else []
 
 
 def _obvious_idle(text: str) -> bool:
@@ -527,7 +504,6 @@ def classify(
     recent_events: list[str] | None = None,
     prev_activity: str | None = None,
     repository: str | None = None,
-    replies_fn=None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
@@ -637,12 +613,13 @@ def classify(
     # a Codex error, and Claude chrome quoted inside Codex is not Codex's turn.
     # The finished turn's own chrome is authoritative over any model question: nothing was
     # typed after it, so a live menu (whose ❯/› rows would count as typed) is ruled out.
+    replies = result.pop("closing_replies", None)  # consumed here, never sent to the UI
     if result.get("tool") in _TURN_ERROR_RE and (
         ask := _final_ask(visible, result["tool"])
     ):
         if not ask.get("options") and (
             options := _model_options(result.get("question"), ask)
-            or _reply_options(ask["prompt"], replies_fn)
+            or _closing_options(replies, ask["prompt"])
         ):
             ask["options"] = options
         result["question"] = ask

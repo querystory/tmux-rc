@@ -3,7 +3,6 @@ with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 
 import pytest
 
-from openbus import classify as classify_mod
 from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
@@ -924,80 +923,53 @@ def test_wrapped_closing_question_is_read_whole(message):
     prompt = result["question"]["prompt"]
     assert "Should I send this to Copilot, then merge after approval?" in prompt
     assert "first item" not in prompt
-    assert "options" not in result["question"]  # no replies_fn: no buttons
-
-
-@pytest.fixture
-def replies():
-    classify_mod._replies.clear()
-    calls = []
-
-    def make(answer):
-        def fn(system, text):
-            assert system == classify_mod._REPLIES_SYSTEM
-            calls.append(text)
-            return answer
-        return fn
-
-    yield make, calls
-    classify_mod._replies.clear()
+    assert "options" not in result["question"]  # the parse offered no replies
 
 
 ASK = "Should I send it to Copilot, then merge?"
 
 
-def _ask(replies_fn, model_q=None, message=ASK):
-    result = classify(_pane("claude"), _auto_screen(message),
-                      _llm({"tool": "claude", "question": model_q}), replies_fn=replies_fn)
+def _ask(replies, model_q=None, message=ASK):
+    parsed = {"tool": "claude", "question": model_q, "closing_replies": replies}
+    result = classify(_pane("claude"), _auto_screen(message), _llm(parsed))
+    assert "closing_replies" not in result  # consumed, never sent to the UI
     return result["question"]
 
 
-def test_closing_question_gets_model_replies_accept_then_decline_once(replies):
-    make, calls = replies
-    answer = {"options": ["Yes, do both", "Yes, but check before merging", "Hold off", ASK]}
-    for _ in range(2):
-        assert _ask(make(answer))["options"] == [
-            "Yes, do both", "Hold off", "Yes, but check before merging"]
-    assert calls == [ASK]  # one call per distinct question, and it sees only the question
+def test_closing_question_gets_the_parses_replies_accept_then_decline():
+    raw = ["Yes, do both", "Yes, but check before merging", "Hold off", ASK]
+    assert _ask(raw)["options"] == ["Yes, do both", "Hold off", "Yes, but check before merging"]
 
 
-def test_open_ended_or_failed_replies_show_no_buttons(replies):
-    make, calls = replies
-    for answer in (None, {"options": "junk"}, ["Yes"], {}, {"options": []}):
-        assert "options" not in _ask(make(answer), message="Which env should I use?")
-    assert len(calls) == 5  # failures retry; the empty list is an answer and is cached
-    asked = "Which env should I use?"
-    assert "options" not in _ask(make({"options": ["Yes", "No"]}), message=asked)
-    assert len(calls) == 5  # ... so the cached empty answer stood
+def test_open_ended_or_malformed_replies_show_no_buttons():
+    for raw in (None, "junk", ["Yes"], [], ["\x1b", ""], {"a": 1}):
+        assert "options" not in _ask(raw, message="Which env should I use?")
 
 
-def test_model_options_for_the_same_question_skip_the_extra_call(replies):
-    make, calls = replies
+def test_model_options_for_the_same_question_win_over_closing_replies():
     own = {"prompt": ASK.lower(), "options": ["go", "wait"]}
-    assert _ask(make({"options": ["x", "y"]}), own)["options"] == ["go", "wait"]
+    assert _ask(["x", "y"], own)["options"] == ["go", "wait"]
     other = {"prompt": "Pick a color", "options": ["red"]}
-    assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
-    assert calls == [ASK]
+    assert _ask(["Yes", "No"], other)["options"] == ["Yes", "No"]
 
 
-def test_decline_survives_the_cap_and_a_lone_option_is_unusable(replies):
-    make, calls = replies
-    five = {"options": ["Yes, all", "Check a", "Check b", "Check c", "No"]}
-    assert _ask(make(five))["options"] == ["Yes, all", "No", "Check a", "Check b"]
-    assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
-    assert "options" not in _ask(make({"options": ["Yes"]}), message="Should I stop?")
-    assert "options" not in _ask(make({"options": ["\x1b", ""]}), message="Should I stop?")
-    assert len(calls) == 4  # neither the lone option nor all-junk was cached
+def test_decline_survives_the_cap():
+    five = ["Yes, all", "Check a", "Check b", "Check c", "No"]
+    assert _ask(five)["options"] == ["Yes, all", "No", "Check a", "Check b"]
 
 
-def test_reply_options_are_sanitized(replies):
-    make, _ = replies
+def test_reply_options_are_sanitized():
     raw = ["Yes", "yes", "ok\x1b[A", "no\n", "x" * 61, 7, ASK, "Maybe", "Later", "Never", "No"]
-    assert _ask(make({"options": raw}))["options"] == ["Yes", "No", "Maybe", "Later"]
+    assert _ask(raw)["options"] == ["Yes", "No", "Maybe", "Later"]
 
 
-def test_provider_error_retry_is_deterministic(replies):
-    make, calls = replies
+def test_replies_without_a_detected_closing_question_are_dropped():
+    parsed = {"tool": "claude", "activity": "idle", "closing_replies": ["Yes", "No"]}
+    result = classify(_pane("claude"), "● Done.\n\n❯\n", _llm(parsed))
+    assert "question" not in result and "closing_replies" not in result
+
+
+def test_provider_error_retry_is_deterministic():
     screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
-    out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
-    assert out["question"]["options"] == ["try again"] and not calls
+    out = classify(_pane("claude"), screen, _llm({"closing_replies": ["a", "b"]}))
+    assert out["question"]["options"] == ["try again"]

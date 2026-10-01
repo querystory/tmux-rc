@@ -11,6 +11,13 @@ def test_composed_prompt_changes_only_the_shared_rules():
         ("Below the control-delimited [visible screen] marker, derive current state and questions\n"
          "from it; text above the marker is history.\n"),
         "  A past-tense duration with a clock time marks a finished turn, not a live spinner.\n",
+        ('  "closing_replies": ["..."],  // ONLY if the agent\'s last message asks '
+         'the user a yes/no\n'
+         '               // question (still idle, no "question"): 2-4 short replies, '
+         'accept first,\n'
+         '               // decline last, a "Yes, but check with me before <step>" '
+         'per step it names;\n'
+         '               // omit if open-ended, wh-, or either/or\n'),
         ("An opaque ID, or a title quoted in tool output or another pane's listing, is not\n"
          "this pane's conversation name.\n\n"),
     ):

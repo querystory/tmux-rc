@@ -134,6 +134,10 @@ Return ONLY compact JSON. Include a field only if you can determine it — do no
   "question": {"prompt": "...", "options": ["..."], "answer_style": "text"|"menu"|"cursor",
                "selected": <int|null>,   // cursor style: index of the ❯-highlighted option
                "keymap": {"next": "Down", "prev": "Up", "select": "Enter", "search": true|false}},
+  "closing_replies": ["..."],  // ONLY if the agent's last message asks the user a yes/no
+               // question (still idle, no "question"): 2-4 short replies, accept first,
+               // decline last, a "Yes, but check with me before <step>" per step it names;
+               // omit if open-ended, wh-, or either/or
   "rewind": {"entries": [{"text": "...", "note": "...", "selected": true}], "more_above": <int>, "more_below": <int>},
   "tasks": [{"text": "...", "done": true|false}],
   "subagents": [{"label": "...", "state": "running"|"waiting"|"idle"|"compacting"|"unknown"|"done", "elapsed": "...", "tokens": "..."}],

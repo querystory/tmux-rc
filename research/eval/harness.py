@@ -103,9 +103,7 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         current_command=sample.current_command,
         title=sample.name,
     )
-    return classify(
-        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository, replies_fn=llm_fn
-    )
+    return classify(pane, sample.capture, llm_fn=llm_fn, repository=sample.repository)
 
 
 # ── scoring ────────────────────────────────────────────────────────────────────────

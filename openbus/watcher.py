@@ -1226,7 +1226,6 @@ class Watcher:
             pane,
             text,
             llm_fn=llm_fn,
-            replies_fn=llm_fn and partial(llm_fn, kind="replies"),
             prior=prior,
             recent_events=recent_texts,
             # What we last knew, so a failed parse holds that instead of guessing.
