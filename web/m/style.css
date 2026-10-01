@@ -189,6 +189,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #push.active { color: var(--accent); background: var(--accent-bg); }
 /* Keep the conversation scrollable while status and call controls stay visible. */
 #voice-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(640px, 100%); padding-inline: 16px; }
+/* The sheet itself takes initial focus (tabindex=-1, focused in show()), so no button opens with a ring painted on it; Tab still lands on real controls, which keep their :focus-visible ring. */
+#voice-dialog:focus { outline: none; }
 #voice-dialog .sheet-handle, #voice-dialog .dialog-heading, #voice-status, .voice-controls { flex: none; }
 #voice-models { min-height: 0; overflow-y: auto; }
 #voice-models button:disabled { opacity: .5; }

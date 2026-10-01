@@ -189,3 +189,13 @@ def test_wide_screens_fill_the_main_column_and_let_the_seam_move():
 
     # The heading moved out of the app-wide header and into the panel it names.
     assert html.index('id="detail"') < html.index('id="heading"'), "the title belongs over the pane"
+
+
+def test_voice_sheet_takes_initial_focus_not_its_first_button():
+    """showModal() focuses the first button (the minimize button) and its :focus-visible ring
+    paints on open; the sheet itself takes focus instead, with no ring on that container."""
+    web = Path(__file__).resolve().parent.parent / "web" / "m"
+    html = (web / "index.html").read_text()
+    assert 'id="voice-dialog" aria-labelledby="voice-title" tabindex="-1"' in html
+    assert "dialog.showModal(); dialog.focus();" in (web / "live.js").read_text()
+    assert "#voice-dialog:focus { outline: none; }" in (web / "style.css").read_text()

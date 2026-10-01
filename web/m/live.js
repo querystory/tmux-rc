@@ -50,7 +50,7 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   // Restoring puts the log back where minimizing left it: at the tail if it was following
   // there, else at the same offset (read before closing, since a closed log has no layout).
   function show() {
-    if (!dialog.open) dialog.showModal();
+    if (!dialog.open) { dialog.showModal(); dialog.focus(); } // not the first button: its ring would show on open
     if (run?.scroll) { log.scrollTop = run.scroll.follow ? log.scrollHeight : run.scroll.top; run.scroll = null; }
     unread = false; badge();
   }
