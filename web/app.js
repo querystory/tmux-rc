@@ -3384,7 +3384,7 @@ if (bar.input) {
   // caret here — insertNodeAtCaret restores it when the live selection is gone.
   bar.attach.onclick = () => { saveCaret(); bar.file.click(); };
   bar.file.onchange = () => {
-    for (let i = 0; bar.file.files[i]; i++) insertImage(bar.file.files[i]);
+    for (let i = 0; i < bar.file.files.length; i++) insertImage(bar.file.files.item(i));
     bar.file.value = ""; // else picking the SAME photo again never fires change
   };
   // Paste into the composer. Two jobs: (1) an image on the clipboard becomes an inline
