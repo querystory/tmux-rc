@@ -401,7 +401,8 @@ _replies: dict[str, list[str]] = {}  # by question text: one call per question, 
 
 def _reply_options(prompt: str, replies_fn) -> list[str]:
     """The model's reply buttons for `prompt`, or [] without a model or on an unusable
-    answer (not cached, so the next parse tries again). Push shows only the first two
+    answer (not cached: retried when the screen next changes or the daemon restarts, since
+    an unchanged screen is never re-parsed). Push shows only the first two
     options, so the final decline moves up to second place."""
     if prompt not in _replies and replies_fn:
         reply = replies_fn(_REPLIES_SYSTEM, prompt)
