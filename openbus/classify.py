@@ -15,7 +15,6 @@ minimal dict (idle vs running) so the pipe never breaks.
 from __future__ import annotations
 
 import re
-from functools import partial
 from itertools import islice
 from pathlib import Path
 
@@ -363,99 +362,57 @@ def _final_ask(visible: str, tool: str) -> dict | None:
     return {"prompt": " ".join(lines[max(handoff - 1, 0):handoff + 1]), "answer_style": "text"}
 
 
-_YES_NO_RE = re.compile(
-    r"(?:should|shall|do|does|did|can|could|will|would|want|is|am|are|was|were|have|has|may|might|must|ok|okay)(?:n['’]t)?\b(?!,)|won['’]t\b|cannot\b",
-    re.IGNORECASE,
-)
-# Rules out yes/no: an alternative, a wh-word anywhere ("tell me which..."), or "can you ...".
-_NOT_YES_NO_RE = re.compile(
-    r"\b(?:or|what|which|how|why|where|when|who|whom|whose|whether)\b"
-    r"|^(?:can|could|will)n?['’]?t?\s+you\b",  # a request for content, not a yes/no
-    re.IGNORECASE)
-_GATED_RE = re.compile(r"\bthen\s+\w|,\s+and\b", re.IGNORECASE)  # several steps, each a gate
-
-
-def _clean_options(raw: object, *prompts: str, cap: int = 4) -> list[str]:
-    """Suggested replies as buttons: strings only, short, deduped, none that just repeat a
-    prompt, at most 4."""
+def _clean_options(raw: object, *prompts: str) -> list[str]:
+    """Suggested replies as buttons: strings only, short, deduped, printable (an option is
+    typed into the agent's input box), none that just repeat a prompt, at most 4."""
     repeats = {p.casefold() for p in prompts}
     picks: dict[str, str] = {}
     for o in raw if isinstance(raw, list) else []:
         if (isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.isprintable()
                 and o.strip().casefold() not in repeats):
             picks.setdefault(o.strip().lower(), o.strip())
-    return list(picks.values())[:cap]
+    return list(picks.values())[:4]
 
 
 def _model_options(model_q: object, ask: dict) -> list[str]:
-    """The model's own suggested replies, kept when a deterministic ask replaces its
+    """The parser's own suggested replies, kept when the deterministic ask replaces its
     question. Only for the same question (one prompt contains the other)."""
     if not isinstance(model_q, dict) or model_q.get("answer_style", "text") != "text":
         return []
     old, new = str(model_q.get("prompt", "")).strip(), ask["prompt"]
-    final = re.split(r"(?<=[.!?])\s+", new)[-1]  # the closing sentence, not the paragraph
-    same = old.casefold() in final.casefold() or final.casefold() in old.casefold()
-    return _clean_options(model_q.get("options"), old, new) if old and same else []
+    return _clean_options(model_q.get("options"), old, new) if old and (
+        old.casefold() in new.casefold() or new.casefold() in old.casefold()) else []
 
 
-# A question that bundles steps ("send it, then merge") has no single Yes: the heuristic
-# gives a checkpoint variant, and one small extra call (see _gated_replies) writes the
-# step-specific ones. It lives here, not in the parser prompt, and sees only the question.
+# What kind of question it is, and so what the buttons are, is the model's call: one small
+# request per distinct question, seeing only the question text. It lives here, not in the
+# parser prompt. Empty means open-ended: no buttons, the free-text box is always there.
 _REPLIES_SYSTEM = (
-    "The coding agent just asked the user the question below. Write 2 to 4 reply buttons: "
-    "short (under 8 words), distinct, each a complete reply the user could type, as JSON "
-    '{"options": [...]}. The first accepts the question as asked; the last declines. If '
-    'the question bundles several steps, add between them one "Yes, but check with me '
-    'before <step>" per step. Refer only to steps the question names; never invent any.'
+    "The coding agent just asked the user the question below. Reply as JSON "
+    '{"options": [...]} with reply buttons for it: short (under 8 words), distinct, each a '
+    "complete reply the user could type. Use an EMPTY list when the question is open-ended "
+    "(what, which, how, a choice between alternatives, a request for content). For a "
+    "yes/no question give the natural accept and decline. If it bundles several steps, "
+    'add between them one "Yes, but check with me before <step>" per step, naming only '
+    "steps the question names. The first option accepts; the last declines."
 )
 _replies: dict[str, list[str]] = {}  # by question text: one call per question, not per tick
 
 
-def _gated_replies(prompt: str, llm_fn) -> list[str]:
-    """Step-specific replies for a gated question, or [] (the heuristic stands, and the
-    next parse retries) when there is no model or its answer is unusable. Push shows only
-    the first two options, so the final decline moves up to second place."""
-    if prompt not in _replies and llm_fn:
-        if isinstance(llm_fn, partial):  # the watcher's: keep these calls out of "parse" telemetry
-            llm_fn = partial(llm_fn, kind="replies")
-        reply = llm_fn(_REPLIES_SYSTEM, prompt)
-        got = _clean_options(reply.get("options") if isinstance(reply, dict) else None,
-                             prompt, cap=99)
-        if len(got) > 4:  # many steps: keep the accept, the first checkpoints and the decline
-            got = [*got[:3], got[-1]]
-        if len(got) >= 3:  # accept, at least one checkpoint, decline
+def _reply_options(prompt: str, replies_fn) -> list[str]:
+    """The model's reply buttons for `prompt`, or [] without a model or on an unusable
+    answer (not cached, so the next parse tries again). Push shows only the first two
+    options, so the final decline moves up to second place."""
+    if prompt not in _replies and replies_fn:
+        reply = replies_fn(_REPLIES_SYSTEM, prompt)
+        if isinstance(reply, dict) and isinstance(reply.get("options"), list):
+            got = _clean_options(reply["options"], prompt)
+            if len(got) > 2:
+                got.insert(1, got.pop())
             if len(_replies) > 256:
                 _replies.clear()
-            got.insert(1, got.pop())  # the decline, whatever its wording
             _replies[prompt] = got
     return _replies.get(prompt, [])
-
-
-def _yes_no_options(question: dict, llm_fn=None) -> bool:
-    """Give an option-less prose question Yes/No buttons when its last sentence is a plain
-    yes/no ask: opens with an auxiliary or modal (so never a wh-question) and offers no
-    "A or B" alternatives. The buttons type the reply into the agent's input box. True when
-    a model was available but its replies were unusable, so the heuristic buttons are
-    provisional and the caller should read the screen again."""
-    if question.get("answer_style", "text") != "text":
-        return False
-    if question.get("options"):
-        if kept := _clean_options(question["options"]):
-            question["options"] = kept
-            return False
-        del question["options"]  # unusable model output ([""], [7], "none") is no options
-    sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
-    last = _LIST_ITEM_RE.sub("", sentences[-1], count=1).lstrip("*_\"'`(").rstrip("*_\"'`)")
-    if not (last.endswith("?") and _YES_NO_RE.match(last) and not _NOT_YES_NO_RE.search(last)):
-        return False
-    if not _GATED_RE.search(last):
-        question["options"] = ["Yes", "No"]
-    elif replies := _gated_replies(last, llm_fn):
-        question["options"] = replies
-    else:  # push shows only the first two options
-        question["options"] = ["Yes", "No", "Yes, but check with me first"]
-        return llm_fn is not None
-    return False
 
 
 def _obvious_idle(text: str) -> bool:
@@ -568,6 +525,7 @@ def classify(
     recent_events: list[str] | None = None,
     prev_activity: str | None = None,
     repository: str | None = None,
+    replies_fn=None,
 ) -> dict:
     """Parse `pane` into a plain dict for the UI. `llm_fn(system, text) -> dict|None`
     is the Gemini parser. `prior` = recent prior captures (continuity); `recent_events`
@@ -680,12 +638,13 @@ def classify(
     if result.get("tool") in _TURN_ERROR_RE and (
         ask := _final_ask(visible, result["tool"])
     ):
-        if not ask.get("options") and (kept := _model_options(result.get("question"), ask)):
-            ask["options"] = kept
+        if not ask.get("options") and (
+            options := _model_options(result.get("question"), ask)
+            or _reply_options(ask["prompt"], replies_fn)
+        ):
+            ask["options"] = options
         result["question"] = ask
         result.pop("parse_ok", None)  # Grounded in the turn's own chrome, not the model.
-    if isinstance(result.get("question"), dict) and _yes_no_options(result["question"], llm_fn):
-        result["refine_failed"] = True  # the watcher pops this and retries the screen
     # A cursor picker's advertised search binding is evidence, not a model guess.
     question = result.get("question")
     if isinstance(question, dict) and question.get("answer_style") == "cursor":

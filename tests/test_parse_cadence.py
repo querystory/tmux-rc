@@ -30,6 +30,7 @@ def _harness(monkeypatch, frame_holder):
     def fake_classify(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1  # one call == one LLM parse
         return {"activity": "idle", "events": [], "label": pane.label, "tool": "shell"}
@@ -331,6 +332,7 @@ def test_failed_parse_retries_the_same_screen_instead_of_retiring_it(monkeypatch
     def flaky(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         got = outcomes.pop(0) if outcomes else {"activity": "idle", "events": [], "tool": "claude"}
@@ -366,6 +368,7 @@ def test_repeated_failures_dont_restart_the_pane_clocks(monkeypatch):
     def always_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
@@ -396,6 +399,7 @@ def test_service_backoff_does_not_spend_the_pane_budget(monkeypatch):
     def refused(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if braked["on"]:
@@ -427,6 +431,7 @@ def test_a_new_screen_clears_the_failure_budget(monkeypatch):
     def always_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         return {"activity": prev_activity or "unknown", "tool": "unknown",
@@ -479,6 +484,7 @@ def test_failed_parse_keeps_the_whole_card_not_just_the_activity(monkeypatch):
     def then_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if seq:
@@ -514,6 +520,7 @@ def test_failed_forced_reparse_still_advances_parsed_at(monkeypatch):
     def then_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if seq:
@@ -545,6 +552,7 @@ def test_failed_forced_reparse_still_retries(monkeypatch):
     def then_fails(
         pane, text, llm_fn=None, prior=None, recent_events=None, prev_activity=None,
         repository=None,
+        replies_fn=None,
     ):
         calls["n"] += 1
         if seq:
@@ -563,37 +571,3 @@ def test_failed_forced_reparse_still_retries(monkeypatch):
     state = w._tick_pane(pane)
     assert calls["n"] == 3, "a failed forced reparse must leave the screen unread"
     assert state["question"] == {"prompt": "Proceed?"}, "and the card stays answerable"
-
-
-def test_provisional_gated_buttons_retry_within_the_parse_budget(monkeypatch):
-    # classify() flags a card whose reply refinement failed. The card stays usable, but the
-    # unchanged screen is read again each tick until PARSE_RETRIES, then retired unread.
-    w, _ = _harness(monkeypatch, ["$ x"])
-    calls = {"n": 0}
-    buttons = ["Yes", "No", "Yes, but check with me first"]
-
-    def provisional(pane, text, **kw):
-        calls["n"] += 1
-        return {"activity": "waiting", "events": [], "tool": "shell", "label": pane.label,
-                "question": {"prompt": "q?", "answer_style": "text", "options": buttons},
-                "refine_failed": True}
-
-    monkeypatch.setattr(W, "classify", provisional)
-    pane = _Pane()
-    for _ in range(W.PARSE_RETRIES + 3):
-        w._forced_this_tick = set()
-        state = w._tick_pane(pane)
-        assert state["question"]["options"] == buttons  # the provisional card is served
-        assert "refine_failed" not in state  # internal flag never reaches the phone
-    assert calls["n"] == W.PARSE_RETRIES  # re-read until the budget is spent, then stops
-
-    # A usable refinement retires the screen after one parse.
-    w, _ = _harness(monkeypatch, ["$ y"])
-    calls["n"] = 0
-    monkeypatch.setattr(W, "classify", lambda pane, text, **kw: (
-        calls.__setitem__("n", calls["n"] + 1) or
-        {"activity": "idle", "events": [], "tool": "shell", "label": pane.label}))
-    for _ in range(3):
-        w._forced_this_tick = set()
-        w._tick_pane(pane)
-    assert calls["n"] == 1

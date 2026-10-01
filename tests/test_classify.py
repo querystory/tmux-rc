@@ -4,7 +4,7 @@ with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 import pytest
 
 from openbus import classify as classify_mod
-from openbus.classify import _yes_no_options, bootstrap, classify
+from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
 
@@ -907,230 +907,87 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
     assert "question" not in claude and "question" not in codex
 
 
-@pytest.mark.parametrize("verb", ["Should", "Shall", "Do", "Does", "Did", "Can", "Could", "Will",
-                                  "Would", "Want", "Is", "Are", "Have", "Has", "May", "OK",
-                                  "Okay", "Was", "Were", "Am", "Might", "Must",
-                                  "Shouldn't", "Don’t", "Isn't", "Won't", "Can't", "Cannot"])
-def test_yes_no_question_gets_yes_no_buttons(verb):
-    q = {"prompt": f"It has no review yet. {verb} we go ahead?", "answer_style": "text"}
-    _yes_no_options(q)
-    assert q["options"] == ["Yes", "No"]
-
-
-@pytest.mark.parametrize("prompt", [
-    "Should I use Redis or Postgres?",  # an either/or is not yes/no
-    "Which branch should I use?",  # wh-question
-    "How should I proceed?",
-    "Should I continue",  # not a question
-    "Done. What next?",
-    "If so, then what?",
-    "Can you tell me which branch I should use?",  # embedded wh-request
-    "Can you tell me whether CI passed?",
-    "Can you summarize the changes?",  # a request for content
-    "Could you provide the branch name?",
-    "Okay, what should I do next?",  # "okay" only opens a yes/no as "okay to ..."
-    "Redis or Postgres: Can you choose?",  # a colon is not a sentence boundary
-])
-def test_non_yes_no_question_gets_no_buttons(prompt):
-    q = {"prompt": prompt, "answer_style": "text"}
-    _yes_no_options(q)
-    assert "options" not in q
-
-
-@pytest.mark.parametrize("prompt", [
-    "**Should I merge?**", '"Should I merge?"', "(Should I merge?)"])
-def test_wrapped_yes_no_question_still_gets_buttons(prompt):
-    q = {"prompt": prompt, "answer_style": "text"}
-    _yes_no_options(q)
-    assert q["options"] == ["Yes", "No"]
-
-
-def test_colon_clause_keeps_its_leading_auxiliary():
-    q = {"prompt": "Should I do this: deploy the tested build?", "answer_style": "text"}
-    _yes_no_options(q)
-    assert q["options"] == ["Yes", "No"]
-
-
-def test_yes_no_buttons_never_replace_model_options_or_menus():
-    own = {"prompt": "Should I merge?", "answer_style": "text", "options": ["merge", "wait"]}
-    _yes_no_options(own)
-    assert own["options"] == ["merge", "wait"]
-    menu = {"prompt": "Should I merge?", "answer_style": "menu"}
-    _yes_no_options(menu)
-    assert "options" not in menu
-
-
-def test_closing_yes_no_question_in_auto_mode_offers_yes_no():
-    result = classify(_pane("claude"), _sample("58_claude_yes_no_closing_question"),
-                      _llm({"tool": "claude", "activity": "idle"}))
-    assert result["question"]["options"] == ["Yes", "No", "Yes, but check with me first"]
-    # A model-supplied text question gets them too, anywhere on the screen.
-    asked = classify(_pane("claude"), "x", _llm({"question": {"prompt": "Want me to push?"}}))
-    assert asked["question"]["options"] == ["Yes", "No"]
-
-
-def test_gated_yes_no_question_also_offers_a_checkpoint():
-    q = {"prompt": "Should I send it to Copilot, then the reviewer, and merge?",
-         "answer_style": "text"}
-    _yes_no_options(q)
-    assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
-    then = {"prompt": "Should I merge then?", "answer_style": "text"}
-    _yes_no_options(then)
-    assert then["options"] == ["Yes", "No"]  # sentence-final "then" is not a second step
-    ok = {"prompt": "Okay to merge?", "answer_style": "text"}
-    _yes_no_options(ok)
-    assert ok["options"] == ["Yes", "No"]
-
-
-def test_model_options_survive_the_deterministic_closing_ask():
-    screen = _sample("58_claude_yes_no_closing_question")
-    ask = ("Should I send it to Copilot, then reviewer once it's clean, "
-           "and merge after approval?")
-    model = {"prompt": ask.lower(),
-             "answer_style": "text",
-             "options": ["Yes, do all three", " yes, do all three ", "Not yet",
-                         ask.lower(), "x" * 61, 7, "a", "b", "c"]}
-    kept = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": model}))
-    assert kept["question"]["options"] == ["Yes, do all three", "Not yet", "a", "b"]
-    # A different question of the model's is not this one's options.
-    other = classify(_pane("claude"), screen, _llm(
-        {"tool": "claude", "question": {"prompt": "Pick a color", "options": ["red"]}}))
-    assert other["question"]["options"] == ["Yes", "No", "Yes, but check with me first"]
-    # Provider-error retry keeps its own option.
-    err = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
-    out = classify(_pane("claude"), err, _llm(
-        {"question": {"prompt": "API Error: 529 overloaded_error", "options": ["x"]}}))
-    assert out["question"]["options"] == ["try again"]
-
-
 def _auto_screen(message):
     return f"\x1e[visible screen]\x1f\n● {message}\n✻ Baked for 16s\n\n❯\n  ⏵⏵ auto mode on"
 
 
 @pytest.mark.parametrize("message", [
     "Done.\n  Should I send this to\n  Copilot, then merge\n  after approval?",
-    "Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n  Copilot?",
-    "Done.\n  - item one. Should I send this to\n    Copilot, then the reviewer?",
+    ("Done.\n\n  - first item\n  - second item\n\n  Should I send this to\n"
+     "  Copilot, then merge after approval?"),
+    ("Done.\n  - item one. Should I send this to\n"
+     "    Copilot, then merge after approval?"),
+    "Done.\n  **Should I send this to Copilot, then merge after approval?**",
 ])
 def test_wrapped_closing_question_is_read_whole(message):
     result = classify(_pane("claude"), _auto_screen(message), _llm({"tool": "claude"}))
     prompt = result["question"]["prompt"]
-    assert "Should I send this to Copilot" in prompt and prompt.endswith("?")
+    assert "Should I send this to Copilot, then merge after approval?" in prompt
     assert "first item" not in prompt
-    assert result["question"]["options"][:2] == ["Yes", "No"]
-
-
-GATED = "Should I send it to Copilot, then the reviewer, and merge?"
-
-
-def _replies_llm(answer, calls):
-    def fn(system, text):
-        if system == classify_mod._REPLIES_SYSTEM:
-            calls.append(text)
-            return answer
-        return {}
-    return fn
+    assert "options" not in result["question"]  # no replies_fn: no buttons
 
 
 @pytest.fixture
-def fresh_replies():
+def replies():
     classify_mod._replies.clear()
-    yield
+    calls = []
+
+    def make(answer):
+        def fn(system, text):
+            assert system == classify_mod._REPLIES_SYSTEM
+            calls.append(text)
+            return answer
+        return fn
+
+    yield make, calls
     classify_mod._replies.clear()
 
 
-def test_gated_question_gets_model_written_replies_once(fresh_replies):
-    calls = []
-    answer = {"options": ["Yes, do all three", "Yes, but check with me before merging",
-                          "Hold off", GATED]}
-    fn = _replies_llm(answer, calls)
-    for _ in range(2):  # a second parse of the same question must not call again
-        q = {"prompt": GATED, "answer_style": "text"}
-        _yes_no_options(q, fn)
-        # Push shows two options, so the decline moves up to second place.
-        assert q["options"] == ["Yes, do all three", "Hold off",
-                                "Yes, but check with me before merging"]
-    assert calls == [GATED]  # only the question text is sent
+ASK = "Should I send it to Copilot, then merge?"
 
 
-def test_many_step_replies_keep_the_decline(fresh_replies):
-    answer = {"options": ["Yes, all", "Check before a", "Check before b", "Check before c", "No"]}
-    q = {"prompt": GATED, "answer_style": "text"}
-    _yes_no_options(q, _replies_llm(answer, []))
-    assert q["options"] == ["Yes, all", "No", "Check before a", "Check before b"]
+def _ask(replies_fn, model_q=None, message=ASK):
+    result = classify(_pane("claude"), _auto_screen(message),
+                      _llm({"tool": "claude", "question": model_q}), replies_fn=replies_fn)
+    return result["question"]
 
 
-@pytest.mark.parametrize("prompt", ["- Should I merge?", "1. Should I merge?",
-                                    "* **Should I merge?**"])
-def test_list_item_question_gets_buttons(prompt):
-    q = {"prompt": prompt, "answer_style": "text"}
-    _yes_no_options(q)
-    assert q["options"] == ["Yes", "No"]
+def test_closing_question_gets_model_replies_accept_then_decline_once(replies):
+    make, calls = replies
+    answer = {"options": ["Yes, do both", "Yes, but check before merging", "Hold off", ASK]}
+    for _ in range(2):
+        assert _ask(make(answer))["options"] == [
+            "Yes, do both", "Hold off", "Yes, but check before merging"]
+    assert calls == [ASK]  # one call per distinct question, and it sees only the question
 
 
-def test_gated_replies_fall_back_to_the_heuristic_and_retry(fresh_replies):
-    calls = []
-    for answer in (None, {"options": ["Yes", "No"]}, {"options": "junk"}, ["Yes", "No", "x"], "x"):
-        q = {"prompt": GATED, "answer_style": "text"}
-        assert _yes_no_options(q, _replies_llm(answer, calls))  # provisional: read again
-        assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
-    assert len(calls) == 5  # nothing was cached, so each parse tries again
-    q = {"prompt": GATED, "answer_style": "text"}
-    assert not _yes_no_options(q)  # no model at all: nothing to retry
-    assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
+def test_open_ended_or_failed_replies_show_no_buttons(replies):
+    make, calls = replies
+    for answer in (None, {"options": "junk"}, ["Yes"], {}, {"options": []}):
+        assert "options" not in _ask(make(answer), message="Which env should I use?")
+    assert len(calls) == 5  # failures retry; the empty list is an answer and is cached
+    asked = "Which env should I use?"
+    assert "options" not in _ask(make({"options": ["Yes", "No"]}), message=asked)
+    assert len(calls) == 5  # ... so the cached empty answer stood
 
 
-@pytest.mark.parametrize("prompt", ["Should I delete the old branch?", "Should I use A or B?",
-                                    "Which branch should I use?"])
-def test_only_gated_questions_cost_a_model_call(fresh_replies, prompt):
-    calls = []
-    q = {"prompt": prompt, "answer_style": "text"}
-    _yes_no_options(q, _replies_llm({"options": ["x", "y"]}, calls))
-    assert not calls
-    assert q.get("options", ["Yes", "No"]) == ["Yes", "No"]
+def test_model_options_for_the_same_question_skip_the_extra_call(replies):
+    make, calls = replies
+    own = {"prompt": ASK.lower(), "options": ["go", "wait"]}
+    assert _ask(make({"options": ["x", "y"]}), own)["options"] == ["go", "wait"]
+    other = {"prompt": "Pick a color", "options": ["red"]}
+    assert _ask(make({"options": ["Yes", "No"]}), other)["options"] == ["Yes", "No"]
+    assert calls == [ASK]
 
 
-def test_wrapped_closing_question_with_trailing_markup_is_detected():
-    screen = _auto_screen("Done.\n  **Should I merge?**")
-    result = classify(_pane("claude"), screen, _llm({"tool": "claude"}))
-    assert result["question"]["options"] == ["Yes", "No"]
+def test_reply_options_are_sanitized(replies):
+    make, _ = replies
+    raw = ["Yes", "yes", "ok\x1b[A", "no\n", "x" * 61, 7, ASK, "Maybe", "Later", "Never", "No"]
+    assert _ask(make({"options": raw}))["options"] == ["Yes", "Never", "Maybe", "Later"]
 
 
-def test_reply_calls_are_tagged_apart_from_parse_telemetry(fresh_replies):
-    from functools import partial
-    seen = []
-
-    def fake(system, text, kind="parse"):
-        seen.append(kind)
-        return {"options": ["Yes, all", "Check first", "No"]}
-
-    _yes_no_options({"prompt": GATED, "answer_style": "text"}, partial(fake, kind="parse"))
-    assert seen == ["replies"]
-
-
-@pytest.mark.parametrize("junk", [[""], [7], "none", [None, " "]])
-def test_unusable_model_options_do_not_suppress_the_fallback(junk):
-    q = {"prompt": "Should I merge?", "answer_style": "text", "options": junk}
-    _yes_no_options(q)
-    assert q["options"] == ["Yes", "No"]
-
-
-def test_model_options_must_belong_to_the_closing_sentence():
-    screen = _auto_screen("Do the tests pass? Should I merge?")
-    model = {"prompt": "Do the tests pass?", "options": ["pass", "fail"]}
-    result = classify(_pane("claude"), screen, _llm({"tool": "claude", "question": model}))
-    assert result["question"]["options"] == ["Yes", "No"]
-
-
-def test_options_with_control_characters_are_dropped():
-    # An option is typed into the agent's input box: an escape or newline must never ride along.
-    q = {"prompt": "Should I merge?", "answer_style": "text",
-         "options": ["yes\r", "ok\x1b[A", "fine\nrm -rf", "Go ahead"]}
-    _yes_no_options(q)
-    assert q["options"] == ["Go ahead"]
-
-
-def test_would_you_like_permission_question_gets_buttons():
-    q = {"prompt": "Would you like me to merge it?", "answer_style": "text"}
-    _yes_no_options(q)
-    assert q["options"] == ["Yes", "No"]
+def test_provider_error_retry_is_deterministic(replies):
+    make, calls = replies
+    screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
+    out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
+    assert out["question"]["options"] == ["try again"] and not calls

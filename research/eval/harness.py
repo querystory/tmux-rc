@@ -15,8 +15,7 @@ JSON. It then scores the candidate against the sample's blessed `expected`:
 
   STRUCTURED fields (exact match) — these drive the badge and behavior, so brittleness
   is correct here: `tool`, `activity`, `waiting_on`, plus the PRESENCE/shape of
-  `question` (present-or-absent, and if present its `answer_style`, plus pinned
-  `options`/`selected`/`keymap`), `rewind`, `tasks`,
+  `question` (present-or-absent, and if present its `answer_style`), `rewind`, `tasks`,
   `copyables`, and — only where a sample names it — a RENDERABLE `tables`.
   A single structured mismatch fails the sample.
 
@@ -104,7 +103,7 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         title=sample.name,
     )
     return classify(
-        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository
+        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository, replies_fn=llm_fn
     )
 
 
@@ -192,12 +191,17 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
     # question — presence + answer_style, plus whichever cursor fields the sample pins
     want_q = expected.get("question")
-    extra = tuple(
-        k for k in ("selected", "keymap", "options") if isinstance(want_q, dict) and k in want_q
-    )
+    extra = tuple(k for k in ("selected", "keymap") if isinstance(want_q, dict) and k in want_q)
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
+    # Model-written reply buttons vary in wording: a sample opts in to "accept first, decline
+    # second" with `reply_buttons`, instead of pinning text.
+    if isinstance(want_q, dict) and want_q.get("reply_buttons"):
+        opts = (candidate.get("question") or {}).get("options")
+        first = [str(o).lower() for o in opts[:2]] if isinstance(opts, list) else []
+        if len(first) < 2 or not first[0].startswith("yes") or not first[1].startswith("no"):
+            diffs.append(f"question.options: want accept then decline, got {opts!r}")
     # Presence-only fields. `copyables` is here rather than compared by content: the
     # LABEL is free prose and the TEXT is a verbatim payload whose exact whitespace we
     # don't want to bless brittlely — what must not regress is "the model noticed there

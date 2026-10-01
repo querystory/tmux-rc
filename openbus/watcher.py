@@ -45,7 +45,7 @@ SNAPSHOT_HISTORY = 200
 CHECKPOINT_EVENTS = 100
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 4
+CARD_VERSION = 5
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -1223,6 +1223,7 @@ class Watcher:
             pane,
             text,
             llm_fn=llm_fn,
+            replies_fn=llm_fn and partial(llm_fn, kind="replies"),
             prior=prior,
             recent_events=recent_texts,
             # What we last knew, so a failed parse holds that instead of guessing.
@@ -1252,7 +1253,6 @@ class Watcher:
             title_tool = previous_title_tool
         state["agent_title_tool"] = title_tool if state["agent_title"] else None
         self._parse_valid[pane.id] = state.get("parse_ok", True)
-        refine_failed = state.pop("refine_failed", False)  # card is good, buttons provisional
         if state.get("parse_ok", True):
             self._accumulate_prs(pane.id, state.get("working_prs") or [])
         state.pop("working_prs", None)
@@ -1317,7 +1317,7 @@ class Watcher:
         # the screen next changed. A finished agent's screen does not change again, so
         # the freeze was permanent. Leaving the mark unset on failure costs one re-read
         # of the same text on the next tick, which is exactly the retry this needs.
-        if state.get("parse_ok", True) and not refine_failed:
+        if state.get("parse_ok", True):
             self._prev_fp[pane.id] = fp
             self._parse_fails.pop(pane.id, None)
         elif backing_off():
