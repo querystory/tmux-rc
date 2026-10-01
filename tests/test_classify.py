@@ -1049,6 +1049,21 @@ def test_gated_question_gets_model_written_replies_once(fresh_replies):
     assert calls == [GATED]  # only the question text is sent
 
 
+def test_many_step_replies_keep_the_decline(fresh_replies):
+    answer = {"options": ["Yes, all", "Check before a", "Check before b", "Check before c", "No"]}
+    q = {"prompt": GATED, "answer_style": "text"}
+    _yes_no_options(q, _replies_llm(answer, []))
+    assert q["options"] == ["Yes, all", "No", "Check before a", "Check before b"]
+
+
+@pytest.mark.parametrize("prompt", ["- Should I merge?", "1. Should I merge?",
+                                    "* **Should I merge?**"])
+def test_list_item_question_gets_buttons(prompt):
+    q = {"prompt": prompt, "answer_style": "text"}
+    _yes_no_options(q)
+    assert q["options"] == ["Yes", "No"]
+
+
 def test_gated_replies_fall_back_to_the_heuristic_and_retry(fresh_replies):
     calls = []
     for answer in (None, {"options": ["Yes", "No"]}, {"options": "junk"}, ["Yes", "No", "x"], "x"):

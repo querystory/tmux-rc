@@ -372,7 +372,7 @@ _NOT_YES_NO_RE = re.compile(
 _GATED_RE = re.compile(r"\bthen\s+\w|,\s+and\b", re.IGNORECASE)  # several steps, each a gate
 
 
-def _clean_options(raw: object, *prompts: str) -> list[str]:
+def _clean_options(raw: object, *prompts: str, cap: int = 4) -> list[str]:
     """Suggested replies as buttons: strings only, short, deduped, none that just repeat a
     prompt, at most 4."""
     repeats = {p.casefold() for p in prompts}
@@ -380,7 +380,7 @@ def _clean_options(raw: object, *prompts: str) -> list[str]:
     for o in raw if isinstance(raw, list) else []:
         if isinstance(o, str) and 0 < len(o.strip()) <= 60 and o.strip().casefold() not in repeats:
             picks.setdefault(o.strip().lower(), o.strip())
-    return list(picks.values())[:4]
+    return list(picks.values())[:cap]
 
 
 def _model_options(model_q: object, ask: dict) -> list[str]:
@@ -412,7 +412,10 @@ def _gated_replies(prompt: str, llm_fn) -> list[str]:
     the first two options, so the final decline moves up to second place."""
     if prompt not in _replies and llm_fn:
         reply = llm_fn(_REPLIES_SYSTEM, prompt)
-        got = _clean_options(reply.get("options") if isinstance(reply, dict) else None, prompt)
+        got = _clean_options(reply.get("options") if isinstance(reply, dict) else None,
+                             prompt, cap=99)
+        if len(got) > 4:  # many steps: keep the accept, the first checkpoints and the decline
+            got = [*got[:3], got[-1]]
         if len(got) >= 3:  # accept, at least one checkpoint, decline
             if len(_replies) > 256:
                 _replies.clear()
@@ -430,7 +433,7 @@ def _yes_no_options(question: dict, llm_fn=None) -> bool:
     if question.get("answer_style", "text") != "text" or question.get("options"):
         return False
     sentences = re.split(r"(?<=[.!?])\s+", str(question.get("prompt", "")).strip())
-    last = sentences[-1].lstrip("*_\"'`(").rstrip("*_\"'`)")
+    last = _LIST_ITEM_RE.sub("", sentences[-1], count=1).lstrip("*_\"'`(").rstrip("*_\"'`)")
     if not (last.endswith("?") and _YES_NO_RE.match(last) and not _NOT_YES_NO_RE.search(last)):
         return False
     if not _GATED_RE.search(last):
