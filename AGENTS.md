@@ -43,6 +43,20 @@ Each change gets a clean worktree cut from `origin/main`
 non-main base has repeatedly caused merge pain (features silently reverted when the base
 squash-merges) — prefer branching off main and merging main in, over stacking.
 
+## Never kill the user's tmux server
+
+Agents run inside the user's tmux, so every `tmux` command inherits `$TMUX` and targets
+the user's live server. `$TMUX` beats `TMUX_TMPDIR`, so setting `TMUX_TMPDIR` alone
+isolates nothing. On 2026-09-30 an agent cleaning up a throwaway demo ran
+`TMUX_TMPDIR=... tmux kill-server`; it hit the user's main server and 47 panes (Claude,
+Codex, shells) had to be restored from transcripts.
+
+- Never run `tmux kill-server` or `tmux kill-session`, for any reason. Close a throwaway
+  window or pane only by the exact id you created.
+- A test server isolates every command, cleanup included, with `env -u TMUX tmux -L <unique-socket>`
+  or an explicit `-S <path>` (as `tests/test_capture_viewport.py` and `tests/test_live_history.py` do).
+- A user-level Claude Code hook blocks the unsafe forms, but the rule holds where it isn't installed.
+
 ## Review before merge
 
 No PR merges with unaddressed review comments. Drive Copilot review to clean (resolve
