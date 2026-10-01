@@ -351,7 +351,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-matches:not(:empty) { margin-top: 16px; max-height: 220px; overflow-y: auto; }
 .atlas-chart { height: 320px; width: 100%; margin-top: 20px; }
 .atlas-history-note { margin-top: 12px; }
-@media (prefers-reduced-motion: reduce) { /* The state legend is also the keyboard/touch filter; avoid duplicate controls. */
+/* The state legend is also the keyboard/touch filter; avoid duplicate controls. */
 .atlas-history-pickers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .atlas-history-pickers select { min-width: 0; max-width: 100%; flex: 1; }
 .atlas-state-legend { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 12px; }
