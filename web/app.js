@@ -3598,8 +3598,9 @@ function insertImage(file) {
   chip.tabIndex = 0;
   chip.setAttribute("aria-label", "Attached image — activate to remove");
   chip.title = "Sends with your next Send/Enter, in this position. Tap to remove.";
-  chip.src = URL.createObjectURL(file);
-  chipUrls.add(chip.src);
+  const url = URL.createObjectURL(file);
+  chip.src = url;
+  chipUrls.add(url);
   const remove = () => {
     const wasFocused = document.activeElement === chip;
     chip.remove(); chipFiles.delete(chip); sweepChipUrls();
