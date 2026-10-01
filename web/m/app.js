@@ -1102,12 +1102,6 @@ document.addEventListener("visibilitychange", () => { sendPresence(); startState
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
-// Bookmarks and Home Screen links from the retired desktop UI: #/pane/%251 -> #pane=%251, #/list/waiting -> #filter=attention.
-const legacyHash = /^#\/(pane|list)\/(.+)$/.exec(location.hash);
-if (legacyHash) {
-  let value = legacyHash[2]; try { value = decodeURIComponent(value); } catch {}
-  history.replaceState(null, "", "#" + new URLSearchParams(legacyHash[1] === "pane" ? { pane: value } : { filter: value === "waiting" ? "attention" : value }));
-}
 fitViewport(); route(); startState();
 setupPush($("push"), notice, licon("bell"));
 const live = setupLiveMode({ request, session: liveSession, licon, report: reportError, onVersion: observeVersion });
