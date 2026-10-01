@@ -192,3 +192,17 @@ def test_captioned_image_is_one_draft_under_one_lock(monkeypatch):
     monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
     _, mode = asyncio.run(server.attach_image("%1", "1234", b"i", "image/png", "caption"))
     assert mode == "path" and events == ["IMAGE", "caption", "Enter"]
+
+
+def test_caption_is_not_typed_into_a_pane_recycled_after_the_image(monkeypatch):
+    events, pid = [], ["1234"]
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: pid[0])
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+
+    def image(*args):
+        pid[0] = "replacement"  # the approved process exits right after the paste
+
+    monkeypatch.setattr(server, "_deliver_image", image)
+    with pytest.raises(tmux.PaneChangedError):
+        server._deliver_composer("%1", "1234", [(b"i", "/tmp/x"), "caption"])
+    assert events == []
