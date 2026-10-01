@@ -164,3 +164,16 @@ def test_tmux_restart_mid_tick_writes_no_checkpoint(monkeypatch, tmp_path):
 
     w, _ = daemon(monkeypatch, tmp_path / "h.db", server=server)
     assert w.history.load_checkpoints() == {}
+
+
+def test_retiring_a_pr_rewrites_the_checkpoint(monkeypatch, tmp_path):
+    w, _ = daemon(monkeypatch, tmp_path / "h.db")
+    monkeypatch.setattr(W, "summarize_events", lambda texts: None)
+    w._prs["%1"] = [{"repo": "o/r", "number": 1}]
+    w._pr_titles._cache[("o/r", 1)] = (float("inf"), {"title": "t", "state": "OPEN"})
+    w._tick()  # the PR joins the card
+    saves = []
+    monkeypatch.setattr(w.history, "save_checkpoints", lambda rows, now=None: saves.append(rows))
+    w._pr_titles._cache[("o/r", 1)] = (float("inf"), {"title": "t", "state": "MERGED"})
+    w._tick()
+    assert w._prs["%1"] == [] and len(saves) == 1

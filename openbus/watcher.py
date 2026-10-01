@@ -1057,7 +1057,8 @@ class Watcher:
             idle_since = s.get("state_since") if s.get("activity") == "idle" else None
             key = (fp, idle_since, valid, s.get("parsed_at"), s.get("events_seq"),
                    (s.get("summary") or {}).get("text"), s.get("session_summary"),
-                   s.get("bootstrap_title"))
+                   s.get("bootstrap_title"),
+                   tuple((q["repo"], q["number"]) for q in s.get("prs") or []))
             held = self._checkpointed.get(p.id, ())
             if held is None:  # restored this tick: the row already holds this card
                 self._checkpointed[p.id] = key
