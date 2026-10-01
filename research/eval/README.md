@@ -247,7 +247,7 @@ and both are reported.
 | offers that must stay idle (of 30) | 30 | 30 | 30 |
 | regular corpus structured pass (of 310) | 305 | 300 | 295 |
 | regular corpus failures | 16 | 16, 59 | 16, 58, 59 |
-| parses proposing buttons with no closing question | 0/470 | 47/470 | 0/470 |
+| parses proposing buttons with no closing question | 0/470 | 35/470 | 0/470 |
 | first-parse input tokens (mean) | 8706 | 8794 (+88, +1.0%) | 8706 |
 | first-parse output tokens (mean) | 155.8 | 156.8 | 154.6 |
 | first-parse latency (mean) | 1.51 s | 1.50 s | 1.44 s |
@@ -267,9 +267,9 @@ and both are reported.
   ("Commit and push only") instead. A single schema comment carrying a conditional rule
   (checkpoint only steps the question names) is not followed by this model; the separate
   call, whose whole input is the question, is.
-- B proposes buttons on screens where no closing question is detected (47 of 470 parses:
-  the not-auto-mode offers, the user-already-typed draft, Codex, and several regular
-  samples). `classify()` discards them, so nothing wrong reaches the phone, but they are
+- B proposes buttons on screens where no closing question is detected (35 of 470 parses:
+  the not-auto-mode offers, the user-already-typed draft, Codex, and regular samples
+  03, 04 and 16). `classify()` discards them, so nothing wrong reaches the phone, but they are
   paid-for output tokens.
 - Both designs hand out buttons for some either/or and wh questions, which the spec says
   must be empty; A is a little better on that (35 vs 32 of 55) and A's cache means that

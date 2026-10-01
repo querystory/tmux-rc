@@ -141,7 +141,6 @@ def run(args: argparse.Namespace) -> None:
                     row["kind"] = meta[s.name]["kind"]
                 else:
                     row["struct_ok"] = score_structured(o["result"], s.expected)[0]
-                row["asked"] = bool(o["result"].get("question")) and corpus == "closing"
                 rows.append(row)
             print(f"run {i + 1}/{args.runs} done", flush=True)
         # Quality rubric by the judge model, once per non-idle closing result.
@@ -170,7 +169,7 @@ def report(args: argparse.Namespace) -> None:
             jp = sum(r["judge"]["verdict"] == "PASS" for r in judged)
             print(f"  {kind:6} rubric {ok:3}/{len(k):3}   judge PASS {jp:3}/{len(judged):3}")
         idle = [r for r in closing if r["kind"] == "idle"]
-        fp = [r for r in rows if r["raw_closing_replies"] and not r["asked"]]
+        fp = [r for r in rows if r["raw_closing_replies"] and not r["result"].get("question")]
         print(f"  idle stayed idle {sum(r['grade']['ok'] for r in idle)}/{len(idle)};"
               f" parses with closing_replies but no closing question: {len(fp)}/{len(rows)}")
         # First parse only: classify() re-reads a slice after a rejected session/question,
