@@ -165,6 +165,10 @@ function navigate(id = null, nextView = "summary", { mode } = {}) {
   route();
 }
 
+// Filter and sort change the list, not the screen: with the sidebar beside an open pane
+// (wide layout) the pane, its tab and a dashboard view must survive them.
+const stayPut = () => navigate(active, active ? view : dashboard ? "dashboard" : "summary");
+
 // Leaving a pane the user did not choose to leave: it closed under them, or a deep link
 // named one that is gone. Replace, never push: Back would land on the dead deep link and
 // bounce straight out again. `id` is the pane the caller believes is on screen; stillOnPane
@@ -923,8 +927,8 @@ $("dashboard-tab").onclick = () => navigate(null, "dashboard");
 $("back").onclick = () => navigate();
 $("search").oninput = renderList;
 $("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
-$("sort").onchange = () => { sort = $("sort").value; navigate(); };
-$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
+$("sort").onchange = () => { sort = $("sort").value; stayPut(); };
+$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";

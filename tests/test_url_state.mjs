@@ -50,3 +50,11 @@ test("history: screens push, in-place changes replace", () => {
   assert.equal(historyMode("filter=running", "filter=running&sort=session"), "replace");
   assert.equal(historyMode("#/pane/%251", "pane=%251"), "replace");
 });
+
+test("stillOnPane understands old-format hashes", async () => {
+  const { stillOnPane } = await import("../web/m/pane-model.js");
+  assert.equal(stillOnPane("#/pane/%251", "%1"), true);
+  assert.equal(stillOnPane("#pane=%251", "%1"), true);
+  assert.equal(stillOnPane("#pane=%252", "%1"), false);
+  assert.equal(stillOnPane("", "%1"), false);
+});

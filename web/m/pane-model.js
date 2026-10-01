@@ -1,3 +1,4 @@
+import { parseHash } from "./url-state.js";
 // Pure pane predicates for the mobile UI: no DOM, no clock of their own (time is injected),
 // so tests/test_mobile_pane_model.py can run them under node against fixture panes.
 
@@ -35,7 +36,7 @@ export function matchesFilter(pane, filter, nowMs = Date.now()) {
 // would replace the URL of the pane the user just tapped and dump them back on the list. The
 // hash changed the instant they tapped, so it, not `active`, is the authority on where they
 // want to be.
-export const stillOnPane = (hash, id) => !!id && new URLSearchParams(String(hash).replace(/^#/, "")).get("pane") === id;
+export const stillOnPane = (hash, id) => !!id && parseHash(hash).pane === id;
 
 // How long a pane the app just created is allowed to be absent from /api/state before it
 // counts as gone. POST /api/windows returns the id the moment tmux has the window, which
