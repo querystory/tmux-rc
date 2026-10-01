@@ -926,6 +926,8 @@ def test_yes_no_question_gets_yes_no_buttons(verb):
     "If so, then what?",
     "Can you tell me which branch I should use?",  # embedded wh-request
     "Can you tell me whether CI passed?",
+    "Can you summarize the changes?",  # a request for content
+    "Could you provide the branch name?",
     "Okay, what should I do next?",  # "okay" only opens a yes/no as "okay to ..."
     "Redis or Postgres: Can you choose?",  # a colon is not a sentence boundary
 ])
