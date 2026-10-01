@@ -909,7 +909,7 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
 
 @pytest.mark.parametrize("verb", ["Should", "Shall", "Do", "Does", "Did", "Can", "Could", "Will",
                                   "Would", "Want", "Is", "Are", "Have", "Has", "May", "OK",
-                                  "Okay", "Was", "Were"])
+                                  "Okay", "Was", "Were", "Am", "Might", "Must"])
 def test_yes_no_question_gets_yes_no_buttons(verb):
     q = {"prompt": f"It has no review yet. {verb} we go ahead?", "answer_style": "text"}
     _yes_no_options(q)
@@ -1038,24 +1038,24 @@ def fresh_replies():
 def test_gated_question_gets_model_written_replies_once(fresh_replies):
     calls = []
     answer = {"options": ["Yes, do all three", "Yes, but check with me before merging",
-                          "No, hold off", GATED]}
+                          "Hold off", GATED]}
     fn = _replies_llm(answer, calls)
     for _ in range(2):  # a second parse of the same question must not call again
         q = {"prompt": GATED, "answer_style": "text"}
         _yes_no_options(q, fn)
         # Push shows two options, so the decline moves up to second place.
-        assert q["options"] == ["Yes, do all three", "No, hold off",
+        assert q["options"] == ["Yes, do all three", "Hold off",
                                 "Yes, but check with me before merging"]
     assert calls == [GATED]  # only the question text is sent
 
 
 def test_gated_replies_fall_back_to_the_heuristic_and_retry(fresh_replies):
     calls = []
-    for answer in (None, {"options": ["only one"]}, {"options": "junk"}):
+    for answer in (None, {"options": ["Yes", "No"]}, {"options": "junk"}, ["Yes", "No", "x"], "x"):
         q = {"prompt": GATED, "answer_style": "text"}
         _yes_no_options(q, _replies_llm(answer, calls))
         assert q["options"] == ["Yes", "No", "Yes, but check with me first"]
-    assert len(calls) == 3  # nothing was cached, so each parse tries again
+    assert len(calls) == 5  # nothing was cached, so each parse tries again
     q = {"prompt": GATED, "answer_style": "text"}
     _yes_no_options(q)  # no model at all
     assert q["options"] == ["Yes", "No", "Yes, but check with me first"]

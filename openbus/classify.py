@@ -363,7 +363,7 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 
 
 _YES_NO_RE = re.compile(
-    r"(?:should|shall|do|does|did|can|could|will|would|want|is|are|was|were|have|has|may|ok|okay)\b(?!,)",
+    r"(?:should|shall|do|does|did|can|could|will|would|want|is|am|are|was|were|have|has|may|might|must|ok|okay)\b(?!,)",
     re.IGNORECASE,
 )
 # An alternative, or a wh-word anywhere (so indirect "tell me which..." asks) rules out yes/no.
@@ -409,14 +409,14 @@ _replies: dict[str, list[str]] = {}  # by question text: one call per question, 
 def _gated_replies(prompt: str, llm_fn) -> list[str]:
     """Step-specific replies for a gated question, or [] (the heuristic stands, and the
     next parse retries) when there is no model or its answer is unusable. Push shows only
-    the first two options, so a trailing decline moves up to second place."""
+    the first two options, so the final decline moves up to second place."""
     if prompt not in _replies and llm_fn:
-        got = _clean_options((llm_fn(_REPLIES_SYSTEM, prompt) or {}).get("options"), prompt)
-        if len(got) >= 2:
+        reply = llm_fn(_REPLIES_SYSTEM, prompt)
+        got = _clean_options(reply.get("options") if isinstance(reply, dict) else None, prompt)
+        if len(got) >= 3:  # accept, at least one checkpoint, decline
             if len(_replies) > 256:
                 _replies.clear()
-            if re.match(r"no\b", got[-1], re.IGNORECASE):
-                got.insert(1, got.pop())
+            got.insert(1, got.pop())  # the decline, whatever its wording
             _replies[prompt] = got
     return _replies.get(prompt, [])
 
