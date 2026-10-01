@@ -179,3 +179,16 @@ def test_chat_forwarding_uses_the_endpoints_delivery(client, monkeypatch):
     response = client.post("/api/panes/%1/image",
                            files=[("file", ("test.png", b"image", "image/png"))])
     assert response.json()["mode"] == "path" and calls[1][3] == "1234"
+
+
+def test_captioned_image_is_one_draft_under_one_lock(monkeypatch):
+    """What the chat tool sends: image, caption and Enter share one pane transaction."""
+    import asyncio
+
+    events = []
+    monkeypatch.setattr(server, "_stage_image", lambda data, mime: "/tmp/x")
+    monkeypatch.setattr(server, "_deliver_image", lambda *a: events.append("IMAGE") or "path")
+    monkeypatch.setattr(tmux, "pane_pid", lambda p: "1234")
+    monkeypatch.setattr(tmux, "_run", lambda args: events.append(args[-1]))
+    _, mode = asyncio.run(server.attach_image("%1", "1234", b"i", "image/png", "caption"))
+    assert mode == "path" and events == ["IMAGE", "caption", "Enter"]

@@ -770,8 +770,8 @@ def _forwarding(monkeypatch, *, ok, text=True, images=((("image/png", b"PNG")),)
             if obj["type"] == "propose":
                 meter.approvals[obj["id"]].set_result(ok)
 
-    async def attach(pane_id, pid, data, mime):
-        events.append(("attach", pane_id, pid, data, mime))
+    async def attach(pane_id, pid, data, mime, caption):
+        events.append(("attach", pane_id, pid, data, mime, caption))
         return "/tmp/x.png", "path"
 
     monkeypatch.setattr(server, "attach_image", attach)
@@ -795,9 +795,8 @@ def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     card = ws.sent[0]
     assert card["text"] == "Send image 1 to work: what is this?"
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
-    assert events == [  # delivered once, bound to the pid the card showed, then caption + Enter
-        ("attach", "%1", "4242", b"PNG", "image/png"),
-        ("keys", ("%1", "what is this?"), {"expected_pid": "4242"})]
+    assert events == [  # delivered once, bound to the pid the card showed, caption in the draft
+        ("attach", "%1", "4242", b"PNG", "image/png", "what is this?")]
     assert len(audits) == 1 and audits[0]["consent"] == "approved"
     assert audits[0]["detail"] == "image/png 3B into work via path"
     assert b"PNG" not in repr(audits).encode()  # type and size, never the bytes
@@ -853,4 +852,4 @@ def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch)
 
     ws.send_json = paste_meanwhile
     _forward(meter, ws)
-    assert events[0][3:] == (b"PNG", "image/png")
+    assert events[0][3:5] == (b"PNG", "image/png")

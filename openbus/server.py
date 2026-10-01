@@ -985,14 +985,21 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
-async def attach_image(pane_id: str, expected_pid: str, data: bytes, mime: str) -> tuple[str, str]:
+async def attach_image(
+    pane_id: str, expected_pid: str, data: bytes, mime: str, caption: str | None = None
+) -> tuple[str, str]:
     """Stage an already-validated image and deliver it to the pane, bound to the process
     the caller saw there (PaneChangedError if it changed). Returns (path, mode). The one
-    delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane."""
+    delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane.
+    With a caption (even ""), the image, the caption and the submitting Enter go in as one
+    composer draft under a single pane lock, so no other sender can land between them."""
     _invalidate_input_actions(pane_id)
     path = _stage_image(data, mime)
     # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
-    return path, await asyncio.to_thread(_deliver_image, pane_id, data, path, expected_pid)
+    if caption is None:
+        return path, await asyncio.to_thread(_deliver_image, pane_id, data, path, expected_pid)
+    segments = [(data, path), *([caption] if caption else [])]
+    return path, await asyncio.to_thread(_deliver_composer, pane_id, expected_pid, segments)
 
 
 def _stage_image(data: bytes, mime: str) -> str:
@@ -1073,7 +1080,9 @@ async def _compose(pane_id: str, request: Request):
     return {"ok": True}
 
 
-def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> None:
+def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> str | None:
+    """Type a whole draft under one lock; returns the last image's delivery mode, if any."""
+    mode = None
     with tmux.send_transaction(pane_id) as identity:
         # Include time spent uploading and waiting for the lock in the identity guard.
         if identity != expected_pid:
@@ -1083,9 +1092,10 @@ def _deliver_composer(pane_id: str, expected_pid: str, segments: list) -> None:
             if isinstance(segment, str):
                 tmux.send_keys(pane_id, segment, enter=False)
             else:
-                _deliver_image(pane_id, *segment, identity)
+                mode = _deliver_image(pane_id, *segment, identity)
         tmux.check_pane(pane_id, identity)
         tmux.send_keys(pane_id, "", enter=True)
+    return mode
 
 
 # Clipboard ownership is global even when two drafts target different panes.

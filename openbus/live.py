@@ -530,8 +530,8 @@ async def _dispatch(
 
 async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, meter) -> dict:
     """Forward a pasted chat image to a pane through the pane composer's delivery
-    (server.attach_image), then type the caption, if any, and submit. Bytes never reach
-    the audit record: only type, size and target."""
+    (server.attach_image), with the caption, if any, and the submitting Enter in one draft.
+    Bytes never reach the audit record: only type, size and target."""
     from .server import attach_image  # noqa: PLC0415 - server imports this module
 
     pane_id, caption = args.get("pane_id"), args.get("caption", "")
@@ -549,8 +549,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     rec["detail"] = f"{mime} {len(data)}B into {labels[pane_id]}"
     rec["keys"] = caption  # speech, like typed text
     try:
-        _, mode = await attach_image(pane_id, expected_pid, data, mime)
-        await asyncio.to_thread(tmux.send_keys, pane_id, caption, expected_pid=expected_pid)
+        _, mode = await attach_image(pane_id, expected_pid, data, mime, caption)
     except Exception as e:  # report, don't kill the session
         rec["detail"] += f" ({type(e).__name__})"
         logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,

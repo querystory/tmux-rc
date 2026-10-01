@@ -127,8 +127,8 @@ export function setupLiveMode({ request, session, licon, onVersion = () => {} })
   // tells the model the user declined (live._approved). The card shows a final answer
   // only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
-  function propose(current, { id, text }) {
-    add("propose", text);
+  function propose(current, { id, text, image }) {
+    add("propose", text, false, image ? [image] : []);
     const row = $("voice-log").lastElementChild, actions = document.createElement("div");
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
