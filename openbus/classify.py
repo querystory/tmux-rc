@@ -364,7 +364,7 @@ def _final_ask(visible: str, tool: str) -> dict | None:
 
 
 _YES_NO_RE = re.compile(
-    r"(?:should|shall|do|does|did|can|could|will|would|want|is|am|are|was|were|have|has|may|might|must|ok|okay)\b(?!,)",
+    r"(?:should|shall|do|does|did|can|could|will|would|want|is|am|are|was|were|have|has|may|might|must|ok|okay)(?:n['’]t)?\b(?!,)|won['’]t\b|cannot\b",
     re.IGNORECASE,
 )
 # An alternative, or a wh-word anywhere (so indirect "tell me which..." asks) rules out yes/no.

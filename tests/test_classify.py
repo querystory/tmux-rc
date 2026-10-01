@@ -909,7 +909,8 @@ def test_claude_api_error_ending_the_turn_offers_a_retry():
 
 @pytest.mark.parametrize("verb", ["Should", "Shall", "Do", "Does", "Did", "Can", "Could", "Will",
                                   "Would", "Want", "Is", "Are", "Have", "Has", "May", "OK",
-                                  "Okay", "Was", "Were", "Am", "Might", "Must"])
+                                  "Okay", "Was", "Were", "Am", "Might", "Must",
+                                  "Shouldn't", "Don’t", "Isn't", "Won't", "Can't", "Cannot"])
 def test_yes_no_question_gets_yes_no_buttons(verb):
     q = {"prompt": f"It has no review yet. {verb} we go ahead?", "answer_style": "text"}
     _yes_no_options(q)
