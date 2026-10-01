@@ -106,7 +106,7 @@
     </section>
     <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="running-tab" data-filter="running" aria-pressed="false"></button><button id="recent-tab" data-filter="recent" aria-pressed="false"></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
     <dialog id="launch-dialog" aria-labelledby="launch-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><label for="launch-session">Session</label><select id="launch-session" required></select><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></dialog>
-    <dialog id="voice-dialog" aria-labelledby="voice-title">
+    <dialog id="voice-dialog" aria-labelledby="voice-title" tabindex="-1">
       <div class="sheet-handle"></div>
       <div class="dialog-heading"><h2 id="voice-title">Live Mode</h2><select id="voice-switch" aria-label="Chat model" hidden></select><button id="voice-close" class="icon-button" aria-label="Close panel" title="Close panel"></button></div>
       <input id="voice-model" type="hidden"><div id="voice-models" class="choice-list" aria-label="Live Mode model"></div>
