@@ -166,8 +166,9 @@ def test_omp_identity_comes_from_process_or_title(cmd, title, tool):
     ("$0.05", "$0.05"),  # metered
     ("(sub)", "$9"),  # subscription with no spend yet: the row says nothing, model stands
 ])
-def test_omp_status_row_sets_cost_and_context(billing, cost):
-    row = f" ⠋ 1m 3s > ◒ GPT-5.5 > 📁 ~/src > {billing} ▶────4%────╎──272K─◀ 👥 2"
+@pytest.mark.parametrize("bar", ["▶────4%────╎──272K─", "▶4%────╎──272K─"])  # low %: no dashes
+def test_omp_status_row_sets_cost_and_context(billing, cost, bar):
+    row = f" ⠋ 1m 3s > ◒ GPT-5.5 > 📁 ~/src > {billing} {bar}◀ 👥 2"
     parsed = {"tool": "omp", "cost": "$9", "working": {"verb": "Delegating"}}
     r = classify(_pane("bun", "π ⠋ x"), f"↻ Delegating\n{row}", _llm(parsed))
     assert (r["cost"], r["context_pct"], r["agents"]) == (cost, 4, 2)

@@ -176,6 +176,7 @@ def test_omp_timer_and_meter_ticks_share_one_fingerprint():
     # and its spinner cell, whatever the configured style: braille, pulse, or ASCII
     a = _omp_frame(*_OMP_A, tool)
     assert len({_fingerprint(a.replace(" ⠋ ", f" {c} ")) for c in "⠋○◔|/"}) == 1
+    assert _fingerprint(a.replace("▶───3%────", "▶0%")) == _fingerprint(a)  # a fresh bar
 
 
 def test_omp_new_tool_line_changes_the_fingerprint():

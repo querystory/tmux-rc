@@ -128,7 +128,7 @@ _OMP_AGENTS_RE = re.compile(r"◀ 👥 (\d+)")  # its count of subagents still r
 def _read_omp_row(result: dict, visible: str) -> None:
     """cost, context, working time and running subagents off omp's status row (the one
     with its context bar)."""
-    *_, row = ["", *(line for line in visible.splitlines() if "▶─" in line)]
+    *_, row = ["", *(line for line in visible.splitlines() if _OMP_CTX_RE.search(line))]
     if m := _OMP_COST_RE.search(row):
         unit, spend, sub = m.groups()
         result["cost"] = f"${spend}" + (f" (+${sub})" if sub else "") + (" (sub)" * (unit == "S"))
