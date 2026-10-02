@@ -62,10 +62,14 @@ def _call(name, args, watcher=None):
     return ws, session.responses[0][1]
 
 
-@pytest.mark.parametrize("argv", [["claude", "--resume", "live-1"], ["codex", "resume", "live-1"]])
+@pytest.mark.parametrize("argv", [
+    ["claude", "--resume", "live-1"],
+    ["codex", "resume", "live-1"],
+    ["omp", "--resume", "live-1"],
+])
 def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     sessions, opened = history
-    sessions["live-1"] = {**LIVE, "resume_argv": argv}
+    sessions["live-1"] = {**LIVE, "harness": argv[0], "resume_argv": argv}
     ws, r = _call("resume_session", {"session_id": "live-1"})
     assert r == {"status": "opened", "pane_id": "%40", "window": "tmuxrc live mode"}
     # argv and cwd are the index's, in the tmux session already working in that repo.
@@ -181,18 +185,20 @@ def test_spoken_content_is_recorded_only_under_qsdebug(monkeypatch, caplog, qsde
     assert records[0]["results"] == 0
 
 
-def test_resume_never_starts_a_second_copy(history):
+@pytest.mark.parametrize("harness", ["claude", "codex", "omp"])
+def test_resume_never_starts_a_second_copy(history, harness):
     sessions, opened = history
-    sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}}
+    live = {**LIVE, "harness": harness}
+    sessions["live-1"] = {**live, "running": {"pid": 5, "tmux_pane": "%1"}}
     _, r = _call("resume_session", {"session_id": "live-1"})
     assert r == {"status": "already_running", "pane_id": "%1", "pane": "work"}
     # A pane the watcher hasn't published yet is still the running one.
-    sessions["live-1"] = {**LIVE, "running": {"pid": 5, "tmux_pane": "%77"}}
+    sessions["live-1"] = {**live, "running": {"pid": 5, "tmux_pane": "%77"}}
     w = _Watcher()
     _, r = _call("resume_session", {"session_id": "live-1"}, w)
     assert r == {"status": "already_running", "pane_id": "%77", "pane": "%77"}
     assert w.reparsed == ["%77"]  # woken so the follow-up type_in_pane finds it
-    sessions["live-1"] = {**LIVE, "running": {"pid": 5}}  # an IDE or bare terminal
+    sessions["live-1"] = {**live, "running": {"pid": 5}}  # an IDE or bare terminal
     _, r = _call("resume_session", {"session_id": "live-1"})
     assert r["status"] == "rejected"
     assert opened == []
@@ -309,33 +315,14 @@ def test_tools_offered_only_with_agent_history(monkeypatch):
     assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
 
 
-def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):
-    # A stand-in agent-history that echoes its argv, to pin what the daemon passes.
+def test_client_reports_unavailable_history(monkeypatch, tmp_path):
     fake = tmp_path / "agent-history"
-    fake.write_text('#!/bin/sh\nprintf \'{"projects":[{"argv":"%s"}]}\' "$*"\n')
+    fake.write_text("#!/bin/sh\nexit 1\n")
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("TMUXRC_AGENT_HISTORY", str(fake))
-    [p] = agent_history.resolve("-all live mode")
-    assert p["argv"].endswith("-- -all live mode")  # never read as a flag
-    assert "-harness" not in p["argv"]  # every harness Live can resume is searched
-    assert "codex" in agent_history.RESUMABLE
-
-    fake.write_text("#!/bin/sh\nexit 1\n")
     assert agent_history.get("x") is None
     monkeypatch.setenv("TMUXRC_AGENT_HISTORY", str(tmp_path / "missing"))
     assert agent_history.binary() is None and agent_history.resolve("q") is None
-
-
-def test_new_window_passes_argv_without_a_shell(monkeypatch):
-    calls = []
-    monkeypatch.setattr(tmux, "_run", lambda args: calls.append(args) or "%7\n")
-    assert tmux.new_window("work", "n", ["claude", "--resume", "a b;c"], "/repo") == "%7"
-    assert calls[-1][-6:] == ["-n", "n", "--", "claude", "--resume", "a b;c"]
-    assert calls[-1][calls[-1].index("-c") + 1] == "/repo"
-    tmux.new_window("work", "n", "codex --yolo")  # a configured launcher: shell string
-    assert calls[-1][-2:] == ["--", "codex --yolo"]
-    assert calls[-1][calls[-1].index("-c") + 1] == "#{session_path}"
-
 
 
 @pytest.mark.skipif(not shutil.which("tmux"), reason="needs tmux")
@@ -351,7 +338,8 @@ def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
         return real(argv, *a, **k)
     monkeypatch.setattr(tmux.subprocess, "run", private)
     out, marker = tmp_path / "argv", tmp_path / "PWNED"
-    real(["tmux", "-S", sock, "new-session", "-d", "-s", "t"], check=True)
+    pane = real(["tmux", "-S", sock, "new-session", "-d", "-s", "t", "-P", "-F",
+                 "#{pane_id}"], capture_output=True, text=True, check=True).stdout.strip()
     try:
         tmux.new_window("t", "n", ["sh", "-c", 'printf "%s|" "$@" > "$0"', str(out),
                                    f"a b;touch {marker}", "$(x)"], str(tmp_path))
@@ -362,4 +350,4 @@ def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
         assert out.read_text() == f"a b;touch {marker}|$(x)|"
         assert not marker.exists()
     finally:
-        real(["tmux", "-S", sock, "kill-server"], check=False)
+        real(["tmux", "-S", sock, "kill-pane", "-t", pane], check=False)

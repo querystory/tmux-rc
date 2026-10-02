@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -99,4 +100,293 @@ func procStat(pid, field int) (string, error) {
 		return "", fmt.Errorf("pid %d: unrecognized /proc stat", pid)
 	}
 	return fields[field-3], nil
+}
+
+type harnessProcess struct {
+	PID  int
+	Args []string
+}
+
+// Filter before inspecting private process data: unrelated programs, other users,
+// and harness helpers must never contribute transcript descriptors.
+func harnessProcesses(comm string, keep func([]string) bool) ([]harnessProcess, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	var out []harnessProcess
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		read := func(name string) ([]byte, error) {
+			return os.ReadFile(filepath.Join("/proc", entry.Name(), name))
+		}
+		name, err := read("comm")
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(string(name)) != comm {
+			continue
+		}
+		status, err := read("status")
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		_, uid, _ := strings.Cut(string(status), "\nUid:\t")
+		if !strings.HasPrefix(uid, strconv.Itoa(os.Getuid())+"\t") {
+			continue
+		}
+		cmdline, err := read("cmdline")
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		args := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
+		if keep(args) {
+			out = append(out, harnessProcess{pid, args})
+		}
+	}
+	return out, nil
+}
+
+// Missing descriptors/processes are ordinary close/exit races. Other failures
+// are not negative evidence: the caller must preserve unknown liveness.
+func processFiles(pid int) (map[string]string, error) {
+	dir := filepath.Join("/proc", strconv.Itoa(pid), "fd")
+	fds, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(fds))
+	for _, fd := range fds {
+		target, err := os.Readlink(filepath.Join(dir, fd.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return out, err
+		}
+		out[fd.Name()] = target
+	}
+	return out, nil
+}
+
+func processEnv(pid int) (map[string]string, error) {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for item := range strings.SplitSeq(string(data), "\x00") {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			out[key] = value
+		}
+	}
+	return out, nil
+}
+
+// The CLI names worker processes omp too. Only launch/acp hosts can own live
+// conversations (cli.ts:182-191,484-553; cli-commands.ts:27-287).
+var ompMaintenance = strings.Fields("auth-broker auth-gateway agents bench browser-relay cleanse collab commit completions __complete compress config dry-balance daemon broker help find gc grep gallery git grievances images img if-bench install join login models plugin plugins predict ps say clip play share setup shell read render skill skills ssh stats stream update usage tiny-models token toks ttsr q search web-search wt worktree --help -h --version -v --license --smoke-test --alias")
+
+func ompHost(args []string) bool {
+	args = ompLaunchArgs(args)
+	return len(args) == 0 || (!strings.HasPrefix(args[0], "__omp_worker_") && !slices.Contains(ompMaintenance, args[0]))
+}
+
+func ompLaunchArgs(args []string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	exe := filepath.Base(args[0])
+	args = args[1:]
+	if (exe == "bun" || exe == "node") && len(args) > 0 {
+		args = args[1:] // interpreted omp entrypoint
+	}
+	for len(args) > 0 {
+		if args[0] == "--profile" {
+			args = args[min(2, len(args)):]
+		} else if strings.HasPrefix(args[0], "--profile=") {
+			args = args[1:]
+		} else {
+			break
+		}
+	}
+	return args
+}
+
+func ompProcessProfile(args []string, env map[string]string) string {
+	profile := ompProfileEnv(env)
+	for i, arg := range args {
+		if arg == "--profile" && i+1 < len(args) {
+			profile = args[i+1]
+		} else if value, ok := strings.CutPrefix(arg, "--profile="); ok {
+			profile = value
+		}
+	}
+	return profile
+}
+
+// Match ttyid.ts:42-83: stdin's TTY wins, then the same ordered environment
+// fallbacks. /dev/null is a character device but not a TTY.
+func ompTerminal(stdin string, env map[string]string) string {
+	if strings.HasPrefix(stdin, "/dev/pts/") || strings.HasPrefix(stdin, "/dev/tty") || stdin == "/dev/console" {
+		return strings.ReplaceAll(strings.TrimPrefix(stdin, "/dev/"), "/", "-")
+	}
+	if pane := env["ZELLIJ_PANE_ID"]; pane != "" {
+		session := strings.NewReplacer("/", "-", "\\", "-").Replace(env["ZELLIJ_SESSION_NAME"])
+		if session != "" {
+			return "zellij-" + session + "-" + pane
+		}
+		return "zellij-" + pane
+	}
+	for _, pair := range [][2]string{{"TMUX_PANE", "tmux"}, {"CMUX_SURFACE_ID", "cmux"}, {"KITTY_WINDOW_ID", "kitty"}, {"WEZTERM_PANE", "wezterm"}, {"TERM_SESSION_ID", "apple"}, {"WT_SESSION", "wt"}} {
+		if value := env[pair[0]]; value != "" {
+			return pair[1] + "-" + value
+		}
+	}
+	return ""
+}
+
+// Validate the header before using ompIdentity: arbitrary JSONL open in a tool
+// is not an omp session, and a missing/corrupt live transcript is unknown.
+func ompLiveIdentity(path string) (id, parent string, err error) {
+	header, err := ompHeader(path)
+	if err != nil {
+		return "", "", err
+	}
+	if header.Type != "session" || header.ID == "" {
+		return "", "", fmt.Errorf("%s: unreadable omp session header", path)
+	}
+	parent = ompArtifactParent(path)
+	id = header.ID
+	if parent != "" {
+		id = strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	}
+	return id, parent, nil
+}
+
+// RunningOmp uses a real conversation host plus its current terminal breadcrumb,
+// not argv's initial --resume. Breadcrumbs survive exit, and lazy/headless hosts
+// need not hold any transcript open: absence of either signal is unknown.
+// Source: session-paths.ts:357-389; session-manager.ts:2136-2164,2656-2672;
+// session-storage.ts:210-250; task/executor.ts:4046-4053 (children suppress crumbs).
+func RunningOmp() (map[string]Running, error) {
+	procs, err := harnessProcesses("omp", ompHost)
+	if err != nil {
+		return map[string]Running{}, err
+	}
+	return runningOmpProcesses(procs)
+}
+
+func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
+	out := map[string]Running{}
+	crumbOwners := map[string]int{}
+	var unknown error
+	for _, proc := range procs {
+		start, err := procStat(proc.PID, 22)
+		if err != nil {
+			unknown = errors.Join(unknown, err)
+			continue
+		}
+		if start == "" {
+			continue
+		}
+		fds, fdErr := processFiles(proc.PID)
+		env, envErr := processEnv(proc.PID)
+		if errors.Is(envErr, os.ErrNotExist) {
+			continue
+		}
+		host := map[string]Running{}
+		identified := false
+		var hostErr error
+		for _, target := range fds {
+			if !strings.HasSuffix(target, ".jsonl") {
+				continue
+			}
+			id, parent, err := ompLiveIdentity(target)
+			if err != nil || parent != "" {
+				// Children suppress breadcrumbs and cannot identify the main host.
+				// Unrelated JSONL opened by tools cannot identify it either.
+				continue
+			}
+			host[id] = Running{PID: proc.PID}
+			identified = true
+		}
+		if envErr == nil {
+			terminal := ompTerminal(fds["0"], env)
+			if terminal != "" && filepath.Base(terminal) == terminal {
+				crumb := filepath.Join(ompStateDir(env, ompProcessProfile(proc.Args, env)), "terminal-sessions", terminal)
+				if owner, ok := crumbOwners[crumb]; ok && owner != proc.PID {
+					unknown = errors.Join(unknown, fmt.Errorf("%s: multiple omp hosts share a terminal", crumb))
+					for id, running := range out {
+						if running.PID == owner {
+							delete(out, id)
+						}
+					}
+					continue
+				}
+				crumbOwners[crumb] = proc.PID
+				data, err := os.ReadFile(crumb)
+				if err == nil {
+					// An existing breadcrumb is authoritative even for a fresh,
+					// not-yet-materialized target. Never substitute an older fd.
+					clear(host)
+					identified = false
+					lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+					if len(lines) < 2 || lines[0] == "" || lines[1] == "" {
+						err = fmt.Errorf("%s: unreadable omp breadcrumb", crumb)
+					} else {
+						path := lines[1]
+						if !filepath.IsAbs(path) {
+							path = filepath.Join(lines[0], path)
+						}
+						id, parent, identityErr := ompLiveIdentity(path)
+						err = identityErr
+						if err == nil && parent != "" {
+							err = fmt.Errorf("%s: breadcrumb names an omp child", crumb)
+						}
+						if err == nil && parent == "" {
+							// Only the selected main transcript belongs to this pane.
+							host[id] = Running{PID: proc.PID, TmuxPane: pane(proc.PID)}
+							identified = true
+						}
+					}
+				}
+				if err != nil && (!errors.Is(err, os.ErrNotExist) || !identified) {
+					hostErr = errors.Join(hostErr, err)
+				}
+			}
+		}
+		end, statErr := procStat(proc.PID, 22)
+		if statErr == nil && end != start {
+			continue // exit or pid reuse during observation
+		}
+		unknown = errors.Join(unknown, hostErr, fdErr, envErr, statErr)
+		if !identified {
+			unknown = errors.Join(unknown, fmt.Errorf("omp pid %d: current session is unknown", proc.PID))
+		}
+		if len(host) == 1 {
+			for id, running := range host {
+				running.TmuxPane = pane(proc.PID)
+				host[id] = running
+			}
+		}
+		maps.Copy(out, host)
+	}
+	return out, unknown
 }

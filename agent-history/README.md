@@ -5,7 +5,7 @@ Live Mode can find past work across projects and resume it. It is independent of
 tmux-rc daemon: it indexes sessions that never ran in a pane (subagents, IDE sessions,
 headless runs), and runs whether or not the daemon is up.
 
-Status: Claude Code and Codex. An OpenCode reader and summaries follow.
+Status: Claude Code, Codex and omp. An OpenCode reader and summaries follow.
 
 ## Why an index and not a copy
 
@@ -53,7 +53,8 @@ detached child and returns in milliseconds. `agent-history reconcile` repairs wh
 hooks missed (hard reboot, killed session, hooks not yet installed); hooks run one
 themselves when the last is more than six hours old, so no timer is needed.
 
-Codex has no such hook here, so its sessions (`~/.codex/sessions`, or `$CODEX_HOME`)
+Codex and omp have no such hook here, so their sessions (Codex's `~/.codex/sessions`,
+or `$CODEX_HOME`; omp's locations below)
 arrive with reconcile, which `resolve` also starts in the background when one is due.
 No search waits for it, so a search after a long idle period answers from the index as
 it was and starts the refresh; a later search sees the result.
@@ -67,9 +68,38 @@ Work a thread delegates (`thread_spawn`) is indexed under it like a Claude subag
 named by its task's path, since Codex stores the task itself encrypted. Approval
 reviews (`guardian`) are left out: their task is a copy of the parent's transcript.
 
+omp's JSONL is authoritative; its databases, tool logs, images and result sidecars
+are not human history. The reader keeps user messages except those marked synthetic
+or agent-attributed, since `role: user` also carries injected notifications. Missing
+attribution remains eligible for older sessions. Subagents use their first
+`session_init.task`, not the system prompt or its duplicate agent-attributed message.
+Artifact location identifies a subagent: `parentSession` alone also marks ordinary forks.
+
+The rewritten title slot is current, including an explicit cleared title; slot-less
+legacy files recover user title changes over generated titles. The header supplies
+identity, cwd and start time, never the lossy directory slug. All dated records and
+title updates count as activity, but only kept messages supply PR links. omp does not
+persist Git branches or print/RPC launch mode, so those fields are omitted rather than
+invented; `-all` cannot distinguish its historical headless runs.
+
+Discovery includes `~/.omp/agent/sessions`, named profiles under
+`~/.omp/profiles/<name>/agent`, `$PI_CODING_AGENT_DIR`, and the flat
+`$PI_CODING_AGENT_SESSION_DIR` used by `--session-dir`. `$PI_CONFIG_DIR` changes the
+`.omp` directory name. Profiles (`--profile`, `$OMP_PROFILE`, then `$PI_PROFILE`)
+isolate storage and ignore the agent-dir override. Existing omp roots under
+`$XDG_DATA_HOME` / `$XDG_STATE_HOME` are also supported; merely setting XDG variables
+does not migrate storage. Exact custom-file registry and terminal breadcrumb pointers
+find relocated transcripts without searching unrelated files. Older omp versions
+without that registry cannot rediscover an unknown `--session-dir` after its breadcrumb
+is overwritten: set `PI_CODING_AGENT_SESSION_DIR` for reconcile in that case.
+
+Ordinary omp entries resume with `omp --resume <id>` in their recorded cwd. Relocated
+entries use the absolute transcript path to bypass ID lookup; named-profile entries
+also preserve `--profile`, so a resume does not silently change profile configuration.
+
 ## Resolving a request
 
-`agent-history resolve [-json] [-harness claude|codex] [-all] <query>` answers "where does
+`agent-history resolve [-json] [-harness claude|codex|omp] [-all] <query>` answers "where does
 this belong?" for a request like "fix live mode": the likeliest repos and, in each, the
 sessions to resume. It reads only the index, takes milliseconds, and calls no model.
 
@@ -102,6 +132,19 @@ fills the gap from the screen when it can: a Codex status bar configured to show
 status bar shows it as the thread's pane. Thread names aren't used for this, since two
 live threads can share one. Otherwise the thread counts as running out of reach, and
 Live still refuses to start a second copy.
+
+omp uses a live current-user conversation process plus its terminal breadcrumb.
+The breadcrumb follows session switches, unlike launch argv, and survives exit for
+`--continue`, so it is never live evidence alone. Internal workers and maintenance
+commands do not count. Positive open-transcript evidence also covers headless hosts,
+but descriptors are lazy: a host with insufficient evidence makes omp liveness unknown,
+not stopped. Ambiguous terminal ownership does the same. Subagents suppress breadcrumbs
+and are not reported as independent live sessions.
+
+The process's CLI/environment profile selects the breadcrumb root. Later in-process
+`.env` relocation may be invisible in Linux's initial `/proc` environment; no alternate
+profile's stale breadcrumb is guessed as a fallback. The process's `TMUX_PANE` is used
+only while it still has a controlling terminal.
 
 If a harness can't tell what is running, only its own sessions are marked
 `running_unknown`; the other harnesses' answers stand.

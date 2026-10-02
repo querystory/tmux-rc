@@ -19,6 +19,14 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("CODEX_HOME", dir)
 	os.Setenv("CLAUDE_CONFIG_DIR", dir)
+	os.Setenv("HOME", dir)
+	os.Setenv("PI_CONFIG_DIR", ".omp")
+	os.Setenv("PI_CODING_AGENT_DIR", filepath.Join(dir, "omp-agent"))
+	os.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(dir, "omp-custom"))
+	os.Setenv("OMP_PROFILE", "")
+	os.Setenv("PI_PROFILE", "")
+	os.Setenv("XDG_DATA_HOME", filepath.Join(dir, "xdg-data"))
+	os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "xdg-state"))
 	noDetach = true
 	code := m.Run()
 	os.RemoveAll(dir)

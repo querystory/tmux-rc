@@ -216,56 +216,20 @@ func RunningCodex() (map[string]Running, error) {
 		return nil, err
 	}
 	dir += string(filepath.Separator)
-	procs, err := os.ReadDir("/proc")
+	procs, err := harnessProcesses("codex", func(args []string) bool {
+		return len(args) > 0 && filepath.Base(args[0]) != "codex-linux-sandbox"
+	})
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range procs {
-		pid, err := strconv.Atoi(p.Name())
-		if err != nil {
-			continue // not a process
-		}
-		// Each read runs only if the last succeeded; any failure but the process exiting
-		// makes liveness unknown. comm, status and cmdline are readable whatever the
-		// process's owner or dumpability, so only a real candidate's fds are read.
-		proc := func(name string) (string, error) {
-			b, err := os.ReadFile(filepath.Join("/proc", p.Name(), name))
-			return string(b), err
-		}
-		comm, err := proc("comm")
-		if err == nil && strings.TrimSpace(comm) != "codex" {
-			continue
-		}
-		var status, cmdline string
-		if err == nil {
-			status, err = proc("status")
-		}
-		if err == nil {
-			cmdline, err = proc("cmdline")
-		}
-		_, uid, _ := strings.Cut(status, "\nUid:\t") // real, effective, saved, fs
-		mine := strings.HasPrefix(uid, strconv.Itoa(os.Getuid())+"\t")
-		argv0, _, _ := strings.Cut(cmdline, "\x00")
-		var fds []os.DirEntry
-		if err == nil && mine && filepath.Base(argv0) != "codex-linux-sandbox" {
-			fds, err = os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
-		}
-		if errors.Is(err, fs.ErrNotExist) {
-			continue // exited while we looked
-		}
+		fds, err := processFiles(p.PID)
 		if err != nil {
 			return nil, err
 		}
-		for _, fd := range fds {
-			target, err := os.Readlink(filepath.Join("/proc", p.Name(), "fd", fd.Name()))
-			if errors.Is(err, fs.ErrNotExist) {
-				continue // closed while we looked
-			}
-			if err != nil {
-				return nil, err
-			}
+		for _, target := range fds {
 			if strings.HasPrefix(target, dir) && strings.HasSuffix(target, ".jsonl") {
-				out[codexThreadID(target)] = Running{PID: pid, TmuxPane: pane(pid)}
+				out[codexThreadID(target)] = Running{PID: p.PID, TmuxPane: pane(p.PID)}
 			}
 		}
 	}
