@@ -163,7 +163,6 @@ def test_omp_identity_comes_from_process_or_title(cmd, title, tool):
 
 @pytest.mark.parametrize("parsed", [
     {"tool": "omp", "activity": "waiting", "waiting_on": "external"},
-    {"tool": "omp", "activity": "waiting", "question": {"prompt": "Pick a color?"}},
     None,  # failed parse: the title alone is the read
 ])
 def test_omp_idle_title_retires_stale_job_rows(parsed):
@@ -174,6 +173,17 @@ def test_omp_idle_title_retires_stale_job_rows(parsed):
     )
     assert (r["activity"], r.get("waiting_on"), r.get("question"), r.get("parse_ok")) == (
         "idle", None, None, None)
+
+
+def test_omp_idle_title_keeps_a_closing_question():
+    question = {"prompt": "Should I merge this?", "answer_style": "text"}
+    r = classify(
+        _pane("bun", "π > omp-play"),
+        "Done. Should I merge this?\n π > ◒ GPT-5.5 > 🌳 tmux-rc",
+        _llm({"tool": "omp", "activity": "idle", "question": question}),
+    )
+    assert (r["activity"], r["waiting_on"], r["question"]["prompt"]) == (
+        "waiting", "user", "Should I merge this?")
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():

@@ -637,12 +637,13 @@ def classify(
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
     # omp's title is its run state: "π >" means the turn is over, so job rows still on
-    # screen are finished history, not live work, and no question is open (omp's ask
-    # picker titles "π !"). The title is itself a read, so it stands after a failed parse.
-    if result.get("tool") == "omp" and pane.title.startswith("π >"):
+    # screen are finished history, not live work. The title is itself a read, so it stands
+    # after a failed parse. A question still wins: a turn that ends asking "Should I
+    # merge?" is idle to omp ("π >") but is a user-wait to us.
+    if result.get("tool") == "omp" and pane.title.startswith("π >") and not result.get("question"):
         result["activity"] = "idle"
-        for stale in ("question", "waiting_on", "parse_ok"):
-            result.pop(stale, None)
+        result.pop("waiting_on", None)
+        result.pop("parse_ok", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:
