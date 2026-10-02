@@ -158,6 +158,9 @@ actually hit:
 | `55_claude_turn_ends_with_user_handoff` | finished turn handing the user a blocked `! command` → text user-wait |
 | `56_claude_turn_ends_with_decision` | finished turn asking the user to decide; "1 shell still running" is not work |
 | `57_codex_turn_aborted_by_provider_error` | Codex "■ …at capacity" above an empty input → text user-wait offering "try again" |
+| `60_omp_bun_idle` | omp under `bun`, idle `π >` status row → tool=omp, idle despite finished job rows |
+| `61_omp_running_subagents` | omp waiting on two task subagents → running parent, two running workers |
+| `62_omp_ask_picker` | omp `ask` cursor picker → user-wait with the selected option |
 
 Sample 16 records a known prompt-compliance failure. On 2026-09-18, an authorized
 Vertex run using the production prompt and `gemini-3.1-flash-lite` for both classifier

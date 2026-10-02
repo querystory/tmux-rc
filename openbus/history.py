@@ -21,7 +21,7 @@ HEARTBEAT = 60
 COVERAGE = 120
 BACKFILL_TTL = 4 * 3600
 STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
-AGENT_TOOLS = {"claude", "codex", "gemini", "opencode"}
+AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
 
 
 def default_path() -> Path:

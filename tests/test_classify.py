@@ -20,8 +20,8 @@ def test_opaque_session_identifiers_are_not_titles():
         assert result["session"] == name
 
 
-def _pane(cmd="bash"):
-    return Pane("work", "0", "bash", "0", "%0", cmd, "t", "/home/x/proj")
+def _pane(cmd="bash", title="t"):
+    return Pane("work", "0", "bash", "0", "%0", cmd, title, "/home/x/proj")
 
 
 def _llm(payload):
@@ -70,7 +70,7 @@ def test_bootstrap_prompt_explains_opencode_model_identity():
         return {"summary": "OpenCode session"}
 
     bootstrap(_pane(cmd="opencode"), "Claude Opus 5.5\nOpenCode 1.18.32", llm)
-    assert "OpenCode can run Claude, GPT, or Gemini models" in seen["prompt"]
+    assert "OpenCode and omp can run Claude, GPT, or Gemini models" in seen["prompt"]
 
 
 def test_payload_leads_with_foreground_process():
@@ -145,6 +145,27 @@ def test_opencode_interrupt_spinner_forces_running():
     )
     assert r["tool"] == "opencode"
     assert r["activity"] == "running"
+
+
+@pytest.mark.parametrize(("cmd", "title", "tool"), [
+    ("omp", "t", "omp"),  # the native binary names itself
+    ("bun", "π ⠋ Fix the parser", "omp"),  # a bun install is proven by omp's title
+    ("bun", "π: titles off", "omp"),
+    ("bun", "πr² calculator", "opencode"),  # no omp separator: the model's read stands
+    ("bash", "π > stale title", "opencode"),  # omp has exited; its title lingers
+])
+def test_omp_identity_comes_from_process_or_title(cmd, title, tool):
+    r = classify(_pane(cmd, title), "…", _llm({"tool": "opencode", "activity": "running"}))
+    assert r["tool"] == tool
+
+
+def test_omp_idle_title_retires_stale_job_rows():
+    r = classify(
+        _pane("bun", "π > omp-play"),
+        "ⓘ waiting on 1 of 2 jobs 1 done\n π > ◒ GPT-5.5 > 🌳 tmux-rc",
+        _llm({"tool": "omp", "activity": "waiting", "waiting_on": "external"}),
+    )
+    assert (r["activity"], r.get("waiting_on")) == ("idle", None)
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():

@@ -11,7 +11,7 @@ from research.eval.harness import (
 )
 
 _VALID_ACTIVITY = {"running", "waiting", "idle", "compacting"}
-_VALID_TOOL = {"claude", "codex", "gemini", "opencode", "shell", "unknown"}
+_VALID_TOOL = {"claude", "codex", "gemini", "opencode", "omp", "shell", "unknown"}
 
 
 def _sample(**expected) -> Sample:

@@ -151,6 +151,7 @@ _GENERIC_NAMES = {
     "codex",
     "gemini",
     "opencode",
+    "omp",
     "aider",
 }
 

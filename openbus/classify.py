@@ -79,7 +79,19 @@ _PROCESS_TOOLS = {
     "codex": "codex",
     "gemini": "gemini",
     "opencode": "opencode",
+    "omp": "omp",
 }
+# omp installed through bun runs as `bun`, so its executable proves nothing. Its terminal
+# title does: omp always titles the pane "π" plus a state separator and session label
+# ("π > idle", "π ⠋ working", "π ! needs you", "π: titles off" — title-generator.ts).
+_OMP_TITLE_RE = re.compile(r"π(?:[ :]|$)")
+
+
+def _host_tool(pane: Pane) -> str | None:
+    """The agent the pane's process or title proves it is running, else None."""
+    if pane.current_command in ("bun", "node") and _OMP_TITLE_RE.match(pane.title):
+        return "omp"
+    return _PROCESS_TOOLS.get(pane.current_command)
 
 
 def _checklist_text(text: str) -> str:
@@ -127,7 +139,7 @@ def _load_prompt(name: str) -> str:
 def compose_prompt(read_prompt) -> str:
     """Compose a template using fragments from the same source/revision."""
     prompt = read_prompt("parser_prompt.txt")
-    for tool in ("codex", "gemini", "claude", "claude_detail"):
+    for tool in ("codex", "gemini", "omp", "claude", "claude_detail"):
         marker = "{{" + tool + "}}\n"
         if marker in prompt:
             prompt = prompt.replace(marker, read_prompt(f"parser_{tool}.txt"))
@@ -586,7 +598,7 @@ def classify(
     # A direct agent executable is ground truth. The LLM still parses activity and the
     # selected model/provider, but may not relabel the host application from those model
     # names (OpenCode showing "Claude Opus" is still OpenCode).
-    if process_tool := _PROCESS_TOOLS.get(pane.current_command):
+    if process_tool := _host_tool(pane):
         result["tool"] = process_tool
     elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(visible):
         # A returned shell prompt is stronger evidence than an agent in history.
@@ -623,6 +635,11 @@ def classify(
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
+    # omp's title is its run state: "π >" means the turn is over, so job rows still on
+    # screen are finished history, not live work.
+    if result.get("tool") == "omp" and pane.title.startswith("π >"):
+        result["activity"] = "idle"
+        result.pop("waiting_on", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:

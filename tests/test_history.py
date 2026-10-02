@@ -74,8 +74,9 @@ def test_state_semantics(activity, waiting_on, expected):
     assert state_index({"activity": activity, "waiting_on": waiting_on}) == expected
 
 
-def test_opencode_counts_as_a_foreground_agent():
-    assert agent_counts({"tool": "opencode", "activity": "idle"}) == {
+@pytest.mark.parametrize("tool", ["opencode", "omp"])
+def test_newer_agents_count_as_foreground(tool):
+    assert agent_counts({"tool": tool, "activity": "idle"}) == {
         "foreground": [0, 0, 1, 0, 0, 0],
         "background": [0, 0, 0, 0, 0, 0],
     }

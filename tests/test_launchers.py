@@ -19,7 +19,7 @@ DEFAULT_LABELS = [e["label"] for e in S._DEFAULT_LAUNCHERS]
 def test_default_launchers(monkeypatch):
     monkeypatch.delenv("TMUXRC_LAUNCHERS", raising=False)
     labels = [e["label"] for e in S._launchers()]
-    assert labels == ["Claude", "Codex", "OpenCode", "Gemini", "Shell"]
+    assert labels == ["Claude", "Codex", "OpenCode", "omp", "Gemini", "Shell"]
 
 
 def test_launchers_inline_json_override(monkeypatch):

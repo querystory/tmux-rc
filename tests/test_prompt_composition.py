@@ -16,6 +16,16 @@ def test_composed_prompt_changes_only_the_shared_rules():
     ):
         assert candidate.count(addition) == 1
         candidate = candidate.replace(addition, "")
+    # omp: its own fragment, plus its name in the tool lists.
+    fragment = Path(__file__).parents[1] / "openbus/parser_omp.txt"
+    candidate = candidate.replace(fragment.read_text(encoding="utf-8"), "", 1)
+    for omp, without in (
+        ('"opencode", "omp",', '"opencode",'),
+        ('"opencode"|"omp"|', '"opencode"|'),
+        ("node/bun/claude/codex/gemini/opencode/omp", "node/claude/codex/gemini/opencode"),
+    ):
+        assert candidate.count(omp) == 1
+        candidate = candidate.replace(omp, without)
     candidate = candidate.replace(
         '"question.prompt" quotes the current visible question verbatim. Put the supporting\n'
         'command, list, or decision context in "tables" so the question stands alone on a phone.\n',

@@ -182,7 +182,7 @@ that's what makes watch-time summable (below). Attributes:
   identity) — those rounds still carry `session`, just no account attribution.
 - **`pane_uid`**, **`pane_label`** — same pane identity as parse/lifecycle records; join
   on `pane_uid` to see which pane / tool was being watched live. Always present.
-- **`tool`** — `claude` | `codex` | `gemini` | `opencode` | `shell` for the watched pane. NULLABLE
+- **`tool`** — `claude` | `codex` | `gemini` | `opencode` | `omp` | `shell` for the watched pane. NULLABLE
   (absent if the pane's tool wasn't known yet). Tells you what kinds of panes get watched
   live.
 - **`changed`** — `true` = the round ended because the screen changed (a frame was sent);
@@ -356,7 +356,7 @@ like `"$9.99"` scraped off someone's status bar.
 Fields (include a field only when determinable, so most are frequently absent — treat
 missing as "not shown on screen / not applicable," not zero):
 
-- **`tool`** — which program occupies the pane: `claude` | `codex` | `gemini` | `opencode` | `shell` |
+- **`tool`** — which program occupies the pane: `claude` | `codex` | `gemini` | `opencode` | `omp` | `shell` |
   `unknown`. The kind of thing being watched. (Observed mostly `claude`, some `shell`.)
 - **`activity`** — `running` | `waiting` | `idle` (| `unknown` in daemon-generated stub
   states). Same meaning as the top-level `activity` column (that column is derived from this).

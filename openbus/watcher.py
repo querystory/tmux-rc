@@ -19,7 +19,7 @@ from functools import partial
 
 from . import tmux
 from .classify import _OPENCODE_RUNNING_RE, bootstrap, classify
-from .history import pane_key
+from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
 from .repository import github_repository
@@ -856,7 +856,7 @@ class Watcher:
         return seen is not None and (time.monotonic() - seen) < self.LIVE_PRESENCE_WINDOW
 
     def tool_for(self, pane_id: str) -> str | None:
-        """Last-known agent tool for a pane (claude/codex/gemini/opencode/shell), for callers
+        """Last-known agent tool for a pane (claude/codex/gemini/opencode/omp/shell), for callers
         outside the tick — e.g. live telemetry attribution. None if unseen."""
         t = self._tool.get(pane_id)
         return t[0] if t else None
@@ -1387,7 +1387,7 @@ class Watcher:
         # So: only override a shell/unknown read with a remembered agent if we saw that
         # agent within the last few seconds.
         tool = state.get("tool")
-        if tool in ("claude", "codex", "gemini", "opencode"):
+        if tool in AGENT_TOOLS:
             self._tool[pane.id] = (tool, now)
         elif tool in ("shell", "unknown", None):
             prev = self._tool.get(pane.id)
