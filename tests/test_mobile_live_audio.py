@@ -64,11 +64,51 @@ def _run_live(body: str, version: dict | None = None) -> None:
     fake audio, microphone, wake lock and sockets; see _HARNESS. `version` is what
     /api/version answers; None is offline."""
     web = Path(__file__).resolve().parents[1] / "web"
-    args = [str(web / p) for p in ("m/live.js", "live-close.js", "live-chat.js", "m/composer.js")]
+    args = [str(web / p) for p in ("m/live.js", "live-close.js", "live-chat.js", "m/composer.js",
+                                 "chat-starters.js")]
     result = subprocess.run(["node", "-e", _HARNESS + body, *args],
                             capture_output=True, text=True, timeout=30,
                             env={**os.environ, "LIVE_VERSION": json.dumps(version)})
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_chat_starters_follow_connection_and_conversation_lifecycle():
+    _run_live(r"""
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  await live.refresh();
+  assert.equal($('chat-starters').hidden, true); // not a voice menu
+  $('chat').onclick(); await flush();
+  const starters = $('chat-starters'), socket = sockets[0];
+  assert.equal(starters.hidden, false);
+  assert.ok(starters.children.every(b => b.disabled));
+  socket.onmessage({data: JSON.stringify({type:'status', status:'listening'})});
+  assert.ok(starters.children.every(b => !b.disabled));
+  socket.onmessage({data: JSON.stringify({type:'status', status:'reconnecting'})});
+  assert.ok(starters.children.every(b => b.disabled));
+  starters.children[0].onclick(); // even a stale/programmatic click sends nothing
+  assert.equal(socket.sent.length, 0);
+  socket.onmessage({data: JSON.stringify({type:'status', status:'listening'})});
+  $('chat-input').textContent = 'Keep this draft';
+  starters.children[0].onclick();
+  assert.equal(socket.sent.length, 1);
+  assert.equal(JSON.parse(socket.sent[0]).action, 'text');
+  assert.match(JSON.parse(socket.sent[0]).text, /attention/);
+  assert.equal(starters.hidden, true);
+  assert.ok(starters.children.every(b => b.disabled));
+  starters.children[0].onclick();
+  assert.equal(socket.sent.length, 1); // no double send after the accepted tap
+  assert.equal($('chat-input').textContent, 'Keep this draft');
+  $('voice-close').onclick(); $('chat').onclick(); await flush();
+  assert.equal(starters.hidden, true); // restoring is not a new conversation
+  $('voice-end').onclick(); $('chat').onclick(); await flush();
+  assert.equal(starters.hidden, false); // new conversation, including a model switch
+  $('voice-end').onclick();
+  assert.equal(starters.hidden, true);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True,
+      "live_models": [{"label": "Sonnet", "text": True}]})
 
 
 _HARNESS = r"""
