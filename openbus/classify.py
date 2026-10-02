@@ -82,9 +82,10 @@ _PROCESS_TOOLS = {
     "omp": "omp",
 }
 # omp installed through bun runs as `bun`, so its executable proves nothing. Its terminal
-# title does: omp always titles the pane "π" plus a state separator and session label
-# ("π > idle", "π ⠋ working", "π ! needs you", "π: titles off" — title-generator.ts).
-_OMP_TITLE_RE = re.compile(r"π(?:[ :]|$)")
+# title does: omp titles the pane "π", then a one-column state separator, then the session
+# label ("π > idle", "π ⠋ working", "π ! needs you", "π: titles off" — title-generator.ts).
+# The separator must stand alone, so a "π calculator" title under bun is not omp.
+_OMP_TITLE_RE = re.compile(r"π(?::|$| \S(?: |$))")
 
 
 def _host_tool(pane: Pane) -> str | None:
@@ -636,10 +637,12 @@ def classify(
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
     # omp's title is its run state: "π >" means the turn is over, so job rows still on
-    # screen are finished history, not live work.
+    # screen are finished history, not live work, and no question is open (omp's ask
+    # picker titles "π !"). The title is itself a read, so it stands after a failed parse.
     if result.get("tool") == "omp" and pane.title.startswith("π >"):
         result["activity"] = "idle"
-        result.pop("waiting_on", None)
+        for stale in ("question", "waiting_on", "parse_ok"):
+            result.pop(stale, None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:

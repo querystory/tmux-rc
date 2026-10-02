@@ -151,6 +151,8 @@ def test_opencode_interrupt_spinner_forces_running():
     ("omp", "t", "omp"),  # the native binary names itself
     ("bun", "π ⠋ Fix the parser", "omp"),  # a bun install is proven by omp's title
     ("bun", "π: titles off", "omp"),
+    ("bun", "π", "omp"),  # titles off and no session label yet
+    ("bun", "π calculator", "opencode"),  # a word after π is not a state separator
     ("bun", "πr² calculator", "opencode"),  # no omp separator: the model's read stands
     ("bash", "π > stale title", "opencode"),  # omp has exited; its title lingers
 ])
@@ -159,13 +161,19 @@ def test_omp_identity_comes_from_process_or_title(cmd, title, tool):
     assert r["tool"] == tool
 
 
-def test_omp_idle_title_retires_stale_job_rows():
+@pytest.mark.parametrize("parsed", [
+    {"tool": "omp", "activity": "waiting", "waiting_on": "external"},
+    {"tool": "omp", "activity": "waiting", "question": {"prompt": "Pick a color?"}},
+    None,  # failed parse: the title alone is the read
+])
+def test_omp_idle_title_retires_stale_job_rows(parsed):
     r = classify(
         _pane("bun", "π > omp-play"),
         "ⓘ waiting on 1 of 2 jobs 1 done\n π > ◒ GPT-5.5 > 🌳 tmux-rc",
-        _llm({"tool": "omp", "activity": "waiting", "waiting_on": "external"}),
+        _llm(parsed),
     )
-    assert (r["activity"], r.get("waiting_on")) == ("idle", None)
+    assert (r["activity"], r.get("waiting_on"), r.get("question"), r.get("parse_ok")) == (
+        "idle", None, None, None)
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
