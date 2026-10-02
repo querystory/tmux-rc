@@ -116,7 +116,7 @@ _VOLATILE_RE = re.compile(
     # omp's status row and subagent meters: "S0.06 (+0.09)" subscription/subagent spend,
     # the "▶──3%──╎──272K─" context bar (its dash count shifts with the spend's width),
     # and per-job "· 3 🛠 · 3 req · 4.2%/272K" tool/request/context counters.
-    r"|\bS\d+\.\d+|\(\+[\d.]+\)|▶[^◀\n]*|\d+ 🛠|\d+ req\b|[\d.]+%/[\d.]+[KM]"
+    r"|\bS\d+\.\d+|\(\+[\d.]+\)|▶─+\d+%[─╎┃\d.KM]*|\d+ 🛠|\d+ req\b|[\d.]+%/[\d.]+[KM]"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"  # spinner glyphs (⠋…⠏: omp)
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     r"|[ \t]+$",  # trailing whitespace

@@ -721,7 +721,7 @@ def send_transaction(pane_id: str):
 def proc_read(pid: int | str, name: str) -> str:
     """/proc/<pid>/<name>, or "" if the process is gone, unreadable, or there's no /proc."""
     try:
-        with open(f"/proc/{pid}/{name}") as f:
+        with open(f"/proc/{pid}/{name}", encoding="utf-8", errors="replace") as f:
             return f.read()
     except OSError:
         return ""

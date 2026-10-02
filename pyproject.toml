@@ -45,6 +45,7 @@ packages = ["openbus"]
 "openbus/parser_claude.txt" = "openbus/parser_claude.txt"
 "openbus/parser_claude_detail.txt" = "openbus/parser_claude_detail.txt"
 "openbus/parser_gemini.txt" = "openbus/parser_gemini.txt"
+"openbus/parser_omp.txt" = "openbus/parser_omp.txt"
 "openbus/live_prompt.txt" = "openbus/live_prompt.txt"
 "openbus/bootstrap_prompt.txt" = "openbus/bootstrap_prompt.txt"
 # The phone UI lives at the repo root (web/) so the dev flow serves it in place, but the
