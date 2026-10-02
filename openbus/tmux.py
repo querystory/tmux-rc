@@ -33,7 +33,7 @@ _TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
 # ("π > idle", "π ⠋ working", "π ! needs you", "π: titles off" — title-generator.ts).
 # The separator must stand alone, so a "π calculator" title is not omp. It identifies omp
 # under bun (classify) and, like the glyphs above, is chrome to strip from a display title.
-OMP_TITLE_RE = re.compile(r"^π(?::|$| \S(?: |$))")
+OMP_TITLE_RE = re.compile(r"^π(?::|$| (?P<state>\S)(?: |$))")
 # tmux stores any APC string (ESC _ ... ESC \) as the pane title, so a Kitty graphics
 # probe ("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA") lands there — a payload, not a title.
 _TITLE_ESCAPE_PAYLOAD = re.compile(r"^G[a-zA-Z]=[^,;]*(?:,[a-zA-Z]=[^,;]*)*;")

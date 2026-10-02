@@ -682,21 +682,27 @@ def classify(
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
-    # omp's title is its run state: "π >" means the turn is over, so job rows still on
-    # screen are finished history, not live work (nor are its workers: any omp still
-    # tracks stay counted by its row's "👥 N"). The title is itself a read, so it stands
-    # after a failed parse. A parsed question or rewind still decides the activity: a turn
-    # that ends asking "Should I merge?" is idle to omp ("π >") but a user-wait to us.
-    if result.get("tool") == "omp" and pane.title.startswith("π >"):
+    # omp's title is its run state (title-generator.ts), and the title is itself a read,
+    # so it stands even after a failed parse. "π >": the turn is over, so job rows still on
+    # screen are finished history, and so are its workers (any omp still tracks stay
+    # counted by its row's "👥 N"). A parsed question or rewind still decides the activity:
+    # a turn that ends asking "Should I merge?" is idle to omp but a user-wait to us.
+    # "π !": its ask or approval prompt, a user wait even if the parse missed the question;
+    # a failed parse still keeps the last card read, which has the answer controls. Any
+    # other separator is its working spinner, which outranks a stale idle/unknown read.
+    omp = result.get("tool") == "omp" and OMP_TITLE_RE.match(pane.title)
+    state = omp and omp["state"]
+    if state == ">":
         result.pop("subagents", None)
         if not (result.get("question") or result.get("rewind")):
             result["activity"] = "idle"
             result.pop("waiting_on", None)
             result.pop("parse_ok", None)
-    # "π !" is omp's ask or approval prompt: a user wait even if the parse missed the
-    # question. A failed parse still keeps the last card read, which has the answer controls.
-    if result.get("tool") == "omp" and pane.title.startswith("π !"):
+    elif state == "!":
         result.update(activity="waiting", waiting_on="user")
+    elif state and result.get("activity") in (None, "idle", "unknown"):
+        result["activity"] = "running"
+        result.pop("parse_ok", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:
