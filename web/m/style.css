@@ -85,7 +85,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 @media (prefers-reduced-motion: no-preference) {
   .working { animation: logo-clench 1.4s ease-in-out infinite; }
   .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; }
+  /* omp's own startup sweep (the gradient sliding across the π) lives in the SVG, so swap it in. */
+  .working[data-tool="omp"] { animation: none; content: url(/omp-working.svg); }
 }
+.working[data-tool="omp"] { border-radius: 19%; } /* omp's tile is a rounded square (rx 12 of 64); a circle would crop it */
 @media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
 @keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
 @keyframes logo-spin { to { transform: rotate(1turn); } }
