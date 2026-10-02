@@ -388,7 +388,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-reset-zoom { font-size: 12px; color: var(--accent); padding: 4px 8px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
-#layout-control { display: flex; align-items: center; gap: 8px; flex: none; color: var(--muted); font-size: 12px; }
+#layout-control { display: flex; align-items: center; flex: none; color: var(--muted); font-size: 13px; }
 #layout-control > span { display: none; }
 #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 14px; min-height: 44px; max-width: 150px; }
 #session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; background: var(--bg); color: var(--muted); border-top: 1px solid var(--line); }
@@ -421,14 +421,17 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .header-picker summary::-webkit-details-marker { display: none; }
 .header-picker summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); flex: none; margin-top: -3px; }
 .header-picker summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-#review-layout-picker summary { background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
 .header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
 /* The pane's overflow menu: an icon trigger (no picker chevron) holding the one destructive action. */
 #pane-menu { flex: none; }
-#pane-menu summary { padding: 0; }
+#pane-menu summary { padding: 0; justify-content: center; }
 #pane-menu summary::after { display: none; }
+/* Toolbar spacing: the Layout picker is borderless like Sort, and the icon buttons' 44px
+   boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
+   the visible glyphs come out even and the X's ink lines up with the right gutter. */
+#close-pane { margin: 0 -12px; }
 #kill-pane { width: 100%; color: var(--red); white-space: nowrap; }
 .header-picker-menu input { accent-color: var(--accent); }
 
