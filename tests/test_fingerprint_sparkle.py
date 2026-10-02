@@ -174,6 +174,9 @@ def test_omp_timer_and_meter_ticks_share_one_fingerprint():
     """omp repaints job timers, spend, and subagent meters every second while it works."""
     tool = "grep: Counting README lines"
     assert _fingerprint(_omp_frame(*_OMP_A, tool)) == _fingerprint(_omp_frame(*_OMP_B, tool))
+    # and its spinner cell, whatever the configured style: braille, pulse, or ASCII
+    a = _omp_frame(*_OMP_A, tool)
+    assert len({_fingerprint(a.replace(" ⠋ ", f" {c} ")) for c in "⠋○◔|/"}) == 1
 
 
 def test_omp_new_tool_line_changes_the_fingerprint():

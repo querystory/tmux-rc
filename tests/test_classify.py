@@ -190,6 +190,7 @@ def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, 
 
 @pytest.mark.parametrize("parsed", [
     {"tool": "omp", "activity": "waiting", "waiting_on": "external"},
+    {"tool": "omp", "activity": "idle", "subagents": [{"label": "a", "state": "running"}]},
     None,  # failed parse: the title alone is the read
 ])
 def test_omp_idle_title_retires_stale_job_rows(parsed):
@@ -198,8 +199,8 @@ def test_omp_idle_title_retires_stale_job_rows(parsed):
         "ⓘ waiting on 1 of 2 jobs 1 done\n π > ◒ GPT-5.5 > 🌳 tmux-rc",
         _llm(parsed),
     )
-    assert (r["activity"], r.get("waiting_on"), r.get("question"), r.get("parse_ok")) == (
-        "idle", None, None, None)
+    assert (r["activity"], r.get("waiting_on"), r.get("parse_ok"), r["agents"]) == (
+        "idle", None, None, 0)
 
 
 def test_omp_idle_title_keeps_a_closing_question():
