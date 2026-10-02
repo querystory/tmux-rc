@@ -15,7 +15,6 @@ def test_real_tmux_history_boundary(tmp_path, monkeypatch):
     def run(args):
         return subprocess.check_output(["tmux", "-S", socket, *args], text=True)
 
-    pane = None
     try:
         pane = run(["new-session", "-d", "-P", "-F", "#{pane_id}",
                     "-x", "80", "-y", "10", "sh"]).strip()
@@ -48,9 +47,8 @@ def test_real_tmux_history_boundary(tmp_path, monkeypatch):
         assert "\n[visible screen]\n" in text
         assert text.count(tmux.VISIBLE_SCREEN) == 1
     finally:
-        if pane is not None:
-            subprocess.run(["tmux", "-S", socket, "kill-pane", "-t", pane], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["tmux", "-S", socket, "kill-server"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def test_classifier_capture_splits_before_wrapping(monkeypatch):

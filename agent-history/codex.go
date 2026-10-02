@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -243,13 +242,8 @@ func pane(pid int) string {
 	if tty, _ := procStat(pid, 7); tty == "" || tty == "0" {
 		return ""
 	}
-	data, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
-	for kv := range strings.SplitSeq(string(data), "\x00") {
-		if v, ok := strings.CutPrefix(kv, "TMUX_PANE="); ok {
-			return v
-		}
-	}
-	return ""
+	env, _ := processEnv(pid)
+	return env["TMUX_PANE"]
 }
 
 func codexDir() string {

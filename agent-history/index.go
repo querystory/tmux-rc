@@ -26,10 +26,9 @@ func indexPath(harness, parent, id string) string {
 	return filepath.Join(Root(), "index", harness, parent, id+".md")
 }
 
-// Format versions the entry layout. Entries are skipped by mtime alone, so a new
-// layout would otherwise only reach sessions that happen to change; reconcile
-// rebuilds everything once when the recorded format differs.
-const Format = "2" // 2: resume_argv
+// Format versions derived entries. Mtime alone cannot detect a changed reader,
+// so reconcile rebuilds everything once when the recorded format differs.
+const Format = "3" // 3: omp titles follow the current slot/header, not audit records
 
 // A harness is one coding agent whose sessions are indexed.
 type harness struct {

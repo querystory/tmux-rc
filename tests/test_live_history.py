@@ -10,6 +10,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 
 import pytest
 
@@ -315,6 +316,33 @@ def test_tools_offered_only_with_agent_history(monkeypatch):
     assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
 
 
+def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):
+    # Exercise option parsing, not an argv echo: without "--", the leading "-"
+    # is rejected; a harness filter would silently hide resumable work.
+    fake = tmp_path / "agent-history"
+    fake.write_text(f"#!{sys.executable}\n" + """
+import argparse
+import json
+p = argparse.ArgumentParser()
+p.add_argument("command")
+p.add_argument("-json", action="store_true")
+p.add_argument("-projects", type=int)
+p.add_argument("-sessions", type=int)
+p.add_argument("-harness", choices=["claude", "codex", "omp"])
+p.add_argument("query", nargs="+")
+a = p.parse_args()
+sessions = [{"harness": h} for h in ["claude", "codex", "omp"]
+            if not a.harness or a.harness == h]
+print(json.dumps({"projects": [{"sessions": sessions}]
+                 if a.query == ["-all live mode"] else []}))
+""")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("TMUXRC_AGENT_HISTORY", str(fake))
+    [project] = agent_history.resolve("-all live mode")
+    assert {s["harness"] for s in project["sessions"]} == {"claude", "codex", "omp"}
+    assert {"codex", "omp"} <= agent_history.RESUMABLE
+
+
 def test_client_reports_unavailable_history(monkeypatch, tmp_path):
     fake = tmp_path / "agent-history"
     fake.write_text("#!/bin/sh\nexit 1\n")
@@ -326,7 +354,8 @@ def test_client_reports_unavailable_history(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(not shutil.which("tmux"), reason="needs tmux")
-def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
+@pytest.mark.parametrize("command_kind", ["argv", "configured"])
+def test_new_window_passes_argv_without_a_shell(tmp_path, monkeypatch, command_kind):
     # tmux execs a multi-argument command directly (no shell), which is what makes the
     # argv form safe for index data. Pinned against a real, private tmux server.
     sock = str(tmp_path / "tmux.sock")
@@ -338,16 +367,25 @@ def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
         return real(argv, *a, **k)
     monkeypatch.setattr(tmux.subprocess, "run", private)
     out, marker = tmp_path / "argv", tmp_path / "PWNED"
+    indexed_cwd = tmp_path / "indexed"
+    indexed_cwd.mkdir()
     pane = real(["tmux", "-S", sock, "new-session", "-d", "-s", "t", "-P", "-F",
-                 "#{pane_id}"], capture_output=True, text=True, check=True).stdout.strip()
+                 "#{pane_id}", "-c", str(tmp_path)],
+                capture_output=True, text=True, check=True).stdout.strip()
     try:
-        tmux.new_window("t", "n", ["sh", "-c", 'printf "%s|" "$@" > "$0"', str(out),
-                                   f"a b;touch {marker}", "$(x)"], str(tmp_path))
+        if command_kind == "argv":
+            tmux.new_window("t", "n", ["sh", "-c", 'pwd > "$0.cwd"; printf "%s|" "$@" > "$0"',
+                            str(out), f"a b;touch {marker}", "$(x)"], str(indexed_cwd))
+        else:
+            tmux.new_window("t", "n", f'pwd > "{out}.cwd"; printf configured > "{out}"')
         for _ in range(50):
             if out.exists() and out.read_text():
                 break
             subprocess.run(["sleep", "0.05"], check=True)
-        assert out.read_text() == f"a b;touch {marker}|$(x)|"
+        expected = f"a b;touch {marker}|$(x)|" if command_kind == "argv" else "configured"
+        assert out.read_text() == expected
+        assert out.with_suffix(".cwd").read_text().strip() == str(
+            indexed_cwd if command_kind == "argv" else tmp_path)
         assert not marker.exists()
     finally:
         real(["tmux", "-S", sock, "kill-pane", "-t", pane], check=False)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,29 @@ func ompWrite(t *testing.T, path, body string) string {
 }
 
 const ompTestHeader = `{"type":"session","version":3,"id":"real-id","timestamp":"2026-10-02T10:00:00Z","cwd":"/work/a repo","title":"header auto","titleSource":"auto"}` + "\n"
+
+func ompCheckSources(t *testing.T, want ...string) {
+	t.Helper()
+	files, err := ompSessions()
+	must(t, err)
+	if len(files) != len(want) {
+		t.Fatalf("sources = %v, want %v", files, want)
+	}
+	for _, path := range want {
+		if !slices.ContainsFunc(files, func(file []string) bool { return file[0] == path }) {
+			t.Errorf("missing source %s in %v", path, files)
+		}
+	}
+}
+
+func ompCheckResume(t *testing.T, path string, want ...string) {
+	t.Helper()
+	s, err := ReadOmp(path)
+	must(t, err)
+	if !reflect.DeepEqual(s.ResumeArgv, want) {
+		t.Errorf("resume %s = %v, want %v", path, s.ResumeArgv, want)
+	}
+}
 
 func TestReadOmpHumanBody(t *testing.T) {
 	ompTestEnv(t)
@@ -72,7 +96,6 @@ func TestOmpTitles(t *testing.T) {
 	for _, tc := range []struct{ name, prefix, audit, title, active string }{
 		{"slot", `{"type":"title","v":1,"title":"current","source":"auto","updatedAt":"2026-10-02T12:00:00Z","pad":""}` + "\n", `{"type":"title_change","title":"old user","source":"user"}`, "current", "2026-10-02T12:00:00Z"},
 		{"clear", `{"type":"title","v":1,"title":"","updatedAt":"2026-10-02T12:00:00Z","pad":""}` + "\n", `{"type":"title_change","title":"old user","source":"user"}`, "", "2026-10-02T12:00:00Z"},
-		{"legacy", "", "{\"type\":\"title_change\",\"title\":\"human name\",\"source\":\"user\"}\n{\"type\":\"title_change\",\"title\":\"later auto\",\"source\":\"auto\"}", "human name", "2026-10-02T10:00:00Z"},
 		{"invalid slot", `{"type":"title","v":1,"title":"invalid"}` + "\n", "", "header auto", "2026-10-02T10:00:00Z"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,6 +106,26 @@ func TestOmpTitles(t *testing.T) {
 			check(t, "activity", s.LastActive, tc.active)
 		})
 	}
+}
+
+func TestOmpHeaderTitleIgnoresAuditTrail(t *testing.T) {
+	ompTestEnv(t)
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	header := strings.ReplaceAll(ompTestHeader, "header auto", "human name")
+	header = strings.Replace(header, `"titleSource":"auto"`, `"titleSource":"user"`, 1)
+	path := ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).Sessions, "bucket", "session.jsonl"), header+
+		"{\"type\":\"title_change\",\"title\":\"stale user name\",\"source\":\"user\"}\n"+
+		"{\"type\":\"title_change\",\"title\":\"generated name\",\"source\":\"auto\"}\n")
+	info, err := os.Stat(path)
+	must(t, err)
+	dst := indexPath("omp", "", "real-id")
+	old := Session{Harness: "omp", ID: "real-id", Source: path, Cwd: "/work/a repo", Title: "stale user name"}
+	must(t, writeAtomic(dst, Render(old), info.ModTime()))
+	must(t, writeAtomic(stateFile(), []byte("2"), info.ModTime()))
+	Reconcile()
+	entry, err := ReadEntry(dst)
+	must(t, err)
+	check(t, "current user title after reconcile", entry.Title, "human name")
 }
 
 func TestOmpArtifactNotFork(t *testing.T) {
@@ -104,6 +147,9 @@ func TestOmpArtifactNotFork(t *testing.T) {
 	if len(s.ResumeArgv) != 0 {
 		t.Fatalf("child resume = %v", s.ResumeArgv)
 	}
+	nested := ompWrite(t, strings.TrimSuffix(child, ".jsonl")+"/Worker.jsonl", ompTestHeader)
+	check(t, "canonical sibling header", ompArtifactParent(nested), "child-uuid")
+	must(t, os.Remove(nested))
 	fork := ompWrite(t, filepath.Join(dir, "fork.jsonl"), strings.Replace(ompTestHeader, `"title":"header auto"`, `"parentSession":"`+parent+`","title":"header auto"`, 1)+`{"type":"session_init","task":"not a child task"}`)
 	f, err := ReadOmp(fork)
 	must(t, err)
@@ -138,37 +184,14 @@ func TestOmpDiscoveryAndResume(t *testing.T) {
 		}
 		ompWrite(t, filepath.Join(filepath.Dir(defaultPath), sidecar), body)
 	}
-	files, err := ompSessions()
-	must(t, err)
-	if len(files) != 6 {
-		t.Fatalf("discovered = %v", files)
-	}
-	for _, path := range []string{defaultPath, profilePath, customPath, profileCustom, crumbPath, flatPath} {
-		found := false
-		for _, f := range files {
-			if f[0] == path {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("missing %s", path)
-		}
-	}
-	for _, tc := range []struct {
-		path string
-		argv []string
-	}{
-		{customPath, []string{"omp", "--resume", customPath}},
-		{profilePath, []string{"omp", "--profile", "review", "--resume", profilePath}},
-		{flatPath, []string{"omp", "--resume", flatPath}},
-		{profileCustom, []string{"omp", "--profile", "review", "--resume", profileCustom}},
-	} {
-		s, err := ReadOmp(tc.path)
-		must(t, err)
-		if !reflect.DeepEqual(s.ResumeArgv, tc.argv) {
-			t.Errorf("resume %s = %v, want %v", tc.path, s.ResumeArgv, tc.argv)
-		}
-	}
+	ompCheckSources(t, defaultPath, profilePath, customPath, profileCustom, crumbPath, flatPath)
+	ompCheckResume(t, customPath, "omp", "--resume", customPath)
+	ompCheckResume(t, profilePath, "omp", "--profile", "review", "--resume", profilePath)
+	ompCheckResume(t, flatPath, "omp", "--resume", flatPath)
+	ompCheckResume(t, profileCustom, "omp", "--profile", "review", "--resume", profileCustom)
+	t.Setenv("OMP_PROFILE", "review")
+	ompCheckResume(t, defaultPath, "omp", "--profile", "default", "--resume", defaultPath)
+	ompCheckResume(t, profileCustom, "omp", "--profile", "review", "--resume", profileCustom)
 }
 
 func TestOmpRebuildTitleAndRetainMissing(t *testing.T) {
@@ -204,55 +227,18 @@ func TestOmpDiscoveryThroughXDGTransition(t *testing.T) {
 	xdg := filepath.Join(home, "data")
 	t.Setenv("XDG_DATA_HOME", xdg)
 	legacy := ompWrite(t, filepath.Join(home, ".omp", "agent", "sessions", "bucket", "legacy.jsonl"), ompTestHeader)
-	assertSources := func(want ...string) {
-		t.Helper()
-		files, err := ompSessions()
-		must(t, err)
-		if len(files) != len(want) {
-			t.Fatalf("sources = %v, want %v", files, want)
-		}
-		for _, path := range want {
-			found := false
-			for _, file := range files {
-				if file[0] == path {
-					found = true
-				}
-			}
-			if !found {
-				t.Fatalf("missing source %s in %v", path, files)
-			}
-		}
-	}
-	assertSources(legacy)
+	ompCheckSources(t, legacy)
 	migrated := ompWrite(t, filepath.Join(xdg, "omp", "sessions", "bucket", "migrated.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "migrated-id"))
-	assertSources(legacy, migrated)
-	for _, tc := range []struct {
-		path string
-		argv []string
-	}{
-		{legacy, []string{"omp", "--resume", legacy}},
-		{migrated, []string{"omp", "--resume", "migrated-id"}},
-	} {
-		s, err := ReadOmp(tc.path)
-		must(t, err)
-		if !reflect.DeepEqual(s.ResumeArgv, tc.argv) {
-			t.Fatalf("resume = %v, want %v", s.ResumeArgv, tc.argv)
-		}
-	}
+	ompCheckSources(t, legacy, migrated)
+	ompCheckResume(t, legacy, "omp", "--resume", legacy)
+	ompCheckResume(t, migrated, "omp", "--resume", "migrated-id")
 	profile := ompWrite(t, filepath.Join(xdg, "omp", "profiles", "review", "sessions", "bucket", "profile.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "profile-id"))
 	t.Setenv("OMP_PROFILE", "")
 	t.Setenv("PI_PROFILE", "review")
-	assertSources(legacy, migrated, profile)
-	defaultSession, err := ReadOmp(migrated)
-	must(t, err)
-	if !reflect.DeepEqual(defaultSession.ResumeArgv, []string{"omp", "--resume", "migrated-id"}) {
-		t.Fatalf("empty OMP_PROFILE lost precedence: %v", defaultSession.ResumeArgv)
-	}
-	named, err := ReadOmp(profile)
-	must(t, err)
-	if !reflect.DeepEqual(named.ResumeArgv, []string{"omp", "--profile", "review", "--resume", profile}) {
-		t.Fatalf("profile resume = %v", named.ResumeArgv)
-	}
+	ompCheckSources(t, legacy, migrated, profile)
+	// An explicitly empty OMP_PROFILE takes precedence over PI_PROFILE.
+	ompCheckResume(t, migrated, "omp", "--resume", "migrated-id")
+	ompCheckResume(t, profile, "omp", "--profile", "review", "--resume", profile)
 }
 
 func TestOmpNoResumeWithoutCwd(t *testing.T) {

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,40 +15,33 @@ import (
 // Storage and record contracts follow oh-my-pi's session-loader.ts,
 // session-paths.ts, session-entries.ts and utils/src/dirs.ts.
 type ompRecord struct {
-	Type        string `json:"type"`
-	ID          string `json:"id"`
-	Timestamp   string `json:"timestamp"`
-	Cwd         string `json:"cwd"`
-	Title       string `json:"title"`
-	TitleSource string `json:"titleSource"`
-	Source      string `json:"source"`
-	UpdatedAt   string `json:"updatedAt"`
-	Task        string `json:"task"`
-	Message     struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Timestamp string `json:"timestamp"`
+	Cwd       string `json:"cwd"`
+	Title     string `json:"title"`
+	UpdatedAt string `json:"updatedAt"`
+	Task      string `json:"task"`
+	Message   struct {
 		Role        string `json:"role"`
 		Attribution string `json:"attribution"`
 		Synthetic   bool   `json:"synthetic"`
 	} `json:"message"`
 }
 
-var ompHeaderDone = errors.New("omp header read")
-
 func ompHeader(path string) (ompRecord, error) {
 	var header ompRecord
 	err := scanLines(path, func(line []byte) error {
 		var r ompRecord
-		if json.Unmarshal(line, &r) != nil {
-			return nil
-		}
-		if r.Type == "title" {
+		if json.Unmarshal(line, &r) != nil || r.Type == "title" {
 			return nil
 		}
 		if r.Type == "session" {
 			header = r
 		}
-		return ompHeaderDone
+		return io.EOF
 	})
-	if errors.Is(err, ompHeaderDone) {
+	if errors.Is(err, io.EOF) {
 		err = nil
 	}
 	return header, err
@@ -61,8 +55,7 @@ var ompArtifactName = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[^_]+_(.+)$`)
 func ompArtifactParent(path string) string {
 	dir := filepath.Dir(path)
 	if h, err := ompHeader(dir + ".jsonl"); err == nil && h.ID != "" {
-		id, _ := ompIdentity(dir + ".jsonl")
-		return id
+		return h.ID
 	}
 	if m := ompArtifactName.FindStringSubmatch(filepath.Base(dir)); m != nil {
 		return m[1]
@@ -80,9 +73,12 @@ func ompIdentity(path string) (id, parent string) {
 
 func ReadOmp(path string) (Session, error) {
 	s := Session{Harness: "omp", Source: path}
-	s.ID, s.Parent = ompIdentity(path)
+	s.Parent = ompArtifactParent(path)
+	if s.Parent != "" {
+		s.ID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	}
 	var header ompRecord
-	var slotTitle, userTitle, auditTitle string
+	var slotTitle string
 	var hasSlot, taskSeen bool
 	lineNumber := 0
 	latest := time.Time{}
@@ -108,17 +104,9 @@ func ReadOmp(path string) (Session, error) {
 			if header.Type == "" {
 				header = r
 				s.Cwd, s.Started = r.Cwd, r.Timestamp
+				s.Title = r.Title
 				if s.Parent == "" {
 					s.ID = r.ID
-				}
-			}
-		case "title_change":
-			// Legacy recovery is an indexer compatibility policy, not omp's
-			// current loader: explicit user labels outrank automatic audits.
-			if r.Title != "" {
-				auditTitle = r.Title
-				if r.Source == "user" {
-					userTitle = r.Title
 				}
 			}
 		case "session_init":
@@ -148,17 +136,8 @@ func ReadOmp(path string) (Session, error) {
 	if header.Type == "" || header.ID == "" {
 		return Session{}, errNotIndexed
 	}
-	switch {
-	case hasSlot:
+	if hasSlot {
 		s.Title = slotTitle
-	case userTitle != "":
-		s.Title = userTitle
-	case header.TitleSource == "user":
-		s.Title = header.Title
-	case auditTitle != "":
-		s.Title = auditTitle
-	default:
-		s.Title = header.Title
 	}
 	for _, m := range s.Messages {
 		for _, pr := range ompPR.FindAllString(m.Text, -1) {
@@ -172,20 +151,16 @@ func ReadOmp(path string) (Session, error) {
 		if err != nil {
 			return Session{}, err
 		}
-		arg := absolute
-		profile := ""
-		locations, err := ompLocations()
+		arg, profile := absolute, ""
+		active := ompActiveProfile()
+		locations, err := ompLocations(active)
 		if err != nil {
 			return Session{}, err
 		}
 		for _, loc := range locations {
 			if ompWithin(loc.Sessions, absolute) {
 				profile = loc.Profile
-				active, ok := os.LookupEnv("OMP_PROFILE")
-				if !ok {
-					active = os.Getenv("PI_PROFILE")
-				}
-				if profile == "" && loc == ompLocationFor("", os.Getenv) && (active == "" || active == "default") {
+				if loc == locations[0] && (active == "" || active == "default") {
 					arg = s.ID
 				}
 				break
@@ -194,31 +169,14 @@ func ReadOmp(path string) (Session, error) {
 		if profile == "" && arg == absolute {
 			for _, loc := range locations {
 				matched := false
-				for _, kind := range []string{"custom-session-files", "terminal-sessions"} {
-					markers, err := find(filepath.Join(loc.State, kind), "", 1)
-					if err != nil {
-						return Session{}, err
-					}
-					for _, marker := range markers {
-						b, err := os.ReadFile(marker)
-						if err != nil {
-							return Session{}, err
-						}
-						if ompMarkerPath(kind, b) == absolute {
-							matched = true
-							break
-						}
-					}
+				if err := ompPointers(loc, func(path string) { matched = matched || path == absolute }); err != nil {
+					return Session{}, err
 				}
 				if matched {
 					profile = loc.Profile
 					break
 				}
 			}
-		}
-		active, ok := os.LookupEnv("OMP_PROFILE")
-		if !ok {
-			active = os.Getenv("PI_PROFILE")
 		}
 		if profile == "" && active != "" && active != "default" {
 			profile = "default"
@@ -259,6 +217,14 @@ func ompProfileEnv(env map[string]string) string {
 		return strings.TrimSpace(p)
 	}
 	return strings.TrimSpace(env["PI_PROFILE"])
+}
+
+func ompActiveProfile() string {
+	profile, ok := os.LookupEnv("OMP_PROFILE")
+	if !ok {
+		profile = os.Getenv("PI_PROFILE")
+	}
+	return strings.TrimSpace(profile)
 }
 
 func ompLocationFor(profile string, getenv func(string) string) ompLocation {
@@ -306,8 +272,8 @@ func ompStateDir(env map[string]string, profile string) string {
 	return ompLocationFor(profile, func(key string) string { return env[key] }).State
 }
 
-func ompLocations() ([]ompLocation, error) {
-	out := []ompLocation{ompLocationFor("", os.Getenv)}
+func ompLocations(profile string) ([]ompLocation, error) {
+	var out []ompLocation
 	home, _ := os.UserHomeDir()
 	config := os.Getenv("PI_CONFIG_DIR")
 	if config == "" {
@@ -320,11 +286,7 @@ func ompLocations() ([]ompLocation, error) {
 		}
 		return os.Getenv(key)
 	}
-	legacy := ompLocationFor("", legacyEnv)
-	if !slices.Contains(out, legacy) {
-		out = append(out, legacy)
-	}
-	profiles := []string{}
+	profiles := []string{""}
 	for _, root := range []string{filepath.Join(home, config, "profiles"), filepath.Join(os.Getenv("XDG_DATA_HOME"), "omp", "profiles"), filepath.Join(os.Getenv("XDG_STATE_HOME"), "omp", "profiles")} {
 		if !filepath.IsAbs(root) {
 			continue
@@ -339,11 +301,7 @@ func ompLocations() ([]ompLocation, error) {
 			}
 		}
 	}
-	profile, ok := os.LookupEnv("OMP_PROFILE")
-	if !ok {
-		profile = os.Getenv("PI_PROFILE")
-	}
-	if profile = strings.TrimSpace(profile); profile != "" && !slices.Contains(profiles, profile) {
+	if profile != "" && !slices.Contains(profiles, profile) {
 		profiles = append(profiles, profile)
 	}
 	for _, p := range profiles {
@@ -359,7 +317,7 @@ func ompLocations() ([]ompLocation, error) {
 // Discovery reads only sessions, artifact transcripts, and exact pointers in
 // omp's custom-file registry/breadcrumbs; blobs, logs and results are excluded.
 func ompSessions() ([][]string, error) {
-	locations, err := ompLocations()
+	locations, err := ompLocations(ompActiveProfile())
 	if err != nil {
 		return nil, err
 	}
@@ -372,23 +330,10 @@ func ompSessions() ([][]string, error) {
 	}
 	for _, loc := range locations {
 		addTree(loc.Sessions)
-		for _, kind := range []string{"custom-session-files", "terminal-sessions"} {
-			markers, err := find(filepath.Join(loc.State, kind), "", 1)
-			errs = append(errs, err)
-			for _, marker := range markers {
-				b, err := os.ReadFile(marker)
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				path := ompMarkerPath(kind, b)
-				if path == "" {
-					continue
-				}
-				paths = append(paths, path)
-				addTree(strings.TrimSuffix(path, ".jsonl"))
-			}
-		}
+		errs = append(errs, ompPointers(loc, func(path string) {
+			paths = append(paths, path)
+			addTree(strings.TrimSuffix(path, ".jsonl"))
+		}))
 	}
 	if root := os.Getenv("PI_CODING_AGENT_SESSION_DIR"); root != "" {
 		addTree(root)
@@ -416,11 +361,31 @@ func ompSessions() ([][]string, error) {
 	return out, errors.Join(errs...)
 }
 
+// Pointer reads retain partial discovery results alongside I/O errors.
+func ompPointers(loc ompLocation, visit func(string)) error {
+	var errs []error
+	for _, kind := range []string{"custom-session-files", "terminal-sessions"} {
+		markers, err := find(filepath.Join(loc.State, kind), "", 1)
+		errs = append(errs, err)
+		for _, marker := range markers {
+			b, err := os.ReadFile(marker)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if path := ompMarkerPath(kind, b); path != "" {
+				visit(path)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func ompMarkerPath(kind string, b []byte) string {
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	path := lines[0]
 	if kind == "terminal-sessions" {
-		if len(lines) < 2 {
+		if len(lines) < 2 || lines[0] == "" || lines[1] == "" {
 			return ""
 		}
 		path = lines[1]

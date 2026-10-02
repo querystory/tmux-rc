@@ -76,8 +76,8 @@ attribution remains eligible for older sessions. Subagents use their first
 Artifact location identifies a subagent: `parentSession` alone also marks ordinary forks.
 
 The rewritten title slot is current, including an explicit cleared title; slot-less
-legacy files recover user title changes over generated titles. The header supplies
-identity, cwd and start time, never the lossy directory slug. All dated records and
+files use the header title: title-change records are audit, not the current name.
+Identity, cwd and start time also come from the header, never the lossy slug. All dated records and
 title updates count as activity, but only kept messages supply PR links. omp does not
 persist Git branches or print/RPC launch mode, so those fields are omitted rather than
 invented; `-all` cannot distinguish its historical headless runs.

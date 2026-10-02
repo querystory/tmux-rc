@@ -115,6 +115,7 @@ func harnessProcesses(comm string, keep func([]string) bool) ([]harnessProcess, 
 		return nil, err
 	}
 	var out []harnessProcess
+	uidPrefix := strconv.Itoa(os.Getuid()) + "\t"
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
@@ -124,27 +125,20 @@ func harnessProcesses(comm string, keep func([]string) bool) ([]harnessProcess, 
 			return os.ReadFile(filepath.Join("/proc", entry.Name(), name))
 		}
 		name, err := read("comm")
-		if errors.Is(err, os.ErrNotExist) {
+		if err == nil && strings.TrimSpace(string(name)) != comm {
 			continue
 		}
-		if err != nil {
-			return nil, err
+		var status, cmdline []byte
+		if err == nil {
+			status, err = read("status")
 		}
-		if strings.TrimSpace(string(name)) != comm {
-			continue
+		if err == nil {
+			_, uid, _ := strings.Cut(string(status), "\nUid:\t")
+			if !strings.HasPrefix(uid, uidPrefix) {
+				continue
+			}
+			cmdline, err = read("cmdline")
 		}
-		status, err := read("status")
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		_, uid, _ := strings.Cut(string(status), "\nUid:\t")
-		if !strings.HasPrefix(uid, strconv.Itoa(os.Getuid())+"\t") {
-			continue
-		}
-		cmdline, err := read("cmdline")
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -204,13 +198,8 @@ func processEnv(pid int) (map[string]string, error) {
 var ompMaintenance = strings.Fields("auth-broker auth-gateway agents bench browser-relay cleanse collab commit completions __complete compress config dry-balance daemon broker help find gc grep gallery git grievances images img if-bench install join login models plugin plugins predict ps say clip play share setup shell read render skill skills ssh stats stream update usage tiny-models token toks ttsr q search web-search wt worktree --help -h --version -v --license --smoke-test --alias")
 
 func ompHost(args []string) bool {
-	args = ompLaunchArgs(args)
-	return len(args) == 0 || (!strings.HasPrefix(args[0], "__omp_worker_") && !slices.Contains(ompMaintenance, args[0]))
-}
-
-func ompLaunchArgs(args []string) []string {
 	if len(args) == 0 {
-		return nil
+		return true
 	}
 	exe := filepath.Base(args[0])
 	args = args[1:]
@@ -226,7 +215,7 @@ func ompLaunchArgs(args []string) []string {
 			break
 		}
 	}
-	return args
+	return len(args) == 0 || (!strings.HasPrefix(args[0], "__omp_worker_") && !slices.Contains(ompMaintenance, args[0]))
 }
 
 func ompProcessProfile(args []string, env map[string]string) string {
@@ -262,22 +251,14 @@ func ompTerminal(stdin string, env map[string]string) string {
 	return ""
 }
 
-// Validate the header before using ompIdentity: arbitrary JSONL open in a tool
-// is not an omp session, and a missing/corrupt live transcript is unknown.
-func ompLiveIdentity(path string) (id, parent string, err error) {
+// A live identity must name a main session: child transcripts cannot identify
+// their host, and arbitrary JSONL opened by a tool is not an omp session.
+func ompLiveIdentity(path string) (string, error) {
 	header, err := ompHeader(path)
-	if err != nil {
-		return "", "", err
+	if err == nil && (header.ID == "" || ompArtifactParent(path) != "") {
+		err = fmt.Errorf("%s: not an omp main session", path)
 	}
-	if header.Type != "session" || header.ID == "" {
-		return "", "", fmt.Errorf("%s: unreadable omp session header", path)
-	}
-	parent = ompArtifactParent(path)
-	id = header.ID
-	if parent != "" {
-		id = strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	}
-	return id, parent, nil
+	return header.ID, err
 }
 
 // RunningOmp uses a real conversation host plus its current terminal breadcrumb,
@@ -312,20 +293,18 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 			continue
 		}
 		host := map[string]Running{}
-		identified := false
 		var hostErr error
 		for _, target := range fds {
 			if !strings.HasSuffix(target, ".jsonl") {
 				continue
 			}
-			id, parent, err := ompLiveIdentity(target)
-			if err != nil || parent != "" {
+			id, err := ompLiveIdentity(target)
+			if err != nil {
 				// Children suppress breadcrumbs and cannot identify the main host.
 				// Unrelated JSONL opened by tools cannot identify it either.
 				continue
 			}
 			host[id] = Running{PID: proc.PID}
-			identified = true
 		}
 		if envErr == nil {
 			terminal := ompTerminal(fds["0"], env)
@@ -346,28 +325,18 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 					// An existing breadcrumb is authoritative even for a fresh,
 					// not-yet-materialized target. Never substitute an older fd.
 					clear(host)
-					identified = false
-					lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-					if len(lines) < 2 || lines[0] == "" || lines[1] == "" {
+					path := ompMarkerPath("terminal-sessions", data)
+					if path == "" {
 						err = fmt.Errorf("%s: unreadable omp breadcrumb", crumb)
 					} else {
-						path := lines[1]
-						if !filepath.IsAbs(path) {
-							path = filepath.Join(lines[0], path)
-						}
-						id, parent, identityErr := ompLiveIdentity(path)
-						err = identityErr
-						if err == nil && parent != "" {
-							err = fmt.Errorf("%s: breadcrumb names an omp child", crumb)
-						}
-						if err == nil && parent == "" {
-							// Only the selected main transcript belongs to this pane.
-							host[id] = Running{PID: proc.PID, TmuxPane: pane(proc.PID)}
-							identified = true
+						var id string
+						id, err = ompLiveIdentity(path)
+						if err == nil {
+							host[id] = Running{PID: proc.PID}
 						}
 					}
 				}
-				if err != nil && (!errors.Is(err, os.ErrNotExist) || !identified) {
+				if err != nil && (!errors.Is(err, os.ErrNotExist) || len(host) == 0) {
 					hostErr = errors.Join(hostErr, err)
 				}
 			}
@@ -377,7 +346,7 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 			continue // exit or pid reuse during observation
 		}
 		unknown = errors.Join(unknown, hostErr, fdErr, envErr, statErr)
-		if !identified {
+		if len(host) == 0 {
 			unknown = errors.Join(unknown, fmt.Errorf("omp pid %d: current session is unknown", proc.PID))
 		}
 		if len(host) == 1 {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -206,11 +207,8 @@ func ompFixtureRunning(t *testing.T, pids ...int) (map[string]Running, error) {
 	must(t, err)
 	var fixtures []harnessProcess
 	for _, proc := range procs {
-		for _, pid := range pids {
-			if proc.PID == pid {
-				fixtures = append(fixtures, proc)
-				break
-			}
+		if slices.Contains(pids, proc.PID) {
+			fixtures = append(fixtures, proc)
 		}
 	}
 	return runningOmpProcesses(fixtures)
@@ -305,7 +303,7 @@ func TestRunningOmpBreadcrumbReadFailuresAreUnknown(t *testing.T) {
 	path := ompLiveFile(t, filepath.Join(t.TempDir(), "target.jsonl"), "target")
 	crumb := ompLiveCrumb(t, env, "", "tmux-%993", "/", path)
 	cmd, _ := ompLiveHost(t, env, "omp", "launch", "", false)
-	for _, body := range []string{"invalid", "/\n/absent/synthetic.jsonl\n", "/\n" + path + "\n"} {
+	for _, body := range []string{"invalid", "\n" + path + "\n", "/\n\n", "/\n/absent/synthetic.jsonl\n", "/\n" + path + "\n"} {
 		must(t, os.WriteFile(crumb, []byte(body), 0o600))
 		if body == "/\n"+path+"\n" {
 			must(t, os.WriteFile(path, []byte("{broken\n"), 0o600))
@@ -336,28 +334,24 @@ func TestRunningOmpProfileAndTerminalFallback(t *testing.T) {
 	ompLiveCrumb(t, env, "", "zellij-team-work-one-9", "/", wrong)
 	ompLiveCrumb(t, env, "named", "tmux-%994", "/", wrong)
 	ompLiveCrumb(t, env, "named", "zellij-team-work-one-9", "/", right)
-	cmd, stop := ompLiveHost(t, env, "omp", "launch", "", false)
-	got, err := ompFixtureRunning(t, cmd.Process.Pid)
-	must(t, err)
-	if len(got) != 1 || got["profile-current"].PID != cmd.Process.Pid {
-		t.Fatalf("profile/Zellij precedence = %+v", got)
-	}
-	stop()
-	// Explicitly empty OMP_PROFILE overrides PI_PROFILE; CLI profile then
-	// overrides both, including an inherited named profile.
-	env["OMP_PROFILE"] = ""
-	cmd, stop = ompLiveHost(t, env, "omp", "launch", "", false)
-	got, err = ompFixtureRunning(t, cmd.Process.Pid)
-	must(t, err)
-	if len(got) != 1 || got["profile-stale"].PID != cmd.Process.Pid {
-		t.Fatalf("empty OMP_PROFILE should select default = %+v", got)
-	}
-	stop()
-	cmd, _ = ompLiveHost(t, env, "omp", "launch", "", false, "--profile", "named")
-	got, err = ompFixtureRunning(t, cmd.Process.Pid)
-	must(t, err)
-	if len(got) != 1 || got["profile-current"].PID != cmd.Process.Pid {
-		t.Fatalf("CLI profile precedence = %+v", got)
+	// Explicitly empty OMP_PROFILE overrides PI_PROFILE; CLI profile overrides
+	// both, including an inherited named profile.
+	for _, test := range []struct {
+		profile, id string
+		args        []string
+	}{
+		{"named", "profile-current", nil},
+		{"", "profile-stale", nil},
+		{"", "profile-current", []string{"--profile", "named"}},
+	} {
+		env["OMP_PROFILE"] = test.profile
+		cmd, stop := ompLiveHost(t, env, "omp", "launch", "", false, test.args...)
+		got, err := ompFixtureRunning(t, cmd.Process.Pid)
+		must(t, err)
+		if len(got) != 1 || got[test.id].PID != cmd.Process.Pid {
+			t.Fatalf("profile %q args %v = %+v", test.profile, test.args, got)
+		}
+		stop()
 	}
 }
 
