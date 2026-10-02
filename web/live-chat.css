@@ -25,3 +25,19 @@
 .chat-badge { position: absolute; top: -6px; left: -6px; min-width: 22px; height: 22px; padding: 0 6px;
   border-radius: 11px; background: var(--red); color: #fff; font: 700 12px/22px system-ui, sans-serif; }
 .chat-badge:empty { display: none; }
+
+.chat-markdown { white-space: normal; }
+.chat-markdown > :first-child { margin-top: 0; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown p, .chat-markdown ul, .chat-markdown ol, .chat-markdown blockquote { margin: 0.65em 0; }
+.chat-markdown ul, .chat-markdown ol { padding-left: 1.5em; }
+.chat-markdown li + li { margin-top: 0.3em; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3,
+.chat-markdown h4, .chat-markdown h5, .chat-markdown h6 { font-size: 1em; margin: 0.9em 0 0.4em; }
+.chat-markdown a { color: var(--accent); text-decoration: underline; }
+.chat-markdown code { font-size: 0.9em; background: var(--surface); border-radius: 4px; padding: 0.1em 0.25em; }
+.chat-markdown pre { max-width: 100%; overflow-x: auto; white-space: pre; padding: 10px; background: var(--surface); border-radius: 8px; }
+.chat-markdown pre code { padding: 0; }
+.chat-markdown blockquote { margin-left: 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.chat-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.chat-markdown th, .chat-markdown td { padding: 5px 8px; border: 1px solid var(--line); }

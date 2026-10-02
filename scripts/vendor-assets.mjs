@@ -10,20 +10,51 @@ const check = process.argv.includes('--check');
 const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
 const files = new Map();
 const versions = {};
-for (const name of ['echarts', 'wordcloud']) {
+const bundles = {
+  echarts: ['dist/echarts.min.js', 'echarts.min.js'],
+  wordcloud: ['src/wordcloud2.js', 'wordcloud.js'],
+  'markdown-it': ['dist/browser/markdown-it.esm.min.mjs', 'markdown-it.mjs'],
+};
+for (const [name, [bundle, filename]] of Object.entries(bundles)) {
   const dir = path.join(root, 'node_modules', name);
   const pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
   const entry = lock.packages[`node_modules/${name}`];
   if (pkg.version !== entry.version) throw new Error(`${name}: run npm ci before generating assets`);
   versions[name] = { version: pkg.version, integrity: entry.integrity };
-  const bundle = name === 'echarts' ? 'dist/echarts.min.js' : 'src/wordcloud2.js';
-  files.set(name === 'echarts' ? 'echarts.min.js' : 'wordcloud.js', await readFile(path.join(dir, bundle)));
+  files.set(filename, await readFile(path.join(dir, bundle)));
 }
 for (const name of ['LICENSE', 'NOTICE']) {
   files.set(`echarts.${name}`, await readFile(path.join(root, 'node_modules/echarts', name)));
 }
 files.set('echarts.LICENSE-d3', await readFile(path.join(root, 'node_modules/echarts/licenses/LICENSE-d3')));
 files.set('wordcloud.LICENSE', await readFile(path.join(root, 'node_modules/wordcloud/LICENSE')));
+files.set('markdown-it.LICENSE', await readFile(path.join(root, 'node_modules/markdown-it/LICENSE')));
+// The browser build embeds these packages plus compiler helpers. Preserve their
+// notices too, and fail if an upstream bundle adds an unaccounted-for dependency.
+const markdownLicenses = {
+  mdurl: 'LICENSE', entities: 'LICENSE', 'linkify-it': 'LICENSE',
+  'punycode.js': 'LICENSE-MIT.txt', 'uc.micro': 'LICENSE.txt',
+  '@oxc-project/runtime': 'LICENSE',
+};
+const markdownDir = path.join(root, 'node_modules/markdown-it/dist/browser');
+const sourceMap = JSON.parse(await readFile(path.join(markdownDir, 'markdown-it.esm.min.mjs.map'), 'utf8'));
+for (const source of sourceMap.sources) {
+  const name = source.match(/node_modules\/((?:@[^/]+\/)?[^/]+)/)?.[1];
+  if (name && !markdownLicenses[name]) throw new Error(`Missing bundled license: ${name}`);
+}
+let notices = '';
+for (const [name, license] of Object.entries(markdownLicenses)) {
+  const dir = path.join(root, 'node_modules', name);
+  const pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
+  const entry = lock.packages[`node_modules/${name}`];
+  if (pkg.version !== entry.version) throw new Error(`${name}: run npm ci`);
+  versions[name] = { version: pkg.version, integrity: entry.integrity };
+  notices += `--- ${name} ${pkg.version} ---\n${await readFile(path.join(dir, license), 'utf8')}\n`;
+}
+const runtimeVersion = files.get('markdown-it.mjs').toString().match(/@oxc-project\+runtime@([^/]+)/)?.[1];
+if (runtimeVersion !== versions['@oxc-project/runtime'].version) throw new Error('Update the bundled OXC runtime notice version');
+notices += `--- Rolldown generated runtime ---\n${await readFile(path.join(root, 'scripts/licenses/rolldown-runtime.LICENSE'), 'utf8')}`;
+files.set('markdown-it.THIRD-PARTY-LICENSE', Buffer.from(notices));
 files.set('versions.json', Buffer.from(`${JSON.stringify(versions, null, 2)}\n`));
 
 const unexpected = (await readdir(vendor)).filter(name => name !== 'README.md' && !files.has(name));

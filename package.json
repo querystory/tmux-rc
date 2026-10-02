@@ -5,8 +5,12 @@
     "vendor:build": "node scripts/vendor-assets.mjs",
     "vendor:check": "node scripts/vendor-assets.mjs --check"
   },
+  "devDependencies": {
+    "@oxc-project/runtime": "0.142.0"
+  },
   "dependencies": {
     "echarts": "6.1.0",
+    "markdown-it": "15.0.2",
     "wordcloud": "1.2.3"
   }
 }
