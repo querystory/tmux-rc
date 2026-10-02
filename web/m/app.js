@@ -1,4 +1,4 @@
-import { headerPicker } from "/m/header-picker.js";
+import { headerPicker, dismissable } from "/m/header-picker.js";
 import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
@@ -41,6 +41,8 @@ const LUCIDE = {
   circle: '<circle cx="12" cy="12" r="9"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
+  ellipsis: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  trash: '<path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
@@ -487,7 +489,7 @@ function render() {
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane || wide);
   show("brand", !inPane || wide);
-  show("back", inPane && !wide); show("heading", inPane); show("detail", inPane);
+  show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
   show("landing", dashboardVisible());
@@ -887,7 +889,7 @@ $("reply-form").onsubmit = async (event) => {
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ back: "back", theme: "sun", docs: "book", "close-pane": "x", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -940,7 +942,8 @@ new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
 $("dashboard-tab").onclick = () => navigate(null, "dashboard");
-$("back").onclick = () => navigate();
+// Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
+$("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
 $("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
 $("sort").onchange = () => { sort = $("sort").value; navigate(); };
@@ -1085,11 +1088,15 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 const resizeWorkspace = () => { restartDetail(); render(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
-// Close the pane's whole tmux window. The poll drops it and leaveMissingPane does the rest;
-// 404 means it is already gone, which is the outcome asked for.
-$("close-pane").onclick = async () => {
-  if (!active || !confirm("Close this tmux window? Whatever is running in it will end.")) return;
-  try { await post(paneUrl(active, "close")); } catch (error) { if (error.status !== 404) notice("Could not close this window."); }
+// Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
+// as "close this view", and pressing it should never end a process. The poll drops the pane
+// and leaveMissingPane does the rest; 404 means it is already gone, the outcome asked for.
+dismissable($("pane-menu"));
+html($("kill-pane"), `${licon("trash", 18)}<span>Kill window</span>`);
+$("kill-pane").onclick = async () => {
+  $("pane-menu").open = false; $("pane-menu-button").focus(); // the item just hid: keep keyboard focus on a visible control
+  if (!active || !confirm("Kill this tmux window? Whatever is running in it will end.")) return;
+  try { await post(paneUrl(active, "close")); } catch (error) { if (error.status !== 404) notice("Could not kill this window."); }
 };
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
