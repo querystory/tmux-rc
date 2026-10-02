@@ -105,7 +105,7 @@ RECENT_EVENT_TTL = 15 * 60
 # every tick and the card flickers. (These values still reach the UI via the LLM's
 # structured fields — we only ignore them for the change check.)
 _VOLATILE_RE = re.compile(
-    r"\d+h\d+m|\d+m\s*\d+s|\d+s\b"  # durations
+    r"\d+h\d+m|\d+m\s*\d+s|\d+(?:\.\d+)?s\b"  # durations (omp's job timers: "3.4s")
     r"|↓\s*[\d.]+k?|[\d.]+k tokens"  # token counts
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
@@ -113,7 +113,11 @@ _VOLATILE_RE = re.compile(
     # Codex's own status bar wording for the same drifting metrics Claude Code's
     # patterns above already cover: "Context 36% left", "4.78M used", "weekly 52% left".
     r"|Context\s+\d+%\s+\w+|[\d.]+[KMG]\s+used|weekly\s+\d+%\s+left"
-    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
+    # omp's status row and subagent meters: "S0.06 (+0.09)" subscription/subagent spend,
+    # the "▶──3%──╎──272K─" context bar (its dash count shifts with the spend's width),
+    # and per-job "· 3 🛠 · 3 req · 4.2%/272K" tool/request/context counters.
+    r"|\bS\d+\.\d+|\(\+[\d.]+\)|▶[^◀\n]*|\d+ 🛠|\d+ req\b|[\d.]+%/[\d.]+[KM]"
+    r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"  # spinner glyphs (⠋…⠏: omp)
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     r"|[ \t]+$",  # trailing whitespace
     re.MULTILINE,

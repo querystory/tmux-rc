@@ -153,3 +153,30 @@ def test_opencode_spinner_appearance_changes_the_fingerprint():
     idle = "OpenCode 1.18.32"
     running = f"{idle}\n▰▰▰▰▰▰ esc interrupt"
     assert _fingerprint(idle) != _fingerprint(running)
+
+
+
+def _omp_frame(timer, spinner, spend, meters, tool):
+    """Trimmed rows of two consecutive real 1s frames of an omp subagent run."""
+    return (
+        f"│ • CountReadmeLines ⟦scout⟧ # Target README.md · {meters} │\n"
+        f"│   └ {tool} │\n"
+        f"├─ ⣾ ⟦task⟧ CountReadmeLines · {timer}\n"
+        f" {spinner} > ◒ GPT-5.5 > 🌳 tmux-rc > ⑂ omp-play > {spend} ▶───3%────╎──┃──272K─◀ 👥 2"
+    )
+
+
+_OMP_A = ("6.5s", "⠋ 12s", "S0.06 (+0.07)", "2 🛠 · 2 req · 2.8%/272K · $0.05")
+_OMP_B = ("7.5s", "⠸ 13s", "S0.06 (+0.09)", "3 🛠 · 3 req · 4.2%/272K · $0.08")
+
+
+def test_omp_timer_and_meter_ticks_share_one_fingerprint():
+    """omp repaints job timers, spend, and subagent meters every second while it works."""
+    tool = "grep: Counting README lines"
+    assert _fingerprint(_omp_frame(*_OMP_A, tool)) == _fingerprint(_omp_frame(*_OMP_B, tool))
+
+
+def test_omp_new_tool_line_changes_the_fingerprint():
+    a = _omp_frame(*_OMP_A, "grep: Counting README lines")
+    assert _fingerprint(a) != _fingerprint(_omp_frame(*_OMP_B, "read: Reading README tail"))
+    assert _fingerprint(a) != _fingerprint(a.replace(" ⠋ 12s >", " π >"))  # turn finished

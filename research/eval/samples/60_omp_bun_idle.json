@@ -6,6 +6,7 @@
   "expected": {
     "tool": "omp",
     "activity": "idle",
+    "cost": "$0.09 (+$0.18) (sub)",
     "headline": "Reported the README line count and the openbus file list gathered by two subagents"
   }
 }

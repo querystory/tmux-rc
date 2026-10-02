@@ -53,7 +53,7 @@ _STRUCT_SCALAR = ("tool", "activity", "waiting_on")
 # match — but it is read off agent chrome that most screens don't show, so it is scored
 # only when a sample states an expectation (including an explicit null for "must omit").
 # Silently ignoring it would let a naming regression pass with the expectation in place.
-_STRUCT_OPTIONAL = ("session", "agents", "model")
+_STRUCT_OPTIONAL = ("session", "agents", "model", "cost")
 
 
 @dataclass

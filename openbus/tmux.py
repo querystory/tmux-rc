@@ -29,6 +29,11 @@ _HOST = socket.gethostname()
 # Leading spinner/status glyphs agents prepend to their title (Claude Code: ✳ working,
 # braille dots idle). The UI has its own activity indicators — strip them.
 _TITLE_GLYPHS = re.compile(r"^[⠀-⣿✳✶✻✽·∗*\s]+")
+# omp titles the pane "π", then a one-column state separator, then the session label
+# ("π > idle", "π ⠋ working", "π ! needs you", "π: titles off" — title-generator.ts).
+# The separator must stand alone, so a "π calculator" title is not omp. It identifies omp
+# under bun (classify) and, like the glyphs above, is chrome to strip from a display title.
+OMP_TITLE_RE = re.compile(r"^π(?::|$| \S(?: |$))")
 # tmux stores any APC string (ESC _ ... ESC \) as the pane title, so a Kitty graphics
 # probe ("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA") lands there — a payload, not a title.
 _TITLE_ESCAPE_PAYLOAD = re.compile(r"^G[a-zA-Z]=[^,;]*(?:,[a-zA-Z]=[^,;]*)*;")
@@ -97,7 +102,7 @@ class Pane:
         probes) as the title — both noise -> None."""
         if _TITLE_ESCAPE_PAYLOAD.match(self.title):
             return None
-        t = _TITLE_GLYPHS.sub("", self.title).strip()
+        t = _TITLE_GLYPHS.sub("", OMP_TITLE_RE.sub("", self.title)).strip()
         return t if t and t not in (_HOST, _HOST.split(".")[0]) else None
 
     @property
@@ -139,6 +144,7 @@ _GENERIC_NAMES = {
     "sh",
     "fish",
     "node",
+    "bun",
     "python",
     "python3",
     "tmux",
@@ -710,6 +716,15 @@ def send_transaction(pane_id: str):
         if identity is None:
             raise PaneChangedError("Pane disappeared before delivery.")
         yield identity
+
+
+def proc_read(pid: int | str, name: str) -> str:
+    """/proc/<pid>/<name>, or "" if the process is gone, unreadable, or there's no /proc."""
+    try:
+        with open(f"/proc/{pid}/{name}") as f:
+            return f.read()
+    except OSError:
+        return ""
 
 
 def pane_pid(pane_id: str) -> str | None:

@@ -161,6 +161,33 @@ def test_omp_identity_comes_from_process_or_title(cmd, title, tool):
     assert r["tool"] == tool
 
 
+@pytest.mark.parametrize(("billing", "cost"), [
+    ("S0.09 (+0.18)", "$0.09 (+$0.18) (sub)"),  # subscription spend plus subagent spend
+    ("$0.05", "$0.05"),  # metered
+    ("(sub)", "$9"),  # subscription with no spend yet: the row says nothing, model stands
+])
+def test_omp_status_row_sets_cost_and_context(billing, cost):
+    row = f" ⠋ 1m 3s > ◒ GPT-5.5 > 📁 ~/src > {billing} ▶────4%────╎──272K─◀ 👥 2"
+    parsed = {"tool": "omp", "cost": "$9", "working": {"verb": "Delegating"}}
+    r = classify(_pane("bun", "π ⠋ x"), f"↻ Delegating\n{row}", _llm(parsed))
+    assert (r["cost"], r["context_pct"], r["agents"]) == (cost, 4, 2)
+    assert r["working"] == {"verb": "Delegating", "elapsed": "1m 3s"}
+
+
+@pytest.mark.parametrize(("child", "tool"), [
+    ("bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash` wrapper
+    ("/usr/local/bin/omp\0", "omp"),
+    ("vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+])
+def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
+    proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
+            ("11", "cmdline"): child}
+    monkeypatch.setattr(classify_mod, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
+    r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
+    assert r["tool"] == tool
+
+
 @pytest.mark.parametrize("parsed", [
     {"tool": "omp", "activity": "waiting", "waiting_on": "external"},
     None,  # failed parse: the title alone is the read

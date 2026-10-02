@@ -14,16 +14,19 @@ minimal dict (idle vs running) so the pipe never breaks.
 
 from __future__ import annotations
 
+import os
 import re
 from itertools import islice
 from pathlib import Path
 
 from .tmux import (
+    OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
     PLACEHOLDER_OPEN,
     PROMPT_GLYPHS,
     VISIBLE_SCREEN,
     Pane,
+    proc_read,
     strip_dim,
 )
 
@@ -81,18 +84,61 @@ _PROCESS_TOOLS = {
     "opencode": "opencode",
     "omp": "omp",
 }
-# omp installed through bun runs as `bun`, so its executable proves nothing. Its terminal
-# title does: omp titles the pane "π", then a one-column state separator, then the session
-# label ("π > idle", "π ⠋ working", "π ! needs you", "π: titles off" — title-generator.ts).
-# The separator must stand alone, so a "π calculator" title under bun is not omp.
-_OMP_TITLE_RE = re.compile(r"π(?::|$| \S(?: |$))")
+# omp installed through bun runs as `bun`, so its executable proves nothing; its title
+# (OMP_TITLE_RE) does. Launched behind a wrapper (`omp …; exec bash`, a script, `uv run`)
+# the foreground is a shell, and the title alone can't be trusted there because it
+# outlives omp, but the title plus a live omp process under the pane can.
+_OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological tree
+
+
+def _runs_omp(pid: str) -> bool:
+    """Is omp among `pid` and its descendants: argv[0] `omp`, or bun/node running omp?"""
+    todo = [pid]
+    for _ in range(_OMP_PROC_LIMIT):
+        if not todo:
+            break
+        p = todo.pop()
+        argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
+        if argv[0] == "omp" or (argv[0] in ("bun", "node") and argv[1:] == ["omp"]):
+            return True
+        todo += proc_read(p, f"task/{p}/children").split()
+    return False
 
 
 def _host_tool(pane: Pane) -> str | None:
     """The agent the pane's process or title proves it is running, else None."""
-    if pane.current_command in ("bun", "node") and _OMP_TITLE_RE.match(pane.title):
+    if tool := _PROCESS_TOOLS.get(pane.current_command):
+        return tool
+    if OMP_TITLE_RE.match(pane.title) and (
+        pane.current_command in ("bun", "node") or (pane.pid and _runs_omp(pane.pid))
+    ):
         return "omp"
-    return _PROCESS_TOOLS.get(pane.current_command)
+    return None
+
+
+# omp's status row is fixed-format chrome (status-line/metrics.ts), read here rather than
+# left to the model, which drops the units: "> S0.09 (+0.18) ▶──4%──" is subscription
+# spend, subagent spend, and context used; a "$" in place of "S" is metered spend.
+_OMP_COST_RE = re.compile(r" > ([S$])([\d.]+)(?: \(\+([\d.]+)\))?")
+_OMP_CTX_RE = re.compile(r"▶─*(\d+)%")
+_OMP_ELAPSED_RE = re.compile(r"^ ?\S ([\dhms ]+?) > ")  # "⠦ 14s > …" while working
+_OMP_AGENTS_RE = re.compile(r"◀ 👥 (\d+)")  # its count of subagents still running
+
+
+def _read_omp_row(result: dict, visible: str) -> None:
+    """cost, context, working time and running subagents off omp's status row (the one
+    with its context bar)."""
+    *_, row = ["", *(line for line in visible.splitlines() if "▶─" in line)]
+    if m := _OMP_COST_RE.search(row):
+        unit, spend, sub = m.groups()
+        result["cost"] = f"${spend}" + (f" (+${sub})" if sub else "") + (" (sub)" * (unit == "S"))
+    if m := _OMP_CTX_RE.search(row):
+        result["context_pct"] = int(m[1])
+    if m := _OMP_AGENTS_RE.search(row):
+        result["agents"] = int(m[1])
+    if m := _OMP_ELAPSED_RE.match(row):
+        working = result.get("working")
+        result["working"] = {**(working if isinstance(working, dict) else {}), "elapsed": m[1]}
 
 
 def _checklist_text(text: str) -> str:
@@ -702,6 +748,8 @@ def classify(
         if isinstance(subs, list)
         else 0
     )
+    if result.get("tool") == "omp":  # its own "👥 N" outranks the model's roster read
+        _read_omp_row(result, visible)
     # Copyables carry a whole payload each (a commit message, a code block), and they
     # ride EVERY /api/state poll for as long as the screen shows them. Cap count and
     # size here — a wall-of-text screen (or a hostile pane) must not inflate the deck

@@ -59,7 +59,8 @@ So we split the fields by how the UI uses them:
 **Structured fields — exact match (strict).** These drive the badge and behavior, so
 strictness is correct:
 - `tool`, `activity`, `waiting_on` — compared by value.
-- `parse_ok`, `model` — opt-in checks for accepted classifications and model preservation.
+- `parse_ok`, `model`, `cost` — opt-in checks for accepted classifications and status-row
+  readouts (model preservation, cost normalized to dollars).
   An omitted `parse_ok` means success, matching the watcher.
 - `agents` and `subagent_states` — opt-in worker checks. When supplied, compare the busy
   background count and the sorted multiset of worker states (including duplicates).
@@ -158,9 +159,11 @@ actually hit:
 | `55_claude_turn_ends_with_user_handoff` | finished turn handing the user a blocked `! command` → text user-wait |
 | `56_claude_turn_ends_with_decision` | finished turn asking the user to decide; "1 shell still running" is not work |
 | `57_codex_turn_aborted_by_provider_error` | Codex "■ …at capacity" above an empty input → text user-wait offering "try again" |
-| `60_omp_bun_idle` | omp under `bun`, idle `π >` status row → tool=omp, idle despite finished job rows |
+| `60_omp_bun_idle` | omp under `bun`, idle `π >` status row → tool=omp, idle despite finished job rows; `S`-prefixed subscription cost → dollars |
 | `61_omp_running_subagents` | omp waiting on two task subagents → running parent, two running workers |
 | `62_omp_ask_picker` | omp `ask` cursor picker → user-wait with the selected option |
+| `63_omp_folder_segment_running` | synthetic: omp outside a repo (`📁 <path>` segment) with a `↻` activity line → running, title not a question |
+| `64_omp_wrapped_by_bash` | omp behind a bash wrapper (`current_command=bash`) → tool=omp from its chrome, running with two workers |
 
 Sample 16 records a known prompt-compliance failure. On 2026-09-18, an authorized
 Vertex run using the production prompt and `gemini-3.1-flash-lite` for both classifier
