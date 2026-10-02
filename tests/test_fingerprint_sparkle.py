@@ -183,5 +183,6 @@ def test_omp_new_tool_line_changes_the_fingerprint():
     a = _omp_frame(*_OMP_A, "grep: Counting README lines")
     assert _fingerprint(a) != _fingerprint(_omp_frame(*_OMP_B, "read: Reading README tail"))
     assert _fingerprint(a) != _fingerprint(a.replace(" ⠋ 12s >", " π >"))  # turn finished
-    for old, new in (("▶ old", "▶ new"), ("release S1.2", "release S1.3"), ("2 req", "3 req")):
+    for old, new in (("▶ old", "▶ new"), ("release S1.2", "release S1.3"), ("2 req", "3 req"),
+                     ("timeout: 1.2s", "timeout: 1.5s")):
         assert _fingerprint(old) != _fingerprint(new)  # not omp's chrome shapes

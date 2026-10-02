@@ -105,7 +105,9 @@ RECENT_EVENT_TTL = 15 * 60
 # every tick and the card flickers. (These values still reach the UI via the LLM's
 # structured fields — we only ignore them for the change check.)
 _VOLATILE_RE = re.compile(
-    r"\d+h\d+m|\d+m\s*\d+s|\d+(?:\.\d+)?s\b"  # durations (omp's job timers: "3.4s")
+    # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
+    # stays content rather than leaving a "1." that half-tracks it
+    r"\d+h\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
     r"|↓\s*[\d.]+k?|[\d.]+k tokens"  # token counts
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
