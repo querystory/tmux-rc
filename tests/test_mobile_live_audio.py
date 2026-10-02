@@ -66,7 +66,8 @@ def _run_live(body: str, version: dict | None = None) -> None:
     web = Path(__file__).resolve().parents[1] / "web"
     args = [str(web / p) for p in ("m/live.js", "live-close.js", "live-chat.js", "m/composer.js")]
     markdown = json.dumps((web / "chat-markdown.js").as_uri())
-    script = ("(async () => { const { appendChatMarkdown } = await import(" + markdown + ");\n"
+    script = ("globalThis.requestAnimationFrame = fn => fn();\n"
+              "(async () => { const { appendChatMarkdown } = await import(" + markdown + ");\n"
               + _HARNESS + body + "\n})().catch(e => { console.error(e); process.exitCode = 1; });")
     result = subprocess.run(["node", "-e", script, *args],
                             capture_output=True, text=True, timeout=30,

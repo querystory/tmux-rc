@@ -13,11 +13,20 @@ markdown.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
 export const renderChatMarkdown = (text) => markdown.render(text);
 const sources = new WeakMap();
 
-// Reparse the whole source on each chunk: a closing delimiter may arrive later.
+// Reparse the whole source: a closing delimiter may arrive later. Coalesce rapid
+// deltas to one render per frame rather than doing full parsing for every token.
 // Reading textContent back would lose Markdown delimiters after the first render.
-export function appendChatMarkdown(element, chunk) {
-  const source = (sources.get(element) || "") + (chunk || "");
-  sources.set(element, source);
-  element.classList.add("chat-markdown");
-  element.innerHTML = renderChatMarkdown(source);
+export function appendChatMarkdown(element, chunk, rendered = () => {}) {
+  let state = sources.get(element);
+  if (!state) { state = { source: "", pending: false }; sources.set(element, state); }
+  state.source += chunk || ""; state.rendered = rendered;
+  if (state.pending) return;
+  state.pending = true;
+  requestAnimationFrame(() => {
+    state.pending = false;
+    if (element.isConnected === false) return;
+    element.classList.add("chat-markdown");
+    element.innerHTML = renderChatMarkdown(state.source);
+    state.rendered();
+  });
 }

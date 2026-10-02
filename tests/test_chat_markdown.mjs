@@ -25,13 +25,27 @@ test("PR links and bare web URLs open safely; images never fetch remotely", () =
 });
 
 test("streamed chunks retain source delimiters and stay independent per bubble", () => {
+  const previous = globalThis.requestAnimationFrame, frames = [];
+  globalThis.requestAnimationFrame = (fn) => frames.push(fn);
   const node = () => ({ classList: { add() {} }, innerHTML: "" });
   const a = node(), b = node();
-  appendChatMarkdown(a, "**Ready");
-  appendChatMarkdown(b, "Other reply");
-  appendChatMarkdown(a, " to merge**\n\n- PR 286");
-  assert.ok(a.innerHTML.includes("<strong>Ready to merge</strong>"));
-  assert.ok(a.innerHTML.includes("<li>PR 286</li>"));
-  assert.ok(!a.innerHTML.includes("Other reply"));
-  assert.ok(!b.innerHTML.includes("Ready"));
+  try {
+    let rendered = 0;
+    appendChatMarkdown(a, "**Ready");
+    appendChatMarkdown(b, "Other reply");
+    appendChatMarkdown(a, " to merge**\n\n- PR 286", () => rendered++);
+    assert.equal(frames.length, 2); // one per bubble, not one per delta
+    assert.equal(a.innerHTML, "");
+    frames.splice(0).forEach((fn) => fn());
+    assert.equal(rendered, 1);
+    assert.ok(a.innerHTML.includes("<strong>Ready to merge</strong>"));
+    assert.ok(a.innerHTML.includes("<li>PR 286</li>"));
+    assert.ok(!a.innerHTML.includes("Other reply"));
+    assert.ok(!b.innerHTML.includes("Ready"));
+    for (let i = 0; i < 2000; i++) appendChatMarkdown(a, " token");
+    assert.equal(frames.length, 1);
+    a.isConnected = false;
+    frames[0](); // a closed conversation must not repaint or scroll its successor
+    assert.ok(!a.innerHTML.includes(" token"));
+  } finally { globalThis.requestAnimationFrame = previous; }
 });

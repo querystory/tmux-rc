@@ -118,7 +118,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.append(row);
     }
-    if (role === "model") appendChatMarkdown(row.lastChild, message);
+    if (role === "model") appendChatMarkdown(row.lastChild, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
     else row.lastChild.textContent += message || "";
     row.lastChild.before(...images.map(chatThumb));
     if (!dialog.open && role !== "user") { unread = true; badge(); } // not the user's own echo
