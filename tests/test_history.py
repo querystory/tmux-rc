@@ -74,6 +74,12 @@ def test_state_semantics(activity, waiting_on, expected):
     assert state_index({"activity": activity, "waiting_on": waiting_on}) == expected
 
 
+def test_chrome_agent_count_tops_up_a_short_roster():
+    pane = {"tool": "omp", "activity": "running", "agents": 2,
+            "subagents": [{"label": "a", "state": "running"}, {"label": "b", "state": "done"}]}
+    assert agent_counts(pane)["background"] == [0, 2, 0, 0, 0, 0]
+
+
 @pytest.mark.parametrize("tool", ["opencode", "omp"])
 def test_newer_agents_count_as_foreground(tool):
     assert agent_counts({"tool": tool, "activity": "idle"}) == {

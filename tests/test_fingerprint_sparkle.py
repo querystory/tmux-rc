@@ -155,7 +155,6 @@ def test_opencode_spinner_appearance_changes_the_fingerprint():
     assert _fingerprint(idle) != _fingerprint(running)
 
 
-
 def _omp_frame(timer, spinner, spend, meters, tool):
     """Trimmed rows of two consecutive real 1s frames of an omp subagent run."""
     return (

@@ -53,6 +53,11 @@ def agent_counts(pane: dict) -> dict:
                     continue
                 background[state_index({"activity": agent.get("state"),
                                         "waiting_on": agent.get("waiting_on", "external")})] += 1
+            # `agents` may come from the agent's own chrome (omp's "👥 N") when the parsed
+            # roster missed workers: count the shortfall as running so history matches the card.
+            run, compact = STATES.index("Running"), STATES.index("Compacting")
+            busy = background[run] + background[compact]
+            background[run] += max(0, (pane.get("agents") or 0) - busy)
     return {"foreground": foreground, "background": background}
 
 
