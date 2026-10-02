@@ -638,9 +638,10 @@ def classify(
         result["activity"] = "running"
     # omp's title is its run state: "π >" means the turn is over, so job rows still on
     # screen are finished history, not live work. The title is itself a read, so it stands
-    # after a failed parse. A question still wins: a turn that ends asking "Should I
-    # merge?" is idle to omp ("π >") but is a user-wait to us.
-    if result.get("tool") == "omp" and pane.title.startswith("π >") and not result.get("question"):
+    # after a failed parse. A parsed question or rewind still wins: a turn that ends asking
+    # "Should I merge?" is idle to omp ("π >") but is a user-wait to us.
+    if (result.get("tool") == "omp" and pane.title.startswith("π >")
+            and not (result.get("question") or result.get("rewind"))):
         result["activity"] = "idle"
         result.pop("waiting_on", None)
         result.pop("parse_ok", None)
