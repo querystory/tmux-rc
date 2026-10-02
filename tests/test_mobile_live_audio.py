@@ -65,7 +65,10 @@ def _run_live(body: str, version: dict | None = None) -> None:
     /api/version answers; None is offline."""
     web = Path(__file__).resolve().parents[1] / "web"
     args = [str(web / p) for p in ("m/live.js", "live-close.js", "live-chat.js", "m/composer.js")]
-    result = subprocess.run(["node", "-e", _HARNESS + body, *args],
+    markdown = json.dumps((web / "chat-markdown.js").as_uri())
+    script = ("(async () => { const { appendChatMarkdown } = await import(" + markdown + ");\n"
+              + _HARNESS + body + "\n})().catch(e => { console.error(e); process.exitCode = 1; });")
+    result = subprocess.run(["node", "-e", script, *args],
                             capture_output=True, text=True, timeout=30,
                             env={**os.environ, "LIVE_VERSION": json.dumps(version)})
     assert result.returncode == 0, result.stderr
@@ -142,6 +145,7 @@ const navigator = {audioSession, wakeLock: {request: async () => {
   streams.push(stream); return stream;
 }}};
 const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: Socket,
+  appendChatMarkdown,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
   Audio: class {
     constructor() {this.paused = true; this.pending = initialPlayPending; outputs.push(this);}

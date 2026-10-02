@@ -23,6 +23,9 @@ application-code change. Test the atlas, topic clicks, themes, resizing, and his
 chart after updates. ECharts renders the history chart; standalone wordcloud2 renders
 the topic cloud, so its former ECharts-5-only extension no longer blocks security updates.
 
-Both libraries' licenses and ECharts' NOTICE are copied directly from their npm packages.
+All libraries' licenses and ECharts' NOTICE are copied directly from their npm packages.
+Markdown-it renders assistant chat replies with HTML disabled and remote images suppressed;
+its bundled ESM build is served locally, with no CDN fetch at runtime.
 
 Upstream: https://github.com/apache/echarts and https://github.com/timdream/wordcloud2.js
+and https://github.com/markdown-it/markdown-it

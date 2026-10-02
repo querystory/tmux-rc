@@ -6,5 +6,9 @@
   "wordcloud": {
     "version": "1.2.3",
     "integrity": "sha512-9by77b7Sd9e1K75kSmVeAD+JnGpiLR1Z4EX1mYQL91jKrU1/4bHw4h4DExQ+dzfT+PvihDcH7OS7V4Y5UkbF2w=="
+  },
+  "markdown-it": {
+    "version": "15.0.2",
+    "integrity": "sha512-q4IGxMv56jCqT4OCRCADBoDP3LO4MhmTXjFbphHPXs4g3j9Xg5RDnxqN8IF/3vIWEU+VCnUq+7JUg/cfy2E6Qw=="
   }
 }
