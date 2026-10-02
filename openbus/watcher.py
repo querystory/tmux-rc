@@ -122,7 +122,8 @@ _VOLATILE_RE = re.compile(
     # the elapsed time after it; the idle " π >" has none, so it still reads as changed.
     # Each is matched in its omp-specific shape, so "release S1.2" or "sent 2 req" in
     # ordinary output still counts as a change.
-    r"|(?<= > )S[\d.]+(?: \(\+[\d.]+\))?|▶─*\d+%[─╎┃\d.KM]*|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
+    r"|(?<= > )S[\d.]+(?: \(\+[\d.]+\))?|▶─*\d+%[─╎┃][─╎┃\d.KM]*"
+    r"|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
     r"|^ ?\S(?= [\dhms ]+ > )"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)

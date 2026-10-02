@@ -204,6 +204,11 @@ def test_omp_idle_title_retires_stale_job_rows(parsed):
         "idle", None, None, 0)
 
 
+def test_omp_attention_title_is_a_user_wait():
+    r = classify(_pane("bun", "π ! Pick a color"), "…", _llm({"tool": "omp"}))
+    assert (r["activity"], r["waiting_on"]) == ("waiting", "user")
+
+
 def test_omp_idle_title_keeps_a_closing_question():
     question = {"prompt": "Should I merge this?", "answer_style": "text"}
     r = classify(

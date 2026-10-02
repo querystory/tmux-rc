@@ -120,7 +120,7 @@ def _host_tool(pane: Pane) -> str | None:
 # left to the model, which drops the units: "> S0.09 (+0.18) ▶──4%──" is subscription
 # spend, subagent spend, and context used; a "$" in place of "S" is metered spend.
 _OMP_COST_RE = re.compile(r" > ([S$])([\d.]+)(?: \(\+([\d.]+)\))?")
-_OMP_CTX_RE = re.compile(r"▶─*(\d+)%")
+_OMP_CTX_RE = re.compile(r"▶─*(\d+)%[─╎┃]")
 _OMP_ELAPSED_RE = re.compile(r"^ ?\S ([\dhms ]+?) > ")  # "⠦ 14s > …" while working
 _OMP_AGENTS_RE = re.compile(r"◀ 👥 (\d+)")  # its count of subagents still running
 
@@ -693,6 +693,10 @@ def classify(
             result["activity"] = "idle"
             result.pop("waiting_on", None)
             result.pop("parse_ok", None)
+    # "π !" is omp's ask or approval prompt: a user wait even if the parse missed the
+    # question. A failed parse still keeps the last card read, which has the answer controls.
+    if result.get("tool") == "omp" and pane.title.startswith("π !"):
+        result.update(activity="waiting", waiting_on="user")
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:
