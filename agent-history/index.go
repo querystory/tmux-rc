@@ -28,7 +28,7 @@ func indexPath(harness, parent, id string) string {
 
 // Format versions derived entries. Mtime alone cannot detect a changed reader,
 // so reconcile rebuilds everything once when the recorded format differs.
-const Format = "3" // 3: omp titles follow the current slot/header, not audit records
+const Format = "4" // 4: explicit omp session directories retain the active profile
 
 // A harness is one coding agent whose sessions are indexed.
 type harness struct {

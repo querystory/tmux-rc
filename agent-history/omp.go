@@ -152,6 +152,7 @@ func ReadOmp(path string) (Session, error) {
 			return Session{}, err
 		}
 		arg, profile := absolute, ""
+		knownProfile := false
 		active := ompActiveProfile()
 		locations, err := ompLocations(active)
 		if err != nil {
@@ -159,27 +160,30 @@ func ReadOmp(path string) (Session, error) {
 		}
 		for _, loc := range locations {
 			if ompWithin(loc.Sessions, absolute) {
-				profile = loc.Profile
+				profile, knownProfile = loc.Profile, true
 				if loc == locations[0] && (active == "" || active == "default") {
 					arg = s.ID
 				}
 				break
 			}
 		}
-		if profile == "" && arg == absolute {
+		if !knownProfile {
 			for _, loc := range locations {
 				matched := false
 				if err := ompPointers(loc, func(path string) { matched = matched || path == absolute }); err != nil {
 					return Session{}, err
 				}
 				if matched {
-					profile = loc.Profile
+					profile, knownProfile = loc.Profile, true
 					break
 				}
 			}
 		}
 		if profile == "" && active != "" && active != "default" {
-			profile = "default"
+			profile = active
+			if knownProfile {
+				profile = "default"
+			}
 		}
 		s.ResumeArgv = []string{"omp"}
 		if profile != "" {

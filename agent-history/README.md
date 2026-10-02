@@ -96,6 +96,9 @@ is overwritten: set `PI_CODING_AGENT_SESSION_DIR` for reconcile in that case.
 Ordinary omp entries resume with `omp --resume <id>` in their recorded cwd. Relocated
 entries use the absolute transcript path to bypass ID lookup; named-profile entries
 also preserve `--profile`, so a resume does not silently change profile configuration.
+An explicit `PI_CODING_AGENT_SESSION_DIR` with no root/registry profile marker inherits
+the active `OMP_PROFILE`/`PI_PROFILE`. Paths tied to the default root or registry
+explicitly select `--profile default` when reconcile runs under a named profile.
 
 ## Resolving a request
 

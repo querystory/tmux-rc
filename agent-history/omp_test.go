@@ -191,6 +191,8 @@ func TestOmpDiscoveryAndResume(t *testing.T) {
 	ompCheckResume(t, profileCustom, "omp", "--profile", "review", "--resume", profileCustom)
 	t.Setenv("OMP_PROFILE", "review")
 	ompCheckResume(t, defaultPath, "omp", "--profile", "default", "--resume", defaultPath)
+	ompCheckResume(t, customPath, "omp", "--profile", "default", "--resume", customPath)
+	ompCheckResume(t, flatPath, "omp", "--profile", "review", "--resume", flatPath)
 	ompCheckResume(t, profileCustom, "omp", "--profile", "review", "--resume", profileCustom)
 }
 
