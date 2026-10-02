@@ -685,13 +685,14 @@ def classify(
     # omp's title is its run state: "π >" means the turn is over, so job rows still on
     # screen are finished history, not live work (nor are its workers: any omp still
     # tracks stay counted by its row's "👥 N"). The title is itself a read, so it stands
-    # after a failed parse. A parsed question or rewind still wins: a turn that ends asking
-    # "Should I merge?" is idle to omp ("π >") but is a user-wait to us.
-    if (result.get("tool") == "omp" and pane.title.startswith("π >")
-            and not (result.get("question") or result.get("rewind"))):
-        result["activity"] = "idle"
-        for stale in ("waiting_on", "parse_ok", "subagents"):
-            result.pop(stale, None)
+    # after a failed parse. A parsed question or rewind still decides the activity: a turn
+    # that ends asking "Should I merge?" is idle to omp ("π >") but a user-wait to us.
+    if result.get("tool") == "omp" and pane.title.startswith("π >"):
+        result.pop("subagents", None)
+        if not (result.get("question") or result.get("rewind")):
+            result["activity"] = "idle"
+            result.pop("waiting_on", None)
+            result.pop("parse_ok", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:

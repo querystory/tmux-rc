@@ -208,10 +208,11 @@ def test_omp_idle_title_keeps_a_closing_question():
     r = classify(
         _pane("bun", "π > omp-play"),
         "Done. Should I merge this?\n π > ◒ GPT-5.5 > 🌳 tmux-rc",
-        _llm({"tool": "omp", "activity": "idle", "question": question}),
+        _llm({"tool": "omp", "activity": "idle", "question": question,
+              "subagents": [{"label": "a", "state": "running"}]}),
     )
-    assert (r["activity"], r["waiting_on"], r["question"]["prompt"]) == (
-        "waiting", "user", "Should I merge this?")
+    assert (r["activity"], r["waiting_on"], r["question"]["prompt"], r["agents"]) == (
+        "waiting", "user", "Should I merge this?", 0)
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():

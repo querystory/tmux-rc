@@ -118,7 +118,9 @@ _VOLATILE_RE = re.compile(
     # per-job "· 3 🛠 · 3 req · 4.2%/272K" tool/request/context counters, and the working
     # row's spinner cell, whatever its style (braille, pulse ○◔◑, ASCII -\|/), found by
     # the elapsed time after it; the idle " π >" has none, so it still reads as changed.
-    r"|\bS\d+\.\d+|\(\+[\d.]+\)|▶─+\d+%[─╎┃\d.KM]*|\d+ 🛠|\d+ req\b|[\d.]+%/[\d.]+[KM]"
+    # Each is matched in its omp-specific shape, so "release S1.2" or "sent 2 req" in
+    # ordinary output still counts as a change.
+    r"|(?<= > )S[\d.]+(?: \(\+[\d.]+\))?|▶─+\d+%[─╎┃\d.KM]*|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
     r"|^ ?\S(?= [\dhms ]+ > )"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
