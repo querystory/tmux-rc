@@ -30,7 +30,7 @@ async function imagePart(file) {
 // send(frame, thumbnails) gets the socket's text frame and each image's thumbnail URL; it
 // returns false (not connected) to keep the draft. session() names the current
 // conversation, so a turn is never sent into a different one than it was written in.
-export function chatComposer(form, { licon, send, error, session }) {
+export function chatComposer(form, { licon, send, error, session, busy = () => {} }) {
   const composer = new Composer(() => {}, error, { id: "chat-input", label: "Message the assistant", max: CHAT_IMAGES });
   const attach = document.createElement("button"), picker = document.createElement("input");
   const submit = document.createElement("button");
@@ -57,11 +57,12 @@ export function chatComposer(form, { licon, send, error, session }) {
     let images = [];
     if (files.length) {
       sending = attach.disabled = true; composer.editor.contentEditable = "false";
+      busy(true);
       // One at a time: a 20 MB phone photo decodes to far more than that, so decoding
       // several at once can take a phone tab down before any is downscaled.
       try { for (const file of files) images.push(await imagePart(file)); }
       catch { return error("Could not read that image; not sent"); }
-      finally { sending = attach.disabled = false; composer.editor.contentEditable = "true"; }
+      finally { sending = attach.disabled = false; composer.editor.contentEditable = "true"; busy(false); }
     }
     const frame = { action: "text", text, images: images.map(({ mime, data }) => ({ mime, data })) };
     // A model switch (a new session) during the transcode keeps the draft unsent: it was

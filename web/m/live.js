@@ -20,7 +20,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-end").innerHTML = licon("x");
   $("chat").innerHTML = licon("message");
-  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false;
+  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
   // Voice comes from the mic button, through the model picker. Chat (typed turns and
   // written replies, no mic and no playback) comes from the chat button, straight in.
   let mode = "voice";
@@ -53,7 +53,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
   const paintStarters = () => starters({ visible: !!run?.text && !run.hasTurn,
-    connected: !!run?.listening && run.ws?.readyState === WebSocket.OPEN });
+    connected: !composing && !!run?.listening && run.ws?.readyState === WebSocket.OPEN });
   // Restoring puts the log back where minimizing left it: at the tail if it was following
   // there, else at the same offset (read before closing, since a closed log has no layout).
   function show() {
@@ -67,6 +67,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   chatComposer($("voice-compose"), {
     session: () => run,
     licon, error: (message) => add("error", message),
+    busy: (value) => { composing = value; paintStarters(); },
     send: sendText,
   });
   function sendText(frame, thumbnails = []) {

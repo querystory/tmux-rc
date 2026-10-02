@@ -90,6 +90,18 @@ def test_chat_starters_follow_connection_and_conversation_lifecycle():
   starters.children[0].onclick(); // even a stale/programmatic click sends nothing
   assert.equal(socket.sent.length, 0);
   socket.onmessage({data: JSON.stringify({type:'status', status:'listening'})});
+  const segments = sandbox.Composer.prototype.segments;
+  sandbox.Composer.prototype.segments = () => [{file:{}}];
+  let rejectImage;
+  sandbox.createImageBitmap = () => new Promise((resolve, reject) => { rejectImage = reject; });
+  const processing = $('voice-compose').onsubmit({preventDefault() {}});
+  await flush();
+  assert.ok(starters.children.every(b => b.disabled));
+  starters.children[0].onclick();
+  assert.equal(socket.sent.length, 0); // no second turn during image preparation
+  rejectImage(Error('unreadable image')); await processing;
+  assert.ok(starters.children.every(b => !b.disabled)); // failure restores the choices
+  sandbox.Composer.prototype.segments = segments;
   $('chat-input').textContent = 'Keep this draft';
   starters.children[0].onclick();
   assert.equal(socket.sent.length, 1);
