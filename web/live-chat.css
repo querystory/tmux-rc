@@ -25,6 +25,24 @@
 .chat-badge { position: absolute; top: -6px; left: -6px; min-width: 22px; height: 22px; padding: 0 6px;
   border-radius: 11px; background: var(--red); color: #fff; font: 700 12px/22px system-ui, sans-serif; }
 .chat-badge:empty { display: none; }
+/* The working row (m/live.js): three dots while a turn is out, a word under reduced motion.
+   One line tall, so the reply that replaces it does not shift the log. */
+.chat-dots { display: flex; gap: 5px; align-items: center; height: 1lh; }
+.chat-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .chat-dots i { animation: chat-dot 1.2s ease-in-out infinite; }
+  .chat-dots i:nth-child(2) { animation-delay: .15s; }
+  .chat-dots i:nth-child(3) { animation-delay: .3s; }
+  .chat-bubble.working { animation: chat-pulse 1.6s ease-out infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-dots i { display: none; }
+  .chat-dots::after { content: "Working\2026"; color: var(--muted); }
+  .chat-bubble.working { box-shadow: 0 0 0 3px var(--accent), 0 6px 20px #0006; }
+}
+@keyframes chat-dot { 0%, 60%, 100% { opacity: .35; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
+@keyframes chat-pulse { from { box-shadow: 0 0 0 0 var(--accent), 0 6px 20px #0006; }
+  to { box-shadow: 0 0 0 12px transparent, 0 6px 20px #0006; } }
 
 .chat-markdown { white-space: normal; }
 .chat-markdown > :first-child { margin-top: 0; }
