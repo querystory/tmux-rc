@@ -117,7 +117,7 @@ const pendingAnswers = new Map();
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
-let wheel = overscrollState(), wheelQueued = 0, wheelBusy = false, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
+let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return ""; } // CSPRNG-random or omitted, never guessed.
@@ -756,9 +756,12 @@ function restartDetail() {
   // The resize observer restarts streams if that changes the resolved layout.
   streamedLayout = effectiveLayout();
   eventsKey = null;
+  // Leaving the terminal, by pane, view or hidden page, sends a scrolled app home first, so the
+  // watcher never keeps parsing old history nobody is looking at.
+  if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
-    wheelHome(detailId); latestCapture = ""; clearCapture(); detailId = active;
+    latestCapture = ""; clearCapture(); detailId = active;
   }
   if (!active || document.hidden) return;
   const pane = panes.find((p) => p.pane_id === active);
@@ -1088,21 +1091,30 @@ function wheelPost(id, lines) {
   return request;
 }
 async function flushWheel() {
-  if (wheelBusy || !wheelQueued || !active) return;
-  const id = active, lines = Math.max(-30, Math.min(30, wheelQueued));
-  wheelQueued -= lines; wheelBusy = true;
+  if (wheelInFlight || !wheelQueued || !active) return;
+  // `gesture` is this pane visit's state: wheelHome replaces it, so a late answer to an
+  // older visit can never touch the current one.
+  const id = active, gesture = wheel, lines = Math.max(-30, Math.min(30, wheelQueued));
+  wheelQueued -= lines; wheelInFlight = lines;
   try {
     const { sent } = await wheelPost(id, lines);
-    if (!sent && id === active) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
-  } catch { /* the next notch retries; the live frame shows where the app really is */ }
-  finally { wheelBusy = false; flushWheel(); }
+    if (!sent && gesture === wheel) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
+  } catch {
+    // A failed request may still have been delivered. Err toward the app being further up,
+    // since a return home that overshoots the bottom does nothing: an upward batch counts
+    // as sent, a downward one as not, and the next gesture tries it again.
+    if (gesture === wheel && lines < 0) { wheel.net -= lines; paintWheelCue(); }
+  } finally { wheelInFlight = 0; flushWheel(); }
 }
 // Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
 // gesture. Two spare notches because Claude Code drops a gesture's first one; extra notches
 // at the bottom do nothing. The daemon takes at most 30 a request, so a long way home is
 // several requests.
 function wheelHome(id) {
-  for (let left = id && wheel.net + wheelQueued > 0 ? wheel.net + wheelQueued + 2 : 0; left > 0; left -= 30)
+  // `net` already counts the queued notches, which are dropped below, so only those sent
+  // are undone; a downward batch still in flight might fail, so it is undone too.
+  const sent = wheel.net - wheelQueued + Math.max(0, -wheelInFlight);
+  for (let left = id && sent > 0 ? sent + 2 : 0; left > 0; left -= 30)
     wheelPost(id, -Math.min(30, left)).catch(() => {});
   wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
 }
@@ -1115,13 +1127,15 @@ function overscrollPane(dy) {
   clearTimeout(wheelSpring);
   wheelSpring = setTimeout(() => { if (!wheel.net) wheel.pull = 0; paintWheelCue(); }, IDLE_MS);
 }
-// Pinch-zoom arrives as a ctrl+wheel; a line-mode wheel (Firefox) counts in ~16px lines.
-$("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * (e.deltaMode ? 16 : 1)); }, { passive: true });
+// Pinch-zoom arrives as a ctrl+wheel. deltaMode counts in px, ~16px lines (Firefox) or pages.
+$("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * [1, 16, e.currentTarget.clientHeight][e.deltaMode]); }, { passive: true });
 $("terminal-scroll").addEventListener("touchstart", (e) => { touchY = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
+// A second finger drops the baseline, so the move after a pinch starts a new one.
 $("terminal-scroll").addEventListener("touchmove", (e) => {
-  if (touchY === null || e.touches.length !== 1) return;
+  if (e.touches.length !== 1) { touchY = null; return; }
   const y = e.touches[0].clientY;
-  overscrollPane(touchY - y); touchY = y;
+  if (touchY !== null) overscrollPane(touchY - y);
+  touchY = y;
 }, { passive: true });
 // Click mode: a tap on the terminal is a mouse click in the pane (the daemon drops it
 // unless the pane's app asked for mouse reports). Select mode is the plain text view, for
