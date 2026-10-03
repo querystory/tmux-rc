@@ -154,6 +154,16 @@ Using the built thing surfaced what the mocks could not:
 Screenshots of the shipped result belong here once the fixture-based screenshot tooling
 lands, so they show the same synthetic fleet as the mocks rather than someone's real panes.
 
+## Round 4: where topics live
+
+The dashboard's word cloud filters the sidebar list from the far side of the screen. Round
+4 holds the shipped sidebar and dashboard fixed and moves the topics: into the sidebar, into
+the search box, as a chip strip, beside the sidebar on the dashboard, as an ultra-wide
+panel, and as a Group by mode. Unlike the earlier rounds, every frame is the shipped UI
+redrawn with the demo fleet, and every frame was measured at five screen sizes rather than
+judged by eye. It also asks how topics are computed, since the shipped words are mostly
+pane states. See [Where topics live, and how they are computed](topics-placement.md).
+
 ## Next time
 
 The mock is a single HTML file with no build step and no network fetches. To iterate on
