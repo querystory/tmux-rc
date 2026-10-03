@@ -39,3 +39,9 @@ def test_live_ws_refused_when_disabled(monkeypatch):
             raise AssertionError("expected the disabled route to close the socket")
     except starlette.websockets.WebSocketDisconnect as e:
         assert e.code == 1008
+
+
+def test_version_reports_docs_only_when_served():
+    """The Docs link shows on this flag, so it must agree with whether /docs/ answers."""
+    c = TestClient(server.app)
+    assert c.get("/api/version").json()["docs"] is (c.get("/docs/").status_code == 200)
