@@ -1,4 +1,4 @@
-import { atlasCharts, fleetChart, shownStates } from './atlas-charts.js';
+import { atlasCharts, fleetChart, latestAverage, shownStates } from './atlas-charts.js';
 import { needsYou, isRunning, markWorking, modelProvider, paneName } from './pane-model.js';
 
 const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting'];
@@ -136,7 +136,7 @@ function rows(samples) {
     for (; samples[oldest].t <= s.t - span; oldest++) if (counts[oldest]) { total -= running(counts[oldest]); seen--; }
     return { ...s, n: counts[i], ma: seen && s.t - span + step >= first ? total / seen : null };
   });
-  const from = (samples.at(-1)?.t ?? 0) - ms(fleet.range);
+  const from = (samples.length ? samples[samples.length - 1].t : 0) - ms(fleet.range);
   return out.filter(r => r.t > from);
 }
 const chartData = (data, extra) => ({ rows: data, states: STATES, step: historyData?.step || 60000, goal,
@@ -144,7 +144,7 @@ const chartData = (data, extra) => ({ rows: data, states: STATES, step: historyD
   average: fleet.average, zoomKey: JSON.stringify([fleet.range, fleet.average]), ...extra });
 
 function averageText(data, target = goal) {
-  const avg = data.findLast(r => r.ma != null)?.ma;
+  const avg = latestAverage(data);
   if (historyError || !historyData) return el('span', 'fleet-average muted', historyError || 'Loading saved history…');
   if (avg == null) return el('span', 'fleet-average muted', `Not enough history yet for a ${fleet.average} average`);
   const text = el('span', `fleet-average${target ? avg >= target ? ' pos' : ' neg' : ''}`);
@@ -415,7 +415,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     card.setAttribute('aria-pressed', String(scope[by] === key));
     const head = el('span', 'atlas-multiple-head');
     head.append(el('b', '', key), el('span', 'fleet-gap'), el('b', '', String(running(liveCounts(members)))), el('span', 'muted', ' running'));
-    const avg = slice.findLast(r => r.ma != null)?.ma;
+    const avg = latestAverage(slice);
     card.append(head, chart.el, el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`));
     card.onclick = () => { scope[by] = scope[by] === key ? '' : key; redraw(); };
     grid.append(card);

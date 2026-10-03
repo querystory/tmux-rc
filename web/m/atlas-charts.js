@@ -12,6 +12,8 @@ function loadScript(src) {
 const loads = {};
 const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
   .then(() => window[name], error => { delete loads[name]; throw error; });
+// The latest average on record. Indexed, not at()/findLast(): older iOS Safari has neither.
+export const latestAverage = rows => { for (let i = rows.length - 1; i >= 0; i--) if (rows[i].ma != null) return rows[i].ma; };
 const timeLabel = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 // The word cloud, kept alive across polls, including when the overview is temporarily hidden.
@@ -107,7 +109,7 @@ export function fleetChart(axis) {
     const color = name => css.getPropertyValue(name).trim();
     const muted = color('--muted'), line = color('--line'), fg = color('--fg'), purple = color('--purple');
     const dark = !document.documentElement.classList.contains('light');
-    const single = rows.length === 1, last = rows.at(-1), avg = rows.findLast(r => r.ma != null)?.ma;
+    const single = rows.length === 1, last = rows[rows.length - 1], avg = latestAverage(rows);
     const label = t => rows.length && new Date(rows[0].t).toDateString() !== new Date(last.t).toDateString()
       ? `${new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timeLabel(t)}` : timeLabel(t);
     el.setAttribute('aria-label', rows.length

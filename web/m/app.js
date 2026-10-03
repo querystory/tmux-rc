@@ -486,6 +486,8 @@ let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null;
 try { fleetHeight = Number(localStorage.getItem(FLEET_KEY)) || STRIP; } catch {}
 const fleetHandle = $("fleet-handle");
 function sizeFleet(px = fleetHeight, mode = "") {
+  // Hidden, the grid reports unresolved tracks (auto, minmax) that would parse to NaN.
+  if (!WIDE.matches || !active) return;
   // From the grid's own tracks, not the flexible row's current height: after a big window
   // shrink that row may already be clamped to zero, and would hide the overflow.
   // The stacked overview's row can itself be squeezed below its chosen size, so count that.
