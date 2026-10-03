@@ -42,7 +42,10 @@ try { Object.assign(fleet, JSON.parse(localStorage.getItem('tmuxrc-fleet'))); ch
 // The range is the viewer's explicit choice, else a week where the screen has room to keep
 // a week of bars legible (336 half-hour bars), else a day. Stored apart so that saving any
 // other setting never turns the default into a choice.
-fleet.range = RANGES.includes(chosenRange) ? chosenRange : matchMedia('(min-width: 1400px)').matches ? '7d' : '24h';
+if (!RANGES.includes(chosenRange)) chosenRange = null;
+const roomForAWeek = matchMedia('(min-width: 1400px)');
+const defaultRange = () => chosenRange || (roomForAWeek.matches ? '7d' : '24h');
+fleet.range = defaultRange();
 if (!AVERAGES.includes(fleet.average)) fleet.average = '1d';
 if (!METRICS.some(([value]) => value === fleet.metric)) fleet.metric = 'all';
 let history = [], historyData = null, historyError = '', goal = null, draft = null;
@@ -75,9 +78,9 @@ function setFleet(patch, refetch = false) {
   Object.assign(fleet, patch);
   settings++;
   try {
-    const { range, ...kept } = fleet;
+    const { range: _, ...kept } = fleet; // the range is stored only as an explicit choice
     localStorage.setItem('tmuxrc-fleet', JSON.stringify(kept));
-    if ('range' in patch) localStorage.setItem('tmuxrc-fleet-range', range);
+    if (chosenRange) localStorage.setItem('tmuxrc-fleet-range', chosenRange);
   } catch {}
   if (refetch) { history = []; historyData = null; historyError = ''; reloadHistory?.(); }
   changed();
@@ -166,7 +169,9 @@ function segmented(label, options, value, pick) {
   });
   return group;
 }
-const rangeControl = () => segmented('History range', RANGES, fleet.range, range => setFleet({ range }, true));
+const rangeControl = () => segmented('History range', RANGES, fleet.range, range => { chosenRange = range; setFleet({ range }, true); });
+// Until the viewer picks one, the range follows the screen across the breakpoint.
+roomForAWeek.addEventListener?.('change', () => { if (defaultRange() !== fleet.range) setFleet({ range: defaultRange() }, true); });
 function averageControl() {
   const control = el('span', 'fleet-control');
   control.append(el('span', 'fleet-line-key', 'Avg'),
