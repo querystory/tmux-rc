@@ -133,8 +133,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
       dot.title = `${paneName(p)}\n${STATES[stateOf(p)]}\n${p.session_summary || p.status_line || ''}`;
       const logo = el('img', 'atlas-agent-icon');
       logo.alt = p.tool || 'tmux';
+      const icon = el('span', 'atlas-agent');
+      icon.append(logo);
       markWorking(logo, p, logos);
-      dot.append(logo, el('span', 'atlas-dot-name', paneName(p)));
+      dot.append(icon, el('span', 'atlas-dot-name', paneName(p)));
       dot.onclick = () => navigate(p.pane_id);
       dots.append(dot);
     });
