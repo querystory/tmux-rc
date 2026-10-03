@@ -1155,7 +1155,7 @@ setupPush($("push"), notice, licon("bell"));
 const live = setupLiveMode({ request, session: liveSession, licon, report: reportError, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {
-  return [...drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;

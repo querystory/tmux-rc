@@ -168,7 +168,7 @@ export function setupSidebar(ctx) {
       b.onclick = () => p.more ? collapse.click() : ctx.navigate(b._p.pane_id);
       return b;
     }, (b, p) => {
-      if (p.more) { text(b, `+${p.more}`); b.title = `${p.more} idle panes`; return; }
+      if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
       b.title = b.ariaLabel = `${p.session} / ${paneName(p)}`;
       b.classList.toggle("need", needsYou(p));
@@ -197,5 +197,6 @@ export function setupSidebar(ctx) {
     all.title = all.ariaLabel = all._expand ? "Show the latest activity in every group" : "Compact every group";
     ctx.html(all, licon(all._expand ? "unfold" : "fold", 15));
   }
+  render.drafts = drafts; // for the app's unsent-draft guard on reload
   return render;
 }
