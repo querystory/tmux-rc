@@ -336,7 +336,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   body.resizing #detail, body.resizing #landing { pointer-events: none; }
 }
 
-.landing-inner { padding: 32px; max-width: 1440px; }
+.landing-inner { padding: 32px; max-width: 2400px; }
 .landing-inner h2 { margin: 0 0 4px; font-size: 20px; }
 .landing-inner h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase;
                     letter-spacing: 0.04em; color: var(--muted); }
@@ -373,14 +373,13 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; background: var(--amber-bg); outline: 2px solid var(--amber); outline-offset: 4px; }
 .atlas-dot-name { font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .atlas-panel { min-width: 0; margin-top: 16px; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
-.atlas-cloud { height: 300px; width: 100%; margin-top: 8px; }
+.atlas-cloud { height: clamp(300px, 26vw, 560px); width: 100%; margin-top: 8px; }
 .atlas-topic-picker { width: 100%; border: 1px solid var(--line); border-radius: 8px; min-height: 40px; padding: 6px 10px; background: var(--surface); color: var(--fg); }
 .atlas-matches:not(:empty) { margin-top: 16px; max-height: 220px; overflow-y: auto; }
-.atlas-history-note { margin-top: 12px; }
+.atlas-history-note { margin: 0 0 8px; font-size: 12px; }
+.atlas-history-note p { margin: 0 0 4px; }
 /* The state legend is also the keyboard/touch filter; avoid duplicate controls. */
-.atlas-history-pickers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.atlas-history-pickers select { min-width: 0; max-width: 100%; }
-.atlas-state-legend { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 12px; }
+.atlas-state-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; }
 .atlas-state-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0 2px; min-height: 44px; font-size: 12px; color: var(--muted); }
 .atlas-state-toggle::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--state-color); border: 1px solid var(--state-color); }
 .atlas-state-toggle[aria-pressed="false"]::before { background: transparent; }
@@ -395,7 +394,6 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 .atlas-panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
 .landing-inner .atlas-panel-heading h3 { margin: 0; }
-.atlas-zoom-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; font-size: 11px; }
 .atlas-reset-zoom { font-size: 12px; color: var(--accent); padding: 4px 8px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
@@ -488,15 +486,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 /* Fill the topic panel with the cloud instead of stretching empty space below it. */
 .atlas-topics { display: flex; flex-direction: column; }
-.atlas-topics .atlas-cloud { flex: 1; min-height: 300px; }
 .atlas-topic-links { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .atlas-topic-links:focus-within { position: static; width: auto; height: auto; overflow: visible; clip-path: none; display: flex; flex-wrap: wrap; }
 .atlas-topic-links button { padding: 4px 8px; }
-.atlas-zoom-touch { display: none; }
-@media (pointer: coarse) {
-  .atlas-zoom-touch { display: inline; }
-  .atlas-zoom-desktop { display: none; }
-}
 
 /* The fleet chart and its controls (atlas.js): the dashboard's big chart and small
    multiples, and the split under a pane on a wide screen. */
@@ -518,7 +510,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .fleet-goal input[aria-invalid="true"] { border-color: var(--red); }
 .fleet-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; font-size: 12px; white-space: nowrap; }
 .fleet-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-color); }
-.atlas-multiples-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; margin-top: 4px; }
+.atlas-multiples-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; margin-top: 4px; }
+.atlas-pulse .atlas-panel-heading { margin-bottom: 4px; }
+.atlas-pulse .fleet-chart-axis { margin-top: 0; }
+.atlas-pulse select { min-height: 34px; max-width: 100%; }
+.atlas-info { width: 32px; height: 32px; min-height: 32px; color: var(--muted); }
+.atlas-info[aria-expanded="true"] { color: var(--accent); }
+/* A mouse needs no 44px row; touch keeps it. */
+@media (pointer: fine) { .atlas-state-toggle { min-height: 30px; } }
 .atlas-multiple { display: grid; gap: 4px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; text-align: left; font-size: 12px; }
 .atlas-multiple[aria-pressed="true"] { border-color: var(--accent); }
 .atlas-multiple-head { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
@@ -527,6 +526,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .landing-head { display: flex; align-items: center; gap: 4px; }
 #landing-back { margin-left: -12px; }
 @media (min-width: 1100px) {
+  .atlas-multiples-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .atlas-multiple .fleet-chart { height: 64px; }
   #detail > #fleet { grid-row: 5; grid-column: 1 / -1; height: var(--fleet-h, 40px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line); background: var(--surface); }
   #detail > #fleet-handle { grid-row: 5; grid-column: 1 / -1; align-self: start; position: relative; z-index: 5; height: 9px; margin-top: -5px; cursor: row-resize; touch-action: none; }
   #detail[data-layout="stack"] > #fleet, #detail[data-layout="stack"] > #fleet-handle { grid-row: 6; }

@@ -35,6 +35,7 @@ const LUCIDE = {
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
   pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"/>',
   back: '<path d="m12 19-7-7 7-7M5 12h14"/>',
   up: '<path d="m5 12 7-7 7 7M12 19V5"/>',
@@ -434,6 +435,7 @@ function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()])
   if (persist) {
     reviewSizes[mode] = size;
     try { localStorage.setItem(`tmuxrc-review-${mode}`, String(size)); } catch {}
+    sizeFleet(); // a taller overview takes its room from the terminal, which the split's cap protects
   }
 }
 new ResizeObserver(() => {

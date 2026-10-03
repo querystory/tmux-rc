@@ -14,9 +14,13 @@ const running = n => n[1] + (n[4] || 0) + (n[5] || 0);
 const RANGES = ['24h', '3d', '7d', '30d'], AVERAGES = ['1d', '3d', '7d'];
 const ms = span => parseInt(span, 10) * (span.endsWith('d') ? 86400000 : 3600000);
 // Range, average and the sessions-or-tools split are per browser; the goal is the daemon's.
-const fleet = { range: '24h', average: '1d', by: 'session' };
-try { Object.assign(fleet, JSON.parse(localStorage.getItem('tmuxrc-fleet'))); } catch {}
-if (!RANGES.includes(fleet.range)) fleet.range = '24h';
+const fleet = { average: '1d', by: 'session' };
+let chosenRange = null;
+try { Object.assign(fleet, JSON.parse(localStorage.getItem('tmuxrc-fleet'))); chosenRange = localStorage.getItem('tmuxrc-fleet-range'); } catch {}
+// The range is the viewer's explicit choice, else a week where the screen has room to keep
+// a week of bars legible (336 half-hour bars), else a day. Stored apart so that saving any
+// other setting never turns the default into a choice.
+fleet.range = RANGES.includes(chosenRange) ? chosenRange : matchMedia('(min-width: 1400px)').matches ? '7d' : '24h';
 if (!AVERAGES.includes(fleet.average)) fleet.average = '1d';
 let history = [], historyData = null, historyError = '', goal = null, draft = null;
 let requestedAt = 0, controller, reloadHistory, changed = () => {}, request, settings = 0;
@@ -47,7 +51,11 @@ export async function refreshAtlasHistory(fetcher, onChange, force = false) {
 function setFleet(patch, refetch = false) {
   Object.assign(fleet, patch);
   settings++;
-  try { localStorage.setItem('tmuxrc-fleet', JSON.stringify(fleet)); } catch {}
+  try {
+    const { range, ...kept } = fleet;
+    localStorage.setItem('tmuxrc-fleet', JSON.stringify(kept));
+    if ('range' in patch) localStorage.setItem('tmuxrc-fleet-range', range);
+  } catch {}
   if (refetch) { history = []; historyData = null; historyError = ''; reloadHistory?.(); }
   changed();
 }
@@ -157,8 +165,9 @@ function goalControl(icon) {
     const button = el('button', 'fleet-goal');
     button.dataset.key = 'goal';
     button.title = 'Change the running goal';
-    button.innerHTML = `${icon('target', 14)}<span>Goal <b></b></span>${icon('pencil', 12)}`;
-    button.querySelector('b').textContent = goal ?? 'none';
+    button.innerHTML = `${icon('target', 14)}<span></span>${icon('pencil', 12)}`;
+    button.querySelector('span').textContent = goal == null ? 'Set goal' : 'Goal ';
+    if (goal != null) button.querySelector('span').append(el('b', '', String(goal)));
     button.onclick = () => { draft = String(goal ?? ''); setFleet({}); };
     return button;
   }
@@ -300,9 +309,19 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
 
   // The big chart leads the page: the fleet over time, against the goal.
   const samples = scoped(scope), data = rows(samples, metric);
+  // One header row: title and current numbers on the left, every control on the right; the
+  // notes hide behind an info toggle so the plot starts right under the controls.
   const pulse = el('section', 'atlas-panel atlas-pulse');
   const heading = el('div', 'atlas-panel-heading');
-  heading.append(el('h3', '', 'Activity over time'), averageText(data));
+  const now = el('span', 'fleet-now');
+  now.append(el('b', '', String(panes.filter(isRunning).length)), el('span', 'muted', ' running'));
+  const info = el('button', 'icon-button atlas-info');
+  info.innerHTML = icon('info', 16);
+  info.dataset.key = 'history-info';
+  info.setAttribute('aria-label', 'About this chart');
+  info.title = 'About this chart';
+  info.setAttribute('aria-expanded', String(!!root._info));
+  info.onclick = () => { root._info = !root._info; redraw(); };
   const metricControls = el('select', 'atlas-range');
   metricControls.setAttribute('aria-label', 'History population');
   metricControls.dataset.key = 'history-metric';
@@ -310,11 +329,23 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     .forEach(([value, label]) => metricControls.append(new Option(label, value)));
   metricControls.value = metric;
   metricControls.onchange = () => { root._metric = metricControls.value; redraw(); };
-  const pickers = el('div', 'atlas-history-pickers');
-  pickers.append(metricControls, rangeControl(), averageControl(), goalControl(icon));
-  const stateControls = el('div', 'atlas-state-legend');
-  stateControls.setAttribute('role', 'group');
-  stateControls.setAttribute('aria-label', 'Visible history states');
+  heading.append(el('h3', '', 'Activity over time'), now, averageText(data), info, el('span', 'fleet-gap'),
+    metricControls, rangeControl(), averageControl(), goalControl(icon));
+  pulse.append(heading);
+  if (root._info) {
+    const notes = el('div', 'atlas-history-note muted');
+    [historyData ? 'Saved by this machine’s daemon. Gaps mean no observation. The purple line is the trailing average of Running; the dashed one is the goal.' : '',
+      'Drag the handles under the chart to zoom; Ctrl + scroll zooms, and on touch, pinch zooms.',
+      metric === 'panes' ? 'Older history grouped compacting and external waits under Running.'
+        : 'Observed coding agents only; shells and log tails are excluded. Main agents and their visible background workers are counted separately. Waiting includes review and CI waits. Hidden workers may be missed; this is not CPU or token utilization. Older history has no agent counts.',
+      data.some(s => s.source === 'logs') ? historyData.backfill_note : '',
+      scope.session && history.some(s => s.source === 'logs') ? 'Older log records have no tmux session identity; they are excluded from this session filter.' : '',
+    ].filter(Boolean).forEach(note => notes.append(el('p', '', note)));
+    pulse.append(notes);
+  }
+  const toggles = el('div', 'atlas-state-legend');
+  toggles.setAttribute('role', 'group');
+  toggles.setAttribute('aria-label', 'Visible history states');
   STATES.forEach((state, i) => {
     const button = el('button', 'atlas-state-toggle', state);
     button.style.setProperty('--state-color', `var(--chart-s${i})`);
@@ -322,24 +353,14 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     button.dataset.key = `history-state:${state}`;
     button.setAttribute('aria-pressed', String(shownStates[state] !== false));
     button.onclick = () => { shownStates[state] = shownStates[state] === false; setFleet({}); };
-    stateControls.append(button);
+    toggles.append(button);
   });
-  pulse.append(heading, el('p', 'muted', historyError || (historyData
-    ? 'Saved by this machine’s daemon. Gaps mean no observation. The purple line is the trailing average of Running; the dashed one is the goal.' : 'Loading saved history…')));
-  const zoomControls = el('div', 'atlas-zoom-controls');
   const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
   resetZoom.dataset.key = 'reset-zoom';
   resetZoom.onclick = () => main.resetZoom();
-  zoomControls.append(el('span', 'muted atlas-zoom-desktop', 'Drag to pan · Ctrl + scroll to zoom'),
-    el('span', 'muted atlas-zoom-touch', 'Pinch to zoom · Drag to pan'), resetZoom);
-  pulse.append(pickers, stateControls, main.el, zoomControls);
-  pulse.append(el('p', 'atlas-history-note muted', metric === 'panes'
-    ? 'Older history grouped compacting and external waits under Running.'
-    : 'Observed coding agents only; shells and log tails are excluded. Main agents and their visible background workers are counted separately. Waiting includes review and CI waits. Hidden workers may be missed; this is not CPU or token utilization. Older history has no agent counts.'));
+  toggles.append(el('span', 'fleet-gap'), resetZoom);
+  pulse.append(toggles, main.el);
   if (metric !== 'panes' && !data.some(s => s.n != null)) pulse.append(el('p', 'muted', 'No agent observations in this range yet.'));
-  if (data.some(s => s.source === 'logs')) pulse.append(el('p', 'atlas-history-note muted', historyData.backfill_note));
-  if (scope.session && history.some(s => s.source === 'logs'))
-    pulse.append(el('p', 'atlas-history-note muted', 'Older log records have no tmux session identity; they are excluded from this session filter.'));
   nodes.push(pulse);
 
   // Small multiples: which session or tool carries the running count, all on one scale.
@@ -361,7 +382,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     cards.set(key, chart);
     const members = allPanes.filter(p => (by === 'session' ? p.session : toolOf(p)) === key);
     const card = el('button', 'atlas-multiple');
-    card.dataset.key = `${by}:${key}`;
+    card.dataset.key = `card:${by}:${key}`;
     card.setAttribute('aria-pressed', String(scope[by] === key));
     const head = el('span', 'atlas-multiple-head');
     head.append(el('b', '', key), el('span', 'fleet-gap'), el('b', '', String(members.filter(isRunning).length)), el('span', 'muted', ` / ${members.length}`));

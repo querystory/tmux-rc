@@ -44,10 +44,14 @@ export function atlasCharts() {
       canvas.height = Math.round(cloud.clientHeight * ratio);
       const weights = words.map(([, n]) => n);
       const min = Math.min(...weights), max = Math.max(...weights);
+      // Type scales with the card's area (1x at about 600x300), so a wide card fills
+      // instead of holding a small clump in its middle.
+      const scale = Math.max(1, Math.min(3, Math.sqrt(cloud.clientWidth * cloud.clientHeight / 180000)));
       window.WordCloud(canvas, {
         list: words, fontFamily: 'sans-serif', fontWeight: '600',
-        weightFactor: n => (14 + 40 * (n - min) / Math.max(1, max - min)) * ratio,
-        gridSize: Math.max(4, Math.round(7 * ratio)), rotateRatio: 0,
+        weightFactor: n => (14 + 40 * (n - min) / Math.max(1, max - min)) * scale * ratio,
+        gridSize: Math.max(4, Math.round(7 * scale * ratio)), rotateRatio: 0,
+        ellipticity: Math.min(1, cloud.clientHeight / cloud.clientWidth), // fill a wide card, not its middle
         shrinkToFit: true, drawOutOfBound: false, backgroundColor: 'transparent',
         color: word => palette[words.findIndex(([name]) => name === word) % palette.length],
         click: item => latest.selectWord(item[0]),
@@ -59,7 +63,9 @@ export function atlasCharts() {
     }
     cloud.setAttribute('aria-label', `Topics sized by number of matching panes: ${words.map(([w, n]) => `${w}: ${n}`).join(', ')}. Click a word to explore, or Tab to its topic button.`);
   };
-  new ResizeObserver(paint).observe(cloud);
+  // A re-layout is the costly part, so a drag-resize waits for the size to settle.
+  let settle;
+  new ResizeObserver(() => { clearTimeout(settle); settle = setTimeout(paint, 150); }).observe(cloud);
   new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   return { cloud, update(data) { latest = data; paint(); } };
 }
@@ -112,18 +118,29 @@ export function fleetChart(axis) {
       : 'No observations yet.');
     chart.setOption({
       animation: false, textStyle: { color: muted, fontFamily: 'sans-serif' },
-      tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'shadow' },
+      // An HTML tooltip on <body>, placed in viewport coordinates: below-right of the pointer,
+      // flipped above or left where the window has no room, so a 28px strip at the bottom
+      // edge (whose canvas would clip a richText tooltip) still shows all of it.
+      tooltip: { trigger: 'axis', renderMode: 'html', appendTo: 'body', axisPointer: { type: 'shadow' },
+        backgroundColor: color('--surface'), borderColor: line, textStyle: { color: fg, fontSize: 12 },
+        position: (point, _params, _dom, _rect, { contentSize: [w, h] }) => {
+          const box = el.getBoundingClientRect(), x = box.left + point[0], y = box.top + point[1];
+          const left = x + 12 + w > innerWidth - 4 ? x - 12 - w : x + 12, top = y + 12 + h > innerHeight - 4 ? y - 12 - h : y + 12;
+          return [Math.max(4, Math.min(innerWidth - w - 4, left)) - box.left, Math.max(4, Math.min(innerHeight - h - 4, top)) - box.top];
+        },
         formatter: items => {
           const row = rows[items[0]?.dataIndex];
           if (!row?.n) return 'No observation';
           return [label(row.t), row.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
             ...items.filter(item => item.value[1] != null)
-              .map(item => `${item.seriesName}: ${+item.value[1].toFixed(1)} ${unit.toLowerCase()}`)].join('\n');
+              .map(item => `${item.seriesName}: ${+item.value[1].toFixed(1)} ${unit.toLowerCase()}`)].join('<br>');
         } },
-      grid: axis ? { left: 42, right: 14, top: 28, bottom: 78 } : { left: 0, right: 0, top: 2, bottom: 0 },
+      // The slider sits inside the chart's own box, clear of its bottom edge, so a panel
+      // clipped to its height never cuts the zoom handles or the axis labels.
+      grid: axis ? { left: 42, right: 18, top: 28, bottom: 62 } : { left: 0, right: 0, top: 2, bottom: 0 },
       dataZoom: axis ? [
-        { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 4, height: 24,
-          left: 42, right: 14, showDetail: false, borderColor: line,
+        { type: 'slider', xAxisIndex: 0, ...zoom, bottom: 10, height: 20,
+          left: 42, right: 18, showDetail: false, borderColor: line,
           textStyle: { color: muted }, fillerColor: color('--accent-bg'),
           handleStyle: { color: color('--accent'), borderColor: color('--accent') } },
         { type: 'inside', xAxisIndex: 0, ...zoom, zoomOnMouseWheel: 'ctrl',
