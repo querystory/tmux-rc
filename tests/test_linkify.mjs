@@ -5,20 +5,18 @@ import { linkifyText, renderCaptureLines } from "../web/terminal.js";
 const hrefs = (html) => [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
 
 test("trailing sentence punctuation stays outside the link, exactly once", () => {
-  for (const [text, href, html] of [
-    ["see https://example.com/a.html, then", "https://example.com/a.html", '">https://example.com/a.html</a>, then'],
-    ["end https://x.y/z.", "https://x.y/z", "</a>."],
-    ["(https://x.y/z)", "https://x.y/z", "</a>)"],
-    ["(https://x.y/z.),", "https://x.y/z", "</a>.),"],
-    ["**https://x.y/z**", "https://x.y/z", "**<a "],
-    ["https://x.y/z?q=1.", "https://x.y/z?q=1", "</a>."],
-    ["https://x.y/z/", "https://x.y/z/", ">https://x.y/z/</a>"],
-    ["https://x.y/#frag", "https://x.y/#frag", ">https://x.y/#frag</a>"],
+  for (const [text, href] of [
+    ["see https://example.com/a.html, then", "https://example.com/a.html"],
+    ["end https://x.y/z.", "https://x.y/z"],
+    ["(https://x.y/z)", "https://x.y/z"],
+    ["(https://x.y/z.),", "https://x.y/z"],
+    ["**https://x.y/z**", "https://x.y/z"],
+    ["https://x.y/z?q=1.", "https://x.y/z?q=1"],
+    ["https://x.y/z/", "https://x.y/z/"],
+    ["https://x.y/#frag", "https://x.y/#frag"],
   ]) {
-    const out = linkifyText(text);
-    assert.deepEqual(hrefs(out), [href], text);
-    assert.ok(out.includes(html), `${text} -> ${out}`);
-    assert.equal(out.replace(/<[^>]*>/g, "").replaceAll("&amp;", "&"), text, "text emitted once");
+    const a = `<a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>`;
+    assert.equal(linkifyText(text), text.replace(href, a), text);
   }
 });
 
