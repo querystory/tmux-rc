@@ -74,6 +74,11 @@ or agent-attributed, since `role: user` also carries injected notifications. Mis
 attribution remains eligible for older sessions. Subagents use their first
 `session_init.task`, not the system prompt or its duplicate agent-attributed message.
 Artifact location identifies a subagent: `parentSession` alone also marks ordinary forks.
+A sibling transcript supplies the canonical parent ID; timestamped artifact folders
+also identify direct orphans. A nested artifact whose immediate parent is missing or
+truncated is skipped when its ancestry proves it is an artifact, rather than inventing
+a parent or offering a main-session resume. Previously promoted cached entries are
+rejected by `get` and skipped by `resolve`.
 
 The rewritten title slot is current, including an explicit cleared title; slot-less
 files use the header title: title-change records are audit, not the current name.
@@ -102,17 +107,20 @@ the active `OMP_PROFILE`/`PI_PROFILE`. Paths tied to the default root or registr
 explicitly select `--profile default` when reconcile runs under a named profile.
 The effective profile schedules an immediate omp rebuild. Cached-entry reads also
 resolve argv against the current profile, effective/legacy roots and registry pointers,
-so XDG root creation or pointer changes cannot leave the first result stale. Ordinary
-reconcile checks that current placement before trusting an unchanged transcript mtime;
+so XDG root creation or pointer changes cannot leave the first result stale. Each
+resolve/reconcile shares one fresh, lazily loaded placement snapshot across its entries
+and discovery, avoiding repeated profile/registry scans; `get` gets a fresh snapshot.
+Ordinary reconcile checks that placement before trusting an unchanged transcript mtime;
 its check reads only the entry header and rebuilds a changed command without routinely
-rescanning the transcript. Format 5 removes the obsolete per-entry profile-only context;
-consumer JSON has no new fields.
+rescanning the transcript. Format 6 rebuilds current artifact classification; obsolete
+per-entry profile-only context is absent, and consumer JSON has no new fields.
 
 ## Resolving a request
 
 `agent-history resolve [-json] [-harness claude|codex|omp] [-all] <query>` answers "where does
 this belong?" for a request like "fix live mode": the likeliest repos and, in each, the
-sessions to resume. It reads only the index, takes milliseconds, and calls no model.
+sessions to resume. It ranks indexed metadata and human messages, checks current storage
+placement and liveness, and calls no model.
 
 Scoring is deliberately simple. Each query word and adjacent word pair is weighted by
 how rare it is across sessions, so "fix" barely counts and "live mode" decides; the
@@ -146,8 +154,9 @@ Live still refuses to start a second copy.
 
 omp uses a live current-user conversation process plus its terminal breadcrumb.
 The breadcrumb follows session switches, unlike launch argv, and survives exit for
-`--continue`, so it is never live evidence alone. Internal workers and maintenance
-commands do not count. Positive open-transcript evidence also covers headless hosts,
+`--continue`, so it is never live evidence alone. Internal workers, maintenance commands,
+and exited unreaped processes (zombies) do not count.
+Positive open-transcript evidence also covers headless hosts,
 but descriptors are lazy: a host with insufficient evidence makes omp liveness unknown,
 not stopped. Ambiguous terminal ownership does the same. Subagents suppress breadcrumbs
 and are not reported as independent live sessions.

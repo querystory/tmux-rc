@@ -28,7 +28,7 @@ func indexPath(harness, parent, id string) string {
 
 // Format versions derived entries. Mtime alone cannot detect a changed reader,
 // so reconcile rebuilds everything once when the recorded format differs.
-const Format = "5" // 5: refresh omp resume placement instead of caching profile-only context
+const Format = "6" // 6: skip nested omp artifacts whose canonical parent was lost
 
 // A harness is one coding agent whose sessions are indexed.
 type harness struct {
@@ -63,7 +63,7 @@ func IndexTranscript(path string, force bool) error {
 	}
 	var errs []error
 	for _, p := range paths {
-		errs = append(errs, indexFile(claude, []string{p}, force))
+		errs = append(errs, indexFile(claude, []string{p}, force, nil))
 	}
 	return errors.Join(errs...)
 }
@@ -82,7 +82,7 @@ func claudeSessions() ([][]string, error) {
 	return out, err
 }
 
-func indexFile(h harness, files []string, force bool) error {
+func indexFile(h harness, files []string, force bool, placement *ompPlacement) error {
 	// An entry carries the mtime of the newest file it was built from (or of a later
 	// rename), so it is fresh exactly when the two match (and a transcript rewritten to
 	// an older mtime still gets rebuilt).
@@ -121,7 +121,10 @@ func indexFile(h harness, files []string, force bool) error {
 		if h.name != "omp" {
 			return nil
 		}
-		entry, err := readEntry(dst, false)
+		if placement == nil {
+			placement = &ompPlacement{}
+		}
+		entry, err := readEntry(dst, false, placement)
 		if err == nil && !entry.ompResumeChanged {
 			return nil
 		}

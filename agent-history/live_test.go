@@ -416,3 +416,23 @@ func TestRunningOmpBunHostsAndTitleSlot(t *testing.T) {
 		stop()
 	}
 }
+
+func TestRunningOmpZombieDoesNotBlockResumes(t *testing.T) {
+	cmd, _ := ompLiveHost(t, ompLiveEnv(t), "omp", "launch", "", false)
+	must(t, cmd.Process.Kill()) // leave this exact child unreaped until fixture cleanup
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		state, err := procStat(cmd.Process.Pid, 3)
+		must(t, err)
+		if state == "Z" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fixture did not become a zombie: %q", state)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got, err := ompFixtureRunning(t, cmd.Process.Pid); err != nil || len(got) != 0 {
+		t.Fatalf("zombie blocks resume: %v, %v", got, err)
+	}
+}

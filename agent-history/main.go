@@ -81,8 +81,12 @@ func resolveCmd(args []string) error {
 		return err
 	}
 	var entries []Entry
+	var placement ompPlacement
 	for _, p := range paths {
-		e, err := ReadEntry(p)
+		e, err := readEntry(p, true, &placement)
+		if errors.Is(err, errNotIndexed) {
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("read index entry %s: %w", p, err)
 		}
@@ -213,11 +217,16 @@ func reconcileAll(force, forceOmp bool) (ok bool) {
 		report(err)
 		ok = ok && err == nil
 	}
+	var placement ompPlacement
 	for _, h := range harnesses {
+		if h.name == "omp" {
+			h.sessions = placement.sessions
+			h.read = func(files []string) (Session, error) { return readOmp(files[0], &placement) }
+		}
 		sessions, err := h.sessions()
 		check(err)
 		for _, files := range sessions {
-			check(indexFile(h, files, force || (h.name == "omp" && forceOmp)))
+			check(indexFile(h, files, force || (h.name == "omp" && forceOmp), &placement))
 		}
 	}
 	entries, err := indexEntries()

@@ -146,6 +146,16 @@ func harnessProcesses(comms []string, keep func(int, string, []string) (bool, er
 		if err != nil {
 			return nil, err
 		}
+		if len(cmdline) == 0 {
+			// Zombies lose argv; an exited, unreaped child is not an unknown live host.
+			state, err := procStat(pid, 3)
+			if err != nil {
+				return nil, err
+			}
+			if state == "" || state == "Z" || state == "X" {
+				continue
+			}
+		}
 		args := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
 		match, err := keep(pid, comm, args)
 		if err != nil {
@@ -299,7 +309,11 @@ func ompTerminal(stdin string, env map[string]string) string {
 // their host, and arbitrary JSONL opened by a tool is not an omp session.
 func ompLiveIdentity(path string) (string, error) {
 	header, err := ompHeader(path)
-	if err == nil && (header.ID == "" || ompArtifactParent(path) != "") {
+	artifact := false
+	if err == nil && header.ID != "" {
+		_, artifact = ompArtifactParent(path)
+	}
+	if err == nil && (header.ID == "" || artifact) {
 		err = fmt.Errorf("%s: not an omp main session", path)
 	}
 	return header.ID, err

@@ -49,22 +49,30 @@ func ompHeader(path string) (ompRecord, error) {
 
 // Artifact directories are the transcript basename without .jsonl. A sibling
 // header supplies the canonical parent ID even after relocation or renaming.
-// The timestamp_ID fallback keeps orphaned artifact transcripts discoverable.
+// An ancestor identifies nested artifacts whose immediate parent was lost.
 var ompArtifactName = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[^_]+_(.+)$`)
 
-func ompArtifactParent(path string) string {
+func ompArtifactParent(path string) (parent string, artifact bool) {
 	dir := filepath.Dir(path)
 	if h, err := ompHeader(dir + ".jsonl"); err == nil && h.ID != "" {
-		return h.ID
+		return h.ID, true
 	}
 	if m := ompArtifactName.FindStringSubmatch(filepath.Base(dir)); m != nil {
-		return m[1]
+		return m[1], true
 	}
-	return ""
+	for ancestor := filepath.Dir(dir); ancestor != dir; dir, ancestor = ancestor, filepath.Dir(ancestor) {
+		if ompArtifactName.MatchString(filepath.Base(ancestor)) {
+			return "", true
+		}
+		if h, err := ompHeader(ancestor + ".jsonl"); err == nil && h.ID != "" {
+			return "", true
+		}
+	}
+	return "", false
 }
 
 func ompIdentity(path string) (id, parent string) {
-	if parent = ompArtifactParent(path); parent != "" {
+	if parent, artifact := ompArtifactParent(path); artifact {
 		return strings.TrimSuffix(filepath.Base(path), ".jsonl"), parent
 	}
 	h, _ := ompHeader(path)
@@ -72,8 +80,16 @@ func ompIdentity(path string) (id, parent string) {
 }
 
 func ReadOmp(path string) (Session, error) {
+	return readOmp(path, &ompPlacement{})
+}
+
+func readOmp(path string, placement *ompPlacement) (Session, error) {
 	s := Session{Harness: "omp", Source: path}
-	s.Parent = ompArtifactParent(path)
+	var artifact bool
+	s.Parent, artifact = ompArtifactParent(path)
+	if artifact && s.Parent == "" {
+		return Session{}, errNotIndexed // known artifact, but no canonical immediate parent
+	}
 	if s.Parent != "" {
 		s.ID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
 	}
@@ -147,7 +163,7 @@ func ReadOmp(path string) (Session, error) {
 		}
 	}
 	if s.Parent == "" && s.Cwd != "" {
-		s.ResumeArgv, _, err = ompResume(path, s.ID, nil)
+		s.ResumeArgv, _, err = placement.resume(path, s.ID, nil)
 		if err != nil {
 			return Session{}, err
 		}
@@ -163,19 +179,57 @@ func ompProfileContext() string {
 	return "default"
 }
 
-// Reuse cached argv only after checking current layout and registry classification.
-func ompResume(path, id string, cached []string) ([]string, bool, error) {
+// Each resolve/reconcile owns a fresh snapshot; roots and pointers are loaded once.
+type ompPlacement struct {
+	active    string
+	locations []ompLocation
+	pointers  []ompPointerSet
+	loaded    bool
+	err       error
+}
+
+type ompPointerSet struct {
+	paths  map[string]struct{}
+	loaded bool
+	err    error
+}
+
+func (p *ompPlacement) load() error {
+	if !p.loaded {
+		p.loaded = true
+		p.active = ompProfileContext()
+		p.locations, p.err = ompLocations(p.active)
+		p.pointers = make([]ompPointerSet, len(p.locations))
+	}
+	return p.err
+}
+
+func (p *ompPlacement) profilePointers(i int) (map[string]struct{}, error) {
+	state := &p.pointers[i]
+	if !state.loaded {
+		state.loaded = true
+		state.err = ompPointers(p.locations[i], func(path string) {
+			if state.paths == nil {
+				state.paths = make(map[string]struct{})
+			}
+			state.paths[path] = struct{}{}
+		})
+	}
+	return state.paths, state.err
+}
+
+// Reuse cached argv only after checking this operation's current placement.
+func (p *ompPlacement) resume(path, id string, cached []string) ([]string, bool, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return nil, false, err
 	}
 	arg, profile := absolute, ""
 	knownProfile := false
-	active := ompProfileContext()
-	locations, err := ompLocations(active)
-	if err != nil {
+	if err := p.load(); err != nil {
 		return nil, false, err
 	}
+	active, locations := p.active, p.locations
 	for _, loc := range locations {
 		if ompWithin(loc.Sessions, absolute) {
 			profile, knownProfile = loc.Profile, true
@@ -186,12 +240,12 @@ func ompResume(path, id string, cached []string) ([]string, bool, error) {
 		}
 	}
 	if !knownProfile {
-		for _, loc := range locations {
-			matched := false
-			if err := ompPointers(loc, func(path string) { matched = matched || path == absolute }); err != nil {
+		for i, loc := range locations {
+			paths, err := p.profilePointers(i)
+			if err != nil {
 				return nil, false, err
 			}
-			if matched {
+			if _, matched := paths[absolute]; matched {
 				profile, knownProfile = loc.Profile, true
 				break
 			}
@@ -299,6 +353,9 @@ func ompStateDir(env map[string]string, profile string) string {
 }
 
 func ompLocations(profile string) ([]ompLocation, error) {
+	if profile == "default" {
+		profile = ""
+	}
 	var out []ompLocation
 	home, _ := os.UserHomeDir()
 	config := os.Getenv("PI_CONFIG_DIR")
@@ -343,8 +400,11 @@ func ompLocations(profile string) ([]ompLocation, error) {
 // Discovery reads only sessions, artifact transcripts, and exact pointers in
 // omp's custom-file registry/breadcrumbs; blobs, logs and results are excluded.
 func ompSessions() ([][]string, error) {
-	locations, err := ompLocations(ompActiveProfile())
-	if err != nil {
+	return (&ompPlacement{}).sessions()
+}
+
+func (p *ompPlacement) sessions() ([][]string, error) {
+	if err := p.load(); err != nil {
 		return nil, err
 	}
 	var paths []string
@@ -354,12 +414,14 @@ func ompSessions() ([][]string, error) {
 		paths = append(paths, found...)
 		errs = append(errs, err)
 	}
-	for _, loc := range locations {
+	for i, loc := range p.locations {
 		addTree(loc.Sessions)
-		errs = append(errs, ompPointers(loc, func(path string) {
+		pathsForProfile, err := p.profilePointers(i)
+		errs = append(errs, err)
+		for path := range pathsForProfile {
 			paths = append(paths, path)
 			addTree(strings.TrimSuffix(path, ".jsonl"))
-		}))
+		}
 	}
 	if root := os.Getenv("PI_CODING_AGENT_SESSION_DIR"); root != "" {
 		addTree(root)
@@ -380,6 +442,9 @@ func ompSessions() ([][]string, error) {
 			continue
 		}
 		if h.ID == "" {
+			continue
+		}
+		if parent, artifact := ompArtifactParent(path); artifact && parent == "" {
 			continue
 		}
 		out = append(out, []string{path})

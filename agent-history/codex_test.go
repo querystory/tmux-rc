@@ -264,7 +264,7 @@ func TestIndexRefusesPathShapedIDs(t *testing.T) {
 	path := filepath.Join(codexSessionsDir(), "2026/09/03/rollout-2026-09-03T10-00-00-0000eeee-0000-7000-8000-000000000005.jsonl")
 	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	must(t, os.WriteFile(path, []byte(`{"timestamp":"t","type":"session_meta","payload":{"parent_thread_id":"../../escape","source":{"subagent":{"thread_spawn":{}}}}}`+"\n"), 0o600))
-	if err := indexFile(harnesses[1], []string{path}, false); err == nil {
+	if err := indexFile(harnesses[1], []string{path}, false, nil); err == nil {
 		t.Error("a parent of ../../escape was indexed")
 	}
 	if _, err := os.Stat(filepath.Join(Root(), "escape")); err == nil {

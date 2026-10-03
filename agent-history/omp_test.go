@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -149,7 +150,8 @@ func TestOmpArtifactNotFork(t *testing.T) {
 		t.Fatalf("child resume = %v", s.ResumeArgv)
 	}
 	nested := ompWrite(t, strings.TrimSuffix(child, ".jsonl")+"/Worker.jsonl", ompTestHeader)
-	check(t, "canonical sibling header", ompArtifactParent(nested), "child-uuid")
+	canonical, _ := ompArtifactParent(nested)
+	check(t, "canonical sibling header", canonical, "child-uuid")
 	ompCheckSources(t, parent, child, nested)
 	must(t, os.Remove(nested))
 	fork := ompWrite(t, filepath.Join(dir, "fork.jsonl"), strings.Replace(ompTestHeader, `"title":"header auto"`, `"parentSession":"`+parent+`","title":"header auto"`, 1)+`{"type":"session_init","task":"not a child task"}`)
@@ -202,7 +204,7 @@ func TestOmpRebuildTitleAndRetainMissing(t *testing.T) {
 	ompTestEnv(t)
 	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
 	path := ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).Sessions, "bucket", "session.jsonl"), ompTestHeader)
-	must(t, indexFile(omp, []string{path}, false))
+	must(t, indexFile(omp, []string{path}, false, nil))
 	dst := indexPath("omp", "", "real-id")
 	first, err := ReadEntry(dst)
 	must(t, err)
@@ -210,12 +212,12 @@ func TestOmpRebuildTitleAndRetainMissing(t *testing.T) {
 	ompWrite(t, path, `{"type":"title","v":1,"title":"renamed","updatedAt":"2026-10-02T12:00:00Z","pad":""}`+"\n"+ompTestHeader)
 	stamp := time.Now().Add(time.Minute)
 	must(t, os.Chtimes(path, stamp, stamp))
-	must(t, indexFile(omp, []string{path}, false))
+	must(t, indexFile(omp, []string{path}, false, nil))
 	updated, err := ReadEntry(dst)
 	must(t, err)
 	check(t, "rewritten title", updated.Title, "renamed")
 	must(t, os.Remove(path))
-	must(t, indexFile(omp, []string{path}, false))
+	must(t, indexFile(omp, []string{path}, false, nil))
 	must(t, MarkMissing(dst))
 	retained, err := ReadEntry(dst)
 	must(t, err)
@@ -367,6 +369,36 @@ func TestOmpCachedResumeTracksRegistryChanges(t *testing.T) {
 			ompCheckCachedResume(t, "real-id", "omp", "--profile", "review", "--resume", path)
 			ompWrite(t, filepath.Join(home, ".omp", "profiles", "other", "agent", kind, "marker"), body(path))
 			ompCheckCachedResume(t, "real-id", "omp", "--profile", "other", "--resume", path)
+		})
+	}
+}
+
+func TestOmpOrphanedNestedArtifactIsNotResumable(t *testing.T) {
+	for _, broken := range []string{"deleted", "truncated"} {
+		t.Run(broken, func(t *testing.T) {
+			ompTestEnv(t)
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			parent := ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).Sessions, "bucket", "2026-10-02T10-00-00Z_real-id.jsonl"), ompTestHeader)
+			agent := ompWrite(t, strings.TrimSuffix(parent, ".jsonl")+"/Agent.jsonl", strings.ReplaceAll(ompTestHeader, "real-id", "agent-id"))
+			worker := ompWrite(t, strings.TrimSuffix(agent, ".jsonl")+"/Worker.jsonl", strings.ReplaceAll(ompTestHeader, "real-id", "worker-id"))
+			if broken == "deleted" {
+				must(t, os.Remove(agent))
+			} else {
+				must(t, os.WriteFile(agent, []byte(`{"type":"session"`), 0o600))
+			}
+			if s, err := ReadOmp(worker); !errors.Is(err, errNotIndexed) {
+				t.Errorf("orphaned artifact promoted: %+v, %v", s, err)
+			}
+			ompCheckSources(t, parent)
+			if id, err := ompLiveIdentity(worker); err == nil {
+				t.Errorf("orphaned artifact identifies a live host: %q", id)
+			}
+			cached := Session{Harness: "omp", ID: "worker-id", Source: worker, Cwd: "/work/a repo", ResumeArgv: []string{"omp", "--resume", "worker-id"}}
+			dst := indexPath("omp", "", cached.ID)
+			must(t, writeAtomic(dst, Render(cached), time.Now()))
+			if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
+				t.Errorf("cached orphaned artifact promoted: %+v, %v", e, err)
+			}
 		})
 	}
 }

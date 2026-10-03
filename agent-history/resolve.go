@@ -38,11 +38,11 @@ type Entry struct {
 // ReadEntry parses the format Render writes. Each front-matter value is JSON, so the
 // header decodes by assembling it into one object.
 func ReadEntry(path string) (Entry, error) {
-	return readEntry(path, true)
+	return readEntry(path, true, &ompPlacement{})
 }
 
 // Reconcile only needs the header; do not read or normalize the human message body.
-func readEntry(path string, scoring bool) (Entry, error) {
+func readEntry(path string, scoring bool, placement *ompPlacement) (Entry, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return Entry{}, err
@@ -81,7 +81,10 @@ func readEntry(path string, scoring bool) (Entry, error) {
 		e.ResumeArgv = claudeResume(e.ID)
 	}
 	if e.Harness == "omp" && e.Parent == "" && len(e.ResumeArgv) > 0 && !e.SourceMissing {
-		e.ResumeArgv, e.ompResumeChanged, err = ompResume(e.Source, e.ID, e.ResumeArgv)
+		if _, artifact := ompArtifactParent(e.Source); artifact {
+			return Entry{}, errNotIndexed // never revive a previously promoted artifact
+		}
+		e.ResumeArgv, e.ompResumeChanged, err = placement.resume(e.Source, e.ID, e.ResumeArgv)
 		if err != nil {
 			return Entry{}, err
 		}
