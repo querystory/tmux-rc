@@ -146,8 +146,9 @@ Using the built thing surfaced what the mocks could not:
   exploring the chart reshuffled the list; now the two are independent.
 - **The chart header is one line**, with Set goal next to the running count rather than a
   second toolbar row.
-- **The moving average defaults to 1 day**, and wide screens default to a 7-day range, so
-  the line follows the days within the week rather than flattening across it.
+- **The moving average defaults to 1 day**, and screens 1400px and wider default to a
+  7-day range (24 hours below that), so the line follows the days within the week rather
+  than flattening across it.
 
 Screenshots of the shipped result belong here once the fixture-based screenshot tooling
 lands, so they show the same synthetic fleet as the mocks rather than someone's real panes.
