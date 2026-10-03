@@ -147,7 +147,7 @@ func ReadOmp(path string) (Session, error) {
 		}
 	}
 	if s.Parent == "" && s.Cwd != "" {
-		s.ResumeArgv, s.ompProfileContext, err = ompResume(path, s.ID)
+		s.ResumeArgv, _, err = ompResume(path, s.ID, nil)
 		if err != nil {
 			return Session{}, err
 		}
@@ -155,7 +155,7 @@ func ReadOmp(path string) (Session, error) {
 	return s, nil
 }
 
-// The effective profile is a cache input; empty and explicit default are equivalent.
+// Profile changes schedule an immediate reconcile; resume placement is rechecked on reads.
 func ompProfileContext() string {
 	if profile := ompActiveProfile(); profile != "" {
 		return profile
@@ -163,19 +163,18 @@ func ompProfileContext() string {
 	return "default"
 }
 
-// Share resume construction with cached-entry reads so a profile change cannot
-// expose another profile's command while the background reconcile is pending.
-func ompResume(path, id string) ([]string, string, error) {
+// Reuse cached argv only after checking current layout and registry classification.
+func ompResume(path, id string, cached []string) ([]string, bool, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return nil, "", err
+		return nil, false, err
 	}
 	arg, profile := absolute, ""
 	knownProfile := false
 	active := ompProfileContext()
 	locations, err := ompLocations(active)
 	if err != nil {
-		return nil, "", err
+		return nil, false, err
 	}
 	for _, loc := range locations {
 		if ompWithin(loc.Sessions, absolute) {
@@ -190,7 +189,7 @@ func ompResume(path, id string) ([]string, string, error) {
 		for _, loc := range locations {
 			matched := false
 			if err := ompPointers(loc, func(path string) { matched = matched || path == absolute }); err != nil {
-				return nil, "", err
+				return nil, false, err
 			}
 			if matched {
 				profile, knownProfile = loc.Profile, true
@@ -204,11 +203,17 @@ func ompResume(path, id string) ([]string, string, error) {
 			profile = "default"
 		}
 	}
-	argv := []string{"omp"}
-	if profile != "" {
-		argv = append(argv, "--profile", profile)
+	if profile == "" {
+		if len(cached) == 3 && cached[0] == "omp" && cached[1] == "--resume" && cached[2] == arg {
+			return cached, false, nil
+		}
+		return []string{"omp", "--resume", arg}, true, nil
 	}
-	return append(argv, "--resume", arg), active, nil
+	if len(cached) == 5 && cached[0] == "omp" && cached[1] == "--profile" && cached[2] == profile &&
+		cached[3] == "--resume" && cached[4] == arg {
+		return cached, false, nil
+	}
+	return []string{"omp", "--profile", profile, "--resume", arg}, true, nil
 }
 func ompValidTitleSlot(line []byte) bool {
 	var slot struct {

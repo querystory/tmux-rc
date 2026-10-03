@@ -301,3 +301,72 @@ func TestOmpProfileChangeInvalidatesResumeCache(t *testing.T) {
 		}
 	}
 }
+
+func ompCheckCachedResume(t *testing.T, id string, want ...string) {
+	t.Helper()
+	e, err := ReadEntry(indexPath("omp", "", id))
+	must(t, err)
+	if !slices.Equal(e.ResumeArgv, want) {
+		t.Errorf("first cached read = %v, want %v", e.ResumeArgv, want)
+	}
+	Reconcile()
+	data, err := os.ReadFile(indexPath("omp", "", id))
+	must(t, err)
+	for line := range strings.Lines(string(data)) {
+		if value, ok := strings.CutPrefix(line, "resume_argv: "); ok {
+			var argv []string
+			must(t, json.Unmarshal([]byte(value), &argv))
+			if !slices.Equal(argv, want) {
+				t.Errorf("persisted resume = %v, want %v", argv, want)
+			}
+			return
+		}
+	}
+	t.Fatal("cached entry has no resume command")
+}
+
+func TestOmpCachedResumeTracksLocationChanges(t *testing.T) {
+	home := ompTestEnv(t)
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	xdg := filepath.Join(home, "data", "omp")
+	t.Setenv("XDG_DATA_HOME", filepath.Dir(xdg))
+	path := ompWrite(t, filepath.Join(home, ".omp", "agent", "sessions", "bucket", "session.jsonl"), ompTestHeader)
+	Reconcile()
+	must(t, os.MkdirAll(xdg, 0o700))
+	ompCheckCachedResume(t, "real-id", "omp", "--resume", path)
+	must(t, os.Remove(xdg))
+	ompCheckCachedResume(t, "real-id", "omp", "--resume", "real-id")
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(home, "override"))
+	ompCheckCachedResume(t, "real-id", "omp", "--resume", path)
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	ompCheckCachedResume(t, "real-id", "omp", "--resume", "real-id")
+}
+
+func TestOmpCachedResumeTracksRegistryChanges(t *testing.T) {
+	for _, kind := range []string{"custom-session-files", "terminal-sessions"} {
+		t.Run(kind, func(t *testing.T) {
+			home := ompTestEnv(t)
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			t.Setenv("OMP_PROFILE", "review")
+			flat := t.TempDir()
+			t.Setenv("PI_CODING_AGENT_SESSION_DIR", flat)
+			path := ompWrite(t, filepath.Join(flat, "session.jsonl"), ompTestHeader)
+			Reconcile()
+			body := func(target string) string {
+				if kind == "terminal-sessions" {
+					return filepath.Dir(target) + "\n" + filepath.Base(target) + "\n"
+				}
+				return target + "\n"
+			}
+			marker := ompWrite(t, filepath.Join(home, ".omp", "agent", kind, "marker"), body(path))
+			ompCheckCachedResume(t, "real-id", "omp", "--profile", "default", "--resume", path)
+			stamp, err := os.Stat(marker)
+			must(t, err)
+			ompWrite(t, marker, body(filepath.Join(flat, "absent.jsonl")))
+			must(t, os.Chtimes(marker, stamp.ModTime(), stamp.ModTime()))
+			ompCheckCachedResume(t, "real-id", "omp", "--profile", "review", "--resume", path)
+			ompWrite(t, filepath.Join(home, ".omp", "profiles", "other", "agent", kind, "marker"), body(path))
+			ompCheckCachedResume(t, "real-id", "omp", "--profile", "other", "--resume", path)
+		})
+	}
+}

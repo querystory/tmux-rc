@@ -28,7 +28,7 @@ func indexPath(harness, parent, id string) string {
 
 // Format versions derived entries. Mtime alone cannot detect a changed reader,
 // so reconcile rebuilds everything once when the recorded format differs.
-const Format = "4" // 4: explicit omp session directories retain the active profile
+const Format = "5" // 5: refresh omp resume placement instead of caching profile-only context
 
 // A harness is one coding agent whose sessions are indexed.
 type harness struct {
@@ -118,7 +118,13 @@ func indexFile(h harness, files []string, force bool) error {
 	}
 	dst := indexPath(h.name, parent, id)
 	if idx, err := os.Stat(dst); !force && err == nil && idx.ModTime().Equal(mtime) {
-		return nil
+		if h.name != "omp" {
+			return nil
+		}
+		entry, err := readEntry(dst, false)
+		if err == nil && !entry.ompResumeChanged {
+			return nil
+		}
 	}
 	s, err := h.read(files)
 	if errors.Is(err, errNotIndexed) {
@@ -144,7 +150,6 @@ func Render(s Session) []byte {
 		{"entrypoint", s.Entrypoint}, {"title", s.Title}, {"started", s.Started},
 		{"last_active", s.LastActive}, {"prs", s.PRs}, {"resume_argv", s.ResumeArgv},
 		{"resume", ResumeLine(s.Cwd, s.ResumeArgv)},
-		{"omp_profile_context", s.ompProfileContext},
 		{"messages", len(s.Messages)},
 	} {
 		if v := quote(f.value); v != `""` && v != "null" {

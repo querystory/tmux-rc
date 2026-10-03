@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"cmp"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,37 +17,54 @@ import (
 
 // Entry is an index entry read back from disk: its front matter plus the body text.
 type Entry struct {
-	Harness       string   `json:"harness"`
-	ID            string   `json:"session_id"`
-	Parent        string   `json:"parent_session,omitempty"`
-	Source        string   `json:"source"`
-	SourceMissing bool     `json:"source_missing,omitempty"`
-	Cwd           string   `json:"cwd"`
-	Branches      []string `json:"branches,omitempty"`
-	Entrypoint    string   `json:"entrypoint,omitempty"`
-	Title         string   `json:"title,omitempty"`
-	LastActive    string   `json:"last_active"`
-	PRs           []string `json:"prs,omitempty"`
-	ResumeArgv    []string `json:"resume_argv,omitempty"`
-	Resume        string   `json:"resume,omitempty"`
-	Path          string   `json:"entry"`
-	named, body   string   // lowercased once for scoring
+	Harness          string   `json:"harness"`
+	ID               string   `json:"session_id"`
+	Parent           string   `json:"parent_session,omitempty"`
+	Source           string   `json:"source"`
+	SourceMissing    bool     `json:"source_missing,omitempty"`
+	Cwd              string   `json:"cwd"`
+	Branches         []string `json:"branches,omitempty"`
+	Entrypoint       string   `json:"entrypoint,omitempty"`
+	Title            string   `json:"title,omitempty"`
+	LastActive       string   `json:"last_active"`
+	PRs              []string `json:"prs,omitempty"`
+	ResumeArgv       []string `json:"resume_argv,omitempty"`
+	Resume           string   `json:"resume,omitempty"`
+	Path             string   `json:"entry"`
+	named, body      string   // lowercased once for scoring
+	ompResumeChanged bool     // current placement differs from the persisted command
 }
 
 // ReadEntry parses the format Render writes. Each front-matter value is JSON, so the
 // header decodes by assembling it into one object.
 func ReadEntry(path string) (Entry, error) {
-	data, err := os.ReadFile(path)
+	return readEntry(path, true)
+}
+
+// Reconcile only needs the header; do not read or normalize the human message body.
+func readEntry(path string, scoring bool) (Entry, error) {
+	file, err := os.Open(path)
 	if err != nil {
 		return Entry{}, err
 	}
-	rest, opened := strings.CutPrefix(string(data), "---\n")
-	header, body, closed := strings.Cut(rest, "\n---\n")
-	if !opened || !closed { // entries are written whole, so this one is damaged or not ours
+	defer file.Close()
+	reader := bufio.NewReader(file)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return Entry{}, err
+	}
+	if line != "---\n" {
 		return Entry{}, errors.New("no front matter")
 	}
 	fields := map[string]json.RawMessage{}
-	for line := range strings.Lines(header) {
+	for {
+		line, err = reader.ReadString('\n')
+		if err != nil {
+			return Entry{}, err
+		}
+		if line == "---\n" {
+			break
+		}
 		if key, value, ok := strings.Cut(strings.TrimSpace(line), ": "); ok {
 			fields[key] = json.RawMessage(value)
 		}
@@ -62,22 +81,22 @@ func ReadEntry(path string) (Entry, error) {
 		e.ResumeArgv = claudeResume(e.ID)
 	}
 	if e.Harness == "omp" && e.Parent == "" && len(e.ResumeArgv) > 0 && !e.SourceMissing {
-		var context string
-		if value := fields["omp_profile_context"]; value != nil {
-			if err := json.Unmarshal(value, &context); err != nil {
-				return Entry{}, err
-			}
+		e.ResumeArgv, e.ompResumeChanged, err = ompResume(e.Source, e.ID, e.ResumeArgv)
+		if err != nil {
+			return Entry{}, err
 		}
-		if context != ompProfileContext() {
-			e.ResumeArgv, _, err = ompResume(e.Source, e.ID)
-			if err != nil {
-				return Entry{}, err
-			}
+		if e.ompResumeChanged {
 			e.Resume = ResumeLine(e.Cwd, e.ResumeArgv)
 		}
 	}
-	e.named = normalize(e.Title + " " + strings.Join(e.Branches, " ") + " " + strings.Join(e.PRs, " "))
-	e.body = normalize(body)
+	if scoring {
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			return Entry{}, err
+		}
+		e.named = normalize(e.Title + " " + strings.Join(e.Branches, " ") + " " + strings.Join(e.PRs, " "))
+		e.body = normalize(string(body))
+	}
 	return e, err
 }
 

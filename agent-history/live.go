@@ -262,6 +262,9 @@ func ompEntrypoint(path string) bool {
 func ompProcessProfile(args []string, env map[string]string) string {
 	profile := ompProfileEnv(env)
 	for i, arg := range args {
+		if arg == "--" {
+			break
+		}
 		if arg == "--profile" && i+1 < len(args) {
 			profile = args[i+1]
 		} else if value, ok := strings.CutPrefix(arg, "--profile="); ok {

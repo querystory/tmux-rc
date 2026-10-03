@@ -100,10 +100,13 @@ also preserve `--profile`, so a resume does not silently change profile configur
 An explicit `PI_CODING_AGENT_SESSION_DIR` with no root/registry profile marker inherits
 the active `OMP_PROFILE`/`PI_PROFILE`. Paths tied to the default root or registry
 explicitly select `--profile default` when reconcile runs under a named profile.
-The effective profile is a cache input: changing it immediately schedules an omp
-rebuild even if transcripts are unchanged. Cached-entry reads also refresh resume
-argv for their current profile context, so the first result is safe before that
-background rebuild completes; the internal context is not exposed in API JSON.
+The effective profile schedules an immediate omp rebuild. Cached-entry reads also
+resolve argv against the current profile, effective/legacy roots and registry pointers,
+so XDG root creation or pointer changes cannot leave the first result stale. Ordinary
+reconcile checks that current placement before trusting an unchanged transcript mtime;
+its check reads only the entry header and rebuilds a changed command without routinely
+rescanning the transcript. Format 5 removes the obsolete per-entry profile-only context;
+consumer JSON has no new fields.
 
 ## Resolving a request
 
@@ -152,8 +155,10 @@ Bun hosts whose best-effort OS rename did not take effect are also detected, but
 only for an omp CLI script (including the installed `omp` symlink), not unrelated
 Bun programs. Node is not an omp runtime: its CLI requires Bun.
 
-The process's CLI/environment profile selects the breadcrumb root. Later in-process
-`.env` relocation may be invisible in Linux's initial `/proc` environment; no alternate
+The process's CLI/environment profile selects the breadcrumb root.
+CLI profile parsing stops at `--`: option-like text in the prompt does not select a
+different profile's breadcrumb.
+Later in-process `.env` relocation may be invisible in Linux's initial `/proc` environment; no alternate
 profile's stale breadcrumb is guessed as a fallback. The process's `TMUX_PANE` is used
 only while it still has a controlling terminal.
 Breadcrumb environment fallbacks also require a controlling terminal. A TTY stdin

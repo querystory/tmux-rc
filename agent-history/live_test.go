@@ -353,6 +353,9 @@ func TestRunningOmpProfileAndTerminalFallback(t *testing.T) {
 		{"named", "profile-current", nil},
 		{"", "profile-stale", nil},
 		{"", "profile-current", []string{"--profile", "named"}},
+		{"named", "profile-current", []string{"--", "--profile=wrong"}},
+		{"", "profile-stale", []string{"--", "--profile", "named"}},
+		{"", "profile-current", []string{"--profile=named", "--", "--profile=wrong"}},
 	} {
 		env["OMP_PROFILE"] = test.profile
 		cmd, stop := ompLiveHost(t, env, "omp", "launch", "", false, test.args...)

@@ -29,8 +29,6 @@ type Session struct {
 	PRs        []string
 	ResumeArgv []string // run in Cwd; the structured form tmux-rc builds a pane from
 	Messages   []Message
-
-	ompProfileContext string // indexing context of ResumeArgv, not the source's profile
 }
 
 type Message struct {
