@@ -97,12 +97,17 @@ try {
     // Start the clock at the fleet's NOW and let it run: a clock frozen solid (setFixedTime)
     // starves the app's own Date-based throttles and makes layout racy between runs.
     await context.clock.setSystemTime(now * 1000);
+    context.setDefaultTimeout(10000);
     const page = await context.newPage();
     await page.routeWebSocket(/\/api\/live-mode/, stubChat);
+    // Wait on the API rather than a selector, so a UI that renames its markup still gets
+    // shot and the diff shows the change instead of the run failing.
+    const state = page.waitForResponse((r) => r.url().includes("/api/state"));
     await page.goto(`${base}/m/${hash}`);
     await page.addStyleTag({ content: STILL });
-    await page.waitForSelector(".pane-row", { state: "attached" });
-    if (step) await step(page);
+    await state;
+    // A step written against one UI may not fit another; shoot what is there either way.
+    await step?.(page).catch((e) => console.warn(`${name}: step failed, shooting as is: ${e.message}`));
     await page.evaluate(() => document.fonts.ready);
     // Long polls never let the network idle, so wait for the pixels instead: shoot until two
     // frames in a row agree (charts and the live frame are still settling before that).
