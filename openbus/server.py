@@ -473,14 +473,32 @@ def get_version():
 STATE_HOLD_SECONDS = 25.0
 
 
-@app.get("/api/history")
-def get_history(window: str = "24h"):
-    if window not in {"1h", "24h", "7d", "all"}:
-        raise HTTPException(status_code=400, detail="window must be 1h, 24h, 7d, or all")
+def _history() -> History:
     history = getattr(app.state, "history", None)
     if history is None:
         raise HTTPException(status_code=503, detail="Pane history is unavailable")
-    return history.query(window)
+    return history
+
+
+@app.get("/api/history")
+def get_history(window: str = "24h", lead: str | None = None):
+    history = _history()
+    try:
+        return history.query(window, lead=lead)
+    except ValueError:
+        raise HTTPException(400, "window and lead are all, or a count of hours or days "
+                                 "(24h, 7d) up to 90 days") from None
+
+
+class GoalBody(BaseModel):
+    goal: int | None = Field(..., ge=1, le=999)  # required; an explicit null clears it
+
+
+@app.put("/api/history/goal")
+def put_goal(body: GoalBody, request: Request):
+    _history().set_goal(body.goal)
+    _audit(request, "set_goal", "-", f"goal={body.goal}")
+    return {"goal": body.goal}
 
 
 @app.get("/api/state")
