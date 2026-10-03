@@ -25,9 +25,10 @@ function liveCounts(panes) {
   const counts = STATES.map(() => 0);
   panes.forEach(p => {
     counts[stateOf(p)]++;
-    if (fleet.metric !== 'all' || !AGENT_TOOLS.has(p.tool) || !Array.isArray(p.subagents)) return;
+    const subs = p.subagents ?? []; // omitted means none parsed; the agent's own count still applies
+    if (fleet.metric !== 'all' || !AGENT_TOOLS.has(p.tool) || !Array.isArray(subs)) return;
     const busy = counts[1] + counts[4];
-    p.subagents.forEach(a => { if (a && a.state !== 'done') counts[stateOf({ activity: a.state, waiting_on: a.waiting_on || 'external' })]++; });
+    subs.forEach(a => { if (a && a.state !== 'done') counts[stateOf({ activity: a.state, waiting_on: a.waiting_on || 'external' })]++; });
     counts[1] += Math.max(0, (p.agents || 0) - (counts[1] + counts[4] - busy));
   });
   return counts;
