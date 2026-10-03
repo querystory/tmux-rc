@@ -237,6 +237,69 @@ def test_omp_idle_title_keeps_a_closing_question():
         "waiting", "user", "Should I merge this?", 0)
 
 
+@pytest.mark.parametrize(("state", "activity", "active"), [
+    ("⠋", "running", False),
+    (">", "idle", False),
+    ("!", "waiting", True),
+])
+def test_omp_old_ask_cannot_override_current_input_state(state, activity, active):
+    prompt = "Which color do you prefer?"
+    screen = (
+        f"\x1e[visible screen]\x1f\n? Ask\n{prompt}\n○ Red\n● Green\n\n"
+        "Read web/m/app.js\nTable rendering uses headers and rows.\n\n"
+        "  ⎋ Reading table renderer\n ⠋ 2m > ◒ GPT-5.5 > 🌳 tmux-rc\n╰─\n"
+    )
+    if active:
+        screen = _sample("62_omp_ask_picker")
+    # The provider repeats the same wrong receipt on a bounded retry.
+    result = classify(_pane("bun", f"π {state} Table renderer"), screen, _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user",
+        "question": {"prompt": prompt, "answer_style": "cursor", "options": ["Red", "Green"]},
+        "tables": [{"headers": ["Option"], "rows": [["Red"], ["Green"]]}],
+    }))
+    assert result["activity"] == activity
+    assert result.get("parse_ok", True) is True
+    if active:
+        assert result["waiting_on"] == "user" and result["question"]["prompt"] == prompt
+    else:
+        assert not any(result.get(key) for key in ("question", "waiting_on", "tables"))
+
+
+def test_omp_idle_session_label_is_not_a_question():
+    label = "Ask Preferred Color Choice"
+    result = classify(
+        _pane("bun", "π > omp-play"), _sample("60_omp_bun_idle"),
+        _llm({"tool": "omp", "activity": "waiting", "waiting_on": "user",
+              "question": {"prompt": label, "answer_style": "text"}}),
+    )
+    assert result["activity"] == "idle"
+    assert not any(result.get(key) for key in ("question", "waiting_on"))
+
+
+@pytest.mark.parametrize(
+    ("checked", "unchecked"), [("☑", "☐"), ("[x]", "[ ]"), ("\uf14a", "\uf096")],
+)
+def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
+    screen = (
+        "Ask\n○ Keep the fix scoped\n● Also fix table extraction\n\nTodo\n"
+        f"├─ {checked} Inspect parser\n└─ {unchecked} Fix table extraction\n"
+        " ⠋ 2m > ◒ GPT-5.5 > 🌳 tmux-rc\n"
+    )
+    tasks = [
+        {"text": text, "done": done} for text, done in (
+            ("Keep the fix scoped", False), ("Also fix table extraction", True),
+            ("Inspect parser", False), ("Fix table extraction", True),
+        )
+    ]
+    result = classify(_pane("bun", "π ⠋ Fix extraction"), screen, _llm({
+        "tool": "omp", "activity": "running", "tasks": tasks,
+    }))
+    assert result["tasks"] == [
+        {"text": "Inspect parser", "done": True},
+        {"text": "Fix table extraction", "done": False},
+    ]
+
+
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
     r = classify(
         _pane(cmd="opencode"),

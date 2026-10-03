@@ -46,7 +46,8 @@ _GITHUB_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _CHECKLIST_LINE_RE = re.compile(
     # OpenCode 1.18 draws todos as [✓] done, [•] in progress, [ ] pending; its cancelled
     # ~[ ] todo~ is deliberately unmatched, since it is neither open nor finished work.
-    r"(?im)^[ \t]*(?:[-*][ \t]*)?(?:(?P<done>☑|✓|✔|\[[x✓]\])|☐|\[[ •]\])"
+    # omp adds tree gutters and Unicode/Nerd Font/ASCII checkbox presets, not Ask radios.
+    r"(?im)^[ \t│├└─|+*-]*(?:(?P<done>☑|✓|✔|\uf14a|\[[x✓]\])|☐|\uf096|\[[ •]\])"
     r"[ \t]*(?P<text>\S.*)$",
 )
 _OPENCODE_RUNNING_RE = re.compile(
@@ -291,10 +292,22 @@ def _visible(text: str) -> str:
     return strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
 
 
-def _supported_question(question, visible: str, tool) -> bool:
+def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
     prompt = question.get("prompt") if isinstance(question, dict) else None
     if not isinstance(prompt, str) or not prompt.strip():
         return False
+    if tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)):
+        state = omp["state"]
+        # A held Ask/approval uses "!"; working titles cannot hold an old Ask open.
+        if state and state not in (">", "!"):
+            return False
+        if state == ">" and question.get("answer_style") in ("menu", "cursor"):
+            return False
+        if state == ">" and re.search(
+            rf"(?m)^ {{2,}}{re.escape(prompt.strip())}\s*\n[ \t]*π >",
+            visible,
+        ):
+            return False  # Right-aligned label above the idle footer, not assistant prose.
     words = r"\s+".join(map(re.escape, prompt.split()))
     *_, found = [None, *re.finditer(words, visible, re.IGNORECASE)]
     # The user's own turn or draft (a ❯/› row) is not the agent asking; a live spinner
@@ -313,15 +326,17 @@ def _supported_rewind(rewind, visible: str) -> bool:
     return bool(rewind) and "rewind to a previous point" in text and "enter to restore" in text
 
 
-def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: str) -> None:
+def _ground_visible_fields(
+    result: dict, text: str, pane: Pane, llm_fn, prompt: str, host_tool: str | None,
+) -> None:
     """Validate actionable fields against their UI evidence, retrying once on that slice."""
     if result.get("tool") == "shell":
         result.pop("session", None)  # Old agent scrollback cannot name its replacement shell.
     visible = _visible(text)
     identity = text  # Keep the boundary: only explicit rename events may come from history.
     bad_question = (
-        bool(result.get("question")) and VISIBLE_SCREEN in text
-        and not _supported_question(result["question"], visible, result.get("tool"))
+        bool(result.get("question")) and (VISIBLE_SCREEN in text or host_tool == "omp")
+        and not _supported_question(result["question"], visible, result.get("tool"), pane)
     )
     bad_rewind = (
         bool(result.get("rewind")) and VISIBLE_SCREEN in text
@@ -339,12 +354,29 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
     bad_action = bad_question or bad_rewind
     identity_chrome = "\n".join(_session_chrome(identity))
     evidence = visible if bad_action else identity_chrome
+    if bad_question and host_tool == "omp" and (
+        (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
+    ):
+        # Retain finished work for idle labels; otherwise read beyond the old receipt.
+        words = r"\s+".join(map(re.escape, result["question"]["prompt"].split()))
+        *_, question = [None, *re.finditer(words, visible, re.IGNORECASE)]
+        remaining = visible[question.end():] if question else ""
+        answers, separated, current = remaining.partition("\n\n")
+        evidence = (
+            "[Completed Ask receipt — question and chosen answer explain the resumed task;\n"
+            "use them for the headline's goal, NEVER as a current input request]\n"
+            f"{result['question']['prompt']}{answers}\n\n[Current visible work]\n{current}"
+        ) if separated else visible
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
-    retry = llm_fn(prompt, f"{_parser_context(pane, None)}\n\n{evidence}") if llm_fn else None
+    retry = llm_fn(
+        prompt, f"{_parser_context(pane, None, host_tool)}\n\n{evidence}",
+    ) if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
     if bad_action:
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
+        if bad_question and host_tool == "omp":
+            state_fields += ("tables", "tasks")
         for key in state_fields:
             result.pop(key, None)
         if retry:
@@ -356,7 +388,7 @@ def _ground_visible_fields(result: dict, text: str, pane: Pane, llm_fn, prompt: 
             result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
         unsupported_action = (
             result.get("question")
-            and not _supported_question(result["question"], visible, result.get("tool"))
+            and not _supported_question(result["question"], visible, result.get("tool"), pane)
         ) or (result.get("rewind") and not _supported_rewind(result["rewind"], visible))
         if unsupported_action:
             for key in state_fields:
@@ -511,10 +543,15 @@ def _with_recent_events(text: str, recent: list[str]) -> str:
     )
 
 
-def _parser_context(pane: Pane, repository: str | None) -> str:
+def _parser_context(pane: Pane, repository: str | None, host_tool: str | None) -> str:
     context = f"[tmux: this pane's foreground process is '{pane.current_command}'"
     if repository:
         context += f"; GitHub repository is '{repository}'"
+    # The title's live state must reach the model before an old Ask card can override it.
+    if host_tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"]:
+        state = omp["state"]
+        state = "idle" if state == ">" else "waiting" if state == "!" else "running"
+        context += f"; omp live run state is '{state}'"
     return context + "]"
 
 
@@ -559,7 +596,7 @@ def bootstrap(
     card before live watching has accumulated anything. Events come back flagged
     historical=True (reconstructed, not observed — the UI dims them). Returns None on
     any failure so the caller can retry later."""
-    payload = f"{_parser_context(pane, repository)}\n\n{text}"
+    payload = f"{_parser_context(pane, repository, _host_tool(pane))}\n\n{text}"
     result = llm_fn(bootstrap_prompt(), payload)
     if not isinstance(result, dict) or not isinstance(result.get("summary"), str):
         return None
@@ -595,11 +632,12 @@ def classify(
     the model's JSON with pane_id/label merged in; on no/failed LLM a minimal heuristic
     dict."""
     visible = _visible(text)
+    process_tool = _host_tool(pane)
     payload = _with_recent_events(_with_prior(text, prior or []), recent_events or [])
     # Ground truth the model can't hallucinate past: tmux's foreground process for the
     # pane. Anchors tool identity when screen CONTENT mentions agents/models (a server
     # log printing gemini-… lines is not the Gemini CLI).
-    payload = f"{_parser_context(pane, repository)}\n\n{payload}"
+    payload = f"{_parser_context(pane, repository, process_tool)}\n\n{payload}"
     result = None
     prompt = ""
     if llm_fn:
@@ -645,7 +683,7 @@ def classify(
     # A direct agent executable is ground truth. The LLM still parses activity and the
     # selected model/provider, but may not relabel the host application from those model
     # names (OpenCode showing "Claude Opus" is still OpenCode).
-    if process_tool := _host_tool(pane):
+    if process_tool:
         result["tool"] = process_tool
     elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(visible):
         # A returned shell prompt is stronger evidence than an agent in history.
@@ -654,17 +692,14 @@ def classify(
         result.update(tool="shell", activity="idle")
         result.pop("question", None)
         result.pop("rewind", None)
-    # OpenCode renders ordinary answer bullets immediately above its model/footer. The
-    # parser sometimes promotes those review findings to the agent's live task plan.
-    # Validate each model-returned task against an actual visible checkbox/progress line,
-    # rather than treating any checklist on screen as permission for an unrelated bullet
-    # list. Standalone markdown checkboxes (`[ ] task`) are valid too. OpenCode's TUI runs
-    # on the alternate screen, so its capture has no scrollback: `text` is the live screen.
-    if result.get("tool") == "opencode" and "tasks" in result:
+    _ground_visible_fields(result, text, pane, llm_fn, prompt, process_tool)
+    # OpenCode answer bullets and omp Ask radios are not tasks. Match genuine visible
+    # checkbox rows after a bounded re-read, whose replacement fields need grounding too.
+    if result.get("tool") in ("opencode", "omp") and "tasks" in result:
         # The visible marker, not the model, is authoritative for completion state.
         visible_tasks = {
             _checklist_text(match.group("text")): bool(match.group("done"))
-            for match in _CHECKLIST_LINE_RE.finditer(text)
+            for match in _CHECKLIST_LINE_RE.finditer(visible)
         }
         tasks = result.get("tasks")
         validated = [
@@ -678,7 +713,6 @@ def classify(
             result["tasks"] = validated
         else:
             result.pop("tasks", None)
-    _ground_visible_fields(result, text, pane, llm_fn, prompt)
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
@@ -724,6 +758,8 @@ def classify(
     if result.get("tool") in _TURN_ERROR_RE and (
         ask := _final_ask(visible, result["tool"])
     ):
+        if ask.get("options") == ["try again"]:
+            result["headline"] = ask["prompt"]  # A stopped provider error outranks old progress.
         if not ask.get("options") and (
             options := _model_options(result.get("question"), ask)
             or _reply_options(ask["prompt"], replies_fn)
