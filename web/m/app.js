@@ -1041,12 +1041,11 @@ async function flushWheel() {
 // Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
 // gesture. It sends every notch that went up (`up`, never reduced by scrolling down) plus
 // two spares, since the downs may not have undone the ups (overscroll.js) and extra notches
-// below the bottom do nothing. Sent as 30-notch requests, the daemon's limit. The cap keeps
-// a long session's return from holding up the next pane, and a 30-notch burst accelerates
-// to several lines a notch, so 300 notches cover far more than 300 lines.
+// below the bottom do nothing, so a failed batch is simply sent again (twice at most).
+// Sent as 30-notch requests, the daemon's limit.
 function wheelHome(id) {
-  for (let left = id && wheel.up ? Math.min(300, wheel.up) + 2 : 0; left > 0; left -= 30)
-    wheelPost(id, -Math.min(30, left)).catch(() => {});
+  const send = (n, tries) => wheelPost(id, -n).catch(() => tries && send(n, tries - 1));
+  for (let left = id && wheel.up ? wheel.up + 2 : 0; left > 0; left -= 30) send(Math.min(30, left), 2);
   wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
 }
 function overscrollPane(dy) {
