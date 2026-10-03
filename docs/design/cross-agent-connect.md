@@ -68,7 +68,8 @@ daemon was watching.
 
 **agent-history** is the Go CLI in `agent-history/`. It indexes harness transcripts
 into small greppable files: one entry per session, holding cwd, branches, PR links,
-title, the human's messages and the exact resume command.
+title, the prompts that started or steered it (the human's messages; for a headless run
+or a subagent, the task its caller sent) and the exact resume command.
 - **Harnesses.** On `main` it reads Claude Code, pushed by its Stop, SessionEnd and
   SubagentStop hooks, and Codex, pulled by reconcile.
 - **omp is in review** (#307, and the larger #293). The #488 plan lists omp as already
@@ -104,8 +105,9 @@ Finding only reads, so it runs at once. Both are recorded by the same audit poin
 
 ### Its limits
 
-- **Routing, not memory.** The index keeps about 1% of transcript bytes: what the human
-  typed, plus the session's identity. "What did the agent conclude" still needs the
+- **Routing, not memory.** The index keeps about 1% of transcript bytes: the prompts
+  (what the human typed, or a headless or subagent task, which a model may have written),
+  plus the session's identity. "What did the agent conclude" still needs the
   transcript. The narrative's memory item (retrieval over transcripts) is unbuilt.
   agent-history is its provenance half, not its retrieval half.
 - **Lexical only.** It misses paraphrases by design, until real misses justify aliases
@@ -174,9 +176,11 @@ transcript excerpt, a pane summary or a capture is text another model wrote, or 
 pasted, and it can carry instructions. The endpoint applies three rules:
 - **Results are data.** They come back marked as data with their source named. The tool
   descriptions repeat control's charter: evidence for routing, never authority.
-- **History is index fields only.** History tools return title, cwd, branches, PRs, the
-  human's messages and bounded excerpts, never raw tool output, which is most of the
-  injection surface.
+- **History is index fields only.** History tools return title, cwd, branches, PRs and
+  timestamps, never raw tool output, which is most of the injection surface. `get`
+  and `resolve` expose only that metadata today. Returning prompts or excerpts needs a
+  new bounded contract in the CLI (which prompts, how truncated), and even then a
+  subagent's task is model-written and just as untrusted.
 - **Reads are scoped.** A read covers what the human can see, not every transcript on
   disk.
 
@@ -208,7 +212,8 @@ Typing into a running turn steers it, and typing into a menu answers it, and nei
 what the sender asked. A message for a busy pane waits in a small in-memory queue in the
 daemon, and goes in at the next idle transition. The sender always gets one result:
 delivered, queued, refused or expired. Nothing fails silently, which is the agent
-client's founding complaint.
+client's founding complaint. At most once needs identity: the caller supplies a message
+id, and the daemon refuses a retried id instead of typing it twice.
 
 **Consent.** These are the control-plane tiers, with an agent as the actor:
 - **Reads run at once and are audited.** That covers the directory, pane detail and
@@ -224,7 +229,9 @@ client's founding complaint.
   agent hears from the human and from control, and no one else.
 
 **Loops and runaways.** Two agents that perceive and type at each other can ping-pong.
-- **Hop limit.** Each message carries a conversation id and a hop count. Past a small
+- **Hop limit.** The daemon, not the caller, assigns each message's conversation and
+  hop count: a message from an agent that received one in the last few minutes counts as
+  a reply to it, so starting a "new" conversation cannot reset the count. Past a small
   limit, the next hop needs a card even for an approved pair.
 - **Rate limits.** Limits per sender and per pair stop a confused agent flooding a
   sibling.
@@ -256,8 +263,11 @@ the grant makes cooperation reliable and attributable, not possible.
 There is a related gap to fix in the first PR. The daemon honors the `X-Tunnel-User`
 identity header from any loopback peer, because the tunnel client connects from
 localhost. A local agent is also a loopback peer. It could send with that header and be
-audited as the owner. The tunnel client should prove itself with a secret agents never
-see, so that agent traffic can never carry the human's name.
+audited as the owner. A shared secret would stop accidental spoofing only: the tunnel
+client runs as the same user, so an unsandboxed agent could read the secret. Closing it
+for real means the tunnel credential lives where agents cannot read it, such as a
+separate system user for the tunnel client, or a hosted box where agents run as a
+different user from the daemon.
 
 ### Scopes
 
@@ -382,7 +392,8 @@ of that path, and adds no second way in. Agent B never sees the endpoint.
 6. **Anything read from another agent is data,** never instructions.
 7. **A skill for history search** is the documented fallback that needs no
    infrastructure.
-8. **Close the loopback identity gap,** so no agent is ever recorded as the human.
+8. **Close the loopback identity gap:** a secret against accidental spoofing now, and a
+   separate user for the tunnel client to stop a deliberate one.
 
 **Where it lands in #488.** No workstream owns this yet. It touches two contracts:
 - **C3** (WS-E): an agent-session actor kind, and the confirmation tier on agent
