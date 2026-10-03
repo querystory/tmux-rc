@@ -31,6 +31,7 @@
   <link rel="modulepreload" href="/m/composer.js">
   <link rel="modulepreload" href="/m/pane-model.js">
   <link rel="modulepreload" href="/m/url-state.js">
+  <link rel="modulepreload" href="/m/sidebar.js">
   <link rel="modulepreload" href="/cursor-pick.js">
 </head>
 <body>
@@ -47,11 +48,17 @@
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
+    <!-- Wide screens: #sessions is the sidebar. app.js moves the header's brand and buttons
+         into these slots (and back for a phone), so each control exists once. -->
     <section id="sessions" aria-label="Sessions">
+      <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
+      <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
       <div class="list-heading"><h1>Sessions</h1><select id="sort" aria-label="Sort panes"><option value="updated">Last updated</option><option value="session">Session order</option></select><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
       <div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div>
       <div id="pane-list"></div>
+      <div id="side-list" class="sb-only"></div>
       <p id="empty" class="empty" role="status">Loading sessions...</p>
+      <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
     <section id="landing" aria-label="Dashboard" hidden>
