@@ -96,7 +96,10 @@ let focusPushComposer = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
-let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
+let eventsKey = null, latestCapture = "", fontSize = 13;
+// Answers sent and not yet reflected, per pane (pane id -> question signature): the sidebar
+// can answer several panes inside one hold, and each keeps its own.
+const pendingAnswers = new Map();
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
@@ -833,8 +836,8 @@ async function sendKeys(body, answer = false, id = active) {
     await post(paneUrl(id, "send"), body);
     delivered = true;
     if (answer) {
-      pendingAnswer = { id, signature };
-      setTimeout(() => { if (pendingAnswer?.id === id && pendingAnswer.signature === signature) { pendingAnswer = null; render(); } }, ANSWER_PENDING_MS);
+      pendingAnswers.set(id, signature);
+      setTimeout(() => { if (pendingAnswers.get(id) === signature) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
@@ -848,7 +851,7 @@ async function sendKeys(body, answer = false, id = active) {
 function answerOptions(question) {
   return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
 }
-function isAnswered(pane) { return pendingAnswer?.id === pane.pane_id && pendingAnswer.signature === JSON.stringify(pane.question); }
+function isAnswered(pane) { return pendingAnswers.get(pane.pane_id) === JSON.stringify(pane.question); }
 function answer(id, option, index) {
   const current = panes.find((p) => p.pane_id === id);
   if (!current?.question || !needsYou(current)) return;
@@ -859,7 +862,7 @@ function answer(id, option, index) {
   else sendKeys(answerBody(current.question, option, index), true, id);
 }
 
-// This surface's half of the shared cursor walk. No send here sets `pendingAnswer`:
+// This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:
 // gating the option buttons on the first Down would disable the very row the walk is
 // working toward. What keeps a second tap from starting a rival walk is not this surface
 // at all — `sending` is released between every step — but the module's own one-at-a-time

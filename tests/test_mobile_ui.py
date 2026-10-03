@@ -257,7 +257,7 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
     assert "answers: answerOptions, answered: isAnswered, answer, compose" in app
     assert 'reconcile($("options"), answerOptions(question)' in app
-    assert "compose(active, draft())" in app and "ctx.compose(node._p.pane_id, reply)" in side
+    assert "compose(active, draft())" in app and "await ctx.compose(id, value)" in side
     assert "ctx.answer(node._p.pane_id, o.option, o.index)" in side
     assert 'show("list-nav", !inPane && !wide)' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app

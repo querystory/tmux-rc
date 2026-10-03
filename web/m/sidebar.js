@@ -48,7 +48,9 @@ function groups(subset, query) {
 export function setupSidebar(ctx) {
   const { licon, reconcile, text } = ctx;
   const root = document.getElementById("side-list");
-  let shown = [], replyTo = null, reply = null, last = null;
+  let shown = [], replyTo = null, last = null;
+  // Inline drafts, per pane like the footer's: kept until sent or cancelled.
+  const drafts = new Map(), draft = () => drafts.get(replyTo);
   const rerender = () => { save(); if (last) render(...last); };
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
@@ -99,11 +101,13 @@ export function setupSidebar(ctx) {
       node.innerHTML = `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`;
       node.prepend(open);
       const form = node.querySelector("form");
-      form.querySelector("[type=button]").onclick = () => { replyTo = null; rerender(); };
-      enterSubmits(form, (target) => !!reply?.editor.contains(target));
+      const done = (id) => { drafts.delete(id); if (replyTo === id) replyTo = null; rerender(); };
+      form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
+      enterSubmits(form, (target) => !!draft()?.editor.contains(target));
       form.onsubmit = async (event) => {
         event.preventDefault();
-        if (!ctx.sending() && reply.segments().length && await ctx.compose(node._p.pane_id, reply)) { replyTo = null; rerender(); }
+        const id = node._p.pane_id, value = drafts.get(id);
+        if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
       };
     }
     open.onclick = () => ctx.navigate(node._p.pane_id);
@@ -140,15 +144,16 @@ export function setupSidebar(ctx) {
     }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
     const form = node.querySelector(".sb-compose");
     form.hidden = replyTo !== p.pane_id;
-    if (form.hidden) form.querySelector("#side-reply")?.remove();
-    else if (!form.contains(reply.editor)) form.prepend(reply.editor);
-    if (!form.hidden) form.querySelector("button[type=submit]").disabled = ctx.sending() || !reply.segments().length;
+    if (form.hidden) return form.querySelector("#side-reply")?.remove();
+    if (!form.contains(draft().editor)) form.prepend(draft().editor);
+    form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
   }
   function openReply(id) {
     if (id === ctx.active()) { document.getElementById("reply").focus(); return; } // its own composer is on screen
-    replyTo = id; reply = new Composer(rerender, ctx.notice, { id: "side-reply", label: "Reply to this pane" });
+    replyTo = id;
+    if (!drafts.has(id)) drafts.set(id, new Composer(rerender, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     rerender();
-    reply.editor.focus();
+    draft().editor.focus();
   }
   // Folded to the rail: what is alive, Needs you first; idle panes are one count.
   function rail(subset) {
