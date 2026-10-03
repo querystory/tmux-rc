@@ -865,6 +865,7 @@ document.addEventListener('pointermove',e=>{
  if(rz){S.dev=[Math.max(320,Math.round(rz.w+(e.clientX-rz.x)/rz.sc)),Math.max(480,Math.round(rz.h+(e.clientY-rz.y)/rz.sc))];if(!raf)raf=requestAnimationFrame(()=>{raf=0;render();});}});
 document.addEventListener('pointerup',e=>{if(brush){const b=frac(brush.s,e),a=brush.a;brush=null;if(Math.abs(b-a)>.02){S.brush=[Math.min(a,b),Math.max(a,b)];render();}}if(rz){rz=null;render();}
  if(sp){const{k,sn,moved}=sp,h=S.sz[k];sp=null;if(moved){S.sz[k]=sn.reduce((a,b)=>Math.abs(b-h)<Math.abs(a-h)?b:a);render();}}});
+document.addEventListener('pointercancel',()=>{brush=rz=sp=null;render();});
 document.addEventListener('dblclick',e=>{const hs=e.target.closest('[data-split]');if(hs){const sn=snaps(hs);S.sz[hs.dataset.split]=+hs.dataset.h>sn[0]?sn[0]:sn[1];render();}});
 document.addEventListener('mousemove',e=>{const s=e.target.closest&&e.target.closest('.spark'),tip=$('#tip');if(!s){tip.style.display='none';return;}
  const r2c=!!s.dataset.r2,d=r2c?(s.dataset.sub?sub2(s.dataset.sub):ser2()):series(),n=d.pts.length,r=s.getBoundingClientRect(),k=r.width/+s.dataset.w,L=+s.dataset.L,bw=+s.dataset.bw;
