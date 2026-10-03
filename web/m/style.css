@@ -492,7 +492,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 /* The fleet chart and its controls (atlas.js): the dashboard's big chart and small
    multiples, and the split under a pane on a wide screen. */
-.fleet-chart { min-width: 0; height: 30px; flex: 1; }
+.fleet-chart { min-width: 0; height: 30px; flex: 1; overflow: hidden; }
 .fleet-chart-axis { flex: none; width: 100%; height: 320px; margin-top: 12px; touch-action: pan-y; }
 .fleet-gap { flex: 1; }
 .fleet-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; padding: 2px; background: var(--surface); }
@@ -535,7 +535,11 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #detail:has(#fleet-handle.dragging) { user-select: none; cursor: row-resize; }
   .fleet-strip { display: flex; flex: none; align-items: center; gap: 10px; height: 39px; padding: 0 12px 0 4px; }
   .fleet-strip .icon-button { width: 36px; height: 36px; min-height: 36px; }
-  .fleet-strip .fleet-chart { flex: 3; height: 28px; min-width: 120px; }
+  /* Narrow work areas squeeze the information first (sparkline, then the average, which
+     ellipsizes) so the goal editor and Dashboard never clip. */
+  .fleet-strip .fleet-chart { flex: 3 1 0; height: 28px; min-width: 0; }
+  .fleet-strip > * { flex: none; }
+  .fleet-strip > .fleet-average { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .fleet-now b { font-size: 16px; }
   .fleet-tools { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 4px 16px; }
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
