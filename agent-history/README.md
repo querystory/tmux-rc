@@ -77,6 +77,8 @@ Artifact location identifies a subagent: `parentSession` alone also marks ordina
 A sibling transcript supplies the canonical parent ID; timestamped artifact folders
 also identify direct orphans. Registered custom-file/breadcrumb pointers supply
 artifact-tree boundaries even when a non-timestamped parent is missing or truncated.
+The explicit flat session root is also a boundary: direct files are main sessions,
+while nested transcripts remain artifacts even without a readable parent.
 An artifact without a resolvable canonical immediate parent is skipped, rather than
 inventing a parent or offering a main-session resume. Previously promoted cached entries are
 rejected by `get` and skipped by `resolve`, including entries already marked missing
@@ -161,8 +163,9 @@ The breadcrumb follows session switches, unlike launch argv, and survives exit f
 `--continue`, so it is never live evidence alone. Internal workers, maintenance commands,
 and exited unreaped processes (zombies) do not count.
 Positive open-transcript evidence also covers headless hosts,
-but descriptors are lazy: a host with insufficient evidence makes omp liveness unknown,
-not stopped. Ambiguous terminal ownership does the same. Subagents suppress breadcrumbs
+but descriptors are lazy: without an authoritative breadcrumb, zero or multiple
+main-session descriptors make omp liveness unknown and publish no candidates.
+Ambiguous terminal ownership does the same. Subagents suppress breadcrumbs
 and are not reported as independent live sessions.
 Live classification uses the host's own effective profile/storage environment and
 registered artifact roots, so a subagent fd cannot stand in for a missing main transcript.

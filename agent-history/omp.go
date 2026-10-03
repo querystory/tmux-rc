@@ -193,6 +193,7 @@ type ompPlacement struct {
 	locations     []ompLocation
 	pointers      []ompPointerSet
 	artifactRoots map[string]struct{}
+	flatRoot      string
 	loaded        bool
 	err           error
 }
@@ -208,6 +209,9 @@ func (p *ompPlacement) load() error {
 		p.loaded = true
 		p.active = ompProfileContext()
 		p.locations, p.err = ompLocations(p.active)
+		if root := os.Getenv("PI_CODING_AGENT_SESSION_DIR"); root != "" && p.err == nil {
+			p.flatRoot, p.err = filepath.Abs(root)
+		}
 		p.pointers = make([]ompPointerSet, len(p.locations))
 	}
 	return p.err
@@ -241,6 +245,13 @@ func (p *ompPlacement) artifactParent(path string) (string, bool, error) {
 		}
 	}
 	parent, artifact := ompArtifactParent(path, p.artifactRoots)
+	if !artifact && p.flatRoot != "" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return "", false, err
+		}
+		artifact = ompWithin(p.flatRoot, absolute) && filepath.Dir(absolute) != p.flatRoot
+	}
 	return parent, artifact, nil
 }
 

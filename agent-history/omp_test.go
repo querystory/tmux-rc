@@ -493,3 +493,33 @@ func TestOmpRegisteredArtifactWithLostParent(t *testing.T) {
 		})
 	}
 }
+
+func TestOmpFlatRootOrphanArtifacts(t *testing.T) {
+	for _, broken := range []string{"deleted", "truncated"} {
+		t.Run(broken, func(t *testing.T) {
+			ompTestEnv(t)
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			root := t.TempDir()
+			t.Setenv("PI_CODING_AGENT_SESSION_DIR", root)
+			parent := ompWrite(t, filepath.Join(root, "session.jsonl"), ompTestHeader)
+			agent := ompWrite(t, filepath.Join(root, "session", "Agent.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "agent-id"))
+			good := ompWrite(t, filepath.Join(root, "good.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "good-id"))
+			if broken == "deleted" {
+				must(t, os.Remove(parent))
+			} else {
+				must(t, os.WriteFile(parent, []byte(`{"type":"session"`), 0o600))
+			}
+			if s, err := ReadOmp(agent); !errors.Is(err, errNotIndexed) {
+				t.Errorf("flat-root orphan promoted: %+v, %v", s, err)
+			}
+			cached := Session{Harness: "omp", ID: "agent-id", Source: agent, Cwd: "/work/a repo"}
+			dst := indexPath("omp", "", cached.ID)
+			must(t, writeAtomic(dst, Render(cached), time.Now()))
+			if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
+				t.Errorf("cached flat-root orphan promoted: %+v, %v", e, err)
+			}
+			ompCheckSources(t, good)
+			ompCheckResume(t, good, "omp", "--resume", good)
+		})
+	}
+}

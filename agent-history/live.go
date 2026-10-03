@@ -355,6 +355,14 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 			placement.loaded = true
 			placement.locations = []ompLocation{ompLocationFor(ompProcessProfile(proc.Args, env), func(key string) string { return env[key] })}
 			placement.pointers = make([]ompPointerSet, 1)
+			if root := env["PI_CODING_AGENT_SESSION_DIR"]; root != "" {
+				if !filepath.IsAbs(root) {
+					cwd, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(proc.PID), "cwd"))
+					placement.err = err
+					root = filepath.Join(cwd, root)
+				}
+				placement.flatRoot = filepath.Clean(root)
+			}
 		}
 		host := map[string]Running{}
 		var hostErr error
@@ -417,16 +425,14 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 			continue // exit or pid reuse during observation
 		}
 		unknown = errors.Join(unknown, hostErr, fdErr, envErr, statErr)
-		if len(host) == 0 {
+		if len(host) != 1 {
 			unknown = errors.Join(unknown, fmt.Errorf("omp pid %d: current session is unknown", proc.PID))
+			continue
 		}
-		if len(host) == 1 {
-			for id, running := range host {
-				running.TmuxPane = pane(proc.PID)
-				host[id] = running
-			}
+		for id, running := range host {
+			running.TmuxPane = pane(proc.PID)
+			out[id] = running
 		}
-		maps.Copy(out, host)
 	}
 	return out, unknown
 }

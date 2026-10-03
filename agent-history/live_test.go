@@ -155,7 +155,9 @@ func ompLiveHost(t *testing.T, env map[string]string, name, command, hold string
 	must(t, os.Symlink("/bin/sh", exe))
 	script := filepath.Join(dir, command)
 	must(t, os.MkdirAll(filepath.Dir(script), 0o700))
-	must(t, os.WriteFile(script, []byte("if [ -n \"$HOLD\" ]; then exec 3<\"$HOLD\"; fi\nprintf ready > \"$READY\"\nread -r _\n"), 0o600))
+	must(t, os.WriteFile(script, []byte("if [ -n \"$HOLD\" ]; then exec 3<\"$HOLD\"; fi\n"+
+		"if [ -n \"$HOLD_SECOND\" ]; then exec 4<\"$HOLD_SECOND\"; fi\n"+
+		"printf ready > \"$READY\"\nread -r _\n"), 0o600))
 	cmd := exec.Command(exe, append([]string{command}, args...)...)
 	cmd.Dir = dir
 	for key, value := range env {
@@ -444,5 +446,34 @@ func TestRunningOmpRegisteredArtifactCannotIdentifyHost(t *testing.T) {
 	cmd, _ := ompLiveHost(t, env, "omp", "launch", agent, false)
 	if got, err := ompFixtureRunning(t, cmd.Process.Pid); err == nil || len(got) != 0 {
 		t.Fatalf("registered artifact identifies a live host: %v, %v", got, err)
+	}
+}
+
+func TestRunningOmpFlatRootArtifactCannotIdentifyHost(t *testing.T) {
+	env := ompLiveEnv(t)
+	root := t.TempDir()
+	env["PI_CODING_AGENT_SESSION_DIR"] = root
+	agent := ompLiveFile(t, filepath.Join(root, "session", "Agent.jsonl"), "artifact-id")
+	cmd, _ := ompLiveHost(t, env, "omp", "launch", agent, false)
+	if got, err := ompFixtureRunning(t, cmd.Process.Pid); err == nil || len(got) != 0 {
+		t.Fatalf("flat-root orphan identifies a live host: %v, %v", got, err)
+	}
+}
+
+func TestRunningOmpMultipleDescriptorsRequireBreadcrumb(t *testing.T) {
+	env := ompLiveEnv(t)
+	env["TMUX_PANE"], env["TEST_CTTY"] = "%997", "1"
+	first := ompLiveFile(t, filepath.Join(t.TempDir(), "first.jsonl"), "first-id")
+	second := ompLiveFile(t, filepath.Join(t.TempDir(), "second.jsonl"), "second-id")
+	env["HOLD_SECOND"] = second
+	cmd, _ := ompLiveHost(t, env, "omp", "launch", first, false)
+	if got, err := ompFixtureRunning(t, cmd.Process.Pid); err == nil || len(got) != 0 {
+		t.Errorf("multiple descriptors published as current: %v, %v", got, err)
+	}
+	ompLiveCrumb(t, env, "", "tmux-%997", filepath.Dir(second), second)
+	got, err := ompFixtureRunning(t, cmd.Process.Pid)
+	must(t, err)
+	if len(got) != 1 || got["second-id"].PID != cmd.Process.Pid || got["second-id"].TmuxPane != "%997" {
+		t.Errorf("authoritative breadcrumb did not disambiguate: %v", got)
 	}
 }
