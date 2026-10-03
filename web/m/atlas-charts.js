@@ -149,7 +149,8 @@ export function fleetChart(axis) {
         itemStyle: { color: purple }, lineStyle: { color: purple, width: axis ? 2.2 : 1.6 },
         markLine: goal ? { silent: true, symbol: 'none', data: [{ yAxis: goal }],
           lineStyle: { color: fg, type: 'dashed', opacity: 0.7, width: 1.2 },
-          label: { show: axis, position: 'insideEndTop', formatter: `goal ${goal}`, color: fg } } : undefined }],
+          label: { show: axis, position: 'insideEndTop', formatter: `goal ${goal}`, color: fg,
+            textBorderColor: color('--surface'), textBorderWidth: 3 } } : undefined }],
     }, true);
     chart.resize();
   };
