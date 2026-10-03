@@ -235,10 +235,20 @@ export function setupSidebar(ctx) {
 
   function render(subset, query, filter) {
     last = [subset, query, filter];
-    if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
-    if (prefs.rail) return rail(subset);
+    // One composer per pane: opening a pane moves its inline draft into the footer.
+    const mine = drafts.get(ctx.active());
+    if (mine) {
+      if (mine.segments().length) ctx.adopt(ctx.active(), mine);
+      drafts.delete(ctx.active());
+      if (replyTo === ctx.active()) replyTo = null;
+    }
+    if (prefs.rail) rail(subset); else list(subset, query, filter);
+    // Reconciling may have replaced the hovered row (a card that became a row, say).
+    if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
+  }
+  function list(subset, query, filter) {
     shown = groups(subset, query);
     if (replyTo && !subset.some((p) => p.pane_id === replyTo && needsYou(p))) replyTo = null;
     // A folded group still shows the open pane, so the selection never disappears.

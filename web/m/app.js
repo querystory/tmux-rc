@@ -270,7 +270,13 @@ function updateRow(button, pane) {
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, logos: LOGOS, navigate, notice,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); } });
+  setFilter: (value) => { filter = value; stayPut(); },
+  // A sidebar Reply draft joins the pane's footer draft, images and all (the chips carry their files).
+  adopt: (id, value) => {
+    const into = draft(id), segments = value.segments();
+    for (const segment of segments) if (segment.file) into.files.set(segment.chip, segment.file);
+    into.replace([...into.segments(), ...segments]);
+  } });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
