@@ -187,14 +187,13 @@ pasted, and it can carry instructions. The endpoint applies three rules:
 ## Cross-agent messaging
 
 A message is a **send through the daemon's one keystroke path**, never an agent typing
-into another pane with tmux. That path already does three things:
-- resolves the pane's canonical id and checks its incarnation (the pid), so a recycled
-  `%N` is refused;
-- audits the send with its actor;
-- schedules a re-parse.
-
-The agent client's confirmed send adds the fourth thing: answering after that re-parse,
-so "sent" means it landed.
+into another pane with tmux. That path already resolves the pane's canonical id,
+audits the send with its actor, and schedules a re-parse. The peer verb adds two things:
+- **An incarnation check.** The HTTP send does not check one today. Live's dispatch
+  does, by passing the expected pid. The peer verb requires the incarnation the
+  directory issued, so a recycled `%N` is refused.
+- **Confirmation.** The agent client's confirmed send answers after the re-parse, so
+  "sent" means it landed.
 
 **Addressing.** A target is a pane id with the incarnation token the directory issued,
 or a workstream handle (a PR, a title, the `control` role) that resolves to exactly one
@@ -210,7 +209,11 @@ sender sees through the directory.
 **Delivery.** At most once, confirmed, and only when the recipient is waiting for input.
 Typing into a running turn steers it, and typing into a menu answers it, and neither is
 what the sender asked. A message for a busy pane waits in a small in-memory queue in the
-daemon, and goes in at the next idle transition. The sender always gets one result:
+daemon, and goes in at the next idle transition. Just before typing, under the pane's
+send lock, the daemon checks three things again: the incarnation, that the screen is
+still the idle one it saw, and that a workstream handle still resolves to this pane. This
+is the same guard push answers use. If any of them changed, the message waits for the
+next idle transition rather than steering a turn or landing in someone's draft. The sender always gets one result:
 delivered, refused or expired, or queued as an interim answer. A queued message keeps
 its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
 silently, which is the agent client's founding complaint. At most once needs identity:
@@ -223,8 +226,10 @@ for v1, because a restart already drops the queue and a duplicate prompt is visi
 - **Reads run at once and are audited.** That covers the directory, pane detail and
   history.
 - **A plain-text message to an idle agent pane is a one-tap card in Needs you.** It
-  reuses Live text mode's propose and decide flow, raised as an attention item because
-  no Live session is open. The human can approve that one message, or approve the pair
+  is modelled on Live text mode's propose and decide cards. Live keeps its pending
+  approval on one voice session's socket, so peer requests need their own record in the
+  daemon: a pending-consent item with an expiry, cancelled by revocation, shown in Needs
+  you and answered through an ordinary phone endpoint. The human can approve that one message, or approve the pair
   for the rest of the recipient's life, so one orchestrator driving three siblings does
   not cost a tap per instruction.
 - **Some actions are never offered to peers.** Key presses, windows, resumes, and sends
@@ -237,8 +242,10 @@ for v1, because a restart already drops the queue and a duplicate prompt is visi
   hop count: a message from an agent that received one in the last few minutes counts as
   a reply to it, so starting a "new" conversation cannot reset the count. Past a small
   limit, the next hop needs a card even for an approved pair.
-- **Rate limits.** Limits per sender and per pair stop a confused agent flooding a
-  sibling.
+- **Rate and size limits.** Limits per sender and per pair stop a confused agent
+  flooding a sibling. A byte cap per message and a total queued-byte budget are enforced
+  before anything is stored, so one call cannot fill the queue, a card or a recipient's
+  context.
 - **Idle-only delivery.** Every exchange happens as a whole, visible turn on screen.
 - **Backstop.** Revoking Connect stops a loop on its next call.
 
