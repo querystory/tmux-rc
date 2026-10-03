@@ -1161,11 +1161,12 @@ def _to_png(data: bytes) -> bytes:
 # lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
 # server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
 # /api/version reports DOCS_MOUNTED so the client hides its Docs link instead of linking
-# to a 404 when the site was never built.
+# to a 404 when the site was never built. index.html, not just the dir: an empty or
+# half-written build dir would mount yet still 404 at /docs/.
 _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
     _REPO_ROOT / "docs-site" / "serve"
 )
-DOCS_MOUNTED = Path(_docs_dir).is_dir()
+DOCS_MOUNTED = (Path(_docs_dir) / "index.html").is_file()
 if DOCS_MOUNTED:
     # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
     # only answers /docs/… and the later "/" catch-all doesn't serve it either. (Note:
