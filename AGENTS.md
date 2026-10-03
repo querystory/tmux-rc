@@ -99,7 +99,9 @@ reach a real pane.
   to be diffed, and committing them would make every UI PR churn binary files.
 - `make screenshots-diff` (default `BASE=origin/main`) shoots the base and this tree with
   the same fleet and writes per-shot diff images plus `summary.md`, whose image table
-  links the PNGs relative to itself.
+  links the PNGs relative to itself. A pixel counts as changed only if no pixel next to it
+  in the other shot explains it, so antialiasing jitter doesn't register; a shot under
+  0.05% is marked as noise and counts as unchanged.
 - **CI posts that diff on every PR touching `web/`** (`.github/workflows/screenshots.yml`):
   one comment, updated in place on each push, with the changed-% table and base/head/diff
   images of the shots that moved. The images live on the orphan `ci-screenshots` branch,

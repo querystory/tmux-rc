@@ -16,10 +16,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ("demo_fleet.py", "demo_server.py", "screenshots.mjs")
+NOISE = 0.05  # % of a shot; below it a difference is reported but the shot counts as unchanged
 
 
 def shoot(tree: Path, out: Path) -> None:
@@ -41,13 +42,26 @@ def diff(base: Path, head: Path, out: Path) -> list[tuple[str, str, bool]]:
         if a.size != b.size:
             rows.append((name, f"size {a.size} -> {b.size}", True))
             continue
-        mask = ImageChops.difference(a, b).convert("L").point(lambda v: 255 if v > 16 else 0)
-        changed = mask.histogram()[255]
+        mask = changed_mask(a, b)
+        pct = 100 * mask.histogram()[255] / (a.width * a.height)
         faded = Image.blend(b, Image.new("RGB", b.size, "white"), 0.7)
         faded.paste(Image.new("RGB", b.size, (220, 0, 0)), mask=mask)
         faded.save(out / name)
-        rows.append((name, f"{100 * changed / (a.width * a.height):.2f}%", changed > 0))
+        rows.append((name, f"{pct:.2f}%" + (" (noise)" if 0 < pct < NOISE else ""), pct >= NOISE))
     return rows
+
+
+def changed_mask(a: Image.Image, b: Image.Image) -> Image.Image:
+    """Pixels where either shot leaves the range of the other's 3x3 neighbourhood by more
+    than 16 levels in some channel. A pixel that merely moved one device pixel, which is
+    what anti-aliasing and glyph rasterization jitter look like, stays inside that range;
+    anything that appeared, vanished, recoloured or moved further does not."""
+    def beyond(x: Image.Image, y: Image.Image) -> Image.Image:
+        low, high = y.filter(ImageFilter.MinFilter(3)), y.filter(ImageFilter.MaxFilter(3))
+        return ImageChops.lighter(ImageChops.subtract(x, high), ImageChops.subtract(low, x))
+    channels = ImageChops.lighter(beyond(a, b), beyond(b, a)).split()
+    worst = ImageChops.lighter(ImageChops.lighter(channels[0], channels[1]), channels[2])
+    return worst.point(lambda v: 255 if v > 16 else 0)
 
 
 def images(out: Path, name: str) -> str:
