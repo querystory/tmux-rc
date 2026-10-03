@@ -238,10 +238,8 @@ function updateRow(button, pane) {
   else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", needsYou(pane));
   const logo = button.querySelector(".pane-icon img");
-  const src = Object.prototype.hasOwnProperty.call(LOGOS, pane.tool) ? LOGOS[pane.tool] : "/tmux-logomark.svg";
-  if (logo.getAttribute("src") !== src) logo.src = src;
   logo.alt = pane.tool || "tmux";
-  markWorking(logo, pane);
+  markWorking(logo, pane, LOGOS);
   text(button.querySelector("strong"), paneName(pane));
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;

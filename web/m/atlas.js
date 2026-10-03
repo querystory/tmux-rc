@@ -132,9 +132,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
       dot.setAttribute('aria-label', `${paneName(p)} · ${STATES[stateOf(p)]}`);
       dot.title = `${paneName(p)}\n${STATES[stateOf(p)]}\n${p.session_summary || p.status_line || ''}`;
       const logo = el('img', 'atlas-agent-icon');
-      logo.src = Object.prototype.hasOwnProperty.call(logos, p.tool) ? logos[p.tool] : '/tmux-logomark.svg';
       logo.alt = p.tool || 'tmux';
-      markWorking(logo, p);
+      markWorking(logo, p, logos);
       dot.append(logo, el('span', 'atlas-dot-name', paneName(p)));
       dot.onclick = () => navigate(p.pane_id);
       dots.append(dot);
