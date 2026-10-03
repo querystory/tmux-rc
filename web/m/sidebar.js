@@ -6,7 +6,8 @@
 // Phones never call this: their list is renderList's rows in app.js.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass } from "/m/pane-model.js";
+import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
 const prefs = { by: "state", rail: false, fold: {}, cards: {}, all: null }; // all: the last expand/compact-all, under per-group choices
@@ -17,11 +18,13 @@ const alive = (p) => p.activity !== "idle";
 const rank = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : isRecent(p) ? 2 : 3;
 const STATES = [["run", "Working", isRunning], ["done", "Just finished", (p) => isRecent(p)], ["idle", "Idle", () => true]];
 const FILTERS = [["all", "All"], ["running", "Running"], ["recent", "Recent"], ["attention", "Needs you"]];
-// How long the pane has been in its current state: waiting on you, or idle.
-const age = (p) => {
-  const s = Date.now() / 1000 - (Number(p.state_since) || lastActivity(p));
-  return isRunning(p) || s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
+// How long the pane has been in its current state; a row shows "now" while it works.
+const since = (p) => {
+  const s = Math.max(0, Date.now() / 1000 - (Number(p.state_since) || lastActivity(p)));
+  return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 };
+const age = (p) => isRunning(p) ? "now" : since(p);
+const HOVER_MS = 350;
 
 // Needs you first, then the groups; a group with nothing in it is not drawn.
 function groups(subset, query) {
@@ -126,7 +129,6 @@ export function setupSidebar(ctx) {
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
     text(node.querySelector(".a"), age(p));
-    node.title = `${p.session} / ${paneName(p)}`;
     if (card) {
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
       replies(node, p);
@@ -170,15 +172,69 @@ export function setupSidebar(ctx) {
     }, (b, p) => {
       if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
-      b.title = b.ariaLabel = `${p.session} / ${paneName(p)}`;
+      b.ariaLabel = `${p.session} / ${paneName(p)}`;
       b.classList.toggle("need", needsYou(p));
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
     });
   }
 
+  // The hover card: what the pane overview would tell you, from the same /api/state record
+  // and the same helpers, beside the sidebar after a short hover (or keyboard focus).
+  // Mouse only: a tap is a navigation, and phones never render this list anyway.
+  const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
+  card.setAttribute("role", "tooltip");
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="l"></div>';
+  document.body.append(card);
+  let hoverOn = null, pending = null, hoverTimer = 0;
+  const paneOf = (el) => (el.closest(".sb-card") || el)._p;
+  function fill(el) {
+    const p = paneOf(el), $c = (sel) => card.querySelector(sel), tasks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => t && typeof t === "object");
+    markWorking($c("img"), p, ctx.logos);
+    text($c("b"), paneName(p));
+    text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
+    text($c(".w"), [p.session, p.window_name, p.window_index !== "" && p.window_index != null ? `Window ${p.window_index}` : "", p.pane_id].filter(Boolean).join(" / "));
+    $c(".badge").className = `badge ${activityClass(p)}`;
+    text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
+    text($c(".x"), paneHeadline(p) || "No recent activity");
+    text($c(".q"), needsYou(p) && p.question?.prompt !== paneHeadline(p) ? p.question?.prompt || "" : "");
+    text($c(".m"), paneMeta(p));
+    text($c(".k"), tasks.length ? `Tasks ${tasks.filter((t) => t.done).length}/${tasks.length}` : "");
+    reconcile($c(".l"), paneLinks(p).slice(0, 2), (l) => l.href, () => document.createElement("small"), (n, l) => text(n, l.detail ? `${l.text} (${l.detail})` : l.text));
+  }
+  function hover(el) {
+    if (el === hoverOn || el === pending) return;
+    unhover();
+    pending = el;
+    hoverTimer = setTimeout(() => {
+      pending = null;
+      if (!el.isConnected) return;
+      hoverOn = el; fill(el); card.hidden = false;
+      el.setAttribute("aria-describedby", card.id);
+      const r = el.getBoundingClientRect(), h = card.offsetHeight;
+      card.style.left = `${document.getElementById("sessions").getBoundingClientRect().right + 8}px`;
+      // Below the row's top edge, or flipped up to end at its bottom near the screen's foot.
+      card.style.top = `${Math.max(8, r.top + h > innerHeight - 8 ? r.bottom - h : r.top)}px`;
+    }, HOVER_MS);
+  }
+  function unhover() {
+    clearTimeout(hoverTimer);
+    pending = null;
+    hoverOn?.removeAttribute("aria-describedby");
+    hoverOn = null; card.hidden = true;
+  }
+  const target = (e) => e.target.closest?.(".sb-row, .sb-rail, .sb-open");
+  root.addEventListener("pointerover", (e) => { if (e.pointerType === "mouse" && target(e)) hover(target(e)); });
+  root.addEventListener("pointerout", (e) => { const el = target(e); if (el && !el.contains(e.relatedTarget)) unhover(); });
+  root.addEventListener("focusin", (e) => { if (target(e)?.matches(":focus-visible")) hover(target(e)); });
+  root.addEventListener("focusout", unhover);
+  root.addEventListener("scroll", unhover, { passive: true });
+  root.addEventListener("click", unhover);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
+
   function render(subset, query, filter) {
     last = [subset, query, filter];
+    if (hoverOn) { if (hoverOn.isConnected) fill(hoverOn); else unhover(); }
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     if (prefs.rail) return rail(subset);

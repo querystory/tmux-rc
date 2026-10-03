@@ -264,3 +264,10 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
     # Every group starts open (Idle too, by the user's call); only a fold the user made persists.
     assert "g.open = !!query || !prefs.fold[g.id];" in side
+    # Hover shows the overview's own facts (shared helpers, /api/state only), mouse or keyboard
+    # focus only, described for screen readers; no native title tooltip competes with it.
+    assert 'text($("metadata"), paneMeta(pane));' in app
+    assert "paneMeta(p)" in side and "paneHeadline(p)" in side
+    for needle in ('e.pointerType === "mouse"', ":focus-visible", "aria-describedby"):
+        assert needle in side
+    assert "node.title" not in side

@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { setupSidebar } from "/m/sidebar.js";
 
@@ -558,13 +558,13 @@ function render() {
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
   const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
-  const headline = pane?.headline || pane?.status_line || pane?.session_summary || missing;
+  const headline = paneHeadline(pane) || missing;
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
   const elapsed = pane?.working?.elapsed ?? pane?.elapsed;
   const tokens = pane?.working?.tokens ?? pane?.tokens;
-  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, elapsed].filter(Boolean).join(" / "));
+  text($("metadata"), paneMeta(pane));
   const chips = [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost,
     elapsed, tokens ? `${tokens} tokens` : "",
     ...(Array.isArray(pane?.status_entries) ? pane.status_entries.slice(0, 4) : []),
