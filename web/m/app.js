@@ -1024,16 +1024,18 @@ function wheelPost(id, lines) {
 }
 async function flushWheel() {
   if (wheelInFlight || !wheelQueued || !active) return;
-  const id = active, lines = Math.max(-30, Math.min(30, wheelQueued));
+  // `gesture` is this pane visit's state: wheelHome replaces it, so a late answer to an
+  // older visit can never touch the current one.
+  const id = active, gesture = wheel, lines = Math.max(-30, Math.min(30, wheelQueued));
   wheelQueued -= lines; wheelInFlight = lines;
   try {
     const { sent } = await wheelPost(id, lines);
-    if (!sent && id === active) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
+    if (!sent && gesture === wheel) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
   } catch {
     // A failed request may still have been delivered. Err toward the app being further up,
     // since a return home that overshoots the bottom does nothing: an upward batch counts
     // as sent, a downward one as not, and the next gesture tries it again.
-    if (id === active && lines < 0) { wheel.net -= lines; paintWheelCue(); }
+    if (gesture === wheel && lines < 0) { wheel.net -= lines; paintWheelCue(); }
   } finally { wheelInFlight = 0; flushWheel(); }
 }
 // Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
@@ -1057,8 +1059,8 @@ function overscrollPane(dy) {
   clearTimeout(wheelSpring);
   wheelSpring = setTimeout(() => { if (!wheel.net) wheel.pull = 0; paintWheelCue(); }, IDLE_MS);
 }
-// Pinch-zoom arrives as a ctrl+wheel; a line-mode wheel (Firefox) counts in ~16px lines.
-$("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * (e.deltaMode ? 16 : 1)); }, { passive: true });
+// Pinch-zoom arrives as a ctrl+wheel. deltaMode counts in px, ~16px lines (Firefox) or pages.
+$("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * [1, 16, e.currentTarget.clientHeight][e.deltaMode]); }, { passive: true });
 $("terminal-scroll").addEventListener("touchstart", (e) => { touchY = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
 // A second finger drops the baseline, so the move after a pinch starts a new one.
 $("terminal-scroll").addEventListener("touchmove", (e) => {
