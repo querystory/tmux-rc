@@ -148,7 +148,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     if (!dialog.open && role !== "user") unread = true; // not the user's own echo
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
-    for (let old; log.children.length > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => r !== typing && !r.querySelector(".voice-actions")));) old.remove();
+    for (let old; log.children.length - typing.isConnected > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => r !== typing && !r.querySelector(".voice-actions")));) old.remove();
     if (follow) log.scrollTop = log.scrollHeight;
     badge();
     return row;

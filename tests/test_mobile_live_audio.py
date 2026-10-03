@@ -138,7 +138,7 @@ const element = () => {
   const node = Object.assign(new EventTarget(), {
     classList: {add: (c) => classes.add(c), contains: (c) => classes.has(c),
       toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
-    setAttribute() {}, insertAdjacentHTML() {}, showModal() {node.open = true;},
+    setAttribute() {}, insertAdjacentHTML() {}, querySelector() {}, showModal() {node.open = true;},
     focus() {},
     close() {node.open = false; node.dispatchEvent(new Event('close'));},
     before(...nodes) {thumbs.push(...nodes.map((image) => image.src));},
@@ -449,6 +449,9 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.equal(roles().at(-1), 'typing');
   say({type: 'transcript', role: 'model', text: 'One.'}); say({type: 'turn_complete'});
   assert.equal(roles().at(-1), 'typing'); // the second turn is still out
+  // The row is not a transcript row: the log still keeps 40 of those under it.
+  for (let i = 0; i < 45; i++) say({type: 'typed', label: 'w', pane_id: '%1', text: 'x'});
+  assert.equal(log.children.length, 41); assert.equal(roles().at(-1), 'typing');
   // Any other error ends the session's turns, and so the dots.
   say({type: 'error', message: 'live session failed'});
   assert.equal(roles().at(-1), 'error');
