@@ -1107,14 +1107,13 @@ async function flushWheel() {
   } finally { wheelInFlight = 0; flushWheel(); }
 }
 // Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
-// gesture. Two spare notches because Claude Code drops a gesture's first one; extra notches
-// at the bottom do nothing. The daemon takes at most 30 a request, so a long way home is
-// several requests.
+// gesture. It sends every notch that went up (`up`, never reduced by scrolling down) plus
+// two spares, since the downs may not have undone the ups (overscroll.js) and extra notches
+// below the bottom do nothing. Sent as 30-notch requests, the daemon's limit. The cap keeps
+// a long session's return from holding up the next pane, and a 30-notch burst accelerates
+// to several lines a notch, so 300 notches cover far more than 300 lines.
 function wheelHome(id) {
-  // `net` already counts the queued notches, which are dropped below, so only those sent
-  // are undone; a downward batch still in flight might fail, so it is undone too.
-  const sent = wheel.net - wheelQueued + Math.max(0, -wheelInFlight);
-  for (let left = id && sent > 0 ? sent + 2 : 0; left > 0; left -= 30)
+  for (let left = id && wheel.up ? Math.min(300, wheel.up) + 2 : 0; left > 0; left -= 30)
     wheelPost(id, -Math.min(30, left)).catch(() => {});
   wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
 }

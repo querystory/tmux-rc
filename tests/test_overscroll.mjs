@@ -8,7 +8,7 @@ test("reaching the top only stretches until the resistance is spent", () => {
   assert.equal(s.pull, RESIST_PX - 1);
   // Only the excess past the resistance scrolls the app.
   assert.equal(overscroll(s, -(1 + 2 * NOTCH_PX), 10), 2);
-  assert.equal(s.net, 2);
+  assert.deepEqual([s.net, s.up], [2, 2]);
 });
 
 test("a finger's small steps add up past the resistance", () => {
@@ -33,15 +33,18 @@ test("once the app is scrolled up, wheel notches go straight through, even after
   assert.equal(s.net, 2);
 });
 
-test("scrolling down returns the app home, never past it, and re-arms the resistance", () => {
+test("scrolling down goes to the app notch for notch, past the estimate, with no resistance", () => {
   const s = overscrollState();
   overscroll(s, -(RESIST_PX + 3 * NOTCH_PX), 0);
-  assert.equal(overscroll(s, 10 * NOTCH_PX, 10), -3);
-  assert.deepEqual([s.net, s.pull, s.rem], [0, 0, 0]);
-  assert.equal(overscroll(s, -NOTCH_PX, 20), 0);
+  // The app accelerated the ups, so 3 counted notches may be far more lines: keep going.
+  assert.equal(overscroll(s, 10 * NOTCH_PX, 10), -10);
+  assert.deepEqual([s.net, s.up, s.pull], [0, 3, 0]);
+  assert.equal(overscroll(s, NOTCH_PX, 20), -1);
+  // Back up again: home by the estimate, so the resistance applies once more.
+  assert.equal(overscroll(s, -NOTCH_PX, 30), 0);
 });
 
-test("scrolling down at the bottom with the app home sends nothing and drops a half pull", () => {
+test("scrolling down at the bottom sends nothing until something went up, and drops a half pull", () => {
   const s = overscrollState();
   assert.equal(overscroll(s, 500, 0), 0);
   overscroll(s, -RESIST_PX / 2, 10);
