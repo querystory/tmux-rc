@@ -518,7 +518,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   .pane-heading-text { line-height: 1.3; }
   :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout) { min-height: 32px; height: 32px; }
   :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode) { width: 32px; }
-  #close-pane { margin: 0 -6px; }
+  #heading > #close-pane { margin: 0 -6px; } /* outranks the base -12px, which is sized for the 44px box */
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
   #detail[data-layout="side"] { grid-template-columns: minmax(0, 1fr) clamp(240px, var(--review-size, 360px), 45%); }
