@@ -65,6 +65,7 @@ class Sample:
     expected: dict
     repository: str | None = None
     title: str | None = None  # tmux pane title, for agents identified by it (omp)
+    prior: tuple[str, ...] = ()  # earlier frames, sent with the capture as in production
 
     @classmethod
     def load(cls, path: Path) -> Sample:
@@ -75,6 +76,7 @@ class Sample:
             current_command=d.get("current_command", "bash"),
             repository=d.get("repository"),
             title=d.get("title"),
+            prior=tuple(d.get("prior", ())),
             capture=d["capture"],
             expected=d["expected"],
         )
@@ -106,7 +108,8 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         title=sample.title or sample.name,
     )
     return classify(
-        pane, sample.capture, llm_fn=llm_fn, repository=sample.repository, replies_fn=llm_fn
+        pane, sample.capture, llm_fn=llm_fn, prior=list(sample.prior),
+        repository=sample.repository, replies_fn=llm_fn,
     )
 
 

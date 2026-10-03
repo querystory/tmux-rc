@@ -15,7 +15,7 @@ const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this coun
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
 
-export function setupLiveMode({ request, session, licon, report = () => {}, onVersion = () => {} }) {
+export function setupLiveMode({ request, session, licon, wide, report = () => {}, onVersion = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -70,16 +70,20 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   const starters = chatStarters($("chat-starters"), sendText);
   const paintStarters = () => starters({ visible: !!run?.text && !run.hasTurn,
     connected: !composing && !!run?.listening && run.ws?.readyState === WebSocket.OPEN });
+  // A wide screen (`wide`, app.js's breakpoint) docks the panel beside the work area
+  // instead: shown non-modally, so nothing is dimmed or made inert (style.css places it).
+  const docked = () => dialog.open && !!wide?.matches;
   // Restoring puts the log back where minimizing left it: at the tail if it was following
   // there, else at the same offset (read before closing, since a closed log has no layout).
   function show() {
-    if (!dialog.open) { dialog.showModal(); dialog.focus(); } // not the first button: its ring would show on open
+    if (!dialog.open) { wide?.matches ? dialog.show() : dialog.showModal(); dialog.focus(); } // not the first button: its ring would show on open
     if (run?.scroll) { log.scrollTop = run.scroll.follow ? log.scrollHeight : run.scroll.top; run.scroll = null; }
     unread = false; badge();
   }
   function minimize() {
     if (run) run.scroll = { top: log.scrollTop, follow: following() };
   }
+  const hide = () => { minimize(); dialog.close(); };
   chatComposer($("voice-compose"), {
     session: () => run,
     licon, error: (message) => add("error", message),
@@ -106,6 +110,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
       // still says what to set), Chat a usable chat model.
       $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
       $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
+      $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
@@ -435,6 +440,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   // Chat: straight into a text session on the last chat model used (else the first), no
   // picker and no mic. A conversation already running (either mode) is just brought back.
   $("chat").onclick = () => {
+    if (docked()) return hide(); // a docked panel toggles: nothing covers the button
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
     show();
@@ -443,8 +449,12 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     if (!run?.text || $("voice-switch").value === run.model) return;
     $("voice-model").value = $("voice-switch").value; stop(); start();
   };
-  $("voice-close").onclick = () => { minimize(); dialog.close(); };
-  dialog.addEventListener("cancel", minimize); // Escape
+  $("voice-close").onclick = hide;
+  dialog.addEventListener("cancel", minimize); // Escape, modal only
+  // Docked, Escape is no close request, so take it here: only from inside the panel.
+  dialog.addEventListener("keydown", (event) => { if (event.key === "Escape" && docked()) hide(); });
+  // Crossing the breakpoint reopens the same panel the other way: same session and log.
+  wide?.addEventListener?.("change", () => { if (dialog.open) { hide(); show(); } });
   dialog.addEventListener("close", badge);
   // The X beside minimize: end the chat AND dismiss the sheet, so nothing is left to close.
   // (Voice keeps End Live Mode: its sheet stays up for the model picker to start again.)

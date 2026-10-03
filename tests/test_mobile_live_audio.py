@@ -138,7 +138,8 @@ const element = () => {
   const node = Object.assign(new EventTarget(), {
     classList: {add: (c) => classes.add(c), contains: (c) => classes.has(c),
       toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
-    setAttribute() {}, insertAdjacentHTML() {}, querySelector() {}, showModal() {node.open = true;},
+    setAttribute() {}, insertAdjacentHTML() {}, querySelector() {}, remove() {},
+    showModal() {node.open = node.modal = true;}, show() {node.open = true; node.modal = false;},
     focus() {},
     close() {node.open = false; node.dispatchEvent(new Event('close'));},
     before(...nodes) {thumbs.push(...nodes.map((image) => image.src));},
@@ -229,7 +230,8 @@ const source = process.argv.slice(1).reverse().map(strip).join('\n');
 vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode; globalThis.Composer = Composer;',
   sandbox);
 const version = JSON.parse(process.env.LIVE_VERSION || 'null');
-const live = sandbox.setup({licon: (name) => name,
+const wide = Object.assign(new EventTarget(), {matches: false}); // app.js's WIDE query
+const live = sandbox.setup({licon: (name) => name, wide,
   request: async () => { if (!version) throw Error('offline'); return version; }});
 const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
@@ -343,6 +345,30 @@ process.once('beforeExit', () => assert.ok(completed, 'lifecycle test left a pen
   completed = true;
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_wide_chat_docks_toggles_and_moves_across_the_breakpoint():
+    _run_live(r"""
+(async () => {
+  const $ = (id) => document.getElementById(id), dialog = $('voice-dialog');
+  const escape = () => dialog.dispatchEvent(Object.assign(new Event('keydown'), {key: 'Escape'}));
+  await live.refresh(); wide.matches = true;
+  $('chat').onclick(); await flush();
+  assert.equal(dialog.open, true); assert.equal(dialog.modal, false); // docked, not modal
+  $('chat').onclick(); assert.equal(dialog.open, false); // the button toggles a docked panel
+  assert.equal(live.isActive(), true); // closing it only minimizes
+  $('chat').onclick(); escape(); assert.equal(dialog.open, false);
+  $('chat').onclick();
+  wide.matches = false; wide.dispatchEvent(new Event('change'));
+  assert.equal(dialog.open, true); assert.equal(dialog.modal, true); // same session, now a sheet
+  assert.equal(sockets.length, 1);
+  wide.matches = true; wide.dispatchEvent(new Event('change'));
+  assert.equal(dialog.modal, false); assert.equal(sockets.length, 1);
+  completed = true;
+})().catch((error) => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True,
+      "live_models": [{"label": "Sonnet", "text": True}]})
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
