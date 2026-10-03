@@ -270,8 +270,7 @@ function updateRow(button, pane) {
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, logos: LOGOS, navigate, notice,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); },
-  adopt: (id, value) => draft(id).append(value) }); // a sidebar Reply draft joins the pane's footer draft
+  setFilter: (value) => { filter = value; stayPut(); } });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -282,6 +281,9 @@ function renderList() {
   show("clear-search", !!$("search").value);
   const query = $("search").value.trim().toLowerCase();
   const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
+  // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
+  const inline = renderSidebar.drafts.get(active);
+  if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
   if (WIDE.matches) renderSidebar(subset, query, filter);
   else renderPhoneList(subset);
   show("empty", !subset.length);
