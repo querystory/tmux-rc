@@ -214,13 +214,37 @@ const unchanged = (root, signature) => {
 
 // The split under an open pane on a wide screen: a strip, and, once its seam is pulled
 // up, the chart with its legend. The seam itself belongs to the layout (app.js).
-export function renderFleet(root, panes, { open, filter, setFilter, toggle, dashboard, icon }) {
+// Reset zoom, shown only while the chart is zoomed; it hands focus back to the chart.
+function resetZoomButton(chart) {
+  const reset = el('button', 'atlas-reset-zoom', 'Reset zoom');
+  reset.onclick = () => { chart.resetZoom(); chart.el.focus({ preventScroll: true }); };
+  chart.onZoom = () => { reset.hidden = !chart.zoomed(); };
+  chart.onZoom();
+  return reset;
+}
+
+// Legend chips that show or hide a state's layer in every fleet chart.
+function stateChip(state, n) {
+  const i = STATES.indexOf(state), node = el('button', 'fleet-chip');
+  node.dataset.key = `layer:${state}`;
+  node.title = `Show or hide ${state.toLowerCase()} in the chart`;
+  node.style.setProperty('--state-color', `var(--chart-s${i})`);
+  node.setAttribute('aria-pressed', String(shownStates[state] !== false));
+  node.append(el('i', 'fleet-dot'), state, el('b', '', String(n)));
+  node.onclick = () => { shownStates[state] = shownStates[state] === false; setFleet({}); };
+  return node;
+}
+
+// The split under an open pane on a wide screen: one row (running now, the average, the
+// goal; then, unfolded, the chart's own controls; Dashboard last) over the chart once its
+// seam is pulled up. The seam itself belongs to the layout (app.js).
+export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
   const now = [panes.filter(isRunning).length, panes.filter(needsYou).length, panes.filter(p => stateOf(p) === 2).length];
-  if (unchanged(root, [open, filter, settings, history, historyData, historyError, goal, ...now])) return;
+  if (unchanged(root, [open, settings, history, historyData, historyError, goal, ...now])) return;
   const focus = focusKey(root);
   const spark = root._spark ||= fleetChart(false), chart = root._chart ||= fleetChart(true);
   const data = rows(history);
-  const strip = el('div', 'fleet-strip');
+  const strip = el('div', open ? 'fleet-strip open' : 'fleet-strip');
   const fold = el('button', 'icon-button');
   fold.innerHTML = icon(open ? 'chevronDown' : 'chevronUp', 18);
   fold.dataset.key = 'fold';
@@ -233,30 +257,11 @@ export function renderFleet(root, panes, { open, filter, setFilter, toggle, dash
   board.dataset.key = 'dashboard';
   board.innerHTML = `${icon('layers', 14)}<span>Dashboard</span>`;
   board.onclick = dashboard;
-  strip.append(fold, count, ...(open ? [] : [spark.el]), averageText(data), el('span', 'fleet-gap'), goalControl(icon), board);
-  const nodes = [strip];
-  if (open) {
-    const tools = el('div', 'fleet-tools');
-    const chip = (key, label, n, state, pressed, onclick) => {
-      const node = el('button', 'fleet-chip');
-      node.dataset.key = key;
-      node.style.setProperty('--state-color', `var(--chart-s${state})`);
-      node.setAttribute('aria-pressed', String(pressed));
-      node.append(el('i', 'fleet-dot'), label, el('b', '', String(n)));
-      node.onclick = onclick;
-      return node;
-    };
-    const listFilter = (key, label, n, state) => Object.assign(chip(key, label, n, state, filter === key,
-      () => setFilter(filter === key ? 'all' : key)), { title: 'Filter the session list' });
-    const reset = el('button', 'atlas-reset-zoom', 'Reset zoom');
-    reset.onclick = () => chart.resetZoom();
-    tools.append(listFilter('running', 'Running', now[0], 1), listFilter('attention', 'Needs you', now[1], 0),
-      Object.assign(chip('idle', 'Idle', now[2], 2, shownStates.Idle !== false,
-        () => { shownStates.Idle = shownStates.Idle === false; setFleet({}); }), { title: 'Show the idle layer' }),
-      el('span', 'fleet-gap'), reset, averageControl(), rangeControl());
-    nodes.push(tools, chart.el);
-  }
-  rebuild(root, nodes, focus);
+  strip.append(fold, count, averageText(data), goalControl(icon), ...(open
+    ? [el('span', 'fleet-gap'), stateChip('Running', now[0]), stateChip('Needs you', now[1]), stateChip('Idle', now[2]),
+      resetZoomButton(chart), averageControl(), rangeControl()]
+    : [spark.el]), board);
+  rebuild(root, open ? [strip, chart.el] : [strip], focus);
   spark.update(chartData(data));
   chart.update(chartData(data));
 }
@@ -358,10 +363,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     button.onclick = () => { shownStates[state] = shownStates[state] === false; setFleet({}); };
     toggles.append(button);
   });
-  const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
-  resetZoom.dataset.key = 'reset-zoom';
-  resetZoom.onclick = () => main.resetZoom();
-  toggles.append(el('span', 'fleet-gap'), resetZoom);
+  toggles.append(el('span', 'fleet-gap'), resetZoomButton(main));
   pulse.append(toggles, main.el);
   if (metric !== 'panes' && !data.some(s => s.n != null)) pulse.append(el('p', 'muted', 'No agent observations in this range yet.'));
   nodes.push(pulse);

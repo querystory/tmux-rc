@@ -84,6 +84,7 @@ export function fleetChart(axis) {
     start = Math.max(0, Math.min(100 - span, start));
     zoom = { start, end: start + span };
     chart?.dispatchAction({ type: 'dataZoom', ...zoom });
+    api.onZoom?.();
   };
   const paint = async () => {
     if (!latest || !el.clientWidth) return;
@@ -96,11 +97,12 @@ export function fleetChart(axis) {
       chart.on('datazoom', event => {
         const selection = event.batch?.[0] || event;
         zoom = { start: selection.start, end: selection.end };
+        api.onZoom?.();
       });
     }
     const { rows, states, step, unit = 'Panes', goal, max, average } = latest;
     // Live polls and theme changes preserve the view; a new range/filter starts fresh.
-    if (zoomKey !== latest.zoomKey) { zoomKey = latest.zoomKey; zoom = { start: 0, end: 100 }; }
+    if (zoomKey !== latest.zoomKey) { zoomKey = latest.zoomKey; zoom = { start: 0, end: 100 }; api.onZoom?.(); }
     const css = getComputedStyle(document.documentElement);
     const color = name => css.getPropertyValue(name).trim();
     const muted = color('--muted'), line = color('--line'), fg = color('--fg'), purple = color('--purple');
@@ -184,6 +186,8 @@ export function fleetChart(axis) {
       event.preventDefault();
     });
   }
-  return { el, resetZoom: () => setZoom(0, 100), update(data) { latest = data; paint(); },
-    dispose() { resize.disconnect(); theme.disconnect(); chart?.dispose(); } };
+  // `onZoom`, set by the surface, hears every zoom change (to show or hide its Reset).
+  const api = { el, onZoom: null, zoomed: () => zoom.start > 0 || zoom.end < 100, resetZoom: () => setZoom(0, 100),
+    update(data) { latest = data; paint(); }, dispose() { resize.disconnect(); theme.disconnect(); chart?.dispose(); } };
+  return api;
 }

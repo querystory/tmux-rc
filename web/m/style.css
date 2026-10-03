@@ -541,7 +541,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   .fleet-strip > * { flex: none; }
   .fleet-strip > .fleet-average { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .fleet-now b { font-size: 16px; }
-  .fleet-tools { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 4px 16px; }
+  /* Unfolded, the one row also carries the chart's controls, and wraps only when it must. */
+  .fleet-strip.open { height: auto; min-height: 39px; flex-wrap: wrap; gap: 4px 8px; padding-block: 2px; }
+  .fleet-strip > .fleet-gap { flex: 1; }
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
 .atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }

@@ -515,8 +515,7 @@ $("landing-back").onclick = () => navigate(returnPane);
 html($("landing-back"), licon("back", 18));
 function renderFleetSplit() {
   if (!WIDE.matches || !active) return;
-  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, filter, icon: licon, toggle: foldFleet, dashboard: openDashboard,
-    setFilter: (next) => { filter = next; stayPut(); } });
+  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 
