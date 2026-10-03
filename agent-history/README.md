@@ -78,7 +78,8 @@ A sibling transcript supplies the canonical parent ID; timestamped artifact fold
 also identify direct orphans. A nested artifact whose immediate parent is missing or
 truncated is skipped when its ancestry proves it is an artifact, rather than inventing
 a parent or offering a main-session resume. Previously promoted cached entries are
-rejected by `get` and skipped by `resolve`.
+rejected by `get` and skipped by `resolve`, including entries already marked missing
+or lacking resume argv: artifact classification is independent of resumability.
 
 The rewritten title slot is current, including an explicit cleared title; slot-less
 files use the header title: title-change records are audit, not the current name.

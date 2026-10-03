@@ -443,3 +443,26 @@ func TestOmpRelocationPreservingMtime(t *testing.T) {
 		})
 	}
 }
+
+func TestOmpCachedArtifactClassificationPrecedesResume(t *testing.T) {
+	for _, mode := range []string{"missing", "no argv"} {
+		t.Run(mode, func(t *testing.T) {
+			ompTestEnv(t)
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			worker := ompWrite(t, filepath.Join(t.TempDir(), "2026-10-02T10-00-00Z_root-id", "Agent", "Worker.jsonl"), ompTestHeader)
+			cached := Session{Harness: "omp", ID: "worker-id", Source: worker, Cwd: "/work/a repo"}
+			if mode == "missing" {
+				cached.ResumeArgv = []string{"omp", "--resume", "worker-id"}
+			}
+			dst := indexPath("omp", "", cached.ID)
+			must(t, writeAtomic(dst, Render(cached), time.Now()))
+			if mode == "missing" {
+				must(t, os.Remove(worker))
+				must(t, MarkMissing(dst))
+			}
+			if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
+				t.Errorf("non-resumable artifact promoted: %+v, %v", e, err)
+			}
+		})
+	}
+}

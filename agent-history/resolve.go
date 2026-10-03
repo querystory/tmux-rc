@@ -80,16 +80,18 @@ func readEntry(path string, scoring bool, placement *ompPlacement) (Entry, error
 	} else if e.ResumeArgv == nil && e.Resume != "" { // format 1, until reconcile rebuilds it
 		e.ResumeArgv = claudeResume(e.ID)
 	}
-	if e.Harness == "omp" && e.Parent == "" && len(e.ResumeArgv) > 0 && !e.SourceMissing {
+	if e.Harness == "omp" && e.Parent == "" {
 		if _, artifact := ompArtifactParent(e.Source); artifact {
 			return Entry{}, errNotIndexed // never revive a previously promoted artifact
 		}
-		e.ResumeArgv, e.ompResumeChanged, err = placement.resume(e.Source, e.ID, e.ResumeArgv)
-		if err != nil {
-			return Entry{}, err
-		}
-		if e.ompResumeChanged {
-			e.Resume = ResumeLine(e.Cwd, e.ResumeArgv)
+		if len(e.ResumeArgv) > 0 && !e.SourceMissing {
+			e.ResumeArgv, e.ompResumeChanged, err = placement.resume(e.Source, e.ID, e.ResumeArgv)
+			if err != nil {
+				return Entry{}, err
+			}
+			if e.ompResumeChanged {
+				e.Resume = ResumeLine(e.Cwd, e.ResumeArgv)
+			}
 		}
 	}
 	if scoring {
