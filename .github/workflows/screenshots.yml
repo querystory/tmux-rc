@@ -87,7 +87,7 @@ jobs:
               git fetch -q --depth=1 origin ci-screenshots && git rebase -q FETCH_HEAD
             done
             url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$(git rev-parse HEAD)/pr-$PR/$SHA"
-            body=$(sed "s#src=\"#src=\"$url/#" "$summary")
+            body=$(sed "s#src=\"#src=\"$url/#g" "$summary")
           fi
           printf '%s\n' '<!-- screenshots-diff -->' '### Screenshot diff' '' \
             "The demo fleet shot by [CI]($RUN) on \`$BASE\` and on this PR merged into it (head ${SHA:0:7}). Red marks changed pixels; PNGs are in the run's artifact." \
