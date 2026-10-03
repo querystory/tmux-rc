@@ -88,6 +88,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   root._mapResize?.disconnect();
   root.replaceChildren();
   const controls = el('div', 'atlas-controls');
+  controls.append(el('span', 'atlas-controls-label muted', 'Sessions'));
   const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic); };
   ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
     const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
