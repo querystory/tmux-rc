@@ -72,6 +72,9 @@ _TURN_ERROR_RE = {
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
+# Rows whose text is never the agent asking: the user's own (a prompt row), and file
+# content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
+_NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -297,11 +300,11 @@ def _supported_question(question, visible: str, tool) -> bool:
         return False
     words = r"\s+".join(map(re.escape, prompt.split()))
     *_, found = [None, *re.finditer(words, visible, re.IGNORECASE)]
-    # The user's own turn or draft (a ❯/› row) is not the agent asking; a live spinner
-    # below the text means the agent is working again; and a finished turn's question
-    # followed by typed input has been answered.
+    # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
+    # agent asking; a live spinner below the text means the agent is working again; and a
+    # finished turn's question followed by typed input has been answered.
     return found is not None and not (
-        re.match(_PROMPT_ROW, visible[visible.rfind("\n", 0, found.start()) + 1:])
+        _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
