@@ -83,6 +83,7 @@ def install() -> None:
     tmux.capture_pane = _capture
     # A fixed model menu, so the chat button shows on every machine whatever keys it holds;
     # the socket itself is dropped (the screenshot browser stubs it), so no provider is called.
+    server.DOCS_MOUNTED = True  # the Docs link shows as on a real deploy, built or not
     live.enabled = lambda: True
     live.offered = lambda: [live_providers.LiveModel("Demo chat", "demo", "anthropic")]
     live_providers.models = list
