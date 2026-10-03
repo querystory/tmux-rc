@@ -211,9 +211,13 @@ sender sees through the directory.
 Typing into a running turn steers it, and typing into a menu answers it, and neither is
 what the sender asked. A message for a busy pane waits in a small in-memory queue in the
 daemon, and goes in at the next idle transition. The sender always gets one result:
-delivered, queued, refused or expired. Nothing fails silently, which is the agent
-client's founding complaint. At most once needs identity: the caller supplies a message
-id, and the daemon refuses a retried id instead of typing it twice.
+delivered, refused or expired, or queued as an interim answer. A queued message keeps
+its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
+silently, which is the agent client's founding complaint. At most once needs identity:
+the caller supplies a message id, and the daemon refuses a retried id instead of typing
+it twice. The ids and the queue live in memory, so the guarantee holds for one daemon
+lifetime. A retry across a daemon restart can type a message twice. That is accepted
+for v1, because a restart already drops the queue and a duplicate prompt is visible.
 
 **Consent.** These are the control-plane tiers, with an agent as the actor:
 - **Reads run at once and are audited.** That covers the directory, pane detail and
@@ -285,7 +289,11 @@ and reachable). Single scopes are an advanced setting.
 Identity is the agent session, not the pane: pane ids recycle, and session ids survive
 resume. A grant is therefore stored against the harness session id. For a manifest agent
 it is a tool-surface field in C4. For an ad-hoc pane it goes in a small daemon table
-keyed the same way. The toggle appears on the pane, and on the window for convenience.
+keyed the same way. A brand-new agent has no session id until it starts, so its
+launch token is first bound to the new pane and process. It is rebound to the session id
+once that is known. Claude Code accepts a preset session id; Codex and omp report theirs
+after launch through agent-history's running detection. The toggle appears on the pane,
+and on the window for convenience.
 A restored session (WS-D) keeps its grant, and a new agent in a recycled `%N` does not
 inherit one.
 
@@ -302,8 +310,11 @@ harness's per-launch override, never by writing the user's global config:
 - omp: an MCP file or extension for that launch. The exact mechanism still needs
   checking.
 
-Launchers already own the command line, so this is a launcher option, not a new launch
-path.
+Today's launchers are opaque shell strings, which the daemon deliberately does not
+parse, so it cannot safely append flags to them. Connect therefore needs launchers in a
+structured form: argv plus environment, which is what the manifest (C4) grows them into.
+Connect is offered only for structured launchers and resume commands. agent-history
+already stores resume commands as argv.
 
 **On a running agent,** connecting means relaunching onto the same conversation. The
 daemon waits for idle, exits the agent, and runs the session's resume command, which
@@ -315,7 +326,9 @@ at launch.
 **Revocation is immediate.** Turning Connect off invalidates the token at the daemon, so
 the next call fails with "not connected". The stale tool entry stays harmlessly until the
 agent's next restart. Narrowing scopes works the same way, since scope is checked on
-every call. Granting is slow and visible, and taking away is instant. That is the point
+every call. Revocation also cancels that agent's queued messages and open cards, sent
+or received. Both ends' scopes are checked again just before delivery, so nothing
+admitted earlier lands after either side is turned off. Granting is slow and visible, and taking away is instant. That is the point
 of authorizing at the server.
 
 **Transport.** The endpoint is MCP over HTTP on the daemon's existing localhost port,
