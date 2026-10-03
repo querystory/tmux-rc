@@ -1138,7 +1138,8 @@ function placeChrome() {
   }
 }
 placeChrome();
-const resizeWorkspace = () => { placeChrome(); restartDetail(); render(); };
+// route() again, not just render(): a pane URL without a view opens on a different tab once wide.
+const resizeWorkspace = () => { placeChrome(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads

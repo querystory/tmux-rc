@@ -7,9 +7,10 @@ import { test } from "node:test";
 import vm from "node:vm";
 
 const source = readFileSync(new URL("../web/m/app.js", import.meta.url), "utf8");
-const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
-const block = slice("const WIDE = ", "const reviewing = ");
-const picker = slice('$("review-layout").onchange', "reviewDivider.onpointerdown");
+const slice = (from, to) => { const start = source.indexOf(from); return source.slice(start, source.indexOf(to, start) + to.length); };
+// Each slice runs to its closing brace: the layout state through effectiveLayout(), then the handler.
+const block = slice("const WIDE = ", "\n}\n");
+const picker = slice('$("review-layout").onchange', "\n};\n");
 
 function boot(storage, wide = true) {
   const elements = { detail: { getBoundingClientRect: () => ({ width: 1600, height: 900 }) }, "review-layout": {} };
