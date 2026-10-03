@@ -480,6 +480,18 @@ sees holds the model's turn open indefinitely. Restoring keeps the draft and the
 transcript's scroll position. Ending the conversation stays an explicit button, so a
 stray tap on the backdrop never throws one away.
 
+**Docked on a wide screen.** At the wide layout's breakpoint (1100px) the same panel opens
+non-modally as a column right of the work area, so nothing is dimmed and the pane stays
+usable while you talk about it. It is the same element and session, not a second chat:
+crossing the breakpoint just reopens it the other way, and a phone keeps the sheet. The
+column is an implicit third grid track, so the pane or dashboard beside it narrows and the
+pane's Auto layout re-picks from the width left over: terminal beside the overview when
+that is still 900px or more (a 1920px window), the overview stacked above the terminal
+below that (1280 and 1440). Rejected: a tab strip sharing the overview's column, which
+would hide the overview behind a click exactly when the window has room for both.
+Docked, the chat button toggles the panel, and Escape closes it only from inside, since
+the rest of the page is live and Escape there belongs to it.
+
 **Pasted images.** The composer is the pane composer's own editor (m/composer.js), shared
 through web/live-chat.js by both clients, so paste and the attach button behave the same
 and accept the same types and size (PNG, JPEG, WebP or GIF under 20 MB). The daemon
