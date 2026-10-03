@@ -320,9 +320,85 @@ button.goalpill{border-radius:8px}.goalpill .ed{color:var(--muted);display:inlin
 .phone .ibx strong{font-size:15px}.phone .ibx p{font-size:13px}
 .phone .rp button{height:32px;font-size:13px}
 .phone .gh3 .ib.sm{width:36px;height:36px}
+/* ---------- round 4: topics and search, on the shipped sidebar (#298) and dashboard (#299) ---------- */
+.sb4{width:300px;flex:none;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0;font-size:13px;position:relative}
+.sb4 .sbh{height:56px;padding:0 12px 0 14px}.sb4 .brand{font-size:17px}
+.nvr4{display:flex;align-items:center;gap:4px;padding:0 12px 8px 12px;flex:none}
+.nvr4 .nv{flex:1;margin:0;width:auto;font-weight:600;color:var(--accent);font-size:14px}.nvr4 .nv>svg{color:var(--accent)}
+.srch4{margin:0 12px 10px;height:38px;flex:none;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:6px;padding:0 10px;color:var(--muted);font-size:14px;background:var(--surface);text-align:left;width:calc(100% - 24px)}
+.srch4.on{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.qp4{display:inline-flex;align-items:center;gap:4px;background:var(--accent-bg);color:var(--accent);border-radius:12px;padding:1px 4px 1px 9px;font-size:12.5px;font-weight:600}
+.qp4 button{width:18px;height:18px;display:inline-grid;place-items:center;border-radius:50%;color:var(--accent)}
+.strip4{display:flex;gap:6px;margin:-2px 12px 10px;height:26px;overflow:hidden;flex:none;align-items:center}
+.tc4{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:12px;white-space:nowrap;flex:none;color:var(--fg)}
+.tc4 b{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.tc4[aria-pressed="true"]{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);font-weight:600}
+.tc4.more{color:var(--muted)}
+.list4{flex:1;min-height:0;overflow:hidden;padding-bottom:8px}
+.gh4{display:flex;align-items:center;gap:6px;height:32px;padding:0 8px 0 12px;font-size:12.5px;font-weight:650;flex:none}
+.gh4>svg{color:var(--muted)}.gh4 .c{margin-left:auto;color:var(--muted);font-weight:500;font-size:11.5px}
+.gh4 .tt{color:var(--muted);font-weight:500;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.gh4 .ib.sm{color:var(--muted)}
+.nc4{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 9px;padding:8px 10px;margin:0 8px 6px;border-radius:9px;background:var(--amber-bg)}
+.nc4 strong{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nc4 strong span{color:var(--muted);font-weight:400;font-size:11.5px}
+.nc4 .a{color:var(--amber);font-weight:700;font-size:11px}
+.nc4 p{grid-column:2/4;color:var(--muted);font-size:12px;line-height:1.35}
+.nc4 .rp{grid-column:2/4}
+.gb4{display:flex;align-items:center;gap:8px;height:38px;padding:4px 12px 0 16px;font-size:12px;color:var(--muted);font-weight:600;flex:none}
+.gb4 .seg button{padding:1px 8px;min-height:22px;font-size:11.5px}.gb4 .sp{flex:1}
+.r4{display:flex;align-items:center;gap:9px;height:32px;padding:0 10px 0 14px;margin:0 6px;border-radius:7px;white-space:nowrap;width:calc(100% - 12px);text-align:left}
+.r4 .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}.r4 .t span{color:var(--muted);font-size:11.5px}
+.r4 .a{font-size:11px;color:var(--muted)}
+.r4.cur{box-shadow:inset 0 0 0 1px var(--fg)}
+.mt4{margin:0 16px 6px;font-size:12px;color:var(--muted);display:flex;gap:6px}.mt4 button{color:var(--accent);font-weight:600;font-size:12px}
+.ft4{flex:none;display:flex;align-items:center;gap:2px;padding:6px 10px;border-top:1px solid var(--line)}.ft4 .live{margin:0 auto 0 4px}
+.dd4{position:absolute;z-index:12;left:12px;top:136px;width:360px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:8px;display:grid;gap:2px;font-size:13px}
+.dd4 h4{margin:6px 8px 2px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.dd4 .o{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;text-align:left;width:100%}
+.dd4 .o:first-of-type{background:var(--raised)}
+.dd4 .o i{flex:none;height:6px;border-radius:3px;background:var(--s-run);opacity:.55}
+.dd4 .o .w{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd4 .o b{margin-left:auto;color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums;font-size:12px}
+.dd4 .k{font-size:11px;color:var(--muted);padding:6px 8px 2px;border-top:1px solid var(--line);margin-top:4px}
+.cl4{display:flex;flex-wrap:wrap;justify-content:center;align-content:center;align-items:center;gap:0 9px;overflow:hidden;line-height:1.05}
+.cl4 button{font-weight:700;padding:0;border-radius:3px;white-space:nowrap}
+.cl4 button[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:1px}
+.cl4 .c0{color:#2f6fa3}.cl4 .c1{color:#8a52b8}.cl4 .c2{color:#22865a}.cl4 .c3{color:#b06a1f}.cl4 .c4{color:#c0465a}.cl4 .c5{color:#8f7a12}
+:root[data-theme="dark"] .cl4 .c0{color:#7fb4e0}:root[data-theme="dark"] .cl4 .c1{color:#c09be6}:root[data-theme="dark"] .cl4 .c2{color:#6fd3a0}:root[data-theme="dark"] .cl4 .c3{color:#e3a35e}:root[data-theme="dark"] .cl4 .c4{color:#f08a9a}:root[data-theme="dark"] .cl4 .c5{color:#d8c25a}
+.sec4{flex:none;margin:0 8px 8px;border:1px solid var(--line);border-radius:10px;padding:6px 8px 8px;background:var(--bg)}
+.wk4{flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--bg)}
+.dsh4{padding:30px 32px;display:grid;gap:16px;align-content:start}
+.dsh4 h1{font-size:20px;font-weight:650}.dsh4 .sub{color:var(--muted);font-size:15px;margin-top:4px}
+.pn4{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px 24px;min-width:0}
+.pn4 h3{margin:0;font-size:16px;font-weight:650}
+.tch4{display:flex;gap:8px;align-items:center}.tch4>span{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:12px}
+.tch4>span:first-child{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+.row4{display:flex;gap:16px;align-items:start}
+.sm4{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:4px;font-size:12px;background:var(--surface)}
+.isl4{display:flex;flex-wrap:wrap;gap:12px}.isl4>div{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:10px 12px;display:grid;gap:6px;align-content:start}
+.isl4 .dots{display:flex;flex-wrap:wrap;gap:8px 4px}.isl4 .dots span{width:64px;display:grid;justify-items:center;gap:3px;font-size:10px;color:var(--muted);text-align:center;line-height:1.2}
+.pv4{display:flex;flex-direction:column;height:100%}
+.ph4{height:54px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line)}
+.ph4 div{flex:1}.ph4 b{display:block;font-size:14px}.ph4 small{color:var(--muted);font-size:12px}
+.pg4{flex:1;min-height:0;display:flex}
+.tm4{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--term)}
+.tm4 .tb{height:34px}
+.ov4{width:280px;flex:none;border-left:1px solid var(--line);padding:16px;display:grid;gap:10px;align-content:start;font-size:13px}
+.ov4 h2{font-size:16px;line-height:1.35}.ov4 p{color:var(--muted)}
+.cm4{flex:none;display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--line)}
+.cm4 span{flex:1;height:36px;border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;padding:0 10px;color:var(--muted)}
+.cs4{flex:none;height:36px;display:flex;align-items:center;gap:10px;padding:0 10px;border-top:1px solid var(--line);background:var(--surface);font-size:12.5px;white-space:nowrap;overflow:hidden}
+.dk4{width:280px;flex:none;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;padding:16px 12px;gap:4px;min-height:0;overflow:hidden}
+.dk4 .o{display:grid;grid-template-columns:minmax(0,1fr) auto 72px;gap:8px;align-items:center;height:30px;padding:0 6px;border-radius:7px;text-align:left;font-size:13px}
+.dk4 .o[aria-pressed="true"]{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.dk4 .o b{color:var(--muted);font-weight:500;font-size:12px;font-variant-numeric:tabular-nums}
+.mtab{font-size:12px}.mtab td,.mtab th{padding:5px 8px;white-space:nowrap}.mtab .bad{color:var(--red);font-weight:600}.mtab .good{color:var(--accent);font-weight:600}
+body.shot #bar{display:none}body.shot main{padding:0;max-width:none}body.shot .stage{border:0}
+body.shot{overflow:hidden}
 </style>
 <div id="bar">
   <h1>Fleet layout studies</h1>
+  <div class="ctl">Topics <span class="seg" id="c-tm4"><button data-act="tm4:current">Shipped</button><button data-act="tm4:clean">Cleaned</button></span></div>
   <div class="ctl">Theme <span class="seg" id="c-theme"><button data-act="t:light">Light</button><button data-act="t:dark">Dark</button></span></div>
   <div class="ctl">Frame <span class="seg" id="c-frame"><button data-act="fr:wide">Wide 1440x900</button><button data-act="fr:phone">Phone 390x844</button></span></div>
   <div class="ctl">Range <span class="seg" id="c-range"><button data-act="r:1h">1h</button><button data-act="r:24h">24h</button><button data-act="r:7d">7d</button></span></div>
@@ -713,7 +789,7 @@ const SB3=300,KEYS3={session:SESS2,tool:Object.keys(MARK)};
 const smax=by=>Math.max(...KEYS3[by].flatMap(k=>sub2(k).pts.filter(Boolean).map(p=>p[0]+p[1])),...KEYS3[by].flatMap(k=>sub2(k).ma));
 /* one session's or tool's slice of the fleet history: its share of the panes, swaying on its own rhythm; the live point is its real count */
 function sub2(k){const d=ser2(),key=[S.range2,S.ma,S.zoom,k].join();if(SC2[key])return SC2[key];
- const rs=ROWS2.filter(r=>r.s==k||r.tool==k),sh=rs.length/ROWS2.length,ph=[...k].reduce((a,c)=>a+c.charCodeAt(0),0)%7,m=i=>sh*(1+.6*Math.sin((d.o+i*d.k)/(40+ph*9)+ph));
+ const pool=k.startsWith('4:')?ROWS4:ROWS2,kk=k.replace(/^4:/,''),rs=pool.filter(r=>r.s==kk||r.tool==kk),sh=rs.length/pool.length,ph=[...k].reduce((a,c)=>a+c.charCodeAt(0),0)%7,m=i=>sh*(1+.6*Math.sin((d.o+i*d.k)/(40+ph*9)+ph));
  const pts=d.pts.map((p,i)=>p&&[Math.round(p[0]*m(i)),Math.round(p[1]*m(i)),Math.round(p[2]*sh)]);
  if(d.live)pts[pts.length-1]=['need','run','idle'].map(st=>rs.filter(r=>r.st==st).length);
  return SC2[key]={...d,pts,ma:d.ma.map((v,i)=>v*(m(i)+sh)/2)};}
@@ -804,22 +880,193 @@ R3('P9',['gb:@'],{frame:'phone',name:'Chart sheet with snap points',line:'The st
 V.unshift(...R3V);
 /* ---------- gallery ---------- */
 const GNOTE={[G3]:'<b>Round 3 — I3 with I5\'s inbox.</b> Needs you stays pinned as answerable cards; below it the fleet groups by state or by session, and every group switches between one-line rows and activity cards. The six wide frames share that sidebar and differ in how the chart opens: in place, as a drawer, as a resizable split, as a page, as a hover peek, or spread across the group headers.',[G2]:'<b>Round 2 — riffs on I after feedback.</b> One sidebar like a chatbot thread list instead of a rail plus a Sessions column; the chart moves to the header, the bottom of the work area, the sidebar foot or a meter, and every chart gains an editable goal and a 1d / 3d / 7d moving average. Controls inside these frames work.',Reference:'Round 1 — the original studies, unchanged.'};
-const dims=f=>f=='phone'?[390,844]:[1440,900];
+const dims=v=>v.dims||(v.frame=='phone'?[390,844]:[1440,900]);
 const inFrame=()=>V.filter(v=>v.frame==S.frame);
 let FW=1440,FH=900;
-const stage=(v,cls='',sz=dims(v.frame))=>{[FW,FH]=sz;return `<div class="stage ${cls}" data-w="${FW}" data-h="${FH}"><div class="scaler" style="--fw:${FW}px;--fh:${FH}px">${v.build()}</div></div>`;};
+const stage=(v,cls='',sz=dims(v))=>{[FW,FH]=sz;return `<div class="stage ${cls}" data-w="${FW}" data-h="${FH}"><div class="scaler" style="--fw:${FW}px;--fh:${FH}px">${v.build()}</div></div>`;};
 const DEV=[['iPhone SE',375,667],['iPhone 15',393,852],['Pixel',412,915],['iPad',820,1180],['Laptop',1280,800],['1440',1440,900],['1920',1920,1080]];
+/* ================= Round 4: where topics live, built on the shipped sidebar (#298) and dashboard (#299) =================
+   Every frame here is the shipped UI redrawn with the demo fleet (scripts/demo_fleet.py), the same fleet `make screenshots`
+   shoots, so a mock and a real screenshot can sit side by side. Only the place the topics live changes between frames. */
+const G4='8 · Topics and search (round 4)';
+Object.assign(IC,{book:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+ updown:'<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',list:'<path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/>',
+ tag:'<path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>'});
+Object.assign(MARK,{omp:'<rect width="28" height="28" fill="#5b2a86"/><path d="M8 10h12M11 10v9M17 10v9" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>',
+ gemini:'<rect width="28" height="28" fill="#e8f0fe"/><path d="M14 5c.8 4.6 4.4 8.2 9 9-4.6.8-8.2 4.4-9 9-.8-4.6-4.4-8.2-9-9 4.6-.8 8.2-4.4 9-9z" fill="#3b7ded"/>'});
+/* session|tool|state|title|summary (what the cloud reads)|question|reply choices, as the demo server serves them */
+const ROWS4=`shop-api|claude|idle|fact checker agent|Waiting for the preview build after updating review docs.
+shop-api|codex|run|migration planner|Mapping table dependencies before proposing an order.
+shop-api|opencode|run|schema reviewer|Checking the new column constraints against live data.
+shop-api|claude|need|api contract diff|Moving money fields to a structured type changed two public endpoints. Both break existing clients, so versioning needs a call.|Two endpoints changed. Bump the API version?|Bump to v3,Keep v2
+shop-api|claude|idle|preview deploy|Deployed. Link posted in the PR thread.
+shop-api|shell|idle|zsh ~/src/shop-api|git status: clean, on main.
+shop-api|codex|idle|seed data refresh|Refreshed 12 fixtures. Tests green.
+ci|claude|need|flaky test hunter|Two reruns disagree. Which suite to quarantine?|Two reruns disagree. Which suite to quarantine?|e2e,integration
+ci|claude|run|e2e triage|The checkout flake reproduces only when the payment iframe loads after the coupon request. A traced 20x rerun is in progress; next is waiting on the iframe instead of network idle, then a PR.
+ci|codex|idle|lint autofix|Fixed 38 warnings across 9 files. Ready to commit.
+ci|shell|idle|build cache warmer|Cache warm: 214 layers, 3.1 GB.
+ci|shell|idle|zsh ~/src/ci|make test passed in 2m 41s.
+research|claude|run|eval harness|Scoring 120 samples against the candidate prompt.
+research|codex|run|prompt A/B sweep|Variant C leads by 4 points after 60 of 200 runs.
+research|opencode|idle|dataset dedupe|Removed 1,204 near-duplicates. Report written.
+research|shell|idle|notebook scratch|Kernel idle.
+research|claude|idle|paper notes|Summarised sections 3 and 4.
+research|codex|idle|tokenizer bench|Bench done: 1.8x faster on long inputs.
+docs|omp|run|release notes drafter|Grouping merged PRs since v0.14 by area.
+docs|claude|idle|screenshot refresher|Regenerated 22 screenshots for the light theme.
+docs|omp|idle|changelog bot|Opened a draft entry for 0.15.
+docs|opencode|idle|api reference regen|Reference rebuilt, no broken links.
+docs|shell|idle|zsh ~/src/docs|Idle at the prompt.
+ops|claude|need|alert tuning|Silence the disk alert on build-02 for 24 hours?|Silence the disk alert on build-02 for 24 hours?|Silence 24h,Keep
+ops|codex|run|cost report|Pulling last month's billing export.
+ops|opencode|idle|log triage|No new errors since the last check.
+ops|claude|idle|pager rota sync|Rota synced through next Friday.
+ops|shell|idle|zsh ~/ops|Idle at the prompt.
+ops|shell|idle|backup verify|All 6 snapshots restored and checked.
+infra|claude|run|terraform plan review|Reading a 41-resource plan; 2 replacements so far.
+infra|codex|idle|node pool resize|Resized pool-b to 6 nodes.
+infra|shell|idle|zsh ~/infra|Idle at the prompt.
+infra|claude|idle|dns cleanup|Removed 9 stale records.
+infra|claude|idle|k8s upgrade notes|Drafted the 1.31 upgrade checklist.
+infra|opencode|idle|cert rotation|Certificates valid until March.
+marketing|claude|idle|pricing page copy|Draft saved with three headline options.
+marketing|claude|idle|launch email|Final copy sent for review.
+marketing|gemini|idle|competitor scan|Compared five pricing pages.
+marketing|shell|idle|zsh ~/marketing|Idle at the prompt.
+misc|codex|need|dependency audit|Approve upgrading 3 packages with breaking changes?|Approve upgrading 3 packages with breaking changes?|Approve,Hold
+misc|claude|run|sidebar toggle|Wiring the group-by toggle into the sidebar.
+misc|shell|idle|zsh ~/src|Idle at the prompt.
+misc|claude|idle|rss digest|Summarised 12 new posts.
+misc|opencode|idle|invoice parser|Parsed 31 invoices, 2 flagged.
+misc|shell|idle|dotfiles sync|Synced with origin.`.split('\n').map((l,i)=>{const[s,tool,st,t,x,q,c]=l.split('|');return{s,tool,st,t,x,q,c:c?c.split(','):[],a:st=='run'?'now':st=='need'?`${4+i%17}m`:`${1+i%9}h`};});
+const SESS4=[...new Set(ROWS4.map(r=>r.s))],CUR4=ROWS4[8];
+/* Topics, two ways. Current is atlas.js as shipped: words of 3+ letters from each pane's title and summary, its stoplist,
+   ranked by how many panes use them, top 40. Cleaned adds a domain stoplist (pane states and agent narration), drops tokens
+   with digits, folds plurals and tenses, and keeps only words at least two panes share: a word in one pane is that pane's name, not a topic. */
+const STOP4=new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
+const DOM4=new Set('idle prompt zsh bash shell waiting running done last next since against across including due user data via file files ran run runs added removed fixed found check checked checking pass passed green status clean main branch commit review reviewed draft wrote written saved posted opened asked approve keep reply'.split(' '));
+const tok4=r=>`${r.t} ${r.x}`.toLowerCase().match(/[\p{L}][\p{L}\p{N}-]{2,24}/gu)||[];
+const stem4=w=>{for(const s of ['ing','ised','ized','ed','es','s'])if(w.endsWith(s)&&w.length-s.length>=4)return w.slice(0,-s.length);return w;};
+const hsh=s=>[...s].reduce((a,c)=>(a*31+c.charCodeAt(0))%2147483646,7)+1,TC4={};
+function topics4(){const k=S.tm4;if(TC4[k])return TC4[k];const m=new Map();
+ ROWS4.forEach(r=>tok4(r).forEach(w=>{if(STOP4.has(w)||k=='clean'&&(DOM4.has(w)||/\d/.test(w)))return;const s=k=='clean'?stem4(w):w;
+  if(!m.has(s))m.set(s,{forms:{},rows:new Set()});const e=m.get(s);e.forms[w]=(e.forms[w]||0)+1;e.rows.add(r);}));
+ return TC4[k]=[...m.values()].map(e=>({w:Object.entries(e.forms).sort((a,b)=>b[1]-a[1]||a[0].length-b[0].length)[0][0],n:e.rows.size,rows:e.rows}))
+  .filter(e=>k=='current'||e.n>1).sort((a,b)=>b.n-a.n||a.w.localeCompare(b.w)).slice(0,40);}
+const hit4=r=>!S.q4||`${r.t} ${r.x} ${r.s}`.toLowerCase().includes(stem4(S.q4));
+const who4=t=>`${t.n} panes: ${[...t.rows].map(r=>r.t).join(', ')}`;
+const P4=(id,k,d)=>S.p4[id+'.'+k]??d;
+Object.assign(S,{tm4:'current',q4:'',p4:{}});
+/* the word cloud: biggest words in the middle, sized like atlas-charts.js (top size from the area per word, 18 to 40px) */
+function cloud4(w,h){const T=topics4(),mx=T[0]?.n||1,top=Math.max(18,Math.min(40,Math.sqrt(w*h/Math.max(1,T.length))/1.6)),lo=Math.max(10,top*.32),seq=[];
+ T.forEach((t,i)=>i%2?seq.push(t):seq.unshift(t));
+ return `<div class="cl4" style="width:${w}px;height:${h}px">${seq.map(t=>`<button class="tw4 c${hsh(t.w)%6}" data-act="q4:${t.w}" aria-pressed="${S.q4==t.w}" title="${who4(t)}" style="font-size:${(lo+(top-lo)*Math.sqrt((t.n-1)/Math.max(1,mx-1))).toFixed(1)}px">${t.w}</button>`).join('')}</div>`;}
+/* sidebar pieces */
+const row4=(id,r)=>`<button class="r4 lr4 ${r===CUR4&&P4(id,'view','')=='pane'?'cur':''}" data-act="p4:${id}.view=pane">${sl(r,22)}<span class="t">${r.t} <span>· ${r.s}</span></span><span class="a">${r.a}</span></button>`;
+const gh4=(l,n,x='')=>`<div class="gh4">${ico('down',14)}${l}${x}<span class="c">${n}</span>${ib('list','Density','sm')}</div>`;
+const card4=r=>`<div class="nc4 lr4">${sl(r,20)}<strong>${r.t} <span>· ${r.s}</span></strong><span class="a">${r.a}</span><p>${r.q}</p><div class="rp">${[...r.c,'Reply'].map(c=>`<button>${c}</button>`).join('')}</div></div>`;
+const top4=rs=>topics4().filter(t=>rs.some(r=>t.rows.has(r))).sort((a,b)=>rs.filter(r=>b.rows.has(r)).length-rs.filter(r=>a.rows.has(r)).length).slice(0,2).map(t=>t.w).join(' · ');
+function groups4(id,o){const mode=P4(id,'gb',o.gb||'state'),rs=ROWS4.filter(r=>r.st!='need'&&hit4(r));let G;
+ if(mode=='session')G=SESS4.map(s=>{const m=rs.filter(r=>r.s==s);return[s,m,o.tt?top4(ROWS4.filter(r=>r.s==s)):''];});
+ else if(mode=='topic'){const left=new Set(rs);G=[];topics4().forEach(t=>{const m=[...left].filter(r=>t.rows.has(r));if(m.length>1){G.push([ico('tag',13)+t.w,m]);m.forEach(r=>left.delete(r));}});G.push(['No shared topic',[...left]]);}
+ else G=[['Working',rs.filter(r=>r.st=='run')],['Idle',rs.filter(r=>r.st=='idle')]];
+ return G.filter(g=>g[1].length).map(([l,m,tt])=>gh4(l,m.length,tt?`<span class="tt">${tt}</span>`:'')+m.map(r=>row4(id,r)).join('')).join('');}
+const pill4=()=>`<span class="qp4">${S.q4}<span role="button" data-act="q4:${S.q4}" aria-label="Clear the search">${ico('x',12)}</span></span>`;
+const strip4=(id,o)=>`<div class="strip4" data-m="topic"><div style="display:flex;gap:6px;overflow:hidden;flex:1">${topics4().slice(0,8).map(t=>`<button class="tc4 tw4" data-act="q4:${t.w}" aria-pressed="${S.q4==t.w}" title="${who4(t)}">${t.w}<b>${t.n}</b></button>`).join('')}</div><button class="tc4 more" data-act="${o.dd?'toggle:dd4:'+id:`p4:${id}.view=dash`}">${o.dd?'More':'All'}</button></div>`;
+const dd4=id=>on('dd4:'+id)?`<div class="dd4">${S.q4?'':`<h4>Recent</h4>${['checkout','terraform'].map(w=>`<button class="o" data-act="q4:${w}">${ico('clock',15)}<span class="w">${w}</span></button>`).join('')}`}<h4>Topics</h4>${topics4().slice(0,10).map(t=>`<button class="o tw4" data-act="q4:${t.w}" title="${who4(t)}">${ico('tag',15)}<span class="w">${t.w}</span><i style="width:${Math.round(60*t.n/topics4()[0].n)}px"></i><b>${t.n}</b></button>`).join('')}<div class="k">Hover a topic for its panes. Enter filters the list; Esc closes.</div></div>`:'';
+function sb4(id,o){const v=P4(id,'view',o.view),mode=P4(id,'gb',o.gb||'state'),need=ROWS4.filter(r=>r.st=='need'&&hit4(r)),n=ROWS4.filter(hit4).length;
+ return `<aside class="sb4" data-m="sb"><div class="sbh">${brand(false)}<span class="sp" style="flex:1"></span>${ib('panel','Collapse sidebar','sm')}</div>
+ <div class="nvr4">${nv('plus','New window','','new')}<button class="ib sm ${v=='dash'?'on':''}" data-act="p4:${id}.view=dash" title="Dashboard" aria-label="Dashboard">${ico('dash',18)}</button>${ib('chat','Chat','sm')}${ib('bell','Alerts','sm')}</div>
+ <button class="srch4 ${o.dd&&on('dd4:'+id)?'on':''}" ${o.dd?`data-act="toggle:dd4:${id}" data-m="topic"`:''}>${ico('search',18)}${S.q4?pill4():'Find a session or pane'}</button>
+ ${o.strip?strip4(id,o):''}${o.cloud?`<div class="sec4" data-m="topic"><div class="gh4" style="padding:0 2px;height:24px">${ico('down',14)}Topics<span class="c">${topics4().length}</span></div>${cloud4(266,190)}</div>`:''}
+ <div class="list4" data-m="list">${S.q4?`<div class="mt4">${n} of ${ROWS4.length} panes match “${S.q4}”<button data-act="q4:${S.q4}">Clear</button></div>`:''}${need.length?gh4(`<span style="color:var(--amber);display:inline-flex">${ico('alert',14)}</span>Needs you`,need.length)+need.map(card4).join(''):''}
+ <div class="gb4" ${o.gbt?'data-m="topic"':''}>Group by <span class="seg">${['state','session',...(o.gbt?['topic']:[])].map(m=>`<button data-act="p4:${id}.gb=${m}" aria-pressed="${mode==m}">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}</span><span class="sp"></span>All ${ico('down',12)}${ico('updown',14)}</div>${groups4(id,o)}</div>
+ <div class="ft4">${live()}${ib('moon','Theme','sm')}${ib('book','Docs','sm')}</div>${o.dd?dd4(id):''}</aside>`;}
+/* the ultra-wide topics panel; the trend lines are invented, since the daemon keeps no history of pane text yet */
+const trend4=w=>{let s=hsh(w);const p=[...Array(14)].map(()=>(s=(s*16807)%2147483647)/2147483647);return `<svg width="72" height="18" viewBox="0 0 72 18" aria-hidden="true"><polyline points="${p.map((v,i)=>`${(i*72/13).toFixed(1)},${(16-v*14).toFixed(1)}`).join(' ')}" fill="none" stroke="var(--s-run)" stroke-width="1.5"/></svg>`;};
+const dock4=()=>`<aside class="dk4" data-m="topic"><div class="gh4" style="padding:0 6px">Topics<span class="c">panes · 14 days</span></div>${topics4().slice(0,26).map(t=>`<button class="o tw4" data-act="q4:${t.w}" aria-pressed="${S.q4==t.w}" title="${who4(t)}"><span style="overflow:hidden;text-overflow:ellipsis">${t.w}</span><b>${t.n}</b>${trend4(t.w)}</button>`).join('')}<p class="mut" style="font-size:11.5px;margin-top:8px">Trend lines are invented: the daemon keeps no history of pane text yet.</p></aside>`;
+/* the work area: the dashboard (Session atlas) or the open pane */
+function dash4(id,o,mw){const cw=Math.min(mw-64,2336),tools=Object.entries(ROWS4.reduce((a,r)=>(a[r.tool]=(a[r.tool]||0)+1,a),{})).sort((a,b)=>b[1]-a[1]);
+ const topicsCard=(w,h)=>`<section class="pn4" data-card data-m="topic" style="width:${w}px;flex:none"><h3>What’s on the radar</h3><p class="mut" style="font-size:12.5px;margin:4px 0 8px">Click a word to search your sessions.</p>${cloud4(w-48,h)}</section>`;
+ const multi=w=>{const inner=w-48,max=Math.max(1,Math.floor((inner+10)/250)),n=SESS4.length,cols=o.bal?Math.ceil(n/Math.ceil(n/max)):max,cwid=Math.floor((inner-(cols-1)*10)/cols),orph=n%cols,mx=Math.max(...SESS4.flatMap(s=>sub2('4:'+s).pts.filter(Boolean).map(p=>p[0]+p[1])));
+  return `<section class="pn4" data-card style="flex:1;min-width:0" data-orphan="${orph?`${orph} of ${cols}`:''}"><div class="dkh" style="padding:0;height:34px;margin-bottom:8px"><h3>Running by</h3><span class="seg"><button aria-pressed="true">session</button><button>tool</button></span><span class="mut" style="font-size:12px">Cards share one scale. Choose one to filter this page.</span></div><div style="display:grid;grid-template-columns:repeat(${cols},${cwid}px);gap:10px">${[...SESS4].sort().map(s=>{const rs=ROWS4.filter(r=>r.s==s);
+   return `<div class="sm4"><span class="dkh" style="padding:0;height:18px;gap:4px"><b>${s}</b><span class="sp"></span><b class="num">${rs.filter(r=>r.st=='run').length}</b><span class="mut">running</span></span>${chart2({w:cwid-26,h:44,sub:'4:'+s,mx})}<span class="mut">${S.ma} avg ${sub2('4:'+s).ma.at(-1).toFixed(1)}</span></div>`;}).join('')}</div></section>`;};
+ const rowOf=(...x)=>`<div class="row4">${x.join('')}</div>`,tw=cw>=1500?520:420,lw=380;
+ const lower=o.topics=='left'?(cw>=1100?rowOf(topicsCard(lw,300),multi(cw-lw-16)):topicsCard(cw,170)+multi(cw)):cw>=1000?rowOf(multi(cw-tw-16),topicsCard(tw,300)):multi(cw)+topicsCard(cw,240);
+ return `<div class="dsh4" style="width:${cw+64}px"><div data-card><h1>Session atlas</h1><p class="sub">Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane.</p></div>
+ <div class="tch4" data-card><span>All <b>${ROWS4.length}</b></span>${tools.map(([t,n])=>`<span><span class="sl" style="width:24px;height:24px"><svg viewBox="0 0 28 28" aria-hidden="true">${MARK[t]}</svg></span>${n}</span>`).join('')}</div>
+ <section class="pn4" data-card style="display:grid;gap:10px"><div class="dkh" style="padding:0;height:32px;flex-wrap:wrap"><h3>Activity over time</h3>${run2(16)}${maTxt()}<span class="sp"></span>${range2()}${maSeg()}<span class="goalpill">${ico('target',14)}Goal ${S.goal2}</span></div>${chart2({w:cw-48,h:FH>=1000?220:180,axis:1})}</section>
+ ${lower}<div class="isl4" data-card>${SESS4.map(s=>{const rs=ROWS4.filter(r=>r.s==s);return `<div style="width:${Math.min(4,rs.length)*68+24}px"><b>${s} <span class="mut" style="font-weight:400;font-size:12px">${rs.length} panes · ${rs.filter(r=>r.st=='need').length} need you</span></b><div class="dots">${rs.map(r=>`<span>${sl(r,22)}${r.t}</span>`).join('')}</div></div>`;}).join('')}</div></div>`;}
+const TERM4=['• The checkout flake reproduces only when the payment iframe loads after the','  coupon request, so I added tracing and am re-running the spec 20 times.','','• Bash(npx playwright test checkout.spec.ts --repeat-each 20 --trace on)','  └ ✓ checkout › applies a coupon before payment (4.1s)','    ✓ checkout › pays with a saved card (3.8s)','    ✗ checkout › applies a coupon before payment (retry #1, 6.0s)','','• Update(tests/e2e/checkout.spec.ts)','  └ Updated tests/e2e/checkout.spec.ts with 6 additions and 2 removals','','* Tracing… (4m 12s · ↓ 18.4k tokens · esc to interrupt)','','› '];
+const pane4=(id,mw)=>`<section class="pv4" data-card><div class="ph4"><div><b>e2e triage</b><small>ci / e2e triage</small></div><span class="mut" style="font-size:12px">Layout Auto</span>${ib('more','More','sm')}<button class="ib sm" data-act="p4:${id}.view=dash" title="Close the pane" aria-label="Close the pane">${ico('x',18)}</button></div>
+ <div class="pg4"><div class="tm4"><div class="tb"><strong>Live terminal</strong></div><div class="term">${TERM4.map(t=>`<div>${t||' '}</div>`).join('')}</div></div>${mw>=1000?`<div class="ov4"><span class="pos" style="font-size:12px">Running</span><h2>Re-running checkout.spec with tracing on.</h2><p>The checkout flake reproduces only when the payment iframe loads after the coupon request.</p><b style="margin-top:6px">Tasks 2/4</b>${['Reproduce the flake locally','Capture a trace of a failing run','Wait for the iframe instead of network idle','Open a PR with the fix'].map((t,i)=>`<div class="tk ${i<2?'d':''}"><i></i>${t}</div>`).join('')}</div>`:''}</div>
+ <div class="cm4">${ico('cmd',18)}<span>Message this pane</span>${ib('up','Send','sm acc')}</div><div class="cs4">${ico('up',14)}${run2(16)}<span class="mut">${S.ma} avg vs goal ${S.goal2}</span>${chart2({w:Math.max(200,mw-420),h:24})}<span class="sp" style="flex:1"></span><button class="tbtn" data-act="p4:${id}.view=dash">Dashboard</button></div></section>`;
+/* one frame: sidebar, the optional ultra-wide panel (2400px and up; below that it folds into the chip strip), the work area */
+const frame4=(id,o)=>()=>{const dock=o.dock&&FW>=2400,mw=FW-300-(dock?280:0);
+ return `<div class="fr">${sb4(id,{...o,strip:o.strip||o.dock&&!dock})}${dock?dock4():''}<main class="wk4" data-m="work">${P4(id,'view',o.view)=='dash'?dash4(id,o,mw):pane4(id,mw)}</main></div>`;};
+const R4=(id,o,n)=>{if(o.dd&&o.ddOpen)DEF['dd4:'+id]=1;return{id,grp:G4,frame:'wide',dims:[1920,1080],ilab:'Interaction',clab:'At other sizes',esc:o.dd?'dd4:'+id:null,...n,build:frame4(id,o)};};
+const R4V=[
+R4('T0',{view:'dash',topics:'right'},{name:'Shipped: cloud beside Running by',line:'The baseline as merged for #299: the dashboard\'s word cloud sits right of the small multiples. Clicking a word types it into the sidebar search.',
+ fixes:'Nothing; it is the reference. The cloud gets a large canvas and lives where browsing happens.',
+ costs:'The control and the list it drives sit at opposite ends of the screen. The cloud takes 536px from the small multiples, which leaves the eight session cards as 3+3+2 at 1920 and 6+2 at 2560. It exists only on the dashboard, so with a pane open there are no topics anywhere.',
+ inter:'Click a word: the sidebar search fills in and the list filters; click it again or the pill\'s x to clear. Hover a word for its panes.',
+ clutter:'At 1280 the row stacks and the cloud drops below the fold. At 3440 the dashboard stops at 2,336px wide and the cloud floats mid-screen with empty space to its right.'}),
+R4('T1',{view:'pane',cloud:1},{name:'Cloud as a sidebar section',line:'The same cloud, shrunk to 266 by 190, in a foldable Topics section between the search and the list.',
+ fixes:'No distance at all: the words sit directly above the rows they filter, and they are there with a pane open, not only on the dashboard.',
+ costs:'It pushes the whole list down by about 230px, most of the Working group on a 900px screen. At 266px wide the sizing rule bottoms out (18px top word) and the long tail is clipped. A cloud is wide by nature; a narrow column is the worst place for one.',
+ inter:'Click a word to filter. The section folds to its 24px header.',
+ clutter:'The sidebar is 300px at every width, so this looks the same at 1280 and at 3440; only the list height changes.'}),
+R4('T2',{view:'pane',dd:1,ddOpen:1},{name:'Topics inside the search box',line:'Nothing new at rest. Focusing the empty search opens suggestions: two recent searches, then the top ten topics with a pane count and a bar.',
+ fixes:'Costs no sidebar height and puts topics where you already go to filter. A ranked list instead of a cloud: every label is 13px and the count is a number, not a font size.',
+ costs:'Invisible until you click, so nobody discovers a topic they did not know to look for, which was the point of "on the radar". While open it covers the Needs you cards.',
+ inter:'Click the search box (open here). Click a topic: it becomes a pill in the search field and the list filters; the pill\'s x clears. Esc closes.',
+ clutter:'Identical at every size.'}),
+R4('T3',{view:'pane',strip:1},{name:'One-line chip strip under search',line:'A single row of the top topics as chips, with counts, under the search. The active chip shows as a pill in the search box; All opens the dashboard cloud.',
+ fixes:'Always visible, adjacent to the list, for one line of height. Chips are 12px text with a numeric count, legible at any width.',
+ costs:'Only what fits: four or five chips in 276px, the head of the distribution and nothing else. With the shipped word counting that head is idle, prompt and zsh, which makes the strip look broken; it needs the cleaned list (toolbar: Topics, Cleaned).',
+ inter:'Click a chip to filter, again to clear. Hover a chip for its panes.',
+ clutter:'The sidebar is fixed-width, so the strip shows the same chips at every screen size.'}),
+R4('T4',{view:'dash',topics:'left',bal:1},{name:'Cloud leads the Running-by row',line:'The cloud swaps sides: it is the first card under the chart, next to the sidebar, and the session cards balance into even rows.',
+ fixes:'Cuts the travel to the list by about two thirds and keeps the big, readable cloud. Balanced cards (4+4 instead of 3+3+2 or 6+2) remove the orphan row whatever the cloud does.',
+ costs:'Still dashboard-only, and still under the chart, so on 800 and 900px-tall screens the cloud is below the fold, as today.',
+ inter:'As T0.',
+ clutter:'Below 1,100px of content width the cloud becomes a short full-width card above the session cards.'}),
+R4('T5',{view:'pane',dock:1},{name:'Docked topics panel on ultra-wide',line:'From 2,400px wide, a 280px Topics panel docks between the sidebar and the work area: every topic as a row with its pane count and a 14-day trend. Narrower screens get T3\'s strip.',
+ fixes:'Spends the width ultra-wide screens waste. Topics, list and pane are visible together, and the trend answers "what is new", not just "what is big". Hover a row for its panes.',
+ costs:'A third column is a third thing to scan, for screens most people do not have. The trend needs a history of pane text the daemon does not keep (history stores states, not words), so it is new storage as well as new UI.',
+ inter:'Click a topic to filter, again to clear. Drag the device to 2560 or 3440 to see the panel; below 2,400 it folds to chips.',
+ clutter:'At 1280 to 1920 this is T3.'}),
+R4('T6',{view:'pane',gbt:1,gb:'topic',tt:1},{name:'Group by Topic',line:'Topic becomes a third Group by mode beside State and Session: each pane sits under its most common shared topic. Grouped by Session, each header shows its top two topics.',
+ fixes:'No new chrome: it reuses the grouping the sidebar already has, and reads as a table of contents for the fleet.',
+ costs:'A pane belongs to one group but topics overlap, so the primary topic is arbitrary. With the shipped word counting the biggest groups are idle, prompt and zsh, which shows how weak the words are. It regroups instead of narrowing, so it does not replace topic search.',
+ inter:'Switch Group by between State, Session and Topic. Under Session, the header carries the top two topics.',
+ clutter:'Same at every size.'}),
+R4('T7',{view:'dash',strip:1,dd:1,topics:'left',bal:1},{name:'Strip plus suggestions, cloud as the browse view',line:'T3\'s strip for a glance, T2\'s suggestions behind More and the search box, and T4\'s dashboard. Switch the toolbar\'s Topics to Cleaned to see it as proposed.',
+ fixes:'Topics are visible with or without a pane open, one line from the list. The cloud stays where browsing happens but next to the sidebar, and the small multiples stop orphaning.',
+ costs:'Three surfaces show one list; they must come from one function so they never disagree, and that list has to be good, which is a computation change, not a layout one.',
+ inter:'Click a chip or a cloud word to filter; More or the search box opens the suggestions; the pill\'s x or Esc clears.',
+ clutter:'Same sidebar at every size; the dashboard reflows as T4.'})];
+V.unshift(...R4V);
+DEV.push(['2560',2560,1440],['3440 ultra-wide',3440,1440]);
+GNOTE[G4]='<b>Round 4 — where topics live.</b> Built on the shipped sidebar (#298) and dashboard (#299), redrawn with the demo fleet the screenshot tooling uses. The word cloud filters the sidebar list, but sits at the far right of the dashboard. Each frame moves it somewhere else. Click a topic to filter the list; the toolbar\'s Topics switch compares the shipped word counting with a cleaned list. Frames are 1920x1080; open one and use the 2560 and 3440 presets.';
+/* shot mode: #shot=T3&w=1920&h=1080&theme=dark&q=docs&tm=clean&dd=1&view=dash renders one frame at 100%, for the screenshot script */
+{const h=new URLSearchParams(location.hash.slice(1)),id=h.get('shot');if(id){S.shot={id,w:+h.get('w')||1920,h:+h.get('h')||1080};S.open=null;
+ if(h.get('theme'))S.theme=h.get('theme');if(h.get('q'))S.q4=h.get('q');if(h.get('tm'))S.tm4=h.get('tm');if(h.get('dd'))S.pop['dd4:'+id]=h.get('dd')=='1';if(h.get('view'))S.p4[id+'.view']=h.get('view');}}
+/* round 4's measurement table, filled from scripts run against these frames (see docs/design/topics-placement.md) */
+const MEAS4=`<div class="grp-h"><h2>Round 4, measured</h2><span>Every round-4 frame rendered at five screen sizes with the Shipped topic list and measured in the browser. Gap is the shortest distance from the topic control to the list it filters. Sidebar cost is how far the list moves down. Empty work area samples the dashboard every 24px for points outside any card.</span></div><div class="tblwrap"><table class="mtab"><tr><th>Variant</th><th>Screen</th><th>Gap to list</th><th>Topics start at y</th><th>Sidebar cost</th><th>List items in view</th><th>Smallest label</th><th>Labels in view</th><th>Empty work area</th><th>Wraps and orphans</th></tr><tr><td>T0 Shipped</td><td>1280x800</td><td>134px</td><td>889 (below fold)</td><td>+0px</td><td>7</td><td>—</td><td>0 of 40</td><td>18%</td><td>orphan row 2 of 3; cloud below the fold</td></tr><tr><td>T0 Shipped</td><td>1440x900</td><td>691px</td><td>441</td><td>+0px</td><td>10</td><td>10.6px</td><td>40 of 40</td><td>20%</td><td>—</td></tr><tr><td>T0 Shipped</td><td>1920x1080</td><td>1,070px</td><td>481</td><td>+0px</td><td>14</td><td>11.9px</td><td>40 of 40</td><td>16%</td><td>orphan row 2 of 3</td></tr><tr><td>T0 Shipped</td><td>2560x1440</td><td>1,709px</td><td>481</td><td>+0px</td><td>26</td><td>11.9px</td><td>40 of 40</td><td>29%</td><td>orphan row 2 of 6</td></tr><tr><td>T0 Shipped</td><td>3440x1440</td><td>1,849px</td><td>481</td><td>+0px</td><td>26</td><td>11.9px</td><td>40 of 40</td><td>46%</td><td>orphan row 1 of 7</td></tr><tr><td>T1 Sidebar cloud</td><td>1280x800</td><td>8px</td><td>144</td><td>+238px</td><td>3</td><td>10px</td><td>40 of 40</td><td>pane open</td><td>—</td></tr><tr><td>T1 Sidebar cloud</td><td>1440x900</td><td>8px</td><td>144</td><td>+238px</td><td>4</td><td>10px</td><td>40 of 40</td><td>pane open</td><td>—</td></tr><tr><td>T1 Sidebar cloud</td><td>1920x1080</td><td>8px</td><td>144</td><td>+238px</td><td>8</td><td>10px</td><td>40 of 40</td><td>pane open</td><td>—</td></tr><tr><td>T1 Sidebar cloud</td><td>2560x1440</td><td>8px</td><td>144</td><td>+238px</td><td>18</td><td>10px</td><td>40 of 40</td><td>pane open</td><td>—</td></tr><tr><td>T1 Sidebar cloud</td><td>3440x1440</td><td>8px</td><td>144</td><td>+238px</td><td>18</td><td>10px</td><td>40 of 40</td><td>pane open</td><td>—</td></tr><tr><td>T2 Search suggestions</td><td>1280x800</td><td>10px</td><td>96</td><td>+0px</td><td>7</td><td>13px</td><td>10 of 10</td><td>pane open</td><td>dropdown covers Needs you while open</td></tr><tr><td>T2 Search suggestions</td><td>1440x900</td><td>10px</td><td>96</td><td>+0px</td><td>10</td><td>13px</td><td>10 of 10</td><td>pane open</td><td>dropdown covers Needs you while open</td></tr><tr><td>T2 Search suggestions</td><td>1920x1080</td><td>10px</td><td>96</td><td>+0px</td><td>14</td><td>13px</td><td>10 of 10</td><td>pane open</td><td>dropdown covers Needs you while open</td></tr><tr><td>T2 Search suggestions</td><td>2560x1440</td><td>10px</td><td>96</td><td>+0px</td><td>26</td><td>13px</td><td>10 of 10</td><td>pane open</td><td>dropdown covers Needs you while open</td></tr><tr><td>T2 Search suggestions</td><td>3440x1440</td><td>10px</td><td>96</td><td>+0px</td><td>26</td><td>13px</td><td>10 of 10</td><td>pane open</td><td>dropdown covers Needs you while open</td></tr><tr><td>T3 Chip strip</td><td>1280x800</td><td>10px</td><td>142</td><td>+34px</td><td>5</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T3 Chip strip</td><td>1440x900</td><td>10px</td><td>142</td><td>+34px</td><td>9</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T3 Chip strip</td><td>1920x1080</td><td>10px</td><td>142</td><td>+34px</td><td>13</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T3 Chip strip</td><td>2560x1440</td><td>10px</td><td>142</td><td>+34px</td><td>24</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T3 Chip strip</td><td>3440x1440</td><td>10px</td><td>142</td><td>+34px</td><td>24</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T4 Cloud leads row</td><td>1280x800</td><td>33px</td><td>441</td><td>+0px</td><td>7</td><td>12.1px</td><td>40 of 40</td><td>18%</td><td>orphan row 2 of 3</td></tr><tr><td>T4 Cloud leads row</td><td>1440x900</td><td>33px</td><td>441</td><td>+0px</td><td>10</td><td>12.8px</td><td>40 of 40</td><td>18%</td><td>—</td></tr><tr><td>T4 Cloud leads row</td><td>1920x1080</td><td>33px</td><td>481</td><td>+0px</td><td>14</td><td>10px</td><td>40 of 40</td><td>19%</td><td>—</td></tr><tr><td>T4 Cloud leads row</td><td>2560x1440</td><td>33px</td><td>481</td><td>+0px</td><td>26</td><td>10px</td><td>40 of 40</td><td>30%</td><td>—</td></tr><tr><td>T4 Cloud leads row</td><td>3440x1440</td><td>33px</td><td>481</td><td>+0px</td><td>26</td><td>10px</td><td>40 of 40</td><td>46%</td><td>—</td></tr><tr><td>T5 Ultra-wide panel</td><td>1280x800</td><td>10px</td><td>142</td><td>+34px</td><td>5</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T5 Ultra-wide panel</td><td>1440x900</td><td>10px</td><td>142</td><td>+34px</td><td>9</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T5 Ultra-wide panel</td><td>1920x1080</td><td>10px</td><td>142</td><td>+34px</td><td>13</td><td>12px</td><td>4 of 8</td><td>pane open</td><td>4 of 8 chips fit</td></tr><tr><td>T5 Ultra-wide panel</td><td>2560x1440</td><td>1px</td><td>0</td><td>+0px</td><td>26</td><td>13px</td><td>26 of 26</td><td>pane open</td><td>—</td></tr><tr><td>T5 Ultra-wide panel</td><td>3440x1440</td><td>1px</td><td>0</td><td>+0px</td><td>26</td><td>13px</td><td>26 of 26</td><td>pane open</td><td>—</td></tr><tr><td>T6 Group by Topic</td><td>1280x800</td><td>0px</td><td>594</td><td>+0px</td><td>7</td><td>—</td><td>—</td><td>pane open</td><td>Group by label wraps (3 segments)</td></tr><tr><td>T6 Group by Topic</td><td>1440x900</td><td>0px</td><td>594</td><td>+0px</td><td>10</td><td>—</td><td>—</td><td>pane open</td><td>Group by label wraps (3 segments)</td></tr><tr><td>T6 Group by Topic</td><td>1920x1080</td><td>0px</td><td>594</td><td>+0px</td><td>13</td><td>—</td><td>—</td><td>pane open</td><td>Group by label wraps (3 segments)</td></tr><tr><td>T6 Group by Topic</td><td>2560x1440</td><td>0px</td><td>594</td><td>+0px</td><td>22</td><td>—</td><td>—</td><td>pane open</td><td>Group by label wraps (3 segments)</td></tr><tr><td>T6 Group by Topic</td><td>3440x1440</td><td>0px</td><td>594</td><td>+0px</td><td>22</td><td>—</td><td>—</td><td>pane open</td><td>Group by label wraps (3 segments)</td></tr><tr><td>T7 Strip + suggestions + T4</td><td>1280x800</td><td>10px</td><td>142</td><td>+34px</td><td>5</td><td>12px</td><td>43 of 48</td><td>18%</td><td>orphan row 2 of 3; 3 of 8 chips fit</td></tr><tr><td>T7 Strip + suggestions + T4</td><td>1440x900</td><td>10px</td><td>142</td><td>+34px</td><td>9</td><td>12px</td><td>43 of 48</td><td>18%</td><td>3 of 8 chips fit</td></tr><tr><td>T7 Strip + suggestions + T4</td><td>1920x1080</td><td>10px</td><td>142</td><td>+34px</td><td>13</td><td>10px</td><td>43 of 48</td><td>19%</td><td>3 of 8 chips fit</td></tr><tr><td>T7 Strip + suggestions + T4</td><td>2560x1440</td><td>10px</td><td>142</td><td>+34px</td><td>24</td><td>10px</td><td>43 of 48</td><td>30%</td><td>3 of 8 chips fit</td></tr><tr><td>T7 Strip + suggestions + T4</td><td>3440x1440</td><td>10px</td><td>142</td><td>+34px</td><td>24</td><td>10px</td><td>43 of 48</td><td>46%</td><td>3 of 8 chips fit</td></tr></table></div>`;
+const meas4=()=>S.frame=='wide'?MEAS4:'';
 function overview(){
  const vs=inFrame(),groups=[...new Set(vs.map(v=>v.grp))];
  const intro=`<p class="intro"><b>${S.frame=='wide'?'Wide':'Phone'} layouts.</b> Every frame uses the live tmux-rc design tokens and the real 24h, 1h and 7d agent counts from /api/history, with invented session names. The green line is agents running (Running, Compacting and Waiting on a tool). Amber is Needs you. Grey gaps are times the daemon was not recording. Dashed lines are your goal; paler green bars are time under it. Click any frame to open it with notes and a resizable device; the toolbar changes theme everywhere, and range and goal for round 1. Round 2 frames use a synthetic 45-pane fleet across 8 tmux sessions with 37 days of generated 15-minute history, because the real history reaches back only 7 days and a 7-day average across a 30-day range needs 37; their range, average and goal controls sit inside each frame.</p>`;
  const body=groups.map(g=>`<div class="grp-h"><h2>${g}</h2><span>${GNOTE[g]||''}</span></div><div class="grid ${S.frame=='phone'?'phg':''}">${vs.filter(v=>v.grp==g).map(v=>`<div class="card" tabindex="0" role="button" data-open="${v.id}" aria-label="Open ${v.name}"><div class="ov" inert style="display:block">${stage(v)}</div><div class="cap"><b><span class="tag">${v.id.replace('P0','0')}</span>${v.name}</b><p>${v.line}</p></div></div>`).join('')}</div>`).join('');
- const tbl=`<div class="grp-h"><h2>Side by side</h2><span>Where the chart lives and what each option does to navigation.</span></div><div class="tblwrap"><table><tr><th>Variant</th><th>Chart lives in</th><th>Navigation</th><th>Visible at rest</th><th>Goal</th><th>Work area at 1440</th></tr>${vs.map(v=>`<tr><td><b>${v.id.replace('P0','0')}</b> ${v.name}</td>${v.tbl.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</table></div><p class="foot">Tool marks are generic stand-ins, not vendor logos. Running agents pulse (Claude) or spin (Codex), as in the app, and stand still with reduced-motion on. The running count is Running plus Compacting plus Waiting, the same fold the list uses.</p>`;
- return intro+body+tbl;}
+ const tbl=`<div class="grp-h"><h2>Side by side</h2><span>Where the chart lives and what each option does to navigation.</span></div><div class="tblwrap"><table><tr><th>Variant</th><th>Chart lives in</th><th>Navigation</th><th>Visible at rest</th><th>Goal</th><th>Work area at 1440</th></tr>${vs.filter(v=>v.tbl).map(v=>`<tr><td><b>${v.id.replace('P0','0')}</b> ${v.name}</td>${v.tbl.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</table></div><p class="foot">Tool marks are generic stand-ins, not vendor logos. Running agents pulse (Claude) or spin (Codex), as in the app, and stand still with reduced-motion on. The running count is Running plus Compacting plus Waiting, the same fold the list uses.</p>`;
+ return intro+body+meas4()+tbl;}
 function expanded(){
  const vs=inFrame(),i=vs.findIndex(v=>v.id==S.open),v=vs[i];
  const tabs=`<div class="tabs"><button class="tbtn" data-act="close">All variants</button>${vs.map(x=>`<button data-act="open:${x.id}" aria-current="${x.id==S.open}" title="${x.name}">${x.id.replace('P0','0')}</button>`).join('')}<span style="flex:1"></span></div>`;
- const[dw,dh]=S.dev||dims(v.frame),devbar=`<div class="devbar">Device <span class="seg">${DEV.map(([l,w,h])=>`<button data-act="dev:${w}x${h}" aria-pressed="${dw==w&&dh==h}" title="${w} x ${h}">${l}</button>`).join('')}<button data-act="dev:" aria-pressed="${!S.dev}" title="The frame's own size">Mock</button></span>View <span class="seg"><button data-act="view:fit" aria-pressed="${!S.actual}">Fit</button><button data-act="view:100" aria-pressed="${S.actual}">100%</button></span><span><b>${dw} x ${dh}</b> · drag the corner handle to resize</span></div>`;
- const note=`<aside class="note"><div><span class="tag">${v.id.replace('P0','0')}</span><span class="mut" style="font-size:12px">${v.grp}</span></div><h2>${v.name}</h2><p>${v.line}</p><div><h3>What it fixes</h3><p>${v.fixes}</p></div><div><h3>What it costs</h3><p>${v.costs}</p></div><div><h3>Sparkline interaction</h3><p>${v.inter}</p></div><div><h3>Where the clutter goes</h3><p>${v.clutter}</p></div><div style="display:flex;gap:8px"><button class="tbtn" data-act="open:${vs[(i+vs.length-1)%vs.length].id}">Previous</button><button class="tbtn" data-act="open:${vs[(i+1)%vs.length].id}">Next</button></div></aside>`;
+ const[dw,dh]=S.dev||dims(v),devbar=`<div class="devbar">Device <span class="seg">${DEV.map(([l,w,h])=>`<button data-act="dev:${w}x${h}" aria-pressed="${dw==w&&dh==h}" title="${w} x ${h}">${l}</button>`).join('')}<button data-act="dev:" aria-pressed="${!S.dev}" title="The frame's own size">Mock</button></span>View <span class="seg"><button data-act="view:fit" aria-pressed="${!S.actual}">Fit</button><button data-act="view:100" aria-pressed="${S.actual}">100%</button></span><span><b>${dw} x ${dh}</b> · drag the corner handle to resize</span></div>`;
+ const note=`<aside class="note"><div><span class="tag">${v.id.replace('P0','0')}</span><span class="mut" style="font-size:12px">${v.grp}</span></div><h2>${v.name}</h2><p>${v.line}</p><div><h3>What it fixes</h3><p>${v.fixes}</p></div><div><h3>What it costs</h3><p>${v.costs}</p></div><div><h3>${v.ilab||'Sparkline interaction'}</h3><p>${v.inter}</p></div><div><h3>${v.clab||'Where the clutter goes'}</h3><p>${v.clutter}</p></div><div style="display:flex;gap:8px"><button class="tbtn" data-act="open:${vs[(i+vs.length-1)%vs.length].id}">Previous</button><button class="tbtn" data-act="open:${vs[(i+1)%vs.length].id}">Next</button></div></aside>`;
  return tabs+devbar+`<div class="xv"><div class="xstage">${stage(v,'fx'+(S.actual?' act':''),[dw,dh])}<span class="rz" title="Drag to resize">${ico('expand',13)}</span><span class="rzl">${dw} x ${dh}</span></div>${note}</div>`;}
 /* overview frames scale to the card width; the focus frame scales to fit both ways (or 100%), and holds its scale while dragged */
 function fit(){document.querySelectorAll('.stage').forEach(st=>{const w=+st.dataset.w,h=+st.dataset.h,fx=st.classList.contains('fx'),a=st.classList.contains('act'),xs=st.parentElement;
@@ -829,13 +1076,15 @@ function fit(){document.querySelectorAll('.stage').forEach(st=>{const w=+st.data
  if(fx){xs.style.width=Math.min(w*sc,room)+2+'px';st.style.height=Math.min(h*sc,a?innerHeight-170:1e5)+'px';}else st.style.height=h*sc+'px';});}
 function render(){
  document.documentElement.dataset.theme=S.theme;
- for(const[id,k]of[['c-theme','theme'],['c-frame','frame'],['c-range','range'],['c-goal','goal']])document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.act.split(':')[1]==String(S[k]))));
+ for(const[id,k]of[['c-tm4','tm4'],['c-theme','theme'],['c-frame','frame'],['c-range','range'],['c-goal','goal']])document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.act.split(':')[1]==String(S[k]))));
  if(S.open&&!inFrame().some(v=>v.id==S.open))S.open=null;
+ if(S.shot){const v=V.find(x=>x.id==S.shot.id);document.body.classList.add('shot');$('#app').innerHTML=stage(v,'',[S.shot.w,S.shot.h]);return fit();}
  $('#app').innerHTML=S.open?expanded():overview();S.fresh=null;fit();
  try{history.replaceState(null,'',S.open?'#'+S.open:location.pathname+location.search);}catch(e){}}
 let tt;function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',1800);}
 function act(a){const[k,...r]=a.split(':'),v=r.join(':');
  if(k=='toast')return toast(v);
+ if(k=='q4'){S.q4=S.q4==v?'':v;for(const x in S.pop)if(x.startsWith('dd4:'))S.pop[x]=false;}else if(k=='p4'){const[a,b]=v.split('=');S.p4[a]=b;}else if(k=='tm4'){S.tm4=v;S.q4='';}
  if(k=='t')S.theme=v;else if(k=='fr'){S.frame=v;S.dev=null;if(S.open&&!inFrame().some(x=>x.id==S.open))S.open=null;}else if(k=='r')S.range=v;else if(k=='g')S.goal=+v;
  else if(k=='f')S.filter=S.filter==v?'all':v;else if(k=='toggle'){S.pop[v]=!on(v);S.fresh=v;}else if(k=='idle')S.idle=!S.idle;
  else if(k=='r2'){S.range2=v;S.zoom=null;}else if(k=='ma')S.ma=v;else if(k=='g2')S.goal2=Math.max(1,Math.min(45,S.goal2+ +v));else if(k=='f2')S.f2=S.f2==v?'all':v;
