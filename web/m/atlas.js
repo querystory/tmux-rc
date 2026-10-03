@@ -119,12 +119,13 @@ function rows(samples, metric = 'panes') {
 const chartData = (data, extra) => ({ rows: data, states: STATES, step: historyData?.step || 60000, goal,
   average: fleet.average, zoomKey: JSON.stringify([fleet.range, fleet.average]), ...extra });
 
-function averageText(data) {
+// `target` is the goal where it applies: it counts running panes, so agent metrics get none.
+function averageText(data, target = goal) {
   const avg = data.findLast(r => r.ma != null)?.ma;
   if (historyError || !historyData) return el('span', 'fleet-average muted', historyError || 'Loading saved history…');
   if (avg == null) return el('span', 'fleet-average muted', `Not enough history yet for a ${fleet.average} average`);
-  const text = el('span', `fleet-average${goal ? avg >= goal ? ' pos' : ' neg' : ''}`);
-  text.append(el('span', 'muted', `${fleet.average} avg `), el('b', '', avg.toFixed(1)), el('span', 'muted', goal ? ` vs goal ${goal}` : ''));
+  const text = el('span', `fleet-average${target ? avg >= target ? ' pos' : ' neg' : ''}`);
+  text.append(el('span', 'muted', `${fleet.average} avg `), el('b', '', avg.toFixed(1)), el('span', 'muted', target ? ` vs goal ${target}` : ''));
   return text;
 }
 
@@ -330,7 +331,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     .forEach(([value, label]) => metricControls.append(new Option(label, value)));
   metricControls.value = metric;
   metricControls.onchange = () => { root._metric = metricControls.value; redraw(); };
-  heading.append(el('h3', '', 'Activity over time'), now, averageText(data), info, el('span', 'fleet-gap'),
+  const target = metric === 'panes' ? goal : null;
+  heading.append(el('h3', '', 'Activity over time'), now, averageText(data, target), info, el('span', 'fleet-gap'),
     metricControls, rangeControl(), averageControl(), goalControl(icon));
   pulse.append(heading);
   if (root._info) {
@@ -466,5 +468,5 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   root._mapResize.observe(map);
   paints.forEach(paint => paint());
   charts.update({ words: topWords.map(([word, members]) => [word, members.length]), selectWord: searchTopic });
-  main.update(chartData(data, { unit: metric === 'panes' ? 'Panes' : 'Agents', zoomKey: JSON.stringify([fleet.range, fleet.average, scope]) }));
+  main.update(chartData(data, { goal: target, unit: metric === 'panes' ? 'Panes' : 'Agents', zoomKey: JSON.stringify([fleet.range, fleet.average, scope]) }));
 }

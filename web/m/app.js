@@ -481,8 +481,14 @@ let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null;
 try { fleetHeight = Number(localStorage.getItem(FLEET_KEY)) || STRIP; } catch {}
 const fleetHandle = $("fleet-handle");
 function sizeFleet(px = fleetHeight, mode = "") {
-  const flexible = $(terminalVisible() ? "terminal" : "overview").getBoundingClientRect().height;
-  const cap = Math.max(STRIP, fleetShown + flexible - FLEET_ROOM);
+  // From the grid's own tracks, not the flexible row's current height: after a big window
+  // shrink that row may already be clamped to zero, and would hide the overflow.
+  // The stacked overview's row can itself be squeezed below its chosen size, so count that.
+  const tracks = getComputedStyle($("detail")).gridTemplateRows.split(" ").map(parseFloat);
+  const stack = $("detail").dataset.layout === "stack", flex = stack ? 3 : 2; // the minmax(0, 1fr) row
+  if (stack) tracks[2] = Math.max(tracks[2], parseFloat($("detail").style.getPropertyValue("--review-size")) || 0);
+  const fixed = tracks.reduce((total, h, i) => i === flex || i === tracks.length - 1 ? total : total + h, 0);
+  const cap = Math.max(STRIP, $("detail").clientHeight - fixed - FLEET_ROOM);
   const snaps = [STRIP, Math.min(MEDIUM, cap), cap];
   if (mode === "snap") px = snaps.reduce((best, snap) => Math.abs(snap - px) < Math.abs(best - px) ? snap : best);
   fleetShown = Math.round(Math.max(STRIP, Math.min(snaps[2], px)));
@@ -503,7 +509,8 @@ fleetHandle.onkeydown = (e) => {
   e.preventDefault(); sizeFleet(fleetShown + step, "drag");
 };
 // The strip's Dashboard swaps the pane for the dashboard page; its Back returns to the pane.
-const openDashboard = () => { returnPane = active; navigate(null, "dashboard"); };
+// Opening it again from the dashboard keeps the pane Back returns to.
+const openDashboard = () => { if (active) returnPane = active; navigate(null, "dashboard"); };
 $("landing-back").onclick = () => navigate(returnPane);
 html($("landing-back"), licon("back", 18));
 function renderFleetSplit() {
@@ -983,7 +990,7 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
-$("dashboard-tab").onclick = () => navigate(null, "dashboard");
+$("dashboard-tab").onclick = () => openDashboard();
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
