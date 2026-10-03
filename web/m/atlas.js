@@ -280,7 +280,7 @@ function stateChip(state, n) {
 export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
   // The header counts everything running; each chip counts only the layer it toggles.
   const counts = liveCounts(panes), now = [running(counts), counts[0], counts[2], counts[1]];
-  if (unchanged(root, [open, settings, history, historyData, historyError, goal, ...now])) return;
+  if (unchanged(root, [open, settings, history, historyData, historyError, goal, draft, draftInvalid, ...now])) return;
   const focus = focusKey(root);
   const spark = root._spark ||= fleetChart(false), chart = root._chart ||= fleetChart(true);
   const data = rows(history);
@@ -316,7 +316,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   // Preserve focus and pointer targets across unchanged long polls.
-  if (unchanged(root, [scope.tool, scope.session, history, historyData, historyError, settings, goal, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+  // draft too: the goal editor is shared, so an edit on one surface refreshes the other.
+  if (unchanged(root, [scope.tool, scope.session, history, historyData, historyError, settings, goal, draft, draftInvalid, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.model, p.session_summary, p.status_line, p.agents, JSON.stringify(p.subagents)])])) return;
   const focus = focusKey(root);
   const charts = root._charts ||= atlasCharts();
