@@ -144,8 +144,8 @@ Why the wheel and nothing else, from driving each agent in a private tmux server
 - tmux copy mode would reach the inline apps' history, but the view already shows that
   history, and copy mode would freeze the real pane until someone exits it.
 
-So the daemon sends the wheel only when the app is on the alternate screen and has asked
-for SGR mouse reports, and tmux is not in copy mode over it. That is the app's own
+So the daemon sends the wheel only when the app is on the alternate screen and has turned on
+mouse tracking with SGR reports, and tmux is not in copy mode over it. That is the app's own
 statement that it handles the wheel, so it covers an unknown agent correctly and refuses an
 inline Claude Code. The client shows the gesture only for the tools whose fullscreen mode
 does this (claude, opencode, gemini). After the daemon refuses once, it stops asking for

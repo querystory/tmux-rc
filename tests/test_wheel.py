@@ -17,7 +17,7 @@ import openbus.tmux as T
 from openbus import server
 
 
-def fake_tmux(monkeypatch, flags="1 1 0"):
+def fake_tmux(monkeypatch, flags="1 1 1 0"):
     sent = []
 
     def run(argv):
@@ -42,8 +42,8 @@ def test_notches_go_to_the_pane_centre(monkeypatch, lines, seq):
     assert [report(argv) for argv in sent] == [seq]
 
 
-# sgr, alternate screen, tmux copy mode
-@pytest.mark.parametrize("flags", ["0 1 0", "1 0 0", "1 1 1"])
+# mouse tracking, sgr encoding, alternate screen, tmux copy mode
+@pytest.mark.parametrize("flags", ["0 1 1 0", "1 0 1 0", "1 1 0 0", "1 1 1 1"])
 def test_only_a_fullscreen_mouse_app_is_scrolled(monkeypatch, flags):
     sent = fake_tmux(monkeypatch, flags)
     assert not T.wheel("%1", 1, expected_pid="1234")
