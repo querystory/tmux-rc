@@ -1026,7 +1026,7 @@ async function flushWheel() {
   try {
     const { sent } = await wheelPost(id, lines);
     if (!sent && id === active) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
-  } catch { /* the next notch retries; the live frame shows where the app really is */ }
+  } catch { if (id === active) { wheel.net = Math.max(0, wheel.net - lines); paintWheelCue(); } } // not delivered: the next gesture tries again
   finally { wheelBusy = false; flushWheel(); }
 }
 // Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
@@ -1034,7 +1034,8 @@ async function flushWheel() {
 // at the bottom do nothing. The daemon takes at most 30 a request, so a long way home is
 // several requests.
 function wheelHome(id) {
-  for (let left = id && wheel.net + wheelQueued > 0 ? wheel.net + wheelQueued + 2 : 0; left > 0; left -= 30)
+  // `net` already counts the queued notches, which are dropped below: only those sent are undone.
+  for (let left = id && wheel.net - wheelQueued > 0 ? wheel.net - wheelQueued + 2 : 0; left > 0; left -= 30)
     wheelPost(id, -Math.min(30, left)).catch(() => {});
   wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
 }
