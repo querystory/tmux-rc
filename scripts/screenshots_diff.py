@@ -54,7 +54,8 @@ def main() -> None:
     ref = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
     # Absolute: each side shoots with its own tree as cwd, the base in a temp worktree.
     out = Path(sys.argv[2] if len(sys.argv) > 2 else ROOT / ".screenshots/diff").resolve()
-    shutil.rmtree(out, ignore_errors=True)
+    for sub in ("base", "head", "diff"):  # only what this tool writes; out may be anywhere
+        shutil.rmtree(out / sub, ignore_errors=True)
     with tempfile.TemporaryDirectory(prefix="tmux-rc-shots-base-") as tmp:
         base = Path(tmp) / "tree"
         subprocess.run(["git", "-C", str(ROOT), "worktree", "add", "--detach", str(base), ref],

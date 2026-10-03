@@ -5,15 +5,17 @@
 // Boots scripts/demo_server.py from `tree` (default: this checkout) on a free port, then
 // shoots SHOTS below. Same tree, same machine => same bytes: the browser clock starts at
 // the fleet's NOW, motion is off, the viewport and pixel ratio are fixed, fonts are awaited,
-// and the chat socket is a canned stub. Playwright resolves from $PLAYWRIGHT_DIR (the
-// Makefile installs it there) so the repo's own package.json stays browser-free.
+// and the chat socket is a canned stub. Playwright resolves from $PLAYWRIGHT_DIR (default:
+// the Makefile's install dir) so the repo's own package.json stays browser-free.
 import { spawn, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 
-const { chromium } = createRequire(path.join(process.env.PLAYWRIGHT_DIR || ".", "/"))("playwright");
+const playwright = process.env.PLAYWRIGHT_DIR || path.join(homedir(), ".cache/tmux-rc/playwright");
+const { chromium } = createRequire(path.join(playwright, "/"))("playwright");
 const [out = ".screenshots", tree = process.cwd()] = process.argv.slice(2);
 const WIDE = { width: 1440, height: 900 }, PHONE = { width: 390, height: 844 };
 
