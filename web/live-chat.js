@@ -79,7 +79,8 @@ export const chatThumb = (src) => Object.assign(document.createElement("img"), {
 // A minimized conversation: a floating button that restores it, with a dot for anything
 // said while it was down and a count of consent cards still waiting on Send or Cancel. A
 // voice session minimizes to the same button under its own name and the mic.
-// Returns paint({shown, voice, unread, pending}), with paint.focus() for handing focus over.
+// It pulses while a reply is being worked on.
+// Returns paint({shown, voice, unread, pending, working}), with paint.focus() for handing focus over.
 export function chatBubble({ licon, open }) {
   const bubble = document.createElement("button"), glyph = document.createElement("span");
   bubble.type = "button"; bubble.className = "chat-bubble"; bubble.hidden = true;
@@ -87,12 +88,13 @@ export function chatBubble({ licon, open }) {
   bubble.append(glyph, badge);
   bubble.onclick = open;
   document.body.append(bubble);
-  return Object.assign(({ shown, voice, unread, pending }) => {
+  return Object.assign(({ shown, voice, unread, pending, working }) => {
     bubble.hidden = !shown;
     if (glyph.dataset.voice !== String(!!voice)) { glyph.dataset.voice = !!voice; glyph.innerHTML = licon(voice ? "mic" : "message"); }
     bubble.classList.toggle("unread", !!unread);
+    bubble.classList.toggle("working", !!working);
     badge.textContent = pending || "";
     const name = voice ? "Live Mode" : "Chat";
-    bubble.title = bubble.ariaLabel = `Open ${name}${pending ? `: ${pending} waiting for you` : unread ? ": new messages" : ""}`;
+    bubble.title = bubble.ariaLabel = `Open ${name}${pending ? `: ${pending} waiting for you` : unread ? ": new messages" : working ? ": responding" : ""}`;
   }, { focus: () => bubble.focus() });
 }

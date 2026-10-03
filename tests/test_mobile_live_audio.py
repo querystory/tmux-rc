@@ -138,13 +138,25 @@ const element = () => {
   const node = Object.assign(new EventTarget(), {
     classList: {add: (c) => classes.add(c), contains: (c) => classes.has(c),
       toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
-    setAttribute() {}, insertAdjacentHTML() {}, remove() {}, showModal() {node.open = true;},
+    setAttribute() {}, insertAdjacentHTML() {}, showModal() {node.open = true;},
     focus() {},
     close() {node.open = false; node.dispatchEvent(new Event('close'));},
     before(...nodes) {thumbs.push(...nodes.map((image) => image.src));},
-    replaceChildren(...children) {node.children = children;},
-    append(...children) {node.children.push(...children);},
+    remove() {
+      node.parent?.children.splice(node.parent.children.indexOf(node), 1); node.parent = null;
+    },
+    insertBefore(child, ref) {
+      child.remove(); child.parent = node;
+      node.children.splice(ref ? node.children.indexOf(ref) : node.children.length, 0, child);
+    },
+    replaceChildren(...children) {
+      [...node.children].forEach((c) => c.remove()); node.append(...children);
+    },
+    append(...children) {children.forEach((child) => node.insertBefore(child, null));},
     value: '', textContent: '', dataset: {}, children: []});
+  Object.defineProperty(node, 'isConnected', {get: () => !!node.parent});
+  Object.defineProperty(node, 'previousElementSibling',
+    {get: () => node.parent?.children[node.parent.children.indexOf(node) - 1]});
   Object.defineProperty(node, 'firstChild', {get: () => node.children[0]});
   Object.defineProperty(node, 'lastChild', {get: () => node.children.at(-1)});
   Object.defineProperty(node, 'lastElementChild', {get: () => node.children.at(-1)});
@@ -386,3 +398,68 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
 })().catch((error) => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True,
       "live_models": [{"label": "Gemini", "hint": "voice"}, {"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_chat_shows_a_working_row_until_each_turn_is_answered():
+    _run_live(r"""
+(async () => {
+  const $ = (id) => document.getElementById(id), log = $('voice-log');
+  await live.refresh();
+  $('chat').onclick(); await flush();
+  const socket = sockets[0], [bubble] = document.body.children;
+  const say = (message) => socket.onmessage({data: JSON.stringify(message)});
+  const roles = () => log.children.map((row) => row.dataset.role || 'typing');
+  const send = (text) => {
+    sandbox.Composer.prototype.segments = () => [{text}];
+    $('voice-compose').onsubmit({preventDefault() {}});
+  };
+  say({type: 'status', status: 'listening'});
+  send('hello');
+  assert.deepEqual(roles(), ['typing']); // at once, before the echo
+  say({type: 'transcript', role: 'user', text: 'hello', new_segment: true});
+  assert.deepEqual(roles(), ['user', 'typing']); // rows arriving meanwhile go above it
+  // A consent card means the model waits on the user: no dots until it is decided.
+  say({type: 'propose', id: 'p1', text: 'Send to work'});
+  assert.deepEqual(roles(), ['user', 'propose']);
+  say({type: 'decided', id: 'p1', ok: true});
+  assert.deepEqual(roles(), ['user', 'propose', 'typing']);
+  say({type: 'typed', label: 'work', pane_id: '%1', submitted: true, text: 'ls'});
+  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
+  // Minimized, the bubble pulses while the reply is out.
+  $('voice-close').onclick();
+  assert.equal(bubble.classList.contains('working'), true);
+  assert.match(bubble.title, /responding/);
+  say({type: 'transcript', role: 'model', text: 'Done.'});
+  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model']); // the reply took its place
+  assert.equal(bubble.classList.contains('working'), false);
+  say({type: 'turn_complete'});
+  assert.equal(roles().at(-1), 'model');
+  // Sends are not blocked while one is out: the daemon queues them, so the dots stay up
+  // until the last is answered, through a refusal of one past the queue's room.
+  bubble.onclick();
+  send('one');
+  send('two');
+  send('three');
+  assert.equal(socket.sent.length, 4);
+  say({type: 'error', refused: true, message: 'Still answering earlier turns; not sent'});
+  assert.equal(roles().at(-1), 'typing');
+  say({type: 'transcript', role: 'model', text: 'One.'}); say({type: 'turn_complete'});
+  assert.equal(roles().at(-1), 'typing'); // the second turn is still out
+  // Any other error ends the session's turns, and so the dots.
+  say({type: 'error', message: 'live session failed'});
+  assert.equal(roles().at(-1), 'error');
+  assert.ok(!roles().includes('typing'));
+  // A dropped connection takes the queued turns with it, and ending clears the row.
+  send('four');
+  assert.equal(roles().at(-1), 'typing');
+  say({type: 'status', status: 'reconnecting'});
+  assert.ok(!roles().includes('typing'));
+  say({type: 'status', status: 'listening'});
+  send('five');
+  $('voice-end').onclick();
+  assert.ok(!roles().includes('typing'));
+  assert.equal(bubble.classList.contains('working'), false);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True,
+      "live_models": [{"label": "Sonnet", "text": True}]})
