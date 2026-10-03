@@ -125,8 +125,11 @@ the transcript inside the app, so the view's top is just the top of the screen.
 
 So scrolling on past the top, after some resistance, sends scroll-wheel reports into the
 pane, and the app scrolls its own transcript. The live stream picks up the new screen like
-any other change. Scrolling down past the bottom brings the app back, and leaving the pane
-or pressing Latest output sends it home. Without that, the watcher would keep parsing a
+any other change. Scrolling down past the bottom brings the app back notch for notch. It
+does not stop when the notch count reaches zero, because apps accelerate the wheel: a burst
+of 30 moves Claude Code about 4 lines a notch, and a lone notch moves it 1. Counting notches
+back to zero once left the app well short of its bottom. Leaving the pane or pressing
+Latest output sends it home with every notch that went up, erring high. Without that, the watcher would keep parsing a
 screen scrolled back to old output.
 
 Why the wheel and nothing else, from driving each agent in a private tmux server:
