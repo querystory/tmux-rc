@@ -225,7 +225,7 @@ function route() {
     refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
   }
   if (active && changed) post(paneUrl(active, "select")).catch(() => notice("Could not focus this pane on the host."));
-  if (changed && active) $("back").focus({ preventScroll: true });
+  if (changed && active) $("pane-title").focus({ preventScroll: true }); // land in the pane, on its name: focusing Back painted its ring on open
 }
 
 function makeRow(pane) {

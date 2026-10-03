@@ -40,6 +40,8 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #heading { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
 .pane-heading-text { min-width: 0; flex: 1; }
 #heading h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Navigation focuses the title (tabindex=-1) so focus lands in the opened pane without painting a ring on a button; Tab still reaches real controls with their :focus-visible ring. */
+#pane-title:focus { outline: none; }
 #pane-location { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 #connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
