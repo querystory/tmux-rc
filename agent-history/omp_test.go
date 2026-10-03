@@ -544,6 +544,86 @@ func TestOmpFlatRootOrphanArtifacts(t *testing.T) {
 	}
 }
 
+func TestOmpExactPointersOverrideArtifactPlacement(t *testing.T) {
+	for _, kind := range []string{"custom-session-files", "terminal-sessions"} {
+		for _, location := range []string{"timestamp folder", "pointed artifact tree", "flat descendant"} {
+			t.Run(kind+"/"+location, func(t *testing.T) {
+				ompTestEnv(t)
+				t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+				root := t.TempDir()
+				alias := filepath.Join(t.TempDir(), "alias")
+				must(t, os.Symlink(root, alias))
+				state := ompLocationFor("", os.Getenv).State
+				dir := "2026-10-02T10-00-00Z_heuristic-parent"
+				if location == "pointed artifact tree" {
+					outer := ompWrite(t, filepath.Join(alias, "outer.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "outer-id"))
+					ompWrite(t, filepath.Join(state, "custom-session-files", "outer"), outer)
+					dir = "outer"
+				} else if location == "flat descendant" {
+					t.Setenv("PI_CODING_AGENT_SESSION_DIR", alias)
+					dir = "nested"
+				}
+				target := ompWrite(t, filepath.Join(alias, dir, "interactive.jsonl"), ompTestHeader)
+				body := target + "\n"
+				if kind == "terminal-sessions" {
+					body = filepath.Dir(target) + "\n" + filepath.Base(target) + "\n"
+				}
+				ompWrite(t, filepath.Join(state, kind, "interactive"), body)
+				child := ompWrite(t, strings.TrimSuffix(target, ".jsonl")+"/Worker.jsonl", strings.ReplaceAll(ompTestHeader, "real-id", "worker-header"))
+				nested := ompWrite(t, strings.TrimSuffix(child, ".jsonl")+"/Nested.jsonl", strings.ReplaceAll(ompTestHeader, "real-id", "nested-header"))
+				placement := &ompPlacement{}
+				for _, source := range []string{target, filepath.Join(root, dir, "interactive.jsonl")} {
+					s, err := readOmp(source, placement)
+					must(t, err)
+					check(t, "main header ID", s.ID, "real-id")
+					check(t, "main parent", s.Parent, "")
+					ompCheckResume(t, source, "omp", "--resume", source)
+					id, parent := ompIdentity(source)
+					check(t, "index identity", id, "real-id")
+					check(t, "index parent", parent, "")
+					id, err = placement.liveIdentity(source)
+					must(t, err)
+					check(t, "live main identity", id, "real-id")
+				}
+				must(t, indexFile(omp, []string{target}, false, placement))
+				for _, parent := range []string{"heuristic-parent", "outer-id"} {
+					if _, err := os.Stat(indexPath("omp", parent, "interactive")); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("interactive main written under heuristic parent %q: %v", parent, err)
+					}
+				}
+				entry, err := ReadEntry(indexPath("omp", "", "real-id"))
+				must(t, err)
+				check(t, "get-facing ID", entry.ID, "real-id")
+				check(t, "get-facing parent", entry.Parent, "")
+				check(t, "original pointer source", entry.Source, target)
+				if !reflect.DeepEqual(entry.ResumeArgv, []string{"omp", "--resume", target}) {
+					t.Errorf("get-facing resume = %v", entry.ResumeArgv)
+				}
+				for _, artifact := range []struct {
+					path, id, parent string
+				}{
+					{child, "Worker", "real-id"},
+					{nested, "Nested", "worker-header"},
+				} {
+					s, err := readOmp(artifact.path, placement)
+					must(t, err)
+					check(t, "descendant basename", s.ID, artifact.id)
+					check(t, "descendant parent", s.Parent, artifact.parent)
+					id, parent := placement.identity(artifact.path)
+					check(t, "descendant index ID", id, artifact.id)
+					check(t, "descendant index parent", parent, artifact.parent)
+					if len(s.ResumeArgv) != 0 {
+						t.Errorf("artifact has resume argv: %v", s.ResumeArgv)
+					}
+					if id, err := placement.liveIdentity(artifact.path); err == nil {
+						t.Errorf("artifact identifies live main: %q", id)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestOmpSymlinkArtifactCanonicalParent(t *testing.T) {
 	for _, mode := range []string{"flat root", "registered custom root"} {
 		t.Run(mode, func(t *testing.T) {
@@ -618,5 +698,154 @@ func TestOmpSymlinkMissingMainClassification(t *testing.T) {
 			}
 			ompCheckSources(t)
 		})
+	}
+}
+
+func TestOmpDuplicateXDGSourcePrecedence(t *testing.T) {
+	for _, profile := range []string{"", "review"} {
+		t.Run("profile="+profile, func(t *testing.T) {
+			home := ompTestEnv(t)
+			t.Setenv("PI_CONFIG_DIR", "z-omp")
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			legacyRoot := ompLocationFor(profile, os.Getenv).Sessions
+			legacy := ompWrite(t, filepath.Join(legacyRoot, "bucket", "legacy.jsonl"), ompTestHeader)
+			survivor := ompWrite(t, filepath.Join(legacyRoot, "bucket", "survivor.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "legacy-only"))
+			if !reconcileAll(false, false) {
+				t.Fatal("initial reconcile failed")
+			}
+			info, err := os.Stat(legacy)
+			must(t, err)
+			xdgRoot := filepath.Join(home, "a-data", "omp")
+			if profile != "" {
+				xdgRoot = filepath.Join(xdgRoot, "profiles", profile)
+			}
+			current := ompWrite(t, filepath.Join(xdgRoot, "sessions", "bucket", "current.jsonl"), strings.ReplaceAll(ompTestHeader, "header auto", "current copy"))
+			must(t, os.Chtimes(current, info.ModTime(), info.ModTime()))
+			t.Setenv("XDG_DATA_HOME", filepath.Join(home, "a-data"))
+			ompCheckSources(t, current, survivor)
+			if !reconcileAll(false, false) {
+				t.Fatal("migration reconcile failed")
+			}
+			e, err := ReadEntry(indexPath("omp", "", "real-id"))
+			must(t, err)
+			check(t, "selected current source", e.Source, current)
+			check(t, "selected current title", e.Title, "current copy")
+			want := []string{"omp", "--resume", "real-id"}
+			if profile != "" {
+				want = []string{"omp", "--profile", profile, "--resume", current}
+			}
+			if e.SourceMissing || !slices.Equal(e.ResumeArgv, want) {
+				t.Fatalf("current resume=%v missing=%v, want %v", e.ResumeArgv, e.SourceMissing, want)
+			}
+			e, err = ReadEntry(indexPath("omp", "", "legacy-only"))
+			must(t, err)
+			check(t, "surviving legacy source", e.Source, survivor)
+			want = []string{"omp", "--resume", survivor}
+			if profile != "" {
+				want = []string{"omp", "--profile", profile, "--resume", survivor}
+			}
+			if e.SourceMissing || !slices.Equal(e.ResumeArgv, want) {
+				t.Fatalf("legacy resume=%v missing=%v, want %v", e.ResumeArgv, e.SourceMissing, want)
+			}
+		})
+	}
+}
+
+func TestOmpDuplicatePointerAndFlatSourcePrecedence(t *testing.T) {
+	home := ompTestEnv(t)
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	managed := ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).Sessions, "z-managed", "main.jsonl"), ompTestHeader)
+	must(t, indexFile(omp, []string{managed}, false, nil))
+	flat := filepath.Join(home, "a-flat")
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", flat)
+	flatPath := ompWrite(t, filepath.Join(flat, "main.jsonl"), ompTestHeader)
+	selected := ompWrite(t, filepath.Join(home, "a-custom", "main.jsonl"), ompTestHeader)
+	marker := ompWrite(t, filepath.Join(ompLocationFor("review", os.Getenv).State, "custom-session-files", "selected"), selected)
+	ompCheckSources(t, selected)
+	if !reconcileAll(false, false) {
+		t.Fatal("pointer reconcile failed")
+	}
+	e, err := ReadEntry(indexPath("omp", "", "real-id"))
+	must(t, err)
+	check(t, "pointer-selected source", e.Source, selected)
+	want := []string{"omp", "--profile", "review", "--resume", selected}
+	if e.SourceMissing || !slices.Equal(e.ResumeArgv, want) {
+		t.Fatalf("pointer resume=%v missing=%v, want %v", e.ResumeArgv, e.SourceMissing, want)
+	}
+	must(t, os.Remove(marker))
+	ompCheckSources(t, flatPath)
+	if !reconcileAll(false, false) {
+		t.Fatal("flat-root reconcile failed")
+	}
+	e, err = ReadEntry(indexPath("omp", "", "real-id"))
+	must(t, err)
+	check(t, "flat-selected source", e.Source, flatPath)
+	want = []string{"omp", "--resume", flatPath}
+	if e.SourceMissing || !slices.Equal(e.ResumeArgv, want) {
+		t.Fatalf("flat resume=%v missing=%v, want %v", e.ResumeArgv, e.SourceMissing, want)
+	}
+}
+
+func TestOmpDuplicateSymlinkSourceIdentity(t *testing.T) {
+	ompTestEnv(t)
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", root)
+	target := ompWrite(t, filepath.Join(root, "z-main.jsonl"), ompTestHeader)
+	alias := filepath.Join(root, "a-main.jsonl")
+	must(t, os.Symlink(target, alias))
+	ompCheckSources(t, alias)
+	if !reconcileAll(false, false) {
+		t.Fatal("alias reconcile failed")
+	}
+	e, err := ReadEntry(indexPath("omp", "", "real-id"))
+	must(t, err)
+	check(t, "lexical same-tier source", e.Source, alias)
+	if !slices.Equal(e.ResumeArgv, []string{"omp", "--resume", alias}) {
+		t.Fatalf("alias resume = %v", e.ResumeArgv)
+	}
+	ompWrite(t, filepath.Join(ompLocationFor("review", os.Getenv).State, "custom-session-files", "selected"), target)
+	ompCheckSources(t, target)
+	if !reconcileAll(false, false) {
+		t.Fatal("exact-target reconcile failed")
+	}
+	e, err = ReadEntry(indexPath("omp", "", "real-id"))
+	must(t, err)
+	check(t, "original pointer source", e.Source, target)
+	if !slices.Equal(e.ResumeArgv, []string{"omp", "--profile", "review", "--resume", target}) {
+		t.Fatalf("exact pointer resume = %v", e.ResumeArgv)
+	}
+}
+
+func TestOmpSameArtifactBasenameDifferentParents(t *testing.T) {
+	ompTestEnv(t)
+	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+	root := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", root)
+	var sources []string
+	for _, parentID := range []string{"parent-a", "parent-b"} {
+		parent := ompWrite(t, filepath.Join(root, "arbitrary-"+parentID+".jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", parentID))
+		child := ompWrite(t, filepath.Join(strings.TrimSuffix(parent, ".jsonl"), "Agent.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "same-child-header"))
+		sources = append(sources, parent, child)
+	}
+	ompCheckSources(t, sources...)
+	if !reconcileAll(false, false) {
+		t.Fatal("artifact reconcile failed")
+	}
+	for i, parentID := range []string{"parent-a", "parent-b"} {
+		e, err := ReadEntry(indexPath("omp", parentID, "Agent"))
+		must(t, err)
+		check(t, "child source", e.Source, sources[2*i+1])
+		check(t, "canonical immediate parent", e.Parent, parentID)
+		check(t, "child basename identity", e.ID, "Agent")
+		if e.SourceMissing || len(e.ResumeArgv) != 0 {
+			t.Fatalf("child missing=%v resume=%v", e.SourceMissing, e.ResumeArgv)
+		}
+		e, err = ReadEntry(indexPath("omp", "", parentID))
+		must(t, err)
+		check(t, "parent source", e.Source, sources[2*i])
+		if e.SourceMissing || !slices.Equal(e.ResumeArgv, []string{"omp", "--resume", sources[2*i]}) {
+			t.Fatalf("parent missing=%v resume=%v", e.SourceMissing, e.ResumeArgv)
+		}
 	}
 }

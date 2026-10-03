@@ -28,7 +28,7 @@ func indexPath(harness, parent, id string) string {
 
 // Format versions derived entries. Mtime alone cannot detect a changed reader,
 // so reconcile rebuilds everything once when the recorded format differs.
-const Format = "6" // 6: skip nested omp artifacts whose canonical parent was lost
+const Format = "7" // 7: authoritative omp pointer identities and duplicate-source precedence
 
 // A harness is one coding agent whose sessions are indexed.
 type harness struct {

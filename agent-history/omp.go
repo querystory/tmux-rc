@@ -78,11 +78,7 @@ func ompArtifactParent(path string, roots map[string]struct{}) (parent string, a
 }
 
 func ompIdentity(path string) (id, parent string) {
-	if parent, artifact := ompArtifactParent(path, nil); artifact {
-		return strings.TrimSuffix(filepath.Base(path), ".jsonl"), parent
-	}
-	h, _ := ompHeader(path)
-	return h.ID, ""
+	return (&ompPlacement{}).identity(path)
 }
 
 func ReadOmp(path string) (Session, error) {
@@ -192,6 +188,7 @@ type ompPlacement struct {
 	active        string
 	locations     []ompLocation
 	pointers      []ompPointerSet
+	exactTargets  map[string]struct{}
 	artifactRoots map[string]struct{}
 	flatRoot      string
 	loaded        bool
@@ -227,6 +224,15 @@ func (p *ompPlacement) profilePointers(i int) (map[string]struct{}, error) {
 				state.paths = make(map[string]struct{})
 			}
 			state.paths[path] = struct{}{}
+			target, err := ompCanonicalPath(path)
+			if err != nil {
+				rootErrs = append(rootErrs, err)
+				return
+			}
+			if p.exactTargets == nil {
+				p.exactTargets = make(map[string]struct{})
+			}
+			p.exactTargets[target] = struct{}{}
 			root, err := ompCanonicalPath(strings.TrimSuffix(path, ".jsonl"))
 			if err != nil {
 				rootErrs = append(rootErrs, err)
@@ -255,11 +261,26 @@ func (p *ompPlacement) artifactParent(path string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
+	if _, pointed := p.exactTargets[absolute]; pointed {
+		return "", false, nil
+	}
 	parent, artifact := ompArtifactParent(absolute, p.artifactRoots)
 	if !artifact && p.flatRoot != "" {
 		artifact = ompWithin(p.flatRoot, absolute) && filepath.Dir(absolute) != p.flatRoot
 	}
 	return parent, artifact, nil
+}
+
+func (p *ompPlacement) identity(path string) (id, parent string) {
+	parent, artifact, err := p.artifactParent(path)
+	if err != nil || artifact && parent == "" {
+		return "", ""
+	}
+	if artifact {
+		return strings.TrimSuffix(filepath.Base(path), ".jsonl"), parent
+	}
+	h, _ := ompHeader(path)
+	return h.ID, ""
 }
 
 // Resolve the existing prefix so deleted transcripts and their missing parent
@@ -477,28 +498,62 @@ func (p *ompPlacement) sessions() ([][]string, error) {
 	if err := p.load(); err != nil {
 		return nil, err
 	}
+	// Keep provenance while gathering: exact original pointers, flat override,
+	// effective managed roots, then legacy roots. Register each path only once.
+	const (
+		pointerTier = iota
+		flatTier
+		effectiveTier
+		legacyTier
+	)
 	var paths []string
+	tiers := make(map[string]int)
 	var errs []error
-	addTree := func(root string) {
+	add := func(path string, tier int) {
+		old, exists := tiers[path]
+		if !exists {
+			paths = append(paths, path)
+		}
+		if !exists || tier < old {
+			tiers[path] = tier
+		}
+	}
+	addTree := func(root string, tier int) {
 		found, err := find(root, ".jsonl", 0)
-		paths = append(paths, found...)
+		for _, path := range found {
+			add(path, tier)
+		}
 		errs = append(errs, err)
 	}
+	var profile, effectiveRoot string
 	for i, loc := range p.locations {
-		addTree(loc.Sessions)
+		// ompLocations groups profiles, effective location before legacy.
+		if i == 0 || loc.Profile != profile {
+			profile, effectiveRoot = loc.Profile, loc.Sessions
+		}
+		tier := effectiveTier
+		if loc.Sessions != effectiveRoot {
+			tier = legacyTier
+		}
+		addTree(loc.Sessions, tier)
 		pathsForProfile, err := p.profilePointers(i)
 		errs = append(errs, err)
 		for path := range pathsForProfile {
-			paths = append(paths, path)
-			addTree(strings.TrimSuffix(path, ".jsonl"))
+			add(path, pointerTier)
+			addTree(strings.TrimSuffix(path, ".jsonl"), tier)
 		}
 	}
 	if root := os.Getenv("PI_CODING_AGENT_SESSION_DIR"); root != "" {
-		addTree(root)
+		addTree(root, flatTier)
 	}
-	slices.Sort(paths)
-	paths = slices.Compact(paths)
+	slices.SortFunc(paths, func(a, b string) int {
+		if tiers[a] != tiers[b] {
+			return tiers[a] - tiers[b]
+		}
+		return strings.Compare(a, b)
+	})
 	var out [][]string
+	identities := make(map[[2]string]struct{})
 	for _, path := range paths {
 		if strings.HasPrefix(filepath.Base(path), "__") {
 			continue
@@ -522,6 +577,15 @@ func (p *ompPlacement) sessions() ([][]string, error) {
 		if artifact && parent == "" {
 			continue
 		}
+		id := h.ID
+		if artifact {
+			id = strings.TrimSuffix(filepath.Base(path), ".jsonl")
+		}
+		key := [2]string{parent, id}
+		if _, seen := identities[key]; seen {
+			continue
+		}
+		identities[key] = struct{}{}
 		out = append(out, []string{path})
 	}
 	return out, errors.Join(errs...)

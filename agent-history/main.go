@@ -221,6 +221,7 @@ func reconcileAll(force, forceOmp bool) (ok bool) {
 	for _, h := range harnesses {
 		if h.name == "omp" {
 			h.sessions = placement.sessions
+			h.identity = placement.identity
 			h.read = func(files []string) (Session, error) { return readOmp(files[0], &placement) }
 		}
 		sessions, err := h.sessions()

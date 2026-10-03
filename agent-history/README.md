@@ -77,6 +77,8 @@ Artifact location identifies a subagent: `parentSession` alone also marks ordina
 A sibling transcript supplies the canonical parent ID; timestamped artifact folders
 also identify direct orphans. Registered custom-file/breadcrumb pointers supply
 artifact-tree boundaries even when a non-timestamped parent is missing or truncated.
+Exact custom-file/breadcrumb targets identify interactive mains before artifact
+heuristics; descendants of their transcript's artifact tree remain subagents.
 The explicit flat session root is also a boundary: direct files are main sessions,
 while nested transcripts remain artifacts even without a readable parent.
 Boundaries and candidates use resolved filesystem paths, including missing paths'
@@ -108,6 +110,10 @@ find relocated transcripts without searching unrelated files. Older omp versions
 without that registry cannot rediscover an unknown `--session-dir` after its breadcrumb
 is overwritten: set `PI_CODING_AGENT_SESSION_DIR` for reconcile in that case.
 Managed session/artifact trees are scanned recursively, including nested agents.
+Discovery emits each `(canonical parent ID, session ID)` once, preferring exact
+pointer targets, then the explicit flat root, effective managed roots, and legacy
+roots. Same-tier ties use lexical path order; same-named children of different
+parents remain distinct.
 
 Ordinary omp entries resume with `omp --resume <id>` in their recorded cwd. Relocated
 entries use the absolute transcript path to bypass ID lookup; named-profile entries
@@ -124,8 +130,8 @@ Ordinary reconcile checks placement and requires the cached source to match the
 discovered source before trusting an unchanged transcript mtime. A move or registry
 pointer relocation therefore rebuilds source/resume metadata even when the transcript
 keeps its mtime. The check reads only the entry header rather than routinely rescanning
-transcripts. Format 6 rebuilds current artifact classification; obsolete
-per-entry profile-only context is absent, and consumer JSON has no new fields.
+transcripts. Format 7 rebuilds pointer-authoritative identities and duplicate-source
+selection. Obsolete per-entry profile-only context is absent; consumer JSON has no new fields.
 
 ## Resolving a request
 
