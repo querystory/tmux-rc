@@ -87,6 +87,8 @@ a.icon-button { color: var(--fg); text-decoration: none; }
   .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; }
   .working[data-tool="omp"] { animation: none; } /* omp's sweep is its own SVG (markWorking swaps it in) */
 }
+/* CSS can't pause an <img>'s SMIL, but generated content can cover it with the still logo. */
+@media (prefers-reduced-motion: reduce) { img[src="/omp-working.svg"] { content: url(/omp.svg); } }
 .working[data-tool="omp"] { border-radius: 19%; } /* omp's tile is a rounded square (rx 12 of 64); a circle would crop it */
 @media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
 @keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
