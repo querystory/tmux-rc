@@ -534,7 +534,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #detail:has(#fleet-handle.dragging) { user-select: none; cursor: row-resize; }
   .fleet-strip { display: flex; flex: none; align-items: center; gap: 10px; height: 39px; padding: 0 12px 0 4px; }
   .fleet-strip .icon-button { width: 36px; height: 36px; min-height: 36px; }
-  .fleet-strip .fleet-chart { height: 28px; min-width: 120px; }
+  .fleet-strip .fleet-chart { flex: 3; height: 28px; min-width: 120px; }
   .fleet-now b { font-size: 16px; }
   .fleet-tools { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 4px 16px; }
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }

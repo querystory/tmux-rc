@@ -169,10 +169,8 @@ function goalControl(icon) {
   input.title = goalFailed ? 'Could not save the goal. Try again.' : '';
   input.dataset.key = 'goal';
   input.oninput = () => { draft = input.value; };
-  input.onkeydown = event => {
-    if (event.key === 'Enter') saveGoal();
-    else if (event.key === 'Escape') { draft = null; goalFailed = false; setFleet({}); }
-  };
+  input.onkeydown = event => { if (event.key === 'Enter') saveGoal(); };
+  box.onkeydown = event => { if (event.key === 'Escape') { draft = null; goalFailed = false; setFleet({}); } };
   const button = (name, label, onclick) => {
     const node = el('button', 'icon-button');
     node.innerHTML = icon(name, 14);
