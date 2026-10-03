@@ -5,7 +5,7 @@ Live Mode can find past work across projects and resume it. It is independent of
 tmux-rc daemon: it indexes sessions that never ran in a pane (subagents, IDE sessions,
 headless runs), and runs whether or not the daemon is up.
 
-Status: Claude Code and Codex. An OpenCode reader and summaries follow.
+Status: Claude Code, Codex and omp. An OpenCode reader and summaries follow.
 
 ## Why an index and not a copy
 
@@ -53,8 +53,8 @@ detached child and returns in milliseconds. `agent-history reconcile` repairs wh
 hooks missed (hard reboot, killed session, hooks not yet installed); hooks run one
 themselves when the last is more than six hours old, so no timer is needed.
 
-Codex has no such hook here, so its sessions (`~/.codex/sessions`, or `$CODEX_HOME`)
-arrive with reconcile, which `resolve` also starts in the background when one is due.
+Codex and omp have no such hook here, so their sessions (`~/.codex/sessions` or
+`$CODEX_HOME`; `~/.omp/agent/sessions` or `$PI_CODING_AGENT_DIR/sessions`) arrive with reconcile, which `resolve` also starts in the background when one is due.
 No search waits for it, so a search after a long idle period answers from the index as
 it was and starts the refresh; a later search sees the result.
 
@@ -67,9 +67,16 @@ Work a thread delegates (`thread_spawn`) is indexed under it like a Claude subag
 named by its task's path, since Codex stores the task itself encrypted. Approval
 reviews (`guardian`) are left out: their task is a copy of the parent's transcript.
 
+An omp session is one file. Its first line is a title slot omp rewrites in place, so it
+holds the current name. omp also records the notifications it injects as `role: user`,
+marking them synthetic or agent-attributed, so only unmarked ones count as typed. A
+subagent's transcript sits in a folder named after its parent's file, and is named for
+the agent; its body is the task (`session_init`) the parent gave it. omp's custom
+session directories and profiles are not followed: sessions there are not indexed.
+
 ## Resolving a request
 
-`agent-history resolve [-json] [-harness claude|codex] [-all] <query>` answers "where does
+`agent-history resolve [-json] [-harness claude|codex|omp] [-all] <query>` answers "where does
 this belong?" for a request like "fix live mode": the likeliest repos and, in each, the
 sessions to resume. It reads only the index, takes milliseconds, and calls no model.
 
@@ -92,7 +99,9 @@ Codex keeps no registry, but a running Codex holds its thread's rollout open, so
 open files of the user's `codex` processes say which threads are live — proof that
 needs no start time check. Only codex processes count: an editor or `tail -f` on a
 rollout is not the session, and neither are the sandbox helpers that run tool commands
-under the name `codex`. The process's `TMUX_PANE` says where it runs.
+under the name `codex`. The process's `TMUX_PANE` says where it runs. omp is read the
+same way: a running `omp` holds its session's file open, and its idle worker processes
+(also named `omp`) hold none.
 
 That pane is usually missing. New Codex sessions run through a shared app-server
 daemon, which holds the rollout of every thread its terminal clients show, while the
