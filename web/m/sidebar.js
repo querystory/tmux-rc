@@ -29,18 +29,18 @@ function groups(subset, query) {
   const list = prefs.by === "session"
     ? [...new Set(rest.map((p) => p.session))].map((s) => {
       const panes = rest.filter((p) => p.session === s);
-      return { id: `session:${s}`, label: s || "Session", panes, quiet: !panes.some(alive) };
+      return { id: `session:${s}`, label: s || "Session", panes };
     })
     : STATES.map(([id, label, test]) => {
       const panes = rest.filter(test);
       panes.forEach((p) => rest.splice(rest.indexOf(p), 1)); // each pane lands in its first matching state
-      return { id, label, panes, quiet: id === "idle" };
+      return { id, label, panes };
     });
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
     g.panes.sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
     g.cards = prefs.cards[g.id] ?? prefs.all ?? g.id === "need";
-    g.open = !!query || !(prefs.fold[g.id] ?? !!g.quiet);
+    g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
   }
   return list.filter((g) => g.panes.length);
 }

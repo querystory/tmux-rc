@@ -262,3 +262,5 @@ def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
     assert 'show("list-nav", !inPane && !wide)' in app
     assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
     assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
+    # Every group starts open (Idle too, by the user's call); only a fold the user made persists.
+    assert "g.open = !!query || !prefs.fold[g.id];" in side
