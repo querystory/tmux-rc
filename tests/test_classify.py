@@ -275,6 +275,28 @@ def test_omp_malformed_question_is_rejected_without_raising(state, question):
     assert not result.get("question")
 
 
+_RECEIPT = "? Ask\nWhich color do you prefer?\n○ Red\n● Green\n\nRead web/m/app.js\n\n"
+_LIVE_ASK = "╭─ Ask ──╮\n│ Which shade? │\n├──┤\n│ ❯ ○ Light │\n╰──╯\n"
+
+
+@pytest.mark.parametrize("style", ["text", None])
+@pytest.mark.parametrize(("title", "screen", "prompt"), [
+    ("π > Colors", _RECEIPT + " π > ◒ GPT-5.5\n", "Which color do you prefer?"),
+    ("π ! Ask Shade", _RECEIPT + _LIVE_ASK, "Which color do you prefer?"),
+    ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
+     "Are the regressions passing?"),
+    ("π > Colors", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),
+])
+def test_omp_receipts_and_queued_input_are_not_questions(title, screen, prompt, style):
+    if screen.startswith("67_"):
+        screen = _sample(screen)
+    result = classify(_pane("bun", title), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user",
+        "question": {"prompt": prompt, "answer_style": style},
+    }))
+    assert (result.get("question") or {}).get("prompt") != prompt
+
+
 def test_omp_idle_session_label_is_not_a_question():
     label = "Ask Preferred Color Choice"
     result = classify(
