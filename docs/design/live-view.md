@@ -116,6 +116,40 @@ viewer of a known SGR subset; adopt xterm.js the moment we need true interactivi
 raw stream, or find ourselves chasing emulator-grade fidelity bugs.** Until one of those,
 the 170 lines are cheaper than the dependency.
 
+## Scrolling past the top: into the app's own history
+
+The live frame is the screen plus up to 200 lines of tmux scrollback. That is all of an
+inline app's history (Codex, omp, a shell write theirs into tmux), but none of a fullscreen
+agent's: Claude Code with `tui: fullscreen`, OpenCode, and Gemini's alternate buffer keep
+the transcript inside the app, so the view's top is just the top of the screen.
+
+So scrolling on past the top, after some resistance, sends scroll-wheel reports into the
+pane, and the app scrolls its own transcript. The live stream picks up the new screen like
+any other change. Scrolling down past the bottom brings the app back, and leaving the pane
+or pressing Latest output sends it home. Without that, the watcher would keep parsing a
+screen scrolled back to old output.
+
+Why the wheel and nothing else, from driving each agent in a private tmux server:
+
+- A wheel report scrolls the transcript in Claude Code and OpenCode. Codex, omp, and a shell
+  ignore it, because they never asked for mouse reports.
+- Up recalls a previous prompt in every agent tested. Shift+Up raises Codex's reasoning
+  effort, which is probably the "thinking level" surprise you get when a terminal turns
+  the wheel into arrow keys. Keys are never a stand-in for the wheel.
+- PgUp scrolls Claude Code and OpenCode, but they take the wheel anyway, and PgUp does
+  nothing in Codex or omp.
+- tmux copy mode would reach the inline apps' history, but the view already shows that
+  history, and copy mode would freeze the real pane until someone exits it.
+
+So the daemon sends the wheel only when the app is on the alternate screen and has asked
+for SGR mouse reports, and tmux is not in copy mode over it. That is the app's own
+statement that it handles the wheel, so it covers an unknown agent correctly and refuses an
+inline Claude Code. The client shows the gesture only for the tools whose fullscreen mode
+does this (claude, opencode, gemini). After the daemon refuses once, it stops asking for
+that pane. The resistance (160px) means a fling that only reaches the top never touches the
+pane. Touch uses the same path, because on a phone a fullscreen agent's view is one screen
+and nothing else reaches older output.
+
 ## Rejected alternatives
 
 - **Flat client polling at 500ms.** Simplest, but 2 req/s per viewer through the tunnel

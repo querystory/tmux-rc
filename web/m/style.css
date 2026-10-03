@@ -151,13 +151,16 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #101312; color: #edf2ef; --raised: #252b28; --accent: #83ddb3; }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }
 #terminal-status { flex: 1; font-size: 12px; color: #a1ada6; }
+/* The overscroll cue stands in for the status while you pull past the top (overscroll.js). */
+#scroll-cue { flex: 1; min-width: 0; font-size: 12px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.terminal-toolbar:has(#scroll-cue:not([hidden])) #terminal-status { display: none; }
 #font-size { width: 24px; text-align: center; font-size: 12px; }
 #click-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
 /* Hover/focus helper, not a native title: a title never shows on a phone, and here the
    tap that toggles also hovers, so the new mode explains itself as it switches. */
 #click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
-#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; }
+#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
 #capture > span > span { display: inline-block; vertical-align: top; }

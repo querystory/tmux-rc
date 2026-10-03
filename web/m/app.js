@@ -8,6 +8,7 @@ import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
+import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
@@ -116,6 +117,7 @@ const pendingAnswers = new Map();
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
+let wheel = overscrollState(), wheelQueued = 0, wheelBusy = false, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return ""; } // CSPRNG-random or omitted, never guessed.
@@ -756,7 +758,7 @@ function restartDetail() {
   eventsKey = null;
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
-    latestCapture = ""; clearCapture(); detailId = active;
+    wheelHome(detailId); latestCapture = ""; clearCapture(); detailId = active;
   }
   if (!active || document.hidden) return;
   const pane = panes.find((p) => p.pane_id === active);
@@ -1063,7 +1065,64 @@ applyTheme(document.documentElement.classList.contains("light"));
 $("theme").onclick = () => { const light = !document.documentElement.classList.contains("light"); applyTheme(light); try { localStorage.setItem("tmuxrc-theme", light ? "light" : "dark"); } catch {} };
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
-$("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; };
+$("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
+// Overscroll past the top of the live view scrolls the pane's own app (overscroll.js). Only
+// tools whose fullscreen mode takes the wheel: Codex, omp and shells write their history
+// into tmux, which the view already shows, and the daemon refuses anything else that has
+// not asked for mouse reports (an inline Claude Code), after which this pane stops asking.
+// Touch takes the same path, since a fullscreen agent's phone view is one screen and nothing
+// else reaches older output.
+const WHEEL_TOOLS = new Set(["claude", "opencode", "gemini"]);
+function paintWheelCue() {
+  const pull = wheel.net ? 0 : wheel.pull / RESIST_PX;
+  $("capture").style.transform = pull ? `translateY(${Math.round(pull * 24)}px)` : "";
+  text($("scroll-cue"), wheel.net ? "In the app's history" : "Keep scrolling for the app's history");
+  show("scroll-cue", !!(wheel.net || pull));
+}
+// Every wheel request for every pane goes through one queue, in order, so a return home
+// can never overtake the notches that scrolled the app up.
+// A failed request must not stall the queue behind it.
+function wheelPost(id, lines) {
+  const request = wheelLine.then(() => post(paneUrl(id, "wheel"), { lines }));
+  wheelLine = request.catch(() => {});
+  return request;
+}
+async function flushWheel() {
+  if (wheelBusy || !wheelQueued || !active) return;
+  const id = active, lines = Math.max(-30, Math.min(30, wheelQueued));
+  wheelQueued -= lines; wheelBusy = true;
+  try {
+    const { sent } = await wheelPost(id, lines);
+    if (!sent && id === active) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
+  } catch { /* the next notch retries; the live frame shows where the app really is */ }
+  finally { wheelBusy = false; flushWheel(); }
+}
+// Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
+// gesture. Two spare notches because Claude Code drops a gesture's first one; extra notches
+// at the bottom do nothing. The daemon takes at most 30 a request, so a long way home is
+// several requests.
+function wheelHome(id) {
+  for (let left = id && wheel.net + wheelQueued > 0 ? wheel.net + wheelQueued + 2 : 0; left > 0; left -= 30)
+    wheelPost(id, -Math.min(30, left)).catch(() => {});
+  wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
+}
+function overscrollPane(dy) {
+  const box = $("terminal-scroll"), pane = panes.find((p) => p.pane_id === active);
+  if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool)) return;
+  if (dy < 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight - 1) return;
+  wheelQueued += overscroll(wheel, dy, performance.now());
+  paintWheelCue(); flushWheel();
+  clearTimeout(wheelSpring);
+  wheelSpring = setTimeout(() => { if (!wheel.net) wheel.pull = 0; paintWheelCue(); }, IDLE_MS);
+}
+// Pinch-zoom arrives as a ctrl+wheel; a line-mode wheel (Firefox) counts in ~16px lines.
+$("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * (e.deltaMode ? 16 : 1)); }, { passive: true });
+$("terminal-scroll").addEventListener("touchstart", (e) => { touchY = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
+$("terminal-scroll").addEventListener("touchmove", (e) => {
+  if (touchY === null || e.touches.length !== 1) return;
+  const y = e.touches[0].clientY;
+  overscrollPane(touchY - y); touchY = y;
+}, { passive: true });
 // Click mode: a tap on the terminal is a mouse click in the pane (the daemon drops it
 // unless the pane's app asked for mouse reports). Select mode is the plain text view, for
 // copying. Two explicit modes rather than guessing intent from drag-vs-tap, because a tap
