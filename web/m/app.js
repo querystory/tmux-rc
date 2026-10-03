@@ -1016,9 +1016,14 @@ function paintWheelCue() {
 }
 // Every wheel request for every pane goes through one queue, in order, so a return home
 // can never overtake the notches that scrolled the app up.
-// A failed request must not stall the queue behind it.
-function wheelPost(id, lines) {
-  const request = wheelLine.then(() => post(paneUrl(id, "wheel"), { lines }));
+// A failed request must not stall the queue behind it. Retries stay in their place in the
+// queue, so a later gesture can never overtake them.
+function wheelPost(id, lines, retries = 0) {
+  const attempt = (left) => post(paneUrl(id, "wheel"), { lines }).catch((error) => {
+    if (!left) throw error;
+    return attempt(left - 1);
+  });
+  const request = wheelLine.then(() => attempt(retries));
   wheelLine = request.catch(() => {});
   return request;
 }
@@ -1044,8 +1049,8 @@ async function flushWheel() {
 // below the bottom do nothing, so a failed batch is simply sent again (twice at most).
 // Sent as 30-notch requests, the daemon's limit.
 function wheelHome(id) {
-  const send = (n, tries) => wheelPost(id, -n).catch(() => tries && send(n, tries - 1));
-  for (let left = id && wheel.up ? wheel.up + 2 : 0; left > 0; left -= 30) send(Math.min(30, left), 2);
+  for (let left = id && wheel.up ? wheel.up + 2 : 0; left > 0; left -= 30)
+    wheelPost(id, -Math.min(30, left), 2).catch(() => {});
   wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
 }
 function overscrollPane(dy) {
