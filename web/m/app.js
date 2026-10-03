@@ -648,7 +648,8 @@ function renderTasks(pane) {
 }
 
 // One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
-// An open circle already says running, so only the other states are spelled out.
+// An open circle already says running (and its role=img label says it aloud), so only the
+// other states are spelled out.
 function renderItems(el, values, agents = false) {
   reconcile(el, values, (value, i) => `${i}:${value.text || value.label}`, () => {
     const node = document.createElement("div"); node.innerHTML = "<span></span><span></span><small></small>"; return node;
@@ -656,6 +657,8 @@ function renderItems(el, values, agents = false) {
     const done = itemDone(value);
     node.className = `${agents ? "agent" : "task"}${done ? " done" : ""}${agents && value.state === "compacting" ? " compacting" : ""}`;
     html(node.firstChild, licon(done ? "check" : "circle", 16));
+    node.firstChild.setAttribute("role", "img");
+    node.firstChild.ariaLabel = done ? "done" : agents ? value.state || "running" : "to do";
     text(node.children[1], value.text || value.label);
     node.title = value.text || value.label || "";
     text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
