@@ -1,3 +1,4 @@
+import { parseHash } from "./url-state.js";
 // Pure pane predicates for the mobile UI: no DOM, no clock of their own (time is injected),
 // so tests/test_mobile_pane_model.py can run them under node against fixture panes.
 
@@ -35,14 +36,12 @@ export function matchesFilter(pane, filter, nowMs = Date.now()) {
   return predicate(pane, nowMs);
 }
 // Is the URL still on pane `id`? Nothing may pull the user out of a pane on the strength of
-// the app's own `active`: navigate() only assigns location.hash, and the hashchange that
-// updates `active` is queued behind it, so for one task `active` still names the pane the
-// user just LEFT. Both involuntary exits fire inside exactly that window — a state poll that
-// no longer lists the old pane, and the old pane's live stream taking its 404 — and each
-// would replace the URL of the pane the user just tapped and dump them back on the list. The
-// hash changed the instant they tapped, so it, not `active`, is the authority on where they
-// want to be.
-export const stillOnPane = (hash, id) => !!id && new URLSearchParams(String(hash).replace(/^#/, "")).get("pane") === id;
+// the app's own `active` alone: the involuntary exits (a state poll that no longer lists the
+// pane, its live stream or /select taking a 404) fire asynchronously, by which time the user
+// may have tapped to another pane. Each would then replace the URL of the pane they just
+// chose and dump them on the list. The URL changes the instant they tap, so it, not the
+// pane the caller captured, is the authority on where they want to be.
+export const stillOnPane = (hash, id) => !!id && parseHash(hash).pane === id;
 
 // How long a pane the app just created is allowed to be absent from /api/state before it
 // counts as gone. POST /api/windows returns the id the moment tmux has the window, which

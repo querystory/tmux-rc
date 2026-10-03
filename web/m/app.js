@@ -7,6 +7,7 @@ import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
 import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
@@ -167,45 +168,41 @@ function pause(ms, signal) {
 }
 function notice(message = "") { text($("notice"), message); show("notice", !!message); }
 
-function hashFor(id, nextView) {
-  const params = new URLSearchParams();
-  if (filter !== "all") params.set("filter", filter);
-  if (sort !== "updated") params.set("sort", sort);
-  if (id) { params.set("pane", id); if (nextView === "terminal") params.set("view", "terminal"); }
-  if (!id && nextView === "dashboard") params.set("view", "dashboard");
-  return params.toString();
+// Every user-driven move goes through here: the URL is written first, then the view is
+// routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
+// by hand reach route() through hashchange instead. Never call this from a poll.
+function navigate(id = null, nextView = "summary", { mode } = {}) {
+  const next = formatHash({ pane: id, view: nextView, dashboard: nextView === "dashboard", filter, sort });
+  const current = location.hash.slice(1);
+  if (next !== current) {
+    history[`${mode || historyMode(current, next)}State`](null, "", next ? `#${next}` : location.pathname + location.search);
+  }
+  route();
 }
 
-function navigate(id = null, nextView = "summary") {
-  location.hash = hashFor(id, nextView);
-}
+// Filter and sort change the list, not the screen: with the sidebar beside an open pane
+// (wide layout) the pane, its tab and a dashboard view must survive them; on a phone a
+// filter tap is a request for the list.
+const stayPut = () => navigate(active, active ? view : dashboard && WIDE.matches ? "dashboard" : "summary");
 
-// Leaving a pane the user did not choose to leave — it closed under them. Unlike
-// navigate() this must NOT push a history entry: the pane is gone, so a Back that
-// returns to it would land on a dead deep link and bounce straight out again. replaceState
-// drops the dead URL instead of stacking it, and because it fires no hashchange we route
-// synchronously — otherwise `active` stays on the dead pane long enough for route() to
-// POST /select for a pane that no longer exists. `id` is the pane the caller believes is on
-// screen; stillOnPane rejects the call when the user has already tapped their way somewhere
-// else and only the queued hashchange is late (see pane-model.js).
+// Leaving a pane the user did not choose to leave: it closed under them, or a deep link
+// named one that is gone. Replace, never push: Back would land on the dead deep link and
+// bounce straight out again. `id` is the pane the caller believes is on screen; stillOnPane
+// rejects the call when the user has already moved on and only the queued hashchange is late
+// (see pane-model.js).
 function leaveMissingPane(id) {
   if (!stillOnPane(location.hash, id)) return;
-  const hash = hashFor(null);
-  history.replaceState(null, "", hash ? `#${hash}` : location.pathname + location.search);
-  route();
+  navigate(null, "summary", { mode: "replace" });
+  notice("That pane is no longer available.");
 }
 
 function route() {
   const wasDashboardVisible = dashboardVisible();
-  const params = new URLSearchParams(location.hash.slice(1));
-  const next = params.get("pane");
-  const changed = next !== active;
-  active = next;
-  focusPushComposer = params.get("compose") === "1";
-  dashboard = !active && params.get("view") === "dashboard";
-  view = params.get("view") === "terminal" ? "terminal" : "summary";
-  filter = ["attention", "running", "recent"].includes(params.get("filter")) ? params.get("filter") : "all";
-  sort = params.get("sort") === "session" ? "session" : "updated";
+  const state = parseHash(location.hash);
+  const changed = state.pane !== active;
+  active = state.pane;
+  focusPushComposer = state.compose;
+  ({ dashboard, view, filter, sort } = state);
   $("sort").value = sort;
   refreshSortPicker();
   if (changed) {
@@ -224,7 +221,15 @@ function route() {
   if (dashboardVisible() && !wasDashboardVisible) {
     refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
   }
-  if (active && changed) post(paneUrl(active, "select")).catch(() => notice("Could not focus this pane on the host."));
+  if (active && changed) {
+    const id = active;
+    // A dead deep link selects before state can say so; a 404 is the gone-pane path, and a
+    // rejection after the user moved on must not overwrite whatever notice that left.
+    post(paneUrl(id, "select")).catch((error) => {
+      if (error.status === 404) leaveMissingPane(id);
+      else if (stillOnPane(location.hash, id)) notice("Could not focus this pane on the host.");
+    });
+  }
   if (changed && active) $("pane-title").focus({ preventScroll: true }); // land in the pane, on its name: focusing Back painted its ring on open
 }
 
@@ -443,9 +448,9 @@ $("review-layout").onchange = (e) => {
     reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
     try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
   }
-  if (choice === "auto") { view = "summary"; navigate(active, view); }
-  if (["summary", "terminal"].includes(choice)) { view = choice; navigate(active, view); }
-  restartDetail(); render();
+  if (choice === "auto") view = "summary";
+  if (["summary", "terminal"].includes(choice)) view = choice;
+  navigate(active, view);
 };
 reviewDivider.onpointerdown = (e) => {
   if (e.button !== 0) return;
@@ -944,8 +949,8 @@ $("dashboard-tab").onclick = () => navigate(null, "dashboard");
 $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
 $("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
-$("sort").onchange = () => { sort = $("sort").value; navigate(); };
-$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; navigate(); }; });
+$("sort").onchange = () => { sort = $("sort").value; stayPut(); };
+$("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
   document.querySelector('meta[name="theme-color"]').content = light ? "#f5f7f6" : "#101312";
@@ -1103,12 +1108,6 @@ document.addEventListener("visibilitychange", () => { sendPresence(); startState
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
-// Bookmarks and Home Screen links from the retired desktop UI: #/pane/%251 -> #pane=%251, #/list/waiting -> #filter=attention.
-const legacyHash = /^#\/(pane|list)\/(.+)$/.exec(location.hash);
-if (legacyHash) {
-  let value = legacyHash[2]; try { value = decodeURIComponent(value); } catch {}
-  history.replaceState(null, "", "#" + new URLSearchParams(legacyHash[1] === "pane" ? { pane: value } : { filter: value === "waiting" ? "attention" : value }));
-}
 fitViewport(); route(); startState();
 setupPush($("push"), notice, licon("bell"));
 const live = setupLiveMode({ request, session: liveSession, licon, report: reportError, onVersion: observeVersion });
