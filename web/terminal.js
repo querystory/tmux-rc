@@ -87,9 +87,11 @@ function linkify(text, join = true) {
       if (canJoin && endedLine !== undefined && endedLine >= joinWidth) { search = nl + 1; continue; }
       cut = nl; break;
     }
-    const shown = m[0].slice(0, cut);
+    // Sentence punctuation (and markdown emphasis) trailing a URL is prose, not path:
+    // "see …/a.html, then" must link …/a.html. It stays behind as plain text.
+    const shown = m[0].slice(0, cut).replace(/[\s.,;:!?*_]+$/, "");
     out += anchor(shown.replace(/\n[ \t]*/g, ""), shown);
-    pos = m.index + cut; LINK_RE.lastIndex = pos;
+    pos = m.index + shown.length; LINK_RE.lastIndex = pos;
   }
   return out + esc(text.slice(pos));
 }
