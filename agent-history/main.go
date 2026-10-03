@@ -57,15 +57,16 @@ func main() {
 }
 
 func resolveCmd(args []string) error {
-	// Codex has no hook here, so searching is also what keeps its sessions current. In
-	// the background: a search is on someone's clock, and a first reconcile is not.
+	// Codex and omp have no hook here, so searching is also what keeps their sessions
+	// current. In the background: a search is on someone's clock, and a first reconcile
+	// is not.
 	if reconcileDue() {
 		detach("reconcile")
 	}
 	flags := flag.NewFlagSet("resolve", flag.ExitOnError)
 	opt := ResolveOptions{Now: time.Now()}
 	opt.Running, opt.RunningErr = LiveSessions()
-	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude, codex)")
+	flags.StringVar(&opt.Harness, "harness", "", "only this harness (claude, codex, omp)")
 	flags.BoolVar(&opt.All, "all", false, "include headless runs and subagents")
 	flags.IntVar(&opt.MaxProjects, "projects", 3, "max repos")
 	flags.IntVar(&opt.MaxSessions, "sessions", 5, "max sessions per repo")

@@ -200,76 +200,12 @@ func codexSessions() ([][]string, error) {
 }
 
 // RunningCodex lists live Codex threads by ID. Codex keeps no registry, but a running
-// Codex holds its thread's rollout open, so the open files of the user's codex
-// processes say which threads are live, and where (see pane). Only codex processes
-// count: an editor or `tail -f` on a rollout is not the session, and neither is a
-// codex-linux-sandbox helper, which runs tool commands under the name codex. A codex
-// process whose files can't be read makes Codex liveness unknown.
+// Codex holds its thread's rollout open (see openTranscripts). A codex-linux-sandbox
+// helper runs tool commands under the name codex, but is not the session.
 func RunningCodex() (map[string]Running, error) {
-	out := map[string]Running{}
-	// Open files show resolved paths, so compare against the resolved directory.
-	dir, err := filepath.EvalSymlinks(codexSessionsDir())
-	if errors.Is(err, fs.ErrNotExist) {
-		return out, nil // no sessions directory, so no rollout can be open
-	}
-	if err != nil {
-		return nil, err
-	}
-	dir += string(filepath.Separator)
-	procs, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range procs {
-		pid, err := strconv.Atoi(p.Name())
-		if err != nil {
-			continue // not a process
-		}
-		// Each read runs only if the last succeeded; any failure but the process exiting
-		// makes liveness unknown. comm, status and cmdline are readable whatever the
-		// process's owner or dumpability, so only a real candidate's fds are read.
-		proc := func(name string) (string, error) {
-			b, err := os.ReadFile(filepath.Join("/proc", p.Name(), name))
-			return string(b), err
-		}
-		comm, err := proc("comm")
-		if err == nil && strings.TrimSpace(comm) != "codex" {
-			continue
-		}
-		var status, cmdline string
-		if err == nil {
-			status, err = proc("status")
-		}
-		if err == nil {
-			cmdline, err = proc("cmdline")
-		}
-		_, uid, _ := strings.Cut(status, "\nUid:\t") // real, effective, saved, fs
-		mine := strings.HasPrefix(uid, strconv.Itoa(os.Getuid())+"\t")
-		argv0, _, _ := strings.Cut(cmdline, "\x00")
-		var fds []os.DirEntry
-		if err == nil && mine && filepath.Base(argv0) != "codex-linux-sandbox" {
-			fds, err = os.ReadDir(filepath.Join("/proc", p.Name(), "fd"))
-		}
-		if errors.Is(err, fs.ErrNotExist) {
-			continue // exited while we looked
-		}
-		if err != nil {
-			return nil, err
-		}
-		for _, fd := range fds {
-			target, err := os.Readlink(filepath.Join("/proc", p.Name(), "fd", fd.Name()))
-			if errors.Is(err, fs.ErrNotExist) {
-				continue // closed while we looked
-			}
-			if err != nil {
-				return nil, err
-			}
-			if strings.HasPrefix(target, dir) && strings.HasSuffix(target, ".jsonl") {
-				out[codexThreadID(target)] = Running{PID: pid, TmuxPane: pane(pid)}
-			}
-		}
-	}
-	return out, nil
+	return openTranscripts("codex", codexSessionsDir(), func(argv0 string) bool {
+		return filepath.Base(argv0) == "codex-linux-sandbox"
+	}, codexThreadID)
 }
 
 // pane is the tmux pane a process was started in, or "" if it has since left every
