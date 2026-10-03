@@ -8,7 +8,7 @@
 | mobile-pane | 0.00% |
 | mobile-terminal | 0.00% |
 | wide-chat | 3.70% |
-| wide-dashboard-dark | 18.35% |
-| wide-dashboard | 18.02% |
+| wide-dashboard-dark | 18.92% |
+| wide-dashboard | 18.41% |
 | wide-needs-you | 4.14% |
 | wide-pane-dark | 2.24% |
