@@ -1,4 +1,4 @@
-import { atlasCharts } from './atlas-charts.js';
+import { atlasCharts, fleetChart, shownStates } from './atlas-charts.js';
 import { needsYou, isRunning, markWorking, modelProvider, paneName } from './pane-model.js';
 
 const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting'];
@@ -8,25 +8,46 @@ const toolOf = p => p.tool || 'other';
 // 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
 // filter to: they still count under All, but get no chip of their own.
 const isAgent = tool => tool && tool !== 'unknown' && tool !== 'other';
-let history = [], historyData = null, historyWindow = '24h', historyError = '';
-let requestedAt = 0, controller, reloadHistory;
+// The running count the goal is about: Running plus Compacting, as the Running tab counts.
+const running = n => n[1] + (n[4] || 0);
+const RANGES = ['24h', '3d', '7d', '30d'], AVERAGES = ['1d', '3d', '7d'];
+const ms = span => parseInt(span, 10) * (span.endsWith('d') ? 86400000 : 3600000);
+// Range, average and the sessions-or-tools split are per browser; the goal is the daemon's.
+const fleet = { range: '24h', average: '1d', by: 'session' };
+try { Object.assign(fleet, JSON.parse(localStorage.getItem('tmuxrc-fleet'))); } catch {}
+if (!RANGES.includes(fleet.range)) fleet.range = '24h';
+if (!AVERAGES.includes(fleet.average)) fleet.average = '1d';
+let history = [], historyData = null, historyError = '', goal = null, draft = null;
+let requestedAt = 0, controller, reloadHistory, changed = () => {}, request, settings = 0;
 
-export async function refreshAtlasHistory(request, changed, force = false) {
-  reloadHistory = () => refreshAtlasHistory(request, changed, true);
+export async function refreshAtlasHistory(fetcher, onChange, force = false) {
+  request = fetcher; changed = onChange;
+  reloadHistory = () => refreshAtlasHistory(fetcher, onChange, true);
   if (!force && Date.now() - requestedAt < 30000) return;
   requestedAt = Date.now();
   controller?.abort();
   const current = controller = new AbortController();
   try {
-    const data = await request(`/api/history?window=${historyWindow}`, { signal: current.signal });
+    // `lead` fetches one average's worth of history before the range, at the same bucket size.
+    const data = await request(`/api/history?window=${fleet.range}&lead=${fleet.average}`, { signal: current.signal });
     if (current.signal.aborted) return;
     historyData = data;
     history = data.samples;
+    goal = data.goal;
     historyError = '';
   } catch {
     if (current.signal.aborted) return;
     historyError = 'History unavailable. Retrying automatically.';
   }
+  changed();
+}
+
+// Every fleet setting change bumps `settings`, which every render signature includes.
+function setFleet(patch, refetch = false) {
+  Object.assign(fleet, patch);
+  settings++;
+  try { localStorage.setItem('tmuxrc-fleet', JSON.stringify(fleet)); } catch {}
+  if (refetch) { history = []; historyData = null; historyError = ''; reloadHistory?.(); }
   changed();
 }
 
@@ -56,18 +77,11 @@ function packSessions(groups, width) {
   return branch;
 }
 
-const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
-
-export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}) {
-  const allPanes = panes;
-  const scope = root._scope ||= { tool: '', session: '' };
-  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(isAgent))];
-  const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
-  panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
-  const metric = root._metric || 'panes';
-  const filtered = scope.tool || scope.session;
-  const samples = history.map(s => {
-    if (!filtered || s.n === null) return s;
+// One scope of the history: the whole fleet, or one tool's and/or one session's panes.
+function scoped(scope) {
+  if (!scope.tool && !scope.session) return history;
+  return history.map(s => {
+    if (s.n === null) return s;
     const groups = (s.groups || []).filter(g => (!scope.tool || g.tool === scope.tool) && (!scope.session || g.session === scope.session));
     // A partial log reconstruction cannot prove a filtered fleet was empty. Keep
     // its timestamp as a gap, including at either end of the selected range.
@@ -76,19 +90,183 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
       foreground: s.foreground == null && !groups.length ? null : sum(groups.map(g => g.foreground)),
       background: s.background == null && !groups.length ? null : sum(groups.map(g => g.background)) };
   });
-  const chartSamples = samples.map(s => ({ ...s, n: metric === 'panes' ? s.n : metric === 'agents'
-    ? sum([s.foreground, s.background]) : s[metric] ?? null }));
-  // Preserve focus and pointer targets across unchanged long polls.
-  const signature = [metric, scope.tool, scope.session, history, historyWindow, historyError, historyData?.step, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
-    p.waiting_on, p.tool, p.model, p.session_summary, p.status_line])];
-  if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return;
-  root._signature = signature;
-  const charts = root._charts ||= atlasCharts();
+}
+
+// Chart rows: one metric's counts over the chosen range, each with the trailing average of
+// its running count. The average covers observed buckets only, and only where its whole
+// window is on record, so a young database draws no line rather than a guess.
+function rows(samples, metric = 'panes') {
+  const span = ms(fleet.average), step = historyData?.step || 60000, first = historyData?.first ?? Infinity;
+  const counts = samples.map(s => metric === 'panes' ? s.n : metric === 'agents' ? sum([s.foreground, s.background]) : s[metric] ?? null);
+  let oldest = 0, total = 0, seen = 0;
+  const out = samples.map((s, i) => {
+    if (counts[i]) { total += running(counts[i]); seen++; }
+    for (; samples[oldest].t <= s.t - span; oldest++) if (counts[oldest]) { total -= running(counts[oldest]); seen--; }
+    return { ...s, n: counts[i], ma: seen && s.t - span + step >= first ? total / seen : null };
+  });
+  const from = (samples.at(-1)?.t ?? 0) - ms(fleet.range);
+  return out.filter(r => r.t > from);
+}
+const chartData = (data, extra) => ({ rows: data, states: STATES, step: historyData?.step || 60000, goal,
+  average: fleet.average, zoomKey: JSON.stringify([fleet.range, fleet.average]), ...extra });
+
+function averageText(data) {
+  const avg = data.findLast(r => r.ma != null)?.ma;
+  if (historyError || !historyData) return el('span', 'fleet-average muted', historyError || 'Loading saved history…');
+  if (avg == null) return el('span', 'fleet-average muted', `Not enough history yet for a ${fleet.average} average`);
+  const text = el('span', `fleet-average${goal ? avg >= goal ? ' pos' : ' neg' : ''}`);
+  text.append(el('span', 'muted', `${fleet.average} avg `), el('b', '', avg.toFixed(1)), el('span', 'muted', goal ? ` vs goal ${goal}` : ''));
+  return text;
+}
+
+function segmented(label, options, value, pick) {
+  const group = el('span', 'fleet-seg');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', label);
+  options.forEach(option => {
+    const button = el('button', '', option);
+    button.dataset.key = `${label}:${option}`;
+    button.setAttribute('aria-pressed', String(option === value));
+    button.onclick = () => pick(option);
+    group.append(button);
+  });
+  return group;
+}
+const rangeControl = () => segmented('History range', RANGES, fleet.range, range => setFleet({ range }, true));
+function averageControl() {
+  const control = el('span', 'fleet-control');
+  control.append(el('span', 'fleet-line-key', 'Avg'),
+    segmented('Moving average of the running count', AVERAGES, fleet.average, average => setFleet({ average }, true)));
+  return control;
+}
+
+// "Goal 12" until clicked, then a stepper. The goal lives in the daemon, so every device
+// draws the same line. Every part carries the key 'goal' so focus follows the swap.
+let goalFailed = false;
+async function saveGoal() {
+  const value = draft === '' ? null : Math.round(Number(draft));
+  try {
+    ({ goal } = await request('/api/history/goal', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: value }) }));
+    draft = null; goalFailed = false;
+  } catch { goalFailed = true; }
+  setFleet({});
+}
+function goalControl(icon) {
+  if (draft == null) {
+    const button = el('button', 'fleet-goal');
+    button.dataset.key = 'goal';
+    button.title = 'Change the running goal';
+    button.innerHTML = `${icon('target', 14)}<span>Goal <b></b></span>${icon('pencil', 12)}`;
+    button.querySelector('b').textContent = goal ?? 'none';
+    button.onclick = () => { draft = String(goal ?? ''); setFleet({}); };
+    return button;
+  }
+  const box = el('span', 'fleet-goal editing');
+  const input = el('input');
+  Object.assign(input, { type: 'number', min: 1, max: 999, value: draft, placeholder: 'none' });
+  input.setAttribute('aria-label', 'Running goal. Empty clears it.');
+  input.setAttribute('aria-invalid', String(goalFailed));
+  input.title = goalFailed ? 'Could not save the goal. Try again.' : '';
+  input.dataset.key = 'goal';
+  input.oninput = () => { draft = input.value; };
+  input.onkeydown = event => {
+    if (event.key === 'Enter') saveGoal();
+    else if (event.key === 'Escape') { draft = null; goalFailed = false; setFleet({}); }
+  };
+  const button = (name, label, onclick) => {
+    const node = el('button', 'icon-button');
+    node.innerHTML = icon(name, 14);
+    node.setAttribute('aria-label', label);
+    node.title = label;
+    node.dataset.key = name === 'check' ? 'goal' : `goal:${name}`;
+    node.onclick = onclick;
+    return node;
+  };
+  const nudge = delta => () => { input.value = draft = String(Math.max(1, Math.min(999, (Number(input.value) || 0) + delta))); };
+  box.append(el('span', '', 'Running goal'), button('minus', 'Lower the goal', nudge(-1)), input,
+    button('plus', 'Raise the goal', nudge(1)), button('check', 'Save the goal', saveGoal));
+  return box;
+}
+
+// Replace a surface's contents without dropping keyboard focus: the node with the same
+// data-key gets it back.
+function rebuild(root, nodes) {
   const focus = root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
+  root.replaceChildren(...nodes);
+  if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
+}
+const unchanged = (root, signature) => {
+  if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return true;
+  root._signature = signature;
+  return false;
+};
+
+// The split under an open pane on a wide screen: a strip, and, once its seam is pulled
+// up, the chart with its legend. The seam itself belongs to the layout (app.js).
+export function renderFleet(root, panes, { open, filter, setFilter, toggle, dashboard, icon }) {
+  const now = [panes.filter(isRunning).length, panes.filter(needsYou).length, panes.filter(p => stateOf(p) === 2).length];
+  if (unchanged(root, [open, filter, settings, history, historyData, historyError, goal, ...now])) return;
+  const spark = root._spark ||= fleetChart(false), chart = root._chart ||= fleetChart(true);
+  const data = rows(history);
+  const strip = el('div', 'fleet-strip');
+  const fold = el('button', 'icon-button');
+  fold.innerHTML = icon(open ? 'chevronDown' : 'chevronUp', 18);
+  fold.dataset.key = 'fold';
+  fold.setAttribute('aria-expanded', String(open));
+  fold.setAttribute('aria-label', open ? 'Fold the fleet chart' : 'Unfold the fleet chart');
+  fold.onclick = toggle;
+  const count = el('span', 'fleet-now');
+  count.append(el('b', '', String(now[0])), el('span', 'muted', ' running'));
+  const board = el('button', 'fleet-chip');
+  board.dataset.key = 'dashboard';
+  board.innerHTML = `${icon('layers', 14)}<span>Dashboard</span>`;
+  board.onclick = dashboard;
+  strip.append(fold, count, ...(open ? [] : [spark.el]), averageText(data), el('span', 'fleet-gap'), goalControl(icon), board);
+  const nodes = [strip];
+  if (open) {
+    const tools = el('div', 'fleet-tools');
+    const chip = (key, label, n, state, pressed, onclick) => {
+      const node = el('button', 'fleet-chip');
+      node.dataset.key = key;
+      node.style.setProperty('--state-color', `var(--chart-s${state})`);
+      node.setAttribute('aria-pressed', String(pressed));
+      node.append(el('i', 'fleet-dot'), label, el('b', '', String(n)));
+      node.onclick = onclick;
+      return node;
+    };
+    const listFilter = (key, label, n, state) => Object.assign(chip(key, label, n, state, filter === key,
+      () => setFilter(filter === key ? 'all' : key)), { title: 'Filter the session list' });
+    const reset = el('button', 'atlas-reset-zoom', 'Reset zoom');
+    reset.onclick = () => chart.resetZoom();
+    tools.append(listFilter('running', 'Running', now[0], 1), listFilter('attention', 'Needs you', now[1], 0),
+      Object.assign(chip('idle', 'Idle', now[2], 2, shownStates.Idle !== false,
+        () => { shownStates.Idle = shownStates.Idle === false; setFleet({}); }), { title: 'Show the idle layer' }),
+      el('span', 'fleet-gap'), reset, averageControl(), rangeControl());
+    nodes.push(tools, chart.el);
+  }
+  rebuild(root, nodes);
+  spark.update(chartData(data));
+  chart.update(chartData(data));
+}
+
+const STOP = new Set(('the a an and or to of in on for with from is are was were be been being this that it its as at by has have had not no into about after before all can will would should could their they them then than also currently successfully session agent task work working focused completed using updated implementation changes implemented new current which but while other now ready identified verified three two one these those there here more only already still through when where what how our your you we may any each both same').split(' '));
+
+export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}, icon) {
+  const allPanes = panes;
+  const scope = root._scope ||= { tool: '', session: '' };
+  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(isAgent))];
+  const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
+  panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
+  const metric = root._metric || 'panes';
+  // Preserve focus and pointer targets across unchanged long polls.
+  if (unchanged(root, [metric, scope.tool, scope.session, history, historyData, historyError, settings, goal, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
+    p.waiting_on, p.tool, p.model, p.session_summary, p.status_line])])) return;
+  const charts = root._charts ||= atlasCharts();
+  const main = root._main ||= fleetChart(true);
   root._mapResize?.disconnect();
-  root.replaceChildren();
+  const nodes = [];
   const controls = el('div', 'atlas-controls');
-  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic); };
+  const redraw = () => { root._signature = null; renderAtlas(root, allPanes, navigate, logos, searchTopic, icon); };
   ['', ...tools, ...(scope.tool && !tools.includes(scope.tool) ? [scope.tool] : [])].forEach(tool => {
     const count = allPanes.filter(p => (!tool || toolOf(p) === tool) && (!scope.session || p.session === scope.session)).length;
     const button = el('button', 'atlas-filter atlas-tool-filter');
@@ -116,10 +294,87 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   [...new Set([...sessions, ...(scope.session ? [scope.session] : [])])].forEach(session => sessionPicker.append(new Option(session, session)));
   sessionPicker.value = scope.session;
   sessionPicker.onchange = () => { scope.session = sessionPicker.value; redraw(); };
-  controls.append(sessionPicker); root.append(controls);
+  controls.append(sessionPicker); nodes.push(controls);
+
+  // The big chart leads the page: the fleet over time, against the goal.
+  const samples = scoped(scope), data = rows(samples, metric);
+  const pulse = el('section', 'atlas-panel atlas-pulse');
+  const heading = el('div', 'atlas-panel-heading');
+  heading.append(el('h3', '', 'Activity over time'), averageText(data));
+  const metricControls = el('select', 'atlas-range');
+  metricControls.setAttribute('aria-label', 'History population');
+  metricControls.dataset.key = 'history-metric';
+  [['panes', 'Panes'], ['agents', 'All agents'], ['foreground', 'Main agents'], ['background', 'Background agents']]
+    .forEach(([value, label]) => metricControls.append(new Option(label, value)));
+  metricControls.value = metric;
+  metricControls.onchange = () => { root._metric = metricControls.value; redraw(); };
+  const pickers = el('div', 'atlas-history-pickers');
+  pickers.append(metricControls, rangeControl(), averageControl(), goalControl(icon));
+  const stateControls = el('div', 'atlas-state-legend');
+  stateControls.setAttribute('role', 'group');
+  stateControls.setAttribute('aria-label', 'Visible history states');
+  STATES.forEach((state, i) => {
+    const button = el('button', 'atlas-state-toggle', state);
+    button.style.setProperty('--state-color', `var(--chart-s${i})`);
+    button.title = `Show or hide ${state.toLowerCase()} history`;
+    button.dataset.key = `history-state:${state}`;
+    button.setAttribute('aria-pressed', String(shownStates[state] !== false));
+    button.onclick = () => { shownStates[state] = shownStates[state] === false; setFleet({}); };
+    stateControls.append(button);
+  });
+  pulse.append(heading, el('p', 'muted', historyError || (historyData
+    ? 'Saved by this machine’s daemon. Gaps mean no observation. The purple line is the trailing average of Running; the dashed one is the goal.' : 'Loading saved history…')));
+  const zoomControls = el('div', 'atlas-zoom-controls');
+  const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
+  resetZoom.dataset.key = 'reset-zoom';
+  resetZoom.onclick = () => main.resetZoom();
+  zoomControls.append(el('span', 'muted atlas-zoom-desktop', 'Drag to pan · Ctrl + scroll to zoom'),
+    el('span', 'muted atlas-zoom-touch', 'Pinch to zoom · Drag to pan'), resetZoom);
+  pulse.append(pickers, stateControls, main.el, zoomControls);
+  pulse.append(el('p', 'atlas-history-note muted', metric === 'panes'
+    ? 'Older history grouped compacting and external waits under Running.'
+    : 'Observed coding agents only; shells and log tails are excluded. Main agents and their visible background workers are counted separately. Waiting includes review and CI waits. Hidden workers may be missed; this is not CPU or token utilization. Older history has no agent counts.'));
+  if (metric !== 'panes' && !data.some(s => s.n != null)) pulse.append(el('p', 'muted', 'No agent observations in this range yet.'));
+  if (data.some(s => s.source === 'logs')) pulse.append(el('p', 'atlas-history-note muted', historyData.backfill_note));
+  if (scope.session && history.some(s => s.source === 'logs'))
+    pulse.append(el('p', 'atlas-history-note muted', 'Older log records have no tmux session identity; they are excluded from this session filter.'));
+  nodes.push(pulse);
+
+  // Small multiples: which session or tool carries the running count, all on one scale.
+  const by = fleet.by, keys = by === 'session' ? sessions : tools;
+  const multiples = el('section', 'atlas-panel atlas-multiples');
+  const multiplesHeading = el('div', 'atlas-panel-heading');
+  multiplesHeading.append(el('h3', '', 'Running by'), segmented('Running by', ['session', 'tool'], by, value => setFleet({ by: value })),
+    el('span', 'muted', 'Cards share one scale. Choose one to filter this page.'));
+  const cards = root._cards ||= new Map();
+  cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
+  const series = keys.map(key => [key, rows(scoped({ ...scope, [by]: key }), metric)]);
+  const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
+  const max = Math.max(1, ...series.flatMap(([, r]) => r.flatMap(x => [x.n ? stacked(x.n) : 0, x.ma || 0])));
+  const grid = el('div', 'atlas-multiples-grid');
+  // Charts paint once attached: a node moved out and back in one frame never reports a resize.
+  const paints = [];
+  series.forEach(([key, slice]) => {
+    const chart = cards.get(key) || fleetChart(false);
+    cards.set(key, chart);
+    const members = allPanes.filter(p => (by === 'session' ? p.session : toolOf(p)) === key);
+    const card = el('button', 'atlas-multiple');
+    card.dataset.key = `${by}:${key}`;
+    card.setAttribute('aria-pressed', String(scope[by] === key));
+    const head = el('span', 'atlas-multiple-head');
+    head.append(el('b', '', key), el('span', 'fleet-gap'), el('b', '', String(members.filter(isRunning).length)), el('span', 'muted', ` / ${members.length}`));
+    const avg = slice.findLast(r => r.ma != null)?.ma;
+    card.append(head, chart.el, el('span', 'muted', avg == null ? 'No average yet' : `${fleet.average} avg ${avg.toFixed(1)}`));
+    card.onclick = () => { scope[by] = scope[by] === key ? '' : key; redraw(); };
+    grid.append(card);
+    paints.push(() => chart.update(chartData(slice, { goal: null, max, unit: metric === 'panes' ? 'Panes' : 'Agents' })));
+  });
+  multiples.append(multiplesHeading, grid);
+  nodes.push(multiples);
+
   const legend = el('div', 'atlas-legend');
   STATES.forEach((label, i) => legend.append(el('span', `atlas-state s${i}`, `${panes.filter(p => stateOf(p) === i).length} ${label}`)));
-  root.append(legend);
+  nodes.push(legend);
 
   const map = el('section', 'atlas-map');
   const groups = new Map();
@@ -136,10 +391,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
       dot.title = `${paneName(p)}\n${STATES[stateOf(p)]}\n${p.session_summary || p.status_line || ''}`;
       const logo = el('img', 'atlas-agent-icon');
       logo.alt = p.tool || 'tmux';
-      const icon = el('span', 'atlas-agent');
-      icon.append(logo);
+      const agent = el('span', 'atlas-agent');
+      agent.append(logo);
       markWorking(logo, p, logos);
-      dot.append(icon, el('span', 'atlas-dot-name', paneName(p)));
+      dot.append(agent, el('span', 'atlas-dot-name', paneName(p)));
       dot.onclick = () => navigate(p.pane_id);
       dots.append(dot);
     });
@@ -149,23 +404,11 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Attach tiles before the synchronous focus restoration below; ResizeObserver
   // runs later, after live updates would otherwise drop keyboard focus.
   map.append(...islands.map(island => island.node));
-  root.append(map);
-  let mapWidth = 0;
-  root._mapResize = new ResizeObserver(entries => {
-    const width = Math.floor(entries[0].contentRect.width);
-    if (!width || width === mapWidth || !islands.length) return;
-    mapWidth = width;
-    const focused = map.contains(document.activeElement) ? document.activeElement : null;
-    map.replaceChildren(packSessions(islands, width));
-    focused?.focus({ preventScroll: true });
-  });
-  root._mapResize.observe(map);
-  if (!panes.length) root.append(el('p', 'muted', 'No current panes match these filters.'));
+  nodes.push(map);
+  if (!panes.length) nodes.push(el('p', 'muted', 'No current panes match these filters.'));
   const busy = panes.filter(p => stateOf(p) === 1).length, waiting = panes.filter(needsYou).length;
-  const insight = el('p', 'atlas-insight muted', `${panes.length} panes across ${groups.size} sessions · ${panes.length ? Math.round(busy / panes.length * 100) : 0}% running · ${waiting} waiting for you`);
-  root.append(insight);
+  nodes.push(el('p', 'atlas-insight muted', `${panes.length} panes across ${groups.size} sessions · ${panes.length ? Math.round(busy / panes.length * 100) : 0}% running · ${waiting} waiting for you`));
 
-  const lower = el('div', 'atlas-lower');
   const topics = el('section', 'atlas-panel atlas-topics');
   topics.append(el('h3', '', 'What’s on the radar'), el('p', 'muted', 'Click a word to search your sessions.'));
   const words = new Map();
@@ -184,52 +427,19 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
-  lower.append(topics);
-
-  const pulse = el('section', 'atlas-panel');
-  const range = el('select', 'atlas-range');
-  range.setAttribute('aria-label', 'History time range');
-  range.dataset.key = 'history-range';
-  [['1h', 'Last hour'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['all', 'All history']]
-    .forEach(([value, label]) => range.append(new Option(label, value)));
-  range.value = historyWindow;
-  range.onchange = () => {
-    historyWindow = range.value;
-    history = []; historyData = null; historyError = '';
-    redraw(); reloadHistory?.();
-  };
-  const hasLogs = samples.some(s => s.source === 'logs');
-  const heading = el('div', 'atlas-panel-heading');
-  heading.append(el('h3', '', 'Activity over time'));
-  const metricControls = el('select', 'atlas-range');
-  metricControls.setAttribute('aria-label', 'History population');
-  metricControls.dataset.key = 'history-metric';
-  [['panes', 'Panes'], ['agents', 'All agents'], ['foreground', 'Main agents'], ['background', 'Background agents']]
-    .forEach(([value, label]) => metricControls.append(new Option(label, value)));
-  metricControls.value = metric;
-  metricControls.onchange = () => { root._metric = metricControls.value; redraw(); };
-  const pickers = el('div', 'atlas-history-pickers');
-  pickers.append(metricControls, range);
-  pulse.append(heading,
-    el('p', 'muted', historyError || (historyData
-      ? 'Saved by this machine’s daemon. Gaps mean no observation.' : 'Loading saved history…')));
-  const zoomControls = el('div', 'atlas-zoom-controls');
-  const resetZoom = el('button', 'atlas-reset-zoom', 'Reset zoom');
-  resetZoom.dataset.key = 'reset-zoom';
-  resetZoom.onclick = () => charts.resetZoom();
-  zoomControls.append(el('span', 'muted atlas-zoom-desktop', 'Drag to pan · Ctrl + scroll to zoom'),
-    el('span', 'muted atlas-zoom-touch', 'Pinch to zoom · Drag to pan'), resetZoom);
-  pulse.append(pickers, charts.stateControls, charts.bars, zoomControls);
-  pulse.append(el('p', 'atlas-history-note muted', metric === 'panes'
-    ? 'Older history grouped compacting and external waits under Running.'
-    : 'Observed coding agents only; shells and log tails are excluded. Main agents and their visible background workers are counted separately. Waiting includes review and CI waits. Hidden workers may be missed; this is not CPU or token utilization. Older history has no agent counts.'));
-  if (metric !== 'panes' && !chartSamples.some(s => s.n != null)) pulse.append(el('p', 'muted', 'No agent observations in this range yet.'));
-  if (hasLogs) pulse.append(el('p', 'atlas-history-note muted', historyData.backfill_note));
-  if (scope.session && history.some(s => s.source === 'logs'))
-    pulse.append(el('p', 'atlas-history-note muted', 'Older log records have no tmux session identity; they are excluded from this session filter.'));
-  lower.append(pulse); root.append(lower);
-  charts.update({ words: topWords.map(([word, members]) => [word, members.length]),
-    samples: chartSamples, states: STATES, unit: metric === 'panes' ? 'Panes' : 'Agents', step: historyData?.step || 60000,
-    zoomKey: JSON.stringify([historyWindow, scope]), selectWord: searchTopic });
-  if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
+  nodes.push(topics);
+  rebuild(root, nodes);
+  let mapWidth = 0;
+  root._mapResize = new ResizeObserver(entries => {
+    const width = Math.floor(entries[0].contentRect.width);
+    if (!width || width === mapWidth || !islands.length) return;
+    mapWidth = width;
+    const focused = map.contains(document.activeElement) ? document.activeElement : null;
+    map.replaceChildren(packSessions(islands, width));
+    focused?.focus({ preventScroll: true });
+  });
+  root._mapResize.observe(map);
+  paints.forEach(paint => paint());
+  charts.update({ words: topWords.map(([word, members]) => [word, members.length]), selectWord: searchTopic });
+  main.update(chartData(data, { unit: metric === 'panes' ? 'Panes' : 'Agents', zoomKey: JSON.stringify([fleet.range, fleet.average, scope]) }));
 }

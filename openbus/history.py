@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import os
+import re
 import socket
 import sqlite3
 import time
@@ -22,6 +23,17 @@ COVERAGE = 120
 BACKFILL_TTL = 4 * 3600
 STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
 AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
+MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
+GOAL_KEY = "running_goal"
+
+
+def duration(text: str) -> int:
+    """'36h' or '7d' in seconds. ValueError for anything else, or beyond MAX_SPAN."""
+    match = re.fullmatch(r"(\d{1,3})([hd])", text)
+    seconds = int(match[1]) * (3600 if match[2] == "h" else 86400) if match else 0
+    if not 0 < seconds <= MAX_SPAN:
+        raise ValueError(text)
+    return seconds
 
 
 def default_path() -> Path:
@@ -302,7 +314,16 @@ class History:
             )
             return db.total_changes - before
 
-    def query(self, window: str = "24h", now: float | None = None) -> dict:
+    def set_goal(self, goal: int | None) -> None:
+        """The fleet's running goal: one shared number, so every device draws the same line."""
+        with self.connect() as db:
+            db.execute("DELETE FROM metadata WHERE key=?", (GOAL_KEY,))
+            if goal is not None:
+                db.execute("INSERT INTO metadata VALUES (?, ?)", (GOAL_KEY, str(goal)))
+
+    def query(self, window: str = "24h", now: float | None = None, lead: str | None = None) -> dict:
+        """`window` sets the bucket size; `lead` adds that much earlier history at the same
+        bucket size, so a client can average over a window that starts before the chart."""
         now = time.time() if now is None else now
         with self.connect() as db:
             live_start = db.execute("SELECT min(t) FROM snapshots").fetchone()[0]
@@ -310,14 +331,15 @@ class History:
                 "SELECT min(t) FROM log_observations WHERE valid_until IS NOT NULL",
             ).fetchone()[0]
             first = min((t for t in (live_start, log_start) if t is not None), default=now)
-            span = {"1h": 3600, "24h": 86400, "7d": 604800, "all": max(60, now - first)}[window]
+            span = max(60, now - first) if window == "all" else duration(window)
             start = max(first, now - span)
             # Bound the response even for years of history. Five-minute bins at 24h,
             # with smaller bins while the database is young.
             desired = max(60, (now - start) / 360)
             step = next((s for s in (60, 300, 900, 1800, 3600, 21600, 86400) if s >= desired),
                         math.ceil(desired / 86400) * 86400)
-            start = math.floor(start / step) * step
+            start = math.floor(max(first, start - (duration(lead) if lead else 0)) / step) * step
+            goal = db.execute("SELECT value FROM metadata WHERE key=?", (GOAL_KEY,)).fetchone()
             records = db.execute(
                 "SELECT t, uid, tool, state, valid_until FROM log_observations "
                 "WHERE t>=? AND t<=? AND valid_until IS NOT NULL ORDER BY t, uid",
@@ -352,6 +374,7 @@ class History:
                                 **{key: sum_counts(groups, key) if panes or versioned else None
                                    for key in ("foreground", "background")}})
         return {"samples": samples, "step": step * 1000, "first": first * 1000,
+                "goal": int(goal[0]) if goal else None,
                 "states": STATES, "backfill_ttl": BACKFILL_TTL,
                 "backfill_note": ("Log reconstruction (lighter bars) is partial; "
                                   "matched states carried "
