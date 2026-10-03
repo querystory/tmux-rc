@@ -204,7 +204,11 @@ def test_omp_idle_title_retires_stale_job_rows(parsed):
         "idle", None, None, 0)
 
 
-@pytest.mark.parametrize("parsed", [{"tool": "omp", "activity": "idle"}, None])  # None: failed
+@pytest.mark.parametrize("parsed", [
+    {"tool": "omp", "activity": "idle"},
+    {"tool": "omp", "activity": "waiting", "waiting_on": "external"},  # its own jobs
+    None,  # failed parse
+])
 def test_omp_working_title_is_running(parsed):
     r = classify(_pane("bun", "π ⠋ Fix the parser"), "…", _llm(parsed))
     assert (r["activity"], r.get("parse_ok")) == ("running", None)

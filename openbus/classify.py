@@ -689,7 +689,8 @@ def classify(
     # a turn that ends asking "Should I merge?" is idle to omp but a user-wait to us.
     # "π !": its ask or approval prompt, a user wait even if the parse missed the question;
     # a failed parse still keeps the last card read, which has the answer controls. Any
-    # other separator is its working spinner, which outranks a stale idle/unknown read.
+    # other separator is its working spinner: running, including while it waits on its own
+    # jobs (a parsed question still makes a user wait below); only compacting is finer.
     omp = result.get("tool") == "omp" and OMP_TITLE_RE.match(pane.title)
     state = omp and omp["state"]
     if state == ">":
@@ -700,7 +701,7 @@ def classify(
             result.pop("parse_ok", None)
     elif state == "!":
         result.update(activity="waiting", waiting_on="user")
-    elif state and result.get("activity") in (None, "idle", "unknown"):
+    elif state and result.get("activity") != "compacting":
         result["activity"] = "running"
         result.pop("parse_ok", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
