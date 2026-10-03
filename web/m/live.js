@@ -51,7 +51,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     badge();
   }
   const following = () => log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX;
-  // Until a typed turn completes, an Assistant row of dots sits at the foot of the log and
+  // Until a chat turn completes, an Assistant row of dots sits at the foot of the log and
   // rows that arrive meanwhile go above it. It stays up past a first reply, since a turn
   // can say something and then keep working (a find_sessions call shows nothing), and hides
   // while a consent card is open (the model is waiting on the user then).
@@ -91,7 +91,9 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     run.ws.send(JSON.stringify(frame));
     run.thumbs.push(thumbnails); // for this turn's echo, or its refusal
     run.hasTurn = true; paintStarters(); // hide immediately, including on a double tap
-    run.turns++; badge(); // the daemon queues turns: one answer each
+    // Chat only: its daemon answers each queued turn with one turn_complete. A voice model
+    // can fold queued typed turns into one reply, so a count there could stick.
+    if (run.text) { run.turns++; badge(); }
   }
   async function capabilities() {
     if (fetching) return;
