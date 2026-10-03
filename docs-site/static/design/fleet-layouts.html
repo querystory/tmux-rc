@@ -328,7 +328,7 @@ button.goalpill{border-radius:8px}.goalpill .ed{color:var(--muted);display:inlin
 .srch4{margin:0 12px 10px;height:38px;flex:none;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:6px;padding:0 10px;color:var(--muted);font-size:14px;background:var(--surface);text-align:left;width:calc(100% - 24px)}
 .srch4.on{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
 .qp4{display:inline-flex;align-items:center;gap:4px;background:var(--accent-bg);color:var(--accent);border-radius:12px;padding:1px 4px 1px 9px;font-size:12.5px;font-weight:600}
-.qp4 button{width:18px;height:18px;display:inline-grid;place-items:center;border-radius:50%;color:var(--accent)}
+.srch4>button:first-child{flex:1;display:flex;align-items:center;gap:8px;height:100%;color:inherit;text-align:left}.srch4 .qx4{width:24px;height:24px;display:grid;place-items:center;color:var(--muted)}
 .strip4{display:flex;gap:6px;margin:-2px 12px 10px;height:26px;overflow:hidden;flex:none;align-items:center}
 .tc4{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:12px;white-space:nowrap;flex:none;color:var(--fg)}
 .tc4 b{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
@@ -972,13 +972,13 @@ function groups4(id,o){const mode=P4(id,'gb',o.gb||'state'),rs=ROWS4.filter(r=>r
  else if(mode=='topic'){const left=new Set(rs);G=[];topics4().forEach(t=>{const m=[...left].filter(r=>t.rows.has(r));if(m.length>1){G.push([ico('tag',13)+t.w,m]);m.forEach(r=>left.delete(r));}});G.push(['No shared topic',[...left]]);}
  else G=[['Working',rs.filter(r=>r.st=='run')],['Idle',rs.filter(r=>r.st=='idle')]];
  return G.filter(g=>g[1].length).map(([l,m,tt])=>gh4(l,m.length,tt?`<span class="tt">${tt}</span>`:'')+m.map(r=>row4(id,r)).join('')).join('');}
-const pill4=()=>`<span class="qp4">${S.q4}<span role="button" data-act="q4:${S.q4}" aria-label="Clear the search">${ico('x',12)}</span></span>`;
+const pill4=()=>`<span class="qp4">${S.q4}</span>`;
 const strip4=(id,o)=>`<div class="strip4" data-m="topic"><div style="display:flex;gap:6px;overflow:hidden;flex:1">${topics4().slice(0,8).map(t=>`<button class="tc4 tw4" data-act="q4:${t.w}" aria-pressed="${S.q4==t.w}" title="${who4(t)}">${t.w}<b>${t.n}</b></button>`).join('')}</div><button class="tc4 more" data-act="${o.dd?'toggle:dd4:'+id:`p4:${id}.view=dash`}">${o.dd?'More':'All'}</button></div>`;
 const dd4=id=>on('dd4:'+id)?`<div class="dd4">${S.q4?'':`<h4>Recent</h4>${['checkout','terraform'].map(w=>`<button class="o" data-act="q4:${w}">${ico('clock',15)}<span class="w">${w}</span></button>`).join('')}`}<h4>Topics</h4>${topics4().slice(0,10).map(t=>`<button class="o tw4" data-act="q4:${t.w}" title="${who4(t)}">${ico('tag',15)}<span class="w">${t.w}</span><i style="width:${Math.round(60*t.n/topics4()[0].n)}px"></i><b>${t.n}</b></button>`).join('')}<div class="k">Hover a topic for its panes. Enter filters the list; Esc closes.</div></div>`:'';
 function sb4(id,o){const v=P4(id,'view',o.view),mode=P4(id,'gb',o.gb||'state'),need=ROWS4.filter(r=>r.st=='need'&&hit4(r)),n=ROWS4.filter(hit4).length;
  return `<aside class="sb4" data-m="sb"><div class="sbh">${brand(false)}<span class="sp" style="flex:1"></span>${ib('panel','Collapse sidebar','sm')}</div>
  <div class="nvr4">${nv('plus','New window','','new')}<button class="ib sm ${v=='dash'?'on':''}" data-act="p4:${id}.view=dash" title="Dashboard" aria-label="Dashboard">${ico('dash',18)}</button>${ib('chat','Chat','sm')}${ib('bell','Alerts','sm')}</div>
- <button class="srch4 ${o.dd&&on('dd4:'+id)?'on':''}" ${o.dd?`data-act="set:dd4:${id}:1" data-focus="dd4:${id}" data-m="topic"`:''}>${ico('search',18)}${S.q4?pill4():'Find a session or pane'}</button>
+ <div class="srch4 ${o.dd&&on('dd4:'+id)?'on':''}" ${o.dd?'data-m="topic"':''}><button ${o.dd?`data-act="set:dd4:${id}:1" data-focus="dd4:${id}"`:''}>${ico('search',18)}${S.q4?pill4():'Find a session or pane'}</button>${S.q4?`<button class="qx4" data-act="q4:${S.q4}" aria-label="Clear the search">${ico('x',14)}</button>`:''}</div>
  ${o.strip?strip4(id,o):''}${o.cloud?`<div class="sec4" data-m="topic"><button class="gh4" style="padding:0 2px;height:24px;width:100%" data-act="toggle:fold4:${id}" aria-expanded="${!on('fold4:'+id)}">${ico(on('fold4:'+id)?'right':'down',14)}Topics<span class="c">${topics4().length}</span></button>${on('fold4:'+id)?'':cloud4(266,190)}</div>`:''}
  <div class="list4" data-m="list">${S.q4?`<div class="mt4">${n} of ${ROWS4.length} panes match “${S.q4}”<button data-act="q4:${S.q4}">Clear</button></div>`:''}${need.length?gh4(`<span style="color:var(--amber);display:inline-flex">${ico('alert',14)}</span>Needs you`,need.length)+need.map(card4).join(''):''}
  <div class="gb4" ${o.gbt?'data-m="topic"':''}>Group by <span class="seg">${['state','session',...(o.gbt?['topic']:[])].map(m=>`<button data-act="p4:${id}.gb=${m}" aria-pressed="${mode==m}">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}</span><span class="sp"></span>All ${ico('down',12)}${ico('updown',14)}</div>${groups4(id,o)}</div>
@@ -1020,7 +1020,7 @@ R4('T1',{view:'pane',cloud:1},{name:'Cloud as a sidebar section',line:'The same 
 R4('T2',{view:'pane',dd:1,ddOpen:1},{name:'Topics inside the search box',line:'Nothing new at rest. Focusing the empty search opens suggestions: two recent searches, then the top ten topics with a pane count and a bar.',
  fixes:'Costs no sidebar height and puts topics where you already go to filter. A ranked list instead of a cloud: every label is 13px and the count is a number, not a font size.',
  costs:'Invisible until you click, so nobody discovers a topic they did not know to look for, which was the point of "on the radar". While open it covers the Needs you cards.',
- inter:'Click the search box (open here). Click a topic: it becomes a pill in the search field and the list filters; the pill\'s x clears. Esc closes.',
+ inter:'Click or tab to the search box (open here). Click a topic: it becomes a pill in the search field and the list filters; the x beside it clears. Esc closes the suggestions.',
  clutter:'Identical at every size.'}),
 R4('T3',{view:'pane',strip:1},{name:'One-line chip strip under search',line:'A single row of the top topics as chips, with counts, under the search. The active chip shows as a pill in the search box; All opens the dashboard cloud.',
  fixes:'Always visible, adjacent to the list, for one line of height. Chips are 12px text with a numeric count, legible at any width.',
@@ -1045,7 +1045,7 @@ R4('T6',{view:'pane',gbt:1,gb:'topic',tt:1},{name:'Group by Topic',line:'Topic b
 R4('T7',{view:'dash',strip:1,dd:1,topics:'left',bal:1},{name:'Strip plus suggestions, cloud as the browse view',line:'T3\'s strip for a glance, T2\'s suggestions behind More and the search box, and T4\'s dashboard. Switch the toolbar\'s Topics to Cleaned to see it as proposed.',
  fixes:'Topics are visible with or without a pane open, one line from the list. The cloud stays where browsing happens but next to the sidebar, and the small multiples stop orphaning.',
  costs:'Three surfaces show one list; they must come from one function so they never disagree, and that list has to be good, which is a computation change, not a layout one.',
- inter:'Click a chip or a cloud word to filter; More or the search box opens the suggestions; the pill\'s x or Esc clears.',
+ inter:'Click a chip or a cloud word to filter; More, or focusing the search box, opens the suggestions and Esc closes them; the x beside the pill clears the topic.',
  clutter:'Same sidebar at every size; the dashboard reflows as T4.'})];
 V.unshift(...R4V);
 DEV.push(['2560',2560,1440],['3440 ultra-wide',3440,1440]);
