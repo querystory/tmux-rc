@@ -231,6 +231,7 @@ export function setupSidebar(ctx) {
   root.addEventListener("scroll", unhover, { passive: true });
   root.addEventListener("click", unhover);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
+  addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this
 
   function render(subset, query, filter) {
     last = [subset, query, filter];
