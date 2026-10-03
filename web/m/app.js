@@ -328,13 +328,14 @@ function landingRows(id, subset) {
 
 function renderLanding() {
   const waiting = panes.filter(needsYou);
-  text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "Session atlas" : "No panes yet");
+  // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
+  // only for the loading and empty states, and hides itself when blank (style.css).
+  text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "" : "No panes yet");
   // With no panes there is no session to open a window IN: + is disabled and the server
   // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
   // the empty state says where a session actually comes from instead.
   text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
-    ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
-    : "No tmux panes are open. Start a session on the host and it will appear here.");
+    ? "" : "No tmux panes are open. Start a session on the host and it will appear here.");
   renderAtlas($("session-atlas"), panes, navigate, LOGOS, term => {
     $("search").value = term;
     filter = "all";
