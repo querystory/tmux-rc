@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fleet Layout Studies</title>
+<style>
+/* Layout concept: a sticky comparison toolbar over a gallery of full-page tmux-rc mockups, scaled to fit, with a click-to-expand annotated view.
+   Tokens are the real tmux-rc :root tokens (web/m/style.css) plus mock-only chart tokens. */
+:root{
+  --bg:#f5f7f6;--surface:#fff;--raised:#e7ede9;--line:#ccd7d0;--fg:#1b2821;--muted:#53655b;--accent:#146b46;--accent-bg:#dcf4e7;--lift:#fff;
+  --amber:#815600;--amber-bg:#fff2d4;--red:#b52c36;--purple:#8250df;
+  --stage:#dde4e0;--s-run:#22a063;--s-need:#c98200;--s-idle:#c3cec7;--gap:#dfe5e1;--shadow:0 8px 28px rgb(20 40 30 / .18);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101312;--surface:#191d1b;--raised:#252b28;--line:#343d38;--fg:#edf2ef;--muted:#a1ada6;--accent:#83ddb3;--accent-bg:#193c2c;--lift:#2b322f;
+  --amber:#f1c56a;--amber-bg:#352d1c;--red:#ff9696;--purple:#a371f7;
+  --stage:#0a0c0b;--s-run:#60c992;--s-need:#f1bd53;--s-idle:#4a5560;--gap:#262c29;--shadow:0 8px 28px rgb(0 0 0 / .5);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#101312;--surface:#191d1b;--raised:#252b28;--line:#343d38;--fg:#edf2ef;--muted:#a1ada6;--accent:#83ddb3;--accent-bg:#193c2c;--lift:#2b322f;
+  --amber:#f1c56a;--amber-bg:#352d1c;--red:#ff9696;--purple:#a371f7;
+  --stage:#0a0c0b;--s-run:#60c992;--s-need:#f1bd53;--s-idle:#4a5560;--gap:#262c29;--shadow:0 8px 28px rgb(0 0 0 / .5);color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--stage);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;border-radius:6px}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg{flex:none;vertical-align:middle}
+/* ---------- page chrome ---------- */
+#bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center}
+#bar h1{font-size:16px;margin:0;font-weight:650;margin-right:auto;white-space:nowrap}
+.ctl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.seg{display:inline-flex;background:var(--raised);border-radius:8px;padding:2px;gap:2px}
+.seg button{padding:4px 11px;min-height:28px;font-size:13px;color:var(--muted);border-radius:6px}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgb(0 0 0 / .18);font-weight:600}
+main{padding:20px 16px 48px;max-width:1800px;margin:0 auto}
+.intro{max-width:78ch;color:var(--muted);margin:0 0 20px}
+.intro b{color:var(--fg)}
+.grp-h{display:flex;align-items:baseline;gap:12px;margin:26px 0 12px;flex-wrap:wrap}
+.grp-h h2{margin:0;font-size:15px;font-weight:650}
+.grp-h span{color:var(--muted);font-size:13px;max-width:110ch}.grp-h span b{color:var(--fg)}
+.grid{display:grid;gap:28px 22px;grid-template-columns:repeat(auto-fill,minmax(min(100%,520px),1fr))}
+.grid.phg{grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;min-width:0;text-align:left;padding:0}
+.card:hover{border-color:var(--accent)}
+.card .stage{border-bottom:1px solid var(--line)}
+.cap{padding:10px 14px 12px;display:grid;gap:3px}
+.cap b{font-size:14px}
+.cap p{margin:0;color:var(--muted);font-size:12.5px}
+.tag{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:6px;background:var(--accent-bg);color:var(--accent);font-weight:700;font-size:12px;margin-right:8px}
+.stage{position:relative;overflow:hidden;background:var(--bg)}
+.stage.act{overflow:auto}
+.stage .scaler{transform-origin:0 0;position:absolute;left:0;top:0}
+.ov .stage{pointer-events:none}
+.xv{display:grid;gap:18px 26px;grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+@media (max-width:1000px){.xv{grid-template-columns:minmax(0,1fr)}}
+.xstage{border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);max-width:100%;width:100%}
+.xstage.phone{margin:0 auto}
+.note{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:12px;position:sticky;top:76px;min-width:0}
+.note h2{margin:0;font-size:18px;line-height:1.25}
+.note h3{margin:0 0 2px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.note p{margin:0;font-size:13.5px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;align-items:center}
+.tabs button{min-width:34px;height:30px;padding:0 9px;border:1px solid var(--line);background:var(--surface);font-weight:650;font-size:13px}
+.tabs button[aria-current="true"]{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
+.tbtn{border:1px solid var(--line);background:var(--surface);padding:5px 12px;font-size:13px}
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:760px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase}
+tr:last-child td{border-bottom:0}
+#tip{position:fixed;z-index:50;pointer-events:none;background:var(--fg);color:var(--bg);padding:6px 9px;border-radius:7px;font-size:12px;line-height:1.4;white-space:nowrap;transform:translate(-50%,-100%);display:none;box-shadow:0 4px 14px rgb(0 0 0 / .3)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:9px;font-size:13px;z-index:60;display:none}
+.foot{color:var(--muted);font-size:12px;margin-top:22px;max-width:90ch}
+/* ---------- frames: a native-looking tmux-rc ---------- */
+.fr{--term:#0e1210;width:var(--fw,1440px);height:var(--fh,900px);container:fr/size;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;position:relative;overflow:hidden;display:flex;text-align:left}
+.fr.phone{width:var(--fw,390px);height:var(--fh,844px);flex-direction:column;font-size:15px}
+.fr h1,.fr h2,.fr p{margin:0}
+.fr button{min-height:0}
+.fr button:not(:disabled):hover{background:var(--raised)}
+.fr .col{flex:1;min-width:0;display:flex;flex-direction:column}
+.fr .body{flex:1;min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr)}
+.hd{height:56px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--line);flex:none;position:relative;background:var(--bg)}
+.hc{flex:1;min-width:0;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:14px}
+.hr{display:flex;align-items:center;gap:2px;flex:none}
+.brand{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:650;white-space:nowrap;position:relative}
+.logomark{width:28px;height:28px;border-radius:7px;background:var(--fg);display:grid;place-items:center;position:relative;color:var(--accent)}
+.livedot{position:absolute;right:-3px;bottom:-3px;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+.live{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-right:6px}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.ib{width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--fg);position:relative}
+.ib.sm{width:28px;height:28px}
+.ib.acc{background:var(--accent-bg);color:var(--accent)}
+.ib.on{background:var(--accent-bg);color:var(--accent)}
+.ib .bd{position:absolute;top:3px;right:2px;min-width:16px;height:16px;border-radius:8px;background:var(--s-need);color:#1a1200;font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px}
+.pill{display:inline-flex;align-items:center;gap:1px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:2px}
+.vr{width:1px;height:20px;background:var(--line);margin:0 4px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:15px;border:1px solid var(--line);background:var(--surface);font-size:13px;white-space:nowrap}
+.chip .d{width:8px;height:8px;border-radius:50%;background:var(--s-idle)}
+.chip .d.run{background:var(--s-run)}.chip .d.need{background:var(--s-need)}
+.chip b{font-variant-numeric:tabular-nums}
+.chip[aria-pressed="true"]{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);font-weight:600}
+.chip.need[aria-pressed="true"]{background:var(--amber-bg);border-color:var(--s-need);color:var(--amber)}
+.num{font-variant-numeric:tabular-nums}
+.big{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.mut{color:var(--muted)}
+.lab{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.spark{display:block;overflow:visible;cursor:crosshair}
+.spark .cross{opacity:0}
+.spark:hover .cross{opacity:.45}
+.pos{color:var(--accent);font-weight:600}.neg{color:var(--amber);font-weight:600}
+.goalpill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 9px;border-radius:8px;background:var(--raised);white-space:nowrap}
+.fr .seg{background:var(--raised)}
+.fr .seg button{padding:2px 9px;min-height:24px;font-size:12px}
+/* list */
+.left{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line);background:var(--bg);min-width:0}
+.lh{display:flex;align-items:center;gap:8px;padding:14px 20px 10px}
+.lh h1{font-size:24px;font-weight:650;line-height:1.2;flex:1}
+.sort{font-size:13px;color:var(--muted);display:inline-flex;align-items:center;gap:2px}
+.search{margin:0 20px 12px;height:40px;display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:0 12px;color:var(--muted);font-size:15px}
+.list{flex:1;min-height:0;overflow:hidden}
+.row{display:flex;gap:12px;align-items:flex-start;padding:13px 20px;border-bottom:1px solid var(--line)}
+.row.need{background:var(--amber-bg)}
+.row.cur{background:var(--lift);margin-inline:6px;padding-inline:14px;border-radius:10px;border-bottom-color:transparent;box-shadow:inset 4px 0 var(--fg),inset 0 0 0 1px color-mix(in srgb,var(--fg) 40%,transparent)}
+.rb{flex:1;min-width:0}
+.rt{display:flex;gap:8px;align-items:baseline}
+.rt strong{flex:1;font-size:15px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rs{font-size:12px;color:var(--muted);white-space:nowrap}
+.rs.need{color:var(--amber);font-weight:700}
+.rx{color:var(--muted);font-size:13px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rm{color:var(--muted);font-size:11px;margin-top:4px}
+.lg{display:inline-flex;flex:none;border-radius:50%}
+.lg svg{width:100%;height:100%;border-radius:7px}
+.lg.working{background:var(--accent-bg);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 22%,transparent),0 0 0 1px var(--accent);margin:4px}
+.lg.working svg{border-radius:50%}
+@media (prefers-reduced-motion:no-preference){.lg.working{animation:clench 1.4s ease-in-out infinite}.lg.working[data-tool="codex"]{animation:spin 3s linear infinite}}
+@keyframes clench{0%,100%{transform:scale(1)}50%{transform:scale(.8)}}
+@keyframes spin{to{transform:rotate(1turn)}}
+.bnav{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border-top:1px solid var(--line);background:var(--surface);padding:6px 8px;gap:4px;flex:none}
+.bnav button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;font-size:12px;color:var(--muted)}
+.bnav button b{font-variant-numeric:tabular-nums;font-weight:600}
+.bnav button[aria-pressed="true"]{background:var(--accent-bg);color:var(--accent)}
+.bnav button.need[aria-pressed="true"]{background:var(--amber-bg);color:var(--amber)}
+/* detail */
+.detail{display:flex;flex-direction:column;min-width:0;min-height:0}
+.ph{height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--bg)}
+.ph div{flex:1;min-width:0}.ph strong{display:block;font-size:14px}.ph small{display:block;font-size:12px;color:var(--muted)}
+.lay{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.sel{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:4px 8px;color:var(--fg);font-size:13px}
+.dgrid{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 400px}
+.tcol{display:flex;flex-direction:column;min-width:0;min-height:0}
+.tb{height:40px;flex:none;display:flex;align-items:center;gap:6px;padding:0 10px 0 16px;background:var(--term);color:#aab8b0;font-size:12px;border-bottom:1px solid #222a26}
+.tb strong{color:#e5eee8;font-weight:600}
+.tb .sp{flex:1}
+.tb .ib{color:#c3d0c8}.tb button:hover{background:#242b27!important}
+.tb .seg{background:#1b221e}.tb .seg button{color:#93a39a}.tb .seg button[aria-pressed="true"]{background:#2d3732;color:#e5eee8;box-shadow:none}
+.selbtn{padding:0 6px}
+.term{flex:1;min-height:0;background:var(--term);color:#cfe0d6;font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:10px 0;overflow:hidden;white-space:pre}
+.term div{padding:0 16px}
+.term .add{background:#1c5a2f;color:#e6f6ea;margin-right:140px}
+.term .dim{color:#7d8d84}
+.ovc{border-left:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.ovb{padding:16px 18px;display:grid;gap:12px;align-content:start}
+.ovb .badge{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.ovb h2{font-size:17px;line-height:1.35}
+.ovb h3{font-size:13px;margin:0 0 6px;font-weight:650}
+.ovb p{color:var(--muted);font-size:13px}
+.lk{display:flex;gap:8px;align-items:center;color:var(--accent);font-size:13px;padding:3px 0}
+.tk{display:flex;gap:8px;font-size:13px;padding:3px 0;color:var(--muted)}
+.tk i{width:14px;height:14px;border:1.5px solid var(--line);border-radius:4px;flex:none;margin-top:3px}
+.tk.d i{background:var(--accent);border-color:var(--accent)}
+.ev{display:flex;gap:10px;font-size:12.5px;color:var(--muted);padding:3px 0}.ev time{width:44px;flex:none;font-variant-numeric:tabular-nums}
+.card2{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px 14px}
+/* strips, status bar, rail, popovers */
+.strip{flex:none;display:flex;align-items:center;gap:20px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--surface)}
+.sbar{height:30px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--line);background:var(--surface);font-size:12px;color:var(--muted)}
+.sbar .sp{flex:1}
+.sbar b{color:var(--fg);font-variant-numeric:tabular-nums}
+.rail{width:72px;flex:none;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+.rail button{width:60px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0;font-size:10.5px;color:var(--muted);position:relative}
+.rail button[aria-pressed="true"]{background:var(--accent-bg);color:var(--accent)}
+.rail button.need[aria-pressed="true"]{background:var(--amber-bg);color:var(--amber)}
+.rail .bd{position:absolute;top:2px;right:6px;min-width:16px;height:16px;border-radius:8px;background:var(--s-need);color:#1a1200;font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px}
+.rail .bd.run{background:var(--s-run);color:#04140b}
+.rail .sp{flex:1}
+.pop{position:absolute;z-index:10;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:14px;display:grid;gap:10px;font-size:13px}
+.pop .r{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.pop .r span:first-child{display:flex;align-items:center;gap:8px}
+.tog{width:34px;height:20px;border-radius:10px;background:var(--accent);position:relative;display:inline-block}
+.tog::after{content:"";position:absolute;right:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.tog.off{background:var(--raised)}.tog.off::after{right:auto;left:2px}
+.cmd{display:flex;align-items:center;gap:10px;height:38px;width:520px;max-width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:0 12px;color:var(--muted);font-size:14px}
+.cmd kbd{margin-left:auto;font:11px ui-monospace,monospace;border:1px solid var(--line);border-radius:5px;padding:1px 6px;background:var(--raised)}
+.dock{display:flex;gap:6px;align-items:center}
+.dock .lg{position:relative}
+.dock .nd::after{content:"";position:absolute;right:-3px;top:-3px;width:10px;height:10px;border-radius:50%;background:var(--s-need);border:2px solid var(--bg)}
+.dock .idl{opacity:.55}
+/* phone */
+.phone .hd{height:56px;padding:0 8px 0 16px;gap:4px}
+.phone .ib{width:40px;height:40px}
+.phone .lh{padding:12px 16px 8px}
+.phone .lh h1{font-size:26px}
+.phone .search{margin:0 16px 10px;height:44px}
+.phone .row{padding:13px 16px}
+.phone .bnav{padding:6px 8px 14px}
+.phone .bnav button{padding:7px 2px;gap:3px}
+.sheet{position:absolute;left:0;right:0;top:56px;z-index:10;background:var(--surface);border-radius:0 0 18px 18px;border-bottom:1px solid var(--line);box-shadow:var(--shadow);padding:14px 16px 10px;display:grid;gap:12px}
+.scrim{position:absolute;inset:56px 0 0;background:rgb(0 0 0 / .38);z-index:9}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:2px auto 0}
+.cardrow{margin:0 16px 10px;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:12px}
+.chiprow{display:flex;gap:6px;padding:0 16px 10px;overflow:hidden}
+.viewtog{display:flex;padding:8px 16px;gap:8px;border-bottom:1px solid var(--line)}
+/* ---------- round 2: one chatbot-style sidebar ---------- */
+.sb{width:280px;flex:none;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0;font-size:13px}
+.sb.mini{width:60px;align-items:center}
+.sbh{height:52px;flex:none;display:flex;align-items:center;gap:2px;padding:0 8px 0 14px;width:100%}
+.sbh .brand{font-size:16px;margin-right:auto}
+.sb.mini .sbh{padding:0;justify-content:center}
+.nv{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;margin:0 6px;border-radius:8px;font-size:13.5px;flex:none;width:calc(100% - 12px);position:relative}
+.nv>svg{color:var(--muted)}
+.nv .k{margin-left:auto;min-width:18px;height:18px;border-radius:9px;background:var(--s-need);color:#1a1200;font-size:11px;font-weight:700;display:grid;place-items:center;padding:0 5px}
+.nv.new,.nv.new>svg{color:var(--accent);font-weight:600}
+.sb.mini .nv{width:40px;height:36px;padding:0;margin:0;justify-content:center}
+.sb.mini .nv .k{position:absolute;top:0;right:-2px}
+.sec{display:flex;align-items:center;gap:6px;height:30px;padding:8px 10px 0 16px;font-size:12px;color:var(--muted);font-weight:600;flex:none}
+.sec .sp{flex:1}
+.sec .fb{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;font-size:12px;color:var(--muted);font-weight:600}
+.sbl{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;padding-bottom:8px;width:100%}
+.th,.sg{text-align:left;display:flex;align-items:center;gap:9px;height:28px;padding:0 8px 0 10px;margin:0 6px;border-radius:7px;white-space:nowrap;width:calc(100% - 12px)}
+.th .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.th .a{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
+.th .s2{color:var(--muted);font-size:11.5px;flex:none}
+.th.need .a{color:var(--amber);font-weight:700}
+.th.cur{background:var(--raised);font-weight:600}
+.th.un .t{font-weight:650}
+.sg{gap:6px;margin-top:2px;font-size:12.5px;font-weight:600;padding-left:8px}
+.sg>svg{color:var(--muted)}
+.sg .c{margin-left:auto;font-size:11.5px;color:var(--muted);font-weight:500;display:flex;gap:5px;align-items:center;font-variant-numeric:tabular-nums}
+.sg .c i{width:6px;height:6px;border-radius:50%;background:var(--s-run)}
+.sl{position:relative;display:inline-flex;flex:none}
+.sl svg{width:100%;height:100%;border-radius:5px}
+.sl.idle svg{filter:grayscale(1);opacity:.5}
+.sl i{position:absolute;right:-3px;bottom:-3px;width:9px;height:9px;border-radius:50%;border:2px solid var(--surface)}
+.sl i.run{background:var(--s-run)}.sl i.need{background:var(--s-need)}
+@media (prefers-reduced-motion:no-preference){.sl.w svg{animation:clench 1.4s ease-in-out infinite}.sl.w[data-tool="codex"] svg{animation:spin 3s linear infinite}}
+.sbf{flex:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:2px;padding:6px 8px;width:100%}
+.sbf .live{margin:0 auto 0 6px}
+.sb.mini .sbf{flex-direction:column;border:0;align-items:center}
+.sbseg{margin:8px 12px 2px;display:flex}.sbseg button{flex:auto;padding:2px 6px;white-space:nowrap}
+.bsheet .seg button{flex:1}
+.ibx{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 9px;padding:7px 10px;margin:0 6px 4px;border-radius:9px;background:var(--amber-bg);width:calc(100% - 12px);text-align:left}
+.ibx .sl{margin-top:2px}
+.ibx strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ibx p{grid-column:2/4;color:var(--muted);font-size:12px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ibx .a{color:var(--amber);font-weight:700;font-size:11px}
+.main2{flex:1;min-height:0;display:flex}.main2>.detail{flex:1}
+.dock2{flex:none;border-top:1px solid var(--line);background:var(--surface)}
+.dkh{display:flex;align-items:center;gap:12px;height:40px;padding:0 16px 0 8px;white-space:nowrap}
+.dkh .sp{flex:1}
+.goaled{display:inline-flex;align-items:center;gap:3px;font-size:12.5px;padding:1px 3px 1px 9px;border-radius:8px;background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent);white-space:nowrap}
+.goaled svg:first-child{margin-right:3px}
+.goaled input{width:42px;height:24px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);font:inherit;font-weight:700;text-align:center;padding:0;-moz-appearance:textfield}
+.goaled input::-webkit-inner-spin-button{display:none}
+.goaled button{width:24px;height:24px;display:grid;place-items:center}
+button.goalpill{border-radius:8px}.goalpill .ed{color:var(--muted);display:inline-flex}
+.mtx{font-size:12.5px;white-space:nowrap}
+.lgd{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+.lgd .ma{width:16px;border-top:2.5px solid var(--purple)}
+.lgd .gl{width:16px;border-top:1.5px dashed var(--muted)}
+.chip .d.idle{background:var(--s-idle)}
+.sbc{flex:none;margin:6px 8px;border:1px solid var(--line);border-radius:10px;padding:9px 10px 8px;display:grid;gap:5px;background:var(--bg);text-align:left}
+.meter{display:inline-flex;align-items:center;gap:10px;font-size:12.5px;white-space:nowrap}
+.meter .bar{position:relative;width:132px;height:8px;border-radius:4px;background:var(--raised)}
+.meter .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--s-run)}
+.meter .bar b{position:absolute;top:-4px;bottom:-4px;width:3px;margin-left:-1.5px;border-radius:2px;background:var(--purple)}
+.drawer{position:absolute;left:0;top:0;bottom:0;z-index:11;display:flex;box-shadow:var(--shadow)}
+.scrim.full{inset:0}
+.pstrip{flex:none;display:flex;align-items:center;gap:10px;height:62px;padding:0 14px 6px;border-top:1px solid var(--line);background:var(--surface);text-align:left}
+.bsheet{position:absolute;left:0;right:0;bottom:0;z-index:10;background:var(--surface);border-radius:18px 18px 0 0;border-top:1px solid var(--line);box-shadow:var(--shadow);padding:8px 16px 24px;display:grid;gap:10px}
+.phone .th,.phone .sg{height:40px;font-size:15px;gap:12px}
+.phone .sg{font-size:14px}
+.phone .th .a{font-size:12px}
+.phone .th .sl{width:22px!important;height:22px!important}
+.phone .sec{font-size:13px;height:34px}
+.phone .sbseg button{min-height:32px;font-size:13px}
+/* reflow when the device is resized: the overview panel goes first, then the list or the detail */
+@container fr (max-width:1150px){.ovc{display:none}.dgrid{grid-template-columns:minmax(0,1fr)}}
+@container fr (max-width:760px){.fr .body{grid-template-columns:minmax(0,1fr)}.fr .body>.detail{display:none}.fr .hr .ib:nth-child(n+4){display:none}.rail{display:none}}
+/* focus view: device picker, fit toggle and a drag handle */
+.devbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:-4px 0 12px;font-size:12px;color:var(--muted)}
+.devbar .seg{flex-wrap:wrap}.devbar .seg button{padding:3px 8px;font-size:12px;min-height:26px}
+.devbar b{color:var(--fg);font-variant-numeric:tabular-nums}
+.xstage{position:relative;justify-self:start}
+.rz{position:absolute;right:-9px;bottom:-9px;width:22px;height:22px;border-radius:6px;background:var(--accent);color:var(--surface);display:grid;place-items:center;cursor:nwse-resize;touch-action:none;z-index:5;box-shadow:0 2px 6px rgb(0 0 0 / .3)}
+.rzl{position:absolute;right:16px;bottom:-26px;font:12px ui-monospace,monospace;color:var(--muted)}
+/* ---------- round 3: hybrid sidebar, chart that opens five ways ---------- */
+.nvr{display:flex;align-items:center;gap:2px;padding:0 8px 6px;flex:none;width:100%}
+.nvr .nv{flex:1;margin:0;width:auto}
+.gh3{display:flex;align-items:center;margin:2px 6px 0;gap:2px}
+.gh3 .sg{margin:0;flex:1;width:auto;min-width:0}
+.gh3 .gl3{min-width:0;overflow:hidden;text-overflow:ellipsis;display:inline-flex;align-items:center;gap:6px}
+.gh3 .ib.sm{color:var(--muted)}.gh3 .ib.on{color:var(--accent)}
+.sec .seg button{padding:1px 8px;min-height:22px;font-size:11.5px}
+.ibx.x3{background:none;padding:5px 10px;margin-bottom:2px}.ibx.x3 p{line-height:1.3}.ibx.x3:hover,.ibx.cur{background:var(--raised)}
+.ibx.x3 .a{color:var(--muted);font-weight:400}
+.ibx .s2{color:var(--muted);font-weight:400;font-size:11.5px}
+.th .u,.ibx .u{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none;margin-right:2px}.ibx .u{margin-top:5px}
+.rp{grid-column:2/4;display:flex;gap:5px;margin:3px 0 1px;flex-wrap:wrap}
+.fr .rp button{height:22px;padding:0 9px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600}
+.fr .rp button:first-child{border-color:var(--s-need)}
+.sph{flex:none;height:9px;cursor:row-resize;touch-action:none;display:grid;place-items:center;background:var(--surface);border-top:1px solid var(--line)}
+.sph i{width:44px;height:4px;border-radius:2px;background:var(--line)}
+.sph:hover i{background:var(--accent)}
+.bsheet .sph{background:none;border:0;height:18px;margin:-6px 0 -4px}
+.odr{position:absolute;right:0;bottom:0;z-index:10;background:var(--surface);border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:var(--shadow)}
+@media (prefers-reduced-motion:no-preference){.odr.in{animation:rise .2s ease-out}}
+@keyframes rise{from{transform:translateY(100%)}}
+.pk{position:relative}
+.pk .peek{display:none;left:16px;bottom:calc(100% - 2px);gap:8px}
+.pk:hover .peek,.pk.pin .peek{display:grid}
+.sm3{padding:10px 12px;display:grid;gap:4px;text-align:left}
+.phone .ibx strong{font-size:15px}.phone .ibx p{font-size:13px}
+.phone .rp button{height:32px;font-size:13px}
+.phone .gh3 .ib.sm{width:36px;height:36px}
+</style>
+<div id="bar">
+  <h1>Fleet layout studies</h1>
+  <div class="ctl">Theme <span class="seg" id="c-theme"><button data-act="t:light">Light</button><button data-act="t:dark">Dark</button></span></div>
+  <div class="ctl">Frame <span class="seg" id="c-frame"><button data-act="fr:wide">Wide 1440x900</button><button data-act="fr:phone">Phone 390x844</button></span></div>
+  <div class="ctl">Range <span class="seg" id="c-range"><button data-act="r:1h">1h</button><button data-act="r:24h">24h</button><button data-act="r:7d">7d</button></span></div>
+  <div class="ctl">Goal <span class="seg" id="c-goal"><button data-act="g:2">2</button><button data-act="g:3">3</button><button data-act="g:4">4</button></span></div>
+</div>
+<main id="app"></main>
+<div id="tip"></div><div id="toast" role="status"></div>
+<script>
+const DATA={"1h":{"stepMs":60000000,"end":1790833560000,"pts":[[0,3,6],[1,2,6],[3,2,5],[2,2,6],[2,2,6],[2,2,6],[2,2,6],[2,2,6],[2,2,6],[2,3,5],[1,4,5],[2,3,5],[2,2,6],[1,3,6],[2,2,6],[2,1,7],[2,1,7],[1,4,5],[1,3,6],[1,4,5],[1,4,5],[1,4,5],[1,4,5],[1,5,4],[1,4,5],[1,3,6],[1,4,5],[1,3,6],[1,3,6],[1,3,6],[2,2,6],[2,3,5],[1,4,5],[1,3,6],[1,3,6],[1,4,5],[1,4,5],[1,4,5],[1,4,5],[1,4,5],[1,4,5],[1,3,6],[1,3,6],[0,3,7],[0,3,7],[0,3,7],[0,3,7],[0,4,6],[0,3,7],[0,3,7],[0,4,6],[0,3,7],[0,3,7],[0,3,7],[0,3,7],[0,3,7],[0,2,8],[0,2,8],[0,2,8],[0,2,8],[0,2,8]]},"24h":{"stepMs":900000000,"end":1790833500000,"pts":[[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[1,2,39],[1,4,37],[0,4,39],[0,5,38],[0,4,39],[0,4,39],[1,3,39],[0,5,38],[0,5,38],[1,6,36],[0,6,37],[1,4,39],[0,5,39],[1,5,38],[0,7,37],[1,5,38],[0,5,40],[1,4,40],[0,5,40],[0,5,39],[0,4,40],[0,3,41],[0,3,41],[0,3,41],[1,2,41],[0,5,39],[0,5,39],null,[0,3,41],[0,3,41],[0,3,41],[0,2,42],[0,2,42],[0,2,42],[0,5,40],[0,4,41],[1,5,41],[0,4,43],[0,0,2],[0,3,44],[0,3,44],[0,0,0],[0,0,0],[0,0,0],[0,3,2],[0,2,3],[0,2,3],[0,2,3],[1,0,4],[0,0,6],[0,1,5],[0,0,6],[0,0,6],[1,0,5],[0,0,6],[0,1,5],[0,2,4],[1,0,5],null,null,null,null,null,null,[1,0,5],null,null,null,null,null,[0,3,4],[0,1,6],null,null,null,null,null,null,[2,2,6],[1,3,6],[1,3,6],[0,3,7],[0,2,8]]},"7d":{"stepMs":3600000000,"end":1790832600000,"pts":[[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[0,0,24],[2,0,23],[2,0,23],[2,0,23],[2,0,23],[2,0,23],[2,0,23],[1,0,25],[2,0,25],[1,0,26],[1,0,26],[1,0,26],[2,1,24],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,1,25],[1,2,27],[1,2,27],[1,1,28],[1,1,28],[1,1,28],[1,1,28],[1,1,28],[1,1,28],[1,1,28],[1,1,28],[1,1,28],[1,1,30],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[0,2,30],[1,1,30],[1,1,31],[0,1,32],[0,1,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[1,0,32],[0,1,33],[0,1,33],[0,2,32],[0,1,33],[0,1,33],[0,1,33],[0,1,33],[0,1,33],[0,1,33],[0,1,33],[0,1,33],[0,1,33],[0,1,33],[0,1,34],[0,1,34],[0,1,34],[0,2,33],[0,1,35],[0,2,34],[0,4,33],[0,2,35],[0,2,35],[3,3,31],[0,3,37],[0,5,36],[0,3,38],[0,3,38],[0,4,38],[0,3,37],[0,6,37],[0,6,32],[0,6,32],[1,6,33],[2,4,34],[2,4,34],[2,4,34],[2,4,34],[2,4,34],[2,4,34],[1,5,34],[1,4,35],[1,5,34],[1,4,35],[1,4,35],[1,4,35],[1,4,35],[1,4,36],null,null,[0,3,39],[0,4,38],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,2,40],[0,7,36],[2,3,38],[1,5,38],[0,7,37],[0,4,41],[0,3,41],[0,4,40],[0,3,41],[0,4,41],[0,0,2],[0,0,0],[0,2,3],[0,0,6],[0,1,5],null,null,null,[0,1,6],null,[1,3,6],[0,2,8]]}};
+const $=s=>document.querySelector(s);
+const S={theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light',frame:'wide',range:'24h',goal:3,filter:'all',idle:false,open:null,actual:false,pop:{}};
+try{const h=location.hash.slice(1);if(h)S.open=h;}catch(e){}
+/* ---------- icons (Lucide paths, inline) ---------- */
+const IC={
+plus:'<path d="M5 12h14M12 5v14"/>',minus:'<path d="M5 12h14"/>',search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+chat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+mic:'<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/>',
+moon:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-2.93 1.41-1.41m11.32-11.32 1.41-1.41M2 12h2m16 0h2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41"/>',
+monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+sliders:'<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/>',
+layers:'<path d="m12 2-10 5 10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+terminal:'<path d="m4 17 6-6-6-6M12 19h8"/>',clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+alert:'<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4M12 17h.01"/>',
+dash:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>',
+down:'<path d="m6 9 6 6 6-6"/>',up:'<path d="m18 15-6-6-6 6"/>',arrowdown:'<path d="M12 5v14m7-7-7 7-7-7"/>',
+target:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+trend:'<path d="M22 7 13.5 15.5l-5-5L2 17"/><path d="M16 7h6v6"/>',x:'<path d="M18 6 6 18M6 6l12 12"/>',
+more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+cmd:'<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>',
+phone:'<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
+back:'<path d="m15 18-6-6 6-6"/>',link:'<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+activity:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+check:'<path d="M20 6 9 17l-5-5"/>'};
+const ico=(n,s=18)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]}</svg>`;
+/* generic stand-in marks, not the real vendor logos */
+const MARK={
+claude:'<rect width="28" height="28" fill="#d97757"/><path d="M14 6v16M6 14h16M8.3 8.3l11.4 11.4m0-11.4L8.3 19.7" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>',
+codex:'<rect width="28" height="28" fill="#20252b"/><path d="M14 6.5l6.5 3.8v7.4L14 21.5l-6.5-3.8v-7.4z" fill="none" stroke="#fff" stroke-width="2"/>',
+opencode:'<rect width="28" height="28" fill="#2f3644"/><rect x="8" y="8" width="12" height="12" fill="none" stroke="#fff" stroke-width="2"/><rect x="12" y="12" width="4" height="4" fill="#fff"/>',
+shell:'<rect width="28" height="28" fill="#3b4a42"/><path d="m8 10 4 4-4 4M14 19h6" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'};
+const logo=(tool,s=28,work=false)=>`<span class="lg${work?' working':''}" data-tool="${tool}" style="width:${s}px;height:${s}px"><svg viewBox="0 0 28 28" aria-hidden="true">${MARK[tool]}</svg></span>`;
+/* ---------- mock sessions: invented names, counts agree with the chips ---------- */
+const ROWS=[
+{t:'fact checker agent',s:'storefront-0',tool:'claude',st:'idle',recent:1,x:'Waiting for preview build to complete after updating the agent review docs.',age:'2m'},
+{t:'release notes drafter',s:'docs-1',tool:'claude',st:'run',x:'Summarising merged changes since the last tag into a draft.',age:'now'},
+{t:'migration planner',s:'storefront-2',tool:'codex',st:'run',x:'Mapping table dependencies before proposing the ordering.',age:'now'},
+{t:'flaky test hunter',s:'ci-3',tool:'claude',st:'need',x:'Two reruns disagree. Choose which suite to quarantine.',age:'4m'},
+{t:'schema reviewer',s:'storefront-2',tool:'opencode',st:'run',x:'Reading the proposed column changes and checking constraints.',age:'now'},
+{t:'pricing page copy',s:'gtm-9',tool:'claude',st:'idle',recent:1,x:'Draft saved. Nothing pending.',age:'7m'},
+{t:'dependency audit',s:'misc-5',tool:'codex',st:'need',x:'Approve upgrading three packages with breaking changes?',age:'9m'},
+{t:'eval harness',s:'research-4',tool:'claude',st:'run',x:'Running the sample set against the candidate prompt.',age:'now'},
+{t:'shell',s:'misc-5',tool:'shell',st:'idle',x:'Idle at the prompt.',age:'41m'},
+{t:'changelog bot',s:'docs-1',tool:'codex',st:'idle',x:'Finished. Opened a draft entry.',age:'1h'},
+{t:'preview deploy',s:'storefront-0',tool:'claude',st:'idle',x:'Deployed. Link posted in the thread.',age:'2h'},
+{t:'log triage',s:'ops-7',tool:'opencode',st:'idle',x:'No new errors since the last check.',age:'3h'}];
+const FIL={all:()=>1,running:r=>r.st=='run',recent:r=>r.st!='idle'||r.recent,attention:r=>r.st=='need',idle:r=>r.st=='idle'};
+const CNT=Object.fromEntries(Object.keys(FIL).map(k=>[k,ROWS.filter(FIL[k]).length]));
+/* ---------- series: real /api/history counts (needs, running+compacting+waiting, idle+unknown); last point = the mock list's live counts ---------- */
+const SER={};
+function series(){const r=S.range;if(!SER[r]){const d=DATA[r];SER[r]={...d,pts:d.pts.map(p=>p&&p.slice())};SER[r].pts[SER[r].pts.length-1]=[CNT.attention,CNT.running,CNT.idle];}return SER[r];}
+function when(i){const d=series(),t=new Date(d.end-(d.pts.length-1-i)*d.stepMs);return S.range=='7d'?t.toLocaleString([], {weekday:'short',hour:'2-digit',minute:'2-digit'}):t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});}
+function stats(){const P=series().pts.filter(Boolean),avg=P.reduce((a,p)=>a+p[1],0)/P.length;
+ const pct=Math.round(100*P.filter(p=>p[1]>=S.goal).length/P.length);
+ const w=DATA['7d'].pts.filter(Boolean),a=w.slice(-24),b=w.slice(-48,-24),m=x=>x.reduce((s,p)=>s+p[1],0)/x.length;
+ return{avg:avg.toFixed(1),pct,peak:Math.max(...P.map(p=>p[1])),delta:(m(a)-m(b)),obs:Math.round(100*P.length/series().pts.length)};}
+/* ---------- the sparkline: hand-drawn SVG ---------- */
+function spark(o){
+ const d=series(),P=d.pts,n=P.length,w=o.w,h=o.h,ax=!!o.axis,L=ax?30:0,B=ax?18:0,T=ax?8:3,R=ax?6:0,bot=h-B-(ax?0:3),pw=w-L-R,bw=pw/n;
+ const stack=o.mode!='area',tot=p=>p[0]+p[1]+(o.idle&&ax?p[2]:0);
+ let mx=Math.max(...P.filter(Boolean).map(stack?tot:p=>p[1]),o.target||0,3);mx=ax?Math.ceil(mx/2)*2:mx*1.12;
+ const y=v=>bot-v/mx*(bot-T),xc=i=>L+bw*(i+.5);let g='';
+ if(ax){for(const v of [0,mx/2,mx])g+=`<line x1="${L}" x2="${w-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y(v)+3.5}" text-anchor="end" font-size="10" fill="var(--muted)">${v}</text>`;
+  for(const f of [0,.33,.66,1]){const i=Math.round(f*(n-1));g+=`<text x="${xc(i)}" y="${h-4}" text-anchor="${f==0?'start':f==1?'end':'middle'}" font-size="10" fill="var(--muted)">${when(i)}</text>`;}}
+ P.forEach((p,i)=>{if(!p)g+=`<rect x="${L+i*bw}" y="${T}" width="${Math.max(bw,1)}" height="${bot-T}" fill="var(--gap)"/>`;});
+ if(stack){const gp=bw>4?1.4:0;P.forEach((p,i)=>{if(!p)return;let b=bot;const x=L+i*bw+gp/2,ww=Math.max(bw-gp,1);
+  const seg=(v,c,op)=>{if(!v)return;const hh=v/mx*(bot-T);b-=hh;g+=`<rect x="${x.toFixed(2)}" y="${b.toFixed(2)}" width="${ww.toFixed(2)}" height="${Math.max(hh-(b<bot-hh?0:0)-.6,1).toFixed(2)}" rx="1" fill="${c}" opacity="${op}"/>`;};
+  seg(p[1],'var(--s-run)',o.target&&p[1]<o.target?.45:1);seg(p[0],'var(--s-need)',1);if(o.idle&&ax)seg(p[2],'var(--s-idle)',.7);});}
+ else{let seg=[];const flush=()=>{if(!seg.length)return;const pts=seg.map(i=>`${xc(i).toFixed(1)},${y(P[i][1]).toFixed(1)}`);
+   g+=`<path d="M${xc(seg[0]).toFixed(1)},${bot} L${pts.join(' L')} L${xc(seg[seg.length-1]).toFixed(1)},${bot}Z" fill="var(--s-run)" opacity=".2"/><polyline points="${pts.join(' ')}" fill="none" stroke="var(--s-run)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;seg=[];};
+  P.forEach((p,i)=>{if(p)seg.push(i);else flush();});flush();
+  P.forEach((p,i)=>{if(p&&p[0])g+=`<rect x="${(xc(i)-Math.max(bw/2,1)).toFixed(1)}" y="${bot-3}" width="${Math.max(bw,2).toFixed(1)}" height="3" fill="var(--s-need)"/>`;});
+  const li=n-1;g+=`<circle cx="${xc(li)}" cy="${y(P[li][1])}" r="3.5" fill="var(--s-run)" stroke="var(--bg)" stroke-width="2"/>`;}
+ if(o.target)g+=`<line x1="${L}" x2="${w-R}" y1="${y(o.target)}" y2="${y(o.target)}" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="4 3"/>`+(o.tlabel?`<text x="${w-R}" y="${y(o.target)-4}" text-anchor="end" font-size="10" fill="var(--muted)" stroke="var(--bg)" stroke-width="3" paint-order="stroke">goal ${o.target}</text>`:'');
+ g+=`<line class="cross" x1="0" x2="0" y1="${T}" y2="${bot}" stroke="var(--fg)" stroke-width="1"/>`;
+ const cur=P[n-1];
+ return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" data-L="${L}" data-bw="${bw}" data-w="${w}" data-act="${o.act||''}" role="img" aria-label="Agents by state over the last ${S.range}: now ${cur[1]} running, ${cur[0]} needs you">${g}</svg>`;}
+/* ---------- shared pieces ---------- */
+const flt=k=>`data-act="f:${k}" aria-pressed="${S.filter==k}"`;
+const rangeSeg=()=>`<span class="seg">${['1h','24h','7d'].map(r=>`<button data-act="r:${r}" aria-pressed="${S.range==r}">${r}</button>`).join('')}</span>`;
+const brand=(dot)=>`<div class="brand"><span class="logomark">${ico('terminal',16)}${dot?'<i class="livedot" title="Live"></i>':''}</span>tmux-rc</div>`;
+const live=()=>`<span class="live"><i></i>Live</span>`;
+const ib=(n,t,x='')=>`<button class="ib ${x}" title="${t}" aria-label="${t}">${ico(n,18)}</button>`;
+const icons={
+ full:()=>live()+ib('bell','Notifications')+ib('chat','Chat')+ib('mic','Live Mode','on')+ib('moon','Theme')+ib('monitor','Full UI'),
+ group:(k='gear')=>`<span class="pill">${ib('bell','Notifications')+ib('chat','Chat')+ib('mic','Live Mode','on')}</span><span class="vr"></span>`+gear(k),
+ min:(k='gear')=>ib('chat','Chat')+ib('mic','Live Mode','on')+gear(k)};
+const DEF={gearA:1,dstat:1,fchip:1,hexp:1,psheet:1};
+const on=k=>k in S.pop?S.pop[k]:!!DEF[k];
+const gear=k=>`<button class="ib ${on(k)?'on':''}" data-act="toggle:${k}" title="Settings" aria-label="Settings">${ico('sliders',18)}</button>`;
+const gearPop=(k,top,right,layout=true,more=true)=>on(k)?`<div class="pop" style="top:${top}px;right:${right}px;width:260px"><div class="r"><span>${ico(S.theme=='dark'?'moon':'sun',16)}Theme</span><span class="seg"><button aria-pressed="${S.theme=='light'}">Light</button><button aria-pressed="${S.theme=='dark'}">Dark</button></span></div>${more?`<div class="r"><span>${ico('bell',16)}Notifications</span><i class="tog"></i></div>`:''}${layout?`<div class="r"><span>${ico('layers',16)}Session layout</span><span class="sel">Auto ${ico('down',14)}</span></div>`:''}<div class="r"><span>${ico('monitor',16)}Switch to full UI</span>${ico('link',14)}</div><div class="r mut"><span><i class="live" style="margin:0"><i></i></i>Live, connected</span></div></div>`:'';
+function nowChips(){return `<span style="display:inline-flex;gap:6px"><button class="chip" ${flt('running')}><i class="d run"></i>Running <b>${CNT.running}</b></button><button class="chip need" ${flt('attention')}><i class="d need"></i>Needs you <b>${CNT.attention}</b></button><button class="chip" ${flt('idle')}><i class="d"></i>Idle <b>${CNT.idle}</b></button></span>`;}
+function goalPill(){const s=stats();return `<span class="goalpill" title="Share of the range with at least ${S.goal} agents running">${ico('target',14)}Goal ${S.goal}+ <b class="${s.pct>=60?'pos':'neg'}">${s.pct}%</b> of ${S.range}</span>`;}
+const deltaTxt=()=>{const d=stats().delta;return `<span class="${d>=0?'pos':'neg'}">${d>=0?'+':''}${d.toFixed(1)}</span> avg vs prior 24h`;};
+function row(r,cur){const lbl=r.st=='need'?'Needs you':r.st=='idle'?'Idle':'';return `<div class="row ${r.st=='need'?'need':''} ${cur?'cur':''}">${logo(r.tool,28,r.st=='run')}<div class="rb"><div class="rt"><strong>${r.t}</strong><span class="rs ${r.st}">${lbl}</span></div><div class="rx">${r.x}</div><div class="rm">${r.s} · ${r.tool} · ${r.age}</div></div></div>`;}
+function rowsHtml(){return ROWS.filter(FIL[S.filter]||FIL.all).map((r,i)=>row(r,r===ROWS[0])).join('');}
+const NAV=[['all','All','layers'],['running','Running','terminal'],['recent','Recent','clock'],['attention','Needs you','alert']];
+const bnav=()=>`<nav class="bnav">${NAV.map(([k,l,i])=>`<button class="${k=='attention'?'need':''}" ${flt(k)}>${ico(i,18)}<span>${l}</span><b>${CNT[k]}</b></button>`).join('')}</nav>`;
+const searchBox=(t='Find a session or pane')=>`<div class="search">${ico('search',18)}${t}</div>`;
+function left(o={}){return `<section class="left">${o.card||''}<div class="lh"><h1>${o.title||'Sessions'}</h1><span class="sort">Last updated ${ico('down',14)}</span><button class="ib acc" aria-label="New window">${ico('plus',18)}</button></div>${o.afterHead||''}${o.search===false?'':searchBox()}<div class="list">${rowsHtml()}</div>${o.navHtml||(o.nav===false?'':bnav())}</section>`;}
+const TERM=[['dim','  Reviewing docs/agent-review.md against the tool catalog'],['',''],['','  Findings so far'],['','   1. Catalog exposes read-only tools only'],['','   2. Approval contract is described twice'],['',''],['add','238 +the catalog has no modify or destroy tools, so'],['add','239 +an agent can not change state it was only asked'],['add','240 +contained rather than trusted: the findings are written'],['add','241 +to a report file and nothing else'],['',''],['dim','  Waiting for preview build to complete...'],['','  > ']];
+const termBody=()=>`<div class="term">${TERM.map(([c,t])=>`<div class="${c}">${t||' '}</div>`).join('')}</div>`;
+const layoutSeg=()=>`<span class="seg"><button aria-pressed="true">Auto</button><button>Side</button><button>Stack</button></span>`;
+function detail(o={}){
+ const lay=o.layout||'select',merge=lay=='merge';
+ const ph=merge?'':`<div class="ph"><div><strong>fact checker agent</strong><small>storefront-0 / fact checker agent</small></div>${lay=='select'?`<span class="lay">Layout <span class="sel">Auto ${ico('down',14)}</span></span>`:''}${o.phx||''}</div>`;
+ const tbl=merge?`<strong>fact checker agent</strong><span>storefront-0</span>`:`<span>Live terminal</span>`;
+ return `<section class="detail">${ph}<div class="dgrid"><div class="tcol"><div class="tb">${tbl}<span class="sp"></span>${lay=='seg'||merge?layoutSeg():''}<button class="ib sm">${ico('minus',16)}</button><span>13</span><button class="ib sm">${ico('plus',16)}</button><span class="selbtn">Select</span><button class="ib sm">${ico('arrowdown',16)}</button></div>${termBody()}</div>
+ <aside class="ovc">${o.ovTop||''}<div class="ovb"><div class="badge"><span>Idle</span><span>claude</span></div><h2>Waiting for preview build to complete after updating Agent Review documentation and UI</h2><p>Docs and UI changes are pushed. The preview is rebuilding and the check will rerun when it finishes.</p><div><h3>Links</h3><div class="lk">${ico('link',14)}PR 412, Agent review docs</div><div class="lk">${ico('link',14)}Preview deploy, build log</div></div><div><h3>Tasks 3 of 5</h3><div class="tk d"><i></i>Update the review docs</div><div class="tk d"><i></i>Add the approval wording</div><div class="tk d"><i></i>Push and open the PR</div><div class="tk"><i></i>Check the preview renders</div></div><div><h3>Activity history</h3><div class="ev"><time>14:02</time>Idle, waiting on preview</div><div class="ev"><time>13:58</time>Pushed 2 commits</div><div class="ev"><time>13:51</time>Running</div></div></div></aside></div></section>`;}
+function wide(o){return `<div class="fr">${o.rail||''}<div class="col">${o.header}${o.strip||''}<div class="body">${o.left||left()}${o.detail||detail()}</div>${o.status||''}</div>${o.pop||''}</div>`;}
+const hd=(c,r,o={})=>`<header class="hd" style="${o.h?'height:'+o.h+'px':''}">${o.nobrand?'':o.short?`<span class="logomark">${ico('terminal',16)}${o.dot?'<i class="livedot"></i>':''}</span>`:brand(o.dot)}<div class="hc">${c||''}</div><div class="hr">${r}</div></header>`;
+/* ---------- variants ---------- */
+const cmdBar=(w=520,t='Find a session or pane')=>`<div class="cmd" style="width:${w}px">${ico('search',16)}${t}<kbd>/</kbd></div>`;
+const dashToast='toast:Opens the dashboard (Session atlas)';
+const bigNow=(sz)=>`<span class="big" style="${sz?'font-size:'+sz+'px':''}">${CNT.running}</span>`;
+const legendChips=()=>`<span style="display:inline-flex;gap:6px;flex-wrap:wrap">${NAV.map(([k,l])=>`<button class="chip ${k=='attention'?'need':''}" ${flt(k)}>${l} <b>${CNT[k]}</b></button>`).join('')}</span>`;
+const goalStats=()=>{const s=stats();return `<div style="display:grid;grid-template-columns:repeat(3,auto);gap:4px 18px;font-size:12.5px"><span class="mut">Average</span><span class="mut">Peak</span><span class="mut">Observed</span><b>${s.avg}</b><b>${s.peak}</b><b>${s.obs}%</b></div>`;};
+const dockLogos=(n=10)=>[...ROWS].sort((a,b)=>({need:0,run:1,idle:2}[a.st]-{need:0,run:1,idle:2}[b.st])).slice(0,n).map(r=>`<span title="${r.t}" class="${r.st=='need'?'nd':r.st=='idle'?'idl':''}" style="display:inline-flex">${logo(r.tool,r.st=='run'?24:26,r.st=='run')}</span>`).join('');
+const V=[
+{id:'0',grp:'Reference',name:'Today',frame:'wide',line:'The current /m wide layout, for comparison.',
+ fixes:'Nothing. It is the baseline.',costs:'The header middle is empty. Six controls sit in a row at the far right. Layout: Auto takes a whole 56px row above the terminal. No fleet signal anywhere.',inter:'No chart.',clutter:'Live, bell, chat, mic, theme and full UI all in the header; Layout selector in the pane heading.',tbl:['None','Bottom tabs','No','No','1100px'],
+ build:()=>wide({header:hd('',icons.full())})},
+{id:'A',grp:'1 · Chart in the header',name:'Header sparkline and now-chips',frame:'wide',line:'Running line in the empty middle with clickable state chips and a range switch.',
+ fixes:'Uses the dead header space. Chips give one-click filters from anywhere. Settings popover absorbs theme, full UI and Layout, so the pane heading loses its selector.',costs:'Chips duplicate the bottom tabs. A 320px chart is small, so detail needs the dashboard. Hidden settings are one click further away.',inter:'Hover shows time and counts with a crosshair. Click opens the dashboard. Chips filter the list. 1h / 24h / 7d switch the range in place.',clutter:'Bell, chat and mic stay as one grouped pill. Theme, full UI, notifications toggle and Layout move into the settings popover (open here). Live becomes the dot in the popover.',tbl:['Header middle','Unchanged','Yes','Optional','1100px'],
+ build:()=>wide({header:hd(nowChips()+spark({w:320,h:34,mode:'area',act:dashToast})+rangeSeg(),icons.group('gearA'),{dot:true}),detail:detail({layout:'none'}),pop:gearPop('gearA',54,16)})},
+{id:'K',grp:'1 · Chart in the header',name:'Tabs, chart and goal in one header',frame:'wide',line:'Segmented All / Running / Recent / Needs you with counts, a goal-aware sparkline beside it.',
+ fixes:'Removes the bottom tab bar, so the list gets about 70px back. Nav, trend and goal sit on one line, so the screen reads left to right: where, how many, how we are doing.',costs:'The header becomes dense at 1100px and below. Tabs move far from the list they filter. Needs a width fallback to the A layout.',inter:'Tabs filter. Sparkline: hover tooltip, click opens the dashboard. Bars under the goal are dimmed so time at or above target is visible without reading numbers.',clutter:'Icons grouped as one pill plus settings. Layout moves into settings. Goal pill in the header shows the percentage.',tbl:['Header middle','Tabs to header','Yes','Yes, in header','1100px'],
+ build:()=>FW<1200?V.find(x=>x.id=='A').build():wide({header:hd(`<span class="seg" style="padding:3px">${NAV.map(([k,l])=>`<button ${flt(k)} style="min-height:30px;padding:4px 12px">${l} <b class="num">${CNT[k]}</b></button>`).join('')}</span>`+spark({w:240,h:32,mode:'stack',target:S.goal,act:dashToast})+goalPill(),icons.group('gearK')),left:left({nav:false}),detail:detail({layout:'none'}),pop:gearPop('gearK',54,16)})},
+{id:'F',grp:'1 · Chart in the header',name:'Command bar with a fleet chip',frame:'wide',line:'Centered search and command field; a mini sparkline chip beside it opens a fleet popover.',
+ fixes:'Gives search the best spot in the app and makes the list shorter. The chip is quiet at rest and rich on demand.',costs:'The trend is tiny until you open it. A popover is a transient view, so you cannot leave it up while you work.',inter:'Chip hover shows the tooltip. Click opens the popover (open here) with the full 24h chart, filters and goal. Esc closes it.',clutter:'Only chat, mic and an overflow menu on the right. Theme, notifications, full UI and Layout live in the overflow. Live is a dot on the logo.',tbl:['Header chip + popover','Unchanged','Chip only','In popover','1100px'],
+ build:()=>wide({header:hd(cmdBar(480)+`<button class="chip" data-act="toggle:fchip" style="height:36px;padding:0 12px">${spark({w:84,h:22,mode:'area'})}<b>${CNT.running}</b><span class="mut">running</span><b style="color:var(--amber)">${CNT.attention}</b></button>`,ib('chat','Chat')+ib('mic','Live Mode','on')+gear('gearF'),{dot:true}),left:left({search:false}),detail:detail({layout:'none'}),
+  pop:(on('fchip')?`<div class="pop" style="top:58px;left:calc(50% - 40px);width:480px"><div style="display:flex;justify-content:space-between;align-items:center"><span><span class="big">${CNT.running}</span> <span class="mut">running of ${ROWS.length}</span></span>${rangeSeg()}</div>${spark({w:450,h:96,mode:'stack',target:S.goal,tlabel:1,act:dashToast})}<div style="display:flex;justify-content:space-between;align-items:center">${nowChips()}${goalPill()}</div><div class="mut" style="font-size:12px">${deltaTxt()} · Open dashboard</div></div>`:'')+gearPop('gearF',54,16)})},
+{id:'G',grp:'1 · Chart in the header',name:'Agent dock',frame:'wide',line:'A row of live agent logos (the atlas dots) plus a sparkline.',
+ fixes:'Shows who is working, not just how many. Pulse and spin are visible from across the room. Needs-you agents are amber-dotted and sorted first.',costs:'Logos do not scale past about 12 agents; the rest fold into a +N. Two overlapping encodings (dock and chart) compete for attention.',inter:'Click a logo to jump to that pane. Sparkline hover and click as in A. The dock is a fixed view of now, the chart is history.',clutter:'Grouped icon pill with settings. Layout moves into settings.',tbl:['Header middle','Unchanged','Yes','Optional','1100px'],
+ build:()=>wide({header:hd(`<div class="dock">${dockLogos(10)}<span class="mut num">+2</span></div><span class="vr"></span>`+spark({w:220,h:32,mode:'area',act:dashToast})+`<span><b class="num">${CNT.running}</b> <span class="mut">running</span></span>`,icons.group('gearG'),{dot:true}),detail:detail({layout:'none'}),pop:gearPop('gearG',54,16)})},
+{id:'B',grp:'2 · Strip under the header',name:'Fleet strip with a goal',frame:'wide',line:'A full-width strip: big running number, 24h stacked bars, goal percentage and delta.',
+ fixes:'The most legible chart of the compact options: 800px wide with a goal line. Best match for "keep the number up". Layout selector moves into the terminal toolbar, which offsets part of the strip height.',costs:'Costs about 76px of vertical space on every screen. The header shrinks to 48px to pay some of it back.',inter:'Hover tooltip on any bar. Click opens the dashboard. Range switch sits at the right. Dim bars are time under the goal.',clutter:'Icons grouped as a pill plus settings; Layout is now a segmented control in the terminal toolbar.',tbl:['Full-width strip','Unchanged','Yes','Yes, strong','1100px'],
+ build:()=>wide({header:hd('',icons.group('gearB'),{h:48,dot:true}),strip:`<div class="strip" style="height:76px"><div><div class="lab">Running now</div><div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">${bigNow()}<span class="mut">of ${ROWS.length} agents</span></div></div><div style="flex:1;min-width:0">${spark({w:880,h:54,mode:'stack',target:S.goal,act:dashToast})}</div><div style="display:grid;gap:4px;font-size:12.5px">${goalPill()}<span>${deltaTxt()}</span></div>${rangeSeg()}</div>`,detail:detail({layout:'seg'}),pop:gearPop('gearB',46,16,false)})},
+{id:'H',grp:'2 · Strip under the header',name:'Strip that expands in place',frame:'wide',line:'A slim sparkline strip that opens into the full dashboard chart with axes and the Idle toggle.',
+ fixes:'Quiet at 44px, full chart on demand, with no navigation away. Reuses the dashboard chart rather than inventing a second one.',costs:'Open, it pushes the work area down about 190px. People may leave it open and lose the saving.',inter:'Chevron toggles (open here). Open: axes, grid, hover per bar, Idle toggle like the atlas, goal line. Closed: sparkline only.',clutter:'Icons grouped; Layout moves into the terminal toolbar.',tbl:['Expandable strip','Unchanged','Yes, collapsed','Yes','1100px'],
+ build:()=>wide({header:hd('',icons.group('gearH'),{h:48,dot:true}),strip:`<div class="strip" style="display:block;padding:0"><div style="display:flex;align-items:center;gap:16px;height:44px;padding:0 20px"><button class="ib sm" data-act="toggle:hexp" aria-label="Toggle fleet chart">${ico(on('hexp')?'up':'down',16)}</button><b class="num" style="font-size:18px">${CNT.running}</b><span class="mut">running</span>${on('hexp')?'':spark({w:420,h:28,mode:'area',act:'toggle:hexp'})}${nowChips()}<span style="flex:1"></span>${goalPill()}${rangeSeg()}</div>${on('hexp')?`<div style="padding:4px 20px 12px;border-top:1px solid var(--line)"><div style="display:flex;gap:10px;align-items:center;margin:6px 0 4px"><span class="lab">Activity over time</span><button class="chip" data-act="idle" aria-pressed="${S.idle}"><i class="d"></i>Idle</button><span style="flex:1"></span><span class="mut" style="font-size:12px">${deltaTxt()}</span><a class="chip" data-act="${dashToast}">Open dashboard</a></div>${spark({w:1396,h:170,mode:'stack',axis:1,idle:S.idle,target:S.goal,tlabel:1,act:dashToast})}</div>`:''}</div>`,detail:detail({layout:'seg'}),pop:gearPop('gearH',54,16,false)})},
+{id:'C',grp:'3 · Chart in a panel',name:'Fleet card above the list',frame:'wide',line:'A card on top of the Sessions column; its legend chips are the filters and replace the bottom tabs.',
+ fixes:'The chart sits exactly where the filters are, so one object does both jobs. Removes the bottom bar. Search moves to the header and fills the empty middle.',costs:'Card eats about 140px of list height. The header is only half filled. The chart is 272px wide.',inter:'Hover tooltip. Click on the chart opens the dashboard. Chips filter and double as the legend.',clutter:'Icons grouped; Layout moves into settings.',tbl:['Sessions column','Tabs become chips','Yes','Optional','1100px'],
+ build:()=>wide({header:hd(cmdBar(520),icons.group('gearC'),{dot:true}),left:left({search:false,nav:false,card:`<div class="card2" style="margin:14px 20px 0;display:grid;gap:8px"><div style="display:flex;justify-content:space-between;align-items:center"><span class="lab">Fleet</span>${rangeSeg()}</div><div style="display:flex;align-items:baseline;gap:8px">${bigNow(26)}<span class="mut">running</span><span style="flex:1"></span>${goalPill()}</div>${spark({w:270,h:52,mode:'area',target:S.goal,act:dashToast})}${legendChips()}</div>`}),detail:detail({layout:'none'}),pop:gearPop('gearC',54,16)})},
+{id:'E',grp:'3 · Chart in a panel',name:'Goal card in the right panel',frame:'wide',line:'The fleet trend with goal, average, peak and delta above the per-pane overview.',
+ fixes:'The right column has the most room for numbers. Best place to show the goal, time at target and the delta together.',costs:'Only visible with a pane open. Pushes the pane overview down about 220px. Reads as a pane widget rather than app-wide state.',inter:'Hover tooltip. Click opens the dashboard. Range switch in the card header.',clutter:'Icons grouped; Layout becomes a segmented control in the terminal toolbar.',tbl:['Right panel','Unchanged','Pane view only','Yes, strong','1100px'],
+ build:()=>wide({header:hd('',icons.group('gearE'),{dot:true}),detail:detail({layout:'seg',ovTop:`<div style="padding:14px 18px;border-bottom:1px solid var(--line);display:grid;gap:10px;background:var(--surface)"><div style="display:flex;justify-content:space-between;align-items:center"><span class="lab">Fleet, last ${S.range}</span>${rangeSeg()}</div><div style="display:flex;align-items:baseline;gap:8px">${bigNow(34)}<span class="mut">running now</span><span style="flex:1"></span>${goalPill()}</div>${spark({w:362,h:80,mode:'stack',target:S.goal,tlabel:1,act:dashToast})}<div style="display:flex;justify-content:space-between;align-items:end">${goalStats()}<span style="font-size:12px">${deltaTxt()}</span></div></div>`}),pop:gearPop('gearE',54,16,false)})},
+{id:'D',grp:'3 · Chart in a panel',name:'IDE status bar',frame:'wide',line:'A 30px bar across the bottom with counts, a sparkline, the goal and the quiet controls.',
+ fixes:'Costs only 30px and holds the things you glance at but rarely touch: Live, notifications, Layout. The header loses Live, bell and Layout.',costs:'The lowest-attention spot on screen, which is wrong for a number you want to push up. The chart is tiny until expanded.',inter:'Click the sparkline to open the upward popover (open here) with the full chart. Hover tooltip in both.',clutter:'Live, bell and Layout: Auto move to the status bar, as in an IDE. Theme and full UI go to settings.',tbl:['Bottom bar','Unchanged','Yes, low','In popover','1100px'],
+ build:()=>wide({header:hd(cmdBar(420),icons.min('gearD'),{dot:false}),left:left({search:false}),detail:detail({layout:'none'}),
+  status:`<footer class="sbar">${live().replace('class="live"','class="live" style="margin:0"')}<span class="vr"></span><span><b>${CNT.running}</b> running</span><span style="color:var(--amber)"><b style="color:var(--amber)">${CNT.attention}</b> needs you</span><span><b>${CNT.idle}</b> idle</span><button data-act="toggle:dstat" aria-label="Fleet chart" style="padding:0 6px;display:flex;align-items:center;gap:8px;height:26px">${spark({w:220,h:22,mode:'area'})}<span>${S.range}</span></button><span class="sp"></span><span>${ico('target',13)} Goal ${S.goal}+: <b>${stats().pct}%</b></span><span class="vr"></span><span class="ib sm" style="position:relative">${ico('bell',14)}<i class="bd" style="min-width:8px;width:8px;height:8px;padding:0;top:3px;right:4px"></i></span><span>Layout: Auto</span></footer>`,
+  pop:(on('dstat')?`<div class="pop" style="left:150px;bottom:36px;width:560px"><div style="display:flex;justify-content:space-between;align-items:center"><span class="lab">Activity over time</span>${rangeSeg()}</div>${spark({w:530,h:120,mode:'stack',axis:1,target:S.goal,tlabel:1,act:dashToast})}</div>`:'')+gearPop('gearD',54,16,true,true)})},
+{id:'I',grp:'4 · Navigation rethink',name:'Left rail, free header',frame:'wide',line:'An icon rail (Dashboard, All, Running, Needs you, Recent, Chat, Voice, Alerts, Settings) frees the header and the bottom bar.',
+ fixes:'Splits navigation from status: the rail is where you go, the header is how things are. Removes the bottom tabs and six header icons. Badges on the rail carry the counts. The header is now free for a large chart with the goal.',costs:'72px of width, taken from the work area. A bigger redesign, and on a phone the rail becomes bottom tabs, so there are two nav models to maintain.',inter:'Rail items filter or open the dashboard. Header chart: hover tooltip, click opens the dashboard, goal dimming.',clutter:'Chat, voice, alerts and settings sit at the bottom of the rail. Theme, full UI and Layout are in the settings popover. Live is the dot on the logo.',tbl:['Header (whole width)','Left rail replaces tabs and header icons','Yes','Yes, strong','1028px'],
+ build:()=>{const ri=(k,l,i,b,c)=>`<button class="${k=='attention'?'need':''}" ${k?flt(k):''}>${ico(i,20)}${b?`<i class="bd ${c||''}">${b}</i>`:''}<span>${l}</span></button>`;
+  return wide({rail:`<aside class="rail"><span class="logomark" style="margin-bottom:10px">${ico('terminal',16)}<i class="livedot"></i></span><button>${ico('dash',20)}<span>Dashboard</span></button>${ri('all','All','layers')}${ri('running','Running','terminal',CNT.running,'run')}${ri('attention','Needs you','alert',CNT.attention)}${ri('recent','Recent','clock')}<span class="sp"></span><button>${ico('chat',20)}<span>Chat</span></button><button class="${on('gearI')?'':''}">${ico('mic',20)}<span>Voice</span></button><button>${ico('bell',20)}<span>Alerts</span></button><button data-act="toggle:gearI" aria-pressed="${on('gearI')}">${ico('sliders',20)}<span>Settings</span></button></aside>`,
+  header:hd(`<span class="lab">Running</span>${bigNow(26)}`+spark({w:560,h:36,mode:'stack',target:S.goal,act:dashToast})+goalPill()+rangeSeg(),'',{nobrand:true}),left:left({nav:false,title:S.filter=='all'?'Sessions':NAV.find(n=>n[0]==S.filter)?.[1]||'Idle'}),detail:detail({layout:'none'}),pop:gearPop('gearI',0,0,true).replace('top:0px;right:0px','bottom:14px;left:80px')});}},
+{id:'P0',grp:'Reference',name:'Today (phone)',frame:'phone',line:'The current phone list screen.',
+ fixes:'Nothing. It is the baseline.',costs:'Five icons crowd the header. No fleet signal.',inter:'No chart.',clutter:'Bell, chat, mic, theme and full UI inline.',tbl:['None','Bottom tabs','No','No','Full width'],
+ build:()=>`<div class="fr phone">${hd('',ib('bell','Notifications')+ib('chat','Chat')+ib('mic','Live','on')+ib('moon','Theme')+ib('monitor','Full UI'),{dot:true})}${left()}</div>`},
+{id:'P1',grp:'5 · Phone',name:'Compact header sparkline',frame:'phone',line:'A 72px sparkline chip in the header; the other icons fold into settings.',
+ fixes:'Always visible, costs no vertical space, and frees the header by folding three icons into settings.',costs:'The chart is tiny and the brand name drops to the logo. Needs a tap to see anything more.',inter:'Tap the chip to open the fleet sheet (see P2). Long-press scrubs the tooltip.',clutter:'Bell, theme and full UI move into the settings popover; Live is the dot on the logo.',tbl:['Header chip','Unchanged','Yes','In sheet','Full width'],
+ build:()=>`<div class="fr phone">${hd(`<button class="chip" style="height:36px;padding:0 12px;gap:8px">${spark({w:76,h:22,mode:'area'})}<b>${CNT.running}</b><b style="color:var(--amber)">${CNT.attention}</b></button>`,ib('chat','Chat')+ib('mic','Live','on')+gear('gearP1'),{dot:true,short:true})}${left()}${on('gearP1')?`<div class="pop" style="top:54px;right:8px;width:250px"><div class="r"><span>Theme</span><span class="seg"><button aria-pressed="${S.theme=='light'}">Light</button><button aria-pressed="${S.theme=='dark'}">Dark</button></span></div><div class="r"><span>${ico('bell',16)}Notifications</span><i class="tog"></i></div><div class="r"><span>${ico('monitor',16)}Full UI</span>${ico('link',14)}</div></div>`:''}</div>`},
+{id:'P2',grp:'5 · Phone',name:'Pull-down fleet sheet',frame:'phone',line:'A header pill with the counts opens a sheet from the top with the full chart, range and goal.',
+ fixes:'Rich view without permanent space: the list is fully intact when closed. Goal, delta and chart fit at 358px.',costs:'Two taps to see the trend. The sheet covers the list while open.',inter:'Tap the pill or drag down to open. Range switch in the sheet. Tap a legend chip to filter and close.',clutter:'Same icon folding as P1.',tbl:['Top sheet','Unchanged','On demand','Yes','Full width'],
+ build:()=>`<div class="fr phone">${hd(`<button class="chip" data-act="toggle:psheet" style="height:36px;gap:7px"><i class="d run"></i><b>${CNT.running}</b> running <i class="d need"></i><b>${CNT.attention}</b>${ico(on('psheet')?'up':'down',14)}</button>`,ib('chat','Chat')+ib('mic','Live','on')+gear('gearP2'),{dot:true,short:true})}${left()}${on('psheet')?`<div class="scrim"></div><div class="sheet"><div style="display:flex;justify-content:space-between;align-items:center"><span><span class="big">${CNT.running}</span> <span class="mut">running of ${ROWS.length}</span></span>${rangeSeg()}</div>${spark({w:358,h:110,mode:'stack',target:S.goal,tlabel:1,act:dashToast})}<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${goalPill()}<span style="font-size:12.5px">${deltaTxt()}</span></div>${nowChips()}<div class="grab"></div></div>`:''}</div>`},
+{id:'P3',grp:'5 · Phone',name:'Sparkline row above the list',frame:'phone',line:'A chart row under the Sessions title, with filter chips; the bottom bar becomes destinations.',
+ fixes:'The chart is always in view and sits next to what it filters. Bottom tabs change from filters to places (Sessions, Dashboard, Chat, Live), which matches the wide rail in I.',costs:'About 112px of list height (a row and a chip line). Moving filters off the bottom bar changes thumb habits.',inter:'Chart tap opens the dashboard; chips filter; hover or touch-drag scrubs the tooltip.',clutter:'Three icons fold into settings as in P1.',tbl:['Row above list','Tabs to destinations','Yes','Yes','Full width'],
+ build:()=>`<div class="fr phone">${hd('',ib('bell','Notifications')+gear('gearP3'),{dot:true})}${left({search:false,nav:false,afterHead:`<div class="cardrow">${bigNow(26)}<span class="mut" style="font-size:12px;line-height:1.2">running<br>${S.range}</span>${spark({w:178,h:38,mode:'stack',target:S.goal,act:dashToast})}<span style="flex:1"></span><span class="goalpill" style="padding:3px 7px">${ico('target',13)}${stats().pct}%</span></div><div class="chiprow">${NAV.map(([k,l])=>`<button class="chip ${k=='attention'?'need':''}" ${flt(k)}>${l} <b>${CNT[k]}</b></button>`).join('')}</div>`,navHtml:`<nav class="bnav">${[['layers','Sessions',1],['dash','Dashboard'],['chat','Chat'],['mic','Live']].map(([i,l,p])=>`<button aria-pressed="${!!p}">${ico(i,20)}<span>${l}</span></button>`).join('')}</nav>`})}</div>`},
+{id:'P4',grp:'5 · Phone',name:'Fleet chip inside a pane',frame:'phone',line:'While in a pane, the header keeps the sparkline chip so fleet state stays in view next to the terminal.',
+ fixes:'The pane screen has no fleet signal at all today; this puts it there for 88px of header.',costs:'Header carries back, title and the chip, so the title truncates earlier.',inter:'Tap the chip for the fleet sheet from P2. The amber number is Needs you, tap to jump to the next one.',clutter:'Settings and the Overview / Terminal toggle stay as today.',tbl:['Header chip, pane view','Unchanged','Yes','In sheet','Full width'],
+ build:()=>`<div class="fr phone"><header class="hd" style="gap:6px;padding:0 8px">${ib('back','Back to sessions')}<div style="flex:1;min-width:0"><strong style="display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">fact checker agent</strong><small class="mut" style="display:block">storefront-0</small></div><button class="chip" style="height:34px;padding:0 10px;gap:7px">${spark({w:56,h:20,mode:'area'})}<b>${CNT.running}</b><b style="color:var(--amber)">${CNT.attention}</b></button>${gear('gearP4')}</header><div class="viewtog"><span class="seg" style="flex:1"><button style="flex:1" aria-pressed="false">Overview</button><button style="flex:1" aria-pressed="true">Terminal</button></span></div><div class="tcol" style="flex:1"><div class="tb" style="padding-left:12px"><span>Live terminal</span><span class="sp"></span><button class="ib sm">${ico('minus',16)}</button><span>13</span><button class="ib sm">${ico('plus',16)}</button><button class="ib sm">${ico('arrowdown',16)}</button></div>${termBody()}</div><div style="display:flex;gap:8px;padding:8px 10px 18px;border-top:1px solid var(--line);background:var(--surface)">${ib('terminal','Keys')}<div class="search" style="flex:1;margin:0;height:40px">Reply to the agent</div>${ib('arrowdown','Send','acc')}</div></div>`}
+];
+const G2='6 · Single sidebar (riffs on I)';
+/* ================= Round 2: one chatbot-style sidebar (riffs on I) =================
+   A synthetic 45-pane fleet across 8 tmux sessions with 37 days of 15-minute history: the real
+   /api/history reaches back 7 days, and a 7-day average drawn across a 30-day range needs 37. */
+Object.assign(IC,{panel:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+ pencil:'<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+ filter:'<path d="M3 6h18M7 12h10M10 18h4"/>',right:'<path d="m9 18 6-6-6-6"/>',
+ expand:'<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',zoom:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/>'});
+const SESS2=['storefront-0','ci-3','research-4','docs-1','ops-7','infra-6','gtm-9','misc-5'];
+/* session|tool|state|title|age|u (unread) or the question a needs-you pane is asking|latest activity line, or a needs-you pane's reply choices */
+const ROWS2=`0|claude|idle|fact checker agent|2m||Waiting for the preview build after updating the agent review docs.
+0|codex|run|migration planner|now||Mapping table dependencies before proposing an order.
+0|opencode|run|schema reviewer|now||Checking the new column constraints against live data.
+0|claude|need|api contract diff|3m|Two endpoints changed shape. Bump the public API version?|Bump to v3,Keep v2
+0|claude|idle|preview deploy|2h||Deployed. Link posted in the PR thread.
+0|shell|idle|zsh ~/src/storefront|41m||git status: clean, on main.
+0|codex|idle|seed data refresh|5h||Refreshed 12 fixtures. Tests green.
+1|claude|need|flaky test hunter|4m|Two reruns disagree. Choose which suite to quarantine.|e2e,integration
+1|claude|run|e2e triage|now||Re-running checkout.spec with tracing on.
+1|codex|idle|lint autofix|12m|u|Fixed 38 warnings across 9 files. Ready to commit.
+1|shell|idle|build cache warmer|1h||Cache warm: 214 layers, 3.1 GB.
+1|shell|idle|zsh ~/src/ci|3h||make test passed in 2m 41s.
+2|claude|run|eval harness|now||Scoring 120 samples against the candidate prompt.
+2|codex|run|prompt A/B sweep|now||Variant C leads by 4 points after 60 of 200 runs.
+2|opencode|idle|dataset dedupe|25m|u|Removed 1,204 near-duplicates. Report written.
+2|shell|idle|notebook scratch|6h||Kernel idle.
+2|claude|idle|paper notes|1d||Summarised sections 3 and 4.
+2|codex|idle|tokenizer bench|2d||Bench done: 1.8x faster on long inputs.
+3|claude|run|release notes drafter|now||Grouping merged PRs since v0.14 by area.
+3|claude|idle|screenshot refresher|8m|u|Regenerated 22 screenshots for the light theme.
+3|codex|idle|changelog bot|1h||Opened a draft entry for 0.15.
+3|opencode|idle|api reference regen|3h||Reference rebuilt, no broken links.
+3|shell|idle|zsh ~/src/docs|1d||Idle at the prompt.
+4|claude|need|alert tuning|11m|Silence the disk alert on build-02 for 24 hours?|Silence 24h,Keep
+4|codex|run|cost report|now||Pulling last month's billing export.
+4|opencode|idle|log triage|3h||No new errors since the last check.
+4|claude|idle|pager rota sync|4h||Rota synced through next Friday.
+4|shell|idle|zsh ~/ops|2h||Idle at the prompt.
+4|shell|idle|backup verify|1d||All 6 snapshots restored and checked.
+5|claude|run|terraform plan review|now||Reading a 41-resource plan; 2 replacements so far.
+5|codex|idle|node pool resize|34m||Resized pool-b to 6 nodes.
+5|shell|idle|zsh ~/infra|52m||Idle at the prompt.
+5|claude|idle|dns cleanup|6h||Removed 9 stale records.
+5|claude|idle|k8s upgrade notes|1d||Drafted the 1.31 upgrade checklist.
+5|opencode|idle|cert rotation|2d||Certificates valid until March.
+6|claude|idle|pricing page copy|7m|u|Draft saved with three headline options.
+6|claude|idle|launch email|3h||Final copy sent for review.
+6|codex|idle|competitor scan|1d||Compared five pricing pages.
+6|shell|idle|zsh ~/gtm|2d||Idle at the prompt.
+7|codex|need|dependency audit|9m|Approve upgrading three packages with breaking changes?|Approve,Hold
+7|claude|run|tmux-rc dev|now||Wiring the group-by toggle into the sidebar.
+7|shell|idle|zsh ~/src|41m||Idle at the prompt.
+7|claude|idle|rss digest|5h||Summarised 12 new posts.
+7|opencode|idle|invoice parser|2d||Parsed 31 invoices, 2 flagged.
+7|shell|idle|dotfiles sync|3d||Synced with origin.`.split('\n').map(l=>{const[s,tool,st,t,age,y,x]=l.split('|'),nd=st=='need';return{s:SESS2[s],tool,st,t,age,u:y=='u',q:nd&&y,x:nd?y:x,o:nd&&x.split(',')};});
+const CUR2=ROWS2[0];
+const FIL2={all:()=>1,run:r=>r.st=='run',need:r=>r.st=='need',recent:r=>r.st!='idle'||r.u};
+const CNT2=Object.fromEntries([...Object.keys(FIL2),'idle'].map(k=>[k,ROWS2.filter(FIL2[k]||(r=>r.st=='idle')).length]));
+const N2=37*96,END2=1790833500000;
+const H2=(()=>{let s=11,walk=0;const rnd=()=>(s=(s*16807)%2147483647)/2147483647,out=[];
+ for(let i=0;i<N2;i++){const t=new Date(END2-(N2-1-i)*9e5),h=t.getHours()+t.getMinutes()/60,wd=t.getDay()%6!=0,tr=i/N2,day=Math.exp(-((h-14)**2)/22);
+  walk=walk*.96+(rnd()-.5)*1.1;const run=Math.max(0,Math.round(3.4+tr*4+(wd?8:3)*day+walk)),need=Math.max(0,Math.round(day*2.4+(rnd()-.55)*2.2));
+  out.push([need,run,Math.max(0,37+Math.round(tr*8)-run-need)]);}
+ for(const[a,b]of[[N2-1148,N2-1122],[N2-2496,N2-2482]])for(let i=a;i<b;i++)out[i]=null;  /* two nights the laptop slept */
+ return out;})();
+const R2={'24h':[96,1],'3d':[288,4],'7d':[672,8],'30d':[2880,24]},MA2={'1d':96,'3d':288,'7d':672};
+Object.assign(S,{range2:'7d',ma:'7d',goal2:12,f2:'all',zoom:null,brush:[.62,.84]});
+Object.assign(DEF,{'sg:storefront-0':1,'sg:ci-3':1,i3x:1,ge3:1,i4x:1,psh:1,gep7:1});
+const SC2={};
+function ser2(full){const key=[S.range2,S.ma,full?'':S.zoom].join();if(SC2[key])return SC2[key];
+ const[n,k]=R2[S.range2],W=MA2[S.ma],o=N2-n,pts=[],ma=[],avg=a=>{const p=a.filter(Boolean);return p.length?[0,1,2].map(j=>p.reduce((s,x)=>s+x[j],0)/p.length):null;};
+ for(let b=0;b<n/k;b++){const e=o+(b+1)*k,p=avg(H2.slice(e-k,e));pts.push(p&&p.map(Math.round));ma.push(avg(H2.slice(e-W,e))[1]);}
+ pts[pts.length-1]=[CNT2.need,CNT2.run,CNT2.idle];
+ const z=!full&&S.zoom?S.zoom.map(f=>Math.round(f*pts.length)):[0,pts.length];
+ return SC2[key]={pts:pts.slice(...z),ma:ma.slice(...z),k,o:o+z[0]*k,live:z[1]==pts.length};}
+function when2(i){const d=ser2(),t=new Date(END2-(N2-d.o-(i+1)*d.k)*9e5);
+ return S.range2=='24h'?t.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):S.range2=='30d'?t.toLocaleDateString([],{month:'short',day:'numeric'}):t.toLocaleString([],{weekday:'short',hour:'2-digit'});}
+function stats2(){const d=ser2(1),P=d.pts.filter(Boolean);return{ma:d.ma[d.ma.length-1],pct:Math.round(100*P.filter(p=>p[1]>=S.goal2).length/P.length)};}
+/* the round-2 chart: stacked state bars, the moving average over them, the goal line, an optional brush */
+function chart2(o){
+ const d=o.sub?sub2(o.sub):ser2(),P=d.pts,n=P.length,w=Math.round(o.w),h=o.h,ax=!!o.axis,L=ax?28:0,B=ax?18:0,T=ax?10:3,R=ax?8:0,bot=h-B-(ax?0:2),pw=w-L-R,bw=pw/n,G=o.sub?0:S.goal2,idl=ax&&S.idle;
+ let mx=o.mx||Math.max(...P.filter(Boolean).map(p=>p[0]+p[1]+(idl?p[2]:0)),G,...d.ma);mx=ax?Math.ceil(mx/4)*4:mx*1.08;
+ const y=v=>bot-v/mx*(bot-T),xc=i=>L+bw*(i+.5),f=v=>v.toFixed(1);let g='';
+ if(ax){for(const v of [0,mx/2,mx])g+=`<line x1="${L}" x2="${w-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-6}" y="${y(v)+3.5}" text-anchor="end" font-size="10" fill="var(--muted)">${v}</text>`;
+  for(const q of [0,.33,.66,1]){const i=Math.round(q*(n-1));g+=`<text x="${xc(i)}" y="${h-4}" text-anchor="${q==0?'start':q==1?'end':'middle'}" font-size="10" fill="var(--muted)">${i==n-1&&d.live?'now':when2(i)}</text>`;}}
+ const gp=bw>5?1.5:bw>2.5?.5:0;
+ P.forEach((p,i)=>{const x=L+i*bw;if(!p)return g+=`<rect x="${f(x)}" y="${T}" width="${f(Math.max(bw,1))}" height="${bot-T}" fill="var(--gap)"/>`;let b=bot;
+  const seg=(v,c,op)=>{if(!v)return;const hh=v/mx*(bot-T);b-=hh;g+=`<rect x="${f(x+gp/2)}" y="${f(b)}" width="${f(Math.max(bw-gp,.8))}" height="${f(Math.max(hh-gp/2,.8))}" fill="${c}" opacity="${op}"/>`;};
+  seg(p[1],'var(--s-run)',p[1]<G?.5:1);seg(p[0],'var(--s-need)',1);if(idl)seg(p[2],'var(--s-idle)',.7);});
+ const line=d.ma.map((v,i)=>`${f(xc(i))},${f(y(v))}`).join(' ');
+ g+=`<polyline points="${line}" fill="none" stroke="var(--bg)" stroke-width="${ax?5:3}" stroke-linejoin="round"/><polyline points="${line}" fill="none" stroke="var(--purple)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+ if(G)g+=`<line x1="${L}" x2="${w-R}" y1="${f(y(G))}" y2="${f(y(G))}" stroke="var(--fg)" stroke-width="1.2" stroke-dasharray="5 4" opacity=".7"/>`+(ax?`<text x="${L+6}" y="${f(y(G)-5)}" font-size="10.5" font-weight="600" fill="var(--fg)" stroke="var(--bg)" stroke-width="3" paint-order="stroke">goal ${G}</text>`:'');
+ if(ax)g+=`<text x="${w-R}" y="${T+2}" text-anchor="end" font-size="10.5" font-weight="600" fill="var(--purple)" stroke="var(--bg)" stroke-width="3" paint-order="stroke">${S.ma} avg ${d.ma[n-1].toFixed(1)}</text>`;
+ if(o.brush){const[a,b]=S.brush||[0,0];g+=`<g class="brush" ${S.brush?'':'display="none"'}><rect x="${f(L+a*pw)}" y="${T}" width="${f((b-a)*pw)}" height="${bot-T}" fill="var(--accent)" opacity=".13"/><rect class="e0" x="${f(L+a*pw-2)}" y="${T}" width="4" height="${bot-T}" rx="2" fill="var(--accent)"/><rect class="e1" x="${f(L+b*pw-2)}" y="${T}" width="4" height="${bot-T}" rx="2" fill="var(--accent)"/></g>`;}
+ g+=`<line class="cross" x1="0" x2="0" y1="${T}" y2="${bot}" stroke="var(--fg)" stroke-width="1"/>`;
+ return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" data-r2="1" data-L="${L}" data-R="${R}" data-bw="${bw}" data-w="${w}" ${o.brush?'data-brush="1"':''}${o.act?` data-act="${o.act}"`:''}${o.sub?` data-sub="${o.sub}"`:''} role="img" aria-label="Running agents${o.sub?' in '+o.sub:''} over the last ${S.range2} with the ${S.ma} average${G?' and a goal of '+G:''}">${g}</svg>`;}
+/* controls */
+const seg2=(k,key,opts,t='')=>`<span class="seg" title="${t}">${opts.map(v=>`<button data-act="${k}:${v}" aria-pressed="${S[key]==v}">${v}</button>`).join('')}</span>`;
+const range2=()=>seg2('r2','range2',Object.keys(R2),'Range');
+const maSeg=()=>`<span class="lgd"><i class="ma"></i>Avg</span>`+seg2('ma','ma',Object.keys(MA2),'Moving average of the running count');
+const goalCtl=k=>on(k)?`<span class="goaled">${ico('target',14)}Running goal<button data-act="g2:-1" aria-label="Lower the goal">${ico('minus',14)}</button><input data-goal type="number" min="1" max="45" value="${S.goal2}" aria-label="Running goal"><button data-act="g2:1" aria-label="Raise the goal">${ico('plus',14)}</button><button data-act="toggle:${k}" aria-label="Done">${ico('check',14)}</button></span>`
+ :`<button class="goalpill" data-act="toggle:${k}" title="Click to change the running goal">${ico('target',14)}Goal <b>${S.goal2}</b><span class="ed">${ico('pencil',12)}</span></button>`;
+const maTxt=(pct)=>{const s=stats2();return `<span class="mtx"><span class="mut">${S.ma} avg</span> <b class="${s.ma>=S.goal2?'pos':'neg'}">${s.ma.toFixed(1)}</b> <span class="mut">vs goal ${S.goal2}${pct?` · ${s.pct}% of ${S.range2} at goal`:''}</span></span>`;};
+const legend2=()=>`<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="chip" data-act="f2:run" aria-pressed="${S.f2=='run'}" title="Filter the sidebar"><i class="d run"></i>Running <b>${CNT2.run}</b></button><button class="chip need" data-act="f2:need" aria-pressed="${S.f2=='need'}" title="Filter the sidebar"><i class="d need"></i>Needs you <b>${CNT2.need}</b></button><button class="chip" data-act="idle" aria-pressed="${S.idle}" title="Show the idle layer"><i class="d idle"></i>Idle <b>${CNT2.idle}</b></button><span class="lgd" style="margin-left:6px"><i class="gl"></i>goal</span></span>`;
+const zoomCtl=()=>S.zoom?`<button class="chip" data-act="unzoom">${ico('x',14)}Reset zoom</button>`:S.brush?`<button class="chip" data-act="zoom">${ico('zoom',14)}Zoom to selection</button>`:`<span class="mut" style="font-size:12px">Drag across the bars to zoom</span>`;
+/* sidebar */
+const sl=(r,s=18)=>`<span class="sl ${r.st=='run'?'w':r.st=='idle'?'idle':''}" data-tool="${r.tool}" style="width:${s}px;height:${s}px"><svg viewBox="0 0 28 28" aria-hidden="true">${MARK[r.tool]}</svg>${r.st=='idle'?'':`<i class="${r.st}"></i>`}</span>`;
+const th=(r,sess)=>`<button class="th ${r.st=='need'?'need':''} ${r===CUR2?'cur':''} ${r.u?'un':''}" title="${r.s} / ${r.t}">${sl(r)}<span class="t">${r.t}</span>${sess?`<span class="s2">${r.s}</span>`:''}${r.u?'<i class="u" title="New output"></i>':`<span class="a">${r.age}</span>`}</button>`;
+const F2=[['all','All'],['run','Running'],['need','Needs you'],['recent','Recent']];
+const fseg=()=>`<div class="sbseg seg">${F2.map(([k,l])=>`<button data-act="f2:${k}" aria-pressed="${S.f2==k}">${l}</button>`).join('')}</div>`;
+function sideList(o={}){const f=FIL2[S.f2],need=ROWS2.filter(r=>r.st=='need'&&f(r));
+ let h=need.length?`<div class="sec">${ico('alert',13)}Needs you<span class="sp"></span>${need.length}</div>`+need.map(r=>th(r,1)).join(''):'';
+ h+=`<div class="sec">Sessions<span class="sp"></span>${o.menu?`<button class="fb" title="Filter: All, Running, Needs you, Recent">${ico('filter',14)}${F2.find(x=>x[0]==S.f2)[1]}</button>`:`${ROWS2.length} panes`}</div>`;
+ for(const s of SESS2){const rs=ROWS2.filter(r=>r.s==s&&r.st!='need'&&f(r));if(!rs.length)continue;const op=on('sg:'+s)||S.f2!='all',nr=rs.filter(FIL2.run).length;
+  h+=`<button class="sg" data-act="toggle:sg:${s}" aria-expanded="${op}">${ico(op?'down':'right',14)}${s}<span class="c">${nr?`<i></i>${nr} ·`:''} ${rs.length}</span></button>`+(op?rs.map(r=>th(r)).join(''):'');}
+ return `<div class="sbl">${h}</div>`;}
+const nv=(i,l,k='',x='')=>`<button class="nv ${x}" title="${l}">${ico(i,17)}${l?`<span>${l}</span>`:''}${k}</button>`;
+const navRows=(mini)=>nv('plus',mini?'':'New window','','new')+nv('dash',mini?'':'Dashboard')+nv('chat',mini?'':'Chat')+nv('mic',mini?'':'Voice')+nv('bell',mini?'':'Alerts',`<span class="k">${CNT2.need}</span>`);
+function sidebar(o={}){return `<aside class="sb" style="${o.w?`width:${o.w}px`:''}"><div class="sbh">${brand(false)}${ib('search','Search','sm')}<button class="ib sm" title="Collapse sidebar" aria-label="Collapse sidebar">${ico('panel',18)}</button></div>${o.nav??navRows()}${o.filter=='seg'?fseg():''}${o.list||sideList(o)}${o.chart||''}<div class="sbf">${live()}${ib(S.theme=='dark'?'moon':'sun','Theme','sm')}${ib('sliders','Settings','sm')}</div></aside>`;}
+function rail2(){const lg=ROWS2.filter(r=>r.st!='idle').sort((a,b)=>(b.st=='need')-(a.st=='need'));
+ return `<aside class="sb mini"><div class="sbh"><button class="ib sm" title="Expand sidebar" aria-label="Expand sidebar">${ico('panel',18)}</button></div>${navRows(1)}<div class="sbl" style="display:grid;justify-items:center;align-content:start;gap:9px;padding-top:12px;margin-top:8px;border-top:1px solid var(--line)">${lg.map(r=>`<span title="${r.s} / ${r.t}">${sl(r,24)}</span>`).join('')}<span class="mut num" style="font-size:11px" title="Idle panes">+${CNT2.idle}</span></div><div class="sbf">${ib('search','Search','sm')}${ib('sliders','Settings','sm')}</div></aside>`;}
+/* the pieces each variant arranges */
+const run2=(sz=18)=>`<b class="num" style="font-size:${sz}px">${CNT2.run}</b><span class="mut">running</span>`;
+const dkHead=(k,w,op,a='toggle:'+k,i=op?'down':'up')=>`<div class="dkh"><button class="ib sm" data-act="${a}" aria-label="${op?'Collapse':'Expand'} the fleet chart">${ico(i,16)}</button>${run2()}${op?'':chart2({w:Math.max(160,w-(w<1000?440:730)),h:30,act:a})}${maTxt(op&&w>=1000)}<span class="sp"></span>${op?range2()+(w<1000?'':`<button class="chip" data-act="${dashToast}">${ico('dash',14)}Dashboard</button>`):(w<1000?'':maSeg())+goalCtl(k+'g')+(w<1000?'':range2())}</div>`;
+const dkBody=(w,h)=>`<div style="padding:0 16px 12px"><div class="dkh" style="padding:4px 0;height:auto;flex-wrap:wrap">${legend2()}<span class="sp"></span>${zoomCtl()}${maSeg()}${goalCtl('ge3')}</div>${chart2({w,h,axis:1,brush:1})}</div>`;
+function dock2(k,w){const op=on(k);return `<div class="dock2">${dkHead(k,w,op)}${op?dkBody(w,180):''}</div>`;}
+/* the large chart with every control, for popovers, flyouts and drawers; sub draws one session or tool, which has no goal of its own */
+const fleetCard=(w,h,x,sub)=>`<div class="dkh" style="padding:0;height:32px"><span class="lab">${sub||'Fleet'}, last ${S.range2}</span>${sub?'':maTxt(1)}<span class="sp"></span>${range2()}${x}</div><div class="dkh" style="padding:0;height:34px">${sub?`<span class="mut" style="font-size:12px">Running in ${sub}. The goal is fleet-wide.</span>`:legend2()}<span class="sp"></span>${zoomCtl()}</div>${chart2({w:w-30,h,axis:1,brush:1,sub})}<div class="dkh" style="padding:0;height:34px">${maSeg()}<span class="sp"></span>${sub?'':goalCtl('ge4')}</div>`;
+function flyout(w){return on('i4x')?`<div class="pop" style="left:288px;bottom:12px;width:${w}px;gap:8px">${fleetCard(w,210,ib('x','Close','sm'))}</div>`:'';}
+const sbChart=()=>`<button class="sbc" data-act="toggle:i4x" title="Open the fleet chart"><div style="display:flex;align-items:baseline;gap:6px">${run2(20)}<span style="flex:1"></span><span class="mut" style="font-size:12px">goal ${S.goal2}</span>${ico('expand',13)}</div>${chart2({w:242,h:42})}<div style="font-size:11.5px">${maTxt()}</div></button>`;
+function meter(k,a=dashToast){const s=stats2(),G=S.goal2;return `<span class="meter"><span><span class="mut">Running</span> <b class="num" style="font-size:16px">${CNT2.run}</b> <span class="mut">/ ${G}</span></span><span class="bar" title="Now ${CNT2.run}, ${S.ma} average ${s.ma.toFixed(1)}, goal ${G}"><i style="width:${Math.min(100,100*CNT2.run/G)}%"></i><b style="left:${Math.min(100,100*s.ma/G)}%"></b></span>${chart2({w:150,h:30,act:a})}${goalCtl(k)}${ib('up','Expand the chart','sm')}</span>`;}
+function inbox(){const need=ROWS2.filter(r=>r.st=='need'),wk=ROWS2.filter(FIL2.run),done=ROWS2.filter(r=>r.u);
+ return `<div class="sbl"><div class="sec">${ico('alert',13)}Needs you<span class="sp"></span>${need.length}</div>${need.map(r=>`<button class="ibx" title="${r.s} / ${r.t}">${sl(r,20)}<strong>${r.t}</strong><span class="a">${r.age}</span><p>${r.q}</p></button>`).join('')}
+ <div class="sec">Working<span class="sp"></span>${wk.length}</div>${wk.map(r=>th(r,1)).join('')}<div class="sec">Just finished<span class="sp"></span>${done.length}</div>${done.map(r=>th(r,1)).join('')}
+ <button class="sg" style="margin-top:8px">${ico('right',14)}Idle<span class="c">${CNT2.idle-done.length} across ${SESS2.length} sessions</span></button><button class="sg">${ico('layers',14)}Browse by session<span class="c">${SESS2.length}</span></button></div>`;}
+/* frames; every builder reads the device size (FW x FH), so dragging the resize handle crosses real breakpoints */
+const wide2=o=>`<div class="fr">${o.sb}<div class="col">${o.header||''}<div class="main2">${o.detail||detail()}</div>${o.bottom||''}</div>${o.pop||''}</div>`;
+const phHead=()=>`<header class="hd">${ib('panel','Open sidebar')}<div class="brand" style="font-size:17px;margin-right:auto">tmux-rc</div>${ib('search','Search')}${ib('plus','New window','acc')}</header>`;
+const pstrip=(a='toggle:psh')=>`<button class="pstrip" data-act="${a}">${ico('up',16)}<span style="display:grid;line-height:1.1"><b class="num" style="font-size:22px">${CNT2.run}</b><span class="mut" style="font-size:11px">running</span></span>${chart2({w:Math.max(120,FW-252),h:34})}<span style="display:grid;font-size:12px;line-height:1.3;text-align:right"><span><span class="mut">${S.ma} avg</span> <b class="neg">${stats2().ma.toFixed(1)}</b></span><span class="mut">goal ${S.goal2}</span></span></button>`;
+const phList=()=>`<div class="fr phone">${phHead()}${fseg()}${sideList()}${pstrip()}</div>`;
+const phSheet=()=>on('psh')?`<div class="bsheet"><div class="grab"></div><div style="display:flex;align-items:center;gap:10px"><span class="big">${CNT2.run}</span><span class="mut" style="line-height:1.2;font-size:13px">running<br>${maTxt()}</span><span style="flex:1"></span>${ib('x','Close','sm')}</div>${range2().replace('class="seg"','class="seg" style="display:flex"')}${chart2({w:FW-32,h:150,axis:1})}<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${maSeg()}<span style="flex:1"></span>${goalCtl('gep7')}</div>${legend2()}</div>`:'';
+/* below 700px wide every round-2 option becomes the phone list; 700-1100 folds the sidebar to the rail */
+const r2=(wideFn,tabletFn)=>()=>FW<700?phList():FW<1100?(tabletFn||(()=>wide2({sb:rail2(),bottom:dock2('i3c',FW-92)})))():wideFn();
+const MW=()=>FW-280,DW=()=>MW()-32;
+const R2V=[
+{id:'I2',grp:G2,name:'Single sidebar, chart in the header',frame:'wide',line:'One chatbot-style sidebar holds the nav rows and every pane as a one-line thread; the header keeps the chart from I, now with an editable goal and a moving average.',
+ fixes:'Removes the double nav bar: the rail and the Sessions column become one 280px column, so the work area is 60px wider than today and 132px wider than I. Needs you is pinned at the top; sessions group and fold like chat folders. The header shows the goal and a 1d, 3d or 7d average without leaving the pane.',
+ costs:'One-line rows drop the preview text, so you see what an agent is doing only by opening it or hovering. Even at 28px rows, 45 panes do not fit: folded session groups are required, and a busy session hides its rows until opened. Header and pane heading are still two rows.',
+ inter:'Chart: hover for counts and the average, click opens the dashboard. Click Goal to edit it in place (stepper or type a number). Avg 1d / 3d / 7d redraws the purple line; range runs 24h to 30d.',
+ clutter:'New, Dashboard, Chat, Voice and Alerts are labeled rows at the top of the sidebar; search and collapse sit by the brand; Live, theme and settings form the sidebar footer. The header holds only the chart.',tbl:['Header','One sidebar: nav rows and pane threads','Yes','Editable','1160px'],
+ build:r2(()=>wide2({sb:sidebar({filter:'seg'}),header:hd(`<span class="lab">Running</span><span class="big" style="font-size:24px">${CNT2.run}</span>`+chart2({w:Math.max(120,MW()-780),h:36,act:dashToast})+maTxt()+maSeg()+goalCtl('ge2')+range2(),'',{nobrand:true})}))},
+{id:'I3',grp:G2,name:'Sidebar, chart docked at the bottom',frame:'wide',line:'Same sidebar; the chart is a full-width panel along the bottom of the work area that opens into an H-style chart with brush zoom.',
+ fixes:'No header row: the pane heading is the top row, so the terminal starts 56px higher than in I. The bottom panel is the widest chart on offer (1128px) with room for every control: range, average, editable goal, Idle layer, drag-to-zoom, and legend chips that filter the sidebar.',
+ costs:'Open, it takes about 270px of terminal height, which hurts on a 900px screen; closed it is a 40px strip (see I3c). The bottom edge gets less attention than the top, and the chart sits far from the sidebar it filters.',
+ inter:'Chevron opens and closes. Drag across the bars to select a window (a selection is shown), then Zoom to selection. Running and Needs you chips filter the sidebar; Idle adds the grey layer. Hover for counts and the average. The goal editor is open here.',
+ clutter:'Sidebar as in I2, but the filter is one icon menu on the Sessions heading, as in a chat app. Layout stays in the pane heading.',tbl:['Bottom of the work area, expandable','One sidebar','Yes, 40px strip','Editable','1160px'],
+ build:r2(()=>wide2({sb:sidebar({menu:1}),bottom:dock2('i3x',DW())}))},
+{id:'I3c',grp:G2,name:'Collapsed: icon rail and chart strip',frame:'wide',line:'I3 at rest: the sidebar folds to a 60px rail of live agents and the chart to a 40px strip.',
+ fixes:'The terminal gets nearly the whole screen (1380px wide) while the strip keeps the running count, the average and the goal in view. The rail lists only what is alive, needs-you first, so the folded state is still a fleet view rather than an empty bar. This is also what every round-2 option becomes between 700 and 1100px.',
+ costs:'Idle panes vanish from the rail (a +32 count stands in for them), so reaching one means expanding or searching. Two fold toggles to learn.',
+ inter:'The panel icon expands the sidebar; the chevron expands the strip into I3. Hover a logo for its pane. The strip chart has the same tooltip.',
+ clutter:'The rail keeps New, Dashboard, Chat, Voice and Alerts as icons with tooltips; search and settings sit at its foot.',tbl:['Bottom strip','Icon rail (sidebar folded)','Yes, compact','Editable','1380px'],
+ build:r2(()=>wide2({sb:rail2(),bottom:dock2('i3c',FW-92)}))},
+{id:'I4',grp:G2,name:'Chart in the sidebar footer',frame:'wide',line:'The chart sits at the foot of the sidebar, where a chat app puts the account, and opens into a large flyout over the work area.',
+ fixes:'Fleet state is on screen in every view without spending a header row or terminal height. The flyout gives the full chart when wanted and goes away after.',
+ costs:'At 242px the resting chart is the smallest in this round, and the card takes about 110px of sidebar height, so four fewer pane rows fit. The flyout covers the terminal while open.',
+ inter:'Click the card to open the flyout (open here): range, average, editable goal, brush zoom, legend chips. Esc or the X closes it.',
+ clutter:'Same sidebar; the footer row sits under the chart card.',tbl:['Sidebar footer, opens a flyout','One sidebar','Yes, small','Editable','1160px'],
+ build:r2(()=>wide2({sb:sidebar({menu:1,chart:sbChart()}),pop:flyout(Math.min(860,MW()-24))}))},
+{id:'I5',grp:G2,name:'Inbox sidebar, goal meter in the pane heading',frame:'wide',line:'The sidebar sorts by what needs you instead of by session: question cards, then Working, Just finished and a folded Idle pile. The chart shrinks to a goal meter.',
+ fixes:'The four actionable panes keep their question text, so you can triage without opening one, and 28 quiet idle panes stop taking space. Claude-like minimalism: no header row at all; the meter sits at the right of the pane heading.',
+ costs:'Session grouping leaves the default view (the session becomes a muted suffix), so neighbouring panes are harder to find. The meter shows now against the goal plus a short trend; history needs an expand or the dashboard.',
+ inter:'Meter: the green fill is running now against the goal, the purple tick is the average. Click Goal to edit. The expand icon opens the I3 bottom panel.',
+ clutter:'Top rows as in I2. No filter control: the sections are the filters.',tbl:['Pane heading meter','One sidebar, sorted by state','Yes, meter','Editable','1160px'],
+ build:r2(()=>wide2({sb:sidebar({list:inbox()}),detail:detail({layout:'none',phx:meter('ge5')})}))},
+{id:'P5',grp:G2,name:'Thread list with a chart strip',frame:'phone',line:'The phone home is the same thread list, full screen, with a chart strip above the home bar.',
+ fixes:'One list for both widths: the wide sidebar and the phone home are the same component. The strip keeps running, the average and the goal in thumb reach.',
+ costs:'62px of list height for the strip; with 40px touch rows about 13 panes fit per screen. No preview text.',
+ inter:'Tap the strip for the chart sheet (P7). Tap a session to fold it. Filter above the list.',
+ clutter:'The panel icon opens the drawer (P6) with Dashboard, Chat, Voice, Alerts and settings; search and New stay in the header. No bottom tab bar.',tbl:['Bottom strip','Drawer and list','Yes','Editable','Full width'],
+ build:r2(()=>wide2({sb:sidebar({menu:1}),bottom:dock2('i3x',DW())}),null)},
+{id:'P6',grp:G2,name:'Drawer open',frame:'phone',line:'The panel icon slides out the wide sidebar as a drawer: nav rows, filter, threads and footer.',
+ fixes:'It is the wide sidebar unchanged, so there is nothing to relearn, and the destinations (Dashboard, Chat, Voice, Alerts) leave the bottom bar.',
+ costs:'Destinations are one tap further away than bottom tabs, and a drawer is less discoverable.',
+ inter:'Swipe from the left edge or tap the panel icon; tap the scrim to close.',
+ clutter:'Bottom tab bar removed.',tbl:['Strip under the scrim','Drawer','No (covered)','Editable','Drawer over scrim'],
+ build:()=>FW<700?phList().replace(/<\/div>$/,`<div class="scrim full"></div><div class="drawer">${sidebar({filter:'seg',w:Math.min(320,FW-56)})}</div></div>`):R2V[0].build()},
+{id:'P7',grp:G2,name:'Pane with the chart sheet',frame:'phone',line:'Inside a pane, the strip opens into a bottom sheet with the full chart and its controls.',
+ fixes:'Range, average and the goal editor all fit at 358px, with axes. The terminal stays visible above the sheet.',
+ costs:'The sheet covers the composer while open; at 358px brush zoom is too fiddly, so the phone zooms by range only.',
+ inter:'Drag the grab handle or tap the strip. Chips filter the drawer list. Goal editor open here.',
+ clutter:'Header: drawer icon, pane title and a fleet chip.',tbl:['Bottom sheet','Drawer','On demand','Editable','Full width'],
+ build:()=>FW<700?`<div class="fr phone"><header class="hd" style="gap:6px;padding:0 8px">${ib('panel','Open sidebar')}<div style="flex:1;min-width:0"><strong style="display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">fact checker agent</strong><small class="mut" style="display:block">storefront-0</small></div><button class="chip" data-act="toggle:psh" style="height:34px;padding:0 10px;gap:7px">${chart2({w:56,h:20})}<b>${CNT2.run}</b><b style="color:var(--amber)">${CNT2.need}</b></button></header><div class="tcol" style="flex:1">${termBody()}</div>${phSheet()}</div>`:R2V[1].build()}];
+V.unshift(...R2V);
+const G3='7 · I3 + I5 hybrid (round 3)';
+/* ================= Round 3: I3's docked chart with I5's inbox =================
+   One sidebar: Needs you pinned as answerable cards, everything else grouped by state or by tmux session,
+   and each group switches between one-line rows and activity cards. The chart variants differ only in how it opens. */
+Object.assign(IC,{rows:'<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
+ unfold:'<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',fold:'<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+ pin:'<path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>'});
+Object.assign(S,{sz:{},dby:'session',flyk:'research-4'});
+const SB3=300,KEYS3={session:SESS2,tool:Object.keys(MARK)};
+const smax=by=>Math.max(...KEYS3[by].flatMap(k=>sub2(k).pts.filter(Boolean).map(p=>p[0]+p[1])),...KEYS3[by].flatMap(k=>sub2(k).ma));
+/* one session's or tool's slice of the fleet history: its share of the panes, swaying on its own rhythm; the live point is its real count */
+function sub2(k){const d=ser2(),key=[S.range2,S.ma,S.zoom,k].join();if(SC2[key])return SC2[key];
+ const rs=ROWS2.filter(r=>r.s==k||r.tool==k),sh=rs.length/ROWS2.length,ph=[...k].reduce((a,c)=>a+c.charCodeAt(0),0)%7,m=i=>sh*(1+.6*Math.sin((d.o+i*d.k)/(40+ph*9)+ph));
+ const pts=d.pts.map((p,i)=>p&&[Math.round(p[0]*m(i)),Math.round(p[1]*m(i)),Math.round(p[2]*sh)]);
+ if(d.live)pts[pts.length-1]=['need','run','idle'].map(st=>rs.filter(r=>r.st==st).length);
+ return SC2[key]={...d,pts,ma:d.ma.map((v,i)=>v*(m(i)+sh)/2)};}
+/* sidebar */
+const card3=(r,ses)=>`<div class="ibx${r.st=='need'?'':' x3'}${r===CUR2?' cur':''}" title="${r.s} / ${r.t}">${sl(r,20)}<strong>${r.t}${ses?`<span class="s2"> · ${r.s}</span>`:''}</strong>${r.u?'<i class="u" title="New output"></i>':`<span class="a">${r.age}</span>`}<p>${r.x}</p>${r.o?`<span class="rp">${r.o.map(o=>`<button data-act="toast:Answered ${o}. ${r.t} carries on">${o}</button>`).join('')}<button data-act="toast:Opens ${r.t} to reply">Reply</button></span>`:''}</div>`;
+const rank3=r=>r.st=='run'?0:r.u?1:2;
+function groups3(id){const f=FIL2[S.f2],rs=ROWS2.filter(r=>r.st!='need'&&f(r));
+ return on('gb:'+id)?SESS2.map(s=>[s,s,rs.filter(r=>r.s==s).sort((a,b)=>rank3(a)-rank3(b))])
+  :[['run','Working',rs.filter(FIL2.run)],['done','Just finished',rs.filter(r=>r.u)],['idle','Idle',rs.filter(r=>r.st=='idle'&&!r.u)]];}
+/* a group: fold chevron, optional sparkline, density toggle; a folded group still shows the open pane */
+function grp3(id,g,l,rs,o={}){const op=!on(`fo:${id}:${g}`),x=on(`dn:${id}:${g}`),nr=rs.filter(FIL2.run).length,sess=on('gb:'+id),
+  sp=!o.spark?'':(sess&&g!='need'?chart2({w:72,h:18,sub:g,act:'fly:'+g,mx:smax('session')}):g=='run'?chart2({w:72,h:18,act:'fly:fleet'}):'');
+ return `<div class="gh3"><button class="sg" data-act="toggle:fo:${id}:${g}" aria-expanded="${op}">${ico(op?'down':'right',14)}<span class="gl3">${l}</span><span class="c">${sp}${nr&&g!='run'?`<i></i>${nr} ·`:''} ${rs.length}</span></button><button class="ib sm ${x?'on':''}" data-act="toggle:dn:${id}:${g}" aria-pressed="${x}" title="${x?'Compact rows':'Show the latest activity'}" aria-label="${x?'Compact rows':'Show the latest activity'} for ${g}">${ico('rows',15)}</button></div>`
+  +(op?rs:rs.filter(r=>r===CUR2)).map(r=>x?card3(r,!sess&&g!='need'):th(r,!sess||g=='need')).join('');}
+function list3(id,o){const need=ROWS2.filter(r=>r.st=='need'&&FIL2[S.f2](r)),gs=groups3(id),sess=on('gb:'+id),ex=['need',...gs.map(g=>g[0])].some(g=>!on(`dn:${id}:${g}`));
+ return `<div class="sbl">${need.length?grp3(id,'need',`${ico('alert',13)}Needs you`,need,o):''}<div class="sec">Group by <span class="seg"><button data-act="set:gb:${id}:0" aria-pressed="${!sess}">State</button><button data-act="set:gb:${id}:1" aria-pressed="${sess}">Session</button></span><span class="sp"></span><button class="ib sm" data-act="dnall:${id}:${ex?1:0}" title="${ex?'Expand':'Compact'} every group" aria-label="${ex?'Expand':'Compact'} every group">${ico(ex?'unfold':'fold',15)}</button></div>${gs.filter(g=>g[2].length).map(([g,l,rs])=>grp3(id,g,l,rs,o)).join('')}</div>`;}
+const navRow=()=>`<div class="nvr">${nv('plus','New window','','new')}${ib('dash','Dashboard','sm')}${ib('chat','Chat','sm')}${ib('mic','Voice','sm')}<button class="ib sm" title="Alerts" aria-label="Alerts">${ico('bell',17)}<i class="bd">${CNT2.need}</i></button></div>`;
+const sidebar3=(id,o)=>sidebar({w:SB3,nav:navRow(),list:list3(id,o)});
+/* defaults per frame: Needs you expanded and Idle folded everywhere, sessions with nothing alive folded */
+const quiet3=SESS2.filter(s=>!ROWS2.some(r=>r.s==s&&r.st!='idle'));
+function R3(id,keys,o){for(const k of ['dn:@:need','fo:@:idle',...quiet3.map(s=>'fo:@:'+s),...keys])DEF[k.replace('@',id)]=1;return{id,grp:G3,frame:'wide',...o};}
+/* phone: the same list, the chart strip opens a sheet that snaps to peek, half or full */
+const smGrid=(w,cols,ch)=>{const cw=Math.floor((w-(cols-1)*10)/cols);return `<div style="display:grid;grid-template-columns:repeat(${cols},${cw}px);gap:10px">${KEYS3[S.dby].map(k=>{const rs=ROWS2.filter(r=>r.s==k||r.tool==k),q=rs.filter(FIL2.need).length;
+ return `<button class="card2 sm3" data-act="toast:Filters the sidebar to ${k}"><span class="dkh" style="padding:0;height:20px;gap:6px"><b>${k}</b><span class="sp"></span><b class="num">${rs.filter(FIL2.run).length}</b><span class="mut">/ ${rs.length}</span>${q?`<i title="${q} needs you" style="width:8px;height:8px;border-radius:50%;background:var(--s-need)"></i>`:''}</span>${chart2({w:cw-26,h:ch,sub:k,mx:smax(S.dby)})}<span class="mut" style="font-size:11.5px">${S.ma} avg ${sub2(k).ma.at(-1).toFixed(1)}</span></button>`;}).join('')}</div>`;};
+const bySeg=()=>`<span class="dkh" style="padding:0;height:30px"><span class="lab">Running by</span>${seg2('dby','dby',['session','tool'])}</span>`;
+function sheet3(k,h,sn){const w=FW-32,peek=h<=sn[0];
+ return `${peek?'':`<div class="scrim" data-act="sz:${k}:0"></div>`}<div class="bsheet" style="height:${h}px;overflow:${h>=sn[2]?'auto':'hidden'};align-content:start"><div class="sph" data-split="${k}" data-snaps="${sn}" data-h="${h}" title="Drag to resize. Double-click to switch between peek and half."><i></i></div><div style="display:flex;align-items:center;gap:10px"><span class="big">${CNT2.run}</span><span class="mut" style="line-height:1.2;font-size:13px">running<br>${maTxt()}</span><span style="flex:1"></span><button class="ib sm" data-act="sz:${k}:0" title="Close" aria-label="Close">${ico('x',18)}</button></div>`
+  +(peek?chart2({w,h:40,act:`sz:${k}:${sn[1]}`}):`<div style="display:flex;align-items:center;gap:8px">${range2()}<span style="flex:1"></span><span class="seg">${['Peek','Half','Full'].map((l,i)=>`<button data-act="sz:${k}:${sn[i]}" aria-pressed="${h==sn[i]}">${l}</button>`).join('')}</span></div>${chart2({w,h:Math.max(90,Math.min(210,h-250)),axis:1})}<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${maSeg()}<span style="flex:1"></span>${goalCtl('gep7')}</div>${legend2()}`+(h>=sn[2]?bySeg()+smGrid(w,2,30):''))+'</div>';}
+function ph3(id,open){const k='psh3:'+id,sn=[128,Math.round(FH*.5),FH-64],h=sz(k,open?sn[1]:0);
+ return `<div class="fr phone">${phHead()}${list3(id)}${pstrip(`sz:${k}:${sn[1]}`)}${h?sheet3(k,h,sn):''}</div>`;}
+/* wide frames; 700-1100 folds the sidebar to the rail, under 700 is the phone list */
+const r3=(id,f)=>()=>{if(FW<700)return ph3(id);const sbw=FW<1100?60:SB3;return f(sbw==60?rail2():sidebar3(id,{spark:id=='R3f'}),FW-sbw,FW-sbw-32);};
+const xb=k=>`<button class="ib sm" data-act="toggle:${k}" title="Close" aria-label="Close">${ico('x',18)}</button>`;
+function dash3(mw){const w=mw-48;
+ return `<section class="detail"><div class="ph"><button class="ib" data-act="toggle:r3d" title="Back to the pane" aria-label="Back to the pane">${ico('back',18)}</button><div><strong>Fleet dashboard</strong><small>${ROWS2.length} panes in ${SESS2.length} sessions · Back returns to fact checker agent</small></div>${maTxt(1)}${range2()}</div>
+ <div style="padding:8px 24px 16px;display:grid;gap:10px;align-content:start;overflow:hidden;flex:1;min-height:0"><div class="dkh" style="padding:0;height:auto;flex-wrap:wrap">${legend2()}<span class="sp"></span>${zoomCtl()}${maSeg()}${goalCtl('ge3')}</div>${chart2({w,h:Math.max(160,Math.min(300,FH-560)),axis:1,brush:1})}<div class="dkh" style="padding:0;height:32px">${bySeg()}<span class="sp"></span><span class="mut" style="font-size:12px">Hover a card for its history. Cards share one scale. Click to filter the sidebar.</span></div>${smGrid(w,w>900?4:2,48)}</div></section>`;}
+const NAV3='Hybrid sidebar: Needs you cards, then groups by state or session';
+const R3V=[
+R3('R3a',['dn:@:run','r3a'],{name:'Dock that expands in place',line:'The baseline: I3\'s bottom dock under the hybrid sidebar. Here Working is switched to activity cards, so you read what every running agent is doing without opening it.',
+ fixes:'Everything from I3 and I5 at once: the four questions are answerable from the sidebar (the reply buttons send the choice the agent offered), the running agents show their latest line, and the 28 idle panes fold into one row. Group by flips the same list to the 8 tmux sessions when you are hunting for a neighbour pane. The nav rows collapse to one icon line, which gives the list back 120px.',
+ costs:'Open, the chart pushes the terminal up by 230px, the same cost as I3; it is the reason the other five variants exist. Working in card mode is 9 rows of about 60px, so on a 900px screen Needs you plus Working fills the sidebar and Just finished scrolls off.',
+ inter:'Every group header has a density toggle (the list icon, remembered per group) and folds on click; the icon beside Group by expands or compacts every group at once. Chart: chevron opens and closes in place; drag across the bars to zoom; legend chips filter the sidebar; Goal edits in place; 1d, 3d or 7d average; 24h to 30d range.',
+ clutter:'New window, Dashboard, Chat, Voice and Alerts share one row under the brand. Group by sits on the heading under Needs you, as a chat app puts its filter. Live, theme and settings stay in the footer.',tbl:['Bottom dock, expands in place',NAV3,'Yes, 40px strip','Editable','1140px'],
+ build:r3('R3a',(sb,mw,w)=>wide2({sb,bottom:dock2('r3a',w)}))}),
+R3('R3b',['r3b'],{name:'Strip opens an overlay drawer',esc:'r3b',line:'The strip slides a drawer up over the terminal instead of pushing it. A scrim dims the work area; Esc or a click on the scrim closes it.',
+ fixes:'The terminal never reflows, so the open chart costs no lines of scrollback and a running TUI does not redraw at a new size. The sidebar stays live beside the drawer, so the legend chips filter it while you look.',
+ costs:'While open you cannot read the terminal bottom, which is where the prompt is. A drawer is transient, so it is no good for watching the chart while you work.',
+ inter:'Click the strip or its chevron; the drawer rises (open here). Esc, the chevron or the scrim close it. All chart controls as in R3a.',
+ clutter:'Same sidebar as R3a, at its defaults: only Needs you is expanded.',tbl:['Bottom strip, opens as an overlay drawer',NAV3,'Yes, 40px strip','Editable','1140px, never resized'],
+ build:r3('R3b',(sb,mw,w)=>wide2({sb,bottom:`<div class="dock2">${dkHead('r3b',w,0)}</div>`,pop:on('r3b')?`<div class="scrim" data-act="toggle:r3b" style="inset:0 0 0 ${FW-mw}px"></div><div class="odr${S.fresh=='r3b'?' in':''}" style="left:${FW-mw}px">${dkHead('r3b',w,1)}${dkBody(w,Math.max(120,Math.min(240,FH-420)))}</div>`:''}))}),
+R3('R3c',[],{name:'Resizable split with snap points',line:'A drag handle between terminal and chart. Pull it to any height; it snaps to strip, medium or tall on release, and a double-click folds it.',
+ fixes:'You choose the trade between terminal and chart once and it stays, rather than picking from open or closed. Tall turns the work area into a dashboard without leaving the pane; strip gives the terminal everything back.',
+ costs:'One more thing to grab, and the handle sits on the terminal edge where a stray drag resizes the chart. Three snap heights are a guess; users may want the one between.',
+ inter:'Drag the handle (pointer events, held at the frame scale); release snaps to 40, 300 or the tall height. Double-click folds to the strip or opens to medium; the chevron does the same. The chart grows with the panel.',
+ clutter:'Sidebar as in R3a, with Needs you as cards. No new chrome beyond the 9px handle.',tbl:['Bottom split with a drag handle',NAV3,'Yes, strip or any height','Editable','1140px'],
+ build:r3('R3c',(sb,mw,w)=>{const sn=[40,300,Math.max(320,FH-340)],h=Math.min(sz('r3c',300),sn[2]),op=h>40;
+  return wide2({sb,bottom:`<div class="sph" data-split="r3c" data-snaps="${sn}" data-h="${h}" title="Drag to resize. Double-click to fold or unfold."><i></i></div><div class="dock2" style="height:${h}px;overflow:hidden;border-top:0">${dkHead('r3c',w,op,`sz:r3c:${op?40:300}`)}${op?dkBody(w,h-(w<1000?126:92)):''}</div>`});})}),
+R3('R3d',['r3d'],{name:'Strip opens the dashboard page',esc:'r3d',line:'The strip is a doorway: clicking it swaps the pane for a full dashboard with the big chart and small multiples per session or per tool. Back returns to the pane.',
+ fixes:'The chart gets the whole work area (1092px by 300px) and a second level the strips cannot hold: which session or which tool is carrying the running count. Nothing ever pushes or covers the terminal; you leave it on purpose.',
+ costs:'You cannot see the chart and the terminal together. The small multiples are per-session slices, so their scale differs from the fleet chart above them.',
+ inter:'Click the strip (the expand icon says it opens). The dashboard is open here: drag to zoom, legend chips filter the sidebar, Running by switches session or tool, hover any card for its history. Back or Esc returns.',
+ clutter:'The dashboard heading replaces the pane heading, with back on the left. The sidebar stays, so picking a pane leaves the dashboard.',tbl:['Bottom strip, opens the dashboard page',NAV3,'Yes, 40px strip','Editable','1140px'],
+ build:r3('R3d',(sb,mw,w)=>wide2({sb,detail:on('r3d')?dash3(mw):detail(),bottom:on('r3d')?'':`<div class="dock2">${dkHead('r3d',w,0,'toggle:r3d','expand')}</div>`}))}),
+R3('R3e',['r3e'],{name:'Hover to peek, click to pin',esc:'r3e',line:'Resting on the strip shows a large preview card above it; moving away hides it. Click pins it open (pinned here).',
+ fixes:'A glance costs no click and no layout change: hover, read the average against the goal, move on. Pinning keeps the full controls for a longer look without resizing anything.',
+ costs:'Hover does not exist on a phone or tablet, so touch goes straight to pinned. A preview that appears under a passing pointer can feel jumpy; it needs a short delay in the real build.',
+ inter:'Hover the strip to show the card; it stays while the pointer is on the strip or the card. Click the strip or the pin to keep it; Esc or the pin unpins. Brush, legend, goal, average and range work inside the card.',
+ clutter:'Sidebar as in R3b. The pin is the only new control.',tbl:['Bottom strip, hover preview, click to pin',NAV3,'Yes, 40px strip','Editable','1140px'],
+ build:r3('R3e',(sb,mw,w)=>{const pw=Math.min(880,w);return wide2({sb,bottom:`<div class="dock2 pk${on('r3e')?' pin':''}">${dkHead('r3e',w,0,'toggle:r3e','pin')}<div class="pop peek" style="width:${pw}px">${fleetCard(pw,190,`<button class="ib sm ${on('r3e')?'on':''}" data-act="toggle:r3e" title="${on('r3e')?'Unpin':'Pin open'}" aria-label="${on('r3e')?'Unpin':'Pin open'}">${ico('pin',16)}</button>`)}</div></div>`});})}),
+R3('R3f',['gb:@','r3f'],{name:'A sparkline on every group',esc:'r3f',line:'No dock at all: each group header in the sidebar carries its own running sparkline, here grouped by session. Clicking one opens that group\'s chart; the fleet total and goal live in I5\'s meter.',
+ fixes:'Answers the question the single chart cannot: which session is busy, and since when. The trend sits next to the rows it describes, the terminal keeps the full height, and the meter keeps the goal in view.',
+ costs:'72px sparklines are texture, not numbers; they share one scale so a busy session looks busy, but reading one needs the flyout. A session\'s chart has no goal of its own, so the goal and the fleet total move to the meter in the pane heading. In State grouping only Working gets a line.',
+ inter:'Hover a sparkline for counts; click opens its flyout (research-4 here), click again or Esc to close. The meter\'s chart opens the fleet flyout with the goal editor. Flyouts keep brush zoom, average and range.',
+ clutter:'Sidebar as in R3a, grouped by session. The pane heading carries the meter (I5), so there is no bottom strip.',tbl:['A sparkline per group header, flyout on click',NAV3,'Yes, per group plus meter','Editable, in the meter','1140px'],
+ build:r3('R3f',(sb,mw)=>{const fw=Math.min(820,mw-32);return wide2({sb,detail:detail({layout:'none',phx:meter('ge5','fly:fleet')}),pop:on('r3f')?`<div class="pop" style="left:${FW-mw+16}px;top:64px;width:${fw}px;gap:8px">${fleetCard(fw,200,xb('r3f'),S.flyk=='fleet'?undefined:S.flyk)}</div>`:''});})}),
+R3('P8',[],{frame:'phone',name:'Hybrid list on the phone',line:'The same sidebar, full screen: question cards with reply buttons, the Group by switch and a density toggle on every group.',
+ fixes:'Most phone sessions are answering a question; here that takes one tap on the home screen, without opening the pane. The rest of the fleet stays one line per pane until you expand a group.',
+ costs:'Four question cards take about 400px, so on a small phone the list starts below the fold. Reply buttons need 32px targets, which is why they sit on their own line.',
+ inter:'Tap a group to fold it, its list icon to switch density. Tap the strip for the chart sheet (P9).',
+ clutter:'Header: drawer, search, New. No bottom tab bar: destinations live in the drawer.',tbl:['Bottom strip','Hybrid list','Yes','Editable','Full width'],
+ build:()=>FW<700?ph3('P8'):R3V[0].build()}),
+R3('P9',['gb:@'],{frame:'phone',name:'Chart sheet with snap points',line:'The strip opens a bottom sheet that snaps to peek, half or full. Full adds the per-session small multiples from R3d.',
+ fixes:'One gesture covers glance, chart and dashboard: drag up for more. Peek keeps the list usable with the count and average in view.',
+ costs:'Three heights to learn, and at full the sheet hides the list entirely. Brush zoom stays off on the phone; range is the zoom.',
+ inter:'Drag the grab bar (snaps on release) or tap Peek, Half or Full; double-click the bar toggles peek and half. Tap the scrim or X to close. The list behind is grouped by session.',
+ clutter:'Same header as P8.',tbl:['Bottom sheet, peek / half / full','Hybrid list','Yes, strip','Editable','Full width'],
+ build:()=>FW<700?ph3('P9',1):R3V[2].build()})];
+V.unshift(...R3V);
+/* ---------- gallery ---------- */
+const GNOTE={[G3]:'<b>Round 3 — I3 with I5\'s inbox.</b> Needs you stays pinned as answerable cards; below it the fleet groups by state or by session, and every group switches between one-line rows and activity cards. The six wide frames share that sidebar and differ in how the chart opens: in place, as a drawer, as a resizable split, as a page, as a hover peek, or spread across the group headers.',[G2]:'<b>Round 2 — riffs on I after feedback.</b> One sidebar like a chatbot thread list instead of a rail plus a Sessions column; the chart moves to the header, the bottom of the work area, the sidebar foot or a meter, and every chart gains an editable goal and a 1d / 3d / 7d moving average. Controls inside these frames work.',Reference:'Round 1 — the original studies, unchanged.'};
+const dims=f=>f=='phone'?[390,844]:[1440,900];
+const inFrame=()=>V.filter(v=>v.frame==S.frame);
+let FW=1440,FH=900;
+const stage=(v,cls='',sz=dims(v.frame))=>{[FW,FH]=sz;return `<div class="stage ${cls}" data-w="${FW}" data-h="${FH}"><div class="scaler" style="--fw:${FW}px;--fh:${FH}px">${v.build()}</div></div>`;};
+const DEV=[['iPhone SE',375,667],['iPhone 15',393,852],['Pixel',412,915],['iPad',820,1180],['Laptop',1280,800],['1440',1440,900],['1920',1920,1080]];
+function overview(){
+ const vs=inFrame(),groups=[...new Set(vs.map(v=>v.grp))];
+ const intro=`<p class="intro"><b>${S.frame=='wide'?'Wide':'Phone'} layouts.</b> Every frame uses the live tmux-rc design tokens and the real 24h, 1h and 7d agent counts from /api/history, with invented session names. The green line is agents running (Running, Compacting and Waiting on a tool). Amber is Needs you. Grey gaps are times the daemon was not recording. Dashed lines are your goal; paler green bars are time under it. Click any frame to open it with notes and a resizable device; the toolbar changes theme everywhere, and range and goal for round 1. Round 2 frames use a synthetic 45-pane fleet across 8 tmux sessions with 37 days of generated 15-minute history, because the real history reaches back only 7 days and a 7-day average across a 30-day range needs 37; their range, average and goal controls sit inside each frame.</p>`;
+ const body=groups.map(g=>`<div class="grp-h"><h2>${g}</h2><span>${GNOTE[g]||''}</span></div><div class="grid ${S.frame=='phone'?'phg':''}">${vs.filter(v=>v.grp==g).map(v=>`<div class="card" tabindex="0" role="button" data-open="${v.id}" aria-label="Open ${v.name}"><div class="ov" style="display:block">${stage(v)}</div><div class="cap"><b><span class="tag">${v.id.replace('P0','0')}</span>${v.name}</b><p>${v.line}</p></div></div>`).join('')}</div>`).join('');
+ const tbl=`<div class="grp-h"><h2>Side by side</h2><span>Where the chart lives and what each option does to navigation.</span></div><div class="tblwrap"><table><tr><th>Variant</th><th>Chart lives in</th><th>Navigation</th><th>Visible at rest</th><th>Goal</th><th>Work area at 1440</th></tr>${vs.map(v=>`<tr><td><b>${v.id.replace('P0','0')}</b> ${v.name}</td>${v.tbl.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</table></div><p class="foot">Tool marks are generic stand-ins, not vendor logos. Running agents pulse (Claude) or spin (Codex), as in the app, and stand still with reduced-motion on. The running count is Running plus Compacting plus Waiting, the same fold the list uses.</p>`;
+ return intro+body+tbl;}
+function expanded(){
+ const vs=inFrame(),i=vs.findIndex(v=>v.id==S.open),v=vs[i];
+ const tabs=`<div class="tabs"><button class="tbtn" data-act="close">All variants</button>${vs.map(x=>`<button data-act="open:${x.id}" aria-current="${x.id==S.open}" title="${x.name}">${x.id.replace('P0','0')}</button>`).join('')}<span style="flex:1"></span></div>`;
+ const[dw,dh]=S.dev||dims(v.frame),devbar=`<div class="devbar">Device <span class="seg">${DEV.map(([l,w,h])=>`<button data-act="dev:${w}x${h}" aria-pressed="${dw==w&&dh==h}" title="${w} x ${h}">${l}</button>`).join('')}<button data-act="dev:" aria-pressed="${!S.dev}" title="The frame's own size">Mock</button></span>View <span class="seg"><button data-act="view:fit" aria-pressed="${!S.actual}">Fit</button><button data-act="view:100" aria-pressed="${S.actual}">100%</button></span><span><b>${dw} x ${dh}</b> · drag the corner handle to resize</span></div>`;
+ const note=`<aside class="note"><div><span class="tag">${v.id.replace('P0','0')}</span><span class="mut" style="font-size:12px">${v.grp}</span></div><h2>${v.name}</h2><p>${v.line}</p><div><h3>What it fixes</h3><p>${v.fixes}</p></div><div><h3>What it costs</h3><p>${v.costs}</p></div><div><h3>Sparkline interaction</h3><p>${v.inter}</p></div><div><h3>Where the clutter goes</h3><p>${v.clutter}</p></div><div style="display:flex;gap:8px"><button class="tbtn" data-act="open:${vs[(i+vs.length-1)%vs.length].id}">Previous</button><button class="tbtn" data-act="open:${vs[(i+1)%vs.length].id}">Next</button></div></aside>`;
+ return tabs+devbar+`<div class="xv"><div class="xstage">${stage(v,'fx'+(S.actual?' act':''),[dw,dh])}<span class="rz" title="Drag to resize">${ico('expand',13)}</span><span class="rzl">${dw} x ${dh}</span></div>${note}</div>`;}
+/* overview frames scale to the card width; the focus frame scales to fit both ways (or 100%), and holds its scale while dragged */
+function fit(){document.querySelectorAll('.stage').forEach(st=>{const w=+st.dataset.w,h=+st.dataset.h,fx=st.classList.contains('fx'),a=st.classList.contains('act'),xs=st.parentElement;
+ if(fx)xs.style.width='';const room=fx?xs.clientWidth:st.clientWidth;
+ const sc=rz?rz.sc:a?1:Math.min(1,room/w,fx?(innerHeight-170)/h:1),sl=st.firstElementChild;st.dataset.sc=sc;
+ sl.style.transform=`scale(${sc})`;sl.style.width=w+'px';sl.style.height=h+'px';
+ if(fx){xs.style.width=Math.min(w*sc,room)+2+'px';st.style.height=Math.min(h*sc,a?innerHeight-170:1e5)+'px';}else st.style.height=h*sc+'px';});}
+function render(){
+ document.documentElement.dataset.theme=S.theme;
+ for(const[id,k]of[['c-theme','theme'],['c-frame','frame'],['c-range','range'],['c-goal','goal']])document.querySelectorAll('#'+id+' button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.act.split(':')[1]==String(S[k]))));
+ if(S.open&&!inFrame().some(v=>v.id==S.open))S.open=null;
+ $('#app').innerHTML=S.open?expanded():overview();S.fresh=null;fit();
+ try{history.replaceState(null,'',S.open?'#'+S.open:location.pathname+location.search);}catch(e){}}
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',1800);}
+function act(a){const[k,...r]=a.split(':'),v=r.join(':');
+ if(k=='toast')return toast(v);
+ if(k=='t')S.theme=v;else if(k=='fr'){S.frame=v;S.dev=null;if(S.open&&!inFrame().some(x=>x.id==S.open))S.open=null;}else if(k=='r')S.range=v;else if(k=='g')S.goal=+v;
+ else if(k=='f')S.filter=S.filter==v?'all':v;else if(k=='toggle'){S.pop[v]=!on(v);S.fresh=v;}else if(k=='idle')S.idle=!S.idle;
+ else if(k=='r2'){S.range2=v;S.zoom=null;}else if(k=='ma')S.ma=v;else if(k=='g2')S.goal2=Math.max(1,Math.min(45,S.goal2+ +v));else if(k=='f2')S.f2=S.f2==v?'all':v;
+ else if(k=='zoom'){const z=S.zoom||[0,1],b=S.brush;S.zoom=b.map(f=>z[0]+f*(z[1]-z[0]));S.brush=null;}else if(k=='unzoom')S.zoom=null;else if(k=='dev')S.dev=v?v.split('x').map(Number):null;
+ else if(k=='open'){if(S.open==null)S.dev=null;S.open=v;scrollTo(0,0);}else if(k=='close')S.open=null;else if(k=='view')S.actual=v=='100';
+ else if(k=='set'||k=='sz'){const j=v.lastIndexOf(':'),key=v.slice(0,j),x=v.slice(j+1);if(k=='sz')S.sz[key]=+x;else S.pop[key]=x=='1';}
+ else if(k=='dnall'){const[id,x]=v.split(':');for(const g of ['need','run','done','idle',...SESS2])S.pop[`dn:${id}:${g}`]=x=='1';}
+ else if(k=='fly'){S.pop.r3f=!(on('r3f')&&S.flyk==v);S.flyk=v;}else if(k=='dby')S.dby=v;
+ render();}
+document.addEventListener('click',e=>{const a=e.target.closest('[data-act]');if(a)return act(a.dataset.act);const c=e.target.closest('[data-open]');if(c)act('open:'+c.dataset.open);});
+document.addEventListener('keydown',e=>{if(e.target.dataset&&e.target.dataset.open&&(e.key=='Enter'||e.key==' ')){e.preventDefault();act('open:'+e.target.dataset.open);}
+ if(!S.open||/INPUT|SELECT/.test(e.target.tagName))return;const vs=inFrame(),i=vs.findIndex(v=>v.id==S.open);
+ if(e.key=='ArrowRight')act('open:'+vs[(i+1)%vs.length].id);else if(e.key=='ArrowLeft')act('open:'+vs[(i+vs.length-1)%vs.length].id);else if(e.key=='Escape')act(vs[i].esc&&on(vs[i].esc)?'toggle:'+vs[i].esc:'close');});
+document.addEventListener('change',e=>{if('goal' in e.target.dataset){S.goal2=Math.max(1,Math.min(45,Math.round(+e.target.value)||S.goal2));render();}});
+/* brush: drag across a round-2 chart to select a window; resize: drag the focus frame's corner */
+let brush=null,rz=null,sp=null,raf=0;
+const sz=(k,d)=>k in S.sz?S.sz[k]:d,snaps=h=>h.dataset.snaps.split(',').map(Number);
+const frac=(s,e)=>{const r=s.getBoundingClientRect(),k=r.width/+s.dataset.w,L=+s.dataset.L,pw=+s.dataset.w-L-+s.dataset.R;return Math.max(0,Math.min(1,((e.clientX-r.left)/k-L)/pw));};
+document.addEventListener('pointerdown',e=>{const s=e.target.closest('.spark[data-brush]'),h=e.target.closest('.rz');
+ if(s){e.preventDefault();brush={s,a:frac(s,e)};}
+ const hs=e.target.closest('[data-split]');if(hs){e.preventDefault();sp={k:hs.dataset.split,y:e.clientY,h0:+hs.dataset.h,sc:+hs.closest('.stage').dataset.sc||1,sn:snaps(hs),moved:0};}
+ if(h){e.preventDefault();const st=h.parentElement.querySelector('.stage');rz={x:e.clientX,y:e.clientY,w:+st.dataset.w,h:+st.dataset.h,sc:+st.dataset.sc};h.setPointerCapture(e.pointerId);}});
+document.addEventListener('pointermove',e=>{
+ if(brush){const b=frac(brush.s,e),[a,c]=[Math.min(brush.a,b),Math.max(brush.a,b)],g=brush.s.querySelector('.brush'),L=+brush.s.dataset.L,pw=+brush.s.dataset.w-L-+brush.s.dataset.R,[r,e0,e1]=g.children;
+  g.removeAttribute('display');r.setAttribute('x',L+a*pw);r.setAttribute('width',(c-a)*pw);e0.setAttribute('x',L+a*pw-2);e1.setAttribute('x',L+c*pw-2);}
+ if(sp&&(sp.moved||Math.abs(e.clientY-sp.y)>3)){sp.moved=1;S.sz[sp.k]=Math.round(Math.max(sp.sn[0],Math.min(sp.sn[sp.sn.length-1],sp.h0-(e.clientY-sp.y)/sp.sc)));if(!raf)raf=requestAnimationFrame(()=>{raf=0;render();});}
+ if(rz){S.dev=[Math.max(320,Math.round(rz.w+(e.clientX-rz.x)/rz.sc)),Math.max(480,Math.round(rz.h+(e.clientY-rz.y)/rz.sc))];if(!raf)raf=requestAnimationFrame(()=>{raf=0;render();});}});
+document.addEventListener('pointerup',e=>{if(brush){const b=frac(brush.s,e),a=brush.a;brush=null;if(Math.abs(b-a)>.02){S.brush=[Math.min(a,b),Math.max(a,b)];render();}}if(rz){rz=null;render();}
+ if(sp){const{k,sn,moved}=sp,h=S.sz[k];sp=null;if(moved){S.sz[k]=sn.reduce((a,b)=>Math.abs(b-h)<Math.abs(a-h)?b:a);render();}}});
+document.addEventListener('dblclick',e=>{const hs=e.target.closest('[data-split]');if(hs){const sn=snaps(hs);S.sz[hs.dataset.split]=+hs.dataset.h>sn[0]?sn[0]:sn[1];render();}});
+document.addEventListener('mousemove',e=>{const s=e.target.closest&&e.target.closest('.spark'),tip=$('#tip');if(!s){tip.style.display='none';return;}
+ const r2c=!!s.dataset.r2,d=r2c?(s.dataset.sub?sub2(s.dataset.sub):ser2()):series(),n=d.pts.length,r=s.getBoundingClientRect(),k=r.width/+s.dataset.w,L=+s.dataset.L,bw=+s.dataset.bw;
+ const i=Math.max(0,Math.min(n-1,Math.floor(((e.clientX-r.left)/k-L)/bw))),p=d.pts[i],x=L+bw*(i+.5),c=s.querySelector('.cross');c.setAttribute('x1',x);c.setAttribute('x2',x);
+ const G=r2c?S.goal2:S.goal;tip.innerHTML=`<b>${i==n-1&&(!r2c||d.live)?'Now':r2c?when2(i):when(i)}</b><br>`+(p?`Running ${p[1]} · Needs you ${p[0]} · Idle ${p[2]}${r2c?`<br>${S.ma} avg ${d.ma[i].toFixed(1)}${s.dataset.sub?'':' · goal '+G}`:p[1]>=G?'':'<br>Under goal of '+G}`:'No observation (daemon not recording)');
+ tip.style.display='block';tip.style.left=Math.max(90,Math.min(innerWidth-90,e.clientX))+'px';tip.style.top=(r.top-6)+'px';});
+addEventListener('resize',fit);
+{const v=V.find(x=>x.id==S.open);if(v)S.frame=v.frame;else S.open=null;}
+render();
+</script>
