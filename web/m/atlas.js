@@ -5,6 +5,9 @@ const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waitin
 const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
 const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
 const toolOf = p => p.tool || 'other';
+// 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
+// filter to: they still count under All, but get no chip of their own.
+const isAgent = tool => tool && tool !== 'unknown' && tool !== 'other';
 let history = [], historyData = null, historyWindow = '24h', historyError = '';
 let requestedAt = 0, controller, reloadHistory;
 
@@ -58,7 +61,7 @@ const STOP = new Set(('the a an and or to of in on for with from is are was were
 export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
-  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(Boolean))];
+  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(isAgent))];
   const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   const metric = root._metric || 'panes';
