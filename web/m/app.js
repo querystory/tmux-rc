@@ -6,8 +6,9 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
+import { setupSidebar } from "/m/sidebar.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
@@ -60,6 +61,12 @@ const LUCIDE = {
   book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   pointer: '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
   cursor: '<path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4v-1M7 2h1a4 4 0 0 1 4 4v1"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
+  unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
+  fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -94,7 +101,10 @@ let focusPushComposer = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
 let streamedLayout = null;
-let eventsKey = null, latestCapture = "", fontSize = 13, pendingAnswer = null;
+let eventsKey = null, latestCapture = "", fontSize = 13;
+// Answers sent and not yet reflected, per pane (pane id -> question signature): the sidebar
+// can answer several panes inside one hold, and each keeps its own.
+const pendingAnswers = new Map();
 // Per-line nodes under #capture, in document order; each caches the markup last written
 // to it (_html). Set when a frame was held back for a selection, so selectionchange
 // knows there is something to catch up on.
@@ -257,13 +267,16 @@ function updateRow(button, pane) {
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
-  text(button.querySelector(".row-status"), pane.question?.prompt || pane.status_line || pane.session_summary || "No recent activity");
+  text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
   sessionChip.hidden = sort !== "updated" || !pane.session;
   text(sessionChip, pane.session || "");
   sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, logos: LOGOS, navigate, notice,
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
+  setFilter: (value) => { filter = value; stayPut(); } });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -274,6 +287,24 @@ function renderList() {
   show("clear-search", !!$("search").value);
   const query = $("search").value.trim().toLowerCase();
   const subset = panes.filter((p) => matchesFilter(p, filter) && matchesSearch(p, query));
+  // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
+  const inline = renderSidebar.drafts.get(active);
+  if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
+  if (WIDE.matches) renderSidebar(subset, query, filter);
+  else renderPhoneList(subset);
+  show("empty", !subset.length);
+  text($("empty"), emptyMessage(query));
+  const waiting = panes.filter(needsYou).length;
+  text($("all-count"), panes.length);
+  text($("attention-count"), waiting);
+  text($("running-count"), panes.filter(isRunning).length);
+  text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
+  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
+  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
+  $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
+  $("new-window").disabled = !panes.length;
+}
+function renderPhoneList(subset) {
   const sessions = [...new Set(subset.map((p) => p.session))];
   const rows = sort === "updated"
     ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
@@ -282,16 +313,6 @@ function renderList() {
     if (!p.group) return makeRow(p);
     const label = document.createElement("h2"); label.className = "session-label"; return label;
   }, (node, p) => p.group ? text(node, p.session || "Session") : updateRow(node, p));
-  show("empty", !subset.length);
-  text($("empty"), emptyMessage(query));
-  const waiting = panes.filter(needsYou).length;
-  text($("all-count"), panes.length);
-  text($("attention-count"), waiting);
-  text($("running-count"), panes.filter(isRunning).length);
-  text($("recent-count"), panes.filter((pane) => isRecent(pane)).length);
-  $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", (!dashboard || WIDE.matches) && filter === button.dataset.filter));
-  $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
-  $("new-window").disabled = !panes.length;
 }
 
 // The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
@@ -326,7 +347,7 @@ function renderLanding() {
     filter = "all";
     renderList();
     navigate();
-    $("sessions").scrollTop = 0;
+    $("sessions").scrollTop = $("side-list").scrollTop = 0;
   }, licon);
   landingRows("landing-attention", waiting);
 }
@@ -336,7 +357,7 @@ function renderLanding() {
 // persistence is per browser (localStorage) because it is a per-screen preference, not
 // something the daemon should know. Arrow keys move it too: the handle is a focusable
 // separator, and a pointer-only affordance would be unreachable from the keyboard.
-const SIDEBAR_KEY = "tmuxrc-sidebar", SIDEBAR_DEFAULT = 340;
+const SIDEBAR_KEY = "tmuxrc-sidebar", SIDEBAR_DEFAULT = 300;
 // Mirrors the CSS clamp() in style.css, which stays the real guard: it holds with JS off
 // and against a hand-edited localStorage value. These bounds exist so the separator can
 // report a truthful value to assistive tech. MAX can fall BELOW MIN on a narrow window
@@ -537,11 +558,11 @@ function render() {
   // note at the eviction below; it is the only evidence the client has.
   if (launched && panes.some((p) => p.pane_id === launched.id)) launched = null;
   // On a wide screen the list never leaves, so it is not "list OR pane" any more:
-  // the list and the filter tabs stay up, and Back has nothing to go back TO — the
-  // sidebar it would return you to is already there. The brand keeps its slot for the
-  // same reason. Narrow is unchanged.
+  // the sidebar stays up (filters live in it, so the tab bar is phone-only), and Back
+  // has nothing to go back TO — the sidebar it would return you to is already there.
+  // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
-  show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane || wide);
+  show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
   show("brand", !inPane || wide);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
@@ -592,13 +613,13 @@ function render() {
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
   const missing = loaded && !pane ? (settled ? "This pane is no longer available." : "Reading terminal sessions...") : "Waiting for activity...";
-  const headline = pane?.headline || pane?.status_line || pane?.session_summary || missing;
+  const headline = paneHeadline(pane) || missing;
   html($("status-line"), linkifyText(headline));
   const summary = pane?.session_summary && pane.session_summary !== headline ? pane.session_summary : "";
   html($("session-summary"), linkifyText(summary)); show("session-summary", !!summary);
   const elapsed = pane?.working?.elapsed ?? pane?.elapsed;
   const tokens = pane?.working?.tokens ?? pane?.tokens;
-  text($("metadata"), [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, elapsed].filter(Boolean).join(" / "));
+  text($("metadata"), paneMeta(pane));
   const chips = [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost,
     elapsed, tokens ? `${tokens} tokens` : "",
     ...(Array.isArray(pane?.status_entries) ? pane.status_entries.slice(0, 4) : []),
@@ -608,23 +629,14 @@ function render() {
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
   text($("prompt"), question?.prompt || "");
-  const answered = pendingAnswer && pendingAnswer.id === active && pendingAnswer.signature === JSON.stringify(question);
-  show("answer-status", !!answered);
+  const answered = !!pane && isAnswered(pane);
+  show("answer-status", answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
-  const options = (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
-  reconcile($("options"), options, (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
+  reconcile($("options"), answerOptions(question), (o) => `${active}:${question.prompt}:${o.index}:${o.option}`, () => {
     const button = document.createElement("button");
-    button.onclick = () => {
-      const current = panes.find((p) => p.pane_id === active);
-      if (!current?.question || !needsYou(current)) return;
-      const { option, index } = button._option;
-      // A cursor list answers to neither of the other two styles: the row's text and a
-      // digit both land in the picker's search box. It needs a verified walk.
-      if (current.question.answer_style === "cursor") pickCursorRow(cursorIO(active), option, index);
-      else sendKeys(answerBody(current.question, option, index), true);
-    };
+    button.onclick = () => answer(active, button._option.option, button._option.index);
     return button;
-  }, (button, option) => { button._option = option; text(button, option.option); button.disabled = sending || !!answered; });
+  }, (button, option) => { button._option = option; text(button, option.option); button.disabled = sending || answered; });
   renderTasks(pane);
   renderRichContent(pane);
   updateComposer();
@@ -879,8 +891,8 @@ async function sendKeys(body, answer = false, id = active) {
     await post(paneUrl(id, "send"), body);
     delivered = true;
     if (answer) {
-      pendingAnswer = { id, signature };
-      setTimeout(() => { if (pendingAnswer?.id === id && pendingAnswer.signature === signature) { pendingAnswer = null; render(); } }, ANSWER_PENDING_MS);
+      pendingAnswers.set(id, signature);
+      setTimeout(() => { if (pendingAnswers.get(id) === signature) { pendingAnswers.delete(id); render(); } }, ANSWER_PENDING_MS);
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
@@ -889,7 +901,23 @@ async function sendKeys(body, answer = false, id = active) {
   return delivered;
 }
 
-// This surface's half of the shared cursor walk. No send here sets `pendingAnswer`:
+// A closing question's tappable answers, for the pane's question card and the sidebar's
+// Needs you cards alike. Free-text escapes ("Type something") are left to the composer.
+function answerOptions(question) {
+  return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+}
+function isAnswered(pane) { return pendingAnswers.get(pane.pane_id) === JSON.stringify(pane.question); }
+function answer(id, option, index) {
+  const current = panes.find((p) => p.pane_id === id);
+  if (!current?.question || !needsYou(current)) return;
+  // A cursor list answers to neither of the other two styles: the row's text and a
+  // digit both land in the picker's search box. It needs a verified walk, and the walk
+  // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
+  if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
+  else sendKeys(answerBody(current.question, option, index), true, id);
+}
+
+// This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:
 // gating the option buttons on the first Down would disable the very row the walk is
 // working toward. What keeps a second tap from starting a rival walk is not this surface
 // at all — `sending` is released between every step — but the module's own one-at-a-time
@@ -910,10 +938,10 @@ function cursorIO(id) {
     note: notice,
   };
 }
-$("reply-form").onsubmit = async (event) => {
-  event.preventDefault();
-  if (sending || $("send").disabled) return;
-  const id = active, value = draft(), segments = value.segments();
+// Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come
+// through here, so they share one endpoint and one confirmation. Resolves to delivered.
+async function compose(id, value) {
+  const segments = value.segments();
   sending = true; notice(); render();
   try {
     const form = new FormData();
@@ -926,8 +954,13 @@ $("reply-form").onsubmit = async (event) => {
     value.pendingEnter = false;
     if (active === id) text($("draft-status"), "Sent");
     startState();
-  } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); }
+    return true;
+  } catch { notice("Delivery could not be confirmed. Draft kept; check the terminal before retrying."); return false; }
   finally { sending = false; render(); }
+}
+$("reply-form").onsubmit = (event) => {
+  event.preventDefault();
+  if (!sending && !$("send").disabled) compose(active, draft());
 };
 // Enter SENDS, Shift+Enter inserts a newline — the standard chat-composer contract.
 // It shipped requiring Cmd/Ctrl+Enter, a shortcut
@@ -944,7 +977,7 @@ $("reply-form").onsubmit = async (event) => {
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -996,7 +1029,7 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
-$("dashboard-tab").onclick = () => openDashboard();
+$("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
@@ -1140,7 +1173,19 @@ document.addEventListener("focusout", () => requestAnimationFrame(fitViewport));
 // Older iOS Safari has only the deprecated addListener, and calling the modern name
 // unguarded would throw here and abort the whole module — breaking the phone UI to add
 // a wide-screen affordance those browsers can never show.
-const resizeWorkspace = () => { restartDetail(); render(); };
+// The wide sidebar takes the header's controls into its slots, in this order; a phone
+// gets them back where index.html put them (a comment marks each home), so every control
+// is one element with one set of listeners, whichever layout it is in.
+const CHROME = { "sb-head": ["brand", "collapse"], "sb-nav": ["new-window", "dash-nav", "chat", "live-mode", "push"], "sb-foot": ["connection", "theme", "docs"] };
+const homes = {};
+function placeChrome() {
+  for (const [slot, ids] of Object.entries(CHROME)) for (const id of ids) {
+    if (!homes[id]) $(id).before(homes[id] = document.createComment(id));
+    if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));
+  }
+}
+placeChrome();
+const resizeWorkspace = () => { placeChrome(); restartDetail(); render(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
@@ -1165,7 +1210,7 @@ setupPush($("push"), notice, licon("bell"));
 const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, report: reportError, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {
-  return [...drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
+  return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
 }
 function observeVersion(version) {
   if (typeof version !== "string" || !version) return;
