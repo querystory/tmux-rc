@@ -63,7 +63,7 @@
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
     <section id="landing" aria-label="Dashboard" hidden>
       <div class="landing-inner">
-        <h2 id="landing-title"></h2>
+        <div class="landing-head"><button id="landing-back" class="icon-button" aria-label="Back to the pane" title="Back to the pane" hidden></button><h2 id="landing-title"></h2></div>
         <p id="landing-sub" class="muted"></p>
         <div id="session-atlas" role="region" aria-label="Session atlas"></div>
         <section id="landing-attention" hidden>
@@ -107,6 +107,9 @@
         <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
         <input id="image-file" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       </footer>
+      <!-- Wide only: the fleet chart docked under the pane, sized by its seam (app.js). -->
+      <div id="fleet-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the fleet chart" title="Drag to resize. Double-click to fold or unfold." tabindex="0" hidden></div>
+      <section id="fleet" aria-label="Fleet chart" hidden></section>
     </section>
     <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="running-tab" data-filter="running" aria-pressed="false"></button><button id="recent-tab" data-filter="recent" aria-pressed="false"></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
     <dialog id="launch-dialog" aria-labelledby="launch-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><label for="launch-session">Session</label><select id="launch-session" required></select><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></dialog>
