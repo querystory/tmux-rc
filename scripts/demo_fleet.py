@@ -166,10 +166,13 @@ DETAIL = {
     "terraform plan review": {
         "activity": "waiting", "waiting_on": "external", "model": "Opus 5", "context_pct": 58,
         "cost": "$2.05",
-        "mode": "plan", "agents": 2,
+        "mode": "plan", "agents": 3,
         "subagents": [{"label": "Check replacements for data loss", "state": "running",
-                    "elapsed": "3m"},
-                   {"label": "Cross-check IAM changes", "state": "running", "elapsed": "2m"}],
+                    "elapsed": "3m", "tokens": "21.7k"},
+                   {"label": "Cross-check IAM changes", "state": "running", "elapsed": "2m",
+                    "tokens": "12.3k"},
+                   {"label": "Summarize the 33 in-place changes", "state": "running",
+                    "elapsed": "48s", "tokens": "6.2k"}],
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
