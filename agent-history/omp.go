@@ -328,7 +328,7 @@ func ompSessions() ([][]string, error) {
 	var paths []string
 	var errs []error
 	addTree := func(root string) {
-		found, err := find(root, ".jsonl", 1, 2, 3)
+		found, err := find(root, ".jsonl", 0)
 		paths = append(paths, found...)
 		errs = append(errs, err)
 	}

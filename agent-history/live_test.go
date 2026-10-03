@@ -166,15 +166,21 @@ func ompLiveHost(t *testing.T, env map[string]string, name, command, hold string
 	ready := filepath.Join(dir, "ready")
 	cmd.Env = append(cmd.Env, "READY="+ready, "HOLD="+hold)
 	var input *os.File
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if tty {
 		_, input = ompLivePTY(t)
 		cmd.Stdin = input
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+		cmd.SysProcAttr.Setctty = true
 	} else {
 		reader, writer, err := os.Pipe()
 		must(t, err)
 		t.Cleanup(func() { writer.Close(); reader.Close() })
 		cmd.Stdin = reader
+		if env["TEST_CTTY"] == "1" {
+			_, input = ompLivePTY(t)
+			cmd.Stderr = input
+			cmd.SysProcAttr.Setctty, cmd.SysProcAttr.Ctty = true, 2
+		}
 	}
 	must(t, cmd.Start())
 	stopped := false
@@ -217,6 +223,7 @@ func ompFixtureRunning(t *testing.T, pids ...int) (map[string]Running, error) {
 func TestRunningOmpBreadcrumbLifecycle(t *testing.T) {
 	env := ompLiveEnv(t)
 	env["TMUX_PANE"] = "%991"
+	env["TEST_CTTY"] = "1"
 	first := ompLiveFile(t, filepath.Join(t.TempDir(), "original.jsonl"), "first")
 	secondDir := t.TempDir()
 	second := ompLiveFile(t, filepath.Join(secondDir, "relocated.jsonl"), "header-not-filename")
@@ -227,7 +234,7 @@ func TestRunningOmpBreadcrumbLifecycle(t *testing.T) {
 	cmd, stop := ompLiveHost(t, env, "omp", "launch", first, false, "--resume", first)
 	got, err := ompFixtureRunning(t, cmd.Process.Pid)
 	must(t, err)
-	if got["first"].PID != cmd.Process.Pid || got["first"].TmuxPane != "" {
+	if len(got) != 1 || got["first"].PID != cmd.Process.Pid {
 		t.Fatalf("host breadcrumb = %+v", got)
 	}
 	// argv still names first. The breadcrumb switches to a relative relocated
@@ -270,6 +277,9 @@ func TestRunningOmpUsesStdinTTYBeforePaneFallback(t *testing.T) {
 func TestRunningOmpHostFilteringAndHeadlessFD(t *testing.T) {
 	env := ompLiveEnv(t)
 	path := ompLiveFile(t, filepath.Join(t.TempDir(), "custom.jsonl"), "headless")
+	env["TMUX_PANE"] = "%996"
+	stale := ompLiveFile(t, filepath.Join(t.TempDir(), "stale.jsonl"), "stale")
+	ompLiveCrumb(t, env, "", "tmux-%996", "/", stale)
 	for _, fixture := range [][2]string{{"editor", "launch"}, {"omp", "__omp_worker_js_eval"}, {"omp", "gc"}, {"omp", "auth-broker"}} {
 		t.Run(fixture[0]+"-"+fixture[1], func(t *testing.T) {
 			cmd, stop := ompLiveHost(t, env, fixture[0], fixture[1], path, false)
@@ -300,6 +310,7 @@ func TestRunningOmpHostFilteringAndHeadlessFD(t *testing.T) {
 func TestRunningOmpBreadcrumbReadFailuresAreUnknown(t *testing.T) {
 	env := ompLiveEnv(t)
 	env["TMUX_PANE"] = "%993"
+	env["TEST_CTTY"] = "1"
 	path := ompLiveFile(t, filepath.Join(t.TempDir(), "target.jsonl"), "target")
 	crumb := ompLiveCrumb(t, env, "", "tmux-%993", "/", path)
 	cmd, _ := ompLiveHost(t, env, "omp", "launch", "", false)
@@ -324,6 +335,7 @@ func TestRunningOmpBreadcrumbReadFailuresAreUnknown(t *testing.T) {
 
 func TestRunningOmpProfileAndTerminalFallback(t *testing.T) {
 	env := ompLiveEnv(t)
+	env["TEST_CTTY"] = "1"
 	env["OMP_PROFILE"] = "named"
 	env["PI_PROFILE"] = "wrong"
 	env["ZELLIJ_PANE_ID"] = "9"
@@ -358,6 +370,7 @@ func TestRunningOmpProfileAndTerminalFallback(t *testing.T) {
 func TestRunningOmpAmbiguousTerminalIsUnknown(t *testing.T) {
 	env := ompLiveEnv(t)
 	env["TMUX_PANE"] = "%995"
+	env["TEST_CTTY"] = "1"
 	path := ompLiveFile(t, filepath.Join(t.TempDir(), "shared.jsonl"), "ambiguous")
 	ompLiveCrumb(t, env, "", "tmux-%995", "/", path)
 	first, _ := ompLiveHost(t, env, "omp", "launch", "", false)

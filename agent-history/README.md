@@ -92,6 +92,7 @@ does not migrate storage. Exact custom-file registry and terminal breadcrumb poi
 find relocated transcripts without searching unrelated files. Older omp versions
 without that registry cannot rediscover an unknown `--session-dir` after its breadcrumb
 is overwritten: set `PI_CODING_AGENT_SESSION_DIR` for reconcile in that case.
+Managed session/artifact trees are scanned recursively, including nested agents.
 
 Ordinary omp entries resume with `omp --resume <id>` in their recorded cwd. Relocated
 entries use the absolute transcript path to bypass ID lookup; named-profile entries
@@ -148,6 +149,8 @@ The process's CLI/environment profile selects the breadcrumb root. Later in-proc
 `.env` relocation may be invisible in Linux's initial `/proc` environment; no alternate
 profile's stale breadcrumb is guessed as a fallback. The process's `TMUX_PANE` is used
 only while it still has a controlling terminal.
+Breadcrumb environment fallbacks also require a controlling terminal. A TTY stdin
+still wins directly; detached headless hosts ignore inherited terminal metadata.
 
 If a harness can't tell what is running, only its own sessions are marked
 `running_unknown`; the other harnesses' answers stand.

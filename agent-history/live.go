@@ -307,7 +307,14 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 			host[id] = Running{PID: proc.PID}
 		}
 		if envErr == nil {
-			terminal := ompTerminal(fds["0"], env)
+			terminal := ompTerminal(fds["0"], nil)
+			if terminal == "" {
+				tty, err := procStat(proc.PID, 7)
+				hostErr = errors.Join(hostErr, err)
+				if tty != "" && tty != "0" {
+					terminal = ompTerminal("", env)
+				}
+			}
 			if terminal != "" && filepath.Base(terminal) == terminal {
 				crumb := filepath.Join(ompStateDir(env, ompProcessProfile(proc.Args, env)), "terminal-sessions", terminal)
 				if owner, ok := crumbOwners[crumb]; ok && owner != proc.PID {

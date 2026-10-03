@@ -232,10 +232,10 @@ func indexEntries() ([]string, error) {
 	return find(index, ".md", 2, 3)
 }
 
-// find lists files ending in ext at any of the given depths below root (1 = root's
-// own files), taken literally since a configured root may contain glob syntax. A
-// missing root is empty; any other unreadable directory is an error, so reconcile
-// won't record a run that couldn't see everything.
+// find lists files ending in ext at the given depths (1 = root's own files,
+// 0 = every depth), taking root literally since it may contain glob syntax.
+// A missing root is empty; other unreadable directories are errors, so
+// reconcile won't record a run that couldn't see everything.
 func find(root, ext string, depths ...int) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -244,18 +244,23 @@ func find(root, ext string, depths ...int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var deeper []int
-	for _, d := range depths {
-		if d > 1 {
-			deeper = append(deeper, d-1)
+	recursive := slices.Contains(depths, 0)
+	deeper := depths
+	if !recursive {
+		deeper = nil
+		for _, d := range depths {
+			if d > 1 {
+				deeper = append(deeper, d-1)
+			}
 		}
 	}
+	here := recursive || slices.Contains(depths, 1)
 	var out []string
 	var errs []error
 	for _, e := range entries {
 		path := filepath.Join(root, e.Name())
 		switch {
-		case slices.Contains(depths, 1) && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
+		case here && !e.IsDir() && strings.HasSuffix(e.Name(), ext):
 			out = append(out, path)
 		case len(deeper) > 0 && e.IsDir():
 			sub, err := find(path, ext, deeper...)

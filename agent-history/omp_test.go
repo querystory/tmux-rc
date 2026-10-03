@@ -149,6 +149,7 @@ func TestOmpArtifactNotFork(t *testing.T) {
 	}
 	nested := ompWrite(t, strings.TrimSuffix(child, ".jsonl")+"/Worker.jsonl", ompTestHeader)
 	check(t, "canonical sibling header", ompArtifactParent(nested), "child-uuid")
+	ompCheckSources(t, parent, child, nested)
 	must(t, os.Remove(nested))
 	fork := ompWrite(t, filepath.Join(dir, "fork.jsonl"), strings.Replace(ompTestHeader, `"title":"header auto"`, `"parentSession":"`+parent+`","title":"header auto"`, 1)+`{"type":"session_init","task":"not a child task"}`)
 	f, err := ReadOmp(fork)
