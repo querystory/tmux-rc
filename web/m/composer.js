@@ -61,6 +61,10 @@ export class Composer {
     if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type) || file.size > 20 * 1024 * 1024) {
       this.error("Choose a PNG, JPEG, WebP, or GIF under 20 MB."); return;
     }
+    this.insert(this.chip(file));
+  }
+  // An image chip owned by this composer: its remove handlers update this draft.
+  chip(file) {
     const chip = document.createElement("img");
     chip.className = "attach-chip"; chip.contentEditable = "false"; chip.draggable = false;
     chip.src = URL.createObjectURL(file); chip.alt = file.name || "Image";
@@ -74,7 +78,15 @@ export class Composer {
     chip.onkeydown = (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); remove(); }
     };
-    this.files.set(chip, file); this.insert(chip);
+    this.files.set(chip, file);
+    return chip;
+  }
+  // Take another composer's draft onto the end of this one, in order. Its images become
+  // this composer's own chips (fresh handlers and URLs); the old ones are released.
+  append(other) {
+    const segments = other.segments();
+    this.replace([...this.segments(), ...segments.map((s) => s.file ? { chip: this.chip(s.file) } : s)]);
+    segments.forEach((s) => s.chip && URL.revokeObjectURL(s.chip.src));
   }
   segments() {
     const segments = [];
