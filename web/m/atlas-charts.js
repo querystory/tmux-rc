@@ -128,9 +128,9 @@ export function fleetChart(axis) {
         formatter: items => {
           const row = rows[items[0]?.dataIndex];
           if (!row?.n) return 'No observation';
-          return [label(row.t), row.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
+          return [`${label(row.t)} · ${unit.toLowerCase()}`, row.source === 'logs' ? 'Reconstructed from logs' : 'Daemon snapshot',
             ...items.filter(item => item.value[1] != null)
-              .map(item => `${item.seriesName}: ${+item.value[1].toFixed(1)} ${unit.toLowerCase()}`)].join('<br>');
+              .map(item => `${item.seriesName}: ${+item.value[1].toFixed(1)}`)].join('<br>');
         } },
       // The slider sits inside the chart's own box, clear of its bottom edge, so a panel
       // clipped to its height never cuts the zoom handles or the axis labels.
