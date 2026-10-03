@@ -773,6 +773,17 @@ def test_stale_question_is_reread_from_visible_screen_only():
     assert result["activity"] == "idle"
 
 
+@pytest.mark.parametrize("row", [
+    '│+246│····prompt = "Which color?"', " ├─   *65│Which color?", "  12│Which color?",
+])
+def test_question_behind_line_number_gutter_is_file_content(row):
+    replies = iter([{"tool": "omp", "activity": "waiting", "question": {"prompt": "Which color?"}},
+                    {"tool": "omp", "activity": "running"}])
+    capture = f"\x1e[visible screen]\x1f\n{row}\n ⠙ 3m > ◒ GPT-5.5"
+    result = classify(_pane("bun"), capture, lambda *_: next(replies))
+    assert "question" not in result and result["activity"] == "running"
+
+
 def test_visible_question_is_preserved_without_retry():
     calls = []
     def read(_prompt, text):

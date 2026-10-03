@@ -118,6 +118,7 @@ loosen the score.
   "current_command": "node",          // the pane's tmux foreground process
   "repository": "owner/name",         // optional local GitHub repository context
   "capture": "…the pane text…",       // what the model sees
+  "prior": ["…an earlier frame…"],    // optional: earlier captures, sent as production does
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```
@@ -164,6 +165,7 @@ actually hit:
 | `62_omp_ask_picker` | omp `ask` cursor picker → user-wait with the selected option |
 | `63_omp_folder_segment_running` | synthetic: omp outside a repo (`📁 <path>` segment) with a `↻` activity line → running, title not a question |
 | `64_omp_wrapped_by_bash` | omp behind a bash wrapper (`current_command=bash`) → tool=omp from its chrome, running with two workers |
+| `65_omp_gutter_code_is_not_question` | real omp capture + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
 
 Sample 16 records a known prompt-compliance failure. On 2026-09-18, an authorized
 Vertex run using the production prompt and `gemini-3.1-flash-lite` for both classifier
