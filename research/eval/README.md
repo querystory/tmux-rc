@@ -166,13 +166,15 @@ actually hit:
 | `63_omp_folder_segment_running` | synthetic: omp outside a repo (`📁 <path>` segment) with a `↻` activity line → running, title not a question |
 | `64_omp_wrapped_by_bash` | omp behind a bash wrapper (`current_command=bash`) → tool=omp from its chrome, running with two workers |
 | `65_omp_gutter_code_is_not_question` | real omp capture + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
+| `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
+| `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
+| `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
 
-Sample 16 records a known prompt-compliance failure. On 2026-09-18, an authorized
-Vertex run using the production prompt and `gemini-3.1-flash-lite` for both classifier
-and content judge **failed both checks**: the candidate omitted the edits table, and
-the judge reported that the required table was missing. The four-edit expectation
-remains desired behavior, not a passing production baseline. This case detects the
-bug; a production prompt/classifier fix is still needed.
+Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
+question's supporting list but also to omit tables unless an actual table was shown.
+The parser now carries the four referenced numbered edits as rows, while excluding
+skipped recommendations and outgoing user queues. The content judge checks that all
+four edits retain their meaning.
 
 ### Committed vs local — what's repo-safe
 
@@ -202,11 +204,22 @@ occurrence.
 ## Running it
 
 The production parser composes `openbus/parser_prompt.txt` with the Codex, Claude,
-and Gemini fragments beside it. Eval uses that same loader. For `--prompt` A/B runs,
+Gemini, and omp fragments beside it. Eval uses that same loader. For `--prompt` A/B runs,
 provide the composed text, not a template containing fragment placeholders.
 LLM captures label `[visible screen]` after history; synthetic samples should place
 that boundary explicitly when testing scrollback behavior. The capture layer splits
 physical tmux ranges before joining wrapped rows, not by counting joined text lines.
+
+omp's current title state is supplied to the model separately from transcript text.
+Working/idle titles retire completed Ask cards; `!` preserves the active Ask/approval
+dialog, including an unsubmitted highlighted option. The right-aligned session label
+above the idle footer is not a question. Rejected receipts get one bounded re-read
+with their selected answer retained only as task context. Later work after submission
+retires an earlier question; scroll position alone does not prove an answer.
+Ask radio options are not checklist tasks; genuine visible checkbox rows retain
+their rendered completion state.
+Stopped provider errors use their visible error text as the headline, not obsolete
+progress from before the failure.
 
 Needs the three Vertex vars in the environment:
 

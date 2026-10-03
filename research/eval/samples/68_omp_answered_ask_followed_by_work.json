@@ -1,0 +1,14 @@
+{
+  "description": "Regression from the supplied dashboard screenshot: the user selected 'Also fix table extraction', but the phone kept the old Ask card as Needs you while newer reads and grep ran below it. Faithful synthetic reduction of that screen; the completed Ask result uses the recorded selected-option radio marker described by oh-my-pi packages/tui/src/tools/ask.ts:254-287, not a live cursor/nav-footer dialog. The old question is still in the visible screen, so merely excluding scrollback is insufficient. Later assistant work and normal running chrome establish that the agent moved on. This is not a runtime capture.",
+  "current_command": "bun",
+  "title": "π ⠦ Follow PR293 Copilot Scratchpad Instructions",
+  "capture": "\u001e[visible screen]\u001f\n ? Ask\n The repo requires all prompt-eval cases to pass, but case 16 already fails on the\n unmodified prompt. How should I handle that separate table-extraction bug?\n ○ Keep the omp fix scoped\n ● Also fix table extraction\n\n Read research/eval/samples/16_question_refers_to_list.json\n Claude's current question refers to four visible numbered recommendations.\n\n Grep table|TABLE|list\n openbus/parser_prompt.txt\n 248: tables: extract any tabular data visible on screen\n 251: Omit if no table is shown.\n 254: Put the supporting command, list, or decision context in tables.\n\n Read web/m/app.js:586-621\n 600: const tables = (Array.isArray(pane?.tables) ? pane.tables : []).filter(...);\n\n  ⎋ Reading mobile table consumer              Follow PR293 Copilot Scratchpad Instructions\n ⠦ 2m > ◒ GPT-6.1-Sol > 🌳 tmux-rc > ⑂ feat/agent-history-omp > S7.07 ▶───38%────272K─◀\n╰─\n",
+  "expected": {
+    "tool": "omp",
+    "activity": "running",
+    "waiting_on": null,
+    "question": null,
+    "tables": null,
+    "headline": "Inspecting the classifier prompt, eval case 16, and mobile table renderer to fix table extraction"
+  }
+}

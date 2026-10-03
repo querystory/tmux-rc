@@ -227,6 +227,9 @@ tool.
   At most 3 — pick the ones most likely to be pasted, newest/most relevant first. Omit
   entirely when nothing on screen is meant to be reused — most screens have nothing, and
   an empty list is the correct answer far more often than not.
+  A conversational finding/conclusion is not a reusable artifact. Unless the screen
+  actually presents it for copying/sharing elsewhere, keep it in headline/events,
+  not copyables; a helpful standalone sentence is still ordinary prose.
 
 "events" is the activity feed — a list of NEW things that happened since the last
 report. If a list of already-reported events is provided, do NOT repeat them or restate
@@ -245,10 +248,22 @@ edit is just an event whose metadata is a file diff — do NOT emit a bare "adde
 to X"; make text say what changed and put the numbers in "file". Do NOT put things that
 have their own dedicated field (mode, model, cost, context %, tool, tasks, question,
 rewind, links) into events.
-"tables": extract any tabular data visible on screen (ASCII/box-drawn tables, aligned
-columns) as structured {headers, rows} so the UI can render a real scrollable table —
-do NOT flatten a table into prose or events. Include the caption in "title" if there is
-one. Omit if no table is shown.
+"tables": extract visible tabular data (ASCII/box-drawn tables, aligned columns)
+as structured {headers, rows}; do NOT flatten it into prose or events. Include a
+visible caption in "title". Also carry a visible supporting list when the current
+genuine question refers to its items (e.g. "make edits 1–4?"): one row per referenced
+item, retaining its number/label and a concise faithful description. This is decision
+context, NOT the question's answer choices or queued outgoing user messages. Include
+only the referenced visible items; never invent missing items or add skipped ones.
+Omit "tables" when neither tabular data nor such supporting context is visible.
+
+ANSWERED QUESTIONS can remain visible in the transcript after the agent moves on.
+A submitted answer (including an omp Ask result showing the chosen option) followed
+by newer assistant work/tool invocations retires that old question: omit it and any
+user-wait it caused; classify the current work instead. Do not resurrect it from an
+earlier frame just for continuity. Position alone, selected checkboxes in an ACTIVE
+picker, or unrelated background completion notices do not prove an answer. A current
+input dialog/approval prompt still needs input even when other work is visible.
 
 "question.prompt" quotes the current visible question verbatim. Put the supporting
 command, list, or decision context in "tables" so the question stands alone on a phone.
@@ -301,6 +316,8 @@ prose, not a held-open input affordance. Only a prompt the TOOL is holding open 
 permission/approval box, a y/n confirmation, a selection menu, a prompt visibly awaiting a
 typed answer, where the choice IS the live bottom of the screen (no empty input box below
 it) — is a real question / user-wait.
+A final unanswered approval request for concrete numbered edits, with no empty composer
+below it, is also current input. Preserve that question and its referenced list.
 Tool housekeeping prompts — satisfaction surveys ("How is Claude doing?", NPS ratings),
 update notices, telemetry opt-ins — are NOT the pane's story: never let them become the
 headline, summary, or question, and a pane showing only such a prompt is NOT "waiting"
