@@ -215,3 +215,90 @@ python -m research.eval
 
 (`set -a; . ./.env; set +a` loads them from the repo `.env`; the unquoted OTEL-token
 line errors under `source` — export the three vars directly if so.)
+
+## Inline replies experiment (closing-question buttons: separate call vs the main parse)
+
+**Question.** A turn that ends on "Should I …?" gets accept/decline reply buttons from a
+small extra model call (design A, merged in #282), because the parser prompt deliberately
+tells the main parse NOT to emit a `question` for a closing offer above an empty input.
+Could the main parse return the buttons in the same response (design B: one new optional
+output field, `closing_replies`, plus three comment lines in the schema; `question`
+semantics untouched), so the extra call and its cache can be deleted? Branch
+`exp/inline-closing-replies` is B; main is A; C is main with the call switched off.
+
+**Method.** `closing_questions/` holds 32 synthetic screens (Claude and Codex chrome,
+auto mode on and off): single-step yes/no, gated multi-step, either/or, wh-questions,
+open-ended requests, destructive wording, code identifiers, a wrapped paragraph, a bold
+question, a `! command` handoff, a provider error, and offers that must stay idle (not auto
+mode, user already typed, old question already answered, Codex). Each carries a
+`closing_replies` block (kind, and the step words a checkpoint button may name).
+`python -m research.eval.closing_replies run --tag X --out X.json --existing` (run it in a tree
+with #282 for A, add `--no-replies` there for C, in the experiment branch for B) pushes them, plus the 62 regular samples,
+through the production `classify()` five times per condition (gemini-3.1-flash-lite,
+temperature 0, the production Vertex path) and records every call's tokens and latency,
+the parse's raw output, a deterministic rubric, and a judge-model verdict on button
+quality. The rubric: accept first and decline second for yes/no, "Yes, but check with me
+before X" only for steps the question names (gated), no buttons for open-ended, either/or
+and wh questions, and the idle screens stay idle. The rubric is stricter than the judge,
+and both are reported.
+
+**Results (5 runs per case; counts are passes over runs).**
+
+| | A separate call | B inline | C no buttons |
+|---|---|---|---|
+| yes/no, rubric (of 50) | 40 | 35 | 20 |
+| yes/no, judge (of 50) | 50 | 40 | 30 |
+| gated multi-step, rubric (of 20) | 13 | 0 | 0 |
+| gated, judge (of 20) | 20 | 10 | 20 |
+| either/or, wh, open-ended: no buttons (of 55) | 35 | 32 | 41 |
+| offers that must stay idle (of 30) | 30 | 30 | 30 |
+| regular corpus structured pass (of 310) | 305 | 300 | 295 |
+| regular corpus failures | 16 | 16, 59 | 16, 58, 59 |
+| screen runs proposing buttons with no question (of 470) | 0 | 35 | 0 |
+| first-parse input tokens (mean) | 8706 | 8794 (+88, +1.0%) | 8706 |
+| first-parse output tokens (mean) | 155.8 | 156.8 | 154.6 |
+| first-parse latency (mean) | 1.51 s | 1.50 s | 1.44 s |
+| extra call | 101 over 5 runs, 145 in, 33 out tokens, 0.90 s mean, 1.18 s p90 | none | none |
+| production lines (openbus/) vs pre-#282 | +86 net | +66 net (20 fewer than A, including the 4-line prompt field) | 0 |
+| all three: closing samples matching their expected tool/activity/question shape (of 160) | 160 | 160 | 160 |
+
+**What the numbers say.**
+
+- Idle detection did not move in any design: the offers that must stay idle stayed idle
+  every run, so B does not threaten the idle/closing-offer rule. Sample 16 is the known
+  failure.
+- B's buttons are worse where it matters. On the real gated capture (sample 58) B returned
+  accept and decline and never the per-step checkpoints A gives; on the single-step
+  sample 59 it invented a checkpoint ("Yes, but check with me before sending") on every
+  run, which fails that sample's accept-then-decline check. Across the four gated synthetic
+  cases B produced no usable checkpoint button in 20 runs; it offers partial-scope options
+  ("Commit and push only") instead. A single schema comment carrying a conditional rule
+  (checkpoint only steps the question names) is not followed by this model; the separate
+  call, whose whole input is the question, is.
+- B proposes buttons on screens where no closing question is detected (35 of 470 screen runs, one count per run even where `classify()` re-read a slice:
+  the not-auto-mode offers, the user-already-typed draft, Codex, and regular samples
+  03, 04 and 16). `classify()` discards them, so nothing wrong reaches the phone, but they are
+  paid-for output tokens.
+- Both designs hand out buttons for some either/or and wh questions, which the spec says
+  must be empty; A is a little better on that (35 vs 32 of 55) and A's cache means that
+  is one call per question. Where the main parse itself emits a `question` with options
+  (about 40% of yes/no screens), those win in every design, so that behaviour is
+  independent of this choice.
+- Cost is a wash. B adds about 330 bytes of prompt, +88 input tokens per parse (+1.0%).
+  Local telemetry shows roughly 4k to 14k parses per busy day at about 15k input tokens
+  and about $0.003 each, so B costs on the order of 0.4 to 1.2 million extra input tokens
+  and a few tens of cents a day across the fleet. A costs about $0.0001 and 0.9 s per
+  distinct closing question, a few cents a day, and the latency is on a path where the
+  card has already rendered (the buttons appear on the next tick).
+- Run-to-run variance at temperature 0 was low: 4 of 32 cases flipped under A, 1 under B
+  and 1 under C.
+- Caveat: in this corpus a rejected session name made `classify()` re-read a slice on 73%
+  of screens under every condition. That retry costs the same everywhere, so the
+  comparison holds, but absolute token and latency figures are inflated by it.
+
+**Decision: keep A, delete nothing.** B saves about 20 production lines and the call, but
+loses the checkpoint buttons, regresses the existing sample 59, and spends tokens on every
+parse to save a cheap call that only fires on a detected closing question. A hybrid (ask
+B inline, fall back to the call when the field is empty) does not help, because B's
+failures are wrong options, not empty ones. Revisit if the model or the field's wording
+improves enough for B to pass the gated cases; rerun the harness above to check.
