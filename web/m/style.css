@@ -635,9 +635,10 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #fleet-handle:hover, #fleet-handle:focus-visible, #fleet-handle.dragging { outline: none; background: linear-gradient(var(--accent), var(--accent)) center / 100% 3px no-repeat; }
   #detail:has(#fleet-handle.dragging) { user-select: none; cursor: row-resize; }
   .fleet-strip { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 39px; padding: 0 12px 0 4px; }
-  /* Folded, the strip is one 40px row wherever it fits; a very narrow work area (a wide
-     sidebar plus Chat) wraps it and the panel grows to keep every control reachable. */
-  #detail > #fleet.folded { height: auto; min-height: var(--fleet-h, 40px); }
+  /* Folded, the strip stays one 40px row: the sparkline and the average give way first,
+     and in a very narrow work area (a wide sidebar plus Chat) the row scrolls sideways
+     rather than growing into the terminal's reserved space or clipping a control. */
+  .fleet-strip:not(.open) { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
   .fleet-strip .icon-button { width: 36px; height: 36px; min-height: 36px; }
   /* Narrow work areas squeeze the information first (sparkline, then the average, which
      ellipsizes) so the goal editor and Dashboard never clip. */

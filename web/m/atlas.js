@@ -301,7 +301,6 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
     ? [el('span', 'fleet-gap'), stateChip('Running', now[3]), stateChip('Needs you', now[1]), stateChip('Idle', now[2]),
       resetZoomButton(chart), averageControl(), rangeControl()]
     : [spark.el]), board);
-  root.classList.toggle('folded', !open);
   rebuild(root, open ? [strip, chart.el] : [strip], focus);
   spark.update(chartData(data));
   chart.update(chartData(data));
