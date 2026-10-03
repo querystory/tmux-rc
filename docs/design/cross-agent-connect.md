@@ -93,8 +93,9 @@ Finding only reads, so it runs at once. Both are recorded by the same audit poin
 ### What it is for
 
 - **Resume after a crash or reboot.** The 47 panes lost to a stray `kill-server` on
-  2026-09-30 were rebuilt from transcripts. Each index entry carries its resume argv and
-  cwd, and #488's WS-D turns that into one "restore N sessions?" item.
+  2026-09-30 were rebuilt from transcripts. Each resumable top-level entry carries its
+  resume argv and cwd (subagents and sessions whose transcript is gone do not), and
+  #488's WS-D turns that into one "restore N sessions?" item.
 - **Find the session behind a PR.** The index records PR links per session. The watcher
   tracks PR associations for live panes. Together they answer "who was on #4955",
   whether or not the pane still exists.
@@ -226,8 +227,8 @@ its id, and the sender can ask for its final outcome or subscribe to it. Nothing
 silently, which is the agent client's founding complaint. At most once needs identity:
 the caller supplies a message id, and the daemon refuses a retried id instead of typing
 it twice. The ids and the queue live in memory, and ids are kept for a bounded window
-(an hour, capped in count), so the guarantee holds within that window of one daemon
-lifetime. A retry across a daemon restart can type a message twice. That is accepted
+(an hour), so the guarantee holds within that window of one daemon lifetime. An
+unexpired id is never evicted: at the cap, the daemon refuses new messages instead. A retry across a daemon restart can type a message twice. That is accepted
 for v1, because a restart already drops the queue and a duplicate prompt is visible.
 
 **Consent.** These are the control-plane tiers, with an agent as the actor:
@@ -308,10 +309,13 @@ resume. A grant is therefore stored against the harness session id. For a manife
 it is a tool-surface field in C4. For an ad-hoc pane it goes in a small daemon table
 keyed the same way. A brand-new agent has no session id until it starts, so its
 launch token is first bound to the new pane and process. It is rebound to the session id
-once that is known. Claude Code accepts a preset session id; Codex and omp report theirs
-after launch through agent-history's running detection. The toggle appears on the pane,
+once that is known. Claude Code accepts a preset session id. Codex and omp report theirs
+only after launch, and a Codex thread held by its shared app-server often has no pane at
+all, unless its status bar shows the session id. So for those harnesses the grant stays
+on the pane's process until the daemon sees an unambiguous pane-to-session binding, and
+it survives a resume only once that binding has been seen. The toggle appears on the pane,
 and on the window for convenience.
-A restored session (WS-D) keeps its grant, and a new agent in a recycled `%N` does not
+A restored resumable session (WS-D) keeps its grant, and a new agent in a recycled `%N` does not
 inherit one.
 
 Granting and revoking are deliberately asymmetric, because these harnesses read MCP
@@ -437,7 +441,9 @@ drafts. Its first PR needs neither, because it injects only into launchers alrea
 written as plain argv, and adds the structured launcher form alongside the opaque one.
 
 1. **Observe (first PR).** The endpoint with read and history only: directory, pane
-   detail, `find_sessions`, `get_session`. It also carries:
+   detail, `find_sessions`, `get_session`. `get_session` takes harness and session id
+   together, because session ids can collide across harnesses and `agent-history get`
+   takes only the id today. It also carries:
    - per-agent tokens;
    - a structured (argv plus environment) launcher form, and launch injection for
      Claude Code and Codex launchers written that way;
