@@ -218,7 +218,8 @@ send lock, the daemon checks three things again: the incarnation, that the scree
 still the idle one it saw, and that a workstream handle still resolves to this pane. This
 is the same guard push answers use. If any of them changed, the message waits for the
 next idle transition rather than steering a turn or landing in someone's draft. The sender always gets one result:
-delivered, refused or expired, or queued as an interim answer. A queued message keeps
+delivered, declined, refused, cancelled or expired. Those five are final, and queued is
+the only interim answer. A queued message keeps
 its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
 silently, which is the agent client's founding complaint. At most once needs identity:
 the caller supplies a message id, and the daemon refuses a retried id instead of typing
@@ -342,8 +343,9 @@ the next call fails with "not connected". The stale tool entry stays harmlessly 
 agent's next restart. Narrowing scopes works the same way, since scope is checked on
 every call. Revocation also cancels that agent's queued messages and open cards, sent
 or received. Both ends' scopes are checked again just before delivery, so nothing
-admitted earlier lands after either side is turned off. Granting is slow and visible, and taking away is instant. That is the point
-of authorizing at the server.
+admitted earlier lands after either side is turned off. Open subscriptions and long
+polls held by that agent end at once too, so it receives nothing more. Granting is slow
+and visible, and taking away is instant. That is the point of authorizing at the server.
 
 **Transport.** The endpoint is MCP over HTTP on the daemon's existing localhost port,
 with the bearer token on every request. Claude Code and Codex both speak it. For a
