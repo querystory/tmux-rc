@@ -62,8 +62,9 @@ Two stores answer "what has this agent done", and they are easy to confuse.
 
 **The daemon's view** is live and screen-derived. For each pane it holds the classified
 state, an idle summary per burst, the event log, tracked PRs and structural history. It
-serves them through `/api/state`, `/api/digest` (documented as "the endpoint for
-agents/scripts") and per-pane events. It knows only what the screen showed while the
+serves current state and recent events through `/api/state`, `/api/digest`
+(documented as "the endpoint for agents/scripts") and per-pane events. Structural
+history comes from `/api/history`. It knows only what the screen showed while the
 daemon was watching.
 
 **agent-history** is the Go CLI in `agent-history/`. It indexes harness transcripts
@@ -218,7 +219,8 @@ delivered, refused or expired, or queued as an interim answer. A queued message 
 its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
 silently, which is the agent client's founding complaint. At most once needs identity:
 the caller supplies a message id, and the daemon refuses a retried id instead of typing
-it twice. The ids and the queue live in memory, so the guarantee holds for one daemon
+it twice. The ids and the queue live in memory, and ids are kept for a bounded window
+(an hour, capped in count), so the guarantee holds within that window of one daemon
 lifetime. A retry across a daemon restart can type a message twice. That is accepted
 for v1, because a restart already drops the queue and a duplicate prompt is visible.
 
@@ -352,8 +354,9 @@ local process, which is the sandbox's job.
   shows one.
 - **Audit.** Every call is one `telemetry.audit` record with actor
   `agent:<harness>:<session id>`. It names the scope, the target and the outcome:
-  allowed, declined, refused or rate-limited. Message text follows the existing content
-  rules.
+  allowed, declined, refused or rate-limited. A queued message gets a second record,
+  with the same message id, when it is delivered, cancelled or expires. Message text
+  follows the existing content rules.
 - **Visible history.** The pane's activity feed lists the messages it sent and received.
 - **Revocation.** The same toggle turns it off. A fleet-wide "disconnect all" sits
   beside it.
