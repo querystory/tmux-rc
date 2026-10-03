@@ -1,4 +1,4 @@
-.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units
+.PHONY: dev run test lint fmt docs docs-dev docs-check docs-clean install-units demo screenshots screenshots-diff
 
 # Dev server with auto-reload on source changes. Reload restarts the process (the
 # watcher's in-memory cache resets and rebuilds from tmux within a couple ticks — safe,
@@ -67,3 +67,35 @@ docs-check: docs
 
 docs-clean:
 	rm -rf docs-site/public docs-site/serve docs-site/resources docs-site/.hugo_build.lock
+
+# Screenshots of /m against the fictional fleet in scripts/demo_fleet.py — never real
+# panes or history. `demo` serves it to browse by hand on http://127.0.0.1:18039/m.
+# `screenshots` shoots the full set into .screenshots/ and refreshes the few the README
+# shows (README_SHOTS) in docs/img/; `screenshots-diff` shoots BASE and this tree and
+# writes per-shot diff images plus a summary table (see AGENTS.md, "UI screenshots").
+# Playwright lives in a cache dir rather than package.json: only these targets need a
+# browser, and the pinned version is what keeps renders comparable between machines.
+PLAYWRIGHT_DIR ?= $(HOME)/.cache/tmux-rc/playwright
+README_SHOTS = hero mobile-list mobile-pane mobile-terminal
+BASE ?= origin/main
+export PLAYWRIGHT_DIR
+
+# A stamp per version, touched only after both steps succeed: a failed browser download is
+# retried, and a version bump reinstalls instead of trusting an older cached copy.
+PLAYWRIGHT_VERSION = 1.59.1
+PLAYWRIGHT = $(PLAYWRIGHT_DIR)/.installed-$(PLAYWRIGHT_VERSION)
+
+$(PLAYWRIGHT):
+	npm install --no-save --no-audit --no-fund --prefix $(PLAYWRIGHT_DIR) playwright@$(PLAYWRIGHT_VERSION)
+	node $(PLAYWRIGHT_DIR)/node_modules/playwright/cli.js install chromium-headless-shell
+	touch $@
+
+demo:
+	uv run python -m scripts.demo_server 18039
+
+screenshots: $(PLAYWRIGHT)
+	node scripts/screenshots.mjs .screenshots
+	cp $(README_SHOTS:%=.screenshots/%.png) docs/img/
+
+screenshots-diff: $(PLAYWRIGHT)
+	uv run python -m scripts.screenshots_diff $(BASE) .screenshots/diff

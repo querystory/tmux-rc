@@ -79,6 +79,35 @@ in `web/m/index.html` and get their icon injected at boot.
 Emoji in *content* (terminal captures, transcripts, pane text) is data, not chrome —
 pass it through untouched.
 
+## UI screenshots: the demo fleet, never the live one
+
+Screenshots of the live daemon show real session names, paths, PR numbers and costs, and
+the README carried exactly that until it was regenerated. Every screenshot that leaves
+this machine — README, docs, a PR body — comes from the demo fleet instead
+(`scripts/demo_fleet.py`): an invented organisation with every pane state the UI draws, a
+seeded month of chart history, and a browser clock started at one fixed instant.
+
+It is served by `scripts/demo_server.py`, which is the daemon's own FastAPI app with the
+watcher, history database and tmux seam swapped out, rather than a separate mock of the
+API. That is deliberate: a hand-written mock drifts from the real routes and silently
+stops showing what users see, while this one breaks loudly when a route changes shape.
+Mutations answer `{"ok": true}` without running, and tmux is unplugged, so it can never
+reach a real pane.
+
+- `make screenshots` shoots the set in `scripts/screenshots.mjs` into `.screenshots/` and
+  refreshes the README images in `docs/img/`. Only those few are committed; the rest exist
+  to be diffed, and committing them would make every UI PR churn binary files.
+- `make screenshots-diff` (default `BASE=origin/main`) shoots the base and this tree with
+  the same fleet and writes per-shot diff images plus `summary.md`. **Any PR that changes
+  `web/` attaches that summary and the before/after/diff images for the shots that
+  changed**, so a reviewer sees the visual impact — including the unintended part —
+  without checking the branch out.
+- Same tree, same machine gives the same bytes. Across machines fonts differ, so compare
+  shots from one machine; that is why the diff tool shoots both sides itself.
+- `tests/test_demo_fleet.py` fails on anything in the fleet that looks private (home
+  paths, real project names, emails, tokens). Add new demo data freely, but keep it
+  fictional and keep URLs under `example-org`.
+
 ## Tests
 
 `make test` runs `pytest -q tests/`. There is no JS test harness — browser-side logic is
