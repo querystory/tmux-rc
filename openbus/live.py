@@ -612,9 +612,8 @@ def _ancestors(pid: int):
     while pid > 1:
         yield pid
         try:
-            with open(f"/proc/{pid}/stat") as f:
-                pid = int(f.read().rsplit(")", 1)[1].split()[1])
-        except (OSError, ValueError, IndexError):
+            pid = int(tmux.proc_read(pid, "stat").rsplit(")", 1)[1].split()[1])
+        except (ValueError, IndexError):
             return
 
 

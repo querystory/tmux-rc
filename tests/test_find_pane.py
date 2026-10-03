@@ -5,6 +5,8 @@ address ("work:0.0" — window/pane INDEX, not the window name) has to be matche
 own — see issue #146.
 """
 
+import pytest
+
 from openbus import tmux
 from openbus.tmux import Pane, find_pane
 
@@ -60,8 +62,9 @@ def test_agent_cli_window_names_are_generic():
     assert named.label == "review the PR"
 
 
-def test_opencode_auto_window_name_is_generic():
-    agent = Pane("work", "8", "opencode", "0", "%8", "opencode", "OpenCode", "/home/x/proj")
+@pytest.mark.parametrize(("window", "cmd"), [("opencode", "opencode"), ("bun", "bun")])
+def test_agent_auto_window_name_is_generic(window, cmd):
+    agent = Pane("work", "8", window, "0", "%8", cmd, "OpenCode", "/home/x/proj")
     assert agent.label == "work:8"
 
 
@@ -114,3 +117,16 @@ def test_display_title_ignores_kitty_graphics_probe_payload():
         return Pane("s", "0", "claude", "0", "%0", "node", t).display_title
     assert title("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA") is None
     assert title("✳ Fix login bug") == "Fix login bug"
+
+
+@pytest.mark.parametrize(("raw", "shown"), [
+    ("π ⠋ Configure and Verify OMP OpenTelemetry", "Configure and Verify OMP OpenTelemetry"),
+    ("π > Fix login bug", "Fix login bug"),
+    ("π ! Fix login bug", "Fix login bug"),
+    ("π: Fix login bug", "Fix login bug"),
+    ("π >", None),  # omp before it has a session label
+    ("πr² calculator", "πr² calculator"),  # not omp's brand + separator
+])
+def test_display_title_strips_omp_state_prefix(raw, shown):
+    """omp's working separator animates; the card title must be just the session label."""
+    assert Pane("s", "0", "omp", "0", "%0", "bun", raw).display_title == shown

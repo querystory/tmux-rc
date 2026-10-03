@@ -1,0 +1,6 @@
+- "omp" (oh-my-pi): runs as `omp` or `bun`. Its bottom status row is decisive. Starting
+  "π > <model> >" it means the turn is over: idle, and any "ⓘ waiting on … jobs"
+  rows above are finished history. While a turn is active a spinner and elapsed time
+  ("⠦ 14s >") replace the π: running, including while it waits on its own subagents.
+  Like OpenCode, the model it names is only the selected backend.
+  Text right-aligned just above the row is the session title, never a question.
