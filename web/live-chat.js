@@ -95,6 +95,7 @@ export function chatBubble({ licon, open }) {
     bubble.classList.toggle("working", !!working);
     badge.textContent = pending || "";
     const name = voice ? "Live Mode" : "Chat";
-    bubble.title = bubble.ariaLabel = `Open ${name}${pending ? `: ${pending} waiting for you` : unread ? ": new messages" : working ? ": responding" : ""}`;
+    const states = [pending && `${pending} waiting for you`, unread && "new messages", working && "responding"].filter(Boolean);
+    bubble.title = bubble.ariaLabel = `Open ${name}${states.length ? `: ${states.join(", ")}` : ""}`;
   }, { focus: () => bubble.focus() });
 }

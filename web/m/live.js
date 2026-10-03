@@ -51,14 +51,15 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     badge();
   }
   const following = () => log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX;
-  // While a typed turn is out, an Assistant row of dots holds the reply's place at the
-  // foot of the log: rows that arrive meanwhile go above it, and the reply lands where it
-  // was. It hides while a consent card is open (the model is waiting on the user then).
+  // Until a typed turn completes, an Assistant row of dots sits at the foot of the log and
+  // rows that arrive meanwhile go above it. It stays up past a first reply, since a turn
+  // can say something and then keep working (a find_sessions call shows nothing), and hides
+  // while a consent card is open (the model is waiting on the user then).
   const typing = document.createElement("div");
   typing.className = "voice-entry model";
   typing.innerHTML = '<strong aria-hidden="true">Assistant</strong><span class="chat-dots" role="img" aria-label="Assistant is responding"><i></i><i></i><i></i></span>';
   function badge() {
-    const working = !!run?.waiting && !run.proposals.size;
+    const working = run?.turns > 0 && !run.proposals.size;
     bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size, working });
     if (working === typing.isConnected) return;
     const follow = following();
@@ -90,7 +91,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     run.ws.send(JSON.stringify(frame));
     run.thumbs.push(thumbnails); // for this turn's echo, or its refusal
     run.hasTurn = true; paintStarters(); // hide immediately, including on a double tap
-    run.turns++; run.waiting = true; badge(); // the daemon queues turns: one answer each
+    run.turns++; badge(); // the daemon queues turns: one answer each
   }
   async function capabilities() {
     if (fetching) return;
@@ -181,7 +182,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   // The daemon drops a session's open proposals and queued turns with it.
   function expire(current) {
     [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
-    current.turns = 0; current.waiting = false; badge();
+    current.turns = 0; badge();
   }
   function silence(current) {
     current.queued.forEach((source) => { try { source.stop(); } catch {} });
@@ -344,23 +345,20 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
         if (current.listening) { clearTimeout(current.deadline); current.tries = 0; }
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
-      } else if (message.type === "transcript") {
-        if (message.role === "model") current.waiting = false; // the reply replaces the dots
-        add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
-      } else if (message.type === "turn_complete") {
+      } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
+      else if (message.type === "turn_complete") {
         [...log.children].forEach((row) => { row.dataset.done = "true"; });
-        current.turns = Math.max(0, current.turns - 1); current.waiting = current.turns > 0; badge(); // the next queued turn starts
+        current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
       }
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
       else if (message.type === "error") {
         // A refused turn gets no answer; any other error ends the session's turns.
         if (message.refused) current.thumbs.shift();
         current.turns = message.refused ? Math.max(0, current.turns - 1) : 0;
-        current.waiting &&= current.turns > 0;
         add("error", message.message);
       }
       else if (message.type === "propose") propose(current, message);
-      else if (message.type === "decided") { current.waiting = current.turns > 0; settle(current, message.id, message.ok ? "Approved" : "Declined"); } // the model answers either way
+      else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : "Declined");
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };
@@ -380,7 +378,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), thumbs: [], turns: 0, waiting: false, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; log.replaceChildren(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;

@@ -424,17 +424,20 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   assert.deepEqual(roles(), ['user', 'propose']);
   say({type: 'decided', id: 'p1', ok: true});
   assert.deepEqual(roles(), ['user', 'propose', 'typing']);
-  say({type: 'typed', label: 'work', pane_id: '%1', submitted: true, text: 'ls'});
-  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
-  // Minimized, the bubble pulses while the reply is out.
+  // Minimized, the bubble pulses while the reply is out, and says so beside unread.
   $('voice-close').onclick();
   assert.equal(bubble.classList.contains('working'), true);
-  assert.match(bubble.title, /responding/);
+  say({type: 'typed', label: 'work', pane_id: '%1', submitted: true, text: 'ls'});
+  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'typing']);
+  assert.match(bubble.title, /new messages, responding/);
+  // A reply can come ahead of more work in the same turn: the row stays until it completes.
   say({type: 'transcript', role: 'model', text: 'Done.'});
-  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model']); // the reply took its place
-  assert.equal(bubble.classList.contains('working'), false);
+  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model', 'typing']);
+  assert.equal(bubble.classList.contains('working'), true);
   say({type: 'turn_complete'});
-  assert.equal(roles().at(-1), 'model');
+  assert.deepEqual(roles(), ['user', 'propose', 'typed', 'model']);
+  assert.equal(bubble.classList.contains('working'), false);
+  assert.match(bubble.title, /new messages/);
   // Sends are not blocked while one is out: the daemon queues them, so the dots stay up
   // until the last is answered, through a refusal of one past the queue's room.
   bubble.onclick();
