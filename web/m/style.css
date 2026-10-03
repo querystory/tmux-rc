@@ -285,6 +285,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    output both fit; below it, one column is still the better use of the space. */
 @media (min-width: 1100px) {
   #app {
+    --bar: 46px; /* the top bar of every column: sidebar head, pane heading, docked chat */
     max-width: none;
     display: grid;
     /* --sidebar is set by the drag handle and persisted; the clamp is the guard, so a
@@ -339,7 +340,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    dashboard beside it just narrows, and the pane's Auto layout (app.js effectiveLayout,
    which measures #detail) re-picks side / stack / focus from what is left. */
 @media (min-width: 1100px) {
-  #voice-dialog:not(:modal) { position: static; grid-column: 3; grid-row: 1 / -1; width: clamp(320px, 26vw, 440px); height: auto; max-width: none; max-height: none; min-height: 0; margin: 0; padding: 12px 16px; border: 0; border-left: 1px solid var(--line); border-radius: 0; animation: none; }
+  #voice-dialog:not(:modal) { position: static; grid-column: 3; grid-row: 1 / -1; width: clamp(320px, 26vw, 440px); height: auto; max-width: none; max-height: none; min-height: 0; margin: 0; padding: 0 16px 12px; border: 0; border-left: 1px solid var(--line); border-radius: 0; animation: none; }
+  #voice-dialog:not(:modal) .dialog-heading { min-height: var(--bar); } /* level with the pane heading */
   #voice-dialog:not(:modal) .sheet-handle { display: none; }
   #voice-dialog:not(:modal) #voice-log { flex: 1; max-height: none; }
 }
@@ -347,7 +349,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 /* The wide sidebar (sidebar.js). Scoped to the breakpoint, not just to its .sb-only
    slots: the slots are still siblings on a phone, and a sibling selector would reach. */
 @media (min-width: 1100px) {
-#sb-head { display: flex; align-items: center; gap: 2px; min-height: 56px; padding: 0 8px 0 14px; flex: none; }
+#sb-head { display: flex; align-items: center; gap: 2px; min-height: var(--bar); padding: 0 8px 0 14px; flex: none; }
 #sb-head #brand { font-size: 16px; }
 #sb-nav, #sb-foot { display: flex; align-items: center; gap: 2px; padding: 0 8px 6px; flex: none; }
 #sb-foot { padding-block: 6px; border-top: 1px solid var(--line); }
@@ -509,7 +511,14 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 @media (min-width: 1100px) {
   #layout-control > span { display: inline; }
   #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; }
-  #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  /* The sidebar head's height (--bar), so the two columns' top bars line up. No vertical
+     padding: the two text lines set tight and the controls drop to 32px (still a full
+     pointer target; the phone keeps 44px), so the row hugs its content. */
+  #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; min-height: var(--bar); padding: 0 18px; border-bottom: 1px solid var(--line); }
+  .pane-heading-text { line-height: 1.3; }
+  :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout) { min-height: 32px; height: 32px; }
+  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode) { width: 32px; }
+  #close-pane { margin: 0 -6px; }
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
   #detail[data-layout="side"] { grid-template-columns: minmax(0, 1fr) clamp(240px, var(--review-size, 360px), 45%); }
