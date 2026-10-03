@@ -80,15 +80,18 @@ func readEntry(path string, scoring bool, placement *ompPlacement) (Entry, error
 	} else if e.ResumeArgv == nil && e.Resume != "" { // format 1, until reconcile rebuilds it
 		e.ResumeArgv = claudeResume(e.ID)
 	}
-	if e.Harness == "omp" && e.Parent == "" {
-		_, artifact, err := placement.artifactParent(e.Source)
+	if e.Harness == "omp" {
+		parent, artifact, err := placement.artifactParent(e.Source)
 		if err != nil {
 			return Entry{}, err
 		}
-		if artifact {
+		if e.Parent == "" && artifact {
 			return Entry{}, errNotIndexed // never revive a previously promoted artifact
 		}
-		if len(e.ResumeArgv) > 0 && !e.SourceMissing {
+		if e.Parent != "" && (!artifact || parent != e.Parent) {
+			return Entry{}, errNotIndexed // cached children must still belong to their canonical parent
+		}
+		if e.Parent == "" && len(e.ResumeArgv) > 0 && !e.SourceMissing {
 			e.ResumeArgv, e.ompResumeChanged, err = placement.resume(e.Source, e.ID, e.ResumeArgv)
 			if err != nil {
 				return Entry{}, err

@@ -477,3 +477,31 @@ func TestRunningOmpMultipleDescriptorsRequireBreadcrumb(t *testing.T) {
 		t.Errorf("authoritative breadcrumb did not disambiguate: %v", got)
 	}
 }
+
+func TestRunningOmpRelativeAgentDirUsesHostCwd(t *testing.T) {
+	env := ompLiveEnv(t)
+	env["PI_CODING_AGENT_DIR"] = "relative-agent"
+	env["TMUX_PANE"], env["TEST_CTTY"] = "%998", "1"
+	session := ompLiveFile(t, filepath.Join(t.TempDir(), "session.jsonl"), "relative-id")
+	cmd, _ := ompLiveHost(t, env, "omp", "launch", "", false)
+	env["PI_CODING_AGENT_DIR"] = filepath.Join(cmd.Dir, "relative-agent")
+	ompLiveCrumb(t, env, "", "tmux-%998", filepath.Dir(session), session)
+	got, err := ompFixtureRunning(t, cmd.Process.Pid)
+	must(t, err)
+	if len(got) != 1 || got["relative-id"].PID != cmd.Process.Pid || got["relative-id"].TmuxPane != "%998" {
+		t.Errorf("relative agent-dir breadcrumb missed: %v", got)
+	}
+}
+
+func TestRunningOmpSymlinkedFlatRootArtifactCannotIdentifyHost(t *testing.T) {
+	env := ompLiveEnv(t)
+	root := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	must(t, os.Symlink(root, alias))
+	env["PI_CODING_AGENT_SESSION_DIR"] = alias
+	agent := ompLiveFile(t, filepath.Join(root, "session", "Agent.jsonl"), "artifact-id")
+	cmd, _ := ompLiveHost(t, env, "omp", "launch", agent, false)
+	if got, err := ompFixtureRunning(t, cmd.Process.Pid); err == nil || len(got) != 0 {
+		t.Fatalf("symlinked flat-root orphan identifies a live host: %v, %v", got, err)
+	}
+}

@@ -79,10 +79,16 @@ also identify direct orphans. Registered custom-file/breadcrumb pointers supply
 artifact-tree boundaries even when a non-timestamped parent is missing or truncated.
 The explicit flat session root is also a boundary: direct files are main sessions,
 while nested transcripts remain artifacts even without a readable parent.
+Boundaries and candidates use resolved filesystem paths, including missing paths'
+existing prefixes, so symlink aliases cannot hide artifacts from live FD checks.
+Original pointer paths are retained separately for resume argv.
 An artifact without a resolvable canonical immediate parent is skipped, rather than
 inventing a parent or offering a main-session resume. Previously promoted cached entries are
 rejected by `get` and skipped by `resolve`, including entries already marked missing
 or lacking resume argv: artifact classification is independent of resumability.
+Cached children also require their current canonical parent to match the recorded
+parent: deleted/truncated parents and changed relationships invalidate the entry
+even under `-all`; reconcile can rebuild a valid changed relationship.
 
 The rewritten title slot is current, including an explicit cleared title; slot-less
 files use the header title: title-change records are audit, not the current name.
@@ -169,6 +175,8 @@ Ambiguous terminal ownership does the same. Subagents suppress breadcrumbs
 and are not reported as independent live sessions.
 Live classification uses the host's own effective profile/storage environment and
 registered artifact roots, so a subagent fd cannot stand in for a missing main transcript.
+Relative agent/session directory overrides resolve against the inspected host's cwd,
+not the history command's cwd.
 Bun hosts whose best-effort OS rename did not take effect are also detected, but
 only for an omp CLI script (including the installed `omp` symlink), not unrelated
 Bun programs. Node is not an omp runtime: its CLI requires Bun.

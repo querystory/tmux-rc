@@ -353,15 +353,24 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 		var placement ompPlacement
 		if envErr == nil {
 			placement.loaded = true
+			var cwd string
+			for _, key := range []string{"PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"} {
+				root := env[key]
+				if root == "" || filepath.IsAbs(root) {
+					continue
+				}
+				if cwd == "" {
+					cwd, placement.err = os.Readlink(filepath.Join("/proc", strconv.Itoa(proc.PID), "cwd"))
+					if placement.err != nil {
+						break
+					}
+				}
+				env[key] = filepath.Join(cwd, root)
+			}
 			placement.locations = []ompLocation{ompLocationFor(ompProcessProfile(proc.Args, env), func(key string) string { return env[key] })}
 			placement.pointers = make([]ompPointerSet, 1)
-			if root := env["PI_CODING_AGENT_SESSION_DIR"]; root != "" {
-				if !filepath.IsAbs(root) {
-					cwd, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(proc.PID), "cwd"))
-					placement.err = err
-					root = filepath.Join(cwd, root)
-				}
-				placement.flatRoot = filepath.Clean(root)
+			if root := env["PI_CODING_AGENT_SESSION_DIR"]; root != "" && placement.err == nil {
+				placement.flatRoot, placement.err = ompCanonicalPath(root)
 			}
 		}
 		host := map[string]Running{}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,104 @@ func TestReadEntryRoundTrip(t *testing.T) {
 	check(t, "title", e.Title, `quote "and" colon: x`)
 	check(t, "resume_argv", e.ResumeArgv[2], "s")
 	check(t, "resume", e.Resume, "cd '/r' && 'claude' '--resume' 's'")
+}
+
+func TestReadEntryOmpCachedChildPlacement(t *testing.T) {
+	for _, change := range []string{"unchanged", "deleted", "truncated", "replaced", "relocated"} {
+		t.Run(change, func(t *testing.T) {
+			ompTestEnv(t)
+			root := ompLocationFor("", os.Getenv).Sessions
+			parent := ompWrite(t, filepath.Join(root, "bucket", "parent.jsonl"), ompTestHeader)
+			child := ompWrite(t, strings.TrimSuffix(parent, ".jsonl")+"/Agent.jsonl",
+				strings.ReplaceAll(ompTestHeader, "real-id", "child-id")+`{"type":"message","message":{"role":"user","content":"cachedneedle"}}`+"\n")
+			s, err := ReadOmp(child)
+			must(t, err)
+			check(t, "initial parent", s.Parent, "real-id")
+			path := filepath.Join(t.TempDir(), "child.md")
+			must(t, os.WriteFile(path, Render(s), 0o600))
+			initial, err := ReadEntry(path)
+			must(t, err)
+			check(t, "initial cached parent", initial.Parent, "real-id")
+
+			switch change {
+			case "deleted":
+				must(t, os.Remove(parent))
+			case "truncated":
+				must(t, os.WriteFile(parent, []byte(`{"type":"session"`), 0o600))
+			case "replaced":
+				ompWrite(t, parent, strings.ReplaceAll(ompTestHeader, "real-id", "replacement-id"))
+			case "relocated":
+				moved := filepath.Join(root, "bucket", "moved.jsonl")
+				must(t, os.Rename(child, moved))
+				s.Source = moved // retain the persisted child's parent after a source relocation
+			}
+			for _, missing := range []bool{false, true} {
+				data := Render(s) // child entries are body-only, without main-session resume argv
+				if missing {
+					data = []byte(strings.Replace(string(data), "\nsource:", "\nsource_missing: true\nsource:", 1))
+				}
+				must(t, os.WriteFile(path, data, 0o600))
+				for _, scoring := range []bool{true, false} {
+					var e Entry
+					var err error
+					if scoring {
+						e, err = ReadEntry(path) // the get-facing reader
+					} else {
+						e, err = readEntry(path, false, &ompPlacement{})
+					}
+					if change != "unchanged" {
+						if !errors.Is(err, errNotIndexed) {
+							t.Errorf("missing=%v scoring=%v returned stale child: %+v, %v", missing, scoring, e, err)
+						}
+						continue
+					}
+					must(t, err)
+					check(t, "cached parent", e.Parent, "real-id")
+					if len(e.ResumeArgv) != 0 || e.Resume != "" || e.ompResumeChanged {
+						t.Errorf("valid child received main resume metadata: %+v", e)
+					}
+					if scoring {
+						all := defaults
+						all.All = true
+						got := Resolve([]Entry{e}, "cachedneedle", all)
+						if len(got) != 1 || len(got[0].Sessions) != 1 || got[0].Sessions[0].ID != s.ID {
+							t.Errorf("valid cached child not searchable with -all: %+v", got)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestReadEntryOmpMainResumeAndMissingSource(t *testing.T) {
+	ompTestEnv(t)
+	source := ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).Sessions, "bucket", "parent.jsonl"), ompTestHeader)
+	s := Session{Harness: "omp", ID: "real-id", Source: source, Cwd: "/work/a repo",
+		LastActive: now.Format(time.RFC3339), ResumeArgv: []string{"omp", "--resume", source},
+		Messages: []Message{{Text: "cachedneedle"}}}
+	path := filepath.Join(t.TempDir(), "main.md")
+	data := Render(s)
+	must(t, os.WriteFile(path, data, 0o600))
+	e, err := ReadEntry(path)
+	must(t, err)
+	check(t, "refreshed main argv", strings.Join(e.ResumeArgv, " "), "omp --resume real-id")
+	check(t, "refreshed main resume", e.Resume, ResumeLine(s.Cwd, e.ResumeArgv))
+	if !e.ompResumeChanged {
+		t.Error("validated main resume was not refreshed")
+	}
+
+	must(t, os.Remove(source))
+	must(t, os.WriteFile(path, []byte(strings.Replace(string(data), "\nsource:", "\nsource_missing: true\nsource:", 1)), 0o600))
+	e, err = ReadEntry(path)
+	must(t, err)
+	if !e.SourceMissing || len(e.ResumeArgv) != 0 || e.Resume != "" || e.ompResumeChanged {
+		t.Errorf("missing ordinary main has resume metadata: %+v", e)
+	}
+	got := Resolve([]Entry{e}, "cachedneedle", defaults)
+	if len(got) != 1 || len(got[0].Sessions) != 1 || got[0].Sessions[0].ID != s.ID {
+		t.Errorf("missing ordinary main no longer searchable: %+v", got)
+	}
 }
 
 func TestResolveRanksRareTermsAndPhrases(t *testing.T) {

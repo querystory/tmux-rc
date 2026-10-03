@@ -472,24 +472,36 @@ func TestOmpRegisteredArtifactWithLostParent(t *testing.T) {
 		t.Run(broken, func(t *testing.T) {
 			ompTestEnv(t)
 			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
-			parent := ompWrite(t, filepath.Join(t.TempDir(), "custom.jsonl"), ompTestHeader)
+			root := t.TempDir()
+			alias := filepath.Join(t.TempDir(), "alias")
+			must(t, os.Symlink(root, alias))
+			parent := ompWrite(t, filepath.Join(alias, "custom.jsonl"), ompTestHeader)
 			agent := ompWrite(t, strings.TrimSuffix(parent, ".jsonl")+"/Agent.jsonl", strings.ReplaceAll(ompTestHeader, "real-id", "agent-id"))
 			ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).State, "custom-session-files", "custom"), parent)
+			good := ompWrite(t, filepath.Join(alias, "good.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "good-id"))
+			ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).State, "custom-session-files", "good"), good)
 			if broken == "deleted" {
 				must(t, os.Remove(parent))
 			} else {
 				must(t, os.WriteFile(parent, []byte(`{"type":"session"`), 0o600))
 			}
-			if s, err := ReadOmp(agent); !errors.Is(err, errNotIndexed) {
-				t.Errorf("registered artifact promoted: %+v, %v", s, err)
+			realAgent := filepath.Join(root, "custom", "Agent.jsonl")
+			for _, source := range []string{agent, realAgent} {
+				if s, err := ReadOmp(source); !errors.Is(err, errNotIndexed) {
+					t.Errorf("registered artifact %s promoted: %+v, %v", source, s, err)
+				}
+				cached := Session{Harness: "omp", ID: "agent-id", Source: source, Cwd: "/work/a repo", ResumeArgv: []string{"omp", "--resume", source}}
+				dst := indexPath("omp", "", cached.ID)
+				must(t, writeAtomic(dst, Render(cached), time.Now()))
+				if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
+					t.Errorf("cached registered artifact %s promoted: %+v, %v", source, e, err)
+				}
 			}
-			cached := Session{Harness: "omp", ID: "agent-id", Source: agent, Cwd: "/work/a repo", ResumeArgv: []string{"omp", "--resume", agent}}
-			dst := indexPath("omp", "", cached.ID)
-			must(t, writeAtomic(dst, Render(cached), time.Now()))
-			if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
-				t.Errorf("cached registered artifact promoted: %+v, %v", e, err)
+			if id, err := (&ompPlacement{}).liveIdentity(realAgent); err == nil {
+				t.Errorf("registered artifact identifies a live host through target: %q", id)
 			}
-			ompCheckSources(t)
+			ompCheckSources(t, good)
+			ompCheckResume(t, good, "omp", "--resume", good)
 		})
 	}
 }
@@ -500,26 +512,111 @@ func TestOmpFlatRootOrphanArtifacts(t *testing.T) {
 			ompTestEnv(t)
 			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
 			root := t.TempDir()
-			t.Setenv("PI_CODING_AGENT_SESSION_DIR", root)
-			parent := ompWrite(t, filepath.Join(root, "session.jsonl"), ompTestHeader)
-			agent := ompWrite(t, filepath.Join(root, "session", "Agent.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "agent-id"))
-			good := ompWrite(t, filepath.Join(root, "good.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "good-id"))
+			alias := filepath.Join(t.TempDir(), "alias")
+			must(t, os.Symlink(root, alias))
+			t.Setenv("PI_CODING_AGENT_SESSION_DIR", alias)
+			parent := ompWrite(t, filepath.Join(alias, "session.jsonl"), ompTestHeader)
+			agent := ompWrite(t, filepath.Join(alias, "session", "Agent.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "agent-id"))
+			good := ompWrite(t, filepath.Join(alias, "good.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "good-id"))
 			if broken == "deleted" {
 				must(t, os.Remove(parent))
 			} else {
 				must(t, os.WriteFile(parent, []byte(`{"type":"session"`), 0o600))
 			}
-			if s, err := ReadOmp(agent); !errors.Is(err, errNotIndexed) {
-				t.Errorf("flat-root orphan promoted: %+v, %v", s, err)
+			realAgent := filepath.Join(root, "session", "Agent.jsonl")
+			for _, source := range []string{agent, realAgent} {
+				if s, err := ReadOmp(source); !errors.Is(err, errNotIndexed) {
+					t.Errorf("flat-root orphan %s promoted: %+v, %v", source, s, err)
+				}
+				cached := Session{Harness: "omp", ID: "agent-id", Source: source, Cwd: "/work/a repo"}
+				dst := indexPath("omp", "", cached.ID)
+				must(t, writeAtomic(dst, Render(cached), time.Now()))
+				if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
+					t.Errorf("cached flat-root orphan %s promoted: %+v, %v", source, e, err)
+				}
 			}
-			cached := Session{Harness: "omp", ID: "agent-id", Source: agent, Cwd: "/work/a repo"}
-			dst := indexPath("omp", "", cached.ID)
-			must(t, writeAtomic(dst, Render(cached), time.Now()))
-			if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
-				t.Errorf("cached flat-root orphan promoted: %+v, %v", e, err)
+			if id, err := (&ompPlacement{}).liveIdentity(realAgent); err == nil {
+				t.Errorf("flat-root artifact identifies a live host through target: %q", id)
 			}
 			ompCheckSources(t, good)
 			ompCheckResume(t, good, "omp", "--resume", good)
+		})
+	}
+}
+
+func TestOmpSymlinkArtifactCanonicalParent(t *testing.T) {
+	for _, mode := range []string{"flat root", "registered custom root"} {
+		t.Run(mode, func(t *testing.T) {
+			ompTestEnv(t)
+			root := t.TempDir()
+			alias := filepath.Join(t.TempDir(), "alias")
+			must(t, os.Symlink(root, alias))
+			parent := ompWrite(t, filepath.Join(alias, "arbitrary.jsonl"), ompTestHeader)
+			child := ompWrite(t, filepath.Join(alias, "arbitrary", "Agent.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "child-header-id"))
+			if mode == "flat root" {
+				t.Setenv("PI_CODING_AGENT_SESSION_DIR", alias)
+			} else {
+				ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).State, "custom-session-files", "custom"), parent)
+			}
+			placement := &ompPlacement{}
+			for _, source := range []string{child, filepath.Join(root, "arbitrary", "Agent.jsonl")} {
+				s, err := readOmp(source, placement)
+				must(t, err)
+				check(t, "canonical parent", s.Parent, "real-id")
+				check(t, "artifact basename", s.ID, "Agent")
+				if len(s.ResumeArgv) != 0 {
+					t.Errorf("child %s has resume argv: %v", source, s.ResumeArgv)
+				}
+				if id, err := placement.liveIdentity(source); err == nil {
+					t.Errorf("artifact %s identifies a live host: %q", source, id)
+				}
+			}
+			ompCheckSources(t, parent, child)
+			ompCheckResume(t, parent, "omp", "--resume", parent)
+			id, err := placement.liveIdentity(filepath.Join(root, "arbitrary.jsonl"))
+			must(t, err)
+			check(t, "main live identity", id, "real-id")
+		})
+	}
+}
+
+func TestOmpSymlinkMissingMainClassification(t *testing.T) {
+	for _, mode := range []string{"flat root", "registered custom root"} {
+		t.Run(mode, func(t *testing.T) {
+			ompTestEnv(t)
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			root := t.TempDir()
+			alias := filepath.Join(t.TempDir(), "alias")
+			must(t, os.Symlink(root, alias))
+			source := filepath.Join(alias, "main.jsonl")
+			if mode == "flat root" {
+				t.Setenv("PI_CODING_AGENT_SESSION_DIR", alias)
+			} else {
+				// Both the pointed transcript and its containing directory vanish.
+				source = filepath.Join(alias, "removed", "main.jsonl")
+				ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).State, "custom-session-files", "custom"), source)
+			}
+			ompWrite(t, source, ompTestHeader)
+			cached, err := ReadOmp(source)
+			must(t, err)
+			dst := indexPath("omp", "", cached.ID)
+			must(t, writeAtomic(dst, Render(cached), time.Now()))
+			must(t, os.Remove(source))
+			if mode == "registered custom root" {
+				must(t, os.Remove(filepath.Dir(source)))
+			}
+			must(t, MarkMissing(dst))
+			parent, artifact, err := (&ompPlacement{}).artifactParent(source)
+			must(t, err)
+			if artifact || parent != "" {
+				t.Errorf("missing main misclassified: parent=%q, artifact=%v", parent, artifact)
+			}
+			e, err := ReadEntry(dst)
+			must(t, err)
+			if !e.SourceMissing || len(e.ResumeArgv) != 0 {
+				t.Errorf("missing main not retained as searchable: %+v", e)
+			}
+			ompCheckSources(t)
 		})
 	}
 }

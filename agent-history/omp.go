@@ -210,7 +210,7 @@ func (p *ompPlacement) load() error {
 		p.active = ompProfileContext()
 		p.locations, p.err = ompLocations(p.active)
 		if root := os.Getenv("PI_CODING_AGENT_SESSION_DIR"); root != "" && p.err == nil {
-			p.flatRoot, p.err = filepath.Abs(root)
+			p.flatRoot, p.err = ompCanonicalPath(root)
 		}
 		p.pointers = make([]ompPointerSet, len(p.locations))
 	}
@@ -221,16 +221,23 @@ func (p *ompPlacement) profilePointers(i int) (map[string]struct{}, error) {
 	state := &p.pointers[i]
 	if !state.loaded {
 		state.loaded = true
-		state.err = ompPointers(p.locations[i], func(path string) {
+		var rootErrs []error
+		pointerErr := ompPointers(p.locations[i], func(path string) {
 			if state.paths == nil {
 				state.paths = make(map[string]struct{})
 			}
 			state.paths[path] = struct{}{}
+			root, err := ompCanonicalPath(strings.TrimSuffix(path, ".jsonl"))
+			if err != nil {
+				rootErrs = append(rootErrs, err)
+				return
+			}
 			if p.artifactRoots == nil {
 				p.artifactRoots = make(map[string]struct{})
 			}
-			p.artifactRoots[strings.TrimSuffix(path, ".jsonl")] = struct{}{}
+			p.artifactRoots[root] = struct{}{}
 		})
+		state.err = errors.Join(append(rootErrs, pointerErr)...)
 	}
 	return state.paths, state.err
 }
@@ -244,15 +251,41 @@ func (p *ompPlacement) artifactParent(path string) (string, bool, error) {
 			return "", false, err
 		}
 	}
-	parent, artifact := ompArtifactParent(path, p.artifactRoots)
+	absolute, err := ompCanonicalPath(path)
+	if err != nil {
+		return "", false, err
+	}
+	parent, artifact := ompArtifactParent(absolute, p.artifactRoots)
 	if !artifact && p.flatRoot != "" {
-		absolute, err := filepath.Abs(path)
-		if err != nil {
-			return "", false, err
-		}
 		artifact = ompWithin(p.flatRoot, absolute) && filepath.Dir(absolute) != p.flatRoot
 	}
 	return parent, artifact, nil
+}
+
+// Resolve the existing prefix so deleted transcripts and their missing parent
+// directories still share the namespace of live FD targets. Pointer paths used
+// for discovery and resume are kept separately, in their original spelling.
+func ompCanonicalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	var missing string
+	for {
+		resolved, err := filepath.EvalSymlinks(absolute)
+		if err == nil {
+			return filepath.Join(resolved, missing), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(absolute)
+		if parent == absolute {
+			return "", err
+		}
+		missing = filepath.Join(filepath.Base(absolute), missing)
+		absolute = parent
+	}
 }
 
 // Reuse cached argv only after checking this operation's current placement.
