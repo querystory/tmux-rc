@@ -445,7 +445,8 @@ def get_version():
     """Hash of the web assets, so the client can reload itself when they change
     (see web/m/app.js). Cheap to recompute per call — the web dir is tiny. Also reports
     server feature flags the client gates UI on (live_enabled → shows the mic button;
-    live_models → the labels the model picker offers, shown only when there are ≥2).
+    live_models → the labels the model picker offers, shown only when there are ≥2;
+    docs → whether /docs is mounted, so the Docs link never points at a 404).
     live_enabled is false when the table is empty even with the flag on. An all-keyless
     table still shows the button: its picker is every row greyed with the key it needs,
     which is the one place the user can learn why nothing runs."""
@@ -464,7 +465,7 @@ def get_version():
     keyless = [{"label": m.label, "hint": m.unavailable, "text": m.text, "unavailable": True}
                for m in live_providers.models() if not m.available()]
     return {"version": h.hexdigest(), "live_enabled": live.enabled() and bool(offered or keyless),
-            "live_models": offered + keyless}
+            "live_models": offered + keyless, "docs": DOCS_MOUNTED}
 
 
 # How long a /api/state long-poll holds before returning unchanged (client re-holds).
@@ -1177,10 +1178,14 @@ def _to_png(data: bytes) -> bytes:
 # mounting the tree here serves them verbatim; StaticFiles strips the /docs prefix on
 # lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
 # server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
+# /api/version reports DOCS_MOUNTED so the client hides its Docs link instead of linking
+# to a 404 when the site was never built. index.html, not just the dir: an empty or
+# half-written build dir would mount yet still 404 at /docs/.
 _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
     _REPO_ROOT / "docs-site" / "serve"
 )
-if Path(_docs_dir).is_dir():
+DOCS_MOUNTED = (Path(_docs_dir) / "index.html").is_file()
+if DOCS_MOUNTED:
     # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
     # only answers /docs/… and the later "/" catch-all doesn't serve it either. (Note:
     # Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
