@@ -91,7 +91,11 @@ mkdirSync(out, { recursive: true });
 let browser;
 try {
   await waitUp(`${base}/api/version`, server);
-  browser = await chromium.launch();
+  // Font rendering settled by flags, not by whatever fontconfig answers: on a fresh CI runner
+  // one shot came out with three text baselines (and an icon aligned to one) a pixel lower
+  // than every other render of the same page. Unhinted metrics and grayscale antialiasing
+  // leave nothing for that answer to change.
+  browser = await chromium.launch({ args: ["--disable-lcd-text", "--font-render-hinting=none"] });
   for (const [name, viewport, colorScheme, hash, step] of SHOTS) {
     const context = await browser.newContext({ viewport, colorScheme, deviceScaleFactor: 2,
       reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC", serviceWorkers: "block",
