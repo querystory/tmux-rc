@@ -24,7 +24,7 @@ questions the product actually needs answered:
    **future billing signal** — "maybe we bill per live-hour" — so the number has to be
    defensible as a sum, not a vibe.
 3. **How is live mode used at all?** How often, on which panes, under which tool
-   (claude / codex / gemini / opencode / shell). Ordinary product-development debugging.
+   (claude / codex / gemini / opencode / omp / shell). Ordinary product-development debugging.
 
 And one forward-looking want that shapes the design even though we won't fully build it:
 

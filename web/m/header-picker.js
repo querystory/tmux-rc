@@ -40,12 +40,19 @@ export function headerPicker(select) {
     select.dispatchEvent(new Event('change', { bubbles: true }));
     refresh();
   });
+  dismissable(details);
+  select.addEventListener('change', refresh);
+  refresh();
+  return refresh;
+}
+
+// Escape, a click outside, or a resize closes a <details> menu — shared by the pickers
+// and the pane's overflow menu so there is one menu behavior, not two.
+export function dismissable(details) {
+  const summary = details.querySelector('summary');
   details.addEventListener('keydown', event => {
     if (event.key === 'Escape') { details.open = false; summary.focus(); event.preventDefault(); }
   });
   document.addEventListener('click', event => { if (!details.contains(event.target)) details.open = false; });
   window.addEventListener('resize', () => { details.open = false; });
-  select.addEventListener('change', refresh);
-  refresh();
-  return refresh;
 }

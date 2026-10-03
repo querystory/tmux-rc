@@ -14,16 +14,19 @@ minimal dict (idle vs running) so the pipe never breaks.
 
 from __future__ import annotations
 
+import os
 import re
 from itertools import islice
 from pathlib import Path
 
 from .tmux import (
+    OMP_TITLE_RE,
     PLACEHOLDER_CLOSE,
     PLACEHOLDER_OPEN,
     PROMPT_GLYPHS,
     VISIBLE_SCREEN,
     Pane,
+    proc_read,
     strip_dim,
 )
 
@@ -79,7 +82,63 @@ _PROCESS_TOOLS = {
     "codex": "codex",
     "gemini": "gemini",
     "opencode": "opencode",
+    "omp": "omp",
 }
+# omp installed through bun runs as `bun`, so its executable proves nothing; its title
+# (OMP_TITLE_RE) does. Launched behind a wrapper (`omp …; exec bash`, a script, `uv run`)
+# the foreground is a shell, and the title alone can't be trusted there because it
+# outlives omp, but the title plus a live omp process under the pane can.
+_OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological tree
+
+
+def _runs_omp(pid: str) -> bool:
+    """Is omp among `pid` and its descendants: argv[0] `omp`, or bun/node running omp?"""
+    todo = [pid]
+    for _ in range(_OMP_PROC_LIMIT):
+        if not todo:
+            break
+        p = todo.pop()
+        argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
+        if argv[0] == "omp" or (argv[0] in ("bun", "node") and argv[1:] == ["omp"]):
+            return True
+        todo += proc_read(p, f"task/{p}/children").split()
+    return False
+
+
+def _host_tool(pane: Pane) -> str | None:
+    """The agent the pane's process or title proves it is running, else None."""
+    if tool := _PROCESS_TOOLS.get(pane.current_command):
+        return tool
+    if OMP_TITLE_RE.match(pane.title) and (
+        pane.current_command in ("bun", "node") or (pane.pid and _runs_omp(pane.pid))
+    ):
+        return "omp"
+    return None
+
+
+# omp's status row is fixed-format chrome (status-line/metrics.ts), read here rather than
+# left to the model, which drops the units: "> S0.09 (+0.18) ▶──4%──" is subscription
+# spend, subagent spend, and context used; a "$" in place of "S" is metered spend.
+_OMP_COST_RE = re.compile(r" > ([S$])([\d.]+)(?: \(\+([\d.]+)\))?")
+_OMP_CTX_RE = re.compile(r"▶─*(\d+)%[─╎┃]")
+_OMP_ELAPSED_RE = re.compile(r"^ ?\S ([\dhms ]+?) > ")  # "⠦ 14s > …" while working
+_OMP_AGENTS_RE = re.compile(r"◀ 👥 (\d+)")  # its count of subagents still running
+
+
+def _read_omp_row(result: dict, visible: str) -> None:
+    """cost, context, working time and running subagents off omp's status row (the one
+    with its context bar)."""
+    *_, row = ["", *(line for line in visible.splitlines() if _OMP_CTX_RE.search(line))]
+    if m := _OMP_COST_RE.search(row):
+        unit, spend, sub = m.groups()
+        result["cost"] = f"${spend}" + (f" (+${sub})" if sub else "") + (" (sub)" * (unit == "S"))
+    if m := _OMP_CTX_RE.search(row):
+        result["context_pct"] = int(m[1])
+    if m := _OMP_AGENTS_RE.search(row):
+        result["agents"] = int(m[1])
+    if m := _OMP_ELAPSED_RE.match(row):
+        working = result.get("working")
+        result["working"] = {**(working if isinstance(working, dict) else {}), "elapsed": m[1]}
 
 
 def _checklist_text(text: str) -> str:
@@ -127,7 +186,7 @@ def _load_prompt(name: str) -> str:
 def compose_prompt(read_prompt) -> str:
     """Compose a template using fragments from the same source/revision."""
     prompt = read_prompt("parser_prompt.txt")
-    for tool in ("codex", "gemini", "claude", "claude_detail"):
+    for tool in ("codex", "gemini", "omp", "claude", "claude_detail"):
         marker = "{{" + tool + "}}\n"
         if marker in prompt:
             prompt = prompt.replace(marker, read_prompt(f"parser_{tool}.txt"))
@@ -586,7 +645,7 @@ def classify(
     # A direct agent executable is ground truth. The LLM still parses activity and the
     # selected model/provider, but may not relabel the host application from those model
     # names (OpenCode showing "Claude Opus" is still OpenCode).
-    if process_tool := _PROCESS_TOOLS.get(pane.current_command):
+    if process_tool := _host_tool(pane):
         result["tool"] = process_tool
     elif pane.current_command in ("bash", "zsh", "sh", "fish") and _obvious_idle(visible):
         # A returned shell prompt is stronger evidence than an agent in history.
@@ -623,6 +682,31 @@ def classify(
     # Apply authoritative live chrome AFTER a bounded retry can replace activity.
     if result.get("tool") == "opencode" and _opencode_running(text):
         result["activity"] = "running"
+    # omp's title is its run state (title-generator.ts), and the title is itself a read,
+    # so it stands even after a failed parse. "π >": the turn is over, so job rows still on
+    # screen are finished history, and so are its workers (any omp still tracks stay
+    # counted by its row's "👥 N"). A parsed question or rewind still decides the activity:
+    # a turn that ends asking "Should I merge?" is idle to omp but a user-wait to us.
+    # "π !": its ask or approval prompt, a user wait even if the parse missed the question.
+    # A failed parse surfaces that wait, unless the last card was already one: that card
+    # has the answer controls, so it is kept and the screen retried. Any
+    # other separator is its working spinner: running, including while it waits on its own
+    # jobs (a parsed question still makes a user wait below); only compacting is finer.
+    omp = result.get("tool") == "omp" and OMP_TITLE_RE.match(pane.title)
+    state = omp and omp["state"]
+    if state == ">":
+        result.pop("subagents", None)
+        if not (result.get("question") or result.get("rewind")):
+            result["activity"] = "idle"
+            result.pop("waiting_on", None)
+            result.pop("parse_ok", None)
+    elif state == "!":
+        result.update(activity="waiting", waiting_on="user")
+        if prev_activity != "waiting":
+            result.pop("parse_ok", None)
+    elif state and result.get("activity") != "compacting":
+        result["activity"] = "running"
+        result.pop("parse_ok", None)
     *_, turn = [None, *_CLAUDE_TURN_RE.finditer(visible)]
     # Either row is itself a read of the screen, so it stands even after a failed parse.
     if result.get("tool") == "claude" and turn:
@@ -680,6 +764,8 @@ def classify(
         if isinstance(subs, list)
         else 0
     )
+    if result.get("tool") == "omp":  # its own "👥 N" outranks the model's roster read
+        _read_omp_row(result, visible)
     # Copyables carry a whole payload each (a commit message, a code block), and they
     # ride EVERY /api/state poll for as long as the screen shows them. Cap count and
     # size here — a wall-of-text screen (or a hostile pane) must not inflate the deck

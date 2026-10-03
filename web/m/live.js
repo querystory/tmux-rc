@@ -1,5 +1,6 @@
 import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
+import { appendChatMarkdown } from "/chat-markdown.js";
 import { chatStarters } from "/chat-starters.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
 // what the server expects (see docs/design/live-mode.md).
@@ -123,9 +124,10 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
       row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
-      row.append(heading, document.createElement("span")); log.append(row);
+      row.append(heading, document.createElement("div")); log.append(row);
     }
-    row.lastChild.textContent += message || "";
+    if (role === "model") appendChatMarkdown(row.lastChild, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
+    else row.lastChild.textContent += message || "";
     row.lastChild.before(...images.map(chatThumb));
     if (!dialog.open && role !== "user") { unread = true; badge(); } // not the user's own echo
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait

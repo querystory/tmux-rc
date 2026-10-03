@@ -18,8 +18,8 @@ import time
 from functools import partial
 
 from . import tmux
-from .classify import _OPENCODE_RUNNING_RE, bootstrap, classify
-from .history import pane_key
+from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify
+from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
 from .repository import github_repository
@@ -45,7 +45,7 @@ SNAPSHOT_HISTORY = 200
 CHECKPOINT_EVENTS = 100
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 5
+CARD_VERSION = 6
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -104,8 +104,12 @@ RECENT_EVENT_TTL = 15 * 60
 # so "is this the same screen?" is judged on real content; otherwise the LLM re-fires
 # every tick and the card flickers. (These values still reach the UI via the LLM's
 # structured fields — we only ignore them for the change check.)
+_OMP_BAR = _OMP_CTX_RE.pattern  # omp's context bar: the mark of its status row
+_OMP_ROW = rf".*{_OMP_BAR}"  # lookahead body: the rest of this line holds the bar
 _VOLATILE_RE = re.compile(
-    r"\d+h\d+m|\d+m\s*\d+s|\d+s\b"  # durations
+    # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
+    # stays content rather than leaving a "1." that half-tracks it
+    r"\d+h\d+m|\d+m\s*\d+s|(?<=· )\d+\.\d+s\b|(?<!\.)\d+s\b"
     r"|↓\s*[\d.]+k?|[\d.]+k tokens"  # token counts
     r"|\$[\d.]+"  # cost
     r"|\d+%\s*ctx"  # context percent
@@ -113,6 +117,17 @@ _VOLATILE_RE = re.compile(
     # Codex's own status bar wording for the same drifting metrics Claude Code's
     # patterns above already cover: "Context 36% left", "4.78M used", "weekly 52% left".
     r"|Context\s+\d+%\s+\w+|[\d.]+[KMG]\s+used|weekly\s+\d+%\s+left"
+    # omp's status row and subagent meters: "S0.06 (+0.09)" subscription (or "$" metered)
+    # and subagent spend, the "▶──3%──╎──272K─" context bar (its dashes shift with spend),
+    # per-job "· 3 🛠 · 3 req · 4.2%/272K" tool/request/context counters, and the working
+    # row's spinner cell, whatever its style (braille, pulse ○◔◑, ASCII -\|/), found by
+    # the elapsed time after it; the idle " π >" has none, so it still reads as changed.
+    # Each is matched in its omp-specific shape, and the spend and spinner only on a row
+    # carrying that bar, so "release S1.2", "sent 2 req" or "A 14s > x" elsewhere still
+    # counts as a change.
+    rf"|(?<= > )S[\d.]+(?={_OMP_ROW})|(?<=\d )\(\+\d+\.\d+\)(?={_OMP_ROW})|{_OMP_BAR}[─╎┃\d.KM]*"
+    r"|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
+    rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     r"|[ \t]+$",  # trailing whitespace
@@ -856,7 +871,7 @@ class Watcher:
         return seen is not None and (time.monotonic() - seen) < self.LIVE_PRESENCE_WINDOW
 
     def tool_for(self, pane_id: str) -> str | None:
-        """Last-known agent tool for a pane (claude/codex/gemini/opencode/shell), for callers
+        """Last-known agent tool for a pane (claude/codex/gemini/opencode/omp/shell), for callers
         outside the tick — e.g. live telemetry attribution. None if unseen."""
         t = self._tool.get(pane_id)
         return t[0] if t else None
@@ -1387,7 +1402,7 @@ class Watcher:
         # So: only override a shell/unknown read with a remembered agent if we saw that
         # agent within the last few seconds.
         tool = state.get("tool")
-        if tool in ("claude", "codex", "gemini", "opencode"):
+        if tool in AGENT_TOOLS:
             self._tool[pane.id] = (tool, now)
         elif tool in ("shell", "unknown", None):
             prev = self._tool.get(pane.id)

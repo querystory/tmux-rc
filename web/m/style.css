@@ -85,7 +85,11 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 @media (prefers-reduced-motion: no-preference) {
   .working { animation: logo-clench 1.4s ease-in-out infinite; }
   .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; }
+  .working[data-tool="omp"] { animation: none; } /* omp's sweep is its own SVG (markWorking swaps it in) */
 }
+/* CSS can't pause an <img>'s SMIL, but generated content can cover it with the still logo. */
+@media (prefers-reduced-motion: reduce) { img[src="/omp-working.svg"] { content: url(/omp.svg); } }
+.working[data-tool="omp"] { border-radius: 19%; } /* omp's tile is a rounded square (rx 12 of 64); a circle would crop it */
 @media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
 @keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
 @keyframes logo-spin { to { transform: rotate(1turn); } }
@@ -222,7 +226,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #voice-log::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
 #voice-log::-webkit-scrollbar-button { display: none; }
 .voice-entry { flex: none; align-self: flex-start; max-width: 88%; padding: 10px 14px; border-radius: 16px 16px 16px 4px; background: var(--raised); white-space: pre-wrap; overflow-wrap: anywhere; }
-.voice-entry strong { display: block; color: var(--muted); font-size: 11px; font-weight: 500; margin-bottom: 3px; }
+.voice-entry > strong { display: block; color: var(--muted); font-size: 11px; font-weight: 500; margin-bottom: 3px; }
 .voice-entry.user { align-self: flex-end; background: var(--accent-bg); border-radius: 16px 16px 4px 16px; }
 .voice-entry.user strong { color: var(--accent); }
 .voice-entry.error, .voice-entry.typed { align-self: stretch; max-width: none; background: transparent; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
@@ -388,7 +392,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-reset-zoom { font-size: 12px; color: var(--accent); padding: 4px 8px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
-#layout-control { display: flex; align-items: center; gap: 8px; flex: none; color: var(--muted); font-size: 12px; }
+#layout-control { display: flex; align-items: center; flex: none; color: var(--muted); font-size: 13px; }
 #layout-control > span { display: none; }
 #review-layout { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; font-size: 14px; min-height: 44px; max-width: 150px; }
 #session-chips { display: flex; gap: 6px; padding: 7px 12px; flex-wrap: wrap; background: var(--bg); color: var(--muted); border-top: 1px solid var(--line); }
@@ -421,10 +425,18 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .header-picker summary::-webkit-details-marker { display: none; }
 .header-picker summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); flex: none; margin-top: -3px; }
 .header-picker summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-#review-layout-picker summary { background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
-.header-picker-menu label { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
+/* The pane's overflow menu: an icon trigger (no picker chevron) holding the one destructive action. */
+#pane-menu { flex: none; }
+#pane-menu summary { padding: 0; justify-content: center; }
+#pane-menu summary::after { display: none; }
+/* Toolbar spacing: the Layout picker is borderless like Sort, and the icon buttons' 44px
+   boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
+   the visible glyphs come out even and the X's ink lines up with the right gutter. */
+#close-pane { margin: 0 -12px; }
+#kill-pane { width: 100%; color: var(--red); white-space: nowrap; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

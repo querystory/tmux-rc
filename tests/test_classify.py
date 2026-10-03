@@ -20,8 +20,8 @@ def test_opaque_session_identifiers_are_not_titles():
         assert result["session"] == name
 
 
-def _pane(cmd="bash"):
-    return Pane("work", "0", "bash", "0", "%0", cmd, "t", "/home/x/proj")
+def _pane(cmd="bash", title="t"):
+    return Pane("work", "0", "bash", "0", "%0", cmd, title, "/home/x/proj")
 
 
 def _llm(payload):
@@ -70,7 +70,7 @@ def test_bootstrap_prompt_explains_opencode_model_identity():
         return {"summary": "OpenCode session"}
 
     bootstrap(_pane(cmd="opencode"), "Claude Opus 5.5\nOpenCode 1.18.32", llm)
-    assert "OpenCode can run Claude, GPT, or Gemini models" in seen["prompt"]
+    assert "OpenCode and omp can run Claude, GPT, or Gemini models" in seen["prompt"]
 
 
 def test_payload_leads_with_foreground_process():
@@ -145,6 +145,96 @@ def test_opencode_interrupt_spinner_forces_running():
     )
     assert r["tool"] == "opencode"
     assert r["activity"] == "running"
+
+
+@pytest.mark.parametrize(("cmd", "title", "tool"), [
+    ("omp", "t", "omp"),  # the native binary names itself
+    ("bun", "π ⠋ Fix the parser", "omp"),  # a bun install is proven by omp's title
+    ("bun", "π: titles off", "omp"),
+    ("bun", "π", "omp"),  # titles off and no session label yet
+    ("bun", "π calculator", "opencode"),  # a word after π is not a state separator
+    ("bun", "πr² calculator", "opencode"),  # no omp separator: the model's read stands
+    ("bash", "π > stale title", "opencode"),  # omp has exited; its title lingers
+])
+def test_omp_identity_comes_from_process_or_title(cmd, title, tool):
+    r = classify(_pane(cmd, title), "…", _llm({"tool": "opencode", "activity": "running"}))
+    assert r["tool"] == tool
+
+
+@pytest.mark.parametrize(("spend", "cost"), [
+    ("S0.09 (+0.18)", "$0.09 (+$0.18) (sub)"),  # subscription spend plus subagent spend
+    ("$0.05", "$0.05"),  # metered
+    ("(sub)", "$9"),  # subscription with no spend yet: the row says nothing, model stands
+])
+@pytest.mark.parametrize("bar", ["▶────4%────╎──272K─", "▶4%────╎──272K─"])  # low %: no dashes
+def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
+    row = f" ⠋ 1m 3s > ◒ GPT-5.5 > 📁 ~/src > {spend} {bar}◀ 👥 2"
+    parsed = {"tool": "omp", "cost": "$9", "working": {"verb": "Delegating"}}
+    r = classify(_pane("bun", "π ⠋ x"), f"↻ Delegating\n{row}", _llm(parsed))
+    assert (r["cost"], r["context_pct"], r["agents"]) == (cost, 4, 2)
+    assert r["working"] == {"verb": "Delegating", "elapsed": "1m 3s"}
+
+
+@pytest.mark.parametrize(("child", "tool"), [
+    ("bun\0/home/x/.bun/bin/omp\0--model\0x\0", "omp"),  # `omp …; exec bash` wrapper
+    ("/usr/local/bin/omp\0", "omp"),
+    ("vim\0notes.txt\0", "opencode"),  # omp has exited; its title lingers
+])
+def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
+    proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
+            ("11", "cmdline"): child}
+    monkeypatch.setattr(classify_mod, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
+    r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
+    assert r["tool"] == tool
+
+
+@pytest.mark.parametrize("parsed", [
+    {"tool": "omp", "activity": "waiting", "waiting_on": "external"},
+    {"tool": "omp", "activity": "idle", "subagents": [{"label": "a", "state": "running"}]},
+    None,  # failed parse: the title alone is the read
+])
+def test_omp_idle_title_retires_stale_job_rows(parsed):
+    r = classify(
+        _pane("bun", "π > omp-play"),
+        "ⓘ waiting on 1 of 2 jobs 1 done\n π > ◒ GPT-5.5 > 🌳 tmux-rc",
+        _llm(parsed),
+    )
+    assert (r["activity"], r.get("waiting_on"), r.get("parse_ok"), r["agents"]) == (
+        "idle", None, None, 0)
+
+
+@pytest.mark.parametrize("parsed", [
+    {"tool": "omp", "activity": "idle"},
+    {"tool": "omp", "activity": "waiting", "waiting_on": "external"},  # its own jobs
+    None,  # failed parse
+])
+def test_omp_working_title_is_running(parsed):
+    r = classify(_pane("bun", "π ⠋ Fix the parser"), "…", _llm(parsed))
+    assert (r["activity"], r.get("parse_ok")) == ("running", None)
+
+
+@pytest.mark.parametrize(("parsed", "prev", "accepted"), [
+    ({"tool": "omp"}, None, True),  # the parse missed the question
+    (None, "running", True),  # failed parse: surface the new wait
+    (None, "waiting", False),  # failed parse: keep the card that has the answer controls
+])
+def test_omp_attention_title_is_a_user_wait(parsed, prev, accepted):
+    r = classify(_pane("bun", "π ! Pick a color"), "…", _llm(parsed), prev_activity=prev)
+    assert (r["activity"], r["waiting_on"]) == ("waiting", "user")
+    assert r.get("parse_ok", True) is accepted
+
+
+def test_omp_idle_title_keeps_a_closing_question():
+    question = {"prompt": "Should I merge this?", "answer_style": "text"}
+    r = classify(
+        _pane("bun", "π > omp-play"),
+        "Done. Should I merge this?\n π > ◒ GPT-5.5 > 🌳 tmux-rc",
+        _llm({"tool": "omp", "activity": "idle", "question": question,
+              "subagents": [{"label": "a", "state": "running"}]}),
+    )
+    assert (r["activity"], r["waiting_on"], r["question"]["prompt"], r["agents"]) == (
+        "waiting", "user", "Should I merge this?", 0)
 
 
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():

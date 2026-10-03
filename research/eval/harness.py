@@ -53,7 +53,7 @@ _STRUCT_SCALAR = ("tool", "activity", "waiting_on")
 # match — but it is read off agent chrome that most screens don't show, so it is scored
 # only when a sample states an expectation (including an explicit null for "must omit").
 # Silently ignoring it would let a naming regression pass with the expectation in place.
-_STRUCT_OPTIONAL = ("session", "agents", "model")
+_STRUCT_OPTIONAL = ("session", "agents", "model", "cost")
 
 
 @dataclass
@@ -64,6 +64,7 @@ class Sample:
     capture: str
     expected: dict
     repository: str | None = None
+    title: str | None = None  # tmux pane title, for agents identified by it (omp)
 
     @classmethod
     def load(cls, path: Path) -> Sample:
@@ -73,6 +74,7 @@ class Sample:
             description=d.get("description", ""),
             current_command=d.get("current_command", "bash"),
             repository=d.get("repository"),
+            title=d.get("title"),
             capture=d["capture"],
             expected=d["expected"],
         )
@@ -101,7 +103,7 @@ def run_classifier(sample: Sample, llm_fn) -> dict:
         pane_index="0",
         id="%0",
         current_command=sample.current_command,
-        title=sample.name,
+        title=sample.title or sample.name,
     )
     return classify(
         pane, sample.capture, llm_fn=llm_fn, repository=sample.repository, replies_fn=llm_fn

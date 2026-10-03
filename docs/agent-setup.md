@@ -89,7 +89,7 @@ column of identical headings.
 
 "Looks deliberate" is judged on the name itself, not on who set it. tmux names a window
 after the command that launched it, so the rejected set names the shells and runtimes
-*and the agent CLIs it knows about* (`claude`, `codex`, `gemini`, `opencode`, `aider`): they
+*and the agent CLIs it knows about* (`claude`, `codex`, `gemini`, `opencode`, `omp`, `aider`): they
 would otherwise be rows headed only by the command name, and a qualified coordinate tells
 them apart. It is a literal list, so a CLI that is not on it is taken at face value and
 its auto-name collides as before — one more reason to rename the window yourself. The
