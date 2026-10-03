@@ -225,3 +225,14 @@ def test_voice_sheet_takes_initial_focus_not_its_first_button():
     assert 'id="voice-dialog" aria-labelledby="voice-title" tabindex="-1"' in html
     assert "dialog.showModal(); dialog.focus();" in (web / "live.js").read_text()
     assert "#voice-dialog:focus { outline: none; }" in (web / "style.css").read_text()
+
+
+def test_opening_a_pane_focuses_its_title_not_the_back_button():
+    """Focusing Back on navigation painted its :focus-visible ring on open (iOS Safari); the
+    pane's title takes focus instead, so focus still lands in the pane, with no ring there."""
+    web = Path(__file__).resolve().parent.parent / "web" / "m"
+    assert '<h1 id="pane-title" tabindex="-1">' in (web / "index.html").read_text()
+    app = (web / "app.js").read_text()
+    assert 'if (changed && active) $("pane-title").focus({ preventScroll: true });' in app
+    assert '$("back").focus(' not in app
+    assert "#pane-title:focus { outline: none; }" in (web / "style.css").read_text()

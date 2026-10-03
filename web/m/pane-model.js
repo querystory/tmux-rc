@@ -12,10 +12,18 @@ export const activityLabel = (pane) => needsYou(pane) ? "Needs you" : ({ running
 // busy, it just isn't our turn.
 export const activityClass = (pane) => pane.activity === "waiting" && !needsYou(pane) ? "running" : actOf(pane);
 export const isRunning = (pane) => ["running", "compacting"].includes(activityClass(pane));
-// Animate a pane's logo while it works; CSS keys the motion off .working and data-tool.
-export function markWorking(img, pane) {
-  img.classList.toggle("working", isRunning(pane));
+// A tool whose working motion is its own animated image rather than a CSS transform. It is
+// swapped in as the src because SMIL in a CSS content:url() image does not reliably animate;
+// reduced motion is CSS's job (style.css shows the still logo over it, live as the setting flips).
+const WORKING_LOGOS = { omp: "/omp-working.svg" };
+const has = (map, key) => Object.prototype.hasOwnProperty.call(map, key);
+// Set a pane's logo and animate it while it works; CSS keys the motion off .working and data-tool.
+export function markWorking(img, pane, logos) {
+  const working = isRunning(pane);
+  img.classList.toggle("working", working);
   img.dataset.tool = pane.tool || "";
+  const src = working && has(WORKING_LOGOS, pane.tool) ? WORKING_LOGOS[pane.tool] : has(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
+  if (img.getAttribute("src") !== src) img.src = src;
 }
 export function isRecent(pane, nowMs = Date.now()) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);

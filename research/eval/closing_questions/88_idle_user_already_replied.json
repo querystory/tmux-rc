@@ -1,0 +1,13 @@
+{
+  "description": "Closing-question corpus (idle): idle_user_already_replied",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n● Tests pass on the branch and the diff is clean.\n\n✻ Cooked for 8s · done 7:56 PM\n\n❯ ready?\n\n● The branch is rebased and green.\n\n  Should I push feat/work to origin?\n\n✻ Baked for 16s · done 10:01 PM\n\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fleet settings ─\n❯ yes, push it\n──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  ~/src/acme/tool on feat/work | Opus 5.5 | dev@example.com | telemetry: •stats •prompts •tools\n  session: +41/-9 lines · 21% ctx · 3h12m · $4.20   |  history: 57 prompts · 131 tools · 4.6MB · 6 imgs | limit: 38%/81%/6% 5h/7d/Fable (resets 58m/22h)\n  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle"
+  },
+  "closing_replies": {
+    "kind": "idle",
+    "steps": []
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic reduction, not a raw capture: omp working outside a git repo, built from a user screenshot. A '📁 <path>' segment replaces '🌳 <repo> > ⑂ <branch>' on the status row, and omp's live activity line ('↻ <phrase>') sits above it with the session title right-aligned. Identity and the spinner-means-running rule must not depend on the 🌳 segment; the right-aligned session title is not a question.",
+  "current_command": "bun",
+  "title": "π ⠋ Configure and Verify OMP OpenTelemetry",
+  "capture": " Wire OTLP export into the daemon and verify spans reach the collector.\n\n Splitting the telemetry work into independent slices for subagents.\n\n Subagents\n  ├─ • TraceExporter ⟦scout⟧ Complete assignment thoroughly: ↵ # Tar…\n  └─ • MetricsCheck ⟦scout⟧ Complete assignment thoroughly: ↵ # Tar…\n\n  ↻ Delegating independent telemetry slices                                                           Configure and Verify OMP OpenTelemetry\n ⠋ 1m > ◒ GPT-6.1-Sol > 📁 ~/src/qs/qsi-automation > S0.21 ▶──7%──────────────────────────────────────╎────────┃────────────272K─◀ 👥 2\n╰─",
+  "expected": {
+    "tool": "omp",
+    "activity": "running",
+    "cost": "$0.21 (sub)",
+    "headline": "Delegating OpenTelemetry export and verification slices to two subagents"
+  }
+}

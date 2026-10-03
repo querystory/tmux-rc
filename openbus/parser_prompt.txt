@@ -59,7 +59,7 @@ above, even where the draft itself isn't dim. Never mention the markers themselv
 any output field.
 
 TOOL — identify WHICH agent (or plain shell) by the WHOLE picture, not just the last
-lines. The choices are "claude", "codex", "gemini", "opencode", "shell", "unknown" — do NOT default
+lines. The choices are "claude", "codex", "gemini", "opencode", "omp", "shell", "unknown" — do NOT default
 to "claude"; different coding agents look similar (box-drawn input, permission prompts)
 but have distinct signatures. Decide by the evidence on screen:
 {{codex}}
@@ -73,9 +73,10 @@ but have distinct signatures. Decide by the evidence on screen:
   the host application into Claude Code, Codex, or Gemini CLI. While a turn is active,
   OpenCode shows an animated block row ending "esc interrupt" below the composer. That
   row is decisive activity=running chrome — do not discard it as spinner decoration.
+{{omp}}
 {{claude}}
 The input's first line reports the pane's foreground PROCESS from tmux — hard evidence,
-not screen content. Agents run as node/claude/codex/gemini/opencode processes; a pane whose
+not screen content. Agents run as node/bun/claude/codex/gemini/opencode/omp processes; a pane whose
 process is a shell, python, uvicorn, etc. is that program's pane, no matter which agent
 or model names appear in its OUTPUT (a server printing gemini-… log lines is a log
 viewer, never the Gemini CLI). Activity is separate from tool identity: when that
@@ -104,7 +105,7 @@ this pane's conversation name.
 {{claude_detail}}
 Return ONLY compact JSON. Include a field only if you can determine it — do not guess:
 {
-  "tool": "claude"|"codex"|"gemini"|"opencode"|"shell"|"unknown",
+  "tool": "claude"|"codex"|"gemini"|"opencode"|"omp"|"shell"|"unknown",
   "activity": "running"|"waiting"|"idle"|"compacting",
   "waiting_on": "user"|"external",   // ONLY when activity is "waiting" — see WAITING ON below
   "headline": "one short human sentence for the top of the card: what is happening / "

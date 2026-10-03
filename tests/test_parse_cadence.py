@@ -14,7 +14,7 @@ class _Pane:
         self.id = pid
         self.current_command = current_command  # real classify() anchors tool on this
         self.label = label
-        self.display_title = label
+        self.title = self.display_title = label
         self.session = "work"
         self.window_index = "0"
         self.window_name = label

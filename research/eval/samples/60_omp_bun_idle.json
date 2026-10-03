@@ -1,0 +1,12 @@
+{
+  "description": "omp finished a turn and is back at its idle status row ('π > GPT-5.5 > …'). The bun foreground process proves nothing; the π pane title identifies omp deterministically, and the earlier subagent job rows are history, not live work. Real capture of omp 18.4.12 installed via bun (so tmux reports current_command=bun), 160 columns, trailing whitespace trimmed.",
+  "current_command": "bun",
+  "title": "π > omp-play",
+  "capture": "╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯\n\nⓘ waiting on 1 of 2 jobs 1 done\n├─ ⟳ ⟦task⟧ CountReadmeLines · 16.4s\n└─ • ⟦task⟧ ListOpenbusFiles · 16.4s\n     { \"summary\": \"Listed the direct children of openbus/ using the read directory t…\n\n • Background job completed [task] CountReadmeLines (16.7s)\n\n README.md: 233 lines. Method: subagent used grep on README.md:190-280 and observed final numbered line 233.\n\n openbus/ direct files. Method: subagent used read on openbus/.\n\n - __init__.py\n - agent_history.py\n - bootstrap_prompt.txt\n - classify.py\n - config.py\n - gpt_live.py\n - history.py\n - live.py\n - live_chat.py\n - live_prompt.txt\n - live_providers.py\n - llm.py\n - models.py\n - parser_claude.txt\n - parser_claude_detail.txt\n - parser_codex.txt\n - parser_gemini.txt\n - parser_prompt.txt\n - pr_titles.py\n - push.py\n - render.py\n - repository.py\n - server.py\n - telemetry.py\n - tmux.py\n - watcher.py\n\n No direct subdirectories reported.\n\n                                                                                                                                      Ask Preferred Color Choice\n π > ◒ GPT-5.5 > 🌳 tmux-rc > ⑂ omp-play > S0.09 (+0.18) ▶────4%──────────────────────────────────────────────────────────────────╎─────────┃──────────────272K─\n╰─\n",
+  "expected": {
+    "tool": "omp",
+    "activity": "idle",
+    "cost": "$0.09 (+$0.18) (sub)",
+    "headline": "Reported the README line count and the openbus file list gathered by two subagents"
+  }
+}

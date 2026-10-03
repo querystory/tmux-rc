@@ -11,7 +11,7 @@ from research.eval.harness import (
 )
 
 _VALID_ACTIVITY = {"running", "waiting", "idle", "compacting"}
-_VALID_TOOL = {"claude", "codex", "gemini", "opencode", "shell", "unknown"}
+_VALID_TOOL = {"claude", "codex", "gemini", "opencode", "omp", "shell", "unknown"}
 
 
 def _sample(**expected) -> Sample:
@@ -29,12 +29,14 @@ def test_structured_exact_match_passes():
     assert ok and diffs == []
 
 
-def test_successful_parse_and_model_expectations_are_opt_in():
+def test_successful_parse_model_and_cost_expectations_are_opt_in():
     assert score_structured({"parse_ok": False}, {})[0]
     assert score_structured({}, {"parse_ok": True})[0]
     assert not score_structured({"parse_ok": False}, {"parse_ok": True})[0]
     assert score_structured({"model": "GPT-6.1-Sol"}, {"model": "GPT-6.1-Sol"})[0]
     assert not score_structured({"model": "old-model"}, {"model": "GPT-6.1-Sol"})[0]
+    assert score_structured({"cost": "$0.09"}, {})[0]
+    assert not score_structured({"cost": "$0.09"}, {"cost": "$0.09 (sub)"})[0]
 
 
 def test_structured_scalar_mismatch_fails():

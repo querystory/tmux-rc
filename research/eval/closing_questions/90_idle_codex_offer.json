@@ -1,0 +1,13 @@
+{
+  "description": "Closing-question corpus (idle): idle_codex_offer",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n• Ran cargo test -p core\n  └ test result: ok. 41 passed; 0 failed\n\n• All 41 tests pass and the change is committed.\n\n  Want me to open a PR for it?\n\n\n› ⟪placeholder⟫Ask Codex to do anything⟪/placeholder⟫\n\n  01a0efa9-f0af-7650-bea0-3cba2ab1a731 · GPT-6.1-Sol medium · Context 28% left · main · ~/src/acme/tool\n",
+  "expected": {
+    "tool": "codex",
+    "activity": "idle"
+  },
+  "closing_replies": {
+    "kind": "idle",
+    "steps": []
+  }
+}
