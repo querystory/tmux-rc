@@ -2,15 +2,17 @@
 // I5's inbox). Needs you is pinned as cards you can answer without opening the pane;
 // everything else is grouped by state or by tmux session. Each group folds and switches
 // between one-line rows and activity cards, and those choices are a per-screen preference,
-// so they live in localStorage, not the URL. Folded, the sidebar is a rail of live agents.
+// so they live in localStorage, not the URL, as does which rows show their sub-agents.
+// Folded, the sidebar is a rail of live agents.
 // Phones never call this: their list is renderList's rows in app.js.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
-const prefs = { by: "state", rail: false, fold: {}, cards: {}, all: null }; // all: the last expand/compact-all, under per-group choices
+// all: the last expand/compact-all, under per-group choices; agents: panes whose sub-agents are listed.
+const prefs = { by: "state", rail: false, fold: {}, cards: {}, all: null, agents: {} };
 try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && saved.cards) Object.assign(prefs, saved); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
@@ -49,7 +51,7 @@ function groups(subset, query) {
 }
 
 export function setupSidebar(ctx) {
-  const { licon, reconcile, text } = ctx;
+  const { licon, reconcile, text, renderItems } = ctx;
   const root = document.getElementById("side-list");
   let shown = [], replyTo = null, last = null;
   // Inline drafts, per pane like the footer's: kept until sent or cancelled.
@@ -95,15 +97,19 @@ export function setupSidebar(ctx) {
   }
 
   // A row is one line; a card adds the latest activity and, for Needs you, the answers.
+  // Either way the pane's button is .sb-open, beside the toggle for its running sub-agents
+  // (collapsed by default: the count says they exist, the hover card and the open pane's
+  // overview list them, and a list of rows that each unfold would no longer scan).
   function row(card) {
-    const node = document.createElement(card ? "div" : "button");
-    const open = card ? document.createElement("button") : node;
+    const node = document.createElement("div"), open = document.createElement("button"), sub = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
+    open.className = "sb-open";
     open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? "<p></p>" : "");
+    sub.className = "sb-sub";
+    sub.onclick = () => { const id = node._p.pane_id; if (prefs.agents[id]) delete prefs.agents[id]; else prefs.agents[id] = true; rerender(); };
+    node.append(open, sub, Object.assign(document.createElement("div"), { className: "sb-agents" }));
     if (card) {
-      open.className = "sb-open";
-      node.innerHTML = `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`;
-      node.prepend(open);
+      node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
       const form = node.querySelector("form");
       // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
       const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
@@ -122,7 +128,7 @@ export function setupSidebar(ctx) {
     node._p = p;
     node.classList.toggle("need", needsYou(p));
     // On the card for its styling and on its button, which is what assistive tech lands on.
-    for (const el of new Set([node, node.querySelector(".sb-open") || node])) {
+    for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
     }
     const img = node.querySelector("img");
@@ -132,6 +138,12 @@ export function setupSidebar(ctx) {
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
     text(node.querySelector(".a"), age(p));
+    const agents = liveSubagents(p), sub = node.querySelector(".sb-sub"), list = node.querySelector(".sb-agents"), open = !!prefs.agents[p.pane_id];
+    sub.hidden = !agents.length; list.hidden = !agents.length || !open; list.id = `sb-agents-${p.pane_id}`;
+    sub.setAttribute("aria-expanded", String(open)); sub.setAttribute("aria-controls", list.id);
+    sub.title = sub.ariaLabel = `${agents.length} sub-agent${agents.length === 1 ? "" : "s"} working: ${open ? "hide" : "show"}`;
+    ctx.html(sub, `${licon("bot", 13)}${agents.length}${licon(open ? "chevronDown" : "chevron", 12)}`);
+    renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
       replies(node, p);
@@ -175,8 +187,10 @@ export function setupSidebar(ctx) {
     }, (b, p) => {
       if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
-      b.ariaLabel = `${p.session} / ${paneName(p)}`;
+      const agents = subagentCount(p);
+      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
       b.classList.toggle("need", needsYou(p));
+      b.dataset.agents = agents || "";
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
     });
@@ -187,12 +201,12 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
-  const paneOf = (el) => (el.closest(".sb-card") || el)._p;
+  const paneOf = (el) => (el.closest(".sb-row, .sb-card") || el)._p;
   function fill(el) {
-    const p = paneOf(el), $c = (sel) => card.querySelector(sel), tasks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => t && typeof t === "object");
+    const p = paneOf(el), $c = (sel) => card.querySelector(sel), tasks = records(p.tasks);
     markWorking($c("img"), p, ctx.logos);
     text($c("b"), paneName(p));
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
@@ -202,6 +216,7 @@ export function setupSidebar(ctx) {
     text($c(".x"), paneHeadline(p) || "No recent activity");
     text($c(".q"), needsYou(p) && p.question?.prompt !== paneHeadline(p) ? p.question?.prompt || "" : "");
     text($c(".m"), paneMeta(p));
+    renderItems($c(".sb-agents"), records(p.subagents), true);
     text($c(".k"), tasks.length ? `Tasks ${tasks.filter((t) => t.done).length}/${tasks.length}` : "");
     reconcile($c(".l"), paneLinks(p).slice(0, 2), (l) => l.href, () => document.createElement("small"), (n, l) => text(n, l.detail ? `${l.text} (${l.detail})` : l.text));
   }
@@ -230,7 +245,7 @@ export function setupSidebar(ctx) {
   const target = (e, sel = ".sb-row, .sb-rail, .sb-card") => e.target.closest?.(sel);
   root.addEventListener("pointerover", (e) => { if (e.pointerType === "mouse" && target(e)) hover(target(e)); });
   root.addEventListener("pointerout", (e) => { const el = target(e); if (el && !el.contains(e.relatedTarget)) unhover(); });
-  root.addEventListener("focusin", (e) => { const el = target(e, ".sb-row, .sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
+  root.addEventListener("focusin", (e) => { const el = target(e, ".sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
   root.addEventListener("focusout", unhover);
   root.addEventListener("scroll", unhover, { passive: true });
   root.addEventListener("click", unhover);
