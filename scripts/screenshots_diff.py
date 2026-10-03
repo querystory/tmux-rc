@@ -24,7 +24,8 @@ DEMO = ("demo_fleet.py", "demo_server.py", "screenshots.mjs")
 
 def shoot(tree: Path, out: Path) -> None:
     subprocess.run(["node", str(tree / "scripts/screenshots.mjs"), str(out), str(tree)],
-                   check=True, cwd=tree, env=os.environ)
+                   check=True, cwd=tree,  # each tree runs its own venv, not the caller's
+                   env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"})
 
 
 def diff(base: Path, head: Path, out: Path) -> list[tuple[str, str]]:
