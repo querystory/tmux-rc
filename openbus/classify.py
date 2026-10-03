@@ -78,9 +78,10 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
 # omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
 # its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
-# "?"), and the queued outgoing-input bands ("Steering · 1", "After yield · 2").
+# "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
+# activity row, whose right-aligned session label can read like an Ask.
 _OMP_RECEIPT_RE = re.compile(r"(?m)^ ?(?:╭─+ )?\? Ask\b.*\n(?:.*\S.*\n)*")
-_OMP_QUEUE_RE = re.compile(r"(?m)^ ?(?:Steering|After yield) · \d+\n(?: {3,}.*\n)*")
+_OMP_CHROME_RE = re.compile(r"(?m)^ ?(?:Steering|After yield) · \d+\n(?: {3,}.*\n)*|^ *⎋ .*\n")
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -312,7 +313,17 @@ def _last_occurrence(prompt: str, visible: str) -> re.Match | None:
     return found
 
 
-def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
+def _omp_asking_view(text: str) -> str:
+    """The viewport minus omp text that never asks. A receipt is matched across the
+    history boundary (its header may have scrolled off) but only the visible part is kept."""
+    head = strip_dim(text.rpartition(VISIBLE_SCREEN)[0])
+    joined = f"{head}\0\n" + _visible(text).removeprefix("\n")
+    joined = _OMP_RECEIPT_RE.sub(lambda m: "\0" if "\0" in m[0] else "", joined)
+    return _OMP_CHROME_RE.sub("", joined.rsplit("\0", 1)[-1])
+
+
+def _supported_question(question, text: str, tool, pane: Pane) -> bool:
+    visible = _visible(text)
     prompt = _question_prompt(question)
     if prompt is None:
         return False
@@ -328,7 +339,7 @@ def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
             visible,
         ):
             return False  # Right-aligned label above the idle footer, not assistant prose.
-        visible = _OMP_QUEUE_RE.sub("", _OMP_RECEIPT_RE.sub("", visible))
+        visible = _omp_asking_view(text)
     found = _last_occurrence(prompt, visible)
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
     # agent asking; a live spinner below the text means the agent is working again; and a
@@ -356,7 +367,7 @@ def _ground_visible_fields(
     identity = text  # Keep the boundary: only explicit rename events may come from history.
     bad_question = (
         bool(result.get("question")) and (VISIBLE_SCREEN in text or host_tool == "omp")
-        and not _supported_question(result["question"], visible, result.get("tool"), pane)
+        and not _supported_question(result["question"], text, result.get("tool"), pane)
     )
     bad_rewind = (
         bool(result.get("rewind")) and VISIBLE_SCREEN in text
@@ -394,7 +405,7 @@ def _ground_visible_fields(
     retry = dict(retry) if isinstance(retry, dict) else None
     if bad_action:
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
-        if bad_question and host_tool == "omp":
+        if bad_question and result.get("tool") == "omp":
             state_fields += ("tables", "tasks")
         for key in state_fields:
             result.pop(key, None)
@@ -407,7 +418,7 @@ def _ground_visible_fields(
             result["parse_ok"] = False  # Do not retire this screen after a failed re-read.
         unsupported_action = (
             result.get("question")
-            and not _supported_question(result["question"], visible, result.get("tool"), pane)
+            and not _supported_question(result["question"], text, result.get("tool"), pane)
         ) or (result.get("rewind") and not _supported_rewind(result["rewind"], visible))
         if unsupported_action:
             for key in state_fields:

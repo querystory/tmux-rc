@@ -284,6 +284,8 @@ _LIVE_ASK = "╭─ Ask ──╮\n│ Which shade? │\n├──┤\n│ ❯ �
     ("π > Colors", _RECEIPT + " π > ◒ GPT-5.5\n", "Which color do you prefer?"),
     ("π > Colors", "61_omp_running_subagents", "Which color do you prefer?"),  # boxed
     ("t", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),  # no omp title
+    ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
+     "Ask Preferred Color Choice"),  # the ⎋ activity row's session label
     ("π ! Ask Shade", _RECEIPT + _LIVE_ASK, "Which color do you prefer?"),
     ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
      "Are the regressions passing?"),
@@ -308,6 +310,31 @@ def test_omp_rejected_queue_text_keeps_the_whole_viewport_for_the_retry():
                  "question": {"prompt": "Did you test the omp history search stuff"}})
     retry = seen[-1]
     assert "Completed Ask receipt" not in retry and "Reviewing the documentation" in retry
+
+
+@pytest.mark.parametrize(("closing", "kept"), [
+    ("", False), ("\nDone. Should I merge this?\n", True),
+])
+def test_omp_receipt_header_above_the_visible_boundary(closing, kept):
+    capture = _sample("61_omp_running_subagents")
+    cut = capture.index("\n", capture.index("? Ask"))  # the header scrolled into history
+    screen = f"{capture[:cut]}\n\x1e[visible screen]\x1f{capture[cut:]}{closing}"
+    prompt = "Should I merge this?" if kept else "Which color do you prefer?"
+    result = classify(_pane("omp", "π > Colors"), screen, _llm({
+        "tool": "omp", "activity": "waiting",
+        "question": {"prompt": prompt, "answer_style": "text"},
+    }))
+    assert ((result.get("question") or {}).get("prompt") == prompt) is kept
+
+
+def test_screen_inferred_omp_drops_a_rejected_questions_tables():
+    screen = "\x1e[visible screen]\x1f\n" + _sample("61_omp_running_subagents")
+    result = classify(_pane("bash", "t"), screen, _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user",
+        "question": {"prompt": "Which color do you prefer?", "answer_style": "text"},
+        "tables": [{"headers": ["Option"], "rows": [["Red"], ["Green"]]}],
+    }))
+    assert not result.get("question") and not result.get("tables")
 
 
 def test_omp_idle_session_label_is_not_a_question():
