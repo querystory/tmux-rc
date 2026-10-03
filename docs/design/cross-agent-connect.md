@@ -218,8 +218,10 @@ send lock, the daemon checks three things again: the incarnation, that the scree
 still the idle one it saw, and that a workstream handle still resolves to this pane. This
 is the same guard push answers use. If any of them changed, the message waits for the
 next idle transition rather than steering a turn or landing in someone's draft. The sender always gets one result:
-delivered, declined, refused, cancelled or expired. Those five are final, and queued is
-the only interim answer. A queued message keeps
+delivered, declined, refused (including rate-limited), cancelled, expired or
+unconfirmed. Those six are final, and queued is the only interim answer. Unconfirmed
+means typing started but the daemon cannot say it landed: a send failed partway, or the
+confirming re-parse failed. Its id stays used, so a retry cannot type it a second time. A queued message keeps
 its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
 silently, which is the agent client's founding complaint. At most once needs identity:
 the caller supplies a message id, and the daemon refuses a retried id instead of typing
