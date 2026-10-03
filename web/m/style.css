@@ -634,7 +634,10 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #detail[data-layout="stack"] > #fleet, #detail[data-layout="stack"] > #fleet-handle { grid-row: 6; }
   #fleet-handle:hover, #fleet-handle:focus-visible, #fleet-handle.dragging { outline: none; background: linear-gradient(var(--accent), var(--accent)) center / 100% 3px no-repeat; }
   #detail:has(#fleet-handle.dragging) { user-select: none; cursor: row-resize; }
-  .fleet-strip { display: flex; flex: none; align-items: center; gap: 10px; height: 39px; padding: 0 12px 0 4px; }
+  .fleet-strip { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 39px; padding: 0 12px 0 4px; }
+  /* Folded, the strip is one 40px row wherever it fits; a very narrow work area (a wide
+     sidebar plus Chat) wraps it and the panel grows to keep every control reachable. */
+  #detail > #fleet.folded { height: auto; min-height: var(--fleet-h, 40px); }
   .fleet-strip .icon-button { width: 36px; height: 36px; min-height: 36px; }
   /* Narrow work areas squeeze the information first (sparkline, then the average, which
      ellipsizes) so the goal editor and Dashboard never clip. */
@@ -643,7 +646,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   .fleet-strip > .fleet-average { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .fleet-now b { font-size: 16px; }
   /* Unfolded, the one row also carries the chart's controls, and wraps only when it must. */
-  .fleet-strip.open { height: auto; min-height: 39px; flex-wrap: wrap; gap: 4px 8px; padding-block: 2px; }
+  .fleet-strip.open { gap: 4px 8px; padding-block: 2px; }
   .fleet-strip > .fleet-gap { flex: 1; }
   #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }

@@ -171,7 +171,9 @@ function segmented(label, options, value, pick) {
 }
 const rangeControl = () => segmented('History range', RANGES, fleet.range, range => { chosenRange = range; setFleet({ range }, true); });
 // Until the viewer picks one, the range follows the screen across the breakpoint.
-roomForAWeek.addEventListener?.('change', () => { if (defaultRange() !== fleet.range) setFleet({ range: defaultRange() }, true); });
+const followScreen = () => { if (defaultRange() !== fleet.range) setFleet({ range: defaultRange() }, true); };
+if (roomForAWeek.addEventListener) roomForAWeek.addEventListener('change', followScreen);
+else roomForAWeek.addListener?.(followScreen); // older iOS Safari, as app.js does for WIDE
 function averageControl() {
   const control = el('span', 'fleet-control');
   control.append(el('span', 'fleet-line-key', 'Avg'),
@@ -299,6 +301,7 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
     ? [el('span', 'fleet-gap'), stateChip('Running', now[3]), stateChip('Needs you', now[1]), stateChip('Idle', now[2]),
       resetZoomButton(chart), averageControl(), rangeControl()]
     : [spark.el]), board);
+  root.classList.toggle('folded', !open);
   rebuild(root, open ? [strip, chart.el] : [strip], focus);
   spark.update(chartData(data));
   chart.update(chartData(data));
