@@ -307,11 +307,11 @@ func ompTerminal(stdin string, env map[string]string) string {
 
 // A live identity must name a main session: child transcripts cannot identify
 // their host, and arbitrary JSONL opened by a tool is not an omp session.
-func ompLiveIdentity(path string) (string, error) {
+func (p *ompPlacement) liveIdentity(path string) (string, error) {
 	header, err := ompHeader(path)
 	artifact := false
 	if err == nil && header.ID != "" {
-		_, artifact = ompArtifactParent(path)
+		_, artifact, err = p.artifactParent(path)
 	}
 	if err == nil && (header.ID == "" || artifact) {
 		err = fmt.Errorf("%s: not an omp main session", path)
@@ -350,13 +350,19 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 		if errors.Is(envErr, os.ErrNotExist) {
 			continue
 		}
+		var placement ompPlacement
+		if envErr == nil {
+			placement.loaded = true
+			placement.locations = []ompLocation{ompLocationFor(ompProcessProfile(proc.Args, env), func(key string) string { return env[key] })}
+			placement.pointers = make([]ompPointerSet, 1)
+		}
 		host := map[string]Running{}
 		var hostErr error
 		for _, target := range fds {
 			if !strings.HasSuffix(target, ".jsonl") {
 				continue
 			}
-			id, err := ompLiveIdentity(target)
+			id, err := placement.liveIdentity(target)
 			if err != nil {
 				// Children suppress breadcrumbs and cannot identify the main host.
 				// Unrelated JSONL opened by tools cannot identify it either.
@@ -374,7 +380,7 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 				}
 			}
 			if terminal != "" && filepath.Base(terminal) == terminal {
-				crumb := filepath.Join(ompStateDir(env, ompProcessProfile(proc.Args, env)), "terminal-sessions", terminal)
+				crumb := filepath.Join(placement.locations[0].State, "terminal-sessions", terminal)
 				if owner, ok := crumbOwners[crumb]; ok && owner != proc.PID {
 					unknown = errors.Join(unknown, fmt.Errorf("%s: multiple omp hosts share a terminal", crumb))
 					for id, running := range out {
@@ -395,7 +401,7 @@ func runningOmpProcesses(procs []harnessProcess) (map[string]Running, error) {
 						err = fmt.Errorf("%s: unreadable omp breadcrumb", crumb)
 					} else {
 						var id string
-						id, err = ompLiveIdentity(path)
+						id, err = placement.liveIdentity(path)
 						if err == nil {
 							host[id] = Running{PID: proc.PID}
 						}

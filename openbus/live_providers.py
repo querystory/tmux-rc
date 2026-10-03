@@ -300,8 +300,8 @@ _HISTORY_TOOLS = [
             "including sessions no window shows now. Use only when the user asks to "
             "resume, continue, or find earlier work (“resume the live mode session”, "
             "“where was I on the auth fix”). Returns repos, each with sessions: id, the "
-            "agent tool (claude or codex), title, last active date, and the window running "
-            "it if one is. Titles are hints for choosing, not facts about the work."
+            "agent tool (claude, codex, or omp), title, last active date, and the window "
+            "running it if one is. Titles are hints for choosing, not facts about the work."
         ),
         "parameters": {
             "type": "object",

@@ -150,7 +150,7 @@ func TestOmpArtifactNotFork(t *testing.T) {
 		t.Fatalf("child resume = %v", s.ResumeArgv)
 	}
 	nested := ompWrite(t, strings.TrimSuffix(child, ".jsonl")+"/Worker.jsonl", ompTestHeader)
-	canonical, _ := ompArtifactParent(nested)
+	canonical, _ := ompArtifactParent(nested, nil)
 	check(t, "canonical sibling header", canonical, "child-uuid")
 	ompCheckSources(t, parent, child, nested)
 	must(t, os.Remove(nested))
@@ -390,7 +390,7 @@ func TestOmpOrphanedNestedArtifactIsNotResumable(t *testing.T) {
 				t.Errorf("orphaned artifact promoted: %+v, %v", s, err)
 			}
 			ompCheckSources(t, parent)
-			if id, err := ompLiveIdentity(worker); err == nil {
+			if id, err := (&ompPlacement{}).liveIdentity(worker); err == nil {
 				t.Errorf("orphaned artifact identifies a live host: %q", id)
 			}
 			cached := Session{Harness: "omp", ID: "worker-id", Source: worker, Cwd: "/work/a repo", ResumeArgv: []string{"omp", "--resume", "worker-id"}}
@@ -463,6 +463,33 @@ func TestOmpCachedArtifactClassificationPrecedesResume(t *testing.T) {
 			if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
 				t.Errorf("non-resumable artifact promoted: %+v, %v", e, err)
 			}
+		})
+	}
+}
+
+func TestOmpRegisteredArtifactWithLostParent(t *testing.T) {
+	for _, broken := range []string{"deleted", "truncated"} {
+		t.Run(broken, func(t *testing.T) {
+			ompTestEnv(t)
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			parent := ompWrite(t, filepath.Join(t.TempDir(), "custom.jsonl"), ompTestHeader)
+			agent := ompWrite(t, strings.TrimSuffix(parent, ".jsonl")+"/Agent.jsonl", strings.ReplaceAll(ompTestHeader, "real-id", "agent-id"))
+			ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).State, "custom-session-files", "custom"), parent)
+			if broken == "deleted" {
+				must(t, os.Remove(parent))
+			} else {
+				must(t, os.WriteFile(parent, []byte(`{"type":"session"`), 0o600))
+			}
+			if s, err := ReadOmp(agent); !errors.Is(err, errNotIndexed) {
+				t.Errorf("registered artifact promoted: %+v, %v", s, err)
+			}
+			cached := Session{Harness: "omp", ID: "agent-id", Source: agent, Cwd: "/work/a repo", ResumeArgv: []string{"omp", "--resume", agent}}
+			dst := indexPath("omp", "", cached.ID)
+			must(t, writeAtomic(dst, Render(cached), time.Now()))
+			if e, err := ReadEntry(dst); !errors.Is(err, errNotIndexed) {
+				t.Errorf("cached registered artifact promoted: %+v, %v", e, err)
+			}
+			ompCheckSources(t)
 		})
 	}
 }

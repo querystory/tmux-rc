@@ -52,7 +52,7 @@ func ompHeader(path string) (ompRecord, error) {
 // An ancestor identifies nested artifacts whose immediate parent was lost.
 var ompArtifactName = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[^_]+_(.+)$`)
 
-func ompArtifactParent(path string) (parent string, artifact bool) {
+func ompArtifactParent(path string, roots map[string]struct{}) (parent string, artifact bool) {
 	dir := filepath.Dir(path)
 	if h, err := ompHeader(dir + ".jsonl"); err == nil && h.ID != "" {
 		return h.ID, true
@@ -60,8 +60,14 @@ func ompArtifactParent(path string) (parent string, artifact bool) {
 	if m := ompArtifactName.FindStringSubmatch(filepath.Base(dir)); m != nil {
 		return m[1], true
 	}
+	if _, pointed := roots[dir]; pointed {
+		return "", true
+	}
 	for ancestor := filepath.Dir(dir); ancestor != dir; dir, ancestor = ancestor, filepath.Dir(ancestor) {
 		if ompArtifactName.MatchString(filepath.Base(ancestor)) {
+			return "", true
+		}
+		if _, pointed := roots[ancestor]; pointed {
 			return "", true
 		}
 		if h, err := ompHeader(ancestor + ".jsonl"); err == nil && h.ID != "" {
@@ -72,7 +78,7 @@ func ompArtifactParent(path string) (parent string, artifact bool) {
 }
 
 func ompIdentity(path string) (id, parent string) {
-	if parent, artifact := ompArtifactParent(path); artifact {
+	if parent, artifact := ompArtifactParent(path, nil); artifact {
 		return strings.TrimSuffix(filepath.Base(path), ".jsonl"), parent
 	}
 	h, _ := ompHeader(path)
@@ -84,9 +90,11 @@ func ReadOmp(path string) (Session, error) {
 }
 
 func readOmp(path string, placement *ompPlacement) (Session, error) {
-	s := Session{Harness: "omp", Source: path}
-	var artifact bool
-	s.Parent, artifact = ompArtifactParent(path)
+	parent, artifact, err := placement.artifactParent(path)
+	if err != nil {
+		return Session{}, err
+	}
+	s := Session{Harness: "omp", Source: path, Parent: parent}
 	if artifact && s.Parent == "" {
 		return Session{}, errNotIndexed // known artifact, but no canonical immediate parent
 	}
@@ -103,7 +111,7 @@ func readOmp(path string, placement *ompPlacement) (Session, error) {
 			latest, s.LastActive = t, stamp
 		}
 	}
-	err := scanLines(path, func(line []byte) error {
+	err = scanLines(path, func(line []byte) error {
 		lineNumber++
 		var r ompRecord
 		if json.Unmarshal(line, &r) != nil {
@@ -181,11 +189,12 @@ func ompProfileContext() string {
 
 // Each resolve/reconcile owns a fresh snapshot; roots and pointers are loaded once.
 type ompPlacement struct {
-	active    string
-	locations []ompLocation
-	pointers  []ompPointerSet
-	loaded    bool
-	err       error
+	active        string
+	locations     []ompLocation
+	pointers      []ompPointerSet
+	artifactRoots map[string]struct{}
+	loaded        bool
+	err           error
 }
 
 type ompPointerSet struct {
@@ -213,9 +222,26 @@ func (p *ompPlacement) profilePointers(i int) (map[string]struct{}, error) {
 				state.paths = make(map[string]struct{})
 			}
 			state.paths[path] = struct{}{}
+			if p.artifactRoots == nil {
+				p.artifactRoots = make(map[string]struct{})
+			}
+			p.artifactRoots[strings.TrimSuffix(path, ".jsonl")] = struct{}{}
 		})
 	}
 	return state.paths, state.err
+}
+
+func (p *ompPlacement) artifactParent(path string) (string, bool, error) {
+	if err := p.load(); err != nil {
+		return "", false, err
+	}
+	for i := range p.locations {
+		if _, err := p.profilePointers(i); err != nil {
+			return "", false, err
+		}
+	}
+	parent, artifact := ompArtifactParent(path, p.artifactRoots)
+	return parent, artifact, nil
 }
 
 // Reuse cached argv only after checking this operation's current placement.
@@ -444,7 +470,12 @@ func (p *ompPlacement) sessions() ([][]string, error) {
 		if h.ID == "" {
 			continue
 		}
-		if parent, artifact := ompArtifactParent(path); artifact && parent == "" {
+		parent, artifact, err := p.artifactParent(path)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if artifact && parent == "" {
 			continue
 		}
 		out = append(out, []string{path})

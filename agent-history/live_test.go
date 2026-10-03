@@ -436,3 +436,13 @@ func TestRunningOmpZombieDoesNotBlockResumes(t *testing.T) {
 		t.Fatalf("zombie blocks resume: %v, %v", got, err)
 	}
 }
+
+func TestRunningOmpRegisteredArtifactCannotIdentifyHost(t *testing.T) {
+	env := ompLiveEnv(t)
+	agent := ompLiveFile(t, filepath.Join(t.TempDir(), "custom", "Agent.jsonl"), "artifact-id")
+	ompWrite(t, filepath.Join(ompStateDir(env, ""), "custom-session-files", "custom"), filepath.Dir(agent)+".jsonl")
+	cmd, _ := ompLiveHost(t, env, "omp", "launch", agent, false)
+	if got, err := ompFixtureRunning(t, cmd.Process.Pid); err == nil || len(got) != 0 {
+		t.Fatalf("registered artifact identifies a live host: %v, %v", got, err)
+	}
+}

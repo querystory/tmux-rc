@@ -81,7 +81,11 @@ func readEntry(path string, scoring bool, placement *ompPlacement) (Entry, error
 		e.ResumeArgv = claudeResume(e.ID)
 	}
 	if e.Harness == "omp" && e.Parent == "" {
-		if _, artifact := ompArtifactParent(e.Source); artifact {
+		_, artifact, err := placement.artifactParent(e.Source)
+		if err != nil {
+			return Entry{}, err
+		}
+		if artifact {
 			return Entry{}, errNotIndexed // never revive a previously promoted artifact
 		}
 		if len(e.ResumeArgv) > 0 && !e.SourceMissing {

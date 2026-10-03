@@ -372,12 +372,14 @@ def test_new_window_passes_argv_without_a_shell(tmp_path, monkeypatch, command_k
     pane = real(["tmux", "-S", sock, "new-session", "-d", "-s", "t", "-P", "-F",
                  "#{pane_id}", "-c", str(tmp_path)],
                 capture_output=True, text=True, check=True).stdout.strip()
+    new_pane = None
     try:
         if command_kind == "argv":
-            tmux.new_window("t", "n", ["sh", "-c", 'pwd > "$0.cwd"; printf "%s|" "$@" > "$0"',
-                            str(out), f"a b;touch {marker}", "$(x)"], str(indexed_cwd))
+            new_pane = tmux.new_window(
+                "t", "n", ["sh", "-c", 'pwd > "$0.cwd"; printf "%s|" "$@" > "$0"',
+                           str(out), f"a b;touch {marker}", "$(x)"], str(indexed_cwd))
         else:
-            tmux.new_window("t", "n", f'pwd > "{out}.cwd"; printf configured > "{out}"')
+            new_pane = tmux.new_window("t", "n", f'pwd > "{out}.cwd"; printf configured > "{out}"')
         for _ in range(50):
             if out.exists() and out.read_text():
                 break
@@ -388,4 +390,6 @@ def test_new_window_passes_argv_without_a_shell(tmp_path, monkeypatch, command_k
             indexed_cwd if command_kind == "argv" else tmp_path)
         assert not marker.exists()
     finally:
+        if new_pane is not None:
+            real(["tmux", "-S", sock, "kill-pane", "-t", new_pane], check=False)
         real(["tmux", "-S", sock, "kill-pane", "-t", pane], check=False)

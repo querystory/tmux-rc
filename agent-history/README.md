@@ -75,9 +75,10 @@ attribution remains eligible for older sessions. Subagents use their first
 `session_init.task`, not the system prompt or its duplicate agent-attributed message.
 Artifact location identifies a subagent: `parentSession` alone also marks ordinary forks.
 A sibling transcript supplies the canonical parent ID; timestamped artifact folders
-also identify direct orphans. A nested artifact whose immediate parent is missing or
-truncated is skipped when its ancestry proves it is an artifact, rather than inventing
-a parent or offering a main-session resume. Previously promoted cached entries are
+also identify direct orphans. Registered custom-file/breadcrumb pointers supply
+artifact-tree boundaries even when a non-timestamped parent is missing or truncated.
+An artifact without a resolvable canonical immediate parent is skipped, rather than
+inventing a parent or offering a main-session resume. Previously promoted cached entries are
 rejected by `get` and skipped by `resolve`, including entries already marked missing
 or lacking resume argv: artifact classification is independent of resumability.
 
@@ -163,6 +164,8 @@ Positive open-transcript evidence also covers headless hosts,
 but descriptors are lazy: a host with insufficient evidence makes omp liveness unknown,
 not stopped. Ambiguous terminal ownership does the same. Subagents suppress breadcrumbs
 and are not reported as independent live sessions.
+Live classification uses the host's own effective profile/storage environment and
+registered artifact roots, so a subagent fd cannot stand in for a missing main transcript.
 Bun hosts whose best-effort OS rename did not take effect are also detected, but
 only for an omp CLI script (including the installed `omp` symlink), not unrelated
 Bun programs. Node is not an omp runtime: its CLI requires Bun.
