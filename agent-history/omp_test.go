@@ -57,6 +57,17 @@ func TestReadOmp(t *testing.T) {
 	check(t, "last_active", s.LastActive, "2026-10-02T21:48:30Z")
 	check(t, "resume", ResumeLine(s.Cwd, s.ResumeArgv), "cd '/src/my repo' && 'omp' '--resume' '"+ompID+"'")
 
+	// A cleared title stays cleared; only a file with no slot falls back to the header.
+	lines := strings.SplitN(ompMain, "\n", 2)
+	must(t, os.WriteFile(main, []byte(`{"type":"title","v":1,"title":"","pad":" "}`+"\n"+lines[1]), 0o600))
+	s, err = ReadOmp(main)
+	must(t, err)
+	check(t, "cleared title", s.Title, "")
+	must(t, os.WriteFile(main, []byte(lines[1]), 0o600))
+	s, err = ReadOmp(main)
+	must(t, err)
+	check(t, "title without a slot", s.Title, "First name")
+
 	s, err = ReadOmp(sub)
 	must(t, err)
 	check(t, "subagent", s.ID+" under "+s.Parent+" titled "+s.Title, "CountReadmeLines under "+ompID+" titled CountReadmeLines")

@@ -33,6 +33,7 @@ func ReadOmp(path string) (Session, error) {
 	s := Session{Harness: "omp", Source: path}
 	s.ID, s.Parent = ompIdentity(path)
 	subagent := s.Parent != ""
+	titled := subagent // the slot, even empty, outranks the header's title
 	if subagent {
 		s.Title = s.ID // omp names a subagent's transcript after the agent
 	}
@@ -44,10 +45,13 @@ func ReadOmp(path string) (Session, error) {
 		s.seen(r.Timestamp, "", "")
 		m := r.Message
 		switch {
-		case r.Type == "title" && !subagent:
-			s.Title = r.Title
+		case r.Type == "title" && !titled:
+			s.Title, titled = r.Title, true
 		case r.Type == "session" && s.Cwd == "":
-			s.Cwd, s.Title = r.Cwd, cmp.Or(s.Title, r.Title)
+			s.Cwd = r.Cwd
+			if !titled {
+				s.Title = r.Title
+			}
 		case r.Type == "session_init" && subagent && len(s.Messages) == 0:
 			s.Messages = append(s.Messages, Message{r.Timestamp, "prompt", strings.TrimSpace(r.Task)})
 		case r.Type == "message" && m.Role == "user" && !m.Synthetic && m.Attribution != "agent" && !subagent:
