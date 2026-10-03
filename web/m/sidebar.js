@@ -9,7 +9,7 @@ import { Composer, enterSubmits } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity } from "/m/pane-model.js";
 
 const KEY = "tmuxrc-sidebar-list";
-const prefs = { by: "state", rail: false, fold: {}, cards: {} };
+const prefs = { by: "state", rail: false, fold: {}, cards: {}, all: null }; // all: the last expand/compact-all, under per-group choices
 try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && saved.cards) Object.assign(prefs, saved); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
@@ -39,7 +39,7 @@ function groups(subset, query) {
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
     g.panes.sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
-    g.cards = prefs.cards[g.id] ?? g.id === "need";
+    g.cards = prefs.cards[g.id] ?? prefs.all ?? g.id === "need";
     g.open = !!query || !(prefs.fold[g.id] ?? !!g.quiet);
   }
   return list.filter((g) => g.panes.length);
@@ -67,7 +67,8 @@ export function setupSidebar(ctx) {
   pick.onchange = () => ctx.setFilter(pick.value);
   const all = document.createElement("button");
   all.className = "sb-icon";
-  all.onclick = () => { const cards = all._expand; for (const g of shown) prefs.cards[g.id] = cards; rerender(); };
+  // Every group, including those a filter or search hides right now.
+  all.onclick = () => { prefs.all = all._expand; prefs.cards = {}; rerender(); };
   bar.append(pick, all);
   const refreshPick = headerPicker(pick);
 
