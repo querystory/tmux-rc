@@ -440,10 +440,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     paints.push(() => chart.update(chartData(slice, { goal: null, max })));
   });
   multiples.append(multiplesHeading, grid);
-  // On a wide page the topics card sits beside the small multiples instead of taking a row.
-  const row = el('div', 'atlas-row');
-  row.append(multiples);
-  nodes.push(row);
+  nodes.push(multiples);
 
   const legend = el('div', 'atlas-legend');
   STATES.forEach((label, i) => legend.append(el('span', `atlas-state s${i}`, `${panes.filter(p => stateOf(p) === i).length} ${label}`)));
@@ -502,11 +499,14 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
-  row.append(topics);
+  nodes.push(topics);
   rebuild(root, nodes, focus);
   let mapWidth = 0;
   root._mapResize = new ResizeObserver(entries => {
     const width = Math.floor(entries[0].contentRect.width);
+    // Balanced rows of cards: as many columns as fit, then evened out so no row is an orphan.
+    const fit = Math.max(1, Math.floor((width - 40) / (width < 700 ? 160 : 230))); // the card grid sits inside a padded panel
+    grid.style.gridTemplateColumns = `repeat(${Math.ceil(series.length / Math.ceil(series.length / fit)) || 1}, minmax(0, 1fr))`;
     if (!width || width === mapWidth || !islands.length) return;
     mapWidth = width;
     const focused = map.contains(document.activeElement) ? document.activeElement : null;
