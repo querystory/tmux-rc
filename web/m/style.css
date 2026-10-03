@@ -392,8 +392,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .sb-compose #side-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
 .sb-compose .primary { color: var(--bg); }
 /* Selection is #277's neutral card, not a colour: colour here means state. */
-:is(.sb-row, .sb-card, .sb-rail)[aria-current="true"] { background: var(--lift); --card: var(--lift); box-shadow: inset 3px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent); }
-.sb-card.need[aria-current="true"] { background: var(--amber-bg); --card: var(--amber-bg); }
+:is(.sb-row, .sb-card, .sb-rail)[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); box-shadow: inset 3px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent); }
+/* :not(:disabled) outranks the global button hover, so hover cannot repaint a selection. */
+:is(.sb-card, .sb-rail).need[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 :is(.sb-row, .sb-card)[aria-current="true"] b { font-weight: 800; }
 /* Folded: a 60px rail of what is alive, Needs you first, idle panes as one count. */
 #app.rail #sessions { align-items: center; }
