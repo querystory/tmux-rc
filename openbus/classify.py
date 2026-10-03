@@ -687,8 +687,9 @@ def classify(
     # screen are finished history, and so are its workers (any omp still tracks stay
     # counted by its row's "👥 N"). A parsed question or rewind still decides the activity:
     # a turn that ends asking "Should I merge?" is idle to omp but a user-wait to us.
-    # "π !": its ask or approval prompt, a user wait even if the parse missed the question;
-    # a failed parse still keeps the last card read, which has the answer controls. Any
+    # "π !": its ask or approval prompt, a user wait even if the parse missed the question.
+    # A failed parse surfaces that wait, unless the last card was already one: that card
+    # has the answer controls, so it is kept and the screen retried. Any
     # other separator is its working spinner: running, including while it waits on its own
     # jobs (a parsed question still makes a user wait below); only compacting is finer.
     omp = result.get("tool") == "omp" and OMP_TITLE_RE.match(pane.title)
@@ -701,6 +702,8 @@ def classify(
             result.pop("parse_ok", None)
     elif state == "!":
         result.update(activity="waiting", waiting_on="user")
+        if prev_activity != "waiting":
+            result.pop("parse_ok", None)
     elif state and result.get("activity") != "compacting":
         result["activity"] = "running"
         result.pop("parse_ok", None)

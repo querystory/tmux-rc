@@ -214,9 +214,15 @@ def test_omp_working_title_is_running(parsed):
     assert (r["activity"], r.get("parse_ok")) == ("running", None)
 
 
-def test_omp_attention_title_is_a_user_wait():
-    r = classify(_pane("bun", "π ! Pick a color"), "…", _llm({"tool": "omp"}))
+@pytest.mark.parametrize(("parsed", "prev", "accepted"), [
+    ({"tool": "omp"}, None, True),  # the parse missed the question
+    (None, "running", True),  # failed parse: surface the new wait
+    (None, "waiting", False),  # failed parse: keep the card that has the answer controls
+])
+def test_omp_attention_title_is_a_user_wait(parsed, prev, accepted):
+    r = classify(_pane("bun", "π ! Pick a color"), "…", _llm(parsed), prev_activity=prev)
     assert (r["activity"], r["waiting_on"]) == ("waiting", "user")
+    assert r.get("parse_ok", True) is accepted
 
 
 def test_omp_idle_title_keeps_a_closing_question():
