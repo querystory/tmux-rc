@@ -407,7 +407,11 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     el('span', 'muted', 'Cards share one scale. Choose one to filter this page.'));
   const cards = root._cards ||= new Map();
   cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
-  const series = keys.map(key => [key, rows(scoped({ ...scope, [by]: key }))]);
+  // Slices depend on history and settings, not on pane state, so live updates reuse them.
+  const sliceKey = [history, settings, scope.tool, scope.session, ...keys];
+  if (!root._slices || root._slices.key.some((v, i) => v !== sliceKey[i]) || root._slices.key.length !== sliceKey.length)
+    root._slices = { key: sliceKey, series: keys.map(key => [key, rows(scoped({ ...scope, [by]: key }))]) };
+  const series = root._slices.series;
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
   // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
   const max = series.reduce((top, [, r]) => r.reduce((m, x) => Math.max(m, x.n ? stacked(x.n) : 0, x.ma || 0), top), 1);
