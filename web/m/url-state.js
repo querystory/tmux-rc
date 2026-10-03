@@ -24,7 +24,7 @@ export function parseHash(hash, tab = "summary") {
   const pane = params.get("pane") || null;
   return {
     pane,
-    view: params.get("view") === "terminal" ? "terminal" : tab,
+    view: ["summary", "terminal"].includes(params.get("view")) ? params.get("view") : tab,
     dashboard: !pane && params.get("view") === "dashboard",
     filter: FILTERS.includes(params.get("filter")) ? params.get("filter") : "all",
     sort: params.get("sort") === "session" ? "session" : "updated",
