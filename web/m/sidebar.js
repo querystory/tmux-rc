@@ -121,7 +121,10 @@ export function setupSidebar(ctx) {
   function updateRow(node, { p, g, card }) {
     node._p = p;
     node.classList.toggle("need", needsYou(p));
-    if (p.pane_id === ctx.active()) node.setAttribute("aria-current", "true"); else node.removeAttribute("aria-current");
+    // On the card for its styling and on its button, which is what assistive tech lands on.
+    for (const el of new Set([node, node.querySelector(".sb-open") || node])) {
+      if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
+    }
     const img = node.querySelector("img");
     img.alt = p.tool || "tmux";
     markWorking(img, p, ctx.logos);
@@ -223,10 +226,11 @@ export function setupSidebar(ctx) {
     hoverOn?.removeAttribute("aria-describedby");
     hoverOn = null; card.hidden = true;
   }
-  const target = (e) => e.target.closest?.(".sb-row, .sb-rail, .sb-open");
+  // The pointer hovers a whole card (answers and composer too); the keyboard lands on its button.
+  const target = (e, sel = ".sb-row, .sb-rail, .sb-card") => e.target.closest?.(sel);
   root.addEventListener("pointerover", (e) => { if (e.pointerType === "mouse" && target(e)) hover(target(e)); });
   root.addEventListener("pointerout", (e) => { const el = target(e); if (el && !el.contains(e.relatedTarget)) unhover(); });
-  root.addEventListener("focusin", (e) => { if (target(e)?.matches(":focus-visible")) hover(target(e)); });
+  root.addEventListener("focusin", (e) => { const el = target(e, ".sb-row, .sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
   root.addEventListener("focusout", unhover);
   root.addEventListener("scroll", unhover, { passive: true });
   root.addEventListener("click", unhover);
