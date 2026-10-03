@@ -14,6 +14,9 @@ test("trailing sentence punctuation stays outside the link, exactly once", () =>
     ["https://x.y/z?q=1.", "https://x.y/z?q=1"],
     ["https://x.y/z/", "https://x.y/z/"],
     ["https://x.y/#frag", "https://x.y/#frag"],
+    ["_https://x.y/z_.", "https://x.y/z"],
+    ["https://example.com/resource_", "https://example.com/resource_"],
+    ["https://x.y/a*b*, ok", "https://x.y/a*b*"],
   ]) {
     const a = `<a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>`;
     assert.equal(linkifyText(text), text.replace(href, a), text);

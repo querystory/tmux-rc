@@ -87,9 +87,11 @@ function linkify(text, join = true) {
       if (canJoin && endedLine !== undefined && endedLine >= joinWidth) { search = nl + 1; continue; }
       cut = nl; break;
     }
-    // Sentence punctuation (and markdown emphasis) trailing a URL is prose, not path:
-    // "see …/a.html, then" must link …/a.html. It stays behind as plain text.
-    const shown = m[0].slice(0, cut).replace(/[\s.,;:!?*_]+$/, "");
+    // Sentence punctuation trailing a URL is prose, not path: "see …/a.html, then" must
+    // link …/a.html. So is a closing emphasis marker (**url**), but only when the same
+    // marker opens it — a bare "…/resource_" is a valid path. Trimmed text stays as prose.
+    const open = text[m.index - 1], em = open === "*" || open === "_" ? open : "";
+    const shown = m[0].slice(0, cut).replace(new RegExp(`[\\s.,;:!?${em}]+$`), "");
     out += anchor(shown.replace(/\n[ \t]*/g, ""), shown);
     pos = m.index + shown.length; LINK_RE.lastIndex = pos;
   }
