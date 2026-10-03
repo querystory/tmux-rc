@@ -1,5 +1,4 @@
 // Local, pinned distributions: the mobile list never downloads chart libraries.
-let libraries;
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
@@ -9,14 +8,10 @@ function loadScript(src) {
     document.head.append(script);
   });
 }
-function loadCharts() {
-  if (!libraries) libraries = (async () => {
-    if (!window.echarts) await loadScript('/m/vendor/echarts.min.js');
-    if (!window.WordCloud) await loadScript('/m/vendor/wordcloud.js');
-    return window.echarts;
-  })().catch(error => { libraries = null; throw error; });
-  return libraries;
-}
+// One cached load per library, so the split never waits on the word cloud's script.
+const loads = {};
+const load = (name, src) => loads[name] ||= (window[name] ? Promise.resolve() : loadScript(src))
+  .then(() => window[name], error => { delete loads[name]; throw error; });
 const timeLabel = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 // The word cloud, kept alive across polls, including when the overview is temporarily hidden.
@@ -29,7 +24,7 @@ export function atlasCharts() {
   let latest, wordSignature;
   const paint = async () => {
     if (!latest || !cloud.clientWidth) return;
-    try { await loadCharts(); } catch { cloud.textContent = 'Chart unavailable. Choose a topic below.'; return; }
+    try { await load('WordCloud', '/m/vendor/wordcloud.js'); } catch { cloud.textContent = 'Chart unavailable. Choose a topic below.'; return; }
     if (!cloud.clientWidth) return;
     if (canvas.parentNode !== cloud) cloud.replaceChildren(canvas);
     const { words } = latest;
@@ -93,7 +88,7 @@ export function fleetChart(axis) {
   const paint = async () => {
     if (!latest || !el.clientWidth) return;
     let echarts;
-    try { echarts = await loadCharts(); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
+    try { echarts = await load('echarts', '/m/vendor/echarts.min.js'); } catch { el.textContent = 'Chart unavailable. Reload to retry.'; return; }
     if (!el.clientWidth) return;
     if (!chart) {
       el.replaceChildren();

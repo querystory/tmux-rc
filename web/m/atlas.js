@@ -157,6 +157,7 @@ async function saveGoal() {
   try {
     ({ goal } = await request('/api/history/goal', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: value }) }));
     draft = null; goalFailed = false;
+    reloadHistory?.(); // supersedes a GET that read the old goal before this save
   } catch { goalFailed = true; }
   setFleet({});
 }
@@ -380,7 +381,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   series.forEach(([key, slice]) => {
     const chart = cards.get(key) || fleetChart(false);
     cards.set(key, chart);
-    const members = allPanes.filter(p => (by === 'session' ? p.session : toolOf(p)) === key);
+    const cardScope = { ...scope, [by]: key }; // the same population the card's chart draws
+    const members = allPanes.filter(p => toolOf(p) === (cardScope.tool || toolOf(p)) && p.session === (cardScope.session || p.session));
     const card = el('button', 'atlas-multiple');
     card.dataset.key = `card:${by}:${key}`;
     card.setAttribute('aria-pressed', String(scope[by] === key));
