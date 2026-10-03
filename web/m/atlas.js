@@ -177,7 +177,10 @@ function averageControl() {
 // "Goal 12" until clicked, then a stepper. The goal lives in the daemon, so every device
 // draws the same line. Every part carries the key 'goal' so focus follows the swap.
 let goalFailed = false;
+let saving = false;
 async function saveGoal() {
+  if (saving) return; // one PUT at a time, so an older save can never land last
+  saving = true;
   const sent = draft, value = sent === '' ? null : Math.round(Number(sent));
   try {
     ({ goal } = await request('/api/history/goal', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: value }) }));
@@ -185,6 +188,7 @@ async function saveGoal() {
     if (draft === sent) draft = null; // an edit made while this saved stays open for its own save
     reloadHistory?.(); // supersedes a GET that read the old goal before this save
   } catch { goalFailed = true; }
+  saving = false;
   setFleet({});
 }
 function goalControl(icon) {
