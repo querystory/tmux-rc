@@ -51,7 +51,7 @@ export function setupSidebar(ctx) {
   let shown = [], replyTo = null, last = null;
   // Inline drafts, per pane like the footer's: kept until sent or cancelled.
   const drafts = new Map(), draft = () => drafts.get(replyTo);
-  const rerender = () => { save(); if (last) render(...last); };
+  const repaint = () => { if (last) render(...last); }, rerender = () => { save(); repaint(); };
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
@@ -101,7 +101,8 @@ export function setupSidebar(ctx) {
       node.innerHTML = `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`;
       node.prepend(open);
       const form = node.querySelector("form");
-      const done = (id) => { drafts.delete(id); if (replyTo === id) replyTo = null; rerender(); };
+      // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
+      const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
       form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
       enterSubmits(form, (target) => !!draft()?.editor.contains(target));
       form.onsubmit = async (event) => {
@@ -151,8 +152,8 @@ export function setupSidebar(ctx) {
   function openReply(id) {
     if (id === ctx.active()) { document.getElementById("reply").focus(); return; } // its own composer is on screen
     replyTo = id;
-    if (!drafts.has(id)) drafts.set(id, new Composer(rerender, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
-    rerender();
+    if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
+    repaint();
     draft().editor.focus();
   }
   // Folded to the rail: what is alive, Needs you first; idle panes are one count.
