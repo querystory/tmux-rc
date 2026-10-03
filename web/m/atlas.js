@@ -176,10 +176,11 @@ function averageControl() {
 // draws the same line. Every part carries the key 'goal' so focus follows the swap.
 let goalFailed = false;
 async function saveGoal() {
-  const value = draft === '' ? null : Math.round(Number(draft));
+  const sent = draft, value = sent === '' ? null : Math.round(Number(sent));
   try {
     ({ goal } = await request('/api/history/goal', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: value }) }));
-    draft = null; goalFailed = false;
+    goalFailed = false;
+    if (draft === sent) draft = null; // an edit made while this saved stays open for its own save
     reloadHistory?.(); // supersedes a GET that read the old goal before this save
   } catch { goalFailed = true; }
   setFleet({});
@@ -262,7 +263,8 @@ function stateChip(state, n) {
 // goal; then, unfolded, the chart's own controls; Dashboard last) over the chart once its
 // seam is pulled up. The seam itself belongs to the layout (app.js).
 export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
-  const counts = liveCounts(panes), now = [running(counts), counts[0], counts[2]];
+  // The header counts everything running; each chip counts only the layer it toggles.
+  const counts = liveCounts(panes), now = [running(counts), counts[0], counts[2], counts[1]];
   if (unchanged(root, [open, settings, history, historyData, historyError, goal, ...now])) return;
   const focus = focusKey(root);
   const spark = root._spark ||= fleetChart(false), chart = root._chart ||= fleetChart(true);
@@ -281,7 +283,7 @@ export function renderFleet(root, panes, { open, toggle, dashboard, icon }) {
   board.innerHTML = `${icon('layers', 14)}<span>Dashboard</span>`;
   board.onclick = dashboard;
   strip.append(fold, count, averageText(data), goalControl(icon), ...(open
-    ? [el('span', 'fleet-gap'), stateChip('Running', now[0]), stateChip('Needs you', now[1]), stateChip('Idle', now[2]),
+    ? [el('span', 'fleet-gap'), stateChip('Running', now[3]), stateChip('Needs you', now[1]), stateChip('Idle', now[2]),
       resetZoomButton(chart), averageControl(), rangeControl()]
     : [spark.el]), board);
   rebuild(root, open ? [strip, chart.el] : [strip], focus);
