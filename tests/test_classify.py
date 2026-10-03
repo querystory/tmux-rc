@@ -327,6 +327,20 @@ def test_omp_receipt_header_above_the_visible_boundary(closing, kept):
     assert ((result.get("question") or {}).get("prompt") == prompt) is kept
 
 
+@pytest.mark.parametrize(("prompt", "kept"), [
+    ("Are the regressions passing?", False), ("Which color do you prefer?", True),
+])
+def test_omp_queue_heading_above_the_visible_boundary(prompt, kept):
+    capture = _sample("67_omp_queued_messages_with_ask").replace("\x1e[visible screen]\x1f\n", "")
+    cut = capture.index("\n", capture.index("After yield"))  # the heading scrolled off
+    screen = f"{capture[:cut]}\n\x1e[visible screen]\x1f{capture[cut:]}"
+    result = classify(_pane("omp", "π ! Ask Preferred Color Choice"), screen, _llm({
+        "tool": "omp", "activity": "waiting",
+        "question": {"prompt": prompt, "answer_style": "text"},
+    }))
+    assert ((result.get("question") or {}).get("prompt") == prompt) is kept
+
+
 def test_screen_inferred_omp_drops_a_rejected_questions_tables():
     screen = "\x1e[visible screen]\x1f\n" + _sample("61_omp_running_subagents")
     result = classify(_pane("bash", "t"), screen, _llm({

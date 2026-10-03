@@ -80,8 +80,12 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
 # "?"); the queued outgoing-input bands ("Steering · 1", "After yield · 2"); and the "⎋"
 # activity row, whose right-aligned session label can read like an Ask.
+# Each may straddle the history boundary, which _omp_asking_view marks with a "\0" row.
 _OMP_RECEIPT_RE = re.compile(r"(?m)^ ?(?:╭─+ )?\? Ask\b.*\n(?:.*\S.*\n)*")
-_OMP_CHROME_RE = re.compile(r"(?m)^ ?(?:Steering|After yield) · \d+\n(?: {3,}.*\n)*|^ *⎋ .*\n")
+_OMP_NOT_ASKING_RE = re.compile(
+    rf"{_OMP_RECEIPT_RE.pattern}|^ ?(?:Steering|After yield) · \d+\n(?: {{3,}}.*\n|\0\n)*"
+    r"|^ *⎋ .*\n",
+)
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -314,12 +318,12 @@ def _last_occurrence(prompt: str, visible: str) -> re.Match | None:
 
 
 def _omp_asking_view(text: str) -> str:
-    """The viewport minus omp text that never asks. A receipt is matched across the
-    history boundary (its header may have scrolled off) but only the visible part is kept."""
+    """The viewport minus omp text that never asks. Blocks are matched across the history
+    boundary (a heading may have scrolled off) but only the visible part is kept."""
     head = strip_dim(text.rpartition(VISIBLE_SCREEN)[0])
     joined = f"{head}\0\n" + _visible(text).removeprefix("\n")
-    joined = _OMP_RECEIPT_RE.sub(lambda m: "\0" if "\0" in m[0] else "", joined)
-    return _OMP_CHROME_RE.sub("", joined.rsplit("\0", 1)[-1])
+    joined = _OMP_NOT_ASKING_RE.sub(lambda m: "\0" if "\0" in m[0] else "", joined)
+    return joined.rsplit("\0", 1)[-1]
 
 
 def _supported_question(question, text: str, tool, pane: Pane) -> bool:
