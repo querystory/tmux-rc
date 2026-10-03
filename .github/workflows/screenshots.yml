@@ -24,6 +24,10 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
       SHA: ${{ github.event.pull_request.head.sha }}
       OUT: .screenshots/diff
+      # The demo server seeds a month of chart history through History.record, one commit
+      # per sample. On the runner's disk those fsyncs outlast the shooter's 30s wait for the
+      # server; tmpfs makes them free (it takes ~8s on a laptop SSD).
+      TMPDIR: /dev/shm
       # Fork and Dependabot runs get a read-only token: they keep the artifact and the job
       # summary table, and skip the images and the comment.
       PUBLISH: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
