@@ -109,7 +109,7 @@ type harnessProcess struct {
 
 // Filter before inspecting private process data: unrelated programs, other users,
 // and harness helpers must never contribute transcript descriptors.
-func harnessProcesses(comm string, keep func([]string) bool) ([]harnessProcess, error) {
+func harnessProcesses(comms []string, keep func(int, string, []string) (bool, error)) ([]harnessProcess, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
@@ -125,7 +125,8 @@ func harnessProcesses(comm string, keep func([]string) bool) ([]harnessProcess, 
 			return os.ReadFile(filepath.Join("/proc", entry.Name(), name))
 		}
 		name, err := read("comm")
-		if err == nil && strings.TrimSpace(string(name)) != comm {
+		comm := strings.TrimSpace(string(name))
+		if err == nil && !slices.Contains(comms, comm) {
 			continue
 		}
 		var status, cmdline []byte
@@ -146,7 +147,11 @@ func harnessProcesses(comm string, keep func([]string) bool) ([]harnessProcess, 
 			return nil, err
 		}
 		args := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
-		if keep(args) {
+		match, err := keep(pid, comm, args)
+		if err != nil {
+			return nil, err
+		}
+		if match {
 			out = append(out, harnessProcess{pid, args})
 		}
 	}
@@ -197,14 +202,43 @@ func processEnv(pid int) (map[string]string, error) {
 // conversations (cli.ts:182-191,484-553; cli-commands.ts:27-287).
 var ompMaintenance = strings.Fields("auth-broker auth-gateway agents bench browser-relay cleanse collab commit completions __complete compress config dry-balance daemon broker help find gc grep gallery git grievances images img if-bench install join login models plugin plugins predict ps say clip play share setup shell read render skill skills ssh stats stream update usage tiny-models token toks ttsr q search web-search wt worktree --help -h --version -v --license --smoke-test --alias")
 
-func ompHost(args []string) bool {
+func ompHost(pid int, comm string, args []string) (bool, error) {
 	if len(args) == 0 {
-		return true
+		return comm == "omp", nil
 	}
 	exe := filepath.Base(args[0])
+	if comm != "bun" && exe == "node" {
+		return false, nil // the CLI requires Bun, not Node
+	}
 	args = args[1:]
-	if (exe == "bun" || exe == "node") && len(args) > 0 {
-		args = args[1:] // interpreted omp entrypoint
+	if comm == "bun" || exe == "bun" {
+		if len(args) == 0 {
+			return false, nil
+		}
+		script := args[0]
+		if !filepath.IsAbs(script) {
+			cwd, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "cwd"))
+			if errors.Is(err, os.ErrNotExist) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			script = filepath.Join(cwd, script)
+		}
+		if !ompEntrypoint(script) {
+			if filepath.Base(script) != "omp" {
+				return false, nil
+			}
+			resolved, err := filepath.EvalSymlinks(script)
+			if err != nil {
+				return false, err
+			}
+			if !ompEntrypoint(resolved) {
+				return false, nil
+			}
+		}
+		args = args[1:]
 	}
 	for len(args) > 0 {
 		if args[0] == "--profile" {
@@ -215,7 +249,14 @@ func ompHost(args []string) bool {
 			break
 		}
 	}
-	return len(args) == 0 || (!strings.HasPrefix(args[0], "__omp_worker_") && !slices.Contains(ompMaintenance, args[0]))
+	return len(args) == 0 || (!strings.HasPrefix(args[0], "__omp_worker_") && !slices.Contains(ompMaintenance, args[0])), nil
+}
+
+func ompEntrypoint(path string) bool {
+	return strings.HasSuffix(path, "/coding-agent/src/cli.ts") ||
+		strings.HasSuffix(path, "/coding-agent/dist/cli.js") ||
+		strings.HasSuffix(path, "/pi-coding-agent/src/cli.ts") ||
+		strings.HasSuffix(path, "/pi-coding-agent/dist/cli.js")
 }
 
 func ompProcessProfile(args []string, env map[string]string) string {
@@ -267,7 +308,7 @@ func ompLiveIdentity(path string) (string, error) {
 // Source: session-paths.ts:357-389; session-manager.ts:2136-2164,2656-2672;
 // session-storage.ts:210-250; task/executor.ts:4046-4053 (children suppress crumbs).
 func RunningOmp() (map[string]Running, error) {
-	procs, err := harnessProcesses("omp", ompHost)
+	procs, err := harnessProcesses([]string{"omp", "bun"}, ompHost)
 	if err != nil {
 		return map[string]Running{}, err
 	}

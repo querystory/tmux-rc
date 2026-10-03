@@ -53,10 +53,28 @@ func ReadEntry(path string) (Entry, error) {
 	obj, _ := json.Marshal(fields)
 	e := Entry{Path: path}
 	err = json.Unmarshal(obj, &e)
+	if err != nil {
+		return e, err
+	}
 	if e.SourceMissing { // the harness deleted it: still findable, no longer resumable
 		e.ResumeArgv, e.Resume = nil, ""
 	} else if e.ResumeArgv == nil && e.Resume != "" { // format 1, until reconcile rebuilds it
 		e.ResumeArgv = claudeResume(e.ID)
+	}
+	if e.Harness == "omp" && e.Parent == "" && len(e.ResumeArgv) > 0 && !e.SourceMissing {
+		var context string
+		if value := fields["omp_profile_context"]; value != nil {
+			if err := json.Unmarshal(value, &context); err != nil {
+				return Entry{}, err
+			}
+		}
+		if context != ompProfileContext() {
+			e.ResumeArgv, _, err = ompResume(e.Source, e.ID)
+			if err != nil {
+				return Entry{}, err
+			}
+			e.Resume = ResumeLine(e.Cwd, e.ResumeArgv)
+		}
 	}
 	e.named = normalize(e.Title + " " + strings.Join(e.Branches, " ") + " " + strings.Join(e.PRs, " "))
 	e.body = normalize(body)

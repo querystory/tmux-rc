@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -251,5 +252,52 @@ func TestOmpNoResumeWithoutCwd(t *testing.T) {
 	must(t, err)
 	if len(s.ResumeArgv) != 0 {
 		t.Fatalf("resume without historical cwd = %v", s.ResumeArgv)
+	}
+}
+
+func TestOmpProfileChangeInvalidatesResumeCache(t *testing.T) {
+	ompTestEnv(t)
+	normal := ompWrite(t, filepath.Join(ompLocationFor("", os.Getenv).Sessions, "bucket", "normal.jsonl"), ompTestHeader)
+	flat := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", flat)
+	custom := ompWrite(t, filepath.Join(flat, "custom.jsonl"), strings.ReplaceAll(ompTestHeader, "real-id", "custom-id"))
+	Reconcile()
+	cachedArgv := func(id string) []string {
+		data, err := os.ReadFile(indexPath("omp", "", id))
+		must(t, err)
+		for line := range strings.Lines(string(data)) {
+			if value, ok := strings.CutPrefix(line, "resume_argv: "); ok {
+				var argv []string
+				must(t, json.Unmarshal([]byte(value), &argv))
+				return argv
+			}
+		}
+		t.Fatalf("cached %s has no resume command", id)
+		return nil
+	}
+	for _, profile := range []string{"review", "other", ""} {
+		t.Setenv("OMP_PROFILE", profile)
+		if !reconcileDue() {
+			t.Fatal("profile change did not schedule a reconcile")
+		}
+		normalArgv := []string{"omp", "--profile", "default", "--resume", normal}
+		customArgv := []string{"omp", "--profile", profile, "--resume", custom}
+		if profile == "" {
+			normalArgv = []string{"omp", "--resume", "real-id"}
+			customArgv = []string{"omp", "--resume", custom}
+		}
+		// Consumers must not receive another profile's cached command while the
+		// background reconcile is pending.
+		for id, want := range map[string][]string{"real-id": normalArgv, "custom-id": customArgv} {
+			e, err := ReadEntry(indexPath("omp", "", id))
+			must(t, err)
+			if !reflect.DeepEqual(e.ResumeArgv, want) {
+				t.Errorf("profile %q get %s = %v, want %v", profile, id, e.ResumeArgv, want)
+			}
+		}
+		Reconcile()
+		if !reflect.DeepEqual(cachedArgv("real-id"), normalArgv) || !reflect.DeepEqual(cachedArgv("custom-id"), customArgv) {
+			t.Fatalf("profile %q retained a cached command for another profile", profile)
+		}
 	}
 }

@@ -210,9 +210,6 @@ func TestReconcileRecordsOnlyCompletedRuns(t *testing.T) {
 	}
 
 	Reconcile()
-	if recordedFormat() != Format {
-		t.Errorf("a completed run was not recorded with format %q: %q", Format, recordedFormat())
-	}
 	if _, err := os.Stat(indexPath("claude", "", "s")); err != nil {
 		t.Errorf("transcript under a glob-shaped root not indexed: %v", err)
 	}

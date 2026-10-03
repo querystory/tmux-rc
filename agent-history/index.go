@@ -144,6 +144,7 @@ func Render(s Session) []byte {
 		{"entrypoint", s.Entrypoint}, {"title", s.Title}, {"started", s.Started},
 		{"last_active", s.LastActive}, {"prs", s.PRs}, {"resume_argv", s.ResumeArgv},
 		{"resume", ResumeLine(s.Cwd, s.ResumeArgv)},
+		{"omp_profile_context", s.ompProfileContext},
 		{"messages", len(s.Messages)},
 	} {
 		if v := quote(f.value); v != `""` && v != "null" {

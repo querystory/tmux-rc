@@ -100,6 +100,10 @@ also preserve `--profile`, so a resume does not silently change profile configur
 An explicit `PI_CODING_AGENT_SESSION_DIR` with no root/registry profile marker inherits
 the active `OMP_PROFILE`/`PI_PROFILE`. Paths tied to the default root or registry
 explicitly select `--profile default` when reconcile runs under a named profile.
+The effective profile is a cache input: changing it immediately schedules an omp
+rebuild even if transcripts are unchanged. Cached-entry reads also refresh resume
+argv for their current profile context, so the first result is safe before that
+background rebuild completes; the internal context is not exposed in API JSON.
 
 ## Resolving a request
 
@@ -144,6 +148,9 @@ commands do not count. Positive open-transcript evidence also covers headless ho
 but descriptors are lazy: a host with insufficient evidence makes omp liveness unknown,
 not stopped. Ambiguous terminal ownership does the same. Subagents suppress breadcrumbs
 and are not reported as independent live sessions.
+Bun hosts whose best-effort OS rename did not take effect are also detected, but
+only for an omp CLI script (including the installed `omp` symlink), not unrelated
+Bun programs. Node is not an omp runtime: its CLI requires Bun.
 
 The process's CLI/environment profile selects the breadcrumb root. Later in-process
 `.env` relocation may be invisible in Linux's initial `/proc` environment; no alternate

@@ -119,7 +119,7 @@ func TestReconcileIndexesCodex(t *testing.T) {
 	t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	writeCodex(t)
-	if !reconcileAll(false) {
+	if !reconcileAll(false, false) {
 		t.Fatal("reconcile failed")
 	}
 	e, err := ReadEntry(indexPath("codex", "", codexID))
@@ -143,13 +143,13 @@ func TestReconcileIndexesCodex(t *testing.T) {
 	must(t, err)
 	must(t, os.WriteFile(e.Path, []byte("sentinel"), 0o600))
 	must(t, os.Chtimes(e.Path, info.ModTime(), info.ModTime()))
-	reconcileAll(false)
+	reconcileAll(false, false)
 	if data, _ := os.ReadFile(e.Path); string(data) != "sentinel" {
 		t.Errorf("up-to-date entry was rewritten")
 	}
 	later := info.ModTime().Add(time.Minute)
 	must(t, os.Chtimes(sessionsOf(t)[0][1], later, later))
-	reconcileAll(false)
+	reconcileAll(false, false)
 	if data, _ := os.ReadFile(e.Path); string(data) == "sentinel" {
 		t.Errorf("entry not rebuilt when its thread was resumed")
 	}
@@ -161,14 +161,14 @@ func TestReconcileIndexesCodex(t *testing.T) {
 	_, err = f.WriteString(`{"id":"` + codexID + `","thread_name":"renamed later","updated_at":"` + later.Add(time.Hour).Format(time.RFC3339Nano) + `"}` + "\n")
 	must(t, err)
 	must(t, f.Close())
-	reconcileAll(false)
+	reconcileAll(false, false)
 	e, err = ReadEntry(e.Path)
 	must(t, err)
 	check(t, "title after rename", e.Title, "renamed later")
 
 	// Retention deletes a thread's oldest file first; the entry still has a source.
 	must(t, os.Remove(sessionsOf(t)[0][0]))
-	reconcileAll(false)
+	reconcileAll(false, false)
 	e, err = ReadEntry(e.Path)
 	must(t, err)
 	if e.SourceMissing || e.ResumeArgv == nil {

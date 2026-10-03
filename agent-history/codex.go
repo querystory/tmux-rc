@@ -215,8 +215,8 @@ func RunningCodex() (map[string]Running, error) {
 		return nil, err
 	}
 	dir += string(filepath.Separator)
-	procs, err := harnessProcesses("codex", func(args []string) bool {
-		return len(args) > 0 && filepath.Base(args[0]) != "codex-linux-sandbox"
+	procs, err := harnessProcesses([]string{"codex"}, func(_ int, _ string, args []string) (bool, error) {
+		return len(args) > 0 && filepath.Base(args[0]) != "codex-linux-sandbox", nil
 	})
 	if err != nil {
 		return nil, err

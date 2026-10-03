@@ -154,11 +154,9 @@ func ompLiveHost(t *testing.T, env map[string]string, name, command, hold string
 	exe := filepath.Join(dir, name)
 	must(t, os.Symlink("/bin/sh", exe))
 	script := filepath.Join(dir, command)
+	must(t, os.MkdirAll(filepath.Dir(script), 0o700))
 	must(t, os.WriteFile(script, []byte("if [ -n \"$HOLD\" ]; then exec 3<\"$HOLD\"; fi\nprintf ready > \"$READY\"\nread -r _\n"), 0o600))
 	cmd := exec.Command(exe, append([]string{command}, args...)...)
-	if argv0 := env["TEST_ARGV0"]; argv0 != "" {
-		cmd.Args[0] = argv0
-	}
 	cmd.Dir = dir
 	for key, value := range env {
 		cmd.Env = append(cmd.Env, key+"="+value)
@@ -209,7 +207,7 @@ func ompLiveHost(t *testing.T, env map[string]string, name, command, hold string
 // avoids inspecting any real omp transcripts on a developer's machine.
 func ompFixtureRunning(t *testing.T, pids ...int) (map[string]Running, error) {
 	t.Helper()
-	procs, err := harnessProcesses("omp", ompHost)
+	procs, err := harnessProcesses([]string{"omp", "bun"}, ompHost)
 	must(t, err)
 	var fixtures []harnessProcess
 	for _, proc := range procs {
@@ -391,21 +389,27 @@ func TestRunningOmpChildFDDoesNotIdentifyParent(t *testing.T) {
 
 func TestRunningOmpBunHostsAndTitleSlot(t *testing.T) {
 	env := ompLiveEnv(t)
-	env["TEST_ARGV0"] = "bun"
 	path := ompLiveFile(t, filepath.Join(t.TempDir(), "bun.jsonl"), "bun-main")
 	header, err := os.ReadFile(path)
 	must(t, err)
 	slot := []byte("{\"type\":\"title\",\"v\":1,\"title\":\"Synthetic\",\"pad\":\"\"}\n")
 	must(t, os.WriteFile(path, append(slot, header...), 0o600))
-	cmd, stop := ompLiveHost(t, env, "omp", "entrypoint", path, false)
+	cmd, stop := ompLiveHost(t, env, "bun", "packages/coding-agent/src/cli.ts", path, false)
 	got, err := ompFixtureRunning(t, cmd.Process.Pid)
 	must(t, err)
 	if len(got) != 1 || got["bun-main"].PID != cmd.Process.Pid {
 		t.Fatalf("interpreted bun host with title slot = %+v", got)
 	}
 	stop()
-	worker, _ := ompLiveHost(t, env, "omp", "entrypoint", path, false, "__omp_worker_stats_sync")
+	worker, _ := ompLiveHost(t, env, "bun", "packages/coding-agent/src/cli.ts", path, false, "__omp_worker_stats_sync")
 	if got, err := ompFixtureRunning(t, worker.Process.Pid); err != nil || len(got) != 0 {
 		t.Fatalf("interpreted worker host = %v, %v", got, err)
+	}
+	for _, script := range []string{"other/cli.ts", "unrelated"} {
+		cmd, stop := ompLiveHost(t, env, "bun", script, path, false)
+		if got, err := ompFixtureRunning(t, cmd.Process.Pid); err != nil || len(got) != 0 {
+			t.Fatalf("unrelated bun script %q = %v, %v", script, got, err)
+		}
+		stop()
 	}
 }

@@ -147,51 +147,68 @@ func ReadOmp(path string) (Session, error) {
 		}
 	}
 	if s.Parent == "" && s.Cwd != "" {
-		absolute, err := filepath.Abs(path)
+		s.ResumeArgv, s.ompProfileContext, err = ompResume(path, s.ID)
 		if err != nil {
 			return Session{}, err
 		}
-		arg, profile := absolute, ""
-		knownProfile := false
-		active := ompActiveProfile()
-		locations, err := ompLocations(active)
-		if err != nil {
-			return Session{}, err
+	}
+	return s, nil
+}
+
+// The effective profile is a cache input; empty and explicit default are equivalent.
+func ompProfileContext() string {
+	if profile := ompActiveProfile(); profile != "" {
+		return profile
+	}
+	return "default"
+}
+
+// Share resume construction with cached-entry reads so a profile change cannot
+// expose another profile's command while the background reconcile is pending.
+func ompResume(path, id string) ([]string, string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return nil, "", err
+	}
+	arg, profile := absolute, ""
+	knownProfile := false
+	active := ompProfileContext()
+	locations, err := ompLocations(active)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, loc := range locations {
+		if ompWithin(loc.Sessions, absolute) {
+			profile, knownProfile = loc.Profile, true
+			if loc == locations[0] && active == "default" {
+				arg = id
+			}
+			break
 		}
+	}
+	if !knownProfile {
 		for _, loc := range locations {
-			if ompWithin(loc.Sessions, absolute) {
+			matched := false
+			if err := ompPointers(loc, func(path string) { matched = matched || path == absolute }); err != nil {
+				return nil, "", err
+			}
+			if matched {
 				profile, knownProfile = loc.Profile, true
-				if loc == locations[0] && (active == "" || active == "default") {
-					arg = s.ID
-				}
 				break
 			}
 		}
-		if !knownProfile {
-			for _, loc := range locations {
-				matched := false
-				if err := ompPointers(loc, func(path string) { matched = matched || path == absolute }); err != nil {
-					return Session{}, err
-				}
-				if matched {
-					profile, knownProfile = loc.Profile, true
-					break
-				}
-			}
-		}
-		if profile == "" && active != "" && active != "default" {
-			profile = active
-			if knownProfile {
-				profile = "default"
-			}
-		}
-		s.ResumeArgv = []string{"omp"}
-		if profile != "" {
-			s.ResumeArgv = append(s.ResumeArgv, "--profile", profile)
-		}
-		s.ResumeArgv = append(s.ResumeArgv, "--resume", arg)
 	}
-	return s, nil
+	if profile == "" && active != "default" {
+		profile = active
+		if knownProfile {
+			profile = "default"
+		}
+	}
+	argv := []string{"omp"}
+	if profile != "" {
+		argv = append(argv, "--profile", profile)
+	}
+	return append(argv, "--resume", arg), active, nil
 }
 func ompValidTitleSlot(line []byte) bool {
 	var slot struct {

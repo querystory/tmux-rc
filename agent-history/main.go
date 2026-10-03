@@ -186,25 +186,28 @@ func detach(args ...string) {
 func Reconcile() {
 	withLock("reconcile", false, func() {
 		withLock("index", true, func() {
-			if reconcileAll(recordedFormat() != Format) {
-				report(os.WriteFile(stateFile(), []byte(Format), 0o600))
+			format, profile := recordedState()
+			context := ompProfileContext()
+			if reconcileAll(format != Format, profile != context) {
+				report(os.WriteFile(stateFile(), []byte(Format+"\n"+context), 0o600))
 			}
 		})
 	})
 }
 
-// reconcileDue says the last completed reconcile is too old or wrote an older format.
+// A changed omp context is due immediately, even while transcript mtimes match.
 func reconcileDue() bool {
-	return since(stateFile()) > reconcileEvery || recordedFormat() != Format
+	format, profile := recordedState()
+	return since(stateFile()) > reconcileEvery || format != Format || profile != ompProfileContext()
 }
 
-// recordedFormat is the entry format the last completed reconcile wrote.
-func recordedFormat() string {
+func recordedState() (string, string) {
 	data, _ := os.ReadFile(stateFile())
-	return string(data)
+	format, profile, _ := strings.Cut(string(data), "\n")
+	return format, profile
 }
 
-func reconcileAll(force bool) (ok bool) {
+func reconcileAll(force, forceOmp bool) (ok bool) {
 	ok = true
 	check := func(err error) {
 		report(err)
@@ -214,7 +217,7 @@ func reconcileAll(force bool) (ok bool) {
 		sessions, err := h.sessions()
 		check(err)
 		for _, files := range sessions {
-			check(indexFile(h, files, force))
+			check(indexFile(h, files, force || (h.name == "omp" && forceOmp)))
 		}
 	}
 	entries, err := indexEntries()
