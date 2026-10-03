@@ -1,10 +1,13 @@
 import { atlasCharts } from './atlas-charts.js';
-import { needsYou, isRunning, markWorking, paneName } from './pane-model.js';
+import { needsYou, isRunning, markWorking, modelProvider, paneName } from './pane-model.js';
 
 const STATES = ['Needs you', 'Running', 'Idle', 'Unknown', 'Compacting', 'Waiting'];
 const sum = rows => rows.some(row => row == null) ? null : STATES.map((_, i) => rows.reduce((n, row) => n + (row[i] || 0), 0));
 const stateOf = (p) => needsYou(p) ? 0 : p.activity === 'compacting' ? 4 : p.activity === 'waiting' ? 5 : isRunning(p) ? 1 : p.activity === 'idle' ? 2 : 3;
 const toolOf = p => p.tool || 'other';
+// 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
+// filter to: they still count under All, but get no chip of their own.
+const isAgent = tool => tool && tool !== 'unknown' && tool !== 'other';
 let history = [], historyData = null, historyWindow = '24h', historyError = '';
 let requestedAt = 0, controller, reloadHistory;
 
@@ -58,7 +61,7 @@ const STOP = new Set(('the a an and or to of in on for with from is are was were
 export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}) {
   const allPanes = panes;
   const scope = root._scope ||= { tool: '', session: '' };
-  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(Boolean))];
+  const tools = [...new Set(['claude', 'codex', 'shell', ...allPanes.map(toolOf), ...history.flatMap(s => s.groups.map(g => g.tool))].filter(isAgent))];
   const sessions = [...new Set([...allPanes.map(p => p.session), ...history.flatMap(s => s.groups.map(g => g.session))].filter(Boolean))].sort();
   panes = allPanes.filter(p => (!scope.tool || toolOf(p) === scope.tool) && (!scope.session || p.session === scope.session));
   const metric = root._metric || 'panes';
@@ -77,7 +80,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     ? sum([s.foreground, s.background]) : s[metric] ?? null }));
   // Preserve focus and pointer targets across unchanged long polls.
   const signature = [metric, scope.tool, scope.session, history, historyWindow, historyError, historyData?.step, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
-    p.waiting_on, p.tool, p.session_summary, p.status_line])];
+    p.waiting_on, p.tool, p.model, p.session_summary, p.status_line])];
   if (root._signature?.length === signature.length && signature.every((value, i) => value === root._signature[i])) return;
   root._signature = signature;
   const charts = root._charts ||= atlasCharts();
@@ -129,12 +132,14 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     members.forEach(p => {
       const dot = el('button', `atlas-dot s${stateOf(p)}`);
       dot.dataset.key = p.pane_id;
-      dot.setAttribute('aria-label', `${paneName(p)} · ${STATES[stateOf(p)]}`);
+      dot.setAttribute('aria-label', [paneName(p), modelProvider(p)?.[0], STATES[stateOf(p)]].filter(Boolean).join(' · ')); // its label hides the badge's alt
       dot.title = `${paneName(p)}\n${STATES[stateOf(p)]}\n${p.session_summary || p.status_line || ''}`;
       const logo = el('img', 'atlas-agent-icon');
       logo.alt = p.tool || 'tmux';
+      const icon = el('span', 'atlas-agent');
+      icon.append(logo);
       markWorking(logo, p, logos);
-      dot.append(logo, el('span', 'atlas-dot-name', paneName(p)));
+      dot.append(icon, el('span', 'atlas-dot-name', paneName(p)));
       dot.onclick = () => navigate(p.pane_id);
       dots.append(dot);
     });

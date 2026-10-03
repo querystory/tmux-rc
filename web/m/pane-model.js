@@ -17,13 +17,25 @@ export const isRunning = (pane) => ["running", "compacting"].includes(activityCl
 // reduced motion is CSS's job (style.css shows the still logo over it, live as the setting flips).
 const WORKING_LOGOS = { omp: "/omp-working.svg" };
 const has = (map, key) => Object.prototype.hasOwnProperty.call(map, key);
+// omp and OpenCode drive any vendor's model, so their own logo can't say whose is running.
+// The families match how the parsers emit pane.model ("GPT-6.1-Sol", "Claude Opus 5.5",
+// "Opus 4.8"); anything else gets no badge rather than a guess.
+const MULTI_VENDOR = ["omp", "opencode"];
+const PROVIDERS = [[/\b(claude|opus|sonnet|haiku|fable)\b/i, "Anthropic", "/claude.png"], [/\b(gpt|o\d|codex)/i, "OpenAI", "/openai.svg"], [/\bgemini\b/i, "Google", "/gemini.svg"]];
+export const modelProvider = (pane) => (MULTI_VENDOR.includes(pane.tool) && PROVIDERS.find(([re]) => re.test(pane.model || ""))?.slice(1)) || null;
 // Set a pane's logo and animate it while it works; CSS keys the motion off .working and data-tool.
+// The provider badge is the logo's sibling, so the working motion and crop never touch it.
 export function markWorking(img, pane, logos) {
   const working = isRunning(pane);
   img.classList.toggle("working", working);
   img.dataset.tool = pane.tool || "";
   const src = working && has(WORKING_LOGOS, pane.tool) ? WORKING_LOGOS[pane.tool] : has(logos, pane.tool) ? logos[pane.tool] : "/tmux-logomark.svg";
   if (img.getAttribute("src") !== src) img.src = src;
+  const provider = modelProvider(pane);
+  let badge = img.parentElement.querySelector(".model-badge");
+  if (!provider) return badge?.remove();
+  if (!badge) img.after(badge = Object.assign(document.createElement("img"), { className: "model-badge" }));
+  if (badge.getAttribute("src") !== provider[1]) Object.assign(badge, { src: provider[1], alt: provider[0] });
 }
 export function isRecent(pane, nowMs = Date.now()) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);

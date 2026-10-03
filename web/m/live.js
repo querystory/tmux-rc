@@ -15,7 +15,7 @@ const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this coun
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
 
-export function setupLiveMode({ request, session, licon, report = () => {}, onVersion = () => {} }) {
+export function setupLiveMode({ request, session, licon, wide, report = () => {}, onVersion = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -50,21 +50,40 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     paintStarters();
     badge();
   }
-  const badge = () => bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size });
+  const following = () => log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX;
+  // Until a chat turn completes, an Assistant row of dots sits at the foot of the log and
+  // rows that arrive meanwhile go above it. It stays up past a first reply, since a turn
+  // can say something and then keep working (a find_sessions call shows nothing), and hides
+  // while a consent card is open (the model is waiting on the user then).
+  const typing = document.createElement("div");
+  typing.className = "voice-entry model";
+  typing.innerHTML = '<strong aria-hidden="true">Assistant</strong><span class="chat-dots" role="img" aria-label="Assistant is responding"><i></i><i></i><i></i></span>';
+  function badge() {
+    const working = run?.turns > 0 && !run.proposals.size;
+    bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size, working });
+    if (working === typing.isConnected) return;
+    const follow = following();
+    if (working) log.append(typing); else typing.remove();
+    if (follow) log.scrollTop = log.scrollHeight;
+  }
   const bubble = chatBubble({ licon, open: () => show() });
   const starters = chatStarters($("chat-starters"), sendText);
   const paintStarters = () => starters({ visible: !!run?.text && !run.hasTurn,
     connected: !composing && !!run?.listening && run.ws?.readyState === WebSocket.OPEN });
+  // A wide screen (`wide`, app.js's breakpoint) docks the panel beside the work area
+  // instead: shown non-modally, so nothing is dimmed or made inert (style.css places it).
+  const docked = () => dialog.open && !!wide?.matches;
   // Restoring puts the log back where minimizing left it: at the tail if it was following
   // there, else at the same offset (read before closing, since a closed log has no layout).
   function show() {
-    if (!dialog.open) { dialog.showModal(); dialog.focus(); } // not the first button: its ring would show on open
+    if (!dialog.open) { wide?.matches ? dialog.show() : dialog.showModal(); dialog.focus(); } // not the first button: its ring would show on open
     if (run?.scroll) { log.scrollTop = run.scroll.follow ? log.scrollHeight : run.scroll.top; run.scroll = null; }
     unread = false; badge();
   }
   function minimize() {
-    if (run) run.scroll = { top: log.scrollTop, follow: log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX };
+    if (run) run.scroll = { top: log.scrollTop, follow: following() };
   }
+  const hide = () => { minimize(); dialog.close(); };
   chatComposer($("voice-compose"), {
     session: () => run,
     licon, error: (message) => add("error", message),
@@ -76,6 +95,9 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     run.ws.send(JSON.stringify(frame));
     run.thumbs.push(thumbnails); // for this turn's echo, or its refusal
     run.hasTurn = true; paintStarters(); // hide immediately, including on a double tap
+    // Chat only: its daemon answers each queued turn with one turn_complete. A voice model
+    // can fold queued typed turns into one reply, so a count there could stick.
+    if (run.text) { run.turns++; badge(); }
   }
   async function capabilities() {
     if (fetching) return;
@@ -88,6 +110,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
       // still says what to set), Chat a usable chat model.
       $("live-mode").hidden = !(data.live_enabled && menu.some((model) => !model.text)) && !run;
       $("chat").hidden = !(data.live_enabled && chatModels().length) && !run;
+      $("docs").hidden = !data.docs; // not live, but this is the boot capabilities fetch
     } catch { /* Retain the last confirmed capabilities during a tunnel reconnect. */ }
     finally { fetching = false; }
   }
@@ -114,8 +137,8 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     }));
   }
   function add(role, message, newSegment = false, images = []) {
-    const previous = log.lastElementChild;
-    const follow = log.scrollHeight - log.scrollTop - log.clientHeight < FOLLOW_SLACK_PX;
+    const previous = typing.isConnected ? typing.previousElementSibling : log.lastElementChild;
+    const follow = following();
     const grow = !newSegment && (role === "user" || role === "model") && previous?.dataset.role === role && !previous.dataset.done;
     let row = previous;
     if (!grow) {
@@ -124,24 +147,25 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
       row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
       heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
-      row.append(heading, document.createElement("div")); log.append(row);
+      row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
     if (role === "model") appendChatMarkdown(row.lastChild, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
     else row.lastChild.textContent += message || "";
     row.lastChild.before(...images.map(chatThumb));
-    if (!dialog.open && role !== "user") { unread = true; badge(); } // not the user's own echo
+    if (!dialog.open && role !== "user") unread = true; // not the user's own echo
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
-    for (let old; log.children.length > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => !r.querySelector(".voice-actions")));) old.remove();
+    for (let old; log.children.length - typing.isConnected > TRANSCRIPT_ROWS && (old = [...log.children].find((r) => r !== typing && !r.querySelector(".voice-actions")));) old.remove();
     if (follow) log.scrollTop = log.scrollHeight;
+    badge();
+    return row;
   }
   // A pane-changing action in a text session waits for the user: Send runs it, Cancel
   // tells the model the user declined (live._approved). The card shows a final answer
   // only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
   function propose(current, { id, text, image }) {
-    add("propose", text, false, image ? [image] : []);
-    const row = $("voice-log").lastElementChild, actions = document.createElement("div");
+    const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
       const button = document.createElement("button"); button.type = "button"; button.textContent = label;
@@ -162,7 +186,11 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     if (!card) return;
     card.row.firstChild.textContent = label; card.actions.remove(); current.proposals.delete(id); badge();
   }
-  const expire = (current) => [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
+  // The daemon drops a session's open proposals and queued turns with it.
+  function expire(current) {
+    [...current.proposals.keys()].forEach((id) => settle(current, id, "Expired"));
+    current.turns = 0; badge();
+  }
   function silence(current) {
     current.queued.forEach((source) => { try { source.stop(); } catch {} });
     current.queued.clear(); current.playAt = 0;
@@ -222,7 +250,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   function stop(message = "Session ended") {
     const current = run; run = null; sequence++;
     if (current) {
-      expire(current); // the daemon drops its open proposals with the session
+      expire(current);
       clearTimeout(current.retry); clearTimeout(current.deadline);
       current.resolveReady?.();
       current.wakeLock?.release().catch(() => {});
@@ -325,9 +353,17 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
         current.connectionStatus = message.status === "reconnecting" ? "Reconnecting..." : "Connecting...";
         audioStatus(current);
       } else if (message.type === "transcript") add(message.role, message.text, message.new_segment, "images" in message ? current.thumbs.shift() : []);
-      else if (message.type === "turn_complete") [...log.children].forEach((row) => { row.dataset.done = "true"; });
+      else if (message.type === "turn_complete") {
+        [...log.children].forEach((row) => { row.dataset.done = "true"; });
+        current.turns = Math.max(0, current.turns - 1); badge(); // a queued turn may follow
+      }
       else if (message.type === "typed") add("typed", `${message.label} (${message.pane_id})${message.submitted ? "" : " (not submitted)"}: ${message.text}`);
-      else if (message.type === "error") { if (message.refused) current.thumbs.shift(); add("error", message.message); }
+      else if (message.type === "error") {
+        // A refused turn gets no answer; any other error ends the session's turns.
+        if (message.refused) current.thumbs.shift();
+        current.turns = message.refused ? Math.max(0, current.turns - 1) : 0;
+        add("error", message.message);
+      }
       else if (message.type === "propose") propose(current, message);
       else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : "Declined");
       else if (message.type === "interrupted") silence(current);
@@ -349,7 +385,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   }
   async function start() {
     const token = ++sequence;
-    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), thumbs: [], nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
+    const current = { model: $("voice-model").value, text: mode === "text", proposals: new Map(), thumbs: [], turns: 0, nodes: [], queued: new Set(), playAt: 0, tries: 0, up: false, listening: false, muted: false };
     run = current; log.replaceChildren(); status(current.text ? "Connecting..." : "Connecting microphone..."); paint();
     if (current.text) {
       $("voice-switch").value = current.model;
@@ -404,6 +440,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   // Chat: straight into a text session on the last chat model used (else the first), no
   // picker and no mic. A conversation already running (either mode) is just brought back.
   $("chat").onclick = () => {
+    if (docked()) return hide(); // a docked panel toggles: nothing covers the button
     const models = chatModels(), model = models.find((entry) => entry.label === saved(CHAT_MODEL_KEY)) || models[0];
     if (!run && model) { mode = "text"; $("voice-model").value = model.label; start(); }
     show();
@@ -412,8 +449,12 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     if (!run?.text || $("voice-switch").value === run.model) return;
     $("voice-model").value = $("voice-switch").value; stop(); start();
   };
-  $("voice-close").onclick = () => { minimize(); dialog.close(); };
-  dialog.addEventListener("cancel", minimize); // Escape
+  $("voice-close").onclick = hide;
+  dialog.addEventListener("cancel", minimize); // Escape, modal only
+  // Docked, Escape is no close request, so take it here: only from inside the panel.
+  dialog.addEventListener("keydown", (event) => { if (event.key === "Escape" && docked()) hide(); });
+  // Crossing the breakpoint reopens the same panel the other way: same session and log.
+  wide?.addEventListener?.("change", () => { if (dialog.open) { hide(); show(); } });
   dialog.addEventListener("close", badge);
   // The X beside minimize: end the chat AND dismiss the sheet, so nothing is left to close.
   // (Voice keeps End Live Mode: its sheet stays up for the model picker to start again.)

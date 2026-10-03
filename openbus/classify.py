@@ -73,6 +73,9 @@ _TURN_ERROR_RE = {
 # A prompt row, bare or inside Claude's box ("│ ❯ …"); with text after it, the user typed.
 _PROMPT_ROW = f"^[ \\t│]*[{PROMPT_GLYPHS}]"
 _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
+# Rows whose text is never the agent asking: the user's own (a prompt row), and file
+# content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
+_NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -292,9 +295,21 @@ def _visible(text: str) -> str:
     return strip_dim(re.sub(f"{PLACEHOLDER_OPEN}.*?{PLACEHOLDER_CLOSE}", "", screen))
 
 
-def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
+def _question_prompt(question) -> str | None:
+    """The model question's prompt text, or None for any malformed payload."""
     prompt = question.get("prompt") if isinstance(question, dict) else None
-    if not isinstance(prompt, str) or not prompt.strip():
+    return prompt if isinstance(prompt, str) and prompt.strip() else None
+
+
+def _last_occurrence(prompt: str, visible: str) -> re.Match | None:
+    words = r"\s+".join(map(re.escape, prompt.split()))
+    *_, found = [None, *re.finditer(words, visible, re.IGNORECASE)]
+    return found
+
+
+def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
+    prompt = _question_prompt(question)
+    if prompt is None:
         return False
     if tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)):
         state = omp["state"]
@@ -308,13 +323,12 @@ def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
             visible,
         ):
             return False  # Right-aligned label above the idle footer, not assistant prose.
-    words = r"\s+".join(map(re.escape, prompt.split()))
-    *_, found = [None, *re.finditer(words, visible, re.IGNORECASE)]
-    # The user's own turn or draft (a ❯/› row) is not the agent asking; a live spinner
-    # below the text means the agent is working again; and a finished turn's question
-    # followed by typed input has been answered.
+    found = _last_occurrence(prompt, visible)
+    # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
+    # agent asking; a live spinner below the text means the agent is working again; and a
+    # finished turn's question followed by typed input has been answered.
     return found is not None and not (
-        re.match(_PROMPT_ROW, visible[visible.rfind("\n", 0, found.start()) + 1:])
+        _NOT_ASKING_ROW_RE.match(visible[visible.rfind("\n", 0, found.start()) + 1:])
         or any(turn["live"] or _USER_ROW_RE.search(visible, turn.end())
                for turn in (_CLAUDE_TURN_RE.finditer(visible, found.end())
                             if tool == "claude" else ()))
@@ -358,14 +372,14 @@ def _ground_visible_fields(
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
     ):
         # Retain finished work for idle labels; otherwise read beyond the old receipt.
-        words = r"\s+".join(map(re.escape, result["question"]["prompt"].split()))
-        *_, question = [None, *re.finditer(words, visible, re.IGNORECASE)]
+        asked = _question_prompt(result["question"])
+        question = asked and _last_occurrence(asked, visible)
         remaining = visible[question.end():] if question else ""
         answers, separated, current = remaining.partition("\n\n")
         evidence = (
             "[Completed Ask receipt — question and chosen answer explain the resumed task;\n"
             "use them for the headline's goal, NEVER as a current input request]\n"
-            f"{result['question']['prompt']}{answers}\n\n[Current visible work]\n{current}"
+            f"{asked}{answers}\n\n[Current visible work]\n{current}"
         ) if separated else visible
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"

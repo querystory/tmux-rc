@@ -118,6 +118,7 @@ loosen the score.
   "current_command": "node",          // the pane's tmux foreground process
   "repository": "owner/name",         // optional local GitHub repository context
   "capture": "…the pane text…",       // what the model sees
+  "prior": ["…an earlier frame…"],    // optional: earlier captures, sent as production does
   "expected": { "tool": "claude", "activity": "idle", "headline": "…" }
 }
 ```
@@ -164,9 +165,10 @@ actually hit:
 | `62_omp_ask_picker` | omp `ask` cursor picker → user-wait with the selected option |
 | `63_omp_folder_segment_running` | synthetic: omp outside a repo (`📁 <path>` segment) with a `↻` activity line → running, title not a question |
 | `64_omp_wrapped_by_bash` | omp behind a bash wrapper (`current_command=bash`) → tool=omp from its chrome, running with two workers |
-| `65_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
-| `66_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
-| `67_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
+| `65_omp_gutter_code_is_not_question` | real omp capture + one earlier frame: a question string inside a line-numbered Edit diff (`+246│`) is code, not a prompt → running, no question |
+| `66_omp_queued_user_question` | omp's outgoing numbered Steering message → running, no question, even without dim styling |
+| `67_omp_queued_messages_with_ask` | Steering/After yield queues beside a genuine Ask picker → preserve the actual cursor question |
+| `68_omp_answered_ask_followed_by_work` | answered omp Ask receipt followed by Read/Grep work → running, no stale question or decision table |
 
 Sample 16 originally exposed a table-extraction failure: the prompt said to carry a
 question's supporting list but also to omit tables unless an actual table was shown.

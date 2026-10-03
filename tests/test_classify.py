@@ -265,6 +265,16 @@ def test_omp_old_ask_cannot_override_current_input_state(state, activity, active
         assert not any(result.get(key) for key in ("question", "waiting_on", "tables"))
 
 
+@pytest.mark.parametrize("state", ["⠋", ">"])
+@pytest.mark.parametrize("question", [{"answer_style": "cursor"}, {"prompt": None}, "Pick one?"])
+def test_omp_malformed_question_is_rejected_without_raising(state, question):
+    screen = "\x1e[visible screen]\x1f\n? Ask\nPick one?\n● Red\n\nRead web/m/app.js\n"
+    result = classify(_pane("bun", f"π {state} Table renderer"), screen, _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user", "question": question,
+    }))
+    assert not result.get("question")
+
+
 def test_omp_idle_session_label_is_not_a_question():
     label = "Ask Preferred Color Choice"
     result = classify(
@@ -834,6 +844,17 @@ def test_stale_question_is_reread_from_visible_screen_only():
     assert len(calls) == 2
     assert "question" not in result and "waiting_on" not in result
     assert result["activity"] == "idle"
+
+
+@pytest.mark.parametrize("row", [
+    '│+246│····prompt = "Which color?"', " ├─   *65│Which color?", "  12│Which color?",
+])
+def test_question_behind_line_number_gutter_is_file_content(row):
+    replies = iter([{"tool": "omp", "activity": "waiting", "question": {"prompt": "Which color?"}},
+                    {"tool": "omp", "activity": "running"}])
+    capture = f"\x1e[visible screen]\x1f\n{row}\n ⠙ 3m > ◒ GPT-5.5"
+    result = classify(_pane("bun"), capture, lambda *_: next(replies))
+    assert "question" not in result and result["activity"] == "running"
 
 
 def test_visible_question_is_preserved_without_retry():

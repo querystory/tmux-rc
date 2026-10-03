@@ -110,7 +110,8 @@ def _run_one(s: Sample, model: str, replies: bool, takes_replies_fn: bool) -> di
                 id="%0", current_command=s.current_command, title=s.name)
     kw = {"replies_fn": (lambda sy, t: _call(model, sy, t, "replies")) if replies else None}
     result = classify_fn(pane, s.capture, llm_fn=lambda sy, t: _call(model, sy, t, "parse"),
-                         repository=s.repository, **(kw if takes_replies_fn else {}))
+                         prior=list(s.prior), repository=s.repository,
+                         **(kw if takes_replies_fn else {}))
     parses = [c["json"] for c in _tl.calls if c["kind"] == "parse" and isinstance(c["json"], dict)]
     return {"result": result, "calls": _tl.calls,
             "raw_closing_replies": next((p["closing_replies"] for p in parses

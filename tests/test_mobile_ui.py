@@ -223,7 +223,7 @@ def test_voice_sheet_takes_initial_focus_not_its_first_button():
     web = Path(__file__).resolve().parent.parent / "web" / "m"
     html = (web / "index.html").read_text()
     assert 'id="voice-dialog" aria-labelledby="voice-title" tabindex="-1"' in html
-    assert "dialog.showModal(); dialog.focus();" in (web / "live.js").read_text()
+    assert "dialog.showModal(); dialog.focus(); }" in (web / "live.js").read_text()
     assert "#voice-dialog:focus { outline: none; }" in (web / "style.css").read_text()
 
 
@@ -236,3 +236,11 @@ def test_opening_a_pane_focuses_its_title_not_the_back_button():
     assert 'if (changed && active) $("pane-title").focus({ preventScroll: true });' in app
     assert '$("back").focus(' not in app
     assert "#pane-title:focus { outline: none; }" in (web / "style.css").read_text()
+
+
+def test_atlas_offers_no_chip_for_unknown_or_toolless_panes():
+    """History groups and live panes carry tool "unknown" (or none, bucketed as "other"), which
+    rendered a meaningless tmux-logomark chip with 0 panes; those still count under All."""
+    atlas = (Path(__file__).resolve().parent.parent / "web" / "m" / "atlas.js").read_text()
+    assert "const isAgent = tool => tool && tool !== 'unknown' && tool !== 'other';" in atlas
+    assert ".filter(isAgent))];" in atlas
