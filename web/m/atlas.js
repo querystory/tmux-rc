@@ -25,7 +25,8 @@ function liveCounts(panes) {
   const counts = STATES.map(() => 0);
   panes.forEach(p => {
     counts[stateOf(p)]++;
-    const subs = p.subagents ?? []; // omitted means none parsed; the agent's own count still applies
+    // Omitted means none parsed (the agent's own count still applies); null means unmeasured.
+    const subs = 'subagents' in p ? p.subagents : [];
     if (fleet.metric !== 'all' || !AGENT_TOOLS.has(p.tool) || !Array.isArray(subs)) return;
     const busy = counts[1] + counts[4];
     subs.forEach(a => { if (a && a.state !== 'done') counts[stateOf({ activity: a.state, waiting_on: a.waiting_on || 'external' })]++; });
