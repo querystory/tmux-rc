@@ -18,7 +18,7 @@ import time
 from functools import partial
 
 from . import tmux
-from .classify import _OPENCODE_RUNNING_RE, bootstrap, classify
+from .classify import _OMP_CTX_RE, _OPENCODE_RUNNING_RE, bootstrap, classify
 from .history import AGENT_TOOLS, pane_key
 from .llm import backing_off, classify_text, summarize_events
 from .pr_titles import PRTitles
@@ -104,6 +104,8 @@ RECENT_EVENT_TTL = 15 * 60
 # so "is this the same screen?" is judged on real content; otherwise the LLM re-fires
 # every tick and the card flickers. (These values still reach the UI via the LLM's
 # structured fields — we only ignore them for the change check.)
+_OMP_BAR = _OMP_CTX_RE.pattern  # omp's context bar: the mark of its status row
+_OMP_ROW = rf".*{_OMP_BAR}"  # lookahead body: the rest of this line holds the bar
 _VOLATILE_RE = re.compile(
     # durations; fractional seconds only as omp's job timer ("· 3.4s"), so "1.2s" elsewhere
     # stays content rather than leaving a "1." that half-tracks it
@@ -120,11 +122,12 @@ _VOLATILE_RE = re.compile(
     # per-job "· 3 🛠 · 3 req · 4.2%/272K" tool/request/context counters, and the working
     # row's spinner cell, whatever its style (braille, pulse ○◔◑, ASCII -\|/), found by
     # the elapsed time after it; the idle " π >" has none, so it still reads as changed.
-    # Each is matched in its omp-specific shape, so "release S1.2" or "sent 2 req" in
-    # ordinary output still counts as a change.
-    r"|(?<= > )S[\d.]+|(?<=\d )\(\+\d+\.\d+\)|▶─*\d+%[─╎┃][─╎┃\d.KM]*"
+    # Each is matched in its omp-specific shape, and the spend and spinner only on a row
+    # carrying that bar, so "release S1.2", "sent 2 req" or "A 14s > x" elsewhere still
+    # counts as a change.
+    rf"|(?<= > )S[\d.]+(?={_OMP_ROW})|(?<=\d )\(\+\d+\.\d+\)(?={_OMP_ROW})|{_OMP_BAR}[─╎┃\d.KM]*"
     r"|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
-    r"|^ ?\S(?= [\dhms ]+ > )"
+    rf"|^ ?\S(?= [\dhms ]+ > {_OMP_ROW})"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
     # (Codex's moving "sparkle" animation needs more than deletion — see _SPARKLE_RE.)
     r"|[ \t]+$",  # trailing whitespace
