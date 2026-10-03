@@ -177,6 +177,8 @@ def test_omp_timer_and_meter_ticks_share_one_fingerprint():
     a = _omp_frame(*_OMP_A, tool)
     assert len({_fingerprint(a.replace(" ⠋ ", f" {c} ")) for c in "⠋○◔|/"}) == 1
     assert _fingerprint(a.replace("▶───3%────", "▶0%")) == _fingerprint(a)  # a fresh bar
+    b = _omp_frame(*_OMP_B, tool)
+    assert _fingerprint(a.replace(" S", " $")) == _fingerprint(b.replace(" S", " $"))  # metered
 
 
 def test_omp_new_tool_line_changes_the_fingerprint():

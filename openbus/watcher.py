@@ -115,14 +115,14 @@ _VOLATILE_RE = re.compile(
     # Codex's own status bar wording for the same drifting metrics Claude Code's
     # patterns above already cover: "Context 36% left", "4.78M used", "weekly 52% left".
     r"|Context\s+\d+%\s+\w+|[\d.]+[KMG]\s+used|weekly\s+\d+%\s+left"
-    # omp's status row and subagent meters: "S0.06 (+0.09)" subscription/subagent spend,
-    # the "▶──3%──╎──272K─" context bar (its dash count shifts with the spend's width),
+    # omp's status row and subagent meters: "S0.06 (+0.09)" subscription (or "$" metered)
+    # and subagent spend, the "▶──3%──╎──272K─" context bar (its dashes shift with spend),
     # per-job "· 3 🛠 · 3 req · 4.2%/272K" tool/request/context counters, and the working
     # row's spinner cell, whatever its style (braille, pulse ○◔◑, ASCII -\|/), found by
     # the elapsed time after it; the idle " π >" has none, so it still reads as changed.
     # Each is matched in its omp-specific shape, so "release S1.2" or "sent 2 req" in
     # ordinary output still counts as a change.
-    r"|(?<= > )S[\d.]+(?: \(\+[\d.]+\))?|▶─*\d+%[─╎┃][─╎┃\d.KM]*"
+    r"|(?<= > )S[\d.]+|(?<=\d )\(\+\d+\.\d+\)|▶─*\d+%[─╎┃][─╎┃\d.KM]*"
     r"|· \d+ 🛠 · \d+ req · [\d.]+%/[\d.]+[KM]"
     r"|^ ?\S(?= [\dhms ]+ > )"
     r"|[⏳✳✻✶✷✽❋⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]"  # spinner glyphs
