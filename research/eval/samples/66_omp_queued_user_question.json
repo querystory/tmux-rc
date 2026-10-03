@@ -1,0 +1,14 @@
+{
+  "description": "Regression: the user's outgoing 'Did you test the omp history search stuff' was echoed as a Needs you question while omp was working. Source-derived synthetic ANSI/plain-text queue band from oh-my-pi packages/tui/src/prompt/queued-messages.ts and coding-agent/src/modes/utils/ui-helpers.ts: Steering heading with count, numbered pending USER message, edit hint. Styling is intentionally absent, as in a plain capture; queue provenance must not depend on dim markers. Running title/status chrome remains authoritative for activity. This is not a runtime capture.",
+  "current_command": "bun",
+  "title": "π ⠦ Follow PR293 Copilot Review",
+  "capture": "\u001e[visible screen]\u001f\n Reviewing the documentation and preparing final delivery for PR #293.\n\n Steering · 1\n   1. Did you test the omp history search stuff\n   └ Alt+↑ to edit\n\n  ⎋ Reviewing documentation                            Follow PR293 Copilot Review\n ⠦ 38s > ◒ GPT-6.1-Sol > 🌳 tmux-rc > ⑂ omp-history > S0.06 ▶───24%────272K─◀\n╰─\n",
+  "expected": {
+    "tool": "omp",
+    "activity": "running",
+    "waiting_on": null,
+    "question": null,
+    "tables": null,
+    "headline": "Reviewing documentation and preparing final delivery for PR #293"
+  }
+}
