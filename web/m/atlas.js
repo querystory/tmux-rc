@@ -367,7 +367,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   METRICS.forEach(([value, label]) => metricControls.append(new Option(label, value)));
   metricControls.value = fleet.metric;
   metricControls.onchange = () => setFleet({ metric: metricControls.value });
-  heading.append(el('h3', '', 'Activity over time'), now, averageText(data), info, el('span', 'fleet-gap'),
+  // The goal is fleet-wide: a page filtered to one tool or session draws none.
+  const target = scope.tool || scope.session ? null : goal;
+  heading.append(el('h3', '', 'Activity over time'), now, averageText(data, target), info, el('span', 'fleet-gap'),
     metricControls, rangeControl(), averageControl(), goalControl(icon));
   pulse.append(heading);
   if (root._info) {
@@ -500,5 +502,5 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   root._mapResize.observe(map);
   paints.forEach(paint => paint());
   charts.update({ words: topWords.map(([word, members]) => [word, members.length]), selectWord: searchTopic });
-  main.update(chartData(data, { zoomKey: JSON.stringify([fleet.range, fleet.average, scope]) }));
+  main.update(chartData(data, { goal: target, zoomKey: JSON.stringify([fleet.range, fleet.average, scope]) }));
 }
