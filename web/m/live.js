@@ -1,6 +1,7 @@
 import { liveClose } from "/live-close.js";
 import { chatBubble, chatComposer, chatThumb } from "/live-chat.js";
 import { appendChatMarkdown } from "/chat-markdown.js";
+import { chatStarters } from "/chat-starters.js";
 // Audio wire contract: rates, resampling, PCM scaling and base64 chunk bounds must match
 // what the server expects (see docs/design/live-mode.md).
 const CAPTURE_RATE = 16000; // Wire rate the server expects for mic PCM.
@@ -20,7 +21,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
   $("voice-end").innerHTML = licon("x");
   $("chat").innerHTML = licon("message");
-  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false;
+  let run = null, sequence = 0, fetching = false, modelSignature = null, menu = [], unread = false, composing = false;
   // Voice comes from the mic button, through the model picker. Chat (typed turns and
   // written replies, no mic and no playback) comes from the chat button, straight in.
   let mode = "voice";
@@ -46,10 +47,14 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
     // Closing the sheet mid-conversation only minimizes it: say so, and show the bubble.
     $("voice-close").innerHTML = licon(run ? "minus" : "x");
     $("voice-close").title = $("voice-close").ariaLabel = run ? `Minimize ${title}` : "Close panel";
+    paintStarters();
     badge();
   }
   const badge = () => bubble({ shown: !!run && !dialog.open, voice: run && !run.text, unread, pending: run?.proposals.size });
   const bubble = chatBubble({ licon, open: () => show() });
+  const starters = chatStarters($("chat-starters"), sendText);
+  const paintStarters = () => starters({ visible: !!run?.text && !run.hasTurn,
+    connected: !composing && !!run?.listening && run.ws?.readyState === WebSocket.OPEN });
   // Restoring puts the log back where minimizing left it: at the tail if it was following
   // there, else at the same offset (read before closing, since a closed log has no layout).
   function show() {
@@ -63,12 +68,15 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   chatComposer($("voice-compose"), {
     session: () => run,
     licon, error: (message) => add("error", message),
-    send(frame, thumbnails) {
-      if (!run?.listening || run.ws?.readyState !== WebSocket.OPEN) return false;
-      run.ws.send(JSON.stringify(frame));
-      run.thumbs.push(thumbnails); // for this turn's echo, or its refusal
-    },
+    busy: (value) => { composing = value; paintStarters(); },
+    send: sendText,
   });
+  function sendText(frame, thumbnails = []) {
+    if (!run?.listening || run.ws?.readyState !== WebSocket.OPEN) return false;
+    run.ws.send(JSON.stringify(frame));
+    run.thumbs.push(thumbnails); // for this turn's echo, or its refusal
+    run.hasTurn = true; paintStarters(); // hide immediately, including on a double tap
+  }
   async function capabilities() {
     if (fetching) return;
     fetching = true;
@@ -172,6 +180,7 @@ export function setupLiveMode({ request, session, licon, report = () => {}, onVe
   }
   function audioStatus(current) {
     if (run !== current) return;
+    paintStarters();
     if (current.text) return status(current.listening ? "Connected" : current.connectionStatus || "Connecting...");
     const tracks = current.stream?.getAudioTracks() || [];
     const interrupted = current.capture?.state !== "running" ||
