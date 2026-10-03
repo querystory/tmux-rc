@@ -18,7 +18,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button, a, input, textarea, select { touch-action: manipulation; }
 button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; min-height: 44px; }
 button:disabled { opacity: .45; cursor: default; }
-button:not(:disabled):hover { background: var(--raised); }
+button:not(:disabled):hover { background: var(--raised); --card: var(--raised); }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 a { color: var(--accent); }
 svg { flex-shrink: 0; vertical-align: middle; }
@@ -68,7 +68,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
-.pane-row.needs-you { background: var(--amber-bg); }
+.pane-row.needs-you { background: var(--amber-bg); --card: var(--amber-bg); }
 /* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
    raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. It
    layers over the status background, so a selected Needs-you row stays amber. Only the
@@ -76,10 +76,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
    an inset box-shadow, leaving the focus outline free to look different. :not(:disabled)
    outranks the global button hover rule, so hover cannot repaint a selected row. */
 .row-title strong { font-weight: 600; }
-.pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); width: calc(100% - 12px); margin-inline: 6px; border-radius: 10px; border-bottom-color: transparent; position: relative; box-shadow: inset 4px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent), 0 2px 10px rgb(0 0 0 / .2); }
-.pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); }
+.pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); width: calc(100% - 12px); margin-inline: 6px; border-radius: 10px; border-bottom-color: transparent; position: relative; box-shadow: inset 4px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent), 0 2px 10px rgb(0 0 0 / .2); }
+.pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
-.pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; }
+.pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; position: relative; }
 .pane-icon img { object-fit: contain; }
 /* Working logo: one treatment for the list row and the dashboard tile (see markWorking). A soft
    glow ring that breathes with the logo; transform only, so it never relayouts or repaints. */
@@ -95,6 +95,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 @media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
 @keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
 @keyframes logo-spin { to { transform: rotate(1turn); } }
+/* Which vendor's model a multi-vendor harness runs (see modelProvider). Its disc is the card's
+   own colour, so the badge reads as cut out of the logo's corner in either theme. */
+.model-badge { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 2px; object-fit: contain; border-radius: 50%; background: var(--card, var(--bg)); }
+.atlas-agent { position: relative; display: flex; }
 .needs-you .pane-icon { background: transparent; color: var(--amber); }
 .row-body { flex: 1; min-width: 0; }
 .row-title { display: flex; align-items: baseline; gap: 8px; }
@@ -357,7 +361,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
 .atlas-map { display: grid; gap: 12px; }
 .atlas-split { display: grid; gap: 12px; min-width: 0; }
-.atlas-island { padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); min-width: 0; }
+.atlas-island { padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); --card: var(--surface); min-width: 0; }
 .landing-inner .atlas-island h3, .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
 .atlas-island > p, .atlas-panel > p { font-size: 12px; }
 .atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 10px; align-items: start; }

@@ -306,6 +306,23 @@ for pane, expected in [
         "paneName", [pane], expected,
     ))
 
+# Model strings as the parsers emit them (eval samples and the live daemon).
+for tool, model, expected in [
+    ("omp", "GPT-6.1-Sol", ["OpenAI", "/openai.svg"]),
+    ("omp", "gpt-5.5 xhigh fast", ["OpenAI", "/openai.svg"]),
+    ("omp", "Opus 4.8", ["Anthropic", "/claude.png"]),
+    ("opencode", "Claude Opus 5.5", ["Anthropic", "/claude.png"]),
+    ("opencode", "gemini-3.1-flash", ["Google", "/gemini.svg"]),
+    ("omp", "Kimi K2", None),
+    ("omp", None, None),
+    ("claude", "Opus 5.5", None),
+    ("codex", "GPT-6.1-Sol medium", None),
+]:
+    CASES.append((
+        f"modelProvider: {tool} running {model!r}",
+        "modelProvider", [{"tool": tool, "model": model}], expected,
+    ))
+
 FILTER_NAMES = ["all", "running", "recent", "attention"]
 INVALID_FILTERS = (
     "__proto__", "toString", "constructor", "hasOwnProperty", "valueOf", "", None,
