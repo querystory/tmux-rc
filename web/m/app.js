@@ -438,11 +438,15 @@ function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()])
     sizeFleet(); // a taller overview takes its room from the terminal, which the split's cap protects
   }
 }
-new ResizeObserver(() => {
+// The composer too: a multiline draft or the key row grows it without resizing #detail,
+// and the terminal it squeezes is what the split's cap protects.
+const detailResize = new ResizeObserver(() => {
   if (active && streamedLayout !== effectiveLayout()) {
     restartDetail(); render();
   } else { sizeReview(); if (WIDE.matches) sizeFleet(); }
-}).observe($("detail"));
+});
+detailResize.observe($("detail"));
+detailResize.observe($("composer"));
 $("mobile-view-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
   if (!button) return;

@@ -217,6 +217,7 @@ const unchanged = (root, signature) => {
 // Reset zoom, shown only while the chart is zoomed; it hands focus back to the chart.
 function resetZoomButton(chart) {
   const reset = el('button', 'atlas-reset-zoom', 'Reset zoom');
+  reset.dataset.key = 'reset-zoom';
   reset.onclick = () => { chart.resetZoom(); chart.el.focus({ preventScroll: true }); };
   chart.onZoom = () => { reset.hidden = !chart.zoomed(); };
   chart.onZoom();
@@ -378,7 +379,8 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   cards.forEach((chart, key) => { if (!keys.includes(key)) { chart.dispose(); cards.delete(key); } });
   const series = keys.map(key => [key, rows(scoped({ ...scope, [by]: key }), metric)]);
   const stacked = n => STATES.reduce((total, state, i) => shownStates[state] === false ? total : total + (n[i] || 0), 0);
-  const max = Math.max(1, ...series.flatMap(([, r]) => r.flatMap(x => [x.n ? stacked(x.n) : 0, x.ma || 0])));
+  // Folded, not spread: a long history across many sessions would pass Math.max too many arguments.
+  const max = series.reduce((top, [, r]) => r.reduce((m, x) => Math.max(m, x.n ? stacked(x.n) : 0, x.ma || 0), top), 1);
   const grid = el('div', 'atlas-multiples-grid');
   // Charts paint once attached: a node moved out and back in one frame never reports a resize.
   const paints = [];
