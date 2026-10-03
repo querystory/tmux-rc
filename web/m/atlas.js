@@ -176,7 +176,7 @@ function averageControl() {
 
 // "Goal 12" until clicked, then a stepper. The goal lives in the daemon, so every device
 // draws the same line. Every part carries the key 'goal' so focus follows the swap.
-let goalFailed = false;
+let goalFailed = false, draftInvalid = false; // the latter survives an editor rebuild, which empties the box
 let saving = false;
 async function saveGoal() {
   if (saving) return; // one PUT at a time, so an older save can never land last
@@ -199,19 +199,19 @@ function goalControl(icon) {
     button.innerHTML = `${icon('target', 14)}<span></span>${icon('pencil', 12)}`;
     button.querySelector('span').textContent = goal == null ? 'Set goal' : 'Goal ';
     if (goal != null) button.querySelector('span').append(el('b', '', String(goal)));
-    button.onclick = () => { draft = String(goal ?? ''); setFleet({}); };
+    button.onclick = () => { draft = String(goal ?? ''); draftInvalid = false; setFleet({}); };
     return button;
   }
   const box = el('span', 'fleet-goal editing');
   const input = el('input');
   Object.assign(input, { type: 'number', min: 1, max: 999, value: draft, placeholder: 'none' });
   input.setAttribute('aria-label', 'Running goal. Empty clears it.');
-  input.setAttribute('aria-invalid', String(goalFailed));
+  input.setAttribute('aria-invalid', String(goalFailed || draftInvalid));
   input.title = goalFailed ? 'Could not save the goal. Try again.' : '';
   input.dataset.key = 'goal';
-  input.oninput = () => { draft = input.value; };
+  input.oninput = () => { draft = input.value; draftInvalid = input.validity.badInput; };
   // Half-typed input ("-", "1e") reads as empty; only a truly empty box clears the goal.
-  const submit = () => { if (input.reportValidity()) saveGoal(); };
+  const submit = () => { if (!draftInvalid && input.reportValidity()) saveGoal(); else input.setAttribute('aria-invalid', 'true'); };
   input.onkeydown = event => { if (event.key === 'Enter') submit(); };
   box.onkeydown = event => { if (event.key === 'Escape') { draft = null; goalFailed = false; setFleet({}); } };
   const button = (name, label, onclick) => {
@@ -223,7 +223,7 @@ function goalControl(icon) {
     node.onclick = onclick;
     return node;
   };
-  const nudge = delta => () => { input.value = draft = String(Math.max(1, Math.min(999, (Number(input.value) || 0) + delta))); };
+  const nudge = delta => () => { draftInvalid = false; input.value = draft = String(Math.max(1, Math.min(999, (Number(input.value) || 0) + delta))); };
   box.append(el('span', '', 'Running goal'), button('minus', 'Lower the goal', nudge(-1)), input,
     button('plus', 'Raise the goal', nudge(1)), button('check', 'Save the goal', submit));
   return box;
