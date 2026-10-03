@@ -124,6 +124,7 @@ def test_real_tmux_delivers_only_to_a_mouse_app(tmp_path, monkeypatch):
             time.sleep(0.02)
         return False
 
+    pane = None
     try:
         pane = run(["new-session", "-d", "-P", "-F", "#{pane_id}",
                     "-x", "40", "-y", "10", "sh"]).strip()
@@ -137,5 +138,7 @@ def test_real_tmux_delivers_only_to_a_mouse_app(tmp_path, monkeypatch):
         assert T.wheel(pane, 1, expected_pid=pid)
         assert wait_for(lambda: "^[[<64;21;6M" in run(["capture-pane", "-p", "-t", pane]))
     finally:
-        subprocess.run(["tmux", "-S", socket, "kill-server"], check=False, env=env,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Close only the pane this test made; the private server exits with it.
+        if pane:
+            subprocess.run(["tmux", "-S", socket, "kill-pane", "-t", pane], check=False,
+                           env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
