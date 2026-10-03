@@ -658,7 +658,7 @@ function renderItems(el, values, agents = false) {
     html(node.firstChild, licon(done ? "check" : "circle", 16));
     text(node.children[1], value.text || value.label);
     node.title = value.text || value.label || "";
-    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens].filter(Boolean).join(" · ") : "");
+    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
   });
 }
 

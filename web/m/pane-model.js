@@ -119,8 +119,10 @@ export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pan
 // A list field (tasks, subagents) as its object entries: what the model emits can be junk.
 export const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
 export const itemDone = (item) => !!item.done || item.state === "done";
-// The sub-agents still at work, which the sidebar counts and lists under the row.
-export const liveSubagents = (pane) => records(pane?.subagents).filter((a) => !itemDone(a));
+// The sub-agents at work (busy as the backend counts it, models.py), listed under a sidebar
+// row. `agents` is the backend's count, which can exceed the roster (omp's own counter).
+export const liveSubagents = (pane) => records(pane?.subagents).filter((a) => ["running", "compacting"].includes(a.state));
+export const subagentCount = (pane) => Math.max(Number(pane?.agents) || 0, liveSubagents(pane).length);
 export const paneMeta = (pane) => [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.working?.elapsed ?? pane?.elapsed].filter(Boolean).join(" / ");
 
 // Search the accumulated associations, not just this frame's headline. A PR may

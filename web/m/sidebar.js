@@ -7,7 +7,7 @@
 // Phones never call this: their list is renderList's rows in app.js.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -187,9 +187,10 @@ export function setupSidebar(ctx) {
     }, (b, p) => {
       if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
-      b.ariaLabel = `${p.session} / ${paneName(p)}`;
+      const agents = subagentCount(p);
+      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
       b.classList.toggle("need", needsYou(p));
-      b.dataset.agents = liveSubagents(p).length || "";
+      b.dataset.agents = agents || "";
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
     });
