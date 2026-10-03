@@ -490,7 +490,7 @@ def get_history(window: str = "24h", lead: str | None = None):
 
 
 class GoalBody(BaseModel):
-    goal: int | None = Field(None, ge=1, le=999)  # None clears it
+    goal: int | None = Field(..., ge=1, le=999)  # required; an explicit null clears it
 
 
 @app.put("/api/history/goal")

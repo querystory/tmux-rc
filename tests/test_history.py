@@ -461,6 +461,7 @@ def test_goal_round_trips_and_is_audited(tmp_path, monkeypatch):
     assert client.get("/api/history?window=3d&lead=7d").json()["goal"] == 12
     assert audit.call_args.args[1:] == ("set_goal", "-", "goal=12")
     assert client.put("/api/history/goal", json={"goal": 0}).status_code == 422
+    assert client.put("/api/history/goal", json={}).status_code == 422
     assert client.put("/api/history/goal", json={"goal": None}).json() == {"goal": None}
     assert client.get("/api/history").json()["goal"] is None
     assert audit.call_count == 2
@@ -476,3 +477,14 @@ def test_endpoint_rejects_unbounded_windows(tmp_path, monkeypatch):
     for query in ("window=91d", "window=0h", "window=1w", "window=24h&lead=all", "lead=-1d"):
         assert client.get(f"/api/history?{query}").status_code == 400, query
     assert client.get("/api/history?window=90d&lead=1d").status_code == 200
+    assert client.get("/api/history?window=2160h").status_code == 200
+
+
+def test_lead_cannot_outgrow_the_bucket_budget(tmp_path):
+    from openbus.history import LEAD_BUCKETS
+
+    h = History(tmp_path / "h.db")
+    h.record([], "s", 0)
+    now = 100 * 86400
+    assert len(h.query("1h", now=now, lead="90d")["samples"]) <= LEAD_BUCKETS + 1
+    assert h.query("24h", now=now, lead="7d")["step"] == h.query("24h", now=now)["step"]

@@ -8,8 +8,9 @@ const toolOf = p => p.tool || 'other';
 // 'unknown' (classifier could not tell) and 'other' (no tool) are buckets, not agents to
 // filter to: they still count under All, but get no chip of their own.
 const isAgent = tool => tool && tool !== 'unknown' && tool !== 'other';
-// The running count the goal is about: Running plus Compacting, as the Running tab counts.
-const running = n => n[1] + (n[4] || 0);
+// The running count the goal is about, as the Running tab counts it (isRunning): Running,
+// Compacting, and Waiting on external work.
+const running = n => n[1] + (n[4] || 0) + (n[5] || 0);
 const RANGES = ['24h', '3d', '7d', '30d'], AVERAGES = ['1d', '3d', '7d'];
 const ms = span => parseInt(span, 10) * (span.endsWith('d') ? 86400000 : 3600000);
 // Range, average and the sessions-or-tools split are per browser; the goal is the daemon's.
@@ -187,9 +188,10 @@ function goalControl(icon) {
 }
 
 // Replace a surface's contents without dropping keyboard focus: the node with the same
-// data-key gets it back.
-function rebuild(root, nodes) {
-  const focus = root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
+// data-key gets it back. Callers capture the key before building, since building can move
+// a live node (a chart) out of the page.
+const focusKey = root => root.contains(document.activeElement) ? document.activeElement?.dataset.key : null;
+function rebuild(root, nodes, focus) {
   root.replaceChildren(...nodes);
   if (focus) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus)?.focus({ preventScroll: true });
 }
@@ -204,6 +206,7 @@ const unchanged = (root, signature) => {
 export function renderFleet(root, panes, { open, filter, setFilter, toggle, dashboard, icon }) {
   const now = [panes.filter(isRunning).length, panes.filter(needsYou).length, panes.filter(p => stateOf(p) === 2).length];
   if (unchanged(root, [open, filter, settings, history, historyData, historyError, goal, ...now])) return;
+  const focus = focusKey(root);
   const spark = root._spark ||= fleetChart(false), chart = root._chart ||= fleetChart(true);
   const data = rows(history);
   const strip = el('div', 'fleet-strip');
@@ -242,7 +245,7 @@ export function renderFleet(root, panes, { open, filter, setFilter, toggle, dash
       el('span', 'fleet-gap'), reset, averageControl(), rangeControl());
     nodes.push(tools, chart.el);
   }
-  rebuild(root, nodes);
+  rebuild(root, nodes, focus);
   spark.update(chartData(data));
   chart.update(chartData(data));
 }
@@ -259,6 +262,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   // Preserve focus and pointer targets across unchanged long polls.
   if (unchanged(root, [metric, scope.tool, scope.session, history, historyData, historyError, settings, goal, ...allPanes.flatMap(p => [p.pane_id, p.session, paneName(p), p.activity,
     p.waiting_on, p.tool, p.model, p.session_summary, p.status_line])])) return;
+  const focus = focusKey(root);
   const charts = root._charts ||= atlasCharts();
   const main = root._main ||= fleetChart(true);
   root._mapResize?.disconnect();
@@ -426,7 +430,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
   nodes.push(topics);
-  rebuild(root, nodes);
+  rebuild(root, nodes, focus);
   let mapWidth = 0;
   root._mapResize = new ResizeObserver(entries => {
     const width = Math.floor(entries[0].contentRect.width);

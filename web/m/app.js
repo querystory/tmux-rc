@@ -472,13 +472,16 @@ reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ?
 // The fleet chart docks under the pane on a wide screen, behind a seam: drag it to any
 // height and release snaps to strip, medium or tall; a double-click or the chevron folds
 // and unfolds. `fleetHeight` is the chosen height, persisted per screen; the shown one is
-// clamped to the room the pane leaves, so a short window cannot strand the terminal.
-const FLEET_KEY = "tmuxrc-fleet-height", STRIP = 40, MEDIUM = 300;
+// capped so the pane's flexible row (the terminal, or the overview alone) keeps
+// FLEET_ROOM, which a short window or a tall stacked overview would otherwise take.
+const FLEET_KEY = "tmuxrc-fleet-height", STRIP = 40, MEDIUM = 300, FLEET_ROOM = 120;
 let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null;
 try { fleetHeight = Number(localStorage.getItem(FLEET_KEY)) || STRIP; } catch {}
 const fleetHandle = $("fleet-handle");
 function sizeFleet(px = fleetHeight, mode = "") {
-  const snaps = [STRIP, MEDIUM, Math.max(320, $("detail").clientHeight - 260)];
+  const flexible = $(terminalVisible() ? "terminal" : "overview").getBoundingClientRect().height;
+  const cap = Math.max(STRIP, fleetShown + flexible - FLEET_ROOM);
+  const snaps = [STRIP, Math.min(MEDIUM, cap), cap];
   if (mode === "snap") px = snaps.reduce((best, snap) => Math.abs(snap - px) < Math.abs(best - px) ? snap : best);
   fleetShown = Math.round(Math.max(STRIP, Math.min(snaps[2], px)));
   if (mode) {

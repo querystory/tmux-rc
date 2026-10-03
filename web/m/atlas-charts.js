@@ -159,6 +159,7 @@ export function fleetChart(axis) {
   theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   if (axis) {
     el.tabIndex = 0;
+    el.dataset.key = 'chart'; // one axis chart per surface; rebuild() refocuses it by this
     el.title = 'Drag the range handles to zoom. Keyboard: + or − to zoom, left or right arrows to pan.';
     el.addEventListener('keydown', event => {
       if (event.ctrlKey || event.metaKey || event.altKey) return;

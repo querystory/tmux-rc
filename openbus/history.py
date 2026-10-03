@@ -25,11 +25,12 @@ STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
 AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
+LEAD_BUCKETS = 2880  # 24h of 5-minute buckets plus a 7d lead fits; a 90d lead at 1h does not
 
 
 def duration(text: str) -> int:
     """'36h' or '7d' in seconds. ValueError for anything else, or beyond MAX_SPAN."""
-    match = re.fullmatch(r"(\d{1,3})([hd])", text)
+    match = re.fullmatch(r"(\d{1,4})([hd])", text)
     seconds = int(match[1]) * (3600 if match[2] == "h" else 86400) if match else 0
     if not 0 < seconds <= MAX_SPAN:
         raise ValueError(text)
@@ -335,10 +336,13 @@ class History:
             start = max(first, now - span)
             # Bound the response even for years of history. Five-minute bins at 24h,
             # with smaller bins while the database is young.
-            desired = max(60, (now - start) / 360)
+            # The lead shares the window's bucket size until the total passes LEAD_BUCKETS;
+            # past that the buckets coarsen, so no window/lead pair can outgrow the bound.
+            lead_span = duration(lead) if lead else 0
+            desired = max(60, (now - start) / 360, (now - start + lead_span) / LEAD_BUCKETS)
             step = next((s for s in (60, 300, 900, 1800, 3600, 21600, 86400) if s >= desired),
                         math.ceil(desired / 86400) * 86400)
-            start = math.floor(max(first, start - (duration(lead) if lead else 0)) / step) * step
+            start = math.floor(max(first, start - lead_span) / step) * step
             goal = db.execute("SELECT value FROM metadata WHERE key=?", (GOAL_KEY,)).fetchone()
             records = db.execute(
                 "SELECT t, uid, tool, state, valid_until FROM log_observations "
