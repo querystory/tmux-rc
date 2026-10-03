@@ -219,13 +219,12 @@ function leaveMissingPane(id) {
 
 function route() {
   const wasDashboardVisible = dashboardVisible();
-  const state = parseHash(location.hash);
+  const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort } = state);
   if (active) returnPane = null;
-  if (view === "summary") view = defaultView();
   $("sort").value = sort;
   refreshSortPicker();
   if (changed) {
@@ -1201,7 +1200,8 @@ function placeChrome() {
   }
 }
 placeChrome();
-const resizeWorkspace = () => { placeChrome(); restartDetail(); render(); };
+// route() again, not just render(): a pane URL without a view opens on a different tab once wide.
+const resizeWorkspace = () => { placeChrome(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
