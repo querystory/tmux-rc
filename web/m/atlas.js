@@ -210,7 +210,9 @@ function goalControl(icon) {
   input.title = goalFailed ? 'Could not save the goal. Try again.' : '';
   input.dataset.key = 'goal';
   input.oninput = () => { draft = input.value; };
-  input.onkeydown = event => { if (event.key === 'Enter') saveGoal(); };
+  // Half-typed input ("-", "1e") reads as empty; only a truly empty box clears the goal.
+  const submit = () => { if (input.reportValidity()) saveGoal(); };
+  input.onkeydown = event => { if (event.key === 'Enter') submit(); };
   box.onkeydown = event => { if (event.key === 'Escape') { draft = null; goalFailed = false; setFleet({}); } };
   const button = (name, label, onclick) => {
     const node = el('button', 'icon-button');
@@ -223,7 +225,7 @@ function goalControl(icon) {
   };
   const nudge = delta => () => { input.value = draft = String(Math.max(1, Math.min(999, (Number(input.value) || 0) + delta))); };
   box.append(el('span', '', 'Running goal'), button('minus', 'Lower the goal', nudge(-1)), input,
-    button('plus', 'Raise the goal', nudge(1)), button('check', 'Save the goal', saveGoal));
+    button('plus', 'Raise the goal', nudge(1)), button('check', 'Save the goal', submit));
   return box;
 }
 

@@ -482,7 +482,7 @@ reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ?
 // capped so the pane's flexible row (the terminal, or the overview alone) keeps
 // FLEET_ROOM, which a short window or a tall stacked overview would otherwise take.
 const FLEET_KEY = "tmuxrc-fleet-height", STRIP = 40, MEDIUM = 300, FLEET_ROOM = 120;
-let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null;
+let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null, returnView = "summary";
 try { fleetHeight = Number(localStorage.getItem(FLEET_KEY)) || STRIP; } catch {}
 const fleetHandle = $("fleet-handle");
 function sizeFleet(px = fleetHeight, mode = "") {
@@ -517,8 +517,8 @@ fleetHandle.onkeydown = (e) => {
 };
 // The strip's Dashboard swaps the pane for the dashboard page; its Back returns to the pane.
 // Opening it again from the dashboard keeps the pane Back returns to.
-const openDashboard = () => { if (active) returnPane = active; navigate(null, "dashboard"); };
-$("landing-back").onclick = () => navigate(returnPane);
+const openDashboard = () => { if (active) [returnPane, returnView] = [active, view]; navigate(null, "dashboard"); };
+$("landing-back").onclick = () => navigate(returnPane, returnView); // the tab the user left, too
 html($("landing-back"), licon("back", 18));
 function renderFleetSplit() {
   if (!WIDE.matches || !active) return;
