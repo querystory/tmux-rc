@@ -98,12 +98,17 @@ reach a real pane.
   refreshes the README images in `docs/img/`. Only those few are committed; the rest exist
   to be diffed, and committing them would make every UI PR churn binary files.
 - `make screenshots-diff` (default `BASE=origin/main`) shoots the base and this tree with
-  the same fleet and writes per-shot diff images plus `summary.md`. **Any PR that changes
-  `web/` attaches that summary and the before/after/diff images for the shots that
-  changed**, so a reviewer sees the visual impact — including the unintended part —
-  without checking the branch out.
+  the same fleet and writes per-shot diff images plus `summary.md`, whose image table
+  links the PNGs relative to itself.
+- **CI posts that diff on every PR touching `web/`** (`.github/workflows/screenshots.yml`):
+  one comment, updated in place on each push, with the changed-% table and base/head/diff
+  images of the shots that moved. The images live on the orphan `ci-screenshots` branch,
+  linked by commit; fork PRs get the table and the artifact but no comment, since their
+  token cannot push. A changed shot never fails the build, a shot that fails to render does.
+  The comment is not the review: read it, and **say in the PR body which changes are
+  intended**, so an unintended one stands out to the reviewer.
 - Same tree, same machine gives the same bytes. Across machines fonts differ, so compare
-  shots from one machine; that is why the diff tool shoots both sides itself.
+  shots from one machine; that is why the diff tool, and CI, shoot both sides in one run.
 - `tests/test_demo_fleet.py` fails on anything in the fleet that looks private (home
   paths, real project names, emails, tokens). Add new demo data freely, but keep it
   fictional and keep URLs under `example-org`.

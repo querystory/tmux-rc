@@ -1,0 +1,100 @@
+name: Screenshots
+
+# Shoots the demo fleet (scripts/demo_fleet.py) on the PR's base and on its merge result in
+# ONE job, so fonts and rendering are identical on both sides and only the UI differs.
+# Informational: a changed shot never fails the build (UI PRs are meant to change pixels);
+# a shot that fails to render does. See AGENTS.md, "UI screenshots".
+on:
+  pull_request:
+    paths: ["web/**", "scripts/demo_*", "scripts/screenshots*", "openbus/server.py"]
+
+concurrency:
+  group: screenshots-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # push the changed shots to the ci-screenshots branch
+      pull-requests: write # the sticky comment
+    env:
+      BASE: ${{ github.base_ref }}
+      PR: ${{ github.event.pull_request.number }}
+      SHA: ${{ github.event.pull_request.head.sha }}
+      OUT: .screenshots/diff
+      # Fork and Dependabot runs get a read-only token: they keep the artifact and the job
+      # summary table, and skip the images and the comment.
+      PUBLISH: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: auto
+          python-version: "3.12"
+      # The Makefile's Playwright install (package + browser), keyed on the Makefile because
+      # that is where the pinned version lives.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/tmux-rc/playwright
+            ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('Makefile') }}
+      # scripts/screenshots.mjs pins the UI font to Liberation Sans.
+      - run: sudo apt-get update && sudo apt-get install -y fonts-liberation
+      - run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+          make screenshots-diff BASE="origin/$BASE"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: screenshots-pr-${{ github.event.pull_request.number }}
+          path: ${{ env.OUT }}
+      # Images go to the orphan ci-screenshots branch (only the changed shots, under
+      # pr-<N>/<sha>/) and are linked by commit, so a later prune of the tree never breaks a
+      # comment. Each publish drops the dirs of PRs that are no longer open.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          summary="$GITHUB_WORKSPACE/$OUT/summary.md"
+          body=$(sed '/^$/,$d' "$summary")  # the % table; the image rows follow a blank line
+          if [ "$PUBLISH" = true ] && grep -q '<img' "$summary"; then
+            git init -q "$RUNNER_TEMP/pub" && cd "$RUNNER_TEMP/pub"
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
+            git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+            if git fetch -q --depth=1 origin ci-screenshots; then git checkout -q FETCH_HEAD; fi
+            for dir in pr-*; do
+              [ -d "$dir" ] || continue
+              state=$(gh pr view "${dir#pr-}" --repo "$GITHUB_REPOSITORY" --json state --jq .state || true)
+              [ "$state" = OPEN ] && [ "$dir" != "pr-$PR" ] || git rm -rq "$dir"
+            done
+            grep -o 'src="[^"]*"' "$summary" | cut -d'"' -f2 |
+              while read -r png; do install -D "$GITHUB_WORKSPACE/$OUT/$png" "pr-$PR/$SHA/$png"; done
+            git add -A && git commit -qm "Screenshots for #$PR at $SHA" --allow-empty
+            for try in 1 2 3 4 5; do  # other PRs publish concurrently: replay onto their tip
+              git push -q origin HEAD:ci-screenshots && break
+              [ "$try" = 5 ] && exit 1
+              git fetch -q --depth=1 origin ci-screenshots && git rebase -q FETCH_HEAD
+            done
+            url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$(git rev-parse HEAD)/pr-$PR/$SHA"
+            body=$(sed "s#src=\"#src=\"$url/#" "$summary")
+          fi
+          printf '%s\n' '<!-- screenshots-diff -->' '### Screenshot diff' '' \
+            "The demo fleet shot by [CI]($RUN) on \`$BASE\` and on this PR merged into it (head ${SHA:0:7}). Red marks changed pixels; PNGs are in the run's artifact." \
+            '' "$body" > "$RUNNER_TEMP/comment.md"
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          [ "$PUBLISH" = true ] || exit 0
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.body | startswith("<!-- screenshots-diff -->")) | .id')
+          id=${id%%$'\n'*}
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi
