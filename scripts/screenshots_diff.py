@@ -52,7 +52,8 @@ def diff(base: Path, head: Path, out: Path) -> list[tuple[str, str]]:
 
 def main() -> None:
     ref = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
-    out = Path(sys.argv[2] if len(sys.argv) > 2 else ROOT / ".screenshots/diff")
+    # Absolute: each side shoots with its own tree as cwd, the base in a temp worktree.
+    out = Path(sys.argv[2] if len(sys.argv) > 2 else ROOT / ".screenshots/diff").resolve()
     shutil.rmtree(out, ignore_errors=True)
     with tempfile.TemporaryDirectory(prefix="tmux-rc-shots-base-") as tmp:
         base = Path(tmp) / "tree"

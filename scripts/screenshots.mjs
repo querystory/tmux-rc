@@ -117,6 +117,8 @@ try {
       await page.waitForTimeout(500);
       shot = await page.screenshot();
     }
+    // Never write a frame that did not settle: that is how nondeterminism slips in unseen.
+    if (!last?.equals(shot)) throw new Error(`${name}: still changing after 10s`);
     writeFileSync(path.join(out, `${name}.png`), shot);
     await context.close();
     console.log(`shot ${name}`);

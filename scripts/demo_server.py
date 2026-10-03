@@ -18,9 +18,10 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-# Before openbus.server loads .env: an existing variable wins over the file, so this keeps
-# a checkout's real telemetry endpoint from receiving demo traffic.
-os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
+# Before openbus.server loads .env: an existing variable wins over the file, so an empty
+# one keeps a checkout's real telemetry endpoint from receiving demo traffic and its own
+# launcher menu (labels, icons) out of the shots — empty means the shipped defaults.
+os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="")
 
 import uvicorn
 from fastapi.responses import JSONResponse
