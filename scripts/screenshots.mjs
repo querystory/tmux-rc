@@ -27,6 +27,7 @@ const SHOTS = [
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
   ["wide-chat", WIDE, "light", "#pane=%259", openChat],
+  ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
@@ -41,6 +42,12 @@ const SHOTS = [
 const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 *, *::before, *::after { animation: none !important; transition: none !important;
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
+
+// Unfold every sidebar row's running sub-agents (they start folded).
+async function showSubagents(page) {
+  await page.waitForSelector(".sb-sub:not([hidden])");
+  for (const toggle of await page.$$(".sb-sub:not([hidden])")) await toggle.click();
+}
 
 async function openChat(page) {
   await page.click("#chat");

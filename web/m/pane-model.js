@@ -116,6 +116,11 @@ export const paneActivity = (pane) => pane.question?.prompt || pane.status_line 
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
+// A list field (tasks, subagents) as its object entries: what the model emits can be junk.
+export const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
+export const itemDone = (item) => !!item.done || item.state === "done";
+// The sub-agents still at work, which the sidebar counts and lists under the row.
+export const liveSubagents = (pane) => records(pane?.subagents).filter((a) => !itemDone(a));
 export const paneMeta = (pane) => [pane?.model, pane?.context_pct != null ? `${pane.context_pct}% context` : "", pane?.cost, pane?.working?.elapsed ?? pane?.elapsed].filter(Boolean).join(" / ");
 
 // Search the accumulated associations, not just this frame's headline. A PR may

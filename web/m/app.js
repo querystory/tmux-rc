@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { setupSidebar } from "/m/sidebar.js";
 
@@ -62,6 +62,7 @@ const LUCIDE = {
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -268,7 +269,7 @@ function updateRow(button, pane) {
   sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
-const renderSidebar = setupSidebar({ licon, reconcile, text, html, logos: LOGOS, navigate, notice,
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
   setFilter: (value) => { filter = value; stayPut(); } });
 function emptyMessage(query) {
@@ -631,20 +632,10 @@ function renderRichContent(pane) {
 }
 
 function renderTasks(pane) {
-  const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
   const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables);
   show("task-section", !!tasks.length); show("agent-section", !!agents.length); show("copy-section", !!copyables.length);
   text($("task-count"), `${tasks.filter((t) => t.done).length}/${tasks.length}`);
-  for (const [id, values] of [["tasks", tasks], ["agents", agents]]) {
-    reconcile($(id), values, (value, i) => `${i}:${value.text || value.label}`, () => {
-      const node = document.createElement("div"); node.innerHTML = "<span></span><span></span>"; return node;
-    }, (node, value) => {
-      const done = value.done || value.state === "done";
-      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}${id === "agents" && value.state === "compacting" ? " compacting" : ""}`;
-      html(node.firstChild, licon(done ? "check" : "circle", 16));
-      text(node.lastChild, [value.text || value.label, id === "agents" ? value.state : null, value.elapsed].filter(Boolean).join(" / "));
-    });
-  }
+  renderItems($("tasks"), tasks); renderItems($("agents"), agents, true);
   reconcile($("copyables"), copyables, (value, i) => `${i}:${value.label}`, () => {
     const node = document.createElement("div"); node.className = "copyable";
     node.innerHTML = '<div class="copy-heading"><strong></strong><button class="icon-button" aria-label="Copy text" title="Copy text">' + licon("clipboard") + '</button></div><pre></pre>';
@@ -654,6 +645,21 @@ function renderTasks(pane) {
     };
     return node;
   }, (node, value) => { node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text); });
+}
+
+// One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
+// An open circle already says running, so only the other states are spelled out.
+function renderItems(el, values, agents = false) {
+  reconcile(el, values, (value, i) => `${i}:${value.text || value.label}`, () => {
+    const node = document.createElement("div"); node.innerHTML = "<span></span><span></span><small></small>"; return node;
+  }, (node, value) => {
+    const done = itemDone(value);
+    node.className = `${agents ? "agent" : "task"}${done ? " done" : ""}${agents && value.state === "compacting" ? " compacting" : ""}`;
+    html(node.firstChild, licon(done ? "check" : "circle", 16));
+    text(node.children[1], value.text || value.label);
+    node.title = value.text || value.label || "";
+    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens].filter(Boolean).join(" · ") : "");
+  });
 }
 
 async function loadEvents(pane) {
