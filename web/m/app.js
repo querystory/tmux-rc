@@ -213,12 +213,11 @@ function leaveMissingPane(id) {
 
 function route() {
   const wasDashboardVisible = dashboardVisible();
-  const state = parseHash(location.hash);
+  const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort } = state);
-  if (view === "summary") view = defaultView();
   $("sort").value = sort;
   refreshSortPicker();
   if (changed) {
