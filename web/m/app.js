@@ -74,10 +74,15 @@ const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.sv
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
+// The wide Layout picker's choice, global across panes and reloads: a split, or the one tab
+// the focus layout shows. "focus" is what the Overview choice was saved as before the tab was.
 let reviewLayout = "auto";
-try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
+try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "summary", "terminal"].includes(saved)) reviewLayout = saved; else if (saved === "focus") reviewLayout = "summary"; } catch {}
+const focusChoice = () => ["summary", "terminal"].includes(reviewLayout);
+// The tab a pane opens on when its URL names none: the chosen one, so it survives pane switches.
+const defaultView = () => WIDE.matches && reviewLayout === "terminal" ? "terminal" : "summary";
 function effectiveLayout() {
-  if (!WIDE.matches) return "focus";
+  if (!WIDE.matches || focusChoice()) return "focus";
   if (reviewLayout !== "auto") return reviewLayout;
   if (view === "terminal") return "focus"; // Honor an explicit terminal deep link.
   const { width, height } = document.getElementById("detail").getBoundingClientRect();
@@ -208,7 +213,7 @@ function leaveMissingPane(id) {
 
 function route() {
   const wasDashboardVisible = dashboardVisible();
-  const state = parseHash(location.hash);
+  const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   active = state.pane;
   focusPushComposer = state.compose;
@@ -466,7 +471,7 @@ $("mobile-view-toggle").addEventListener("click", (event) => {
 $("review-layout").onchange = (e) => {
   const choice = e.target.value;
   if (WIDE.matches) {
-    reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
+    reviewLayout = choice;
     try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
   }
   if (choice === "auto") view = "summary";
@@ -549,7 +554,7 @@ function render() {
   if (wide) layouts.unshift(["auto", "Auto"], ["side", "Side by side"], ["stack", "Overview above"]);
   const picker = $("review-layout");
   if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
-  picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
+  picker.value = wide && !focusChoice() ? reviewLayout : view;
   refreshViewPicker();
   $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
@@ -1133,7 +1138,8 @@ function placeChrome() {
   }
 }
 placeChrome();
-const resizeWorkspace = () => { placeChrome(); restartDetail(); render(); };
+// route() again, not just render(): a pane URL without a view opens on a different tab once wide.
+const resizeWorkspace = () => { placeChrome(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
