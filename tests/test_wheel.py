@@ -76,7 +76,7 @@ def test_endpoint_canonicalizes_audits_and_never_reparses(monkeypatch, sent):
     assert response.status_code == 200
     assert response.json() == {"sent": sent}
     wheel.assert_called_once_with("%7", 3, expected_pid="42")
-    assert audit.call_count == int(sent)
+    assert audit.call_args.kwargs["outcome"] == ("ok" if sent else "not sent")
     watcher.request_reparse.assert_not_called()
 
 

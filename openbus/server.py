@@ -826,8 +826,7 @@ def _mouse(action: str, pane_id: str, detail: str, request: Request,
     except tmux.PaneChangedError as e:
         _audit(request, action, pane_id, detail, outcome="rejected: pane changed")
         raise HTTPException(409, str(e)) from e
-    if sent:
-        _audit(request, action, pane_id, detail)
+    _audit(request, action, pane_id, detail, outcome="ok" if sent else "not sent")
     return sent
 
 

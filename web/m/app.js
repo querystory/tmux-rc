@@ -106,7 +106,7 @@ const pendingAnswers = new Map();
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
-let wheel = overscrollState(), wheelQueued = 0, wheelBusy = false, wheelSpring = 0, touchY = null;
+let wheel = overscrollState(), wheelQueued = 0, wheelBusy = false, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return ""; } // CSPRNG-random or omitted, never guessed.
@@ -1011,21 +1011,31 @@ function paintWheelCue() {
   text($("scroll-cue"), wheel.net ? "In the app's history" : "Keep scrolling for the app's history");
   show("scroll-cue", !!(wheel.net || pull));
 }
+// Every wheel request for every pane goes through one queue, in order, so a return home
+// can never overtake the notches that scrolled the app up.
+// A failed request must not stall the queue behind it.
+function wheelPost(id, lines) {
+  const request = wheelLine.then(() => post(paneUrl(id, "wheel"), { lines }));
+  wheelLine = request.catch(() => {});
+  return request;
+}
 async function flushWheel() {
   if (wheelBusy || !wheelQueued || !active) return;
   const id = active, lines = Math.max(-30, Math.min(30, wheelQueued));
   wheelQueued -= lines; wheelBusy = true;
   try {
-    const { sent } = await post(paneUrl(id, "wheel"), { lines });
+    const { sent } = await wheelPost(id, lines);
     if (!sent && id === active) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
   } catch { /* the next notch retries; the live frame shows where the app really is */ }
-  finally { wheelBusy = false; if (id === active) flushWheel(); }
+  finally { wheelBusy = false; flushWheel(); }
 }
 // Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
 // gesture. Two spare notches because Claude Code drops a gesture's first one; extra notches
-// at the bottom do nothing.
+// at the bottom do nothing. The daemon takes at most 30 a request, so a long way home is
+// several requests.
 function wheelHome(id) {
-  if (id && wheel.net + wheelQueued > 0) post(paneUrl(id, "wheel"), { lines: -Math.min(30, wheel.net + wheelQueued + 2) }).catch(() => {});
+  for (let left = id && wheel.net + wheelQueued > 0 ? wheel.net + wheelQueued + 2 : 0; left > 0; left -= 30)
+    wheelPost(id, -Math.min(30, left)).catch(() => {});
   wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
 }
 function overscrollPane(dy) {
