@@ -57,6 +57,7 @@ jobs:
         with:
           name: screenshots-pr-${{ github.event.pull_request.number }}
           path: ${{ env.OUT }}
+          if-no-files-found: error
       # Images go to the orphan ci-screenshots branch (only the changed shots, under
       # pr-<N>/<sha>/) and are linked by commit, so a later prune of the tree never breaks a
       # comment. Every publish (images or not) drops this PR's older dir and those of PRs no
@@ -97,7 +98,7 @@ jobs:
           cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
           [ "$PUBLISH" = true ] || exit 0
           id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
-            --jq '.[] | select(.body | startswith("<!-- screenshots-diff -->")) | .id')
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- screenshots-diff -->"))) | .id')
           id=${id%%$'\n'*}
           if [ -n "$id" ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
