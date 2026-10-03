@@ -41,13 +41,14 @@ export function atlasCharts() {
       canvas.height = Math.round(cloud.clientHeight * ratio);
       const weights = words.map(([, n]) => n);
       const min = Math.min(...weights), max = Math.max(...weights);
-      // Type scales with the card's area (1x at about 600x300), so a wide card fills
-      // instead of holding a small clump in its middle.
-      const scale = Math.max(1, Math.min(3, Math.sqrt(cloud.clientWidth * cloud.clientHeight / 180000)));
+      // Type follows the room each word gets (the card's area over the word count), capped
+      // at 40px, so a wide card fills loosely instead of with giant words.
+      const top = Math.max(18, Math.min(40, Math.sqrt(cloud.clientWidth * cloud.clientHeight / Math.max(1, words.length)) / 1.6));
+      const bottom = Math.max(11, top * 0.4);
       window.WordCloud(canvas, {
         list: words, fontFamily: 'sans-serif', fontWeight: '600',
-        weightFactor: n => (14 + 40 * (n - min) / Math.max(1, max - min)) * scale * ratio,
-        gridSize: Math.max(4, Math.round(7 * scale * ratio)), rotateRatio: 0,
+        weightFactor: n => (bottom + (top - bottom) * (n - min) / Math.max(1, max - min)) * ratio,
+        gridSize: Math.max(4, Math.round(top / 3 * ratio)), rotateRatio: 0, // wide spacing: a loose fill
         ellipticity: Math.min(1, cloud.clientHeight / cloud.clientWidth), // fill a wide card, not its middle
         shrinkToFit: true, drawOutOfBound: false, backgroundColor: 'transparent',
         color: word => palette[words.findIndex(([name]) => name === word) % palette.length],

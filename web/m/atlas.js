@@ -435,7 +435,10 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
     paints.push(() => chart.update(chartData(slice, { goal: null, max })));
   });
   multiples.append(multiplesHeading, grid);
-  nodes.push(multiples);
+  // On a wide page the topics card sits beside the small multiples instead of taking a row.
+  const row = el('div', 'atlas-row');
+  row.append(multiples);
+  nodes.push(row);
 
   const legend = el('div', 'atlas-legend');
   STATES.forEach((label, i) => legend.append(el('span', `atlas-state s${i}`, `${panes.filter(p => stateOf(p) === i).length} ${label}`)));
@@ -447,7 +450,9 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   const islands = [];
   groups.forEach((members, session) => {
     const island = el('section', 'atlas-island');
-    island.append(el('h3', '', session), el('p', 'muted', `${members.length} panes · ${members.filter(needsYou).length} need you`));
+    const head = el('div', 'atlas-island-head');
+    head.append(el('h3', '', session), el('span', 'muted', `${members.length} panes · ${members.filter(needsYou).length} need you`));
+    island.append(head);
     const dots = el('div', 'atlas-dots');
     members.forEach(p => {
       const dot = el('button', `atlas-dot s${stateOf(p)}`);
@@ -492,7 +497,7 @@ export function renderAtlas(root, panes, navigate, logos, searchTopic = () => {}
   });
   topics.append(charts.cloud, topicLinks);
   if (!words.size) topics.append(el('p', 'muted', 'Topics appear as panes acquire titles and summaries.'));
-  nodes.push(topics);
+  row.append(topics);
   rebuild(root, nodes, focus);
   let mapWidth = 0;
   root._mapResize = new ResizeObserver(entries => {
