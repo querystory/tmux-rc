@@ -59,7 +59,8 @@ jobs:
           path: ${{ env.OUT }}
       # Images go to the orphan ci-screenshots branch (only the changed shots, under
       # pr-<N>/<sha>/) and are linked by commit, so a later prune of the tree never breaks a
-      # comment. Each publish drops the dirs of PRs that are no longer open.
+      # comment. Every publish (images or not) drops this PR's older dir and those of PRs no
+      # longer open, so the tree holds only the latest shots of open PRs.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,26 +68,27 @@ jobs:
         run: |
           summary="$GITHUB_WORKSPACE/$OUT/summary.md"
           body=$(sed '/^$/,$d' "$summary")  # the % table; the image rows follow a blank line
-          if [ "$PUBLISH" = true ] && grep -q '<img' "$summary"; then
+          if [ "$PUBLISH" = true ]; then
             git init -q "$RUNNER_TEMP/pub" && cd "$RUNNER_TEMP/pub"
             git config user.name 'github-actions[bot]'
             git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
             git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
-            if git fetch -q --depth=1 origin ci-screenshots; then git checkout -q FETCH_HEAD; fi
-            for dir in pr-*; do
-              [ -d "$dir" ] || continue
-              state=$(gh pr view "${dir#pr-}" --repo "$GITHUB_REPOSITORY" --json state --jq .state || true)
-              [ "$state" = OPEN ] && [ "$dir" != "pr-$PR" ] || git rm -rq "$dir"
-            done
-            grep -o 'src="[^"]*"' "$summary" | cut -d'"' -f2 |
-              while read -r png; do install -D "$GITHUB_WORKSPACE/$OUT/$png" "pr-$PR/$SHA/$png"; done
-            git add -A && git commit -qm "Screenshots for #$PR at $SHA" --allow-empty
-            for try in 1 2 3 4 5; do  # other PRs publish concurrently: replay onto their tip
+            for try in 1 2 3 4 5; do  # other PRs publish concurrently: a rejected push redoes it on their tip
+              if git fetch -q --depth=1 origin ci-screenshots; then git checkout -qf FETCH_HEAD && git clean -qfd; fi
+              for dir in pr-*; do
+                [ -d "$dir" ] || continue
+                state=$(gh pr view "${dir#pr-}" --repo "$GITHUB_REPOSITORY" --json state --jq .state || true)
+                [ "$state" = OPEN ] && [ "$dir" != "pr-$PR" ] || git rm -rq "$dir"
+              done
+              { grep -o 'src="[^"]*"' "$summary" || true; } | cut -d'"' -f2 |
+                while read -r png; do install -D "$GITHUB_WORKSPACE/$OUT/$png" "pr-$PR/$SHA/$png"; done
+              git add -A
+              git diff --cached --quiet && break  # a re-run, or nothing shown and nothing to prune
+              git commit -qm "Screenshots for #$PR at $SHA"
               git push -q origin HEAD:ci-screenshots && break
               [ "$try" = 5 ] && exit 1
-              git fetch -q --depth=1 origin ci-screenshots && git rebase -q FETCH_HEAD
             done
-            url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$(git rev-parse HEAD)/pr-$PR/$SHA"
+            url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$(git rev-parse -q --verify HEAD || true)/pr-$PR/$SHA"
             body=$(sed "s#src=\"#src=\"$url/#g" "$summary")
           fi
           printf '%s\n' '<!-- screenshots-diff -->' '### Screenshot diff' '' \
