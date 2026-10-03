@@ -7,11 +7,15 @@ shows a phone-native dashboard: status at a glance, alerts when an agent is bloc
 a question, tappable answers, and a snapshot timeline.
 
 <p align="center">
+  <img src="docs/img/hero.png" alt="The wide layout: the session list on the left with panes that need you highlighted, one pane's live terminal in the middle, and its Overview on the right with the headline, summary, links, tasks and sub-agents">
+</p>
+
+<p align="center">
   <img src="docs/img/mobile-list.png" alt="The phone session list: every tmux pane grouped by session, each row showing the agent's name, a running or idle badge, and a one-line summary of what it is doing" width="280">
   <img src="docs/img/mobile-pane.png" alt="A single pane on the phone: headline, plain-English summary, the model and how much of its context window is used, the sub-agents it spawned, a timestamped activity list, and a box to message the pane" width="280">
 </p>
 
-<p align="center"><em>The phone UI at <code>/m</code>. Left: every pane on the tmux server, filtered by All / Running / Recent / Needs&nbsp;you. Right: one pane's Overview — what the agent is doing, and a composer to answer it.</em></p>
+<p align="center"><em>Every screenshot here is the real UI rendering an invented fleet (<code>make screenshots</code>). The phone UI at <code>/m</code>. Left: every pane on the tmux server, filtered by All / Running / Recent / Needs&nbsp;you. Right: one pane's Overview — what the agent is doing, and a composer to answer it.</em></p>
 
 Switch a pane to the **Terminal** tab for the live screen, plus a key row for the
 keystrokes a phone keyboard can't send (Esc, Tab, arrows, Ctrl-C, Ctrl-D, Ctrl-O, and

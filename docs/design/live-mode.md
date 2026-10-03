@@ -61,7 +61,7 @@ Speech interruption alone does not undo an action already sent to a terminal.
 
 Validation: `make test`; the opt-in, billable
 `uv run python research/live-eval/smoke_gpt_live.py /tmp/live-smoke.wav`
-([live-eval scripts](../../research/live-eval/README.md)) synthesizes a
+([live-eval scripts](https://github.com/querystory/tmux-rc/blob/main/research/live-eval/README.md)) synthesizes a
 fixed utterance and checks speech → delegation → exactly one guarded action → spoken
 confirmation → final usage. It uses a fake terminal and requires `ffmpeg`. Phone testing
 is still needed for echo, interruptions, mobile backgrounding, and perceived latency.
@@ -320,7 +320,7 @@ parsing. It gets its own accounting rather than being folded into the parser's:
 
 The 2.5 voice sounded dated next to current consumer assistants, and the only honest way
 to judge a voice model is to talk to it from the phone about real panes — a text harness
-([`research/live-eval/`](../../research/live-eval/README.md)) shows every candidate passing the same tool-calling cases at
+([`research/live-eval/`](https://github.com/querystory/tmux-rc/blob/main/research/live-eval/README.md)) shows every candidate passing the same tool-calling cases at
 sub-second latency, so reasoning is not what separates them; naturalness, barge-in and
 turn-taking are, and no harness sees those. Hence a picker on the real surface, backed by
 a small amount of deliberate structure:
@@ -479,6 +479,18 @@ anything said since and a count of consent cards still waiting, because a card n
 sees holds the model's turn open indefinitely. Restoring keeps the draft and the
 transcript's scroll position. Ending the conversation stays an explicit button, so a
 stray tap on the backdrop never throws one away.
+
+**Docked on a wide screen.** At the wide layout's breakpoint (1100px) the same panel opens
+non-modally as a column right of the work area, so nothing is dimmed and the pane stays
+usable while you talk about it. It is the same element and session, not a second chat:
+crossing the breakpoint just reopens it the other way, and a phone keeps the sheet. The
+column is an implicit third grid track, so the pane or dashboard beside it narrows and the
+pane's Auto layout re-picks from the width left over: terminal beside the overview when
+that is still 900px or more (a 1920px window), the overview stacked above the terminal
+below that (1280 and 1440). Rejected: a tab strip sharing the overview's column, which
+would hide the overview behind a click exactly when the window has room for both.
+Docked, the chat button toggles the panel, and Escape closes it only from inside, since
+the rest of the page is live and Escape there belongs to it.
 
 **Pasted images.** The composer is the pane composer's own editor (m/composer.js), shared
 through web/live-chat.js by both clients, so paste and the attach button behave the same

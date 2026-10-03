@@ -335,6 +335,16 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   body.resizing { user-select: none; cursor: col-resize; }
   body.resizing #detail, body.resizing #landing { pointer-events: none; }
 }
+/* Wide: Live Mode/Chat docks as a column right of the work area instead of a modal sheet
+   (live.js opens it with show(), not showModal(), so nothing is dimmed or made inert).
+   An implicit third #app column, so the grid template above is untouched: the pane or
+   dashboard beside it just narrows, and the pane's Auto layout (app.js effectiveLayout,
+   which measures #detail) re-picks side / stack / focus from what is left. */
+@media (min-width: 1100px) {
+  #voice-dialog:not(:modal) { position: static; grid-column: 3; grid-row: 1 / -1; width: clamp(320px, 26vw, 440px); height: auto; max-width: none; max-height: none; min-height: 0; margin: 0; padding: 12px 16px; border: 0; border-left: 1px solid var(--line); border-radius: 0; animation: none; }
+  #voice-dialog:not(:modal) .sheet-handle { display: none; }
+  #voice-dialog:not(:modal) #voice-log { flex: 1; max-height: none; }
+}
 
 .landing-inner { padding: 32px; max-width: 2400px; }
 .landing-inner h2 { margin: 0 0 4px; font-size: 20px; }

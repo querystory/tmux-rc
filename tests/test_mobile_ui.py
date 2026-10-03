@@ -223,7 +223,7 @@ def test_voice_sheet_takes_initial_focus_not_its_first_button():
     web = Path(__file__).resolve().parent.parent / "web" / "m"
     html = (web / "index.html").read_text()
     assert 'id="voice-dialog" aria-labelledby="voice-title" tabindex="-1"' in html
-    assert "dialog.showModal(); dialog.focus();" in (web / "live.js").read_text()
+    assert "dialog.showModal(); dialog.focus(); }" in (web / "live.js").read_text()
     assert "#voice-dialog:focus { outline: none; }" in (web / "style.css").read_text()
 
 
