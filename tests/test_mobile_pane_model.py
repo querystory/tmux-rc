@@ -245,6 +245,27 @@ CASES = [
         ],
         0,
     ),
+    # Sub-agents: only the backend's busy states count, and its `agents` count wins when larger.
+    (
+        "liveSubagents: keeps running and compacting, drops done, waiting and junk",
+        "liveSubagents",
+        [{"subagents": [{"label": "a", "state": "running"}, {"label": "b", "state": "done"},
+                        {"label": "c", "state": "waiting"}, {"label": "d", "state": "compacting"},
+                        "junk", None]}],
+        [{"label": "a", "state": "running"}, {"label": "d", "state": "compacting"}],
+    ),
+    (
+        "subagentCount: the canonical agents count when the roster lists fewer",
+        "subagentCount",
+        [{"agents": 3, "subagents": [{"state": "running"}]}],
+        3,
+    ),
+    (
+        "subagentCount: the busy roster when agents is missing",
+        "subagentCount",
+        [{"subagents": [{"state": "running"}, {"state": "done"}]}],
+        1,
+    ),
 ]
 
 # stillOnPane guards every involuntary exit from a pane. `active` lags a tap by one task, so
