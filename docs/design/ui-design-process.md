@@ -6,8 +6,9 @@ review); the phone layout deliberately stays as it was. This note records how th
 from a blank page.
 
 The studies themselves are committed as one self-contained page:
-[Fleet layout studies](../fleet-layouts.html) (source:
-`docs-site/static/design/fleet-layouts.html`). Open it alongside this page.
+[Fleet layout studies](../fleet-layouts.html) (on GitHub, which shows `.html` only as
+source: [rendered preview](https://htmlpreview.github.io/?https://github.com/querystory/tmux-rc/blob/main/docs-site/static/design/fleet-layouts.html) or
+[source](https://github.com/querystory/tmux-rc/blob/main/docs-site/static/design/fleet-layouts.html)). Open it alongside this page.
 
 ## The problem
 
