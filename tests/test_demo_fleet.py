@@ -9,8 +9,8 @@ import re
 from openbus.history import History
 from scripts import demo_fleet as demo
 
-PRIVATE = re.compile(r"/home/|/Users/|querystory|qs-app|tmux-rc|shapor|@gmail"
-                     r"|@[a-z0-9-]+\.(com|ai|io)|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
+PRIVATE = re.compile(r"/home/|/Users/|querystory|qs-app|tmux-rc|shapor"
+                     r"|[\w.+-]+@[\w-]+\.[\w.-]+|sk-[A-Za-z0-9]|ghp_|gho_|github_pat_"
                      r"|AKIA[0-9A-Z]{8}|AIza[0-9A-Za-z_-]{10}"
                      r"|xox[bp]-|BEGIN [A-Z ]*PRIVATE KEY", re.IGNORECASE)
 

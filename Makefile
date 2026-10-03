@@ -80,16 +80,22 @@ README_SHOTS = hero mobile-list mobile-pane mobile-terminal
 BASE ?= origin/main
 export PLAYWRIGHT_DIR
 
-$(PLAYWRIGHT_DIR)/node_modules/playwright:
-	npm install --no-save --no-audit --no-fund --prefix $(PLAYWRIGHT_DIR) playwright@1.59.1
-	node $@/cli.js install chromium-headless-shell
+# A stamp per version, touched only after both steps succeed: a failed browser download is
+# retried, and a version bump reinstalls instead of trusting an older cached copy.
+PLAYWRIGHT_VERSION = 1.59.1
+PLAYWRIGHT = $(PLAYWRIGHT_DIR)/.installed-$(PLAYWRIGHT_VERSION)
+
+$(PLAYWRIGHT):
+	npm install --no-save --no-audit --no-fund --prefix $(PLAYWRIGHT_DIR) playwright@$(PLAYWRIGHT_VERSION)
+	node $(PLAYWRIGHT_DIR)/node_modules/playwright/cli.js install chromium-headless-shell
+	touch $@
 
 demo:
 	uv run python -m scripts.demo_server 18039
 
-screenshots: $(PLAYWRIGHT_DIR)/node_modules/playwright
+screenshots: $(PLAYWRIGHT)
 	node scripts/screenshots.mjs .screenshots
 	cp $(README_SHOTS:%=.screenshots/%.png) docs/img/
 
-screenshots-diff: $(PLAYWRIGHT_DIR)/node_modules/playwright
+screenshots-diff: $(PLAYWRIGHT)
 	uv run python -m scripts.screenshots_diff $(BASE) .screenshots/diff
