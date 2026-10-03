@@ -111,6 +111,8 @@ export function lastActivity(pane) {
 export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
+// The line a list shows under the name: the question it is stuck on, else what it is doing.
+export const paneActivity = (pane) => pane.question?.prompt || pane.status_line || pane.session_summary || "";
 
 // Search the accumulated associations, not just this frame's headline. A PR may
 // have scrolled away hours ago while its agent still owns the useful context.

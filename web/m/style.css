@@ -112,7 +112,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row .badge.running { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the animated logo says it; the text stays for screen readers */
 .badge.compacting { color: var(--purple); }
 .empty { padding: 44px 24px; text-align: center; color: var(--muted); }
-#list-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 8px max(8px, env(safe-area-inset-bottom)); gap: 4px; }
+#list-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); flex: none; border-top: 1px solid var(--line); background: var(--surface); padding: 6px 8px max(8px, env(safe-area-inset-bottom)); gap: 4px; }
 #list-nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; padding: 6px 2px; font-size: 12px; color: var(--muted); }
 .nav-icon { display: flex; align-items: center; gap: 5px; }
 #list-nav button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
@@ -273,10 +273,11 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    composer already lives inside #detail. So the wide mode adds no second code
    path — app.js only stops HIDING the list (see WIDE there).
 
-   Grid rather than flex because the header and the notices span both columns
-   while the list and the filter tabs stack in the first one. Rows are placed
-   explicitly so no wrapper element is needed; a DOM change here would have to be
-   mirrored in the phone layout, which is the coupling this whole direction is
+   The list becomes the one sidebar of the layout mock's round 3: it takes the
+   header's brand and buttons (app.js moves them; see placeChrome), so the header and
+   the phone's tab bar go and the work column runs the full height. Grid rows are
+   placed explicitly so no wrapper element is needed; a DOM change here would have to
+   be mirrored in the phone layout, which is the coupling this whole direction is
    trying to remove.
 
    760px was the phone layout's max-width — the point where a single column stops
@@ -288,19 +289,19 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
     display: grid;
     /* --sidebar is set by the drag handle and persisted; the clamp is the guard, so a
        stored width from a wider window can never squeeze the list or the terminal out. */
-    grid-template-columns: clamp(260px, var(--sidebar, 340px), 46vw) minmax(0, 1fr);
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-columns: clamp(260px, var(--sidebar, 300px), 46vw) minmax(0, 1fr);
+    /* The last row is the work column's foot, empty here: a slot for a docked panel
+       under the pane (the fleet chart), so adding one moves nothing above it. */
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     column-gap: 0;
   }
-  .app-header   { grid-column: 1 / -1; grid-row: 1; }
-  #update-notice{ grid-column: 1 / -1; grid-row: 2; }
-  #notice       { grid-column: 1 / -1; grid-row: 3; }
-  #sessions     { grid-column: 1; grid-row: 4; border-right: 1px solid var(--line); }
-  #list-nav     { grid-column: 1; grid-row: 5; }
-  /* Spans the list's rows AND the filter tabs' row: the terminal should use the
-     full height, not stop where the sidebar's tabs begin. */
-  #detail       { grid-column: 2; grid-row: 4 / span 2; min-height: 0; }
-  #landing      { grid-column: 2; grid-row: 4 / span 2; min-height: 0; overflow-y: auto; }
+  #app.rail     { grid-template-columns: 60px minmax(0, 1fr); }
+  .app-header, .list-heading, #pane-list { display: none; }
+  #update-notice{ grid-column: 2; grid-row: 1; }
+  #notice       { grid-column: 2; grid-row: 2; }
+  #sessions     { grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); --card: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+  #detail       { grid-column: 2; grid-row: 3; min-height: 0; }
+  #landing      { grid-column: 2; grid-row: 3; min-height: 0; overflow-y: auto; }
   /* Wide only: the title shares the tab row instead of costing a band of its own. The
      tabs keep their place on the left and the identity sits to their right, where it is
      still over the panel it names. Ellipsis rather than wrap so the row cannot grow. */
@@ -315,7 +316,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   /* Sits ON the column boundary rather than taking a track of its own, so dragging it
      moves the seam the eye already sees instead of shifting the layout by its width. */
   #divider {
-    grid-column: 2; grid-row: 4 / span 2;
+    grid-column: 2; grid-row: 1 / -1;
     width: 11px; margin-left: -6px; justify-self: start;
     cursor: col-resize; z-index: 5; touch-action: none;
   }
@@ -331,6 +332,82 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
      terminal must not swallow the pointermove. */
   body.resizing { user-select: none; cursor: col-resize; }
   body.resizing #detail, body.resizing #landing { pointer-events: none; }
+}
+
+/* The wide sidebar (sidebar.js). Scoped to the breakpoint, not just to its .sb-only
+   slots: the slots are still siblings on a phone, and a sibling selector would reach. */
+@media (min-width: 1100px) {
+#sb-head { display: flex; align-items: center; gap: 2px; min-height: 56px; padding: 0 8px 0 14px; flex: none; }
+#sb-head #brand { font-size: 16px; }
+#sb-nav, #sb-foot { display: flex; align-items: center; gap: 2px; padding: 0 8px 6px; flex: none; }
+#sb-foot { padding-block: 6px; border-top: 1px solid var(--line); }
+#sb-foot #connection { margin: 0 auto 0 6px; }
+:is(#sb-head, #sb-nav, #sb-foot) .icon-button { width: 36px; height: 36px; min-height: 36px; border-radius: 8px; }
+#sb-nav #new-window { flex: 1; justify-content: flex-start; gap: 8px; padding: 0 10px; background: none; font-size: 14px; font-weight: 600; white-space: nowrap; }
+#sb-nav #live-mode:not(.active) { background: none; color: inherit; }
+#sb-nav #new-window::after { content: "New window"; }
+#dash-nav[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+#sb-nav ~ .search { margin: 2px 12px 6px; flex: none; }
+#sb-nav ~ .search input { height: 36px; font-size: 14px; }
+#sb-nav ~ .search .search-clear { width: 36px; height: 36px; min-height: 36px; }
+#side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
+#side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
+.sb-icon { width: 32px; height: 32px; min-height: 32px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
+.sb-bar { display: flex; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.sb-bar .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); }
+.sb-bar .seg button { min-height: 22px; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted); }
+.sb-bar .seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+.sb-bar .header-picker { margin-left: auto; }
+.sb-bar .header-picker summary { min-height: 28px; padding: 2px 6px; font-size: 12px; }
+.sb-group { display: flex; align-items: center; gap: 2px; margin: 4px 6px 0; }
+.sb-fold { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px; text-align: left; font-size: 12.5px; font-weight: 600; }
+.sb-fold > svg { color: var(--muted); }
+.sb-fold > svg + svg { color: var(--amber); }
+.sb-fold .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-fold .c { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.sb-fold .c i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.sb-row, .sb-open { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: 7px; text-align: left; white-space: nowrap; }
+.sb-row { width: calc(100% - 12px); margin: 0 6px; }
+.sb-row .t, .sb-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sb-row b, .sb-open b { font-weight: 500; }
+.sb-open b { font-weight: 600; }
+.sb-row .s, .sb-open .s { color: var(--muted); font-size: 11.5px; }
+.sb-row .a, .sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.need .a { color: var(--amber); font-weight: 700; }
+.sb-logo { position: relative; flex: none; width: 22px; height: 22px; display: grid; place-items: center; }
+.sb-logo img { width: 20px; height: 20px; object-fit: contain; }
+.sb-logo .model-badge { width: 11px; height: 11px; padding: 1px; right: -4px; bottom: -4px; }
+.sb-card { margin: 0 6px 4px; border-radius: 9px; }
+.sb-card.need { background: var(--amber-bg); --card: var(--amber-bg); }
+.sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
+.sb-open .t { white-space: nowrap; }
+.sb-open p { flex-basis: 100%; padding-left: 31px; color: var(--muted); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
+.sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
+.sb-replies button:not(:disabled):hover { border-color: var(--amber); }
+.sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
+.sb-compose[hidden] { display: none; }
+.sb-compose #side-reply { flex: 1; min-width: 0; min-height: 32px; max-height: 120px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sb-compose #side-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.sb-compose .primary { color: var(--bg); }
+/* Selection is #277's neutral card, not a colour: colour here means state. */
+:is(.sb-row, .sb-card, .sb-rail)[aria-current="true"] { background: var(--lift); --card: var(--lift); box-shadow: inset 3px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent); }
+.sb-card.need[aria-current="true"] { background: var(--amber-bg); --card: var(--amber-bg); }
+:is(.sb-row, .sb-card)[aria-current="true"] b { font-weight: 800; }
+/* Folded: a 60px rail of what is alive, Needs you first, idle panes as one count. */
+#app.rail #sessions { align-items: center; }
+#app.rail :is(#brand, .search, #empty, #divider) { display: none; }
+#app.rail #sb-head { padding: 0; justify-content: center; }
+#app.rail :is(#sb-nav, #sb-foot) { flex-direction: column; padding: 6px 0; }
+#app.rail #sb-nav #new-window { flex: none; padding: 0; justify-content: center; }
+#app.rail #sb-nav #new-window::after { content: none; }
+#app.rail #sb-foot #connection { margin: 6px 0; font-size: 0; gap: 0; }
+#app.rail #side-list { width: 100%; display: grid; justify-items: center; align-content: start; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.sb-rail { width: 40px; height: 40px; min-height: 40px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
+.sb-rail .sb-logo, .sb-rail .sb-logo img { width: 24px; height: 24px; }
+.sb-rail.need { background: var(--amber-bg); --card: var(--amber-bg); box-shadow: inset 0 0 0 1.5px var(--amber); }
+.sb-more { min-height: 28px; padding: 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 }
 
 .landing-inner { padding: 32px; max-width: 1440px; }
@@ -463,11 +540,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
   #landing { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #landing .landing-inner { padding: 20px 16px; }
   #landing .atlas-panel { padding: 16px; }
-  #list-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   #list-nav button { font-size: 11px; }
-}
-@media (min-width: 1100px) {
-  #list-nav #dashboard-tab { display: none; }
+  .sb-only { display: none !important; }
 }
 
 

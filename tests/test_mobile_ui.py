@@ -33,6 +33,7 @@ def test_mobile_assets_and_manifest():
         "/m/live.js",
         "/m/composer.js",
         "/m/pane-model.js",
+        "/m/sidebar.js",
         "/lm-tap.js",
         "/live-close.js",
         "/live-chat.js",
@@ -244,3 +245,20 @@ def test_atlas_offers_no_chip_for_unknown_or_toolless_panes():
     atlas = (Path(__file__).resolve().parent.parent / "web" / "m" / "atlas.js").read_text()
     assert "const isAgent = tool => tool && tool !== 'unknown' && tool !== 'other';" in atlas
     assert ".filter(isAgent))];" in atlas
+
+
+def test_wide_sidebar_answers_through_the_pane_views_own_send_path():
+    """The sidebar's Needs you cards answer without opening the pane, which is only safe if
+    they are the pane view's buttons and composer in another place: one option filter, one
+    /send (with its "Answer sent" hold), one /compose. A second copy would drift. And the
+    phone keeps its tab bar and header: the sidebar is wide-only, and the header's controls
+    are moved there and back (one element each), not duplicated."""
+    root = Path(__file__).resolve().parents[1] / "web/m"
+    app, side = (root / "app.js").read_text(), (root / "sidebar.js").read_text()
+    assert "answers: answerOptions, answered: isAnswered, answer, compose" in app
+    assert 'reconcile($("options"), answerOptions(question)' in app
+    assert "compose(active, draft())" in app and "ctx.compose(node._p.pane_id, reply)" in side
+    assert "ctx.answer(node._p.pane_id, o.option, o.index)" in side
+    assert 'show("list-nav", !inPane && !wide)' in app
+    assert "if (WIDE.matches) $(slot).append($(id)); else homes[id].after($(id));" in app
+    assert ".sb-only { display: none !important; }" in (root / "style.css").read_text()
