@@ -76,12 +76,11 @@ _USER_ROW_RE = re.compile(_PROMPT_ROW + "[ \\xa0]*[^\\s│]", re.MULTILINE)
 # Rows whose text is never the agent asking: the user's own (a prompt row), and file
 # content behind a tool's line-number gutter ("12│", "+245│" in a diff, "*65│" on a grep hit).
 _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+│")
-# omp blocks that are never a live question: a completed Ask receipt ("? Ask" through its
-# chosen radios; a pending Ask is a boxed dialog instead) and the queued outgoing-input
-# bands ("Steering · 1", "After yield · 2") with their indented numbered messages.
-_OMP_NOT_ASKING_RE = re.compile(
-    r"(?m)^ ?\? Ask\n(?:.*\S.*\n)*|^ ?(?:Steering|After yield) · \d+\n(?: {3,}.*\n)*",
-)
+# omp blocks that are never a live question: a completed Ask receipt, plain or boxed, from
+# its "? Ask" header through its chosen radios (a pending Ask is a "╭─ Ask" dialog with no
+# "?"), and the queued outgoing-input bands ("Steering · 1", "After yield · 2").
+_OMP_RECEIPT_RE = re.compile(r"(?m)^ ?(?:╭─+ )?\? Ask\b.*\n(?:.*\S.*\n)*")
+_OMP_QUEUE_RE = re.compile(r"(?m)^ ?(?:Steering|After yield) · \d+\n(?: {3,}.*\n)*")
 
 # tmux's foreground executable is stronger identity evidence than any model name inside
 # an agent's UI. In particular OpenCode can run Claude, GPT, or Gemini models; calling it
@@ -317,8 +316,8 @@ def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
     prompt = _question_prompt(question)
     if prompt is None:
         return False
-    if tool == "omp" and (omp := OMP_TITLE_RE.match(pane.title)):
-        state = omp["state"]
+    if tool == "omp":
+        state = (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"]
         # A held Ask/approval uses "!"; working titles cannot hold an old Ask open.
         if state and state not in (">", "!"):
             return False
@@ -329,7 +328,7 @@ def _supported_question(question, visible: str, tool, pane: Pane) -> bool:
             visible,
         ):
             return False  # Right-aligned label above the idle footer, not assistant prose.
-        visible = _OMP_NOT_ASKING_RE.sub("", visible)
+        visible = _OMP_QUEUE_RE.sub("", _OMP_RECEIPT_RE.sub("", visible))
     found = _last_occurrence(prompt, visible)
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
     # agent asking; a live spinner below the text means the agent is working again; and a
@@ -378,16 +377,15 @@ def _ground_visible_fields(
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
     ):
-        # Retain finished work for idle labels; otherwise read beyond the old receipt.
+        # Read beyond an answered Ask receipt; any other rejected text keeps the viewport.
         asked = _question_prompt(result["question"])
-        question = asked and _last_occurrence(asked, visible)
-        remaining = visible[question.end():] if question else ""
-        answers, separated, current = remaining.partition("\n\n")
+        *_, receipt = [None, *(m for m in _OMP_RECEIPT_RE.finditer(visible)
+                               if asked and _last_occurrence(asked, m[0]))]
         evidence = (
             "[Completed Ask receipt — question and chosen answer explain the resumed task;\n"
             "use them for the headline's goal, NEVER as a current input request]\n"
-            f"{asked}{answers}\n\n[Current visible work]\n{current}"
-        ) if separated else visible
+            f"{receipt[0]}\n[Current visible work]\n{visible[receipt.end():]}"
+        ) if receipt else visible
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
     retry = llm_fn(

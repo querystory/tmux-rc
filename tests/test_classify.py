@@ -282,19 +282,32 @@ _LIVE_ASK = "╭─ Ask ──╮\n│ Which shade? │\n├──┤\n│ ❯ �
 @pytest.mark.parametrize("style", ["text", None])
 @pytest.mark.parametrize(("title", "screen", "prompt"), [
     ("π > Colors", _RECEIPT + " π > ◒ GPT-5.5\n", "Which color do you prefer?"),
+    ("π > Colors", "61_omp_running_subagents", "Which color do you prefer?"),  # boxed
+    ("t", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),  # no omp title
     ("π ! Ask Shade", _RECEIPT + _LIVE_ASK, "Which color do you prefer?"),
     ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
      "Are the regressions passing?"),
     ("π > Colors", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),
 ])
 def test_omp_receipts_and_queued_input_are_not_questions(title, screen, prompt, style):
-    if screen.startswith("67_"):
+    if screen[:3] in ("61_", "67_"):
         screen = _sample(screen)
-    result = classify(_pane("bun", title), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+    result = classify(_pane("omp", title), f"\x1e[visible screen]\x1f\n{screen}", _llm({
         "tool": "omp", "activity": "waiting", "waiting_on": "user",
         "question": {"prompt": prompt, "answer_style": style},
     }))
     assert (result.get("question") or {}).get("prompt") != prompt
+
+
+def test_omp_rejected_queue_text_keeps_the_whole_viewport_for_the_retry():
+    seen = []
+    classify(_pane("bun", "π ⠦ Follow PR293 Copilot Review"),
+             _sample("66_omp_queued_user_question"),
+             lambda system, text: seen.append(text) or {
+                 "tool": "omp", "activity": "waiting", "waiting_on": "user",
+                 "question": {"prompt": "Did you test the omp history search stuff"}})
+    retry = seen[-1]
+    assert "Completed Ask receipt" not in retry and "Reviewing the documentation" in retry
 
 
 def test_omp_idle_session_label_is_not_a_question():
