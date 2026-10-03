@@ -45,6 +45,8 @@ manifest) follows the list.
 - [persistent pane history](pane-history.md) and
   [saved conversations](live-conversation-history.md): the daemon's own structural
   record and the proposed Live and pane-input store. Neither is the transcript index.
+- [activity log](activity-log.md): the per-pane event log the daemon keeps of what it
+  observed, distinct from both of the above.
 - [Live Mode](live-mode.md): voice and text front end, pane tools, consent cards, and
   the single audited tool-call path.
 - [PRD](../PRD.md): the founding rule. Watch what a pane renders, and integrate with no
@@ -70,7 +72,8 @@ daemon was watching.
 **agent-history** is the Go CLI in `agent-history/`. It indexes harness transcripts
 into small greppable files: one entry per session, holding cwd, branches, PR links,
 title, the prompts that started or steered it (the human's messages; for a headless run
-or a subagent, the task its caller sent) and the exact resume command.
+or a subagent, the task its caller sent) and, for a resumable top-level session, the
+exact resume command. Subagents and sessions whose transcript is gone have none.
 - **Harnesses.** On `main` it reads Claude Code, pushed by its Stop, SessionEnd and
   SubagentStop hooks, and Codex, pulled by reconcile.
 - **omp is in review** (#307, and the larger #293). The #488 plan lists omp as already
@@ -236,8 +239,10 @@ for v1, because a restart already drops the queue and a duplicate prompt is visi
   not cost a tap per instruction.
 - **Some actions are never offered to peers.** Key presses, windows, resumes, and sends
   to shell panes (where text runs as a command) stay inside control's scope and tiers.
-- **Both ends opt in.** Only an agent granted *reachable* receives peer messages. A pure
-  agent hears from the human and from control, and no one else.
+- **Both ends opt in.** Only an agent granted *reachable* receives peer messages. Control
+  is the one exception: its act scope reaches every agent pane, pure ones included,
+  under its own risk tiers (the routing doc), because routing the human's requests is
+  its job. So a pure agent hears from the human and from control, and no one else.
 
 **Loops and runaways.** Two agents that perceive and type at each other can ping-pong.
 - **Hop limit.** The daemon, not the caller, assigns each message's conversation and
@@ -424,12 +429,14 @@ of that path, and adds no second way in. Agent B never sees the endpoint.
 - **C4** (WS-F): the grant as a tool-surface field.
 
 Proposed: a new tmux-rc workstream, **WS-N agent connect**. It consumes C3 and C4
-drafts, and its first PR needs neither.
+drafts. Its first PR needs neither, because it injects only into launchers already
+written as plain argv, and adds the structured launcher form alongside the opaque one.
 
 1. **Observe (first PR).** The endpoint with read and history only: directory, pane
    detail, `find_sessions`, `get_session`. It also carries:
    - per-agent tokens;
-   - launch injection for the Claude Code and Codex launchers;
+   - a structured (argv plus environment) launcher form, and launch injection for
+     Claude Code and Codex launchers written that way;
    - the indicator and the audit actor;
    - the loopback fix;
    - the consent and audit gate, extracted from Live.
