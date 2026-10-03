@@ -978,8 +978,8 @@ const dd4=id=>on('dd4:'+id)?`<div class="dd4">${S.q4?'':`<h4>Recent</h4>${['chec
 function sb4(id,o){const v=P4(id,'view',o.view),mode=P4(id,'gb',o.gb||'state'),need=ROWS4.filter(r=>r.st=='need'&&hit4(r)),n=ROWS4.filter(hit4).length;
  return `<aside class="sb4" data-m="sb"><div class="sbh">${brand(false)}<span class="sp" style="flex:1"></span>${ib('panel','Collapse sidebar','sm')}</div>
  <div class="nvr4">${nv('plus','New window','','new')}<button class="ib sm ${v=='dash'?'on':''}" data-act="p4:${id}.view=dash" title="Dashboard" aria-label="Dashboard">${ico('dash',18)}</button>${ib('chat','Chat','sm')}${ib('bell','Alerts','sm')}</div>
- <button class="srch4 ${o.dd&&on('dd4:'+id)?'on':''}" ${o.dd?`data-act="toggle:dd4:${id}" data-m="topic"`:''}>${ico('search',18)}${S.q4?pill4():'Find a session or pane'}</button>
- ${o.strip?strip4(id,o):''}${o.cloud?`<div class="sec4" data-m="topic"><div class="gh4" style="padding:0 2px;height:24px">${ico('down',14)}Topics<span class="c">${topics4().length}</span></div>${cloud4(266,190)}</div>`:''}
+ <button class="srch4 ${o.dd&&on('dd4:'+id)?'on':''}" ${o.dd?`data-act="set:dd4:${id}:1" data-focus="dd4:${id}" data-m="topic"`:''}>${ico('search',18)}${S.q4?pill4():'Find a session or pane'}</button>
+ ${o.strip?strip4(id,o):''}${o.cloud?`<div class="sec4" data-m="topic"><button class="gh4" style="padding:0 2px;height:24px;width:100%" data-act="toggle:fold4:${id}" aria-expanded="${!on('fold4:'+id)}">${ico(on('fold4:'+id)?'right':'down',14)}Topics<span class="c">${topics4().length}</span></button>${on('fold4:'+id)?'':cloud4(266,190)}</div>`:''}
  <div class="list4" data-m="list">${S.q4?`<div class="mt4">${n} of ${ROWS4.length} panes match “${S.q4}”<button data-act="q4:${S.q4}">Clear</button></div>`:''}${need.length?gh4(`<span style="color:var(--amber);display:inline-flex">${ico('alert',14)}</span>Needs you`,need.length)+need.map(card4).join(''):''}
  <div class="gb4" ${o.gbt?'data-m="topic"':''}>Group by <span class="seg">${['state','session',...(o.gbt?['topic']:[])].map(m=>`<button data-act="p4:${id}.gb=${m}" aria-pressed="${mode==m}">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}</span><span class="sp"></span>All ${ico('down',12)}${ico('updown',14)}</div>${groups4(id,o)}</div>
  <div class="ft4">${live()}${ib('moon','Theme','sm')}${ib('book','Docs','sm')}</div>${o.dd?dd4(id):''}</aside>`;}
@@ -1098,6 +1098,7 @@ document.addEventListener('click',e=>{const a=e.target.closest('[data-act]');if(
 document.addEventListener('keydown',e=>{if(e.target.dataset&&e.target.dataset.open&&(e.key=='Enter'||e.key==' ')){e.preventDefault();act('open:'+e.target.dataset.open);}
  if(!S.open||/INPUT|SELECT/.test(e.target.tagName))return;const vs=inFrame(),i=vs.findIndex(v=>v.id==S.open);
  if(e.key=='ArrowRight')act('open:'+vs[(i+1)%vs.length].id);else if(e.key=='ArrowLeft')act('open:'+vs[(i+vs.length-1)%vs.length].id);else if(e.key=='Escape')act(vs[i].esc&&on(vs[i].esc)?'toggle:'+vs[i].esc:'close');});
+document.addEventListener('focusin',e=>{const f=e.target.dataset&&e.target.dataset.focus;if(f&&!on(f)){S.pop[f]=true;render();document.querySelector(`[data-focus="${f}"]`)?.focus({preventScroll:true});}});
 document.addEventListener('change',e=>{if('goal' in e.target.dataset){S.goal2=Math.max(1,Math.min(45,Math.round(+e.target.value)||S.goal2));render();}});
 /* brush: drag across a round-2 chart to select a window; resize: drag the focus frame's corner */
 let brush=null,rz=null,sp=null,raf=0;
