@@ -186,6 +186,14 @@ The distance between today's prompt-driven bus and the first-class one, in order
    is a real bill; throttling and parallel parses (#46, #55) become load-bearing at
    fleet scale.
 
+Items 1–3 meet in [agent history and cross-agent connect](cross-agent-connect.md), which
+also serves as the map of every design doc that touches them. It covers what the
+agent-history index and the daemon already know about each agent, and who besides the
+human may query that. It also covers how an agent opts in to seeing and messaging its
+siblings. By default every agent stays pure and unaware of the others. A per-agent
+Connect grant adds the daemon's MCP endpoint with explicit scopes, injected at launch
+and revocable at once. Every call takes the same consent and audit path as the phone.
+
 ## The bet
 
 Terminal agents are proliferating and every vendor's coordination story stops at its
