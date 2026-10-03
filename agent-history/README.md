@@ -107,12 +107,14 @@ the active `OMP_PROFILE`/`PI_PROFILE`. Paths tied to the default root or registr
 explicitly select `--profile default` when reconcile runs under a named profile.
 The effective profile schedules an immediate omp rebuild. Cached-entry reads also
 resolve argv against the current profile, effective/legacy roots and registry pointers,
-so XDG root creation or pointer changes cannot leave the first result stale. Each
+so placement changes for that cached source affect the first result. Each
 resolve/reconcile shares one fresh, lazily loaded placement snapshot across its entries
 and discovery, avoiding repeated profile/registry scans; `get` gets a fresh snapshot.
-Ordinary reconcile checks that placement before trusting an unchanged transcript mtime;
-its check reads only the entry header and rebuilds a changed command without routinely
-rescanning the transcript. Format 6 rebuilds current artifact classification; obsolete
+Ordinary reconcile checks placement and requires the cached source to match the
+discovered source before trusting an unchanged transcript mtime. A move or registry
+pointer relocation therefore rebuilds source/resume metadata even when the transcript
+keeps its mtime. The check reads only the entry header rather than routinely rescanning
+transcripts. Format 6 rebuilds current artifact classification; obsolete
 per-entry profile-only context is absent, and consumer JSON has no new fields.
 
 ## Resolving a request

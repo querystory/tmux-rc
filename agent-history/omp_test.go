@@ -402,3 +402,44 @@ func TestOmpOrphanedNestedArtifactIsNotResumable(t *testing.T) {
 		})
 	}
 }
+
+func TestOmpRelocationPreservingMtime(t *testing.T) {
+	for _, mode := range []string{"managed move", "custom pointer"} {
+		t.Run(mode, func(t *testing.T) {
+			ompTestEnv(t)
+			t.Setenv("AGENT_HISTORY_DIR", t.TempDir())
+			root := ompLocationFor("", os.Getenv).Sessions
+			if mode == "custom pointer" {
+				root = t.TempDir()
+			}
+			old := ompWrite(t, filepath.Join(root, "old", "transcript.jsonl"), ompTestHeader)
+			marker := filepath.Join(ompLocationFor("", os.Getenv).State, "custom-session-files", "relocated")
+			if mode == "custom pointer" {
+				ompWrite(t, marker, old)
+			}
+			Reconcile()
+			info, err := os.Stat(old)
+			must(t, err)
+			moved := filepath.Join(root, "new", "transcript.jsonl")
+			if mode == "managed move" {
+				must(t, os.MkdirAll(filepath.Dir(moved), 0o700))
+				must(t, os.Rename(old, moved))
+			} else {
+				ompWrite(t, moved, ompTestHeader) // old copy survives, but the pointer chooses new
+				must(t, os.Chtimes(moved, info.ModTime(), info.ModTime()))
+				ompWrite(t, marker, moved)
+			}
+			Reconcile()
+			e, err := ReadEntry(indexPath("omp", "", "real-id"))
+			must(t, err)
+			check(t, "relocated source", e.Source, moved)
+			want := []string{"omp", "--resume", "real-id"}
+			if mode == "custom pointer" {
+				want[2] = moved
+			}
+			if e.SourceMissing || !slices.Equal(e.ResumeArgv, want) {
+				t.Errorf("relocated resume = %v, missing=%v; want %v", e.ResumeArgv, e.SourceMissing, want)
+			}
+		})
+	}
+}

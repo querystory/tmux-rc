@@ -125,7 +125,7 @@ func indexFile(h harness, files []string, force bool, placement *ompPlacement) e
 			placement = &ompPlacement{}
 		}
 		entry, err := readEntry(dst, false, placement)
-		if err == nil && !entry.ompResumeChanged {
+		if err == nil && entry.Source == files[0] && !entry.ompResumeChanged {
 			return nil
 		}
 	}
