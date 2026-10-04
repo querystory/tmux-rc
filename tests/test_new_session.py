@@ -32,8 +32,14 @@ def sock(monkeypatch):
         {"label": "Ghost", "command": "no-such-cmd-x"},
     ]))
     yield name
-    subprocess.run(["tmux", "-L", name, "kill-server"], check=False,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Close the exact panes this test made, on its own socket; the last one takes the
+    # server with it. (No kill-server, even here — see AGENTS.md.)
+    tmux = ["tmux", "-L", name]
+    panes = subprocess.run([*tmux, "list-panes", "-a", "-F", "#{pane_id}"],
+                           capture_output=True, text=True, check=False).stdout.split()
+    for pane in panes:
+        subprocess.run([*tmux, "kill-pane", "-t", pane], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 @pytest.fixture
@@ -122,6 +128,7 @@ def test_no_server_preflight_ignores_the_daemons_own_path(sock, audits, tmp_path
     monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([{"label": "V", "command": "only-in-venv"}]))
     r = TestClient(S.app).post("/api/sessions", json={"name": "v", "launcher": "V"})
     assert r.status_code == 400, r.text
+    assert "login shell" in r.json()["detail"]
     assert not T.server_running()
 
 

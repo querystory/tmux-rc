@@ -305,6 +305,10 @@ def _unavailable(command: str, path: str | None = None, *,
     # the directory to the daemon's unit satisfies the first lookup and silences this
     # message without making the command runnable, because the window inherits the tmux
     # SERVER's environment. The absolute path is the advice that cannot be misapplied.
+    if not daemon_path:  # no server yet: `path` is what the login shell will give it
+        return (f"{words[0]} is not on your login shell's PATH, which is the PATH a new "
+                "tmux server started from here gets. Add it in your shell profile, or "
+                "give TMUXRC_LAUNCHERS an absolute path.")
     return (f"{words[0]} is on neither the daemon's PATH nor the tmux server's. An "
             "absolute path in TMUXRC_LAUNCHERS always works; otherwise put it on the PATH "
             "of the shell you start tmux FROM — the window inherits the server's "
