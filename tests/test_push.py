@@ -276,7 +276,7 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     service.evaluate()
     service.evaluate()
     assert len(sender.payloads) == 1
-    assert sender.payloads[0]["body"] == "Proceed?\nBash command — ls"
+    assert sender.payloads[0]["body"] == "Proceed?"  # the raw widget rows stay off push
     assert sender.payloads[0]["url"] == "/m#pane=%251&from=push"
     assert [a["title"] for a in sender.payloads[0]["actions"]] == ["Yes", "No"]
 
