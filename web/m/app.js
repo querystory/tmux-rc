@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
@@ -260,7 +260,7 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span></span></span>' + licon("chevron", 16);
+  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span><span class="badge"></span></span></span>`;
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
@@ -268,10 +268,12 @@ function updateRow(button, pane) {
   if (pane.pane_id === active) button.setAttribute("aria-current", "true");
   else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", needsYou(pane));
+  button.classList.toggle("fresh", pane.activity === "idle" && isRecent(pane));
   const logo = button.querySelector(".pane-icon img");
   logo.alt = pane.tool || "tmux";
   markWorking(logo, pane, LOGOS);
   text(button.querySelector("strong"), paneName(pane));
+  text(button.querySelector(".row-age"), age(pane));
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
