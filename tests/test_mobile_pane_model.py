@@ -247,6 +247,23 @@ CASES = [
     ),
 ]
 
+# since/age: the one age format both lists show. Units floor, each boundary rolls over.
+def idle_since(secs):
+    return {"activity": "idle", "state_since": NOW_S - secs}
+
+
+AGES = ((0, "0s"), (59, "59s"), (60, "1m"), (3599, "59m"), (3600, "1h"), (86_399, "23h"),
+        (86_400, "1d"), (-60, "0s"))  # a future state_since clamps to 0s
+CASES += [(f"since: {secs}s ago reads {label}", "since", [idle_since(secs), NOW_MS], label)
+          for secs, label in AGES]
+CASES += [
+    ("since: without state_since, falls back to lastActivity", "since",
+     [{"activity": "idle", "updated_at": NOW_S, "idle_seconds": 120}, NOW_MS], "2m"),
+    ("age: a running pane reads now", "age",
+     [{"activity": "running", "state_since": NOW_S - 600}, NOW_MS], "now"),
+    ("age: an idle pane reads its since", "age", [idle_since(600), NOW_MS], "10m"),
+]
+
 # stillOnPane guards every involuntary exit from a pane. `active` lags a tap by one task, so
 # the hash — which moves the instant the user taps — decides whether a pane that vanished is
 # still the one on screen. (current hash, pane the caller thinks is on screen, still on it?)

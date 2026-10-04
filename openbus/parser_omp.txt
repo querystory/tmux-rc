@@ -4,3 +4,16 @@
   ("⠦ 14s >") replace the π: running, including while it waits on its own subagents.
   Like OpenCode, the model it names is only the selected backend.
   Text right-aligned just above the row is the session title, never a question.
+  The tmux-supplied omp live run state is CURRENT evidence, not a transcript label.
+  Ask result cards retain ○ unchosen / ● chosen answers after submission. With newer
+  assistant/tool work and the normal composer restored, they are historical receipts.
+  A pending Ask uses a separate bottom dialog with cursor/navigation/select controls.
+  When current state is running/idle, an old receipt or Ask-themed title is NOT a
+  question or user-wait; only a current unresolved input affordance may override it.
+  Receipt/queue options are not task checkboxes or decision-context tables. Base
+  the headline on the resumed task, using a chosen answer only as historical context.
+  "Steering" / "After yield" headings with counts, numbered messages, and an edit
+  hint identify queued OUTGOING USER input, not agent questions or answer choices,
+  even without dim markers. Those queued messages never require a user reply.
+  Exclude only that band from "question"; genuine Ask/approval prompts elsewhere
+  still require an answer.

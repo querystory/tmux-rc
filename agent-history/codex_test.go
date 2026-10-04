@@ -19,6 +19,7 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("CODEX_HOME", dir)
 	os.Setenv("CLAUDE_CONFIG_DIR", dir)
+	os.Setenv("PI_CODING_AGENT_DIR", dir)
 	noDetach = true
 	code := m.Run()
 	os.RemoveAll(dir)
