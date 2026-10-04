@@ -305,6 +305,10 @@ def _unavailable(command: str, path: str | None = None, *,
     # the directory to the daemon's unit satisfies the first lookup and silences this
     # message without making the command runnable, because the window inherits the tmux
     # SERVER's environment. The absolute path is the advice that cannot be misapplied.
+    if not daemon_path:  # no server yet: `path` is what the login shell will give it
+        return (f"{words[0]} is not on your login shell's PATH, which is the PATH a new "
+                "tmux server started from here gets. Add it in your shell profile, or "
+                "give TMUXRC_LAUNCHERS an absolute path.")
     return (f"{words[0]} is on neither the daemon's PATH nor the tmux server's. An "
             "absolute path in TMUXRC_LAUNCHERS always works; otherwise put it on the PATH "
             "of the shell you start tmux FROM — the window inherits the server's "
@@ -968,14 +972,15 @@ def new_session(body: NewSessionBody, request: Request):
     # With no server yet, the launcher will run under exactly the PATH new_session gives
     # the server it starts — a known answer, and the only one: the daemon's own PATH
     # (its virtualenv included) is not inherited, so it must not vouch for the command.
-    running = tmux.server_running()
-    path = tmux.server_path() if running else tmux.server_env().get("PATH", "")
+    # One login-shell probe per request, shared by the preflight and the server start.
+    env, running = tmux.server_env(), tmux.server_running()
+    path = tmux.server_path() if running else env.get("PATH", "")
     why = entry and _unavailable(entry["command"], path, daemon_path=running)
     if why:
         refuse(400, why)
     try:
         pane_id = tmux.new_session(body.name, cwd, entry and entry["command"],
-                                   entry["label"] if entry else "")
+                                   entry["label"] if entry else "", env=env)
     except subprocess.CalledProcessError as e:
         if "duplicate session" in (e.stderr or ""):
             refuse(409, f"a session named {body.name} already exists")
