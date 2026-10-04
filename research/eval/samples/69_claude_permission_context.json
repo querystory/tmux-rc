@@ -1,0 +1,15 @@
+{
+  "description": "Claude Code Bash permission prompt (current layout: rule-topped, description under the tool header, command and auto-mode notice in │ gutters) whose prompt is only \"Do you want to proceed?\". MUST be a user-waiting menu, and classify() must carry the widget's own rows as question.context (tool, description, command, blocking notice) so a card shows what is being approved. Synthetic, genericized from a live pane.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n● I'll stop the two preview servers before rebuilding.\n\n──────────────────────────────────────────────────────────────────────────────────\n Bash command · from the general-purpose agent\n Stop the preview servers\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ for p in 4100 4200; do kill $(ss -ltnp | grep \":$p \" | grep -o 'pid=[0-9]*' | cut -d= -f2); done\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ Auto mode classifier requires confirmation for this command.\n │ 3 consecutive actions were blocked. Please review the transcript before continuing.\n │\n │ Latest blocked action: [Git Destructive]\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "Bash command · from the general-purpose agent · Stop the preview servers — for p in 4100 4200; do kill $(ss -l…-o 'pid=[0-9]*' | cut -d= -f2); done — Auto mode classifier requires confi…ew the transcript before continuing. — Latest blocked action: [Git Destructive]"
+    },
+    "headline": "Asking permission to run a command that stops the preview servers"
+  }
+}

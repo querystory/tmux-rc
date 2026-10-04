@@ -117,6 +117,9 @@ export function lastActivity(pane) {
 export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
+// What a held menu asks about (its widget's rows, read by classify.py): a bare "Do you want
+// to proceed?" says nothing on its own, so every surface showing the question shows this too.
+export const questionContext = (pane) => (needsYou(pane) && pane.question?.context) || "";
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
 export const paneActivity = (pane) => pane.question?.prompt || pane.status_line || pane.session_summary || "";
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the

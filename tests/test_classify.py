@@ -1043,11 +1043,30 @@ def test_copyable_can_quote_inline_code_and_wrapped_box():
     assert [c["text"] for c in result["copyables"]] == ["git status", "A wrapped message."]
 
 
-def _sample(name):
+def _sample(name, field="capture"):
     import json
     from pathlib import Path
     path = Path(__file__).parents[1] / "research/eval/samples" / f"{name}.json"
-    return json.loads(path.read_text(encoding="utf-8"))["capture"]
+    return json.loads(path.read_text(encoding="utf-8"))[field]
+
+
+def test_menu_context_is_read_off_its_own_widget():
+    """The bare "Do you want to proceed?" gets the widget's rows (tool, description,
+    command, blocking notice); the samples pin each layout's exact string end to end."""
+    def ask(capture, prompt, style="menu", **extra):
+        return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
+            "prompt": prompt, "answer_style": style, "options": ["Yes", "No"], **extra}}))
+    proceed, run = "Do you want to proceed?", "Would you like to run the following command?"
+    for name, prompt in (("69_claude_permission_context", proceed),
+                         ("05_claude_permission_box", proceed), ("06_codex_permission_box", run)):
+        got = ask(_sample(name), prompt)["question"].get("context")
+        assert got == _sample(name, "expected")["question"]["context"]
+    # No widget edge close above: those rows are the conversation, and the model's own
+    # "context" is never passed through.
+    plain = "\x1e[visible screen]\x1f\n● Ran the build.\nDo you want to proceed?\n❯ 1. Yes\n  2. No"
+    assert "context" not in ask(plain, "Do you want to proceed?", context="made up")["question"]
+    assert "context" not in ask(_sample("69_claude_permission_context"),
+                                "Do you want to proceed?", style="text")["question"]
 
 
 def test_users_own_turn_under_a_live_spinner_is_not_a_question():

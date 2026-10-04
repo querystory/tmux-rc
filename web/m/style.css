@@ -1,4 +1,5 @@
 :root {
+  --mono: ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace;
   color-scheme: dark;
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
@@ -130,6 +131,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .row-title strong { font-size: 15px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-age { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row-title svg { flex: none; color: var(--muted); }
+/* What a held menu asks about (a permission box's tool, command, notice): above its prompt. */
+.q-context { color: var(--muted); font: 11.5px/1.35 var(--mono); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.q-context:empty { display: none; }
+#question .q-context { margin: 0 0 6px; font-size: 12.5px; -webkit-line-clamp: 4; }
 .row-status { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .row-meta { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 3px; white-space: nowrap; }
 .row-details { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -185,7 +190,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
    tap that toggles also hovers, so the new mode explains itself as it switches. */
 #click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
-#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; transition: transform .2s ease-out; }
+#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
 #capture > span > span { display: inline-block; vertical-align: top; }
@@ -426,6 +431,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .sb-card.need { background: var(--amber-bg); --card: var(--amber-bg); }
 .sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
 .sb-open .t { white-space: nowrap; }
+.sb-open .q-context { flex-basis: 100%; padding-left: 31px; }
 .sb-open p { flex-basis: 100%; padding-left: 31px; color: var(--muted); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
 .sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }

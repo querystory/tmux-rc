@@ -149,7 +149,8 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     the walk that drives it is steered by the anchor and the advertised bindings, and a
     model that says "cursor" with a wrong anchor selects the WRONG SESSION — silently,
     and with an eval that was still green. Scored only where a sample asks for it, since
-    most screens have nothing to say about either."""
+    most screens have nothing to say about either. `context` (the widget rows classify()
+    reads around a menu's prompt) is pinned the same way, as an exact string."""
     if field is None:
         return None
     if isinstance(field, dict):
@@ -195,9 +196,10 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
                   if isinstance(subs, list) else [])
         if states != sorted(expected["subagent_states"]):
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
-    # question — presence + answer_style, plus whichever cursor fields the sample pins
+    # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
-    extra = tuple(k for k in ("selected", "keymap") if isinstance(want_q, dict) and k in want_q)
+    extra = tuple(k for k in ("selected", "keymap", "context")
+                  if isinstance(want_q, dict) and k in want_q)
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")

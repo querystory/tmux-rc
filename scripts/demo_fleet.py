@@ -173,7 +173,9 @@ DETAIL = {
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
-MENU = {"dependency audit"}  # questions answered with one keystroke rather than typed text
+# Questions answered with one keystroke rather than typed text, with what each asks about.
+MENU = {"dependency audit": "Bash command — npm install react@20 vite@8 eslint@10 · "
+                            "Upgrade three packages with breaking changes"}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -216,7 +218,8 @@ def _pane(i: int, line: str, window: int) -> dict:
         pane |= {"headline": extra, "status_line": extra, "session_summary": "",
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(","),
-                              "answer_style": "menu" if title in MENU else "text"}}
+                              "answer_style": "menu" if title in MENU else "text",
+                              "context": MENU.get(title)}}
     return pane | DETAIL.get(title, {})
 
 
