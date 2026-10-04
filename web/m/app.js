@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, questionContext, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
@@ -261,7 +261,7 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span><span class="badge"></span></span></span>`;
+  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="q-context"></span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span><span class="badge"></span></span></span>`;
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
@@ -278,6 +278,7 @@ function updateRow(button, pane) {
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
+  text(button.querySelector(".q-context"), questionContext(pane));
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
   sessionChip.hidden = sort !== "updated" || !pane.session;
@@ -644,6 +645,7 @@ function render() {
   reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
+  text($("question-context"), pane ? questionContext(pane) : "");
   text($("prompt"), question?.prompt || "");
   const answered = !!pane && isAnswered(pane);
   show("answer-status", answered);

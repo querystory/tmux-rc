@@ -232,6 +232,9 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     pane["question"]["options"].append("Other")
     with_option = push.contract(pane, "123")[0]
     assert with_option != before
+    pane["question"]["context"] = "Bash command — rm -rf build"
+    assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
     pane["activity"] = "running"
     assert push.contract(pane, "123")[0] != with_option
 
@@ -264,7 +267,7 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     clock = [100.0]
     watcher = Watcher()
     watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
-                               "options": ["Yes", "No"]})]
+                               "options": ["Yes", "No"], "context": "Bash command — ls"})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
 
@@ -273,6 +276,7 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     service.evaluate()
     service.evaluate()
     assert len(sender.payloads) == 1
+    assert sender.payloads[0]["body"] == "Proceed?\nBash command — ls"
     assert sender.payloads[0]["url"] == "/m#pane=%251&from=push"
     assert [a["title"] for a in sender.payloads[0]["actions"]] == ["Yes", "No"]
 

@@ -7,7 +7,8 @@
     "activity": "waiting",
     "waiting_on": "user",
     "question": {
-      "answer_style": "menu"
+      "answer_style": "menu",
+      "context": "Bash command — uv run pytest -q tests/ · Run the daemon test suite"
     },
     "headline": "Asking to run the pytest test suite"
   }

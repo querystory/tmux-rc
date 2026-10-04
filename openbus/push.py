@@ -316,6 +316,9 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         "options": question.get("options") if question else [],
         "renderable": renderable_options(question) if question else [],
         "style": question.get("answer_style") if question else None,
+        # The same "Do you want to proceed?" over a different command is a different ask:
+        # a notification describing one must not approve the other.
+        "context": question.get("context") if question else None,
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
@@ -514,11 +517,14 @@ class PushManager:
                 "title": _push_text(
                     pane.get("title") or pane.get("label") or pane_id, 100
                 ),
-                "body": _push_text((
+                # The prompt, then what it asks about ("Do you want to proceed?" alone
+                # says nothing): classify.py's widget context, when the menu has one.
+                "body": _push_text("\n".join(filter(None, (
                     (question or {}).get("prompt")
                     or pane.get("headline")
-                    or "Needs your attention"
-                ), 400),
+                    or "Needs your attention",
+                    (question or {}).get("context"),
+                ))), 400),
                 "tag": f"block:{pane_id}",
                 "url": url,
                 "nonce": nonce,

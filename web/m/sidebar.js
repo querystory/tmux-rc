@@ -7,7 +7,7 @@
 // Phones never call this: their list is renderList's rows in app.js.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents, subagentCount, since, age } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, questionContext, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents, subagentCount, since, age } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -120,7 +120,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement("div"), open = document.createElement("button"), sub = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? "<p></p>" : "");
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? '<small class="q-context"></small><p></p>' : "");
     sub.className = "sb-sub";
     sub.onclick = () => { const id = node._p.pane_id; if (prefs.agents[id]) delete prefs.agents[id]; else prefs.agents[id] = true; rerender(); };
     node.append(open, sub, Object.assign(document.createElement("div"), { className: "sb-agents" }));
@@ -161,6 +161,7 @@ export function setupSidebar(ctx) {
     ctx.html(sub, `${licon("bot", 13)}${agents.length}${licon(open ? "chevronDown" : "chevron", 12)}`);
     renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
+      text(node.querySelector(".q-context"), questionContext(p));
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
       replies(node, p);
     }

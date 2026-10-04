@@ -437,6 +437,46 @@ def _ground_visible_fields(
             result["session"] = retry_session
 
 
+# A widget's own top edge (a ─── rule or a ╭ box corner), its first option row, and the
+# box/gutter glyphs framing each of its rows.
+_WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
+_FIRST_OPTION_RE = re.compile(r"^[\s│❯›>]*1[.)]\s")
+_FRAME_RE = re.compile(r"^[\s│┃╎]+|[\s│┃╎]+$")
+
+
+def _middle(text: str, limit: int) -> str:
+    """`text` cut to `limit` in the middle: a command's head and a notice's verdict
+    ("Latest blocked action: …") both sit at the ends."""
+    half = limit // 2
+    return text if len(text) <= limit else f"{text[:half - 1].rstrip()}…{text[-half:].lstrip()}"
+
+
+def _widget_context(prompt: str, visible: str) -> str | None:
+    """What a menu asks about, read off its own widget: the rows from the widget's top
+    edge down to the prompt (Claude's tool, description, command and any blocking notice)
+    plus any between the prompt and option 1 (where Codex puts its command), as one line
+    of at most four blocks.
+    "Do you want to proceed?" alone is meaningless on a card. With no top edge close
+    above, the rows there are the conversation, not the widget, so none are taken."""
+    found = _last_occurrence(prompt, visible)
+    if found is None:
+        return None
+    above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
+    top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
+                if _WIDGET_TOP_RE.match(above[i])), None)
+    below = visible[found.end():].splitlines()[1:]
+    stop = next((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), 0)
+    segments, rows = [], []
+    for raw in [*(above[top + 1:] if top is not None else ()), "", *below[:stop], ""]:
+        row = _FRAME_RE.sub("", raw)
+        if row.strip("─━╌┄ "):
+            rows.append(" ".join(row.split()))
+        elif rows:  # a blank or dashed row ends a block
+            segments.append(" · ".join(rows))
+            rows = []
+    return " — ".join(_middle(s, 72) for s in segments[:4]) or None
+
+
 _LIST_ITEM_RE = re.compile(r"[-*•]\s+|\d+[.)]\s+")
 
 
@@ -810,6 +850,10 @@ def classify(
             r"(?:^|[·│])\s*Type to search(?:\s*[·│]|$)", line, re.IGNORECASE,
         ) for line in footer):
             keymap["search"] = True
+    if isinstance(question, dict):  # the screen's context only, never the model's
+        asked = question.get("answer_style") in ("menu", "cursor") and _question_prompt(question)
+        context = asked and _widget_context(asked, visible)
+        question.update(context=context) if context else question.pop("context", None)
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
     # A question/rewind is a user-facing affordance, so it's a USER wait (overrides any
