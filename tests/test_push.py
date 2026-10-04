@@ -231,6 +231,9 @@ def test_contract_includes_nonrendered_options_that_change_menu_mapping():
     pane["question"]["options"].append("Other")
     with_option = push.contract(pane, "123")[0]
     assert with_option != before
+    pane["question"]["context"] = "Bash command — rm -rf build"
+    assert push.contract(pane, "123")[0] != with_option
+    with_option = push.contract(pane, "123")[0]
     pane["activity"] = "running"
     assert push.contract(pane, "123")[0] != with_option
 

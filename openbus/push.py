@@ -316,6 +316,9 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         "options": question.get("options") if question else [],
         "renderable": renderable_options(question) if question else [],
         "style": question.get("answer_style") if question else None,
+        # The same "Do you want to proceed?" over a different command is a different ask:
+        # a notification describing one must not approve the other.
+        "context": question.get("context") if question else None,
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question
