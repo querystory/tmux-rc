@@ -18,7 +18,7 @@ Mode = Literal["normal", "plan", "accept-edits", "bypass", "unknown"]
 
 
 # HOW an answer reaches the widget. "text" types the option and hits Enter; "menu"
-# sends one keystroke (a digit / y|n). "cursor" is a highlighted list you ARROW through
+# sends one keystroke (the row's digit). "cursor" is a highlighted list you ARROW through
 # — neither of the other two works on it, because both a digit and the option's text
 # land in the picker's search box instead of selecting (the /resume bug, issue #206).
 AnswerStyle = Literal["text", "menu", "cursor"]
