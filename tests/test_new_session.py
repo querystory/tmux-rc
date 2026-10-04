@@ -93,8 +93,23 @@ def test_refusals_never_touch_tmux(sock, audits, body, status):
     r = TestClient(S.app).post("/api/sessions", json=body)
     assert r.status_code == status, r.text
     assert not T.server_running()
-    if "name" not in r.text:  # schema failures never reach the handler
-        assert audits and audits[-1][2].startswith("rejected")
+    assert audits and audits[-1][2].startswith("rejected")
+
+
+def test_no_server_preflight_ignores_the_daemons_own_path(sock, audits, tmp_path, monkeypatch):
+    """A command only the daemon can see (its virtualenv's bin) is not on the PATH the
+    server it starts will get, so the window would die at once: refuse up front."""
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    tool = venv / "bin" / "only-in-venv"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    monkeypatch.setenv("VIRTUAL_ENV", str(venv))
+    monkeypatch.setenv("PATH", f"{venv}/bin:/usr/bin:/bin")
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([{"label": "V", "command": "only-in-venv"}]))
+    r = TestClient(S.app).post("/api/sessions", json={"name": "v", "launcher": "V"})
+    assert r.status_code == 400, r.text
+    assert not T.server_running()
 
 
 def test_dir_suggestions_open_panes_then_agent_history(tmp_path, monkeypatch):

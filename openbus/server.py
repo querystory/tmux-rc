@@ -182,9 +182,7 @@ class NewWindowBody(BaseModel):
 
 
 class NewSessionBody(BaseModel):
-    # tmux silently rewrites ':' and '.' in a session name (they are target syntax), so
-    # the session would not be called what was asked for; refuse rather than surprise.
-    name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    name: str  # checked in new_session, not here, so a refusal is audited
     cwd: str = "~"
     launcher: str | None = None  # a configured label as above; None = a plain shell
 
@@ -205,7 +203,8 @@ _DEFAULT_LAUNCHERS = [
 ]
 
 
-def _unavailable(command: str, path: str | None = None) -> str | None:
+def _unavailable(command: str, path: str | None = None, *,
+                 daemon_path: bool = True) -> str | None:
     r"""Why nothing here can run `command`, or None if something can — or can't tell.
 
     A launcher is looked up twice, because there are two PATHs and neither is reliably
@@ -237,6 +236,10 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
     prepend more, so a name found in NEITHER can still turn out to exist. That asymmetry
     is deliberate — it costs a window that opens and dies, which is the failure this
     endpoint explains, rather than a refusal to open one that would have worked.
+
+    `daemon_path=False` drops the daemon's own PATH from the lookup, for the one caller
+    that knows `path` is the whole answer: new_session with no server yet, whose server
+    will inherit only that PATH.
 
     Returning the reason rather than the word keeps one wording for both callers: the
     phone says the same thing whether it asked before the tap or after it."""
@@ -288,7 +291,7 @@ def _unavailable(command: str, path: str | None = None) -> str | None:
         return None
     # Either list will do — see the two-PATH note above. A word with a slash is checked as
     # a file by both calls, so passing `path` is harmless there.
-    if shutil.which(word) or (path is not None and shutil.which(word, path=path)):
+    if (daemon_path and shutil.which(word)) or (path is not None and shutil.which(word, path=path)):
         return None
     if os.path.isabs(word):
         # A path answers for itself; neither PATH was ever going to be consulted.
@@ -941,12 +944,17 @@ def new_session(body: NewSessionBody, request: Request):
     reboot nothing else on the phone can bring tmux back. Same label-only rule and
     preflight as new_window. `cwd` is not confined to $HOME: a client that can type into
     any shell here can already `cd` anywhere, so a fence would only cost real use."""
-    detail = f"session={body.name!r} cwd={body.cwd[:120]!r} launcher={(body.launcher or '')[:80]!r}"
+    detail = (f"session={body.name[:80]!r} cwd={body.cwd[:120]!r} "
+              f"launcher={(body.launcher or '')[:80]!r}")
 
     def refuse(status: int, why: str):
         _audit(request, "new_session", "-", detail, outcome=f"rejected: {why}"[:80])
         raise HTTPException(status, why)
 
+    # tmux silently rewrites ':' and '.' in a session name (they are target syntax), so
+    # the session would not be called what was asked for; refuse rather than surprise.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body.name):
+        refuse(422, "session names are 1-64 letters, digits, - and _")
     entry = None
     if body.launcher is not None:
         entry = next((e for e in _launchers() if e["label"] == body.launcher), None)
@@ -957,10 +965,12 @@ def new_session(body: NewSessionBody, request: Request):
         # 422, not 400: the phone reads a 400 as the launcher preflight's verdict and
         # greys that launcher out, which a mistyped directory must not do.
         refuse(422, f"{body.cwd} is not a directory")
-    # With no server yet, the PATH the launcher will run under is the one new_session
-    # gives the server it starts — a known answer, unlike server_path()'s None.
-    why = entry and _unavailable(entry["command"],
-                                 tmux.server_path() or tmux.server_env().get("PATH"))
+    # With no server yet, the launcher will run under exactly the PATH new_session gives
+    # the server it starts — a known answer, and the only one: the daemon's own PATH
+    # (its virtualenv included) is not inherited, so it must not vouch for the command.
+    running = tmux.server_running()
+    path = tmux.server_path() if running else tmux.server_env().get("PATH", "")
+    why = entry and _unavailable(entry["command"], path, daemon_path=running)
     if why:
         refuse(400, why)
     try:
