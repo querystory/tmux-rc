@@ -181,6 +181,14 @@ class NewWindowBody(BaseModel):
     launcher: str  # label of a configured launcher — never a raw command
 
 
+class NewSessionBody(BaseModel):
+    # tmux silently rewrites ':' and '.' in a session name (they are target syntax), so
+    # the session would not be called what was asked for; refuse rather than surprise.
+    name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    cwd: str = "~"
+    launcher: str | None = None  # a configured label as above; None = a plain shell
+
+
 # Agent launchers offered by the dock's "+" menu. Configurable so a fleet can offer
 # model/provider variants ("Claude (Fable)" → `claude --model fable`); the phone sends
 # back only the LABEL and the daemon looks the command up here, so the HTTP surface
@@ -540,6 +548,7 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
         ],  # transient; UI shows it subtly, not a big banner
         "usage": usage_totals(),  # running tokens/cost/calls/errors for the top-bar readout
         "prefix": tmux.prefix_key(),  # auto-detected tmux prefix, so the phone button matches
+        "tmux_running": w.tmux_running,  # False = no server at all (e.g. after a reboot)
         "panes": panes,
     }
 
@@ -896,16 +905,61 @@ def new_window(body: NewWindowBody, request: Request):
         _audit(request, "new_window", "-", detail, outcome=f"error: {e}"[:80])
         raise
     _audit(request, "new_window", pane_id, detail)
-    # Wake the watcher NOW instead of letting the new pane wait up to a poll interval to
-    # be discovered. The tick that runs publishes the pane's identity before it classifies
-    # it (see watcher._tick), so the card the phone just navigated to appears at once as a
-    # known-but-unclassified pane rather than as a missing pane id. Best-effort: the
-    # window already exists, so a watcher that isn't up must not turn a success into a
-    # 500 — the next ordinary tick finds the pane anyway.
+    return _opened(pane_id)
+
+
+def _opened(pane_id: str) -> dict:
+    """The reply for a request that just created a pane. Wakes the watcher NOW instead of
+    letting the new pane wait up to a poll interval to be discovered. The tick that runs
+    publishes the pane's identity before it classifies it (see watcher._tick), so the card
+    the phone just navigated to appears at once as a known-but-unclassified pane rather
+    than as a missing pane id. Best-effort: the pane already exists, so a watcher that
+    isn't up must not turn a success into a 500 — the next ordinary tick finds it anyway."""
     watcher = getattr(app.state, "watcher", None)
     if watcher is not None:
         watcher.request_reparse(pane_id)
     return {"ok": True, "pane_id": pane_id}
+
+
+@app.post("/api/sessions")
+def new_session(body: NewSessionBody, request: Request):
+    """Create a tmux session in `cwd`, optionally running a configured launcher — and
+    start the tmux server if none is running, which is the case this exists for: after a
+    reboot nothing else on the phone can bring tmux back. Same label-only rule and
+    preflight as new_window. `cwd` is not confined to $HOME: a client that can type into
+    any shell here can already `cd` anywhere, so a fence would only cost real use."""
+    detail = f"session={body.name!r} cwd={body.cwd[:120]!r} launcher={(body.launcher or '')[:80]!r}"
+
+    def refuse(status: int, why: str):
+        _audit(request, "new_session", "-", detail, outcome=f"rejected: {why}"[:80])
+        raise HTTPException(status, why)
+
+    entry = None
+    if body.launcher is not None:
+        entry = next((e for e in _launchers() if e["label"] == body.launcher), None)
+        if entry is None:
+            refuse(404, "unknown launcher")
+    cwd = os.path.expanduser(body.cwd)
+    if not (os.path.isabs(cwd) and os.path.isdir(cwd)):
+        # 422, not 400: the phone reads a 400 as the launcher preflight's verdict and
+        # greys that launcher out, which a mistyped directory must not do.
+        refuse(422, f"{body.cwd} is not a directory")
+    # With no server yet, the PATH the launcher will run under is the one new_session
+    # gives the server it starts — a known answer, unlike server_path()'s None.
+    why = entry and _unavailable(entry["command"],
+                                 tmux.server_path() or tmux.server_env().get("PATH"))
+    if why:
+        refuse(400, why)
+    try:
+        pane_id = tmux.new_session(body.name, cwd, entry and entry["command"],
+                                   entry["label"] if entry else "")
+    except subprocess.CalledProcessError as e:
+        if "duplicate session" in (e.stderr or ""):
+            refuse(409, f"a session named {body.name} already exists")
+        _audit(request, "new_session", "-", detail, outcome=f"error: tmux rc {e.returncode}")
+        raise
+    _audit(request, "new_session", pane_id, detail)
+    return _opened(pane_id)
 
 
 @app.post("/api/panes/{pane_id}/select")
