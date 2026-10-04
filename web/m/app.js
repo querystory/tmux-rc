@@ -1,5 +1,5 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
-import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
+import { renderAtlas, renderFleet, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
@@ -34,6 +34,11 @@ const LUCIDE = {
   layers: '<path d="m12 3 10 6-10 6L2 9l10-6ZM2 15l10 6 10-6M2 12l10 6 10-6"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
+  chevronUp: '<path d="m18 15-6-6-6 6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"/>',
   back: '<path d="m12 19-7-7 7-7M5 12h14"/>',
   up: '<path d="m5 12 7-7 7 7M12 19V5"/>',
   down: '<path d="m5 12 7 7 7-7M12 5v14"/>',
@@ -220,6 +225,7 @@ function route() {
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort } = state);
+  if (active) returnPane = null;
   $("sort").value = sort;
   refreshSortPicker();
   if (changed) {
@@ -236,7 +242,7 @@ function route() {
   restartDetail();
   render();
   if (dashboardVisible() && !wasDashboardVisible) {
-    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
+    refreshHistory(true);
   }
   if (active && changed) {
     const id = active;
@@ -335,6 +341,7 @@ function landingRows(id, subset) {
 
 function renderLanding() {
   const waiting = panes.filter(needsYou);
+  show("landing-back", panes.some((p) => p.pane_id === returnPane));
   text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "Session atlas" : "No panes yet");
   // With no panes there is no session to open a window IN: + is disabled and the server
   // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
@@ -348,7 +355,7 @@ function renderLanding() {
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  });
+  }, licon);
   landingRows("landing-attention", waiting);
 }
 
@@ -395,37 +402,36 @@ setSidebar(storedSidebar > 0 ? storedSidebar : SIDEBAR_DEFAULT, false);
 // the narrow clamp had squeezed it to, and aria-valuenow follows the seam it describes.
 addEventListener("resize", () => setSidebar(sidebarWidth, false));
 
+// Pointer plumbing every seam shares: primary button only (a right-click is a context-menu
+// gesture, and preventDefault() would swallow it), capture for the drag, and every ending
+// clears the dragging state. pointerup/pointercancel are the ordinary endings (capture
+// guarantees one even if the pointer leaves the window); lostpointercapture is the backstop
+// for the rest: crossing the wide breakpoint mid-drag hides the seam, which drops capture
+// without firing either. `bodyClass` matters for the sidebar: body.resizing kills
+// pointer-events on the main column, so it sticking on would deaden the whole pane.
+function seam(handle, move, end = () => {}, bodyClass = "") {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add("dragging");
+    if (bodyClass) document.body.classList.add(bodyClass);
+  });
+  handle.addEventListener("pointermove", (e) => { if (handle.hasPointerCapture(e.pointerId)) move(e); });
+  const stop = (e) => {
+    if (!handle.classList.contains("dragging")) return;
+    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+    handle.classList.remove("dragging");
+    if (bodyClass) document.body.classList.remove(bodyClass);
+    end(e);
+  };
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) handle.addEventListener(type, stop);
+}
+
 const divider = $("divider");
-divider.addEventListener("pointerdown", (e) => {
-  // Primary button only. A right-click on the seam is a context-menu gesture, not a
-  // resize, and preventDefault() here would swallow it.
-  if (e.button !== 0) return;
-  e.preventDefault();
-  divider.setPointerCapture(e.pointerId);
-  divider.classList.add("dragging");
-  document.body.classList.add("resizing");
-});
-divider.addEventListener("pointermove", (e) => {
-  if (!divider.hasPointerCapture(e.pointerId)) return;
-  // Measured from the app's left edge, not the viewport, so it stays correct if the
-  // layout ever gains an outer margin.
-  setSidebar(e.clientX - $("app").getBoundingClientRect().left);
-});
-// body.resizing kills pointer-events on the main column, so it sticking on would deaden
-// the whole pane. pointerup/pointercancel cover the ordinary endings (capture guarantees
-// one of them even if the pointer leaves the window), and lostpointercapture is the
-// backstop for the rest: crossing the wide breakpoint mid-drag hides #divider, which
-// drops capture without firing either of the other two.
-const endResize = (e) => {
-  if (e.pointerId !== undefined && divider.hasPointerCapture(e.pointerId)) {
-    divider.releasePointerCapture(e.pointerId);
-  }
-  divider.classList.remove("dragging");
-  document.body.classList.remove("resizing");
-};
-divider.addEventListener("pointerup", endResize);
-divider.addEventListener("pointercancel", endResize);
-divider.addEventListener("lostpointercapture", endResize);
+// Measured from the app's left edge, not the viewport, so it stays correct if the layout
+// ever gains an outer margin.
+seam(divider, (e) => setSidebar(e.clientX - $("app").getBoundingClientRect().left), undefined, "resizing");
 divider.addEventListener("keydown", (e) => {
   const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
   if (!step) return;
@@ -457,13 +463,19 @@ function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()])
   if (persist) {
     reviewSizes[mode] = size;
     try { localStorage.setItem(`tmuxrc-review-${mode}`, String(size)); } catch {}
+    sizeFleet(); // a taller overview takes its room from the terminal, which the split's cap protects
   }
 }
-new ResizeObserver(() => {
+// The composer and heading too: a multiline draft, the key row or a wrapped title grows them without resizing #detail,
+// and the terminal it squeezes is what the split's cap protects.
+const detailResize = new ResizeObserver(() => {
   if (active && streamedLayout !== effectiveLayout()) {
     restartDetail(); render();
-  } else sizeReview();
-}).observe($("detail"));
+  } else { sizeReview(); if (WIDE.matches) sizeFleet(); }
+});
+detailResize.observe($("detail"));
+detailResize.observe($("composer"));
+detailResize.observe($("heading"));
 $("mobile-view-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
   if (!button) return;
@@ -480,21 +492,10 @@ $("review-layout").onchange = (e) => {
   if (["summary", "terminal"].includes(choice)) view = choice;
   navigate(active, view);
 };
-reviewDivider.onpointerdown = (e) => {
-  if (e.button !== 0) return;
-  e.preventDefault(); reviewDivider.setPointerCapture(e.pointerId);
-  reviewDivider.classList.add("dragging");
-};
-reviewDivider.onpointermove = (e) => {
-  if (!reviewDivider.hasPointerCapture(e.pointerId)) return;
+seam(reviewDivider, (e) => {
   const rect = $("detail").getBoundingClientRect();
   sizeReview(true, effectiveLayout() === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
-};
-const endReviewResize = (e) => {
-  if (reviewDivider.hasPointerCapture(e.pointerId)) reviewDivider.releasePointerCapture(e.pointerId);
-  reviewDivider.classList.remove("dragging");
-};
-reviewDivider.onpointerup = reviewDivider.onpointercancel = reviewDivider.onlostpointercapture = endReviewResize;
+});
 reviewDivider.onkeydown = (e) => {
   const steps = effectiveLayout() === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
   const step = steps[e.key];
@@ -502,6 +503,56 @@ reviewDivider.onkeydown = (e) => {
   e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
 };
 reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
+
+// The fleet chart docks under the pane on a wide screen, behind a seam: drag it to any
+// height and release snaps to strip, medium or tall; a double-click or the chevron folds
+// and unfolds. `fleetHeight` is the chosen height, persisted per screen; the shown one is
+// capped so the pane's flexible row (the terminal, or the overview alone) keeps
+// FLEET_ROOM, which a short window or a tall stacked overview would otherwise take.
+const FLEET_KEY = "tmuxrc-fleet-height", STRIP = 40, MEDIUM = 300, FLEET_ROOM = 120;
+let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null, returnView = "summary";
+try { fleetHeight = Number(localStorage.getItem(FLEET_KEY)) || STRIP; } catch {}
+const fleetHandle = $("fleet-handle");
+function sizeFleet(px = fleetHeight, mode = "") {
+  // Hidden, the grid reports unresolved tracks (auto, minmax) that would parse to NaN.
+  if (!WIDE.matches || !active) return;
+  // From the grid's own tracks, not the flexible row's current height: after a big window
+  // shrink that row may already be clamped to zero, and would hide the overflow.
+  // The stacked overview's row can itself be squeezed below its chosen size, so count that.
+  const tracks = getComputedStyle($("detail")).gridTemplateRows.split(" ").map(parseFloat);
+  const stack = $("detail").dataset.layout === "stack", flex = stack ? 3 : 2; // the minmax(0, 1fr) row
+  if (stack) tracks[2] = Math.max(tracks[2], parseFloat($("detail").style.getPropertyValue("--review-size")) || 0);
+  const fixed = tracks.reduce((total, h, i) => i === flex || i === tracks.length - 1 ? total : total + h, 0);
+  const cap = Math.max(STRIP, $("detail").clientHeight - fixed - FLEET_ROOM);
+  const snaps = [STRIP, Math.min(MEDIUM, cap), cap];
+  if (mode === "snap") px = snaps.reduce((best, snap) => Math.abs(snap - px) < Math.abs(best - px) ? snap : best);
+  fleetShown = Math.round(Math.max(STRIP, Math.min(snaps[2], px)));
+  if (mode) {
+    fleetHeight = fleetShown;
+    try { localStorage.setItem(FLEET_KEY, String(fleetHeight)); } catch {}
+  }
+  $("detail").style.setProperty("--fleet-h", `${fleetShown}px`);
+  for (const [key, value] of Object.entries({ min: STRIP, max: snaps[2], now: fleetShown })) fleetHandle.setAttribute(`aria-value${key}`, value);
+  renderFleetSplit();
+}
+const foldFleet = () => sizeFleet(fleetShown > STRIP ? STRIP : MEDIUM, "snap");
+seam(fleetHandle, (e) => sizeFleet($("detail").getBoundingClientRect().bottom - e.clientY, "drag"), () => sizeFleet(fleetShown, "snap"));
+fleetHandle.ondblclick = foldFleet;
+fleetHandle.onkeydown = (e) => {
+  const step = { ArrowUp: 16, ArrowDown: -16 }[e.key];
+  if (!step) return;
+  e.preventDefault(); sizeFleet(fleetShown + step, "drag");
+};
+// The strip's Dashboard swaps the pane for the dashboard page; its Back returns to the pane.
+// Opening it again from the dashboard keeps the pane Back returns to.
+const openDashboard = () => { if (active) [returnPane, returnView] = [active, view]; navigate(null, "dashboard"); };
+$("landing-back").onclick = () => navigate(returnPane, returnView); // the tab the user left, too
+html($("landing-back"), licon("back", 18));
+function renderFleetSplit() {
+  if (!WIDE.matches || !active) return;
+  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
+}
+const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
@@ -524,7 +575,7 @@ function render() {
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
   show("landing", dashboardVisible());
-  show("divider", wide);
+  show("divider", wide); show("fleet", wide); show("fleet-handle", wide);
   renderList();
   if (!inPane) { if (dashboardVisible()) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
@@ -565,6 +616,7 @@ function render() {
   show("review-divider", reviewing());
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
+  if (wide) sizeFleet();
   text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
@@ -784,7 +836,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
+    refreshHistory();
     pollState(stateController.signal);
   }
 }
@@ -797,7 +849,7 @@ async function pollState(signal) {
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
+      refreshHistory();
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -988,7 +1040,7 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
-$("dashboard-tab").onclick = $("dash-nav").onclick = () => navigate(null, "dashboard");
+$("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
