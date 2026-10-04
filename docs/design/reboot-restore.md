@@ -72,14 +72,21 @@ window layout string (one more format field) and the agent session binding.
 
 ### The new record: one layout snapshot per tmux server
 
-One row per tmux server (boot id plus server pid, the identity history already uses),
-replaced in place: current state, not history, like the checkpoint table. It holds each
+One row per tmux server, replaced in place: current state, not history, like the checkpoint table. It holds each
 session (name, creation directory); each window (index, name, tmux layout string, active,
 zoomed); and each pane (index, directory, title, classified tool, and for agents the
 **binding**: harness and session id). Each pane also carries a **copy** of its last
 activity time and folded state, coarse to the minute. The copy keeps the snapshot
 meaningful after checkpoints are pruned; the coarseness keeps it from rewriting on every
 keystroke.
+
+**Server identity** is the boot id plus the server's pid *and its process start time*.
+History keys on boot id plus pid, and there a reused pid only keeps a dead server's rows
+a little longer. Here it would be worse: a later server that drew the same pid in the
+same boot would overwrite the only restore candidate, and an unrelated process holding
+that pid would make a dead server look alive and suppress the offer. The start time
+(field 22 of `/proc/<pid>/stat`, the check agent-history already makes for Claude's
+registry) closes both.
 
 The row is written only when it changes, at most once a minute, the cadence the inventory
 heartbeat already keeps. Fifty panes are a few tens of kilobytes; the cost is at worst
@@ -117,7 +124,7 @@ The daemon cannot see a reboot, only what one leaves behind. It compares the lat
 unconsumed snapshot's server identity with the present:
 
 - **Boot id differs** (`/proc/sys/kernel/random/boot_id`): the machine rebooted.
-- **Same boot, server pid gone:** tmux crashed or was killed.
+- **Same boot, server process gone:** tmux crashed or was killed.
 - **That server still alive:** nothing to offer. This is what keeps a daemon restart,
   which every integration deploy causes, from looking like a lost workspace.
 
@@ -343,6 +350,8 @@ Acceptance:
   once.
 - After the test server is stopped by its own socket, the endpoint returns its snapshot as
   a candidate; a daemon restart with the server alive returns none.
+- A server identity whose pid now belongs to a different process (a different start
+  time) counts as dead, and a new server reusing a dead one's pid gets its own row.
 - A new tmux server appearing does not delete the previous server's snapshot, the
   checkpoint table's failure mode.
 - No command line, cmdline or environment value reaches the database; a test asserts it
