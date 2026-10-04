@@ -461,8 +461,8 @@ def _widget_context(prompt: str, visible: str) -> str | None:
     found = _last_occurrence(prompt, visible)
     if found is None:
         return None
-    above = visible[:found.start()].splitlines()
-    top = next((i for i in range(len(above) - 1, max(len(above) - 16, -1), -1)
+    above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
+    top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
                 if _WIDGET_TOP_RE.match(above[i])), None)
     below = visible[found.end():].splitlines()[1:]
     stop = next((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), 0)

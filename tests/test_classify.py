@@ -1063,6 +1063,9 @@ def test_menu_context_is_read_off_its_own_widget():
         assert got == _sample(name, "expected")["question"]["context"]
     # No widget edge close above: those rows are the conversation, and the model's own
     # "context" is never passed through.
+    # The edge may sit a full 16 rows above the prompt's own row.
+    edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
+    assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
     plain = "\x1e[visible screen]\x1f\n● Ran the build.\nDo you want to proceed?\n❯ 1. Yes\n  2. No"
     assert "context" not in ask(plain, "Do you want to proceed?", context="made up")["question"]
     assert "context" not in ask(_sample("69_claude_permission_context"),
