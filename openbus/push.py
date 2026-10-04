@@ -518,14 +518,11 @@ class PushManager:
                 "title": _push_text(
                     pane.get("title") or pane.get("label") or pane_id, 100
                 ),
-                # The prompt, then what it asks about ("Do you want to proceed?" alone
-                # says nothing): classify.py's widget context, when the menu has one.
-                "body": _push_text("\n".join(filter(None, (
+                "body": _push_text((
                     (question or {}).get("prompt")
                     or pane.get("headline")
-                    or "Needs your attention",
-                    (question or {}).get("context"),
-                ))), 400),
+                    or "Needs your attention"
+                ), 400),
                 "tag": f"block:{pane_id}",
                 "url": url,
                 "nonce": nonce,
