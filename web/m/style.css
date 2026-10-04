@@ -445,6 +445,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 .landing-inner { padding: 32px; max-width: 2400px; }
 .landing-inner h2 { margin: 0 0 4px; font-size: 20px; }
+#landing-title:empty, #landing-sub:empty { display: none; }
 .landing-inner h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase;
                     letter-spacing: 0.04em; color: var(--muted); }
 /* Same affordance as a list row: the whole thing is the target, text stays left-aligned. */
@@ -495,6 +496,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-state-toggle[aria-pressed="false"]::before { background: transparent; }
 .atlas-state-toggle[aria-pressed="false"] { text-decoration: line-through; }
 .atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
+#landing-sub:empty + #session-atlas .atlas-controls { margin-top: 0; }
+.atlas-controls-label { font-size: 13px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
