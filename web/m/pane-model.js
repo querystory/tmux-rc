@@ -37,6 +37,12 @@ export function markWorking(img, pane, logos) {
   if (!badge) img.after(badge = Object.assign(document.createElement("img"), { className: "model-badge" }));
   if (badge.getAttribute("src") !== provider[1]) Object.assign(badge, { src: provider[1], alt: provider[0] });
 }
+// How long the pane has been in its current state; a row shows "now" while it works.
+export const since = (p, nowMs = Date.now()) => {
+  const s = Math.max(0, nowMs / 1000 - (Number(p.state_since) || lastActivity(p)));
+  return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
+};
+export const age = (p, nowMs) => isRunning(p) ? "now" : since(p, nowMs);
 export function isRecent(pane, nowMs = Date.now()) {
   const since = pane.state_since == null ? NaN : Number(pane.state_since);
   const idle = Number.isFinite(since) ? Math.max(0, nowMs / 1000 - since) : pane.idle_seconds || 0;
