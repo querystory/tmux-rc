@@ -72,18 +72,28 @@ window layout string (one more format field) and the agent session binding.
 
 ### The new record: one layout snapshot per tmux server
 
-One row per tmux server (boot id plus server pid, the identity history already uses),
-replaced in place: current state, not history, like the checkpoint table. It holds each
-session (name, creation directory); each window (index, name, tmux layout string, active,
-zoomed); and each pane (index, directory, title, classified tool, and for agents the
+One row per tmux server, replaced in place: current state, not history, like the checkpoint table. It holds each
+session (name, creation directory); each window (index, name, whether that name was set
+by hand or by tmux's automatic renaming, tmux layout string, active, zoomed); and each
+pane (index, active, directory, title, classified tool, and for agents the
 **binding**: harness and session id). Each pane also carries a **copy** of its last
 activity time and folded state, coarse to the minute. The copy keeps the snapshot
 meaningful after checkpoints are pruned; the coarseness keeps it from rewriting on every
 keystroke.
 
-The row is written only when it changes, at most once a minute, the cadence the inventory
-heartbeat already keeps. Fifty panes are a few tens of kilobytes; the cost is at worst
-one upsert a minute.
+**Server identity** is the boot id plus the server's pid *and its process start time*.
+History keys on boot id plus pid, and there a reused pid only keeps a dead server's rows
+a little longer. Here it would be worse: a later server that drew the same pid in the
+same boot would overwrite the only restore candidate, and an unrelated process holding
+that pid would make a dead server look alive and suppress the offer. The start time
+(field 22 of `/proc/<pid>/stat`, the check agent-history already makes for Claude's
+registry) closes both.
+
+The payload is rewritten only when it changes. Its **last-seen** stamp is refreshed every
+minute regardless, the cadence the inventory heartbeat already keeps, because it is the
+proxy for when the server died: an unchanged server can run for days, and staleness must
+be measured from its end, not from its last layout change. Fifty panes are a few tens of
+kilobytes; the cost is one small update a minute.
 
 **Retention.** When a server dies its row stays as the restore candidate, stamped with
 when it was last seen. Only the newest dead server's snapshot is offered; older ones are
@@ -113,12 +123,15 @@ user closed is finished by definition.
 
 ## Detecting that a restore is due
 
-The daemon cannot see a reboot, only what one leaves behind. It compares the latest
-unconsumed snapshot's server identity with the present:
+The daemon cannot see a reboot, only what one leaves behind. It walks the unconsumed
+snapshots newest first and offers the first one whose server is dead. Newest first
+matters: a replacement server has usually written its own, newer row by the time anyone
+looks, and that live row must not hide the dead one behind it. A server is judged by
+comparing its identity with the present:
 
 - **Boot id differs** (`/proc/sys/kernel/random/boot_id`): the machine rebooted.
-- **Same boot, server pid gone:** tmux crashed or was killed.
-- **That server still alive:** nothing to offer. This is what keeps a daemon restart,
+- **Same boot, server process gone:** tmux crashed or was killed.
+- **That server still alive:** skip it. This is what keeps a daemon restart,
   which every integration deploy causes, from looking like a lost workspace.
 
 Both loss cases get the same offer, worded differently. The offer does **not** require
@@ -172,6 +185,10 @@ original index, splits off the window's panes in order, each in its own director
 applies the saved layout string for exact geometry. A deselected pane makes the layout
 string's pane count wrong and tmux rejects it, so that window falls back to the nearest
 built-in layout rather than failing. Names, the active window and pane, and zoom go last.
+A window whose name was set by hand gets automatic renaming turned off before its name is
+applied; otherwise tmux renames it after the agent's process the moment it starts (the
+[orchestration notes](../agent-orchestration.md) describe the same clobbering). Windows
+that were auto-named stay that way.
 
 A session name that already exists (a login script's, typically) is never merged into;
 the restored session gets a suffix, because a restore that rearranges a live session is
@@ -220,10 +237,14 @@ A pane that fails (exits immediately, which Live's resume already detects, or ne
 login, a human boundary anyway) stays in the layout as a shell showing the error, and
 the card reports it. No retries.
 
-**Idempotency** works at two levels. The snapshot is marked consumed when the restore
-*starts*, so a second tap or device is told one is running. Each pane's outcome (new pane
-id and pid, or the failure) is recorded as it lands, so a daemon restart mid-restore
-continues with the panes that have none. And right before each launch the running check
+**Idempotency** rests on a durable restore run. In one transaction, before anything
+launches, the daemon records the run (the exact selection, each selected pane pending)
+and marks the snapshot consumed *by that run*; a dismissal consumes it with no run. A
+second tap or device is therefore told a restore is running. Each pane's outcome (new
+pane id and pid, or the failure) is written to the run as it lands, so a daemon that
+restarts mid-restore finds the unfinished run and continues with its pending panes.
+The audit trail is not this record: it is telemetry, for reconstruction afterwards,
+not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
 are Live's `resume_session`: restore and Live share one "start this session unless it is
 already running" path rather than two.
@@ -339,10 +360,13 @@ Acceptance:
   strings, pane order and directories exactly.
 - Bound Claude, Codex and omp panes record the session id agent-history reports; an
   unbound Codex pane records tool and directory with no id.
-- An unchanged fleet writes nothing beyond the minute heartbeat; resizing a pane writes
-  once.
+- An unchanged fleet rewrites no payload, only the minute last-seen stamp; resizing a
+  pane rewrites it once.
 - After the test server is stopped by its own socket, the endpoint returns its snapshot as
-  a candidate; a daemon restart with the server alive returns none.
+  a candidate, even after a second test server has written a newer row; a daemon restart
+  with the server alive returns none.
+- A server identity whose pid now belongs to a different process (a different start
+  time) counts as dead, and a new server reusing a dead one's pid gets its own row.
 - A new tmux server appearing does not delete the previous server's snapshot, the
   checkpoint table's failure mode.
 - No command line, cmdline or environment value reaches the database; a test asserts it
