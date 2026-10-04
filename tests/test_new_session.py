@@ -63,6 +63,19 @@ def test_starts_the_server_when_none_is_running(sock, audits, tmp_path, monkeypa
     assert audits == [("new_session", pane, "ok")]
 
 
+def test_new_server_gets_the_login_shells_path(sock, audits, tmp_path, monkeypatch):
+    """The daemon's unit PATH is minimal; the server it starts must carry the PATH a login
+    shell builds (nvm, ~/bin), even when the profile prints something first."""
+    shell = tmp_path / "loginsh"
+    shell.write_text('#!/bin/sh\necho "PATH=/printed/by/profile"\n'
+                     'export PATH="/login/bin:$PATH"\nexec /bin/sh "$@"\n')
+    shell.chmod(0o755)
+    monkeypatch.setenv("SHELL", str(shell))
+    r = TestClient(S.app).post("/api/sessions", json={"name": "login", "cwd": str(tmp_path)})
+    assert r.status_code == 200, r.text
+    assert T._run(["show-environment", "-g", "PATH"]).startswith("PATH=/login/bin:")
+
+
 def test_existing_name_is_a_conflict(sock, audits, tmp_path):
     client, body = TestClient(S.app), {"name": "dup", "cwd": str(tmp_path)}
     assert client.post("/api/sessions", json=body).status_code == 200

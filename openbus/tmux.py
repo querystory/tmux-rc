@@ -454,18 +454,35 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
 # future shell's, and the daemon's is not a user's: `uv run` puts the daemon's virtualenv
 # first on PATH (so `python` in every pane would be tmux-rc's), and the daemon holds .env
 # and the provider API keys in os.environ. An allowlist, because a denylist misses
-# whatever gets loaded next. Login shells rebuild the rest from the user's profile.
-_SERVER_ENV = re.compile(
-    r"HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|PATH|XDG_\w+|DBUS_SESSION_BUS_ADDRESS")
+# whatever gets loaded next. SSH_AUTH_SOCK is a socket path, not a secret, and without it
+# an agent started here could not push over SSH.
+_SERVER_ENV = re.compile(r"HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|PATH|XDG_\w+"
+                         r"|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK")
 
 
 def server_env() -> dict[str, str]:
-    """The environment new_session hands tmux — see _SERVER_ENV."""
+    """The environment new_session hands tmux — see _SERVER_ENV — with PATH taken from
+    the user's LOGIN shell. The daemon's unit PATH is deliberately minimal, and a launcher
+    runs via `sh -c` with whatever PATH the server holds, so without this an agent
+    installed under nvm or ~/bin would be "not found" in a session started after a
+    reboot, though it runs fine in one the user starts by hand. `exec env` rather than
+    echoing $PATH, which fish would space-join; the LAST PATH= line wins, past anything
+    the profile prints. If the shell fails, the scrubbed PATH stands."""
     env = {k: v for k, v in os.environ.items() if _SERVER_ENV.fullmatch(k)}
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
         dirs = env.get("PATH", "").split(os.pathsep)
         env["PATH"] = os.pathsep.join(d for d in dirs if d != os.path.join(venv, "bin"))
+    try:
+        out = subprocess.run([env.get("SHELL") or "/bin/sh", "-lc", "exec env"], env=env,
+                             capture_output=True, text=True, timeout=5, check=True,
+                             stdin=subprocess.DEVNULL).stdout
+        paths = [line[5:] for line in out.splitlines() if line.startswith("PATH=")]
+        if paths:
+            env["PATH"] = paths[-1]
+    except (OSError, subprocess.SubprocessError):
+        logger.warning("Login shell did not report a PATH; the new tmux server gets the "
+                       "daemon's", exc_info=True)
     return env
 
 
@@ -479,8 +496,13 @@ def new_session(name: str, cwd: str, command: str | None = None, window: str = "
     `systemctl --user restart tmux-rc` would kill it along with every session in it.
     `command` (a configured launcher's) runs in the first window, as in new_window; None
     leaves tmux's default, the user's login shell."""
-    scope = (["systemd-run", "--user", "--scope", "--quiet", "--collect"]
-             if os.environ.get("INVOCATION_ID") and shutil.which("systemd-run") else [])
+    scope = []
+    if os.environ.get("INVOCATION_ID"):  # set by systemd for the units it runs
+        if shutil.which("systemd-run"):
+            scope = ["systemd-run", "--user", "--scope", "--quiet", "--collect"]
+        else:  # still start it: a session that dies on restart beats no session at all
+            logger.warning("systemd-run not found: a tmux server started now lives in the "
+                           "daemon's cgroup and dies on the next tmux-rc restart")
     argv = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "-c", cwd]
     if window:
         argv += ["-n", window]

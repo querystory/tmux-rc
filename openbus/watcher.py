@@ -351,7 +351,7 @@ class Watcher:
         # deck (tmux down / no panes), whose fingerprint is "". Otherwise version would
         # stay 0 through a prolonged empty state and the long-poll (which only engages at
         # version > 0) would never kick in.
-        self._state_fp: str | None = None
+        self._state_fp: tuple | None = None
         self._state_changed = asyncio.Event()
 
     def state_version(self) -> int:
@@ -764,7 +764,9 @@ class Watcher:
         return "\n".join(parts)
 
     def _bump_state_if_changed(self, states: list[dict]) -> None:
-        fp = self._deck_fp(states)
+        # tmux_running is in the fingerprint: an empty deck whose server stops (or starts)
+        # changes nothing else, and the phone would hold a stale empty state for a poll.
+        fp = (self.tmux_running, self._deck_fp(states))
         if fp == self._state_fp:
             return
         self._state_fp = fp
