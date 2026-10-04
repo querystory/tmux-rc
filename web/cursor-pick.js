@@ -26,10 +26,12 @@
 // comes NEXT (model picker → reasoning menu) and confirms that menu's default. Nothing
 // follows the shortcut: a follow-up key can misfire into a live agent just the same, and
 // if the tap changed nothing the card simply stays for the user to act on.
+// A menu's shortcut is always its row's digit, even when the rows read Yes / No: Claude
+// Code's "❯ 1. Yes / 2. No" permission box ignores a bare y, so a y/n shortcut left the
+// tap doing nothing. Digits are what the classifier requires to call a widget a menu.
 export function answerBody(q, opt, i) {
   if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
-  const yn = q.options.length === 2 && /^(yes|no)$/i.test(opt);
-  return { keys: yn ? opt[0].toLowerCase() : String(i + 1), enter: false, literal: true };
+  return { keys: String(i + 1), enter: false, literal: true };
 }
 
 // How many moves we will walk before handing over to the widget's own search box. A row

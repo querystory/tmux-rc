@@ -188,7 +188,8 @@ def test_sender_vapid_contact_default_and_override(monkeypatch, override):
 
 def test_option_mapping_matches_card_semantics():
     question = {"answer_style": "menu", "options": ["Yes", "No"]}
-    assert push.option_keys(question, 0) == "y"
+    assert push.option_keys(question, 0) == "1"
+    assert push.option_keys(question, 1) == "2"
     assert push.option_keys({"answer_style": "menu", "options": ["Retry", "Abort"]}, 1) == "2"
     question = {"answer_style": "menu", "options": ["Alpha", "Other", "Beta"]}
     assert push.renderable_options(question) == [(0, "Alpha"), (2, "Beta")]
@@ -450,9 +451,9 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
     service.evaluate()
     nonce = sender.payloads[0]["nonce"]
 
-    assert service.answer(nonce, 0) == ("%1", "y")
-    # No Enter: the menu commits on "y", so an Enter would answer whatever comes next.
-    assert sent == [("%1", "y", {
+    assert service.answer(nonce, 0) == ("%1", "1")
+    # No Enter: the menu commits on "1", so an Enter would answer whatever comes next.
+    assert sent == [("%1", "1", {
         "enter": False, "literal": True, "expected_pid": "123",
     })]
     assert watcher.reparsed == ["%1"]
@@ -553,8 +554,8 @@ def test_concurrent_valid_nonces_cannot_both_submit(tmp_path, monkeypatch):
         worker.start()
     for worker in workers:
         worker.join()
-    assert sent == ["y"]
-    assert len([result for result in results if result == ("%1", "y")]) == 1
+    assert sent == ["1"]
+    assert len([result for result in results if result == ("%1", "1")]) == 1
     assert any("newer input" in str(result) for result in results)
 
 
