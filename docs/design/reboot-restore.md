@@ -73,8 +73,9 @@ binding.
 
 ### The new record: one layout snapshot per tmux server
 
-One row per tmux server, replaced in place: current state, not history, like the checkpoint table. It holds each
-session (name, creation directory); each window (index, name, whether that name was set
+One row per tmux server, replaced in place: current state, not history, like the
+checkpoint table. It holds each session (name, creation directory, and its session
+group, if any); each window (index, name, whether that name was set
 by hand or by tmux's automatic renaming, tmux layout string, active, zoomed); and each
 pane (index, active, directory, title, classified tool, the basename of the program in
 its foreground (never its arguments), and for agents the **binding**: harness and
@@ -82,6 +83,12 @@ session id). Each pane also carries a **copy** of its last
 activity time and folded state, coarse to the minute. The copy keeps the snapshot
 meaningful after checkpoints are pruned; the coarseness keeps it from rewriting on every
 keystroke.
+
+**Grouped sessions** share their windows, and `list-panes -a` reports a shared pane once
+per member; the watcher already folds those copies into one. The snapshot does the same:
+each shared window is stored once, under the group, and the other members are recorded
+as names only. Restore builds the windows once and creates the other members as
+members of that group, so a shared agent is never resumed twice.
 
 **Server identity** is the boot id plus the server's pid *and its process start time*.
 History keys on boot id plus pid, and there a reused pid only keeps a dead server's rows
@@ -237,7 +244,10 @@ reaches its input line or a first-run prompt, as the
 processes at once fight for CPU and memory on a just-booted machine and hit the
 provider's session-start rate limits together. Order: panes waiting on the user, then
 working, then by recency. The layout is built up front, so every pane exists at once and
-agents fill in as their turn comes.
+agents fill in as their turn comes. Readiness has a bound, about a minute: an agent that
+is still alive but has shown neither its input line nor a recognized prompt by then is
+marked as needing attention, and its slot passes to the next one, so a few hung starts
+cannot stall the rest of the queue.
 
 A pane that fails (exits immediately, or needs a login, a human boundary anyway) stays
 in the layout as the shell its launcher falls back to, with the error above the prompt,
@@ -246,9 +256,13 @@ and the card reports it. No retries.
 **Idempotency** rests on a durable restore run. In one transaction, before anything
 launches, the daemon records the run (the exact selection, each selected pane pending)
 and marks the snapshot consumed *by that run*; a dismissal consumes it with no run. A
-second tap or device is therefore told a restore is running. Each pane's outcome (new
-pane id and pid, or the failure) is written to the run as it lands, so a daemon that
-restarts mid-restore finds the unfinished run and continues with its pending panes.
+second tap or device is therefore told a restore is running. Layout construction is
+recorded too: each session, window and pane the executor creates is written to the run
+by its tmux id as it is created, and each launch outcome (pid, or the failure) as it
+lands. A daemon that restarts mid-restore finds the unfinished run, reconciles those ids
+against tmux (reusing every target that still exists, rather than meeting its own half
+built session as a name collision and suffixing it), creates what is missing, and
+launches what is pending.
 The audit trail is not this record: it is telemetry, for reconstruction afterwards,
 not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
@@ -374,6 +388,7 @@ Acceptance:
 - After the test server is stopped by its own socket, the endpoint returns its snapshot as
   a candidate, even after a second test server has written a newer row; a daemon restart
   with the server alive returns none.
+- Grouped sessions record each shared window once, with the other members by name.
 - A server identity whose pid now belongs to a different process (a different start
   time) counts as dead, and a new server reusing a dead one's pid gets its own row.
 - A new tmux server appearing does not delete the previous server's snapshot, the
