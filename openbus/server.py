@@ -87,17 +87,47 @@ from .watcher import Watcher  # noqa: E402
 # anything below WARNING silently invisible (which pushed routine lines to WARNING just
 # to be seen). Import-time, not main(): under --reload the worker process re-imports
 # this module but never calls main(). basicConfig is a no-op if root is already set up.
-logging.basicConfig(
-    level=os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+#
+# Under systemd, stderr goes to journald, which files every line at the unit's default
+# priority (info) — so `journalctl -p warning` hid real WARNING/ERROR lines. Prefixing
+# each line with its sd-daemon "<N>" syslog priority lets journald (SyslogLevelPrefix=yes,
+# the default) file it correctly, with no systemd-python dependency. Every line of a
+# multi-line record (tracebacks) is prefixed, or the traceback would sink back to info.
+# Gated on JOURNAL_STREAM matching *our* stderr, not merely being set: it is inherited,
+# e.g. by shells under a systemd-launched tmux, where `make dev` must stay unprefixed.
+_SYSLOG_PRIORITY = {
+    logging.DEBUG: 7, logging.INFO: 6, logging.WARNING: 4, logging.ERROR: 3, logging.CRITICAL: 2,
+}
+
+
+class JournalFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        prefix = f"<{_SYSLOG_PRIORITY.get(record.levelno, 6)}>"
+        return "\n".join(prefix + line for line in super().format(record).split("\n"))
+
+
+def stderr_is_journal() -> bool:
+    try:
+        st = os.fstat(2)
+    except OSError:
+        return False
+    return os.environ.get("JOURNAL_STREAM") == f"{st.st_dev}:{st.st_ino}"
+
+
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(
+    (JournalFormatter if stderr_is_journal() else logging.Formatter)(
+        "%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S",
+    ),
 )
+_log_level = os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=_log_level, handlers=[_log_handler])
 # Chatty third-party libraries log a line per LLM call at INFO (httpx: every Vertex
 # POST; google_genai: an "AFC is enabled" banner). That's ~2 lines per parse of pure
 # noise drowning our own signal — pin them to WARNING. EXCEPT under DEBUG: those same
 # loggers are the ones you need when debugging the Vertex/HTTP path, so an explicit
 # TMUXRC_LOG_LEVEL=DEBUG unmutes everything.
-if os.environ.get("TMUXRC_LOG_LEVEL", "INFO").upper() != "DEBUG":
+if _log_level != "DEBUG":
     for _noisy in ("httpx", "httpcore", "google_genai"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
 
