@@ -185,6 +185,9 @@ The distance between today's prompt-driven bus and the first-class one, in order
 5. **Cost and cadence.** A perception pass per pane per interval, times many panes,
    is a real bill; throttling and parallel parses (#46, #55) become load-bearing at
    fleet scale.
+6. **Surviving the box.** Every pane's place and conversation are already on the bus;
+   recording them turns a reboot or a lost tmux server into one confirmed tap instead
+   of an afternoon of resuming sessions by hand. See [reboot restore](reboot-restore.md).
 
 ## The bet
 
