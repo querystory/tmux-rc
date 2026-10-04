@@ -67,16 +67,18 @@ Non-goals:
   vanish the moment the user opened a fresh shell.
 
 Everything else is already read on every tick: `list-panes` returns session, window index
-and name, pane index, current path, current command, title and pid. Missing are the
-window layout string (one more format field) and the agent session binding.
+and name, pane index, current path, current command, title and pid. Missing are a few more format fields (the session's creation path, the
+window's layout string, zoom flag and automatic-rename setting) and the agent session
+binding.
 
 ### The new record: one layout snapshot per tmux server
 
 One row per tmux server, replaced in place: current state, not history, like the checkpoint table. It holds each
 session (name, creation directory); each window (index, name, whether that name was set
 by hand or by tmux's automatic renaming, tmux layout string, active, zoomed); and each
-pane (index, active, directory, title, classified tool, and for agents the
-**binding**: harness and session id). Each pane also carries a **copy** of its last
+pane (index, active, directory, title, classified tool, the basename of the program in
+its foreground (never its arguments), and for agents the **binding**: harness and
+session id). Each pane also carries a **copy** of its last
 activity time and folded state, coarse to the minute. The copy keeps the snapshot
 meaningful after checkpoints are pruned; the coarseness keeps it from rewriting on every
 keystroke.
@@ -123,11 +125,13 @@ user closed is finished by definition.
 
 ## Detecting that a restore is due
 
-The daemon cannot see a reboot, only what one leaves behind. It walks the unconsumed
-snapshots newest first and offers the first one whose server is dead. Newest first
-matters: a replacement server has usually written its own, newer row by the time anyone
-looks, and that live row must not hide the dead one behind it. A server is judged by
-comparing its identity with the present:
+The daemon cannot see a reboot, only what one leaves behind. It finds the newest
+snapshot whose server is dead, consumed or not, and offers it only if it is unconsumed.
+Two details matter. Live rows are skipped: a replacement server has usually written its
+own, newer row by the time anyone looks, and it must not hide the dead one behind it.
+Consumed rows are not: once the newest loss has been restored or dismissed, an older one
+must not surface in its place. A server is judged by comparing its identity with the
+present:
 
 - **Boot id differs** (`/proc/sys/kernel/random/boot_id`): the machine rebooted.
 - **Same boot, server process gone:** tmux crashed or was killed.
@@ -205,9 +209,11 @@ start in its own scope or unit.
 
 It also must not inherit the unit's deliberately minimal PATH, under which an
 nvm-installed `claude` does not resolve. Panes start under the user's login shell, which
-receives the resume argv as positional arguments to exec: PATH comes from the user's
-profile, and the arguments are still never parsed as shell syntax, the promise
-agent-history's `resume_argv` makes.
+receives the resume argv as positional arguments, runs it, and then continues as an
+interactive shell in the same directory. PATH comes from the user's profile; the
+arguments are never parsed as shell syntax, the promise agent-history's `resume_argv`
+makes; and when the agent exits, normally or at once, the pane survives as a shell
+instead of closing and taking its place in the layout with it.
 
 ### Per pane
 
@@ -233,9 +239,9 @@ provider's session-start rate limits together. Order: panes waiting on the user,
 working, then by recency. The layout is built up front, so every pane exists at once and
 agents fill in as their turn comes.
 
-A pane that fails (exits immediately, which Live's resume already detects, or needs a
-login, a human boundary anyway) stays in the layout as a shell showing the error, and
-the card reports it. No retries.
+A pane that fails (exits immediately, or needs a login, a human boundary anyway) stays
+in the layout as the shell its launcher falls back to, with the error above the prompt,
+and the card reports it. No retries.
 
 **Idempotency** rests on a durable restore run. In one transaction, before anything
 launches, the daemon records the run (the exact selection, each selected pane pending)
@@ -246,8 +252,10 @@ restarts mid-restore finds the unfinished run and continues with its pending pan
 The audit trail is not this record: it is telemetry, for reconstruction afterwards,
 not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
-are Live's `resume_session`: restore and Live share one "start this session unless it is
-already running" path rather than two.
+come from Live's `resume_session`, which today always opens a new window. They move into
+one shared primitive, "start this session in this pane unless it is already running",
+that takes a target pane: Live passes a pane it just opened, restore passes the prebuilt
+one, which the primitive respawns with the launch command. One path, not two.
 
 **Audit.** Each launch writes the record Live's resume writes (actor, harness, session id,
 directory, pane), and the restore writes one record of the selection.
@@ -348,7 +356,8 @@ It records snapshots and restores nothing. A snapshot helps only if it was being
 *before* the next lost server, which is not scheduled. Shipping the recorder first means
 the restore half lands with real data from the user's own fleet to test against.
 
-Scope: the snapshot table (a new schema migration), the layout field in the pane listing,
+Scope: the snapshot table (a new schema migration), the new fields in the pane listing
+(session path, window layout, zoom, automatic rename, foreground program),
 agent-history's live-session listing and the once-a-minute binding, the consumed mark,
 and a read-only endpoint returning the latest dead-server snapshot with each pane's
 computed default, so the card's data can be checked by hand before the card exists.
@@ -357,7 +366,7 @@ Acceptance:
 
 - Against an isolated test tmux server (its own socket, as the existing tmux tests do,
   never the user's), the snapshot reproduces sessions, window indexes, names, layout
-  strings, pane order and directories exactly.
+  strings, zoom, rename settings, pane order and directories exactly.
 - Bound Claude, Codex and omp panes record the session id agent-history reports; an
   unbound Codex pane records tool and directory with no id.
 - An unchanged fleet rewrites no payload, only the minute last-seen stamp; resizing a
