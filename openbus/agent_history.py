@@ -18,7 +18,7 @@ _TIMEOUT = 5
 
 # Harnesses whose resume command the daemon will start. resume_argv comes from the
 # index, but it is still data from disk, so argv[0] must be a known agent.
-RESUMABLE = frozenset({"claude", "codex"})
+RESUMABLE = frozenset({"claude", "codex", "omp"})
 
 
 def binary() -> str | None:

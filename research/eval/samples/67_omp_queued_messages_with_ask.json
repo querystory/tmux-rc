@@ -1,0 +1,18 @@
+{
+  "description": "Boundary: omp's outgoing Steering and After yield groups coexist with a genuine incoming Ask cursor picker. Source-derived synthetic plain-text queued band (queued-messages.ts/ui-helpers.ts) plus the Ask shape already covered by 62_omp_ask_picker. Queue numbering restarts at 1 in each group, a multiline outgoing message is flattened to literal spaced ↵ rather than wrapped, and a queued user question is not the live ask. The queue must not suppress the real color question or turn its unnumbered cursor options into a numbered menu. No dim styling is required, and the edit binding uses the source-supported macOS hint rather than assuming Alt+↑. This is not a runtime capture.",
+  "current_command": "bun",
+  "title": "π ! Ask Preferred Color Choice",
+  "capture": "\u001e[visible screen]\u001f\n Preparing to ask which color you prefer: red, green, or blue.\n\n Steering · 1\n   1. Did you test the omp history search stuff\n After yield · 2\n   1. Please check the history search ↵ then summarize the results\n   2. Are the regressions passing?\n   └ ⌥↑ to edit\n\n  ⎋ Asking color preference                            Ask Preferred Color Choice\n╭─ Ask ─────────────────────────────────────────────────────────────────────────╮\n│ Which color do you prefer?                                                    │\n├───────────────────────────────────────────────────────────────────────────────┤\n│ ❯ ○ Red                                                                       │\n│   ○ Green                                                                     │\n│   ○ Blue                                                                      │\n│   ○ Other (type your own)                                                     │\n│                                                                               │\n├───────────────────────────────────────────────────────────────────────────────┤\n│ ⏎ select · n note · ↑/↓ move · ⎋ cancel                                         │\n╰───────────────────────────────────────────────────────────────────────────────╯\n",
+  "expected": {
+    "tool": "omp",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "present": true,
+      "answer_style": "cursor",
+      "selected": 0
+    },
+    "tables": null,
+    "headline": "Asking which color the user prefers: red, green, or blue"
+  }
+}

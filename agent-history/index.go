@@ -43,7 +43,8 @@ type harness struct {
 
 var (
 	claude    = harness{"claude", claudeSessions, claudeIdentity, func(f []string) (Session, error) { return ReadClaude(f[0]) }, nil, RunningClaude}
-	harnesses = []harness{claude, {"codex", codexSessions, codexIdentity, ReadCodex, codexRenamed, RunningCodex}}
+	harnesses = []harness{claude, {"codex", codexSessions, codexIdentity, ReadCodex, codexRenamed, RunningCodex},
+		{"omp", ompSessions, ompIdentity, func(f []string) (Session, error) { return ReadOmp(f[0]) }, nil, RunningOmp}}
 )
 
 // IndexTranscript indexes a Claude session and its subagents, skipping any whose

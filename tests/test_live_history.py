@@ -62,7 +62,8 @@ def _call(name, args, watcher=None):
     return ws, session.responses[0][1]
 
 
-@pytest.mark.parametrize("argv", [["claude", "--resume", "live-1"], ["codex", "resume", "live-1"]])
+@pytest.mark.parametrize("argv", [["claude", "--resume", "live-1"], ["codex", "resume", "live-1"],
+                                  ["omp", "--resume", "live-1"]])
 def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     sessions, opened = history
     sessions["live-1"] = {**LIVE, "resume_argv": argv}
