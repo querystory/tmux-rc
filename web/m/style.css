@@ -70,7 +70,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #sort-picker summary { padding: 0; }
 .list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
-.pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
+/* A messages-app row: unread dot in the gutter, a round avatar, then a text column that owns
+   the separator, so dividers start at the text rather than under the avatar. Amber dot: needs
+   you; accent: finished in the last few minutes (the Recent filter's signal), i.e. new output. */
+.pane-row { display: flex; width: 100%; align-items: center; gap: 10px; text-align: left; padding: 0 16px 0 6px; border-radius: 0; }
+.pane-row::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.pane-row.needs-you::before { background: var(--amber); }
+.pane-row.fresh::before { background: var(--accent); }
 .pane-row.needs-you { background: var(--amber-bg); --card: var(--amber-bg); }
 /* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
    raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. It
@@ -82,8 +88,20 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); width: calc(100% - 12px); margin-inline: 6px; border-radius: 10px; border-bottom-color: transparent; position: relative; box-shadow: inset 4px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent), 0 2px 10px rgb(0 0 0 / .2); }
 .pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
-.pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; position: relative; }
+.pane-row[aria-current="true"] .row-body { border-bottom-color: transparent; }
+.pane-icon { width: 50px; height: 50px; flex: none; display: grid; place-items: center; position: relative; }
 .pane-icon img { object-fit: contain; }
+/* The logo IS the avatar, like a contact photo: a glyph mark fills most of a tinted disc, and a
+   logo that ships its own tile (Claude, OpenCode, omp) becomes the whole disc, so no square sits
+   inside the circle. The working ring and motion ride on the same box, so they scale with it. */
+.pane-icon > img:first-child { width: 100%; height: 100%; padding: 6px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
+.needs-you .pane-icon > img:first-child { background: var(--surface); }
+.pane-icon > .working:first-child { background: var(--accent-bg); }
+.pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src="/omp-working.svg"]) { padding: 0; }
+/* Claude's png carries a ~1px drop shadow on its bottom and right edges, which reads as a dark rim on
+   the disc: crop it off (unless working, where the clip would also cut the ring). */
+.pane-icon > img[src="/claude.png"]:not(.working):first-child { clip-path: circle(48.5% at 48.5% 48.5%); }
+.pane-icon .model-badge { width: 18px; height: 18px; right: -2px; bottom: -2px; }
 /* Working logo: one treatment for the list row and the dashboard tile (see markWorking). A soft
    glow ring that breathes with the logo; transform only, so it never relayouts or repaints. */
 .working { border-radius: 50%; background: var(--accent-bg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--glow, var(--accent)) 22%, transparent), 0 0 0 1px var(--glow, var(--accent)); }
@@ -103,12 +121,16 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .model-badge { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 2px; object-fit: contain; border-radius: 50%; background: var(--card, var(--bg)); }
 .atlas-agent { position: relative; display: flex; }
 .needs-you .pane-icon { background: transparent; color: var(--amber); }
-.row-body { flex: 1; min-width: 0; }
-.row-title { display: flex; align-items: baseline; gap: 8px; }
-.row-title strong { font-size: 15px; overflow-wrap: anywhere; flex: 1; }
-.row-status { color: var(--muted); font-size: 13px; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.row-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; color: var(--muted); font-size: 11px; margin-top: 6px; }
-.session-chip { max-width: 100%; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); overflow-wrap: anywhere; }
+.row-body { flex: 1; min-width: 0; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.row-title { display: flex; align-items: center; gap: 6px; line-height: 1.35; }
+.row-title strong { font-size: 15px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-age { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row-title svg { flex: none; color: var(--muted); }
+.row-status { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.row-meta { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 3px; white-space: nowrap; }
+.row-details { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-meta .badge { margin-left: auto; line-height: inherit; }
+.session-chip { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); }
 .badge { font-size: 11px; line-height: 1.6; font-weight: 600; white-space: nowrap; color: var(--muted); }
 .badge.waiting { color: var(--amber); }
 .badge.running { color: var(--accent); }
@@ -262,7 +284,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #voice-mute[aria-pressed="true"] { color: var(--red); background: var(--raised); }
 @media (prefers-reduced-motion: no-preference) { dialog[open] { animation: sheet-in .16s ease-out; } @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } }
 @media (min-width: 761px) { #app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
-@media (max-width: 359px) { .app-header { padding-inline: 8px; gap: 4px; } .pane-row { padding-inline: 14px; gap: 8px; } .row-title { flex-wrap: wrap; gap: 2px 8px; } #composer { padding-inline: 8px; } }
+@media (max-width: 359px) { .app-header { padding-inline: 8px; gap: 4px; } .pane-row { gap: 8px; } #composer { padding-inline: 8px; } }
 /* Landscape phone: the keyboard leaves almost no vertical room, so the chrome gives some
    back — header and composer padding only. This used to shrink .composer-tools and its
    buttons, which worked because that was a row of its own. Nothing replaces it: the
