@@ -714,8 +714,8 @@ def test_audit_line_cannot_be_forged(caplog):
 class _TypedSession:
     """Records what reaches a session's typed-turn verb."""
 
-    def __init__(self):
-        self.turns = []
+    def __init__(self, images=True):
+        self.turns, self.images = [], images
 
     async def send_text(self, text, images=()):
         self.turns.append((text, list(images)))
@@ -736,23 +736,32 @@ def test_a_pasted_image_reaches_the_session_with_its_turn():
     assert [(f["text"], f["images"]) for f in ws.sent] == [("look", 1), ("", 1), ("plain", 0)]
 
 
-@pytest.mark.parametrize(("image", "text"), [
-    ({"mime": "image/svg+xml", "data": "UE5H"}, True),  # not a pane-paste type
-    ({"mime": "image/png", "data": "not base64!"}, True),
-    ({"mime": "image/png", "data": ""}, True),
-    ({"mime": ["image/png"], "data": "UE5H"}, True),  # not even a string
-    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True),  # too many
-    ({}, True),  # not a list at all
-    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True),  # too big
-    ({"mime": "image/png", "data": "UE5H"}, False),  # a voice model cannot see it
+_UNREADABLE = "Could not read that image; not sent"
+_TYPE = "Images go as PNG, JPEG, WebP or GIF; not sent"
+
+
+@pytest.mark.parametrize(("image", "accepts", "reason"), [
+    ({"mime": "image/svg+xml", "data": "UE5H"}, True, _TYPE),  # not a pane-paste type
+    ({"mime": "image/png", "data": "not base64!"}, True, _UNREADABLE),
+    ({"mime": "image/png", "data": ""}, True, _TYPE),
+    ({"mime": ["image/png"], "data": "UE5H"}, True, _TYPE),  # not even a string
+    ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True,
+     f"At most {L.CHAT_IMAGES} images a turn; not sent"),
+    ({}, True, f"At most {L.CHAT_IMAGES} images a turn; not sent"),  # not a list at all
+    ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True,
+     "Images are over 8 MB together; not sent"),
+    # The cause users actually hit: a small screenshot pasted to a voice model that can't
+    # see it must say so, not read as a size or type limit.
+    ({"mime": "image/png", "data": "UE5H"}, False,
+     "This voice model can't take images; switch to Chat to send them"),
 ])
-def test_an_image_the_pane_paste_would_refuse_refuses_the_turn(image, text):
-    session = _TypedSession()
+def test_an_image_the_turn_cannot_carry_refuses_it_and_says_why(image, accepts, reason):
+    session = _TypedSession(images=accepts)
     images = image if isinstance(image, list) or image == {} else [image]
     ws = _ScriptedWS([{"action": "text", "text": "look", "images": images}, {"action": "stop"}])
-    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0], text=text)))
+    _run(L._forward_client(ws, session, L._Meter("s", "a", P._DEFAULT[0])))
     assert session.turns == []
-    assert ws.sent == [{"type": "error", "message": L._IMAGE_REFUSED, "refused": True}]
+    assert ws.sent == [{"type": "error", "message": reason, "refused": True}]
 
 
 def _forwarding(monkeypatch, *, ok, text=True, images=((("image/png", b"PNG")),)):
@@ -821,10 +830,12 @@ def test_forwarding_refuses_when_no_image_was_attached(monkeypatch):
     assert events == []
 
 
-def test_forwarding_is_refused_in_a_voice_session(monkeypatch):
+def test_forwarding_works_from_a_voice_session_too(monkeypatch):
+    """A voice model that takes images can hand one on, without a card like its other
+    actions, and audited like them."""
     meter, ws, events, audits = _forwarding(monkeypatch, ok=True, text=False)
-    assert _forward(meter, ws)["status"] == "rejected"
-    assert events == [] and ws.sent == [] and len(audits) == 1
+    assert _forward(meter, ws)["status"] == "done"
+    assert len(events) == 1 and len(audits) == 1 and "consent" not in audits[0]
 
 
 def test_images_stay_numbered_until_no_request_can_show_their_turn():
