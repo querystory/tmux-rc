@@ -278,6 +278,9 @@ class Watcher:
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
+        # Last tick's answer to "is a tmux server running at all?" — lets the UI tell a
+        # host after a reboot (no server) from a server with nothing in it.
+        self.tmux_running = True
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
         self._input_generation_lock = threading.Lock()
@@ -530,7 +533,8 @@ class Watcher:
         self.request_reparse(pane_id)
 
     def _tick(self) -> None:
-        if not tmux.server_running():
+        self.tmux_running = tmux.server_running()
+        if not self.tmux_running:
             self._collection_failed = False
             self._gc(set())  # confirmed server absence ends every pane lifetime
             self._publish_states([])

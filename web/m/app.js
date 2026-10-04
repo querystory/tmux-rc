@@ -78,6 +78,7 @@ const show = (id, visible) => { $(id).hidden = !visible; };
 const icon = (id, name) => html($(id), licon(name));
 const paneUrl = (id, path) => `/api/panes/${encodeURIComponent(id)}/${path}`;
 const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.svg", opencode: "/opencode.svg", omp: "/omp.svg", shell: "/bash.png" };
+const NO_TMUX = "tmux is not running on this host (it does not survive a reboot).";
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
@@ -103,7 +104,7 @@ const overviewVisible = () => reviewing() || view === "summary";
 const drafts = new Map();
 let dashboard = false;
 const dashboardVisible = () => !active && (WIDE.matches || dashboard);
-let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false;
+let panes = [], active = null, view = "summary", filter = "all", loaded = false, booted = false, tmuxRunning = true;
 let focusPushComposer = false;
 let sort = "updated";
 let sending = false, prefix = "C-b", stateController, detailController, detailId = null;
@@ -291,6 +292,7 @@ function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
   if (query) return "No matching panes.";
+  if (!tmuxRunning) return NO_TMUX;
   return EMPTY_MESSAGE[filter] || EMPTY_MESSAGE.all;
 }
 function renderList() {
@@ -312,7 +314,11 @@ function renderList() {
   $("list-nav").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", !dashboard && filter === button.dataset.filter));
   $("dashboard-tab").setAttribute("aria-pressed", String(dashboard));
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
-  $("new-window").disabled = !panes.length;
+  // No panes means no session to open a window in: offer to start one instead — the
+  // only way back after a reboot, when no tmux server is running at all.
+  const startable = booted && !panes.length;
+  show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
+  show("landing-start", startable);
 }
 function renderPhoneList(subset) {
   const sessions = [...new Set(subset.map((p) => p.session))];
@@ -348,11 +354,9 @@ function renderLanding() {
   // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
   // only for the loading and empty states, and hides itself when blank (style.css).
   text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "" : "No panes yet");
-  // With no panes there is no session to open a window IN: + is disabled and the server
-  // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
-  // the empty state says where a session actually comes from instead.
   text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
-    ? "" : "No tmux panes are open. Start a session on the host and it will appear here.");
+    ? "" : tmuxRunning ? "No tmux panes are open. Start a session and it will appear here."
+      : `${NO_TMUX} Start a session to bring it back.`);
   renderAtlas($("session-atlas"), panes, navigate, LOGOS, term => {
     $("search").value = term;
     filter = "all";
@@ -859,7 +863,7 @@ async function pollState(signal) {
       const data = await request(stateUrl(version || null), { signal }, LONG_POLL_TIMEOUT_MS);
       if (signal.aborted) return;
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
-      panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
+      panes = data.panes || []; loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
       refreshHistory();
       pruneDrafts();
@@ -1176,10 +1180,25 @@ $("capture").onclick = (event) => {
   post(paneUrl(active, "click"), { from_bottom: captureLines.length - 1 - row, col, frame: paintedFrame }).catch(() => {});
 };
 
-$("new-window").onclick = async () => {
+// One dialog for both: the session <select> ends in "New session…" (value ""), which swaps
+// in directory + name fields and posts /api/sessions instead of /api/windows.
+const launchMode = () => {
+  const fresh = !$("launch-session").value;
+  show("launch-new", fresh); text($("launch-title"), fresh ? "New session" : "New window");
+};
+$("launch-session").onchange = launchMode;
+// The name defaults to the directory's basename, shown as the placeholder so typing a
+// name of your own simply overrides it.
+const sessionName = (dir) => (dir.replace(/\/+$/, "").split("/").pop() || "").replace(/^~$/, "home").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "main";
+$("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("launch-dir").value.trim()); };
+document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true); });
+$("new-window").onclick = () => openLaunch(false);
+async function openLaunch(fresh) {
   $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
   const sessions = [...new Set(panes.map((p) => p.session).filter(Boolean))];
-  $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)));
+  $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)), new Option("New session…", ""));
+  if (fresh || !sessions.length) $("launch-session").value = "";
+  $("launch-dir").oninput(); launchMode();
   try {
     const data = await request("/api/launchers");
     text($("launch-error"), "");
@@ -1198,20 +1217,23 @@ $("new-window").onclick = async () => {
       if (launcher.unavailable) { button.dataset.unavailable = launcher.unavailable; const why = document.createElement("small"); why.textContent = launcher.unavailable; label.append(why); }
       button.append(logo, label);
       if (!launcher.unavailable) button.insertAdjacentHTML("beforeend", licon("plus"));
-      button.disabled = !sessions.length || !!launcher.unavailable;
+      button.disabled = !!launcher.unavailable;
       button.onclick = () => launchWindow(launcher.label, button);
       return button;
     }));
   } catch { text($("launch-error"), "Could not load launchers. Close and try again."); }
-};
+}
 $("close-launch").onclick = () => $("launch-dialog").close();
 let launching = false, launched = null;
 async function launchWindow(launcher, button) {
+  const session = $("launch-session").value, name = $("launch-name").value.trim() || $("launch-name").placeholder;
   if (launching) return;
-  launching = true; text($("launch-error"), "Creating window...");
+  if (!session && !/^[\w-]{1,64}$/.test(name)) return text($("launch-error"), "Session names are letters, digits, - and _ only.");
+  launching = true; text($("launch-error"), session ? "Creating window..." : "Starting session...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
-    const data = await post("/api/windows", { session: $("launch-session").value, launcher });
+    const data = await (session ? post("/api/windows", { session, launcher })
+      : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher }));
     // Record the id BEFORE navigating to it: startState only *starts* a fetch, so the
     // hashchange this triggers reaches render() while `panes` is still the previous
     // poll's, without the pane that was created a moment ago. See awaitingLaunch.
