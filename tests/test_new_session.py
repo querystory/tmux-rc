@@ -149,3 +149,15 @@ def test_dir_suggestions_open_panes_then_agent_history(tmp_path, monkeypatch):
     monkeypatch.setattr(S.app.state, "watcher", watcher, raising=False)
     got = S.session_dirs()["dirs"]
     assert got == [str(old), "~/new"]  # open pane first, deduped; vanished dir dropped
+
+
+@pytest.mark.parametrize(("which", "scoped"), [("/usr/bin/systemd-run", True), (None, False)])
+def test_under_systemd_the_server_gets_its_own_scope(monkeypatch, which, scoped):
+    """In the daemon unit's cgroup, the next `systemctl --user restart tmux-rc` would kill
+    the server and every session in it; a transient scope is what keeps it alive."""
+    monkeypatch.setenv("INVOCATION_ID", "x")
+    monkeypatch.setattr(T.shutil, "which", lambda _c: which)
+    calls = []
+    monkeypatch.setattr(T, "_run", lambda args, prefix=None, env=None: calls.append(prefix) or "%1")
+    assert T.new_session("s", "/tmp", env={}) == "%1"
+    assert calls == [["systemd-run", "--user", "--scope", "--quiet", "--collect"] if scoped else []]
