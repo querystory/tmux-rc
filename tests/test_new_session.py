@@ -95,3 +95,22 @@ def test_refusals_never_touch_tmux(sock, audits, body, status):
     assert not T.server_running()
     if "name" not in r.text:  # schema failures never reach the handler
         assert audits and audits[-1][2].startswith("rejected")
+
+
+def test_dir_suggestions_open_panes_then_agent_history(tmp_path, monkeypatch):
+    home, old, new = tmp_path / "home", tmp_path / "old", tmp_path / "home/new"
+    for d in (old, new):
+        d.mkdir(parents=True)
+    index = tmp_path / "ah/index/claude"
+    index.mkdir(parents=True)
+    for sid, cwd, last in [("a", old, "2026-01-01"), ("b", new, "2026-02-01"),
+                           ("c", tmp_path / "gone", "2026-03-01")]:
+        (index / f"{sid}.md").write_text(
+            f'---\ncwd: "{cwd}"\nlast_active: "{last}"\n---\ncwd: "/body/is/not/metadata"\n')
+    monkeypatch.setenv("AGENT_HISTORY_DIR", str(tmp_path / "ah"))
+    monkeypatch.setenv("HOME", str(home))
+
+    watcher = type("W", (), {"states": [{"cwd": str(old)}, {"cwd": ""}]})
+    monkeypatch.setattr(S.app.state, "watcher", watcher, raising=False)
+    got = S.session_dirs()["dirs"]
+    assert got == [str(old), "~/new"]  # open pane first, deduped; vanished dir dropped

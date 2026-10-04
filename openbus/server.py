@@ -73,7 +73,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import telemetry, tmux  # noqa: E402
+from . import agent_history, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -919,6 +919,19 @@ def _opened(pane_id: str) -> dict:
     if watcher is not None:
         watcher.request_reparse(pane_id)
     return {"ok": True, "pane_id": pane_id}
+
+
+@app.get("/api/sessions/dirs")
+def session_dirs():
+    """Directory suggestions for the New session dialog: where panes are open now, then
+    where past agent sessions ran (agent_history.recent_dirs). Suggestions only — the
+    dialog takes any path and new_session validates it — so nothing here browses the
+    filesystem. Home-relative paths come back as ~/…, which new_session expands."""
+    home = os.path.expanduser("~")
+    seen = [s.get("cwd") for s in app.state.watcher.states] + agent_history.recent_dirs()
+    tilde = ("~" + d[len(home):] if d == home or d.startswith(home + "/") else d
+             for d in seen if d)
+    return {"dirs": list(dict.fromkeys(tilde))[:30]}
 
 
 @app.post("/api/sessions")

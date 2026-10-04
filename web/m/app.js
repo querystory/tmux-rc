@@ -1184,12 +1184,16 @@ const sessionName = (dir) => (dir.replace(/\/+$/, "").split("/").pop() || "").re
 $("launch-dir").oninput = () => { $("launch-name").placeholder = sessionName($("launch-dir").value.trim()); };
 document.querySelectorAll(".start-session").forEach((b) => { b.onclick = () => openLaunch(true); });
 $("new-window").onclick = () => openLaunch(false);
+const LAST_DIR = "tmuxrc-last-dir";
 async function openLaunch(fresh) {
   $("launch-dialog").showModal(); text($("launch-error"), "Loading agents..."); $("launch-choices").replaceChildren();
   const sessions = [...new Set(panes.map((p) => p.session).filter(Boolean))];
   $("launch-session").replaceChildren(...sessions.map((s) => new Option(s, s)), new Option("New session…", ""));
   if (fresh || !sessions.length) $("launch-session").value = "";
+  try { $("launch-dir").value = localStorage.getItem(LAST_DIR) || "~"; } catch { $("launch-dir").value = "~"; }
   $("launch-dir").oninput(); launchMode();
+  // Suggestions only (open panes' and past agent sessions' directories); any path works.
+  request("/api/sessions/dirs").then((d) => $("launch-dirs").replaceChildren(...d.dirs.map((dir) => new Option(dir))), () => {});
   try {
     const data = await request("/api/launchers");
     text($("launch-error"), "");
@@ -1225,6 +1229,7 @@ async function launchWindow(launcher, button) {
   try {
     const data = await (session ? post("/api/windows", { session, launcher })
       : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher }));
+    if (!session) try { localStorage.setItem(LAST_DIR, $("launch-dir").value.trim()); } catch {}
     // Record the id BEFORE navigating to it: startState only *starts* a fetch, so the
     // hashchange this triggers reaches render() while `panes` is still the previous
     // poll's, without the pane that was created a moment ago. See awaitingLaunch.
