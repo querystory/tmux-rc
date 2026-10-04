@@ -972,14 +972,15 @@ def new_session(body: NewSessionBody, request: Request):
     # With no server yet, the launcher will run under exactly the PATH new_session gives
     # the server it starts — a known answer, and the only one: the daemon's own PATH
     # (its virtualenv included) is not inherited, so it must not vouch for the command.
-    running = tmux.server_running()
-    path = tmux.server_path() if running else tmux.server_env().get("PATH", "")
+    # One login-shell probe per request, shared by the preflight and the server start.
+    env, running = tmux.server_env(), tmux.server_running()
+    path = tmux.server_path() if running else env.get("PATH", "")
     why = entry and _unavailable(entry["command"], path, daemon_path=running)
     if why:
         refuse(400, why)
     try:
         pane_id = tmux.new_session(body.name, cwd, entry and entry["command"],
-                                   entry["label"] if entry else "")
+                                   entry["label"] if entry else "", env=env)
     except subprocess.CalledProcessError as e:
         if "duplicate session" in (e.stderr or ""):
             refuse(409, f"a session named {body.name} already exists")

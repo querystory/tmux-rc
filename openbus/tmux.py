@@ -455,9 +455,10 @@ def new_window(session: str, name: str, command: str | list[str], cwd: str | Non
 # first on PATH (so `python` in every pane would be tmux-rc's), and the daemon holds .env
 # and the provider API keys in os.environ. An allowlist, because a denylist misses
 # whatever gets loaded next. SSH_AUTH_SOCK is a socket path, not a secret, and without it
-# an agent started here could not push over SSH.
+# an agent started here could not push over SSH. TMUX and TMUX_TMPDIR pick the server, so
+# dropping them would send this one call somewhere other than every other _run.
 _SERVER_ENV = re.compile(r"HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|PATH|XDG_\w+"
-                         r"|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK")
+                         r"|DBUS_SESSION_BUS_ADDRESS|SSH_AUTH_SOCK|TMUX|TMUX_TMPDIR")
 
 
 def server_env() -> dict[str, str]:
@@ -486,7 +487,8 @@ def server_env() -> dict[str, str]:
     return env
 
 
-def new_session(name: str, cwd: str, command: str | None = None, window: str = "") -> str:
+def new_session(name: str, cwd: str, command: str | None = None, window: str = "",
+                env: dict[str, str] | None = None) -> str:
     """Create detached session `name` in `cwd` and return its first pane's id. Starts the
     tmux server if none is running (after a reboot, nothing else will), which is why this
     is the one tmux call with a scrubbed environment (server_env).
@@ -495,7 +497,8 @@ def new_session(name: str, cwd: str, command: str | None = None, window: str = "
     daemon would otherwise live in the daemon unit's cgroup, and the next
     `systemctl --user restart tmux-rc` would kill it along with every session in it.
     `command` (a configured launcher's) runs in the first window, as in new_window; None
-    leaves tmux's default, the user's login shell."""
+    leaves tmux's default, the user's login shell. `env` is server_env() if the caller
+    already has it."""
     scope = []
     if os.environ.get("INVOCATION_ID"):  # set by systemd for the units it runs
         if shutil.which("systemd-run"):
@@ -506,7 +509,8 @@ def new_session(name: str, cwd: str, command: str | None = None, window: str = "
     argv = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", name, "-c", cwd]
     if window:
         argv += ["-n", window]
-    return _run([*argv, *([command] if command else [])], prefix=scope, env=server_env()).strip()
+    return _run([*argv, *([command] if command else [])], prefix=scope,
+                env=env or server_env()).strip()
 
 
 # OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show
