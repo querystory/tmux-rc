@@ -828,7 +828,9 @@ def _images(raw, session) -> list[tuple[str, bytes]] | str:
 
     if not session.images:
         return "This voice model can't take images; switch to Chat to send them"
-    if not isinstance(raw, list) or len(raw) > CHAT_IMAGES:
+    if not isinstance(raw, list):
+        return "Could not read that image; not sent"
+    if len(raw) > CHAT_IMAGES:
         return f"At most {CHAT_IMAGES} images a turn; not sent"
     out = []
     for image in raw:

@@ -747,7 +747,7 @@ _TYPE = "Images go as PNG, JPEG, WebP or GIF; not sent"
     ({"mime": ["image/png"], "data": "UE5H"}, True, _TYPE),  # not even a string
     ([{"mime": "image/png", "data": "UE5H"}] * (L.CHAT_IMAGES + 1), True,
      f"At most {L.CHAT_IMAGES} images a turn; not sent"),
-    ({}, True, f"At most {L.CHAT_IMAGES} images a turn; not sent"),  # not a list at all
+    ({}, True, _UNREADABLE),  # not a list at all
     ([{"mime": "image/png", "data": "A" * (L.CHAT_IMAGE_BYTES // 3 * 4 + 4)}], True,
      "Images are over 8 MB together; not sent"),
     # The cause users actually hit: a small screenshot pasted to a voice model that can't
