@@ -16,10 +16,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMO = ("demo_fleet.py", "demo_server.py", "screenshots.mjs")
+NOISE = 0.05  # % of a shot; below it a difference is reported but the shot counts as unchanged
 
 
 def shoot(tree: Path, out: Path) -> None:
@@ -28,26 +29,47 @@ def shoot(tree: Path, out: Path) -> None:
                    env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"})
 
 
-def diff(base: Path, head: Path, out: Path) -> list[tuple[str, str]]:
-    """(shot, changed %) rows. The diff image is the head shot faded, with every changed
-    pixel painted red, so a reviewer sees what moved and where in one picture."""
+def diff(base: Path, head: Path, out: Path) -> list[tuple[str, str, bool]]:
+    """(shot, changed %, changed at all) rows. The diff image is the head shot faded, with
+    every changed pixel painted red, so a reviewer sees what moved and where in one picture."""
     out.mkdir(parents=True, exist_ok=True)
     rows = []
     for name in sorted({p.name for p in base.glob("*.png")} | {p.name for p in head.glob("*.png")}):
         if not (base / name).exists() or not (head / name).exists():
-            rows.append((name, "new" if (head / name).exists() else "removed"))
+            rows.append((name, "new" if (head / name).exists() else "removed", True))
             continue
         a, b = (Image.open(d / name).convert("RGB") for d in (base, head))
         if a.size != b.size:
-            rows.append((name, f"size {a.size} -> {b.size}"))
+            rows.append((name, f"size {a.size} -> {b.size}", True))
             continue
-        mask = ImageChops.difference(a, b).convert("L").point(lambda v: 255 if v > 16 else 0)
-        changed = mask.histogram()[255]
+        mask = changed_mask(a, b)
+        pct = 100 * mask.histogram()[255] / (a.width * a.height)
         faded = Image.blend(b, Image.new("RGB", b.size, "white"), 0.7)
         faded.paste(Image.new("RGB", b.size, (220, 0, 0)), mask=mask)
         faded.save(out / name)
-        rows.append((name, f"{100 * changed / (a.width * a.height):.2f}%"))
+        rows.append((name, f"{pct:.2f}%" + (" (noise)" if 0 < pct < NOISE else ""), pct >= NOISE))
     return rows
+
+
+def changed_mask(a: Image.Image, b: Image.Image) -> Image.Image:
+    """Pixels where either shot leaves the range of the other's 3x3 neighbourhood by more
+    than 16 levels in some channel. A pixel that merely moved one device pixel, which is
+    what anti-aliasing and glyph rasterization jitter look like, stays inside that range;
+    anything that appeared, vanished, recoloured or moved further does not."""
+    def beyond(x: Image.Image, y: Image.Image) -> Image.Image:
+        low, high = y.filter(ImageFilter.MinFilter(3)), y.filter(ImageFilter.MaxFilter(3))
+        return ImageChops.lighter(ImageChops.subtract(x, high), ImageChops.subtract(low, x))
+    channels = ImageChops.lighter(beyond(a, b), beyond(b, a)).split()
+    worst = ImageChops.lighter(ImageChops.lighter(channels[0], channels[1]), channels[2])
+    return worst.point(lambda v: 255 if v > 16 else 0)
+
+
+def images(out: Path, name: str) -> str:
+    """A table row of base, head and diff, linked relative to summary.md so it previews as
+    is; to paste it into a PR, prefix each src with wherever the PNGs were pushed (CI does)."""
+    cells = (f'<img src="{sub}/{name}" width="280">' if (out / sub / name).exists() else "-"
+             for sub in ("base", "head", "diff"))
+    return f"| {name.removesuffix('.png')} | {' | '.join(cells)} |"
 
 
 def main() -> None:
@@ -69,8 +91,11 @@ def main() -> None:
                            check=False)
     shoot(ROOT, out / "head")
     rows = diff(out / "base", out / "head", out / "diff")
+    changed = [images(out, name) for name, _, moved in rows if moved]
     summary = "\n".join([f"| shot | changed vs `{ref}` |", "| --- | --- |",
-                         *(f"| {name.removesuffix('.png')} | {pct} |" for name, pct in rows)])
+                         *(f"| {name.removesuffix('.png')} | {pct} |" for name, pct, _ in rows),
+                         *(["", "| changed | base | head | diff |", "| --- | --- | --- | --- |",
+                            *changed] if changed else [])])
     (out / "summary.md").write_text(summary + "\n")
     print(summary)
 
