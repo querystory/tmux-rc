@@ -41,11 +41,14 @@
       <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
       <span id="connection" role="status">Connecting</span>
-      <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
       <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
       <button id="live-mode" class="icon-button" aria-label="Live Mode" title="Live Mode" hidden></button>
-      <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
-      <a id="docs" class="icon-button" href="/docs/" hidden aria-label="Documentation" title="Documentation"></a>
+      <!-- A phone keeps Chat and the mic in reach; the settings-like controls fold in here. -->
+      <details id="more-menu" class="header-picker"><summary id="more-button" class="icon-button" aria-label="More" title="More"></summary><div class="header-picker-menu">
+        <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
+        <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
+        <a id="docs" class="icon-button" href="/docs/" hidden aria-label="Documentation" title="Documentation"></a>
+      </div></details>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
     <p id="notice" role="status" hidden></p>
