@@ -89,12 +89,18 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
 .pane-row[aria-current="true"] .row-body { border-bottom-color: transparent; }
-.pane-icon { width: 46px; height: 46px; flex: none; display: grid; place-items: center; position: relative; }
+.pane-icon { width: 50px; height: 50px; flex: none; display: grid; place-items: center; position: relative; }
 .pane-icon img { object-fit: contain; }
-/* The logo sits in a tinted disc; the working ring and motion ride on the same box, so they scale with it. */
-.pane-icon > img:first-child { width: 100%; height: 100%; padding: 10px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
+/* The logo IS the avatar, like a contact photo: a glyph mark fills most of a tinted disc, and a
+   logo that ships its own tile (Claude, OpenCode, omp) becomes the whole disc, so no square sits
+   inside the circle. The working ring and motion ride on the same box, so they scale with it. */
+.pane-icon > img:first-child { width: 100%; height: 100%; padding: 6px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
 .needs-you .pane-icon > img:first-child { background: var(--surface); }
 .pane-icon > .working:first-child { background: var(--accent-bg); }
+.pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src="/omp-working.svg"]) { padding: 0; }
+/* Claude's png carries a ~1px drop shadow on its bottom and right edges, which reads as a dark rim on
+   the disc: crop it off (unless working, where the clip would also cut the ring). */
+.pane-icon > img[src="/claude.png"]:not(.working):first-child { clip-path: circle(48.5% at 48.5% 48.5%); }
 .pane-icon .model-badge { width: 18px; height: 18px; right: -2px; bottom: -2px; }
 /* Working logo: one treatment for the list row and the dashboard tile (see markWorking). A soft
    glow ring that breathes with the logo; transform only, so it never relayouts or repaints. */
