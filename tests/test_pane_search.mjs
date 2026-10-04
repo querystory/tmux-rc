@@ -79,3 +79,8 @@ test("existing text searches and panes without PR metadata still work", () => {
     assert.equal(matchesSearch({ ...pane, prs }, "4955"), false);
   }
 });
+
+test("a question's widget context is searchable, as the rows show it", () => {
+  const asking = { ...pane, question: { prompt: "Do you want to proceed?", context: "Bash command — npm install react@20" } };
+  assert.ok(matchesSearch(asking, "npm install"));
+});

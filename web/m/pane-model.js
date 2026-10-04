@@ -145,7 +145,7 @@ export function matchesSearch(pane, query) {
         `${repo} ${pr.number}`, `${repo} PR ${pr.number}`, `${repo} PR #${pr.number}`])];
   });
   const text = [pane.session, pane.title, pane.label, pane.window_name, pane.pane_id, pane.tool, pane.model,
-    pane.question?.prompt, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
+    pane.question?.prompt, pane.question?.context, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
     pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : "", ...refs]
     .filter(Boolean).join(" ").toLowerCase();
   return text.includes(String(query).trim().toLowerCase().replace(/\s+/g, " "));
