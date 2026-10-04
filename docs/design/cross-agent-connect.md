@@ -49,6 +49,11 @@ manifest) follows the list.
   observed, distinct from both of the above.
 - [Live Mode](live-mode.md): voice and text front end, pane tools, consent cards, and
   the single audited tool-call path.
+- [push notifications](push-notifications.md): Needs-you pushes and replies, and the
+  reply path's fingerprint check (pane incarnation plus the on-screen question), the
+  guard a queued message reuses before typing.
+- [live-view telemetry](live-telemetry.md): the actor trust model (`telemetry.actor`)
+  that audit records rely on, applied to live-view rounds.
 - [PRD](../PRD.md): the founding rule. Watch what a pane renders, and integrate with no
   agent in particular.
 
@@ -74,13 +79,11 @@ into small greppable files: one entry per session, holding cwd, branches, PR lin
 title, the prompts that started or steered it (the human's messages; for a headless run
 or a subagent, the task its caller sent) and, for a resumable top-level session, the
 exact resume command. Subagents and sessions whose transcript is gone have none.
-- **Harnesses.** On `main` it reads Claude Code, pushed by its Stop, SessionEnd and
-  SubagentStop hooks, and Codex, pulled by reconcile.
-- **omp is in review** (#307, and the larger #293). The #488 plan lists omp as already
-  indexed, which is true only once one of them lands.
+- **Harnesses.** It reads Claude Code, pushed by its Stop, SessionEnd and SubagentStop
+  hooks, and Codex and omp (#307), pulled by reconcile.
 - **Running sessions.** It says which sessions are running now and in which pane. Claude
-  has a process registry. Codex is detected from open rollout files, plus the session id
-  shown in its status bar.
+  has a process registry. Codex and omp are detected from the transcript files they hold
+  open, plus, for Codex, the session id shown in its status bar.
 - **Coverage.** It is built from transcripts, so it also covers sessions no watched pane
   ever showed: subagents, headless runs, anything from before a reboot.
 
@@ -366,9 +369,10 @@ local process, which is the sandbox's job.
   dock, never an emoji. The icon differs for Observe and Collaborate. Control always
   shows one.
 - **Audit.** Every call is one `telemetry.audit` record with actor
-  `agent:<harness>:<session id>`. It names the scope, the target and the outcome:
-  allowed, declined, refused or rate-limited. A queued message gets a second record,
-  with the same message id, when it is delivered, cancelled or expires. Message text
+  `agent:<harness>:<session id>`. It names the scope, the target and the outcome. A read
+  is allowed or refused. A message records one of the six final delivery outcomes, or
+  queued. A queued message gets a second record, with the same message id, when it
+  reaches its final outcome. Message text
   follows the existing content rules.
 - **Visible history.** The pane's activity feed lists the messages it sent and received.
 - **Revocation.** The same toggle turns it off. A fleet-wide "disconnect all" sits
@@ -462,7 +466,7 @@ written as plain argv, and adds the structured launcher form alongside the opaqu
 ### Open questions
 
 - **Idle-only delivery.** Is it too strict where a harness queues typed input safely
-  mid-turn (Claude Code; omp after #304)? Queue-aware delivery is faster, but it couples
+  mid-turn (Claude Code, and omp since #304)? Queue-aware delivery is faster, but it couples
   delivery to each harness's queueing.
 - **Observe's read scope.** Should it default to the grantee's own repo, given that a
   pane summary can carry one project's details into another's agent?
