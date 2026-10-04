@@ -877,8 +877,40 @@ def click(pane_id: str, from_bottom: int, col: int, *,
             return False
         # tmux cannot atomically compare output and inject input.
         check_pane(pane_id, expected_pid)
-        seq = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
-        _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq)])
+        _report(pane_id, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")
+        return True
+
+
+def _report(pane_id: str, seq: str) -> None:
+    """Write SGR mouse-report bytes as though the terminal had sent them (see click)."""
+    _run(["send-keys", "-t", pane_id, "-H", *(f"{b:02x}" for b in seq.encode())])
+
+
+def wheel(pane_id: str, lines: int, *, expected_pid: str) -> bool:
+    """Send `lines` scroll-wheel notches (positive = up) to the pane's own app. Returns
+    False (nothing sent) unless the app is on the alternate screen AND asked for mouse
+    tracking in the SGR encoding, with tmux not in copy mode over it. Both mouse flags:
+    1006 alone only picks the encoding, and without tracking on the bytes would arrive as
+    typed keys.
+
+    That is the one case where the history lives inside the app: a fullscreen agent
+    (Claude Code with tui=fullscreen, OpenCode, Gemini's alternate buffer) keeps its
+    transcript to itself, so tmux has no scrollback to show. An inline app (Codex, omp, a
+    shell) writes its transcript into tmux's scrollback, which the live view already
+    shows, and its keys are no substitute for a wheel: Up recalls a prompt, and Shift+Up
+    raises Codex's reasoning effort. Aimed at the pane's centre — OpenCode ignores a wheel
+    over its border column."""
+    with _pane_lock(pane_id):
+        width, height, *flags = _run([
+            "display-message", "-p", "-t", pane_id,
+            ("#{pane_width} #{pane_height} "
+             "#{mouse_any_flag} #{mouse_sgr_flag} #{alternate_on} #{pane_in_mode}"),
+        ]).split()
+        if not lines or flags != ["1", "1", "1", "0"]:
+            return False
+        check_pane(pane_id, expected_pid)
+        notch = f"\x1b[<{64 if lines > 0 else 65};{int(width) // 2 + 1};{int(height) // 2 + 1}M"
+        _report(pane_id, notch * abs(lines))
         return True
 
 

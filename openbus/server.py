@@ -24,6 +24,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -169,6 +170,10 @@ class ClickBody(BaseModel):
     frame: str = Field(pattern=r"^[0-9a-f]{32}$")
     from_bottom: int = Field(ge=0)  # lines above the live frame's last line (see tmux.click)
     col: int = Field(ge=1)  # 1-based
+
+
+class WheelBody(BaseModel):
+    lines: int = Field(ge=-30, le=30)  # wheel notches, positive = up (see tmux.wheel)
 
 
 class NewWindowBody(BaseModel):
@@ -473,14 +478,32 @@ def get_version():
 STATE_HOLD_SECONDS = 25.0
 
 
-@app.get("/api/history")
-def get_history(window: str = "24h"):
-    if window not in {"1h", "24h", "7d", "all"}:
-        raise HTTPException(status_code=400, detail="window must be 1h, 24h, 7d, or all")
+def _history() -> History:
     history = getattr(app.state, "history", None)
     if history is None:
         raise HTTPException(status_code=503, detail="Pane history is unavailable")
-    return history.query(window)
+    return history
+
+
+@app.get("/api/history")
+def get_history(window: str = "24h", lead: str | None = None):
+    history = _history()
+    try:
+        return history.query(window, lead=lead)
+    except ValueError:
+        raise HTTPException(400, "window and lead are all, or a count of hours or days "
+                                 "(24h, 7d) up to 90 days") from None
+
+
+class GoalBody(BaseModel):
+    goal: int | None = Field(..., ge=1, le=999)  # required; an explicit null clears it
+
+
+@app.put("/api/history/goal")
+def put_goal(body: GoalBody, request: Request):
+    _history().set_goal(body.goal)
+    _audit(request, "set_goal", "-", f"goal={body.goal}")
+    return {"goal": body.goal}
 
 
 @app.get("/api/state")
@@ -784,25 +807,45 @@ def click(pane_id: str, body: ClickBody, request: Request):
     """A tap on the live terminal, forwarded as a mouse click when the pane's app takes
     them (tmux.click). `sent: false` is a normal answer — the tap landed on a shell, or
     on history — so the client just lets it be a tap."""
-    detail = f"from_bottom={body.from_bottom} col={body.col}"
-    try:
-        pane = tmux.find_pane(pane_id)  # canonical id for the per-pane lock, as in send()
-        if pane is None:
-            _audit(request, "click", pane_id, detail, outcome="rejected: pane not found")
-            raise HTTPException(404, "pane not found")
+    def deliver(pane: tmux.Pane) -> bool:
         _invalidate_input_actions(pane.id)
         sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
                           expected_frame=body.frame)
+        if sent:
+            app.state.watcher.request_reparse(pane.id)
+        return sent
+    return {"sent": _mouse("click", pane_id, f"from_bottom={body.from_bottom} col={body.col}",
+                           request, deliver)}
+
+
+@app.post("/api/panes/{pane_id}/wheel")
+def wheel(pane_id: str, body: WheelBody, request: Request):
+    """Scroll-wheel notches for the pane's own app, from the live view's overscroll past
+    its top (tmux.wheel). `sent: false` means the app keeps no history of its own — the
+    view already shows everything tmux has — and the client stops asking. No reparse: a
+    scroll changes what is on screen, not what the agent is doing."""
+    return {"sent": _mouse("wheel", pane_id, f"lines={body.lines}", request,
+                           lambda pane: tmux.wheel(pane.id, body.lines, expected_pid=pane.pid))}
+
+
+def _mouse(action: str, pane_id: str, detail: str, request: Request,
+           deliver: Callable[[tmux.Pane], bool]) -> bool:
+    """Deliver a synthesized mouse report to the canonical pane (the per-pane lock is
+    keyed on it, as in send()) and audit every outcome, refusals included."""
+    try:
+        pane = tmux.find_pane(pane_id)
+        if pane is None:
+            _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
+            raise HTTPException(404, "pane not found")
+        sent = deliver(pane)
     except subprocess.CalledProcessError as e:
-        _audit(request, "click", pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
+        _audit(request, action, pane_id, detail, outcome=f"error: tmux rc {e.returncode}")
         raise _pane_err(e) from e
     except tmux.PaneChangedError as e:
-        _audit(request, "click", pane_id, detail, outcome="rejected: pane changed")
+        _audit(request, action, pane_id, detail, outcome="rejected: pane changed")
         raise HTTPException(409, str(e)) from e
-    if sent:
-        _audit(request, "click", pane_id, detail)
-        app.state.watcher.request_reparse(pane.id)
-    return {"sent": sent}
+    _audit(request, action, pane_id, detail, outcome="ok" if sent else "not sent")
+    return sent
 
 
 @app.get("/api/launchers")

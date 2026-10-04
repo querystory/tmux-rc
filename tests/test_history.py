@@ -431,3 +431,60 @@ def test_log_constraint_upgrade_keeps_old_observations(tmp_path):
     h = History(path)
     h.import_logs([(660, "new", "codex", 4, 900), (660, "waiting", "claude", 5, 900)])
     assert h.query(now=660)["samples"][-1]["n"] == [0, 1, 0, 0, 1, 1]
+
+
+def test_lead_extends_the_start_at_the_windows_bucket_size(tmp_path):
+    h = History(tmp_path / "h.db")
+    h.record([], "s", 0)
+    now = 10 * 86400
+    plain, led = h.query("24h", now=now), h.query("24h", now=now, lead="3d")
+    assert led["step"] == plain["step"]
+    assert led["samples"][-1]["t"] == plain["samples"][-1]["t"]
+    assert plain["samples"][0]["t"] - led["samples"][0]["t"] == 3 * 86400 * 1000
+    # History cannot reach before its first observation, however much lead is asked for.
+    assert h.query("24h", now=86400, lead="7d")["samples"][0]["t"] == 0
+
+
+def test_goal_round_trips_and_is_audited(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from fastapi.testclient import TestClient
+
+    from openbus import server
+
+    monkeypatch.setattr(server.app.state, "history", History(tmp_path / "h.db"), raising=False)
+    audit = Mock()
+    monkeypatch.setattr(server, "_audit", audit)
+    client = TestClient(server.app)
+    assert client.get("/api/history").json()["goal"] is None
+    assert client.put("/api/history/goal", json={"goal": 12}).json() == {"goal": 12}
+    assert client.get("/api/history?window=3d&lead=7d").json()["goal"] == 12
+    assert audit.call_args.args[1:] == ("set_goal", "-", "goal=12")
+    assert client.put("/api/history/goal", json={"goal": 0}).status_code == 422
+    assert client.put("/api/history/goal", json={}).status_code == 422
+    assert client.put("/api/history/goal", json={"goal": None}).json() == {"goal": None}
+    assert client.get("/api/history").json()["goal"] is None
+    assert audit.call_count == 2
+
+
+def test_endpoint_rejects_unbounded_windows(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from openbus.server import app
+
+    monkeypatch.setattr(app.state, "history", History(tmp_path / "h.db"), raising=False)
+    client = TestClient(app)
+    for query in ("window=91d", "window=0h", "window=1w", "window=24h&lead=all", "lead=-1d"):
+        assert client.get(f"/api/history?{query}").status_code == 400, query
+    assert client.get("/api/history?window=90d&lead=1d").status_code == 200
+    assert client.get("/api/history?window=2160h").status_code == 200
+
+
+def test_lead_cannot_outgrow_the_bucket_budget(tmp_path):
+    from openbus.history import LEAD_BUCKETS
+
+    h = History(tmp_path / "h.db")
+    h.record([], "s", 0)
+    now = 100 * 86400
+    assert len(h.query("1h", now=now, lead="90d")["samples"]) <= LEAD_BUCKETS + 1
+    assert h.query("24h", now=now, lead="7d")["step"] == h.query("24h", now=now)["step"]
