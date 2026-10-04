@@ -57,6 +57,8 @@ class _Chat:
     """The loop, independent of the vendor. A subclass keeps the conversation in its own
     wire format and supplies _user / _model / _complete / _results."""
 
+    images = True  # both vendors' chat models take image parts
+
     def __init__(self, model: LiveModel, system: str) -> None:
         self.model, self.system, self.history = model, system, []
         self._inbox: Queue[tuple] = Queue(maxsize=TURNS_QUEUED)

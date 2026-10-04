@@ -118,6 +118,18 @@ def test_typed_turn_goes_to_the_backend():
     assert s.ws.sent[0]["item"]["content"] == [{"type": "input_text", "text": "find it"}]
 
 
+def test_a_pasted_image_goes_to_the_backend_with_its_turn():
+    """The live-delegation guide routes images to the Responses backend, which is where
+    typed turns already go: one user item, image first, then the continue."""
+    s = session()
+    assert s.images
+    asyncio.run(s.send_text("read it", [("image/png", b"PNG")]))
+    assert [e["type"] for e in s.ws.sent] == ["response.item.create", "response.create"]
+    assert s.ws.sent[0]["item"]["content"] == [
+        {"type": "input_image", "image_url": "data:image/png;base64,UE5H"},
+        {"type": "input_text", "text": "read it"}]
+
+
 def test_tools_come_from_the_shared_table_unconverted():
     """One table, every provider. live_providers.TOOLS is already plain JSON Schema — the
     seam chose that format precisely because no backend needs it translated — so the
