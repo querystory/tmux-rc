@@ -31,7 +31,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 .muted { color: var(--muted); }
 #app { position: absolute; top: var(--app-top, 0px); left: 0; right: 0; height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .app-header { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
-#brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; }
+#brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; white-space: nowrap; }
 /* #heading used to be the header's flex:1 filler, so hiding #brand (narrow, in a pane)
    still left something to push the status and the buttons right. With the heading moved
    into #detail, nothing did and they all bunched left. #back is shown in exactly that
@@ -49,9 +49,13 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 #connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
 #connection.online::before { background: var(--accent); }
-/* A phone header also holds Chat and the mic: the status keeps its dot and drops the word
-   (still read out, since the text stays in the node), so the brand never wraps. */
-@media (max-width: 420px) { .app-header { gap: 4px; } #connection { font-size: 0; gap: 0; } #brand span { white-space: nowrap; } }
+/* The phone header's status is a dot on the logo (the word stays in the node, still read
+   out); in a pane, where the brand is hidden, the dot stands on its own. */
+.app-header #connection { font-size: 0; gap: 0; }
+.app-header #brand { position: relative; }
+.app-header #brand::before { content: ""; position: absolute; left: 20px; top: 19px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--bg); }
+.app-header:has(#connection.online) #brand::before { background: var(--accent); }
+.app-header #brand:not([hidden]) + #connection { position: absolute; opacity: 0; }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
@@ -553,10 +557,17 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
 .header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
-/* The pane's overflow menu: an icon trigger (no picker chevron) holding the one destructive action. */
-#pane-menu { flex: none; }
-#pane-menu summary { padding: 0; justify-content: center; }
-#pane-menu summary::after { display: none; }
+/* The overflow menus: an icon trigger (no picker chevron). The pane's holds the one
+   destructive action; the phone header's holds its settings-like controls, each its icon
+   plus the label it already carries, so the toggles (the bell's state too) read in words. */
+:is(#pane-menu, #more-menu) { flex: none; }
+:is(#pane-menu, #more-menu) summary { padding: 0; justify-content: center; }
+:is(#pane-menu, #more-menu) summary::after { display: none; }
+#more-menu .icon-button { width: 100%; justify-content: flex-start; padding: 6px 14px 6px 10px; gap: 10px; font-size: 14px; white-space: nowrap; }
+#more-menu .icon-button::after { content: attr(aria-label); }
+#more-menu #push::after { content: "Notifications: Off"; }
+#more-menu #push.active::after { content: "Notifications: On"; }
+#more-menu a:hover { background: var(--raised); }
 /* Toolbar spacing: the Layout picker is borderless like Sort, and the icon buttons' 44px
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
