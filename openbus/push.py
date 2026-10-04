@@ -331,9 +331,8 @@ def option_keys(question: dict, index: int) -> str:
     style = question.get("answer_style", "text")
     if style == "cursor":
         raise ValueError("cursor questions must be answered in the app")
-    if style == "menu":  # mirrors answerBody in web/cursor-pick.js
-        yes_no = len(options) == 2 and option.lower() in {"yes", "no"}
-        return option[0].lower() if yes_no else str(index + 1)
+    if style == "menu":  # mirrors answerBody in web/cursor-pick.js: always the row's digit
+        return str(index + 1)
     return option
 
 
