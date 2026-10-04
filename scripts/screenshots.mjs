@@ -34,7 +34,24 @@ const SHOTS = [
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
+  ["mobile-no-tmux", PHONE, "light", "", noTmux],
+  ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
 ];
+
+// A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
+// its state is emptied on the way to the page.
+async function noTmux(page) {
+  // No timeout: the fetch may be a 25s long poll. A failure (the context closing under a
+  // held poll) is dropped, not thrown — an unhandled one would end the whole run.
+  await page.route(/\/api\/state/, async (route) => {
+    try {
+      const state = await (await route.fetch({ timeout: 0 })).json();
+      await route.fulfill({ json: { ...state, panes: [], tmux_running: false } });
+    } catch { /* page gone */ }
+  });
+  await page.reload();
+  await page.waitForSelector(".start-session:not([hidden])");
+}
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
 // resolving -apple-system / "Segoe UI" (absent here) races, and the loser shifts inline

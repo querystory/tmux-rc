@@ -62,3 +62,30 @@ def resolve(query: str) -> list[dict] | None:
 def get(session_id: str) -> dict | None:
     """One session by id, with `running` when a process has it open; None if unknown."""
     return _run("get", session_id)
+
+
+def recent_dirs(limit: int = 30) -> list[str]:
+    """Directories past agent sessions ran in, most recently active first, that still
+    exist. Read straight from the index's front matter (cwd, last_active — its documented
+    contract, see agent-history/README.md) rather than via the binary: no `resolve` call
+    can list without a query, and reading a few header lines per entry takes milliseconds.
+    Only top-level entries: a subagent runs in its parent's directory."""
+    root = Path(os.environ.get("AGENT_HISTORY_DIR") or Path.home() / "agent-history")
+    latest: dict[str, str] = {}
+    for path in (root / "index").glob("*/*.md"):
+        meta = {}
+        try:
+            with path.open() as f:
+                for n, line in enumerate(f):
+                    if n and line.startswith("---"):
+                        break  # end of front matter; the body is the human's messages
+                    key, sep, value = line.partition(": ")
+                    if key in ("cwd", "last_active") and sep:
+                        meta[key] = json.loads(value)
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        cwd = meta.get("cwd")
+        if isinstance(cwd, str) and cwd:
+            latest[cwd] = max(latest.get(cwd, ""), str(meta.get("last_active", "")))
+    dirs = sorted(latest, key=latest.__getitem__, reverse=True)
+    return [d for d in dirs if os.path.isdir(d)][:limit]

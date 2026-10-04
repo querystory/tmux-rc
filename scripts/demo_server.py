@@ -20,8 +20,11 @@ from pathlib import Path
 
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
 # one keeps a checkout's real telemetry endpoint from receiving demo traffic and its own
-# launcher menu (labels, icons) out of the shots — empty means the shipped defaults.
-os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="")
+# launcher menu (labels, icons) out of the shots — empty means the shipped defaults. The
+# agent-history root points nowhere so New session's directory suggestions never carry
+# real paths.
+os.environ.update(OTEL_EXPORTER_OTLP_ENDPOINT="", TMUXRC_LAUNCHERS="",
+                  AGENT_HISTORY_DIR="/nonexistent-demo-agent-history")
 
 import uvicorn
 from fastapi.responses import JSONResponse
@@ -51,6 +54,7 @@ class DemoWatcher:
         self.states = list(FLEET.values())
         self.events_log = demo.events_log()
         self.snapshots = {}
+        self.tmux_running = True
 
     def state_version(self): return 1
     def is_stale(self): return False

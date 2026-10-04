@@ -93,5 +93,39 @@ def test_refusals_never_touch_tmux(sock, audits, body, status):
     r = TestClient(S.app).post("/api/sessions", json=body)
     assert r.status_code == status, r.text
     assert not T.server_running()
-    if "name" not in r.text:  # schema failures never reach the handler
-        assert audits and audits[-1][2].startswith("rejected")
+    assert audits and audits[-1][2].startswith("rejected")
+
+
+def test_no_server_preflight_ignores_the_daemons_own_path(sock, audits, tmp_path, monkeypatch):
+    """A command only the daemon can see (its virtualenv's bin) is not on the PATH the
+    server it starts will get, so the window would die at once: refuse up front."""
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    tool = venv / "bin" / "only-in-venv"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    monkeypatch.setenv("VIRTUAL_ENV", str(venv))
+    monkeypatch.setenv("PATH", f"{venv}/bin:/usr/bin:/bin")
+    monkeypatch.setenv("TMUXRC_LAUNCHERS", json.dumps([{"label": "V", "command": "only-in-venv"}]))
+    r = TestClient(S.app).post("/api/sessions", json={"name": "v", "launcher": "V"})
+    assert r.status_code == 400, r.text
+    assert not T.server_running()
+
+
+def test_dir_suggestions_open_panes_then_agent_history(tmp_path, monkeypatch):
+    home, old, new = tmp_path / "home", tmp_path / "old", tmp_path / "home/new"
+    for d in (old, new):
+        d.mkdir(parents=True)
+    index = tmp_path / "ah/index/claude"
+    index.mkdir(parents=True)
+    for sid, cwd, last in [("a", old, "2026-01-01"), ("b", new, "2026-02-01"),
+                           ("c", tmp_path / "gone", "2026-03-01")]:
+        (index / f"{sid}.md").write_text(
+            f'---\ncwd: "{cwd}"\nlast_active: "{last}"\n---\ncwd: "/body/is/not/metadata"\n')
+    monkeypatch.setenv("AGENT_HISTORY_DIR", str(tmp_path / "ah"))
+    monkeypatch.setenv("HOME", str(home))
+
+    watcher = type("W", (), {"states": [{"cwd": str(old)}, {"cwd": ""}]})
+    monkeypatch.setattr(S.app.state, "watcher", watcher, raising=False)
+    got = S.session_dirs()["dirs"]
+    assert got == [str(old), "~/new"]  # open pane first, deduped; vanished dir dropped
