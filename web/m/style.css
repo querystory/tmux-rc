@@ -3,12 +3,15 @@
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
   --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696; --purple: #a371f7;
+  /* Fleet chart states, in history order: Needs you, Running, Idle, Unknown, Compacting, Waiting. */
+  --chart-s0: #f1bd53; --chart-s1: #60c992; --chart-s2: #3f4a55; --chart-s3: #4a5261; --chart-s4: #bea5ee; --chart-s5: #8bbdf5;
 }
 :root.light {
   color-scheme: light;
   --bg: #f5f7f6; --surface: #fff; --raised: #e7ede9; --line: #ccd7d0;
   --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7; --lift: #fff;
   --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36; --purple: #8250df;
+  --chart-s0: #f2ad32; --chart-s1: #39b978; --chart-s2: #e3e8ed; --chart-s3: #d1d8e2; --chart-s4: #9363c4; --chart-s5: #729cc1;
 }
 * { box-sizing: border-box; letter-spacing: 0; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
@@ -28,7 +31,7 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 .muted { color: var(--muted); }
 #app { position: absolute; top: var(--app-top, 0px); left: 0; right: 0; height: 100dvh; height: var(--app-height, 100dvh); max-width: 760px; margin: auto; display: flex; flex-direction: column; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .app-header { display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
-#brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; }
+#brand { display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-size: 18px; font-weight: 650; margin-right: auto; white-space: nowrap; }
 /* #heading used to be the header's flex:1 filler, so hiding #brand (narrow, in a pane)
    still left something to push the status and the buttons right. With the heading moved
    into #detail, nothing did and they all bunched left. #back is shown in exactly that
@@ -46,9 +49,13 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 #connection { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 #connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
 #connection.online::before { background: var(--accent); }
-/* A phone header also holds Chat and the mic: the status keeps its dot and drops the word
-   (still read out, since the text stays in the node), so the brand never wraps. */
-@media (max-width: 420px) { .app-header { gap: 4px; } #connection { font-size: 0; gap: 0; } #brand span { white-space: nowrap; } }
+/* The phone header's status is a dot on the logo (the word stays in the node, still read
+   out); in a pane, where the brand is hidden, the dot stands on its own. */
+.app-header #connection { font-size: 0; gap: 0; }
+.app-header #brand { position: relative; }
+.app-header #brand::before { content: ""; position: absolute; left: 20px; top: 19px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--bg); }
+.app-header:has(#connection.online) #brand::before { background: var(--accent); }
+.app-header #brand:not([hidden]) + #connection { position: absolute; opacity: 0; }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
@@ -67,7 +74,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #sort-picker summary { padding: 0; }
 .list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
-.pane-row { display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; padding: 15px 20px; border-radius: 0; border-bottom: 1px solid var(--line); }
+/* A messages-app row: unread dot in the gutter, a round avatar, then a text column that owns
+   the separator, so dividers start at the text rather than under the avatar. Amber dot: needs
+   you; accent: finished in the last few minutes (the Recent filter's signal), i.e. new output. */
+.pane-row { display: flex; width: 100%; align-items: center; gap: 10px; text-align: left; padding: 0 16px 0 6px; border-radius: 0; }
+.pane-row::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.pane-row.needs-you::before { background: var(--amber); }
+.pane-row.fresh::before { background: var(--accent); }
 .pane-row.needs-you { background: var(--amber-bg); --card: var(--amber-bg); }
 /* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
    raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. It
@@ -79,8 +92,20 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); width: calc(100% - 12px); margin-inline: 6px; border-radius: 10px; border-bottom-color: transparent; position: relative; box-shadow: inset 4px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent), 0 2px 10px rgb(0 0 0 / .2); }
 .pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
-.pane-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; position: relative; }
+.pane-row[aria-current="true"] .row-body { border-bottom-color: transparent; }
+.pane-icon { width: 50px; height: 50px; flex: none; display: grid; place-items: center; position: relative; }
 .pane-icon img { object-fit: contain; }
+/* The logo IS the avatar, like a contact photo: a glyph mark fills most of a tinted disc, and a
+   logo that ships its own tile (Claude, OpenCode, omp) becomes the whole disc, so no square sits
+   inside the circle. The working ring and motion ride on the same box, so they scale with it. */
+.pane-icon > img:first-child { width: 100%; height: 100%; padding: 6px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
+.needs-you .pane-icon > img:first-child { background: var(--surface); }
+.pane-icon > .working:first-child { background: var(--accent-bg); }
+.pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src="/omp-working.svg"]) { padding: 0; }
+/* Claude's png carries a ~1px drop shadow on its bottom and right edges, which reads as a dark rim on
+   the disc: crop it off (unless working, where the clip would also cut the ring). */
+.pane-icon > img[src="/claude.png"]:not(.working):first-child { clip-path: circle(48.5% at 48.5% 48.5%); }
+.pane-icon .model-badge { width: 18px; height: 18px; right: -2px; bottom: -2px; }
 /* Working logo: one treatment for the list row and the dashboard tile (see markWorking). A soft
    glow ring that breathes with the logo; transform only, so it never relayouts or repaints. */
 .working { border-radius: 50%; background: var(--accent-bg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--glow, var(--accent)) 22%, transparent), 0 0 0 1px var(--glow, var(--accent)); }
@@ -100,12 +125,16 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .model-badge { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 2px; object-fit: contain; border-radius: 50%; background: var(--card, var(--bg)); }
 .atlas-agent { position: relative; display: flex; }
 .needs-you .pane-icon { background: transparent; color: var(--amber); }
-.row-body { flex: 1; min-width: 0; }
-.row-title { display: flex; align-items: baseline; gap: 8px; }
-.row-title strong { font-size: 15px; overflow-wrap: anywhere; flex: 1; }
-.row-status { color: var(--muted); font-size: 13px; margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.row-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; color: var(--muted); font-size: 11px; margin-top: 6px; }
-.session-chip { max-width: 100%; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); overflow-wrap: anywhere; }
+.row-body { flex: 1; min-width: 0; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.row-title { display: flex; align-items: center; gap: 6px; line-height: 1.35; }
+.row-title strong { font-size: 15px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-age { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row-title svg { flex: none; color: var(--muted); }
+.row-status { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.row-meta { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 3px; white-space: nowrap; }
+.row-details { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-meta .badge { margin-left: auto; line-height: inherit; }
+.session-chip { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--fg); }
 .badge { font-size: 11px; line-height: 1.6; font-weight: 600; white-space: nowrap; color: var(--muted); }
 .badge.waiting { color: var(--amber); }
 .badge.running { color: var(--accent); }
@@ -148,13 +177,16 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 #terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; background: #101312; color: #edf2ef; --raised: #252b28; --accent: #83ddb3; }
 .terminal-toolbar { display: flex; align-items: center; padding: 0 12px; gap: 2px; border-bottom: 1px solid #343d38; }
 #terminal-status { flex: 1; font-size: 12px; color: #a1ada6; }
+/* The overscroll cue stands in for the status while you pull past the top (overscroll.js). */
+#scroll-cue { flex: 1; min-width: 0; font-size: 12px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.terminal-toolbar:has(#scroll-cue:not([hidden])) #terminal-status { display: none; }
 #font-size { width: 24px; text-align: center; font-size: 12px; }
 #click-mode { position: relative; width: auto; padding: 0 10px; gap: 6px; font-size: 12px; }
 /* Hover/focus helper, not a native title: a title never shows on a phone, and here the
    tap that toggles also hovers, so the new mode explains itself as it switches. */
 #click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
-#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; }
+#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
 #capture > span > span { display: inline-block; vertical-align: top; }
@@ -257,7 +289,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #voice-mute[aria-pressed="true"] { color: var(--red); background: var(--raised); }
 @media (prefers-reduced-motion: no-preference) { dialog[open] { animation: sheet-in .16s ease-out; } @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } }
 @media (min-width: 761px) { #app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
-@media (max-width: 359px) { .app-header { padding-inline: 8px; gap: 4px; } .pane-row { padding-inline: 14px; gap: 8px; } .row-title { flex-wrap: wrap; gap: 2px 8px; } #composer { padding-inline: 8px; } }
+@media (max-width: 359px) { .app-header { padding-inline: 8px; gap: 4px; } .pane-row { gap: 8px; } #composer { padding-inline: 8px; } }
 /* Landscape phone: the keyboard leaves almost no vertical room, so the chrome gives some
    back — header and composer padding only. This used to shrink .composer-tools and its
    buttons, which worked because that was a row of its own. Nothing replaces it: the
@@ -286,6 +318,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    output both fit; below it, one column is still the better use of the space. */
 @media (min-width: 1100px) {
   #app {
+    --bar: 46px; /* the top bar of every column: sidebar head, pane heading, docked chat */
     max-width: none;
     display: grid;
     /* --sidebar is set by the drag handle and persisted; the clamp is the guard, so a
@@ -340,7 +373,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
    dashboard beside it just narrows, and the pane's Auto layout (app.js effectiveLayout,
    which measures #detail) re-picks side / stack / focus from what is left. */
 @media (min-width: 1100px) {
-  #voice-dialog:not(:modal) { position: static; grid-column: 3; grid-row: 1 / -1; width: clamp(320px, 26vw, 440px); height: auto; max-width: none; max-height: none; min-height: 0; margin: 0; padding: 12px 16px; border: 0; border-left: 1px solid var(--line); border-radius: 0; animation: none; }
+  #voice-dialog:not(:modal) { position: static; grid-column: 3; grid-row: 1 / -1; width: clamp(320px, 26vw, 440px); height: auto; max-width: none; max-height: none; min-height: 0; margin: 0; padding: 0 16px 12px; border: 0; border-left: 1px solid var(--line); border-radius: 0; animation: none; }
+  #voice-dialog:not(:modal) .dialog-heading { min-height: var(--bar); } /* level with the pane heading */
   #voice-dialog:not(:modal) .sheet-handle { display: none; }
   #voice-dialog:not(:modal) #voice-log { flex: 1; max-height: none; }
 }
@@ -348,7 +382,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 /* The wide sidebar (sidebar.js). Scoped to the breakpoint, not just to its .sb-only
    slots: the slots are still siblings on a phone, and a sibling selector would reach. */
 @media (min-width: 1100px) {
-#sb-head { display: flex; align-items: center; gap: 2px; min-height: 56px; padding: 0 8px 0 14px; flex: none; }
+#sb-head { display: flex; align-items: center; gap: 2px; min-height: var(--bar); padding: 0 8px 0 14px; flex: none; }
 #sb-head #brand { font-size: 16px; }
 #sb-nav, #sb-foot { display: flex; align-items: center; gap: 2px; padding: 0 8px 6px; flex: none; }
 #sb-foot { padding-block: 6px; border-top: 1px solid var(--line); }
@@ -447,8 +481,9 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .sb-more { min-height: 28px; padding: 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 }
 
-.landing-inner { padding: 32px; max-width: 1440px; }
+.landing-inner { padding: 32px; max-width: 2400px; }
 .landing-inner h2 { margin: 0 0 4px; font-size: 20px; }
+#landing-title:empty, #landing-sub:empty { display: none; }
 .landing-inner h3 { margin: 24px 0 8px; font-size: 13px; text-transform: uppercase;
                     letter-spacing: 0.04em; color: var(--muted); }
 /* Same affordance as a list row: the whole thing is the target, text stays left-aligned. */
@@ -475,30 +510,32 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .atlas-state::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--state-color); }
 .atlas-map { display: grid; gap: 12px; }
 .atlas-split { display: grid; gap: 12px; min-width: 0; }
-.atlas-island { padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); --card: var(--surface); min-width: 0; }
+.atlas-island { padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); --card: var(--surface); min-width: 0; }
 .landing-inner .atlas-island h3, .landing-inner .atlas-panel h3 { margin: 0 0 4px; text-transform: none; letter-spacing: 0; font-size: 16px; color: var(--fg); overflow-wrap: anywhere; }
-.atlas-island > p, .atlas-panel > p { font-size: 12px; }
-.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 10px; align-items: start; }
+.atlas-panel > p { font-size: 12px; }
+/* Name and counts share a row, wrapping only when the card is too narrow for both. */
+.atlas-island-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; font-size: 12px; }
+.landing-inner .atlas-island-head h3 { margin: 0; }
+.atlas-dots { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; margin-top: 6px; align-items: start; }
 .atlas-dot { min-width: 0; padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .atlas-agent-icon { width: 26px; height: 26px; object-fit: contain; padding: 2px; }
 .atlas-dot.s0 .atlas-agent-icon { border-radius: 8px; background: var(--amber-bg); outline: 2px solid var(--amber); outline-offset: 4px; }
 .atlas-dot-name { font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.atlas-lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin-top: 16px; }
-.atlas-panel { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
-.atlas-cloud { height: 300px; width: 100%; margin-top: 8px; }
+.atlas-panel { min-width: 0; margin-top: 16px; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+.atlas-cloud { height: clamp(220px, 14vw, 280px); width: 100%; margin-top: 8px; }
 .atlas-topic-picker { width: 100%; border: 1px solid var(--line); border-radius: 8px; min-height: 40px; padding: 6px 10px; background: var(--surface); color: var(--fg); }
 .atlas-matches:not(:empty) { margin-top: 16px; max-height: 220px; overflow-y: auto; }
-.atlas-chart { height: 320px; width: 100%; margin-top: 20px; }
-.atlas-history-note { margin-top: 12px; }
+.atlas-history-note { margin: 0 0 8px; font-size: 12px; }
+.atlas-history-note p { margin: 0 0 4px; }
 /* The state legend is also the keyboard/touch filter; avoid duplicate controls. */
-.atlas-history-pickers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.atlas-history-pickers select { min-width: 0; max-width: 100%; flex: 1; }
-.atlas-state-legend { display: flex; flex-wrap: wrap; gap: 0 12px; margin-top: 12px; }
+.atlas-state-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; }
 .atlas-state-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0 2px; min-height: 44px; font-size: 12px; color: var(--muted); }
 .atlas-state-toggle::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--state-color); border: 1px solid var(--state-color); }
 .atlas-state-toggle[aria-pressed="false"]::before { background: transparent; }
 .atlas-state-toggle[aria-pressed="false"] { text-decoration: line-through; }
 .atlas-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; }
+#landing-sub:empty + #session-atlas .atlas-controls { margin-top: 0; }
+.atlas-controls-label { font-size: 13px; }
 .atlas-filter { border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
 .atlas-filter[aria-pressed=true] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .atlas-session-picker { margin-left: auto; min-height: 40px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; background: var(--surface); }
@@ -508,7 +545,6 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 .atlas-panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
 .landing-inner .atlas-panel-heading h3 { margin: 0; }
-.atlas-zoom-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; font-size: 11px; }
 .atlas-reset-zoom { font-size: 12px; color: var(--accent); padding: 4px 8px; }
 /* Desktop review workspace. The same overview, stream and composer keep their state
    when rearranged; each reading surface owns its scroll position. */
@@ -520,13 +556,20 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #session-chips span { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--surface); color: inherit; border: 1px solid var(--line); overflow-wrap: anywhere; }
 @media (min-width: 1100px) {
   #layout-control > span { display: inline; }
-  #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto; }
-  #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  #detail { min-width: 0; grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+  /* The sidebar head's height (--bar), so the two columns' top bars line up. No vertical
+     padding: the two text lines set tight and the controls drop to 32px (still a full
+     pointer target; the phone keeps 44px), so the row hugs its content. */
+  #detail > #heading { grid-row: 1; grid-column: 1 / -1; justify-self: stretch; max-width: none; text-align: left; min-height: var(--bar); padding: 0 18px; border-bottom: 1px solid var(--line); }
+  .pane-heading-text { line-height: 1.3; }
+  :is(#heading, .terminal-toolbar) :is(.icon-button, #review-layout) { min-height: 32px; height: 32px; }
+  :is(#heading, .terminal-toolbar) .icon-button:not(#click-mode) { width: 32px; }
+  #heading > #close-pane { margin: 0 -6px; } /* outranks the base -12px, which is sized for the 44px box */
   #detail > #overview, #detail > #terminal { grid-row: 3; min-width: 0; }
   #detail > #composer { grid-row: 4; min-width: 0; }
   #detail[data-layout="side"] { grid-template-columns: minmax(0, 1fr) clamp(240px, var(--review-size, 360px), 45%); }
   #detail[data-layout="side"] > #overview { grid-column: 2; grid-row: 3 / 5; border-left: 1px solid var(--line); background: var(--surface); }
-  #detail[data-layout="stack"] { grid-template-rows: auto auto minmax(120px, var(--review-size, 280px)) minmax(0, 1fr) auto; }
+  #detail[data-layout="stack"] { grid-template-rows: auto auto minmax(120px, var(--review-size, 280px)) minmax(0, 1fr) auto auto; }
   #detail[data-layout="stack"] > #terminal { grid-row: 4; }
   #detail[data-layout="stack"] > #composer { grid-row: 5; }
   #detail[data-layout="stack"] > #overview { background: var(--surface); }
@@ -548,10 +591,17 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
 .header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
-/* The pane's overflow menu: an icon trigger (no picker chevron) holding the one destructive action. */
-#pane-menu { flex: none; }
-#pane-menu summary { padding: 0; justify-content: center; }
-#pane-menu summary::after { display: none; }
+/* The overflow menus: an icon trigger (no picker chevron). The pane's holds the one
+   destructive action; the phone header's holds its settings-like controls, each its icon
+   plus the label it already carries, so the toggles (the bell's state too) read in words. */
+:is(#pane-menu, #more-menu) { flex: none; }
+:is(#pane-menu, #more-menu) summary { padding: 0; justify-content: center; }
+:is(#pane-menu, #more-menu) summary::after { display: none; }
+#more-menu .icon-button { width: 100%; justify-content: flex-start; padding: 6px 14px 6px 10px; gap: 10px; font-size: 14px; white-space: nowrap; }
+#more-menu .icon-button::after { content: attr(aria-label); }
+#more-menu #push::after { content: "Notifications: Off"; }
+#more-menu #push.active::after { content: "Notifications: On"; }
+#more-menu a:hover { background: var(--raised); }
 /* Toolbar spacing: the Layout picker is borderless like Sort, and the icon buttons' 44px
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
@@ -598,13 +648,67 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 /* Fill the topic panel with the cloud instead of stretching empty space below it. */
 .atlas-topics { display: flex; flex-direction: column; }
-.atlas-topics .atlas-cloud { flex: 1; min-height: 300px; }
 .atlas-topic-links { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .atlas-topic-links:focus-within { position: static; width: auto; height: auto; overflow: visible; clip-path: none; display: flex; flex-wrap: wrap; }
 .atlas-topic-links button { padding: 4px 8px; }
-.atlas-chart { touch-action: pan-y; }
-.atlas-zoom-touch { display: none; }
-@media (pointer: coarse) {
-  .atlas-zoom-touch { display: inline; }
-  .atlas-zoom-desktop { display: none; }
+
+/* The fleet chart and its controls (atlas.js): the dashboard's big chart and small
+   multiples, and the split under a pane on a wide screen. */
+.fleet-chart { min-width: 0; height: 30px; flex: 1; overflow: hidden; }
+.fleet-chart-axis { flex: none; width: 100%; height: 320px; margin-top: 12px; touch-action: pan-y; }
+.fleet-gap { flex: 1; }
+.fleet-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; padding: 2px; background: var(--surface); }
+.fleet-seg button { min-height: 32px; padding: 2px 9px; font-size: 12px; border-radius: 5px; }
+.fleet-seg button[aria-pressed="true"], .fleet-chip[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+.fleet-control { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.fleet-line-key::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 5px; border-radius: 2px; background: var(--purple); vertical-align: middle; }
+.fleet-average { font-size: 13px; white-space: nowrap; }
+.fleet-average.pos b { color: var(--accent); }
+.fleet-average.neg b { color: var(--amber); }
+.fleet-goal { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 17px; font-size: 13px; white-space: nowrap; }
+.fleet-goal.editing { padding: 0 2px 0 10px; }
+.fleet-goal .icon-button { width: 30px; height: 30px; min-height: 30px; }
+.fleet-goal input { width: 56px; min-height: 28px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); text-align: center; }
+.fleet-goal input[aria-invalid="true"] { border-color: var(--red); }
+.fleet-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; font-size: 12px; white-space: nowrap; }
+.fleet-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-color); }
+.atlas-multiples-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 10px; margin-top: 4px; }
+.atlas-pulse .atlas-panel-heading { margin-bottom: 4px; }
+.atlas-pulse .fleet-chart-axis { margin-top: 0; }
+.atlas-pulse select { min-height: 34px; max-width: 100%; }
+.atlas-info { width: 32px; height: 32px; min-height: 32px; color: var(--muted); }
+.atlas-info[aria-expanded="true"] { color: var(--accent); }
+/* A mouse needs no 44px row; touch keeps it. */
+@media (pointer: fine) { .atlas-state-toggle { min-height: 30px; } }
+.atlas-multiple { display: grid; gap: 4px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; text-align: left; font-size: 12px; }
+.atlas-multiple[aria-pressed="true"] { border-color: var(--accent); }
+.atlas-multiple-head { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.atlas-multiple-head b:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atlas-multiple .fleet-chart { flex: none; width: 100%; height: 48px; }
+.landing-head { display: flex; align-items: center; gap: 4px; }
+#landing-back { margin-left: -12px; }
+@media (min-width: 1100px) {
+  .atlas-multiple .fleet-chart { height: 64px; }
+  #detail > #fleet { grid-row: 5; grid-column: 1 / -1; height: var(--fleet-h, 40px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line); background: var(--surface); }
+  #detail > #fleet-handle { grid-row: 5; grid-column: 1 / -1; align-self: start; position: relative; z-index: 5; height: 9px; margin-top: -5px; cursor: row-resize; touch-action: none; }
+  #detail[data-layout="stack"] > #fleet, #detail[data-layout="stack"] > #fleet-handle { grid-row: 6; }
+  #fleet-handle:hover, #fleet-handle:focus-visible, #fleet-handle.dragging { outline: none; background: linear-gradient(var(--accent), var(--accent)) center / 100% 3px no-repeat; }
+  #detail:has(#fleet-handle.dragging) { user-select: none; cursor: row-resize; }
+  .fleet-strip { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 39px; padding: 0 12px 0 4px; }
+  /* Folded, the strip stays one 40px row: the sparkline and the average give way first,
+     and in a very narrow work area (a wide sidebar plus Chat) the row scrolls sideways
+     rather than growing into the terminal's reserved space or clipping a control. */
+  .fleet-strip:not(.open) { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  .fleet-strip .icon-button { width: 36px; height: 36px; min-height: 36px; }
+  /* Narrow work areas squeeze the information first (sparkline, then the average, which
+     ellipsizes) so the goal editor and Dashboard never clip. */
+  .fleet-strip .fleet-chart { flex: 3 1 0; height: 28px; min-width: 0; }
+  .fleet-strip > * { flex: none; }
+  .fleet-strip > .fleet-average { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .fleet-now b { font-size: 16px; }
+  /* Unfolded, the one row also carries the chart's controls, and wraps only when it must. */
+  .fleet-strip.open { gap: 4px 8px; padding-block: 2px; }
+  .fleet-strip > .fleet-gap { flex: 1; }
+  #fleet > .fleet-chart-axis { flex: 1; height: auto; min-height: 0; margin: 0; }
 }
+.atlas-multiples .atlas-panel-heading > .muted { font-size: 12px; }

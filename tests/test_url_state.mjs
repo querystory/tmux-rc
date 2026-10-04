@@ -26,6 +26,13 @@ test("unknown fields and bad values are ignored", () => {
   assert.equal(parseHash(undefined).filter, "all");
 });
 
+test("a pane hash without a view opens on the chosen tab; an explicit one wins", () => {
+  assert.equal(parseHash("#pane=%251", "terminal").view, "terminal");
+  assert.equal(parseHash("#pane=%251&view=terminal").view, "terminal");
+  assert.equal(parseHash("#pane=%251&view=summary", "terminal").view, "summary");
+  assert.equal(parseHash("#pane=%251").view, "summary");
+});
+
 test("a dashboard view only exists without a pane", () => {
   assert.equal(parseHash("#view=dashboard").dashboard, true);
   assert.equal(parseHash("#pane=%251&view=dashboard").dashboard, false);

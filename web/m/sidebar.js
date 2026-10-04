@@ -7,7 +7,7 @@
 // Phones never call this: their list is renderList's rows in app.js.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents, subagentCount } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
@@ -20,12 +20,6 @@ const alive = (p) => p.activity !== "idle";
 const rank = (p) => needsYou(p) ? 0 : isRunning(p) ? 1 : isRecent(p) ? 2 : 3;
 const STATES = [["run", "Working", isRunning], ["done", "Just finished", (p) => isRecent(p)], ["idle", "Idle", () => true]];
 const FILTERS = [["all", "All"], ["running", "Running"], ["recent", "Recent"], ["attention", "Needs you"]];
-// How long the pane has been in its current state; a row shows "now" while it works.
-const since = (p) => {
-  const s = Math.max(0, Date.now() / 1000 - (Number(p.state_since) || lastActivity(p)));
-  return s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
-};
-const age = (p) => isRunning(p) ? "now" : since(p);
 const HOVER_MS = 350;
 
 // Needs you first, then the groups; a group with nothing in it is not drawn.

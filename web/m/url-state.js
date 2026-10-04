@@ -11,7 +11,8 @@
 
 const FILTERS = ["attention", "running", "recent"];
 
-export function parseHash(hash) {
+// `tab` is the view a pane opens on when the hash names none: the wide Layout picker's choice.
+export function parseHash(hash, tab = "summary") {
   const raw = String(hash || "").replace(/^#/, "");
   const legacy = /^\/(pane|list)\/(.+)$/.exec(raw);
   let params;
@@ -23,7 +24,7 @@ export function parseHash(hash) {
   const pane = params.get("pane") || null;
   return {
     pane,
-    view: params.get("view") === "terminal" ? "terminal" : "summary",
+    view: ["summary", "terminal"].includes(params.get("view")) ? params.get("view") : tab,
     dashboard: !pane && params.get("view") === "dashboard",
     filter: FILTERS.includes(params.get("filter")) ? params.get("filter") : "all",
     sort: params.get("sort") === "session" ? "session" : "updated",

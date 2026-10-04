@@ -237,6 +237,155 @@ def test_omp_idle_title_keeps_a_closing_question():
         "waiting", "user", "Should I merge this?", 0)
 
 
+@pytest.mark.parametrize(("state", "activity", "active"), [
+    ("⠋", "running", False),
+    (">", "idle", False),
+    ("!", "waiting", True),
+])
+def test_omp_old_ask_cannot_override_current_input_state(state, activity, active):
+    prompt = "Which color do you prefer?"
+    screen = (
+        f"\x1e[visible screen]\x1f\n? Ask\n{prompt}\n○ Red\n● Green\n\n"
+        "Read web/m/app.js\nTable rendering uses headers and rows.\n\n"
+        "  ⎋ Reading table renderer\n ⠋ 2m > ◒ GPT-5.5 > 🌳 tmux-rc\n╰─\n"
+    )
+    if active:
+        screen = _sample("62_omp_ask_picker")
+    # The provider repeats the same wrong receipt on a bounded retry.
+    result = classify(_pane("bun", f"π {state} Table renderer"), screen, _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user",
+        "question": {"prompt": prompt, "answer_style": "cursor", "options": ["Red", "Green"]},
+        "tables": [{"headers": ["Option"], "rows": [["Red"], ["Green"]]}],
+    }))
+    assert result["activity"] == activity
+    assert result.get("parse_ok", True) is True
+    if active:
+        assert result["waiting_on"] == "user" and result["question"]["prompt"] == prompt
+    else:
+        assert not any(result.get(key) for key in ("question", "waiting_on", "tables"))
+
+
+@pytest.mark.parametrize("state", ["⠋", ">"])
+@pytest.mark.parametrize("question", [{"answer_style": "cursor"}, {"prompt": None}, "Pick one?"])
+def test_omp_malformed_question_is_rejected_without_raising(state, question):
+    screen = "\x1e[visible screen]\x1f\n? Ask\nPick one?\n● Red\n\nRead web/m/app.js\n"
+    result = classify(_pane("bun", f"π {state} Table renderer"), screen, _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user", "question": question,
+    }))
+    assert not result.get("question")
+
+
+_RECEIPT = "? Ask\nWhich color do you prefer?\n○ Red\n● Green\n\nRead web/m/app.js\n\n"
+_LIVE_ASK = "╭─ Ask ──╮\n│ Which shade? │\n├──┤\n│ ❯ ○ Light │\n╰──╯\n"
+
+
+@pytest.mark.parametrize("style", ["text", None])
+@pytest.mark.parametrize(("title", "screen", "prompt"), [
+    ("π > Colors", _RECEIPT + " π > ◒ GPT-5.5\n", "Which color do you prefer?"),
+    ("π > Colors", "61_omp_running_subagents", "Which color do you prefer?"),  # boxed
+    ("t", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),  # no omp title
+    ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
+     "Ask Preferred Color Choice"),  # the ⎋ activity row's session label
+    ("π ! Ask Shade", _RECEIPT + _LIVE_ASK, "Which color do you prefer?"),
+    ("π ! Ask Preferred Color Choice", "67_omp_queued_messages_with_ask",
+     "Are the regressions passing?"),
+    ("π > Colors", "67_omp_queued_messages_with_ask", "Are the regressions passing?"),
+])
+def test_omp_receipts_and_queued_input_are_not_questions(title, screen, prompt, style):
+    if screen[:3] in ("61_", "67_"):
+        screen = _sample(screen)
+    result = classify(_pane("omp", title), f"\x1e[visible screen]\x1f\n{screen}", _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user",
+        "question": {"prompt": prompt, "answer_style": style},
+    }))
+    assert (result.get("question") or {}).get("prompt") != prompt
+
+
+def test_omp_rejected_queue_text_keeps_the_whole_viewport_for_the_retry():
+    seen = []
+    classify(_pane("bun", "π ⠦ Follow PR293 Copilot Review"),
+             _sample("66_omp_queued_user_question"),
+             lambda system, text: seen.append(text) or {
+                 "tool": "omp", "activity": "waiting", "waiting_on": "user",
+                 "question": {"prompt": "Did you test the omp history search stuff"}})
+    retry = seen[-1]
+    assert "Completed Ask receipt" not in retry and "Reviewing the documentation" in retry
+
+
+@pytest.mark.parametrize(("closing", "kept"), [
+    ("", False), ("\nDone. Should I merge this?\n", True),
+])
+def test_omp_receipt_header_above_the_visible_boundary(closing, kept):
+    capture = _sample("61_omp_running_subagents")
+    cut = capture.index("\n", capture.index("? Ask"))  # the header scrolled into history
+    screen = f"{capture[:cut]}\n\x1e[visible screen]\x1f{capture[cut:]}{closing}"
+    prompt = "Should I merge this?" if kept else "Which color do you prefer?"
+    result = classify(_pane("omp", "π > Colors"), screen, _llm({
+        "tool": "omp", "activity": "waiting",
+        "question": {"prompt": prompt, "answer_style": "text"},
+    }))
+    assert ((result.get("question") or {}).get("prompt") == prompt) is kept
+
+
+@pytest.mark.parametrize(("prompt", "kept"), [
+    ("Are the regressions passing?", False), ("Which color do you prefer?", True),
+])
+def test_omp_queue_heading_above_the_visible_boundary(prompt, kept):
+    capture = _sample("67_omp_queued_messages_with_ask").replace("\x1e[visible screen]\x1f\n", "")
+    cut = capture.index("\n", capture.index("After yield"))  # the heading scrolled off
+    screen = f"{capture[:cut]}\n\x1e[visible screen]\x1f{capture[cut:]}"
+    result = classify(_pane("omp", "π ! Ask Preferred Color Choice"), screen, _llm({
+        "tool": "omp", "activity": "waiting",
+        "question": {"prompt": prompt, "answer_style": "text"},
+    }))
+    assert ((result.get("question") or {}).get("prompt") == prompt) is kept
+
+
+def test_screen_inferred_omp_drops_a_rejected_questions_tables():
+    screen = "\x1e[visible screen]\x1f\n" + _sample("61_omp_running_subagents")
+    result = classify(_pane("bash", "t"), screen, _llm({
+        "tool": "omp", "activity": "waiting", "waiting_on": "user",
+        "question": {"prompt": "Which color do you prefer?", "answer_style": "text"},
+        "tables": [{"headers": ["Option"], "rows": [["Red"], ["Green"]]}],
+    }))
+    assert not result.get("question") and not result.get("tables")
+
+
+def test_omp_idle_session_label_is_not_a_question():
+    label = "Ask Preferred Color Choice"
+    result = classify(
+        _pane("bun", "π > omp-play"), _sample("60_omp_bun_idle"),
+        _llm({"tool": "omp", "activity": "waiting", "waiting_on": "user",
+              "question": {"prompt": label, "answer_style": "text"}}),
+    )
+    assert result["activity"] == "idle"
+    assert not any(result.get(key) for key in ("question", "waiting_on"))
+
+
+@pytest.mark.parametrize(
+    ("checked", "unchecked"), [("☑", "☐"), ("[x]", "[ ]"), ("\uf14a", "\uf096")],
+)
+def test_omp_ask_radios_do_not_become_tasks(checked, unchecked):
+    screen = (
+        "Ask\n○ Keep the fix scoped\n● Also fix table extraction\n\nTodo\n"
+        f"├─ {checked} Inspect parser\n└─ {unchecked} Fix table extraction\n"
+        " ⠋ 2m > ◒ GPT-5.5 > 🌳 tmux-rc\n"
+    )
+    tasks = [
+        {"text": text, "done": done} for text, done in (
+            ("Keep the fix scoped", False), ("Also fix table extraction", True),
+            ("Inspect parser", False), ("Fix table extraction", True),
+        )
+    ]
+    result = classify(_pane("bun", "π ⠋ Fix extraction"), screen, _llm({
+        "tool": "omp", "activity": "running", "tasks": tasks,
+    }))
+    assert result["tasks"] == [
+        {"text": "Inspect parser", "done": True},
+        {"text": "Fix table extraction", "done": False},
+    ]
+
+
 def test_opencode_stale_interrupt_row_does_not_override_idle_footer():
     r = classify(
         _pane(cmd="opencode"),

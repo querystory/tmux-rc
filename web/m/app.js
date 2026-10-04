@@ -1,13 +1,14 @@
 import { headerPicker, dismissable } from "/m/header-picker.js";
-import { renderAtlas, refreshAtlasHistory } from '/m/atlas.js';
+import { renderAtlas, renderFleet, refreshAtlasHistory } from '/m/atlas.js';
 import { renderCaptureLines, linkifyText } from "/terminal.js";
 import { setupLiveMode } from "/m/live.js";
 import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
+import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
 
 const refreshSortPicker = headerPicker(document.getElementById("sort"));
@@ -33,6 +34,11 @@ const LUCIDE = {
   layers: '<path d="m12 3 10 6-10 6L2 9l10-6ZM2 15l10 6 10-6M2 12l10 6 10-6"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
+  chevronUp: '<path d="m18 15-6-6-6 6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"/>',
   back: '<path d="m12 19-7-7 7-7M5 12h14"/>',
   up: '<path d="m5 12 7-7 7 7M12 19V5"/>',
   down: '<path d="m5 12 7 7 7-7M12 5v14"/>',
@@ -75,10 +81,15 @@ const LOGOS = { claude: "/claude.png", codex: "/openai.svg", gemini: "/gemini.sv
 const EMPTY_MESSAGE = { all: "No tmux panes are open.", attention: "Nothing needs your attention.", running: "No panes are running.", recent: "No recently active panes." };
 // The desktop workspace shows context alongside the live terminal; phones retain tabs.
 const WIDE = matchMedia("(min-width: 1100px)");
+// The wide Layout picker's choice, global across panes and reloads: a split, or the one tab
+// the focus layout shows. "focus" is what the Overview choice was saved as before the tab was.
 let reviewLayout = "auto";
-try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "focus"].includes(saved)) reviewLayout = saved; } catch {}
+try { const saved = localStorage.getItem("tmuxrc-review-layout"); if (["auto", "side", "stack", "summary", "terminal"].includes(saved)) reviewLayout = saved; else if (saved === "focus") reviewLayout = "summary"; } catch {}
+const focusChoice = () => ["summary", "terminal"].includes(reviewLayout);
+// The tab a pane opens on when its URL names none: the chosen one, so it survives pane switches.
+const defaultView = () => WIDE.matches && reviewLayout === "terminal" ? "terminal" : "summary";
 function effectiveLayout() {
-  if (!WIDE.matches) return "focus";
+  if (!WIDE.matches || focusChoice()) return "focus";
   if (reviewLayout !== "auto") return reviewLayout;
   if (view === "terminal") return "focus"; // Honor an explicit terminal deep link.
   const { width, height } = document.getElementById("detail").getBoundingClientRect();
@@ -106,6 +117,7 @@ const pendingAnswers = new Map();
 // knows there is something to catch up on.
 let captureLines = [], captureDirty = false;
 let latestFrame = "", paintedFrame = "";
+let wheel = overscrollState(), wheelQueued = 0, wheelInFlight = 0, wheelSpring = 0, touchY = null, wheelLine = Promise.resolve();
 const liveSession = (() => {
   try { return crypto.randomUUID(); }
   catch { return ""; } // CSPRNG-random or omitted, never guessed.
@@ -209,11 +221,12 @@ function leaveMissingPane(id) {
 
 function route() {
   const wasDashboardVisible = dashboardVisible();
-  const state = parseHash(location.hash);
+  const state = parseHash(location.hash, defaultView());
   const changed = state.pane !== active;
   active = state.pane;
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort } = state);
+  if (active) returnPane = null;
   $("sort").value = sort;
   refreshSortPicker();
   if (changed) {
@@ -230,7 +243,7 @@ function route() {
   restartDetail();
   render();
   if (dashboardVisible() && !wasDashboardVisible) {
-    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); }, true);
+    refreshHistory(true);
   }
   if (active && changed) {
     const id = active;
@@ -247,7 +260,7 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = '<span class="pane-icon"><img width="28" height="28" alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="badge"></span></span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span></span></span>' + licon("chevron", 16);
+  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span><span class="badge"></span></span></span>`;
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
@@ -255,10 +268,12 @@ function updateRow(button, pane) {
   if (pane.pane_id === active) button.setAttribute("aria-current", "true");
   else button.removeAttribute("aria-current");
   button.classList.toggle("needs-you", needsYou(pane));
+  button.classList.toggle("fresh", pane.activity === "idle" && isRecent(pane));
   const logo = button.querySelector(".pane-icon img");
   logo.alt = pane.tool || "tmux";
   markWorking(logo, pane, LOGOS);
   text(button.querySelector("strong"), paneName(pane));
+  text(button.querySelector(".row-age"), age(pane));
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
@@ -329,20 +344,22 @@ function landingRows(id, subset) {
 
 function renderLanding() {
   const waiting = panes.filter(needsYou);
-  text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "Session atlas" : "No panes yet");
+  show("landing-back", panes.some((p) => p.pane_id === returnPane));
+  // With panes, the atlas speaks for itself (its filter row is labelled); the heading is
+  // only for the loading and empty states, and hides itself when blank (style.css).
+  text($("landing-title"), !booted ? "Reading sessions…" : panes.length ? "" : "No panes yet");
   // With no panes there is no session to open a window IN: + is disabled and the server
   // refuses /api/windows outright. Pointing at it would be advice the UI cannot take, so
   // the empty state says where a session actually comes from instead.
   text($("landing-sub"), !booted ? "Saved history is available while the current inventory loads." : panes.length
-    ? "Your workspace at a glance. Explore a cluster, follow a topic, or pick up a waiting pane."
-    : "No tmux panes are open. Start a session on the host and it will appear here.");
+    ? "" : "No tmux panes are open. Start a session on the host and it will appear here.");
   renderAtlas($("session-atlas"), panes, navigate, LOGOS, term => {
     $("search").value = term;
     filter = "all";
     renderList();
     navigate();
     $("sessions").scrollTop = $("side-list").scrollTop = 0;
-  });
+  }, licon);
   landingRows("landing-attention", waiting);
 }
 
@@ -389,37 +406,36 @@ setSidebar(storedSidebar > 0 ? storedSidebar : SIDEBAR_DEFAULT, false);
 // the narrow clamp had squeezed it to, and aria-valuenow follows the seam it describes.
 addEventListener("resize", () => setSidebar(sidebarWidth, false));
 
+// Pointer plumbing every seam shares: primary button only (a right-click is a context-menu
+// gesture, and preventDefault() would swallow it), capture for the drag, and every ending
+// clears the dragging state. pointerup/pointercancel are the ordinary endings (capture
+// guarantees one even if the pointer leaves the window); lostpointercapture is the backstop
+// for the rest: crossing the wide breakpoint mid-drag hides the seam, which drops capture
+// without firing either. `bodyClass` matters for the sidebar: body.resizing kills
+// pointer-events on the main column, so it sticking on would deaden the whole pane.
+function seam(handle, move, end = () => {}, bodyClass = "") {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add("dragging");
+    if (bodyClass) document.body.classList.add(bodyClass);
+  });
+  handle.addEventListener("pointermove", (e) => { if (handle.hasPointerCapture(e.pointerId)) move(e); });
+  const stop = (e) => {
+    if (!handle.classList.contains("dragging")) return;
+    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+    handle.classList.remove("dragging");
+    if (bodyClass) document.body.classList.remove(bodyClass);
+    end(e);
+  };
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) handle.addEventListener(type, stop);
+}
+
 const divider = $("divider");
-divider.addEventListener("pointerdown", (e) => {
-  // Primary button only. A right-click on the seam is a context-menu gesture, not a
-  // resize, and preventDefault() here would swallow it.
-  if (e.button !== 0) return;
-  e.preventDefault();
-  divider.setPointerCapture(e.pointerId);
-  divider.classList.add("dragging");
-  document.body.classList.add("resizing");
-});
-divider.addEventListener("pointermove", (e) => {
-  if (!divider.hasPointerCapture(e.pointerId)) return;
-  // Measured from the app's left edge, not the viewport, so it stays correct if the
-  // layout ever gains an outer margin.
-  setSidebar(e.clientX - $("app").getBoundingClientRect().left);
-});
-// body.resizing kills pointer-events on the main column, so it sticking on would deaden
-// the whole pane. pointerup/pointercancel cover the ordinary endings (capture guarantees
-// one of them even if the pointer leaves the window), and lostpointercapture is the
-// backstop for the rest: crossing the wide breakpoint mid-drag hides #divider, which
-// drops capture without firing either of the other two.
-const endResize = (e) => {
-  if (e.pointerId !== undefined && divider.hasPointerCapture(e.pointerId)) {
-    divider.releasePointerCapture(e.pointerId);
-  }
-  divider.classList.remove("dragging");
-  document.body.classList.remove("resizing");
-};
-divider.addEventListener("pointerup", endResize);
-divider.addEventListener("pointercancel", endResize);
-divider.addEventListener("lostpointercapture", endResize);
+// Measured from the app's left edge, not the viewport, so it stays correct if the layout
+// ever gains an outer margin.
+seam(divider, (e) => setSidebar(e.clientX - $("app").getBoundingClientRect().left), undefined, "resizing");
 divider.addEventListener("keydown", (e) => {
   const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
   if (!step) return;
@@ -451,13 +467,19 @@ function sizeReview(persist = false, requested = reviewSizes[effectiveLayout()])
   if (persist) {
     reviewSizes[mode] = size;
     try { localStorage.setItem(`tmuxrc-review-${mode}`, String(size)); } catch {}
+    sizeFleet(); // a taller overview takes its room from the terminal, which the split's cap protects
   }
 }
-new ResizeObserver(() => {
+// The composer and heading too: a multiline draft, the key row or a wrapped title grows them without resizing #detail,
+// and the terminal it squeezes is what the split's cap protects.
+const detailResize = new ResizeObserver(() => {
   if (active && streamedLayout !== effectiveLayout()) {
     restartDetail(); render();
-  } else sizeReview();
-}).observe($("detail"));
+  } else { sizeReview(); if (WIDE.matches) sizeFleet(); }
+});
+detailResize.observe($("detail"));
+detailResize.observe($("composer"));
+detailResize.observe($("heading"));
 $("mobile-view-toggle").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
   if (!button) return;
@@ -467,28 +489,17 @@ $("mobile-view-toggle").addEventListener("click", (event) => {
 $("review-layout").onchange = (e) => {
   const choice = e.target.value;
   if (WIDE.matches) {
-    reviewLayout = ["summary", "terminal"].includes(choice) ? "focus" : choice;
+    reviewLayout = choice;
     try { localStorage.setItem("tmuxrc-review-layout", reviewLayout); } catch {}
   }
   if (choice === "auto") view = "summary";
   if (["summary", "terminal"].includes(choice)) view = choice;
   navigate(active, view);
 };
-reviewDivider.onpointerdown = (e) => {
-  if (e.button !== 0) return;
-  e.preventDefault(); reviewDivider.setPointerCapture(e.pointerId);
-  reviewDivider.classList.add("dragging");
-};
-reviewDivider.onpointermove = (e) => {
-  if (!reviewDivider.hasPointerCapture(e.pointerId)) return;
+seam(reviewDivider, (e) => {
   const rect = $("detail").getBoundingClientRect();
   sizeReview(true, effectiveLayout() === "side" ? rect.right - e.clientX : e.clientY - $("overview").getBoundingClientRect().top);
-};
-const endReviewResize = (e) => {
-  if (reviewDivider.hasPointerCapture(e.pointerId)) reviewDivider.releasePointerCapture(e.pointerId);
-  reviewDivider.classList.remove("dragging");
-};
-reviewDivider.onpointerup = reviewDivider.onpointercancel = reviewDivider.onlostpointercapture = endReviewResize;
+});
 reviewDivider.onkeydown = (e) => {
   const steps = effectiveLayout() === "side" ? { ArrowLeft: 16, ArrowRight: -16 } : { ArrowUp: -16, ArrowDown: 16 };
   const step = steps[e.key];
@@ -496,6 +507,56 @@ reviewDivider.onkeydown = (e) => {
   e.preventDefault(); sizeReview(true, Number(reviewDivider.getAttribute("aria-valuenow")) + step);
 };
 reviewDivider.ondblclick = () => sizeReview(true, effectiveLayout() === "side" ? 360 : 280);
+
+// The fleet chart docks under the pane on a wide screen, behind a seam: drag it to any
+// height and release snaps to strip, medium or tall; a double-click or the chevron folds
+// and unfolds. `fleetHeight` is the chosen height, persisted per screen; the shown one is
+// capped so the pane's flexible row (the terminal, or the overview alone) keeps
+// FLEET_ROOM, which a short window or a tall stacked overview would otherwise take.
+const FLEET_KEY = "tmuxrc-fleet-height", STRIP = 40, MEDIUM = 300, FLEET_ROOM = 120;
+let fleetHeight = STRIP, fleetShown = STRIP, returnPane = null, returnView = "summary";
+try { fleetHeight = Number(localStorage.getItem(FLEET_KEY)) || STRIP; } catch {}
+const fleetHandle = $("fleet-handle");
+function sizeFleet(px = fleetHeight, mode = "") {
+  // Hidden, the grid reports unresolved tracks (auto, minmax) that would parse to NaN.
+  if (!WIDE.matches || !active) return;
+  // From the grid's own tracks, not the flexible row's current height: after a big window
+  // shrink that row may already be clamped to zero, and would hide the overflow.
+  // The stacked overview's row can itself be squeezed below its chosen size, so count that.
+  const tracks = getComputedStyle($("detail")).gridTemplateRows.split(" ").map(parseFloat);
+  const stack = $("detail").dataset.layout === "stack", flex = stack ? 3 : 2; // the minmax(0, 1fr) row
+  if (stack) tracks[2] = Math.max(tracks[2], parseFloat($("detail").style.getPropertyValue("--review-size")) || 0);
+  const fixed = tracks.reduce((total, h, i) => i === flex || i === tracks.length - 1 ? total : total + h, 0);
+  const cap = Math.max(STRIP, $("detail").clientHeight - fixed - FLEET_ROOM);
+  const snaps = [STRIP, Math.min(MEDIUM, cap), cap];
+  if (mode === "snap") px = snaps.reduce((best, snap) => Math.abs(snap - px) < Math.abs(best - px) ? snap : best);
+  fleetShown = Math.round(Math.max(STRIP, Math.min(snaps[2], px)));
+  if (mode) {
+    fleetHeight = fleetShown;
+    try { localStorage.setItem(FLEET_KEY, String(fleetHeight)); } catch {}
+  }
+  $("detail").style.setProperty("--fleet-h", `${fleetShown}px`);
+  for (const [key, value] of Object.entries({ min: STRIP, max: snaps[2], now: fleetShown })) fleetHandle.setAttribute(`aria-value${key}`, value);
+  renderFleetSplit();
+}
+const foldFleet = () => sizeFleet(fleetShown > STRIP ? STRIP : MEDIUM, "snap");
+seam(fleetHandle, (e) => sizeFleet($("detail").getBoundingClientRect().bottom - e.clientY, "drag"), () => sizeFleet(fleetShown, "snap"));
+fleetHandle.ondblclick = foldFleet;
+fleetHandle.onkeydown = (e) => {
+  const step = { ArrowUp: 16, ArrowDown: -16 }[e.key];
+  if (!step) return;
+  e.preventDefault(); sizeFleet(fleetShown + step, "drag");
+};
+// The strip's Dashboard swaps the pane for the dashboard page; its Back returns to the pane.
+// Opening it again from the dashboard keeps the pane Back returns to.
+const openDashboard = () => { if (active) [returnPane, returnView] = [active, view]; navigate(null, "dashboard"); };
+$("landing-back").onclick = () => navigate(returnPane, returnView); // the tab the user left, too
+html($("landing-back"), licon("back", 18));
+function renderFleetSplit() {
+  if (!WIDE.matches || !active) return;
+  renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
+}
+const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
@@ -518,7 +579,7 @@ function render() {
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
   show("landing", dashboardVisible());
-  show("divider", wide);
+  show("divider", wide); show("fleet", wide); show("fleet-handle", wide);
   renderList();
   if (!inPane) { if (dashboardVisible()) renderLanding(); return; }
   // The pane you were looking at is gone (you sent Ctrl-D, or it closed on the host).
@@ -545,12 +606,13 @@ function render() {
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
   const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
   if (wide) layouts.unshift(["auto", "Auto"], ["side", "Side by side"], ["stack", "Overview above"]);
   const picker = $("review-layout");
   if (picker.options.length !== layouts.length) picker.replaceChildren(...layouts.map(([value, label]) => new Option(label, value)));
-  picker.value = wide && reviewLayout !== "focus" ? reviewLayout : view;
+  picker.value = wide && !focusChoice() ? reviewLayout : view;
   refreshViewPicker();
   $("mobile-view-toggle").querySelectorAll("button").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
@@ -558,6 +620,7 @@ function render() {
   show("review-divider", reviewing());
   show("overview", overviewVisible()); show("terminal", terminalVisible());
   sizeReview(false);
+  if (wide) sizeFleet();
   text($("activity"), pane ? activityLabel(pane) : settled ? "Unavailable" : "Loading");
   $("activity").className = `badge ${pane ? activityClass(pane) : "unknown"}`;
   text($("tool"), pane?.tool || "");
@@ -695,6 +758,9 @@ function restartDetail() {
   // The resize observer restarts streams if that changes the resolved layout.
   streamedLayout = effectiveLayout();
   eventsKey = null;
+  // Leaving the terminal, by pane, view or hidden page, sends a scrolled app home first, so the
+  // watcher never keeps parsing old history nobody is looking at.
+  if (detailId !== active || !terminalVisible() || document.hidden) wheelHome(detailId);
   if (detailId !== active) {
     $("events").replaceChildren(); text($("events-empty"), "Loading activity..."); show("events-empty", true);
     latestCapture = ""; clearCapture(); detailId = active;
@@ -782,7 +848,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
+    refreshHistory();
     pollState(stateController.signal);
   }
 }
@@ -795,7 +861,7 @@ async function pollState(signal) {
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); });
+      refreshHistory();
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -934,7 +1000,7 @@ $("reply-form").onsubmit = (event) => {
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -986,7 +1052,7 @@ $("keys").addEventListener("scroll", fadeKeys, { passive: true });
 new ResizeObserver(fadeKeys).observe($("keys"));
 $("keyboard").onclick = () => { const open = $("keys").hidden; show("keys", open); $("keyboard").setAttribute("aria-expanded", open); if (open) fadeKeys(); };
 html($("dashboard-tab"), `<span class="nav-icon">${licon("layers")}</span><span>Dashboard</span>`);
-$("dashboard-tab").onclick = $("dash-nav").onclick = () => navigate(null, "dashboard");
+$("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 // Close only leaves the pane, exactly like Back (which stands in for it on a narrow screen).
 $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
@@ -1004,7 +1070,78 @@ applyTheme(document.documentElement.classList.contains("light"));
 $("theme").onclick = () => { const light = !document.documentElement.classList.contains("light"); applyTheme(light); try { localStorage.setItem("tmuxrc-theme", light ? "light" : "dark"); } catch {} };
 function zoom(delta) { fontSize = Math.max(9, Math.min(22, fontSize + delta)); $("capture").style.fontSize = `${fontSize}px`; text($("font-size"), fontSize); $("zoom-out").disabled = fontSize === 9; $("zoom-in").disabled = fontSize === 22; }
 $("zoom-in").onclick = () => zoom(1); $("zoom-out").onclick = () => zoom(-1);
-$("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; };
+$("tail").onclick = () => { $("terminal-scroll").scrollTop = $("terminal-scroll").scrollHeight; wheelHome(active); };
+// Overscroll past the top of the live view scrolls the pane's own app (overscroll.js). Only
+// tools whose fullscreen mode takes the wheel: Codex, omp and shells write their history
+// into tmux, which the view already shows, and the daemon refuses anything else that has
+// not asked for mouse reports (an inline Claude Code), after which this pane stops asking.
+// Touch takes the same path, since a fullscreen agent's phone view is one screen and nothing
+// else reaches older output.
+const WHEEL_TOOLS = new Set(["claude", "opencode", "gemini"]);
+function paintWheelCue() {
+  const pull = wheel.net ? 0 : wheel.pull / RESIST_PX;
+  $("capture").style.transform = pull ? `translateY(${Math.round(pull * 24)}px)` : "";
+  text($("scroll-cue"), wheel.net ? "In the app's history" : "Keep scrolling for the app's history");
+  show("scroll-cue", !!(wheel.net || pull));
+}
+// Every wheel request for every pane goes through one queue, in order, so a return home
+// can never overtake the notches that scrolled the app up.
+// A failed request must not stall the queue behind it. Retries stay in their place in the
+// queue, so a later gesture can never overtake them.
+function wheelPost(id, lines, retries = 0) {
+  const attempt = (left) => post(paneUrl(id, "wheel"), { lines }).catch((error) => {
+    if (!left) throw error;
+    return attempt(left - 1);
+  });
+  const request = wheelLine.then(() => attempt(retries));
+  wheelLine = request.catch(() => {});
+  return request;
+}
+async function flushWheel() {
+  if (wheelInFlight || !wheelQueued || !active) return;
+  // `gesture` is this pane visit's state: wheelHome replaces it, so a late answer to an
+  // older visit can never touch the current one.
+  const id = active, gesture = wheel, lines = Math.max(-30, Math.min(30, wheelQueued));
+  wheelQueued -= lines; wheelInFlight = lines;
+  try {
+    const { sent } = await wheelPost(id, lines);
+    if (!sent && gesture === wheel) { wheel = { ...overscrollState(), off: true }; wheelQueued = 0; paintWheelCue(); }
+  } catch {
+    // A failed request may still have been delivered. Err toward the app being further up,
+    // since a return home that overshoots the bottom does nothing: an upward batch counts
+    // as sent, a downward one as not, and the next gesture tries it again.
+    if (gesture === wheel && lines < 0) { wheel.net -= lines; paintWheelCue(); }
+  } finally { wheelInFlight = 0; flushWheel(); }
+}
+// Bring the app back to its bottom when you leave it scrolled up, then forget this pane's
+// gesture. It sends every notch that went up (`up`, never reduced by scrolling down) plus
+// two spares, since the downs may not have undone the ups (overscroll.js) and extra notches
+// below the bottom do nothing, so a failed batch is simply sent again (twice at most).
+// Sent as 30-notch requests, the daemon's limit.
+function wheelHome(id) {
+  for (let left = id && wheel.up ? wheel.up + 2 : 0; left > 0; left -= 30)
+    wheelPost(id, -Math.min(30, left), 2).catch(() => {});
+  wheel = overscrollState(); wheelQueued = 0; paintWheelCue();
+}
+function overscrollPane(dy) {
+  const box = $("terminal-scroll"), pane = panes.find((p) => p.pane_id === active);
+  if (wheel.off || !dy || !WHEEL_TOOLS.has(pane?.tool)) return;
+  if (dy < 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight - 1) return;
+  wheelQueued += overscroll(wheel, dy, performance.now());
+  paintWheelCue(); flushWheel();
+  clearTimeout(wheelSpring);
+  wheelSpring = setTimeout(() => { if (!wheel.net) wheel.pull = 0; paintWheelCue(); }, IDLE_MS);
+}
+// Pinch-zoom arrives as a ctrl+wheel. deltaMode counts in px, ~16px lines (Firefox) or pages.
+$("terminal-scroll").addEventListener("wheel", (e) => { if (!e.ctrlKey) overscrollPane(e.deltaY * [1, 16, e.currentTarget.clientHeight][e.deltaMode]); }, { passive: true });
+$("terminal-scroll").addEventListener("touchstart", (e) => { touchY = e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
+// A second finger drops the baseline, so the move after a pinch starts a new one.
+$("terminal-scroll").addEventListener("touchmove", (e) => {
+  if (e.touches.length !== 1) { touchY = null; return; }
+  const y = e.touches[0].clientY;
+  if (touchY !== null) overscrollPane(touchY - y);
+  touchY = y;
+}, { passive: true });
 // Click mode: a tap on the terminal is a mouse click in the pane (the daemon drops it
 // unless the pane's app asked for mouse reports). Select mode is the plain text view, for
 // copying. Two explicit modes rather than guessing intent from drag-vs-tap, because a tap
@@ -1142,13 +1279,15 @@ function placeChrome() {
   }
 }
 placeChrome();
-const resizeWorkspace = () => { placeChrome(); restartDetail(); render(); };
+// route() again, not just render(): a pane URL without a view opens on a different tab once wide.
+const resizeWorkspace = () => { placeChrome(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
 // as "close this view", and pressing it should never end a process. The poll drops the pane
 // and leaveMissingPane does the rest; 404 means it is already gone, the outcome asked for.
 dismissable($("pane-menu"));
+dismissable($("more-menu"));
 html($("kill-pane"), `${licon("trash", 18)}<span>Kill window</span>`);
 $("kill-pane").onclick = async () => {
   $("pane-menu").open = false; $("pane-menu-button").focus(); // the item just hid: keep keyboard focus on a visible control
