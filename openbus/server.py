@@ -1219,8 +1219,14 @@ def _mount_static(prefix: str, directory: str) -> None:
     Bare prefix (no trailing slash) 404s under the real ASGI server — the mount only
     answers prefix/… and the later "/" catch-all doesn't serve it either. (Note:
     Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
-    unit test but is load-bearing in production — don't delete it.) Redirect to prefix/."""
-    app.add_api_route(prefix, lambda: RedirectResponse(prefix + "/"), include_in_schema=False)
+    unit test but is load-bearing in production — don't delete it.) Redirect to prefix/,
+    keeping the query."""
+
+    def slash(request: Request) -> RedirectResponse:
+        query = request.url.query
+        return RedirectResponse(prefix + "/" + (f"?{query}" if query else ""))
+
+    app.add_api_route(prefix, slash, include_in_schema=False)
     app.mount(prefix, StaticFiles(directory=directory, html=True), name=prefix.strip("/"))
 
 
