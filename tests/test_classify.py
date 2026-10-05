@@ -1065,16 +1065,23 @@ def test_menu_context_is_read_off_its_own_widget():
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
     # No widget edge close above: those rows are the conversation, and the model's own
-    # context/ask/flag are never passed through.
+    # context/ask are never passed through.
     plain = "\x1e[visible screen]\x1f\n● Ran the build.\nDo you want to proceed?\n❯ 1. Yes\n  2. No"
-    q = ask(plain, "Do you want to proceed?", context="made up", ask="made up", flag="x")
+    q = ask(plain, "Do you want to proceed?", context="made up", ask="made up")
     q = q["question"]
-    assert not {"context", "ask", "flag"} & q.keys()
+    assert not {"context", "ask"} & q.keys()
+    # A command the model also offered as a copyable shows once, in the widget's own rows.
+    held = classify(_pane("node"), _sample("69_claude_permission_context"), _llm({
+        "tool": "claude", "copyables": [{"label": "Command", "text": "for p in 4100 4200; do "
+                                         "kill $(ss -ltnp | grep \":$p \" | grep -o 'pid=[0-9]*'"
+                                         " | cut -d= -f2); done"}],
+        "question": {"prompt": "Do you want to proceed?", "answer_style": "menu"}}))
+    assert "tables" not in held and "copyables" not in held
     assert "context" not in ask(_sample("69_claude_permission_context"),
                                 "Do you want to proceed?", style="text")["question"]
 
 
-def test_widget_ask_is_restated_once_per_widget_and_grounds_its_flag():
+def test_widget_ask_is_restated_once_per_widget():
     classify_mod._asks.clear()
     capture, calls = _sample("69_claude_permission_context"), []
     def restate(reply):
@@ -1083,21 +1090,20 @@ def test_widget_ask_is_restated_once_per_widget_and_grounds_its_flag():
         return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
             "prompt": "Do you want to proceed?", "answer_style": "menu",
             "options": ["Yes", "No"]}}), replies_fn=replies_fn)["question"]
-    good = restate({"ask": "Kill what listens on ports 4100 and 4200? Flagged as a "
-                    "destructive Git action.", "flag": "[Git Destructive]"})
+    good = restate({"ask": "The agent wants to kill what listens on 4100 and 4200. Continue?"})
     q = ask(capture, good)
-    assert q["ask"].startswith("Kill what listens") and q["flag"] == "Git Destructive"
+    assert q["ask"].startswith("The agent wants to kill")
+    # "Latest blocked action: [Git Destructive]" names an EARLIER action: no tag from it.
+    assert "flag" not in q
     assert "cut -d= -f2); done" in calls[0] and "Options: Yes / No" in calls[0]  # uncut
     ask(capture, good)
     assert len(calls) == 1  # cached per widget...
     ask(capture.replace("4200", "4300"), good)
-    assert len(calls) == 2  # ...so a new command is a new ask
-    # A flag the widget does not show is dropped; a failed call leaves the bare prompt
-    # (never the raw rows) and is retried next time.
-    no_flag = restate({"ask": "Stop?", "flag": "Root"})
-    assert "flag" not in ask(capture.replace("4100", "1"), no_flag)
+    ask(capture.replace("ss -ltnp", "ss  -ltnp"), good)
+    assert len(calls) == 3  # ...so a new command, even by whitespace, is a new ask
+    # A failed call leaves the bare prompt (never the raw rows) and is retried next time.
     failed = capture.replace("4100", "2")
-    assert not {"ask", "flag"} & ask(failed, restate(None)).keys()
+    assert "ask" not in ask(failed, restate(None))
     ask(failed, restate(None))
     assert len(calls) == 5
 

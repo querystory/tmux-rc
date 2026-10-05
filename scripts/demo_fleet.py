@@ -174,13 +174,12 @@ DETAIL = {
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
 # Questions answered with one keystroke rather than typed text, with the widget fields
-# classify() adds to one: its raw rows, their plain restatement and its block reason.
+# classify() adds to one: its raw rows and their plain restatement.
 MENU = {"dependency audit": {
-    "context": "Bash command — npm install react@20 vite@8 eslint@10 · Upgrade three "
-               "packages with breaking changes — Latest blocked action: [Breaking Upgrade]",
+    "context": "Bash command\nUpgrade three packages with breaking changes\n\n"
+               "npm install react@20 vite@8 eslint@10",
     "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
            "Continue?",
-    "flag": "Breaking Upgrade",
 }}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).

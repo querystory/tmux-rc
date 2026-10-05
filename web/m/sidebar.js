@@ -93,7 +93,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement(card ? "div" : "button");
     const open = card ? document.createElement("button") : node;
     node.className = card ? "sb-card" : "sb-row";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? '<p></p><span class="q-flag"></span>' : "");
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? "<p></p>" : "");
     if (card) {
       open.className = "sb-open";
       node.innerHTML = `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`;
@@ -127,7 +127,6 @@ export function setupSidebar(ctx) {
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
     text(node.querySelector(".a"), age(p));
     if (card) {
-      ctx.flagTag(node.querySelector(".q-flag"), p);
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
       replies(node, p);
     }
