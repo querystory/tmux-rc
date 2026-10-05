@@ -121,7 +121,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? "<p></p>" : "");
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><span class="q-flag"></span>' : "");
     node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
     if (card) {
       node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
@@ -159,6 +159,7 @@ export function setupSidebar(ctx) {
     ctx.html(badge, `${licon("bot", 12)}${agents.length}`);
     renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
+      ctx.flagTag(node.querySelector(".q-flag"), p);
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
       replies(node, p);
     }
@@ -215,7 +216,7 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
   const paneOf = (el) => (el.closest(".sb-row, .sb-card") || el)._p;
@@ -228,7 +229,9 @@ export function setupSidebar(ctx) {
     $c(".badge").className = `badge ${activityClass(p)}`;
     text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
     text($c(".x"), paneHeadline(p) || "No recent activity");
-    text($c(".q"), needsYou(p) && p.question?.prompt !== paneHeadline(p) ? p.question?.prompt || "" : "");
+    const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
+    text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
+    text($c(".q-cmd"), (needsYou(p) && p.question?.context) || "");
     text($c(".m"), paneMeta(p));
     renderItems($c(".sb-agents"), records(p.subagents), true);
     text($c(".k"), tasks.length ? `Tasks ${tasks.filter((t) => t.done).length}/${tasks.length}` : "");

@@ -1061,15 +1061,45 @@ def test_menu_context_is_read_off_its_own_widget():
                          ("05_claude_permission_box", proceed), ("06_codex_permission_box", run)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
-    # No widget edge close above: those rows are the conversation, and the model's own
-    # "context" is never passed through.
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
+    # No widget edge close above: those rows are the conversation, and the model's own
+    # context/ask/flag are never passed through.
     plain = "\x1e[visible screen]\x1f\n● Ran the build.\nDo you want to proceed?\n❯ 1. Yes\n  2. No"
-    assert "context" not in ask(plain, "Do you want to proceed?", context="made up")["question"]
+    q = ask(plain, "Do you want to proceed?", context="made up", ask="made up", flag="x")
+    q = q["question"]
+    assert not {"context", "ask", "flag"} & q.keys()
     assert "context" not in ask(_sample("69_claude_permission_context"),
                                 "Do you want to proceed?", style="text")["question"]
+
+
+def test_widget_ask_is_restated_once_per_widget_and_grounds_its_flag():
+    classify_mod._asks.clear()
+    capture, calls = _sample("69_claude_permission_context"), []
+    def restate(reply):
+        return lambda system, text: calls.append(text) or reply
+    def ask(capture, replies_fn):
+        return classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
+            "prompt": "Do you want to proceed?", "answer_style": "menu",
+            "options": ["Yes", "No"]}}), replies_fn=replies_fn)["question"]
+    good = restate({"ask": "Kill what listens on ports 4100 and 4200? Flagged as a "
+                    "destructive Git action.", "flag": "[Git Destructive]"})
+    q = ask(capture, good)
+    assert q["ask"].startswith("Kill what listens") and q["flag"] == "Git Destructive"
+    assert "cut -d= -f2); done" in calls[0] and "Options: Yes / No" in calls[0]  # uncut
+    ask(capture, good)
+    assert len(calls) == 1  # cached per widget...
+    ask(capture.replace("4200", "4300"), good)
+    assert len(calls) == 2  # ...so a new command is a new ask
+    # A flag the widget does not show is dropped; a failed call leaves the bare prompt
+    # (never the raw rows) and is retried next time.
+    no_flag = restate({"ask": "Stop?", "flag": "Root"})
+    assert "flag" not in ask(capture.replace("4100", "1"), no_flag)
+    failed = capture.replace("4100", "2")
+    assert not {"ask", "flag"} & ask(failed, restate(None)).keys()
+    ask(failed, restate(None))
+    assert len(calls) == 5
 
 
 def test_users_own_turn_under_a_live_spinner_is_not_a_question():
