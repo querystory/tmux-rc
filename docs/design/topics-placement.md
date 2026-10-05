@@ -7,10 +7,9 @@ follow-up PR would build the recommendation at the end.
 
 ## The problem
 
-The dashboard (the "Session atlas" from #299) has a word cloud titled "What's on the
-radar". Clicking a word types it into the search box at the top of the sidebar (#298), and
-the sidebar list filters to the panes that mention it. The cloud is a remote control for
-the list.
+The dashboard (#299) has a word cloud titled "What's on the radar". Clicking a word types
+it into the search box at the top of the sidebar (#298), and the sidebar list filters to
+the panes that mention it. The cloud is a remote control for the list.
 
 On a wide screen the remote control sits at the opposite end of the room. At 1920 pixels the
 cloud starts about 1,070px to the right of the sidebar; at 2560 and 3440 it is 1,700 to
@@ -38,7 +37,10 @@ does, so every frame is the shipped sidebar and dashboard redrawn in the mock pa
 with the demo fleet that `make screenshots` serves (45 panes in eight sessions, invented
 names like shop-api and ci). Real screenshots of integration, shot from that same fleet, were
 kept beside the mocks while building them. The mock reproduces the shipped word counting,
-so the cloud in frame T0 holds the same 40 words as the real one.
+so the cloud in frame T0 holds the same 40 words as the real one. The frames and screenshots
+predate #313, which dropped the dashboard's "Session atlas" heading and subtitle and instead
+labels its filter row "Sessions". Both still show that heading, so the dashboard y
+positions quoted in this note include it; nothing horizontal changes.
 
 Each frame is interactive enough to judge: click a topic and the list filters, with the
 topic shown as a pill in the search box; click the search box where a variant has
