@@ -228,15 +228,16 @@ send lock, the daemon checks three things again: the incarnation, that the scree
 still the idle one it saw, and that a workstream handle still resolves to this pane. This
 is the same guard push answers use. If any of them changed, the message waits for the
 next idle transition rather than steering a turn or landing in someone's draft. Within
-one daemon lifetime the sender always gets one result:
+one daemon lifetime, and while its grant stands, the sender always gets one result:
 delivered, declined, refused (including rate-limited), cancelled, expired or
 unconfirmed. Those six are final, and queued is the only interim answer. Unconfirmed
 means typing started but the daemon cannot say it landed: a send failed partway, or the
 confirming re-parse failed. Its id stays used, so a retry cannot type it a second time. A queued message keeps
 its id, and the sender can ask for its final outcome or subscribe to it. Nothing fails
 silently, which is the agent client's founding complaint. At most once needs identity:
-the caller supplies a message id, and the daemon refuses a retried id instead of typing
-it twice. The ids and the queue live in memory, and ids are kept for a bounded window
+the caller supplies a message id, scoped to that sender (the daemon keys it by actor
+plus id, so one agent cannot reserve another's), and the daemon refuses a retried id
+instead of typing it twice. The ids and the queue live in memory, and ids are kept for a bounded window
 (an hour), so the guarantee holds within that window of one daemon lifetime. An
 unexpired id is never evicted: at the cap, the daemon refuses new messages instead. A retry across a daemon restart can type a message twice. That is accepted
 for v1, because a restart already drops the queue and a duplicate prompt is visible. A
@@ -368,7 +369,9 @@ agent's next restart. Narrowing scopes works the same way, since scope is checke
 every call. Revocation also cancels that agent's queued messages and open cards, sent
 or received. Both ends' scopes are checked again just before delivery, so nothing
 admitted earlier lands after either side is turned off. Open subscriptions and long
-polls held by that agent end at once too, so it receives nothing more. Granting is slow
+polls held by that agent end at once too, so it receives nothing more. Its cancelled messages
+still get their final outcome in the audit record, where the human sees it, since the
+revoked sender can no longer ask. Granting is slow
 and visible, and taking away is instant. That is the point of authorizing at the server.
 
 **Transport.** The endpoint is MCP over HTTP on the daemon's existing localhost port,
@@ -466,7 +469,8 @@ written as plain argv, and adds the structured launcher form alongside the opaqu
    detail, `find_sessions`, `get_session`. `get_session` takes harness and session id
    together, because session ids can collide across harnesses. `agent-history get`
    takes only the id today and returns the first harness that matches, so this phase
-   adds a harness selector to it. It also carries:
+   adds a harness selector to it, and keys its liveness map by the same pair, since
+   `get` and `resolve` both read a session's pid and pane from it. It also carries:
    - per-agent tokens;
    - a structured (argv plus environment) launcher form, and launch injection for
      Claude Code and Codex launchers written that way;
