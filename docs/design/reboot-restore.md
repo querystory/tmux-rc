@@ -128,7 +128,7 @@ The snapshot needs the inverse, every live session with its pane, in one call: a
 in agent-history in the shape `get` already returns. The daemon calls it once a minute,
 not per tick, and keeps the last good binding per pane. Codex sessions behind the shared
 app-server have no pane (agent-history's README explains why); for them the watcher falls
-back to the status-bar `session-id` match Live already uses ([agent-setup](../agent-setup.md)).
+back to the status-bar `session-id` match Live Mode already uses ([agent-setup](../agent-setup.md)).
 A Codex pane with neither stays *unbound*: restore still knows it was Codex in that
 directory and offers a picker of that directory's recent threads instead of guessing.
 
@@ -139,7 +139,7 @@ user closed is finished by definition.
 
 The daemon cannot see a reboot, only what one leaves behind. It finds the newest
 snapshot whose server is dead, consumed or not, and offers it only if it is unconsumed.
-Two details matter. Live rows are skipped: a replacement server has usually written its
+Two details matter. Rows of running servers are skipped: a replacement server has usually written its
 own, newer row by the time anyone looks, and it must not hide the dead one behind it.
 Consumed rows are not: once the newest loss has been restored or dismissed, an older one
 must not surface in its place. A server is judged by comparing its identity with the
@@ -183,9 +183,9 @@ afternoon's work as recent.
 
 Panes that cannot be restored are shown disabled, with the reason: the directory is gone;
 the transcript is gone (agent-history's `source_missing`); or the session is already
-running, say because the user resumed it by hand, using the same running check as Live's
+running, say because the user resumed it by hand, using the same running check as Live Mode's
 resume; or whether it is running cannot be established (agent-history's
-`running_unknown`). Live's resume refuses that last case rather than risk two processes
+`running_unknown`). Live Mode's resume refuses that last case rather than risk two processes
 writing one transcript, so the card must not offer a restore the executor would reject.
 
 **Restore selected** states the count ("Restore 11 agents in 4 sessions"). **Start
@@ -277,12 +277,12 @@ launches what is pending.
 The audit trail is not this record: it is telemetry, for reconstruction afterwards,
 not state an executor can resume from. And right before each launch the running check
 runs again, so a session resumed by hand meanwhile is skipped. That check and its lock
-come from Live's `resume_session`, which today always opens a new window. They move into
+come from Live Mode's `resume_session`, which today always opens a new window. They move into
 one shared primitive, "start this session in this pane unless it is already running",
-that takes a target pane: Live passes a pane it just opened, restore passes the prebuilt
+that takes a target pane: Live Mode passes a pane it just opened, restore passes the prebuilt
 one, which the primitive respawns with the launch command. One path, not two.
 
-**Audit.** Each launch writes the record Live's resume writes (actor, harness, session id,
+**Audit.** Each launch writes the record Live Mode's resume writes (actor, harness, session id,
 directory, pane), and the restore writes one record of the selection.
 
 ## Safety
@@ -299,7 +299,7 @@ tool names and session ids: never a pane's command line, `/proc` cmdline or envi
 any of which can carry a token typed inline. The resume command is rebuilt from the index
 at restore time. Titles are the exception that cannot be ruled out: they are agent-chosen
 text and could hold a secret. They are kept because the card needs them to be
-recognisable, so they are stored only where all history is (a `0700` directory with
+recognizable, so they are stored only where all history is (a `0700` directory with
 `0600` files) and shown only on the user's own Restore card, and they are never written to
 logs or telemetry.
 
