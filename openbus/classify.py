@@ -312,9 +312,13 @@ def _question_prompt(question) -> str | None:
     return prompt if isinstance(prompt, str) and prompt.strip() else None
 
 
-def _last_occurrence(prompt: str, visible: str) -> re.Match | None:
+def _last_occurrence(prompt: str, visible: str, *, row: bool = False) -> re.Match | None:
+    """The prompt's last match; with row, only one that is a whole row bar its frame, so
+    the same words inside a command (`printf "Proceed?"; rm …`) never stand in for it."""
     words = r"\s+".join(map(re.escape, prompt.split()))
-    *_, found = [None, *re.finditer(words, visible, re.IGNORECASE)]
+    if row:
+        words = rf"^[ \t│┃╎]*{words}(?=[ \t│┃╎]*$)"
+    *_, found = [None, *re.finditer(words, visible, re.IGNORECASE | re.MULTILINE)]
     return found
 
 
@@ -455,7 +459,7 @@ def _widget_text(prompt: str, visible: str) -> str:
     this is both the evidence the restatement reads and the question's identity.
     "Do you want to proceed?" alone is meaningless on a card. With no top edge close
     above, the rows there are the conversation, so none are taken."""
-    found = _last_occurrence(prompt, visible)
+    found = _last_occurrence(prompt, visible, row=True)
     if found is None:
         return ""
     above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows

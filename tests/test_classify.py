@@ -1058,7 +1058,8 @@ def test_menu_context_is_read_off_its_own_widget():
             "prompt": prompt, "answer_style": style, "options": ["Yes", "No"], **extra}}))
     proceed, run = "Do you want to proceed?", "Would you like to run the following command?"
     for name, prompt in (("69_claude_permission_context", proceed),
-                         ("05_claude_permission_box", proceed), ("06_codex_permission_box", run)):
+                         ("05_claude_permission_box", proceed), ("06_codex_permission_box", run),
+                         ("75_codex_permission_prompt_in_command", run)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
     # Indentation inside the command is content; only the widget's margin goes.
