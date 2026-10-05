@@ -268,7 +268,7 @@ def test_subscription_store_is_bounded(tmp_path):
 def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
                                "options": ["Yes", "No"], "ask": "List the files?"})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
@@ -284,12 +284,14 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
 
     watcher.states = []
     service.evaluate()
+    # No widget rows: nothing tells this ask from the next identical one, so no actions.
     watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
                                "options": ["Yes", "No"]})]
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
     assert len(sender.payloads) == 2
+    assert sender.payloads[1]["actions"] == [] and sender.payloads[1]["nonce"] is None
 
 
 def test_visible_browser_and_active_tmux_do_not_suppress_push(tmp_path, monkeypatch):
@@ -442,7 +444,7 @@ def test_expired_rate_buckets_are_pruned(tmp_path, monkeypatch):
 def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
                                "options": ["Yes", "No"]})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
@@ -470,7 +472,7 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
 def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
                                "options": ["Yes", "No"]})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
@@ -489,7 +491,7 @@ def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeyp
 def test_action_rejects_a_retained_question_after_parse_failure(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
                                "options": ["Yes", "No"]})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
@@ -508,7 +510,7 @@ def test_action_rejects_a_retained_question_after_parse_failure(tmp_path, monkey
 def test_other_pane_input_invalidates_an_outstanding_action(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
                                "options": ["Yes", "No"]})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
@@ -527,7 +529,7 @@ def test_other_pane_input_invalidates_an_outstanding_action(tmp_path, monkeypatc
 def test_concurrent_valid_nonces_cannot_both_submit(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
+    watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
                                "options": ["Yes", "No"]})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)

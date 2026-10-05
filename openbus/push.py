@@ -499,7 +499,11 @@ class PushManager:
             if len(rate) >= RATE_MAX:
                 continue
             offered = renderable_options(question)[:2] if question else []
-            if ((question and question.get("answer_style") == "cursor")
+            # A menu with no widget rows (one taller than classify reads, or none) can't
+            # tell one "Do you want to proceed?" from the next, so its nonce could approve
+            # a later command: the notification only opens the app.
+            style = (question or {}).get("answer_style")
+            if (style == "cursor" or (style == "menu" and not question.get("context"))
                     or not self.watcher.pane_birth(pane_id)):
                 offered = []
             nonce = secrets.token_urlsafe(24) if offered else None
