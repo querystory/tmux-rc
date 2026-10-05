@@ -279,7 +279,7 @@ function updateRow(button, pane) {
   text(badge, activityLabel(pane));
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
-  sessionChip.hidden = (sort !== "updated" && !needsYou(pane)) || !pane.session; // a session label already says it
+  sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
   text(sessionChip, pane.session || "");
   sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
@@ -320,17 +320,11 @@ function renderList() {
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
 }
-// Needs you is pinned on top as cards answerable in place (the sidebar's answers and Reply);
-// the rest follow by recency, or under their session's label.
+// Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
+// sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
-  const recent = (list) => list.sort((a, b) => lastActivity(b) - lastActivity(a));
-  const need = recent(subset.filter(needsYou)), rest = subset.filter((p) => !needsYou(p));
-  const label = (key, heading, alert = false) => ({ key, heading, alert });
-  const rows = [
-    ...(need.length ? [label("need", `Needs you · ${need.length}`, true), ...need] : []),
-    ...(sort === "updated" ? [...(need.length && rest.length ? [label("rest", "Panes")] : []), ...recent(rest)]
-      : [...new Set(rest.map((p) => p.session))].flatMap((session) => [label(`session:${session}`, session || "Session"), ...rest.filter((p) => p.session === session)])),
-  ];
+  const rows = sort === "updated" ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
+    : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
   reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
     if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
     if (!needsYou(p)) return makeRow(p);
@@ -340,7 +334,7 @@ function renderPhoneList(subset) {
     renderSidebar.answers.add(card);
     return card;
   }, (node, p) => {
-    if (p.heading) { node.classList.toggle("alert", p.alert); return text(node, p.heading); }
+    if (p.heading) return text(node, p.heading);
     node._p = p;
     updateRow(node.querySelector(".pane-row") || node, p);
     if (node.matches(".pane-card")) renderSidebar.answers.update(node, p);

@@ -81,15 +81,18 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .pane-row.needs-you::before { background: var(--amber); }
 .pane-row.fresh::before { background: var(--accent); }
+.pane-row.needs-you, .pane-card { background: var(--amber-bg); --card: var(--amber-bg); }
 .needs-you .row-age { color: var(--amber); font-weight: 700; }
 .needs-you .row-status { color: var(--fg); } /* the ask is the row's point */
-/* Colour in this list means STATUS (badge, amber dot and age), so selection uses none: a
-   raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. Only the
+/* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
+   raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. It
+   layers over the status background, so a selected Needs-you row stays amber. Only the
    selected row is inset, so the other rows' full-width dividers are untouched. The ring is
    an inset box-shadow, leaving the focus outline free to look different. :not(:disabled)
    outranks the global button hover rule, so hover cannot repaint a selected row. */
 .row-title strong { font-weight: 600; }
 .pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); width: calc(100% - 12px); margin-inline: 6px; border-radius: 10px; border-bottom-color: transparent; position: relative; box-shadow: inset 4px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent), 0 2px 10px rgb(0 0 0 / .2); }
+.pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
 .pane-row[aria-current="true"] .row-body { border-bottom-color: transparent; }
 .pane-icon { width: 50px; height: 50px; flex: none; display: grid; place-items: center; position: relative; }
@@ -98,6 +101,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
    logo that ships its own tile (Claude, OpenCode, omp) becomes the whole disc, so no square sits
    inside the circle. The working ring and motion ride on the same box, so they scale with it. */
 .pane-icon > img:first-child { width: 100%; height: 100%; padding: 6px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
+.needs-you .pane-icon > img:first-child { background: var(--surface); }
 .pane-icon > .working:first-child { background: var(--accent-bg); }
 .pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src="/omp-working.svg"]) { padding: 0; }
 /* Claude's png carries a ~1px drop shadow on its bottom and right edges, which reads as a dark rim on
@@ -645,7 +649,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   .sb-only { display: none !important; }
   .search { margin: 8px 16px; border: 0; border-radius: 10px; background: var(--raised); }
   .search:focus-within { box-shadow: 0 0 0 2px var(--accent); }
-  .session-label.alert { color: var(--amber); }
   /* Needs-you rows answer in place: pill answers under the text column, the divider under all. */
   .pane-card { border-bottom: 1px solid var(--line); }
   .pane-card .row-body { border-bottom-color: transparent; }
