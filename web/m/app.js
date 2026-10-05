@@ -279,7 +279,7 @@ function updateRow(button, pane) {
   text(badge, activityLabel(pane));
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
-  sessionChip.hidden = sort !== "updated" || !pane.session;
+  sessionChip.hidden = (sort !== "updated" && !needsYou(pane)) || !pane.session; // a session label already says it
   text(sessionChip, pane.session || "");
   sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
@@ -594,7 +594,8 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  show("brand", wide || (!inPane && dashboard)); show("list-title", !inPane && !dashboard);
+  const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
+  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
