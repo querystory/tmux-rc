@@ -1065,6 +1065,9 @@ def test_menu_context_is_read_off_its_own_widget():
     nested = ("\x1e[visible screen]\x1f\n───\n │ python - <<EOF\n │ if x:\n │     go()\n"
               " │ EOF\n\n Go?")
     assert ask(nested, "Go?")["question"]["context"] == "python - <<EOF\nif x:\n    go()\nEOF"
+    spaced = nested.replace("if x:\n", "if x:\n │\n │ ━━━\n")  # blank rows and rule text too
+    want = "python - <<EOF\nif x:\n\n━━━\n    go()\nEOF"
+    assert ask(spaced, "Go?")["question"]["context"] == want
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
@@ -1105,11 +1108,15 @@ def test_widget_ask_is_restated_once_per_widget():
     ask(capture.replace("4200", "4300"), good)
     ask(capture.replace("ss -ltnp", "ss  -ltnp"), good)
     assert len(calls) == 3  # ...so a new command, even by whitespace, is a new ask
-    # A failed call leaves the bare prompt (never the raw rows) and is retried next time.
+    # A failed call, or one off the asked-for shape, leaves the bare prompt (never the
+    # raw rows) and is retried next time.
+    assert "ask" not in ask(capture.replace("4100", "3"), restate({"ask": "Sure, kill them."}))
+    off_shape = restate({"ask": "The agent is unable to summarize this?"})
+    assert "ask" not in ask(capture.replace("4100", "4"), off_shape)
     failed = capture.replace("4100", "2")
     assert "ask" not in ask(failed, restate(None))
     ask(failed, restate(None))
-    assert len(calls) == 5
+    assert len(calls) == 7
 
 
 def test_users_own_turn_under_a_live_spinner_is_not_a_question():

@@ -443,17 +443,18 @@ def _ground_visible_fields(
 _WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
 _FIRST_OPTION_RE = re.compile(r"^[\s│❯›>]*1[.)]\s")
 _FRAME_RE = re.compile(r"^\s*[│┃╎]|[\s│┃╎]+$")  # the glyphs only: indentation is content
+_RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
 
 def _widget_text(prompt: str, visible: str) -> str:
     """What a menu asks about, read off its own widget: the rows from the widget's top
     edge down to the prompt (Claude's tool, description, command and any blocking notice)
-    plus any between the prompt and option 1 (where Codex puts its command), as
-    blank-line-separated blocks. Only the frame and each block's common margin are
-    stripped: the command is kept whole and exact, indentation included (the viewport
-    bounds it), since it is both the evidence the restatement reads and
-    the question's identity. "Do you want to proceed?" alone is meaningless on a card.
-    With no top edge close above, the rows there are the conversation, so none are taken."""
+    plus any between the prompt and option 1 (where Codex puts its command). Only the
+    frame (its glyphs, its rules and its common margin) is stripped: every other row,
+    blank ones and indentation included, is kept exactly (the viewport bounds it), since
+    this is both the evidence the restatement reads and the question's identity.
+    "Do you want to proceed?" alone is meaningless on a card. With no top edge close
+    above, the rows there are the conversation, so none are taken."""
     found = _last_occurrence(prompt, visible)
     if found is None:
         return ""
@@ -462,15 +463,10 @@ def _widget_text(prompt: str, visible: str) -> str:
                 if _WIDGET_TOP_RE.match(above[i])), None)
     below = visible[found.end():].splitlines()[1:]
     stop = next((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), 0)
-    segments, rows = [], []
-    for raw in [*(above[top + 1:] if top is not None else ()), "", *below[:stop], ""]:
-        row = _FRAME_RE.sub("", raw)
-        if row.strip("─━╌┄ "):
-            rows.append(row)
-        elif rows:  # a blank or dashed row ends a block
-            segments.append(textwrap.dedent("\n".join(rows)))  # less the widget's margin
-            rows = []
-    return "\n\n".join(segments)
+    # A rule is the widget's only when the whole raw row is one: "│ ━━━" is content.
+    text = "\n".join("" if _RULE_ROW_RE.match(raw) else _FRAME_RE.sub("", raw) for raw in
+                     [*(above[top + 1:] if top is not None else ()), "", *below[:stop]])
+    return textwrap.dedent(text).strip("\n")
 
 
 # The widget's raw rows are evidence, not something to read on a card: one small cached
@@ -509,10 +505,14 @@ def _restate(question: dict, replies_fn) -> str | None:
         reply = replies_fn(_ASK_SYSTEM, "\n\n".join(
             [question["context"], question["prompt"], "Options: " + " / ".join(options)]))
         ask = reply.get("ask") if isinstance(reply, dict) else None
-        if isinstance(ask, str) and 0 < len(ask.strip()) <= 300 and ask.isprintable():
+        ask = " ".join(ask.split()) if isinstance(ask, str) else ""
+        # Only the asked-for shape replaces the prompt (and becomes the push body); stray
+        # prose falls back to the grounded prompt. The length allows the mismatch form.
+        if ask.startswith(("The agent wants to ", "The agent says it will ")) and (
+                ask.endswith(" Continue?") and len(ask) <= 160 and ask.isprintable()):
             if len(_asks) > 256:
                 _asks.clear()
-            _asks[key] = " ".join(ask.split())
+            _asks[key] = ask
     return _asks.get(key)
 
 
