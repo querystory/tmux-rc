@@ -463,9 +463,9 @@ def _widget_text(prompt: str, visible: str) -> str:
                 if _WIDGET_TOP_RE.match(above[i])), None)
     below = visible[found.end():].splitlines()[1:]
     stop = next((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), 0)
-    rows = [_FRAME_RE.sub("", raw) for raw in
-            [*(above[top + 1:] if top is not None else ()), "", *below[:stop]]]
-    text = "\n".join("" if _RULE_ROW_RE.match(row) else row for row in rows)
+    # A rule is the widget's only when the whole raw row is one: "│ ━━━" is content.
+    text = "\n".join("" if _RULE_ROW_RE.match(raw) else _FRAME_RE.sub("", raw) for raw in
+                     [*(above[top + 1:] if top is not None else ()), "", *below[:stop]])
     return textwrap.dedent(text).strip("\n")
 
 
@@ -508,8 +508,8 @@ def _restate(question: dict, replies_fn) -> str | None:
         ask = " ".join(ask.split()) if isinstance(ask, str) else ""
         # Only the asked-for shape replaces the prompt (and becomes the push body); stray
         # prose falls back to the grounded prompt. The length allows the mismatch form.
-        if ask.startswith("The agent ") and ask.endswith("?") and len(ask) <= 160 and (
-                ask.isprintable()):
+        if ask.startswith(("The agent wants to ", "The agent says it will ")) and (
+                ask.endswith(" Continue?") and len(ask) <= 160 and ask.isprintable()):
             if len(_asks) > 256:
                 _asks.clear()
             _asks[key] = ask
