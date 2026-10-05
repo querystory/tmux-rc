@@ -463,9 +463,18 @@ async def no_cache(request, call_next):
     # Scratch previews are arbitrary HTML on the daemon's own origin, where a script could
     # call /api/* (type into terminals) with the viewer's session. A CSP sandbox without
     # allow-same-origin gives them an opaque origin instead: they still run, but the
-    # daemon's API is cross-origin to them, exactly as from any other site.
+    # daemon's API is cross-origin to them, exactly as from any other site. That only stops
+    # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
+    # would still carry the front door's cookie.
     if request.url.path.startswith("/scratch/"):
-        resp.headers["Content-Security-Policy"] = "sandbox allow-scripts allow-popups allow-forms"
+        resp.headers["Content-Security-Policy"] = (
+            "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+    # StaticFiles redirects a directory without its slash to an absolute URL built from
+    # the request's own scheme — http:// behind the TLS-terminating tunnel, which the
+    # phone can't reach (#174). Make same-host redirects path-only.
+    base = str(request.base_url)
+    if resp.headers.get("location", "").startswith(base):
+        resp.headers["location"] = "/" + resp.headers["location"][len(base):]
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
