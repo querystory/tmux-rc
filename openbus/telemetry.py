@@ -22,6 +22,7 @@ Config (env):
   OTEL_EXPORTER_OTLP_ENDPOINT   receiver URL (gRPC). Unset ⇒ telemetry disabled.
   OTEL_EXPORTER_OTLP_HEADERS    e.g. "authorization=Bearer <token>"
   TMUXRC_QSDEBUG=1              attach raw pane text + output JSON (default: off)
+  TMUXRC_TUNNEL_SECRET_FILE     require X-Tunnel-Secret for X-Tunnel-User (tunnel_user)
 Get endpoint/token:
   gcloud run services describe otel-receiver --region "$REGION" --project "$PROJECT" \
     --format 'value(status.url)'
@@ -31,9 +32,11 @@ Get endpoint/token:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
 import socket
 import time
 from functools import cache
@@ -143,10 +146,10 @@ def emit_action(
     """Audit record for a state-CHANGING request (send-keys / select / image paste), so
     "what is making changes to my terminals, and who?" is answerable from telemetry.
     `actor` is the IAP-authenticated email the tunnel relay forwards (X-Tunnel-User,
-    honored only from loopback — see server._audit's trust model) or 'local:<ip>' for
-    direct requests. `outcome` distinguishes completed actions from refused/failed
-    attempts. Key content attaches only under TMUXRC_QSDEBUG — stricter than pane_text
-    in spirit: keys can carry no-echo secrets that pane capture never sees. The
+    trusted per tunnel_user) or 'local:<ip>' for direct requests. `outcome`
+    distinguishes completed actions from refused/failed attempts. Key content attaches
+    only under TMUXRC_QSDEBUG — stricter than pane_text in spirit: keys can carry
+    no-echo secrets that pane capture never sees. The
     action/actor/pane/outcome skeleton is always sent, plus any structural `fields`."""
     attrs = {"event": action, "pane_uid": pane_uid, "actor": actor, "outcome": outcome, **fields}
     if detail:
@@ -168,24 +171,72 @@ _audit_log = logging.getLogger("openbus.server.audit")
 AUDIT_KEYS = os.environ.get("TMUXRC_AUDIT_KEYS") != "0"
 
 
+def _load_tunnel_secret() -> bytes | None:
+    """The opt-in secret the tunnel client must echo in X-Tunnel-Secret before its
+    X-Tunnel-User is believed. TMUXRC_TUNNEL_SECRET_FILE unset ⇒ None ⇒ the legacy
+    trust-any-loopback-peer model (the shipped client cannot send the header yet). Set,
+    the file is created 0600 with a fresh random value if missing, so enabling it is one
+    env line plus pointing the client at the same file. Read once at import so a
+    missing/empty/unreadable file stops the daemon at startup rather than silently
+    reverting to the weaker model: an empty secret would match an empty header."""
+    path = os.environ.get("TMUXRC_TUNNEL_SECRET_FILE")
+    if not path:
+        return None
+    path = os.path.expanduser(path)
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(secrets.token_urlsafe(32))
+    with open(path, "rb") as f:
+        secret = f.read().strip()
+    if not secret:
+        raise ValueError(f"TMUXRC_TUNNEL_SECRET_FILE {path} is empty")
+    return secret
+
+
+TUNNEL_SECRET = _load_tunnel_secret()
+_LOOPBACK = ("127.0.0.1", "::1")
+
+
+def tunnel_user(conn) -> str | None:
+    """The IAP-validated email the tunnel client forwards in X-Tunnel-User, or None when
+    the claim can't be trusted (a starlette Request or WebSocket).
+
+    Believed only from a loopback peer — the tunnel-client connects from localhost, and
+    the relay validated the identity via IAP and strips spoofed inbound copies — and,
+    when TUNNEL_SECRET is configured, only alongside a matching X-Tunnel-Secret
+    (constant-time compare). Without the secret ANY local process, a coding agent in a
+    pane included, could claim to be the owner. The secret is same-user readable, so it
+    stops naive spoofing, not a process that goes looking for it (SECURITY.md)."""
+    claimed = conn.headers.get("x-tunnel-user")
+    if not claimed or (conn.client.host if conn.client else "?") not in _LOOPBACK:
+        return None
+    if TUNNEL_SECRET is None:
+        return claimed[:200]
+    given = conn.headers.get("x-tunnel-secret", "").encode()
+    return claimed[:200] if hmac.compare_digest(given, TUNNEL_SECRET) else None
+
+
 def actor(conn, via: bool = False) -> str:
     """WHO sent this request or opened this socket (a starlette Request or WebSocket).
 
-    Trust model: X-Tunnel-User is honored only from loopback peers — the tunnel-client
-    connects from localhost, and the relay validated the identity via IAP and strips
-    spoofed inbound copies. From any OTHER peer the header is an unauthenticated LAN
-    client's claim, so it is recorded as a claim rather than as the actor — which makes
-    spoof attempts themselves visible in the trail. `via` appends the relay-forwarded
-    XFF first hop (the real browser IP): an untrusted forensics breadcrumb for audit
-    lines, never part of the identity, so billing keys ask without it."""
+    The tunnel user when tunnel_user() trusts the claim; otherwise 'local:<peer>', and an
+    untrusted X-Tunnel-User is recorded as a claim rather than as the actor — which
+    makes spoof attempts themselves visible in the trail (a loopback claim that failed
+    the secret check says so). `via` appends the relay-forwarded XFF first hop (the real
+    browser IP): an untrusted forensics breadcrumb for audit lines, never part of the
+    identity, so billing keys ask without it."""
     peer = conn.client.host if conn.client else "?"
     claimed = conn.headers.get("x-tunnel-user")
     if not claimed:
         return f"local:{peer}"
-    if peer not in ("127.0.0.1", "::1"):
-        return f"local:{peer} claiming {claimed[:60]!r}"
+    user = tunnel_user(conn)
+    if user is None:
+        why = " without a valid tunnel secret" if peer in _LOOPBACK else ""
+        return f"local:{peer} claiming {claimed[:60]!r}{why}"
     xff = via and conn.headers.get("x-forwarded-for")
-    return f"{claimed[:200]} [via {xff.split(',')[0].strip()[:45]}]" if xff else claimed[:200]
+    return f"{user} [via {xff.split(',')[0].strip()[:45]}]" if xff else user
 
 
 def audit(
