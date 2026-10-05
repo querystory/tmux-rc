@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import textwrap
 from itertools import islice
 from pathlib import Path
 
@@ -441,15 +442,16 @@ def _ground_visible_fields(
 # box/gutter glyphs framing each of its rows.
 _WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
 _FIRST_OPTION_RE = re.compile(r"^[\s│❯›>]*1[.)]\s")
-_FRAME_RE = re.compile(r"^[\s│┃╎]+|[\s│┃╎]+$")
+_FRAME_RE = re.compile(r"^\s*[│┃╎]|[\s│┃╎]+$")  # the glyphs only: indentation is content
 
 
 def _widget_text(prompt: str, visible: str) -> str:
     """What a menu asks about, read off its own widget: the rows from the widget's top
     edge down to the prompt (Claude's tool, description, command and any blocking notice)
     plus any between the prompt and option 1 (where Codex puts its command), as
-    blank-line-separated blocks. Only the frame is stripped: the command is kept whole and
-    exact (the viewport bounds it), since it is both the evidence the restatement reads and
+    blank-line-separated blocks. Only the frame and each block's common margin are
+    stripped: the command is kept whole and exact, indentation included (the viewport
+    bounds it), since it is both the evidence the restatement reads and
     the question's identity. "Do you want to proceed?" alone is meaningless on a card.
     With no top edge close above, the rows there are the conversation, so none are taken."""
     found = _last_occurrence(prompt, visible)
@@ -466,7 +468,7 @@ def _widget_text(prompt: str, visible: str) -> str:
         if row.strip("─━╌┄ "):
             rows.append(row)
         elif rows:  # a blank or dashed row ends a block
-            segments.append("\n".join(rows))
+            segments.append(textwrap.dedent("\n".join(rows)))  # less the widget's margin
             rows = []
     return "\n\n".join(segments)
 
