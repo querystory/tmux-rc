@@ -1,7 +1,7 @@
 {
   "description": "Description and command agree: three major-version npm upgrades. question.ask must say it installs three packages with breaking (major) upgrades, without the package@version text. Synthetic.",
   "current_command": "node",
-  "capture": "\u001e[visible screen]\u001f\n● Upgrading the toolchain as planned.\n\n──────────────────────────────────────────────────────────────────────────────────\n Bash command · from the general-purpose agent\n Upgrade React, Vite and ESLint to their new majors\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ npm install react@20 react-dom@20 vite@8 eslint@10\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend",
+  "capture": "\u001e[visible screen]\u001f\n● The lockfile is clean, so I can bump the three majors now.\n\n──────────────────────────────────────────────────────────────────────────────────\n Bash command · from the general-purpose agent\n Upgrade React, Vite and ESLint to their new majors\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ npm install react@20 react-dom@20 vite@8 eslint@10\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend",
   "expected": {
     "tool": "claude",
     "activity": "waiting",

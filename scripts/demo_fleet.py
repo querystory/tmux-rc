@@ -178,8 +178,8 @@ DETAIL = {
 MENU = {"dependency audit": {
     "context": "Bash command — npm install react@20 vite@8 eslint@10 · Upgrade three "
                "packages with breaking changes — Latest blocked action: [Breaking Upgrade]",
-    "ask": "Upgrade React, Vite and ESLint to new major versions? Auto mode flagged it as "
-           "a breaking upgrade.",
+    "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
+           "Continue?",
     "flag": "Breaking Upgrade",
 }}
 
