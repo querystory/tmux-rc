@@ -239,7 +239,11 @@ the caller supplies a message id, scoped to that sender (the daemon keys it by a
 plus id, so one agent cannot reserve another's), and the daemon refuses a retried id
 instead of typing it twice. The ids and the queue live in memory, and ids are kept for a bounded window
 (an hour), so the guarantee holds within that window of one daemon lifetime. An
-unexpired id is never evicted: at the cap, the daemon refuses new messages instead. A retry across a daemon restart can type a message twice. That is accepted
+unexpired id is never evicted: at the cap, the daemon refuses new messages instead. A
+queued message never outlives its id. It shares the id's hour, and if it is still waiting
+when that runs out, the daemon records it expired first and only then releases the id.
+Releasing first would let a retry queue a second copy beside the original, and a busy
+recipient that never goes idle would leave the sender with no final answer. A retry across a daemon restart can type a message twice. That is accepted
 for v1, because a restart already drops the queue and a duplicate prompt is visible. A
 restart also drops the outcome records, so a sender whose connection drops, or who asks
 about an id the daemon no longer knows, treats the message as unconfirmed.
