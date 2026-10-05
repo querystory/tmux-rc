@@ -156,7 +156,11 @@ DETAIL = {
               "title": "Stabilize checkout.spec under slow iframes"}],
         "links": [{"href": f"https://{ORG}/shop-web/actions/runs/1029384756", "text": "CI run"}]},
     "api contract diff": {
-        "model": "Sonnet 5", "context_pct": 39, "cost": "$0.84",
+        "model": "Sonnet 5", "context_pct": 39, "cost": "$0.84", "agents": 2,
+        "subagents": [{"label": "List clients of the two changed endpoints", "state": "running",
+                    "elapsed": "1m", "tokens": "7.4k"},
+                   {"label": "Draft the v3 migration note", "state": "running", "elapsed": "40s",
+                    "tokens": "3.1k"}],
         "session_summary": "Moving money fields to a structured type changed two public "
                         "endpoints. Both break existing clients, so versioning needs a call.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,

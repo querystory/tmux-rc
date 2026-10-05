@@ -3,9 +3,9 @@
 // everything else is grouped by state or by tmux session. Each group folds and switches
 // between one-line rows and activity cards, and those choices are a per-screen preference,
 // so they live in localStorage, not the URL. So does the one Sub-agents switch, which lists
-// every pane's running sub-agents under its row in either density: seeing them is its own
-// question, apart from how much of each pane's activity to show. Folded, the sidebar is a
-// rail of live agents.
+// every pane's running sub-agents under its row in either density (Needs you cards only
+// count them): seeing them is its own question, apart from how much of each pane's
+// activity to show. Folded, the sidebar is a rail of live agents.
 // Phones never call this: their list is renderList's rows in app.js.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
@@ -131,8 +131,9 @@ export function setupSidebar(ctx) {
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
     text(node.querySelector(".a"), age(p));
-    const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents");
-    badge.hidden = !agents.length || prefs.subagents; list.hidden = !agents.length || !prefs.subagents;
+    // Needs you is about the question and its answers, so its cards only count sub-agents.
+    const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";
+    badge.hidden = !agents.length || lines; list.hidden = !agents.length || !lines;
     badge.title = badge.ariaLabel = `${agents.length} sub-agent${agents.length === 1 ? "" : "s"} working`;
     ctx.html(badge, `${licon("bot", 12)}${agents.length}`);
     renderItems(list, list.hidden ? [] : agents, true);
