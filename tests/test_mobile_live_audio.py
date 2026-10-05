@@ -488,6 +488,15 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   say({type: 'status', status: 'reconnecting'});
   assert.ok(!roles().includes('typing'));
   say({type: 'status', status: 'listening'});
+  // Typing instead of answering a card supersedes it: the card says so, and the dots
+  // return for the new message rather than it sitting queued behind the card.
+  say({type: 'propose', id: 'p2', text: 'Send to work'});
+  send('never mind');
+  assert.equal(roles().at(-1), 'propose');
+  say({type: 'decided', id: 'p2', ok: null});
+  const card = log.children.filter((row) => row.dataset.role === 'propose').at(-1);
+  assert.equal(card.firstChild.textContent, 'Cancelled — you sent a new message');
+  assert.equal(roles().at(-1), 'typing');
   send('five');
   $('voice-end').onclick();
   assert.ok(!roles().includes('typing'));
