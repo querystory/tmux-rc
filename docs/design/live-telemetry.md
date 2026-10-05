@@ -116,7 +116,7 @@ undercount. So:
 
 There is no per-user auth identity inside the daemon. The only "who" it has is the
 tunnel owner's email, forwarded as `X-Tunnel-User` and trusted **only from loopback**
-(the same trust model as the audit trail, see `telemetry.actor`) — over the LAN it's an unverified
+(the same trust model as the audit trail, see `telemetry.tunnel_user`) — over the LAN it's an unverified
 claim. That email answers "which account", but not "which viewing session": one user
 opening the PWA twice, or leaving it open across days, is one email but many distinct
 watch sessions, and billing/usage wants to tell those apart.
