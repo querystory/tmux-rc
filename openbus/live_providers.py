@@ -302,8 +302,8 @@ _HISTORY_TOOLS = [
             "on the auth fix”, “was there a session about X”), rather than asking a window. "
             "Returns repos, each with sessions: id, the agent tool (claude, codex, or omp), "
             "title, last active date, the query terms it matched, and the window running it "
-            "if one is. Every returned session matched the query in its title or transcript; "
-            "titles are short hints and often don't mention the topic."
+            "if one is. Every returned session matched the query (in its title, branches, PR "
+            "links or transcript); titles are short hints and often don't mention the topic."
         ),
         "parameters": {
             "type": "object",

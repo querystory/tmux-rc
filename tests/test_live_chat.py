@@ -281,6 +281,16 @@ def test_a_model_that_never_stops_calling_tools_answers_without_them(monkeypatch
     assert s.history[-2] == ("user", C._LAST)
 
 
+def test_a_call_after_tools_are_withdrawn_is_refused_not_run(monkeypatch):
+    monkeypatch.setattr(L.agent_history, "offered", lambda: True)
+    monkeypatch.setattr(L.agent_history, "resolve", lambda q: [])
+    s = _Fake([("", [("find_sessions", {"query": "x"})])] * C.STEPS)
+    frames, audits, _ = _turn(s, "loop", monkeypatch)
+    assert len(audits) == C.STEPS - 1 and not s.script
+    assert s.history[-2:] == [("results", [("find_sessions", "rejected")]), ("model", C._DONE, [])]
+    assert frames[-1]["type"] == "turn_complete"
+
+
 def test_an_empty_response_still_answers_the_turn(monkeypatch):
     frames, _, _ = _turn(_Fake([("", [])]), "hi", monkeypatch)
     assert _said(frames) == [C._EMPTY]
