@@ -689,7 +689,7 @@ $("side-list").addEventListener("scroll", () => { if (S.hover) { $("side-hover")
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
 
 addEventListener("hashchange", () => { fromHash(); unhover(); render(); });
-if (!OPTS[S.opt]) S.opt = "E1"; // a stale or hand-typed ?opt= would blank the page
+S.opt = String(S.opt).toUpperCase(); if (!OPTS[S.opt]) S.opt = "E1"; // a stale or hand-typed ?opt= would blank the page
 fromHash();
 render();
 </script>

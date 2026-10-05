@@ -14,6 +14,7 @@ for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/sub/"
 csp = c.get("/scratch/mock.html").headers.get("content-security-policy", "")
 print(int(csp.startswith("sandbox") and "allow-same-origin" not in csp
           and "form-action 'none'" in csp and "connect-src 'none'" in csp))
+print(int(c.get("/scratch?opt=E7").headers.get("location") == "/scratch/?opt=E7"))
 print(int(c.get("/scratch/sub").headers.get("location") == "/scratch/sub/"))
 """
 
@@ -33,8 +34,9 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (tmp_path / "secret.txt").write_text("outside")
     # file, traversal refused, directory index, bare prefix redirected to the slash form,
     # the page sandboxed so its scripts can't drive /api/*, and a nested directory's
-    # slash redirect path-only (an absolute one would be http:// behind the tunnel)
-    assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}) == [200, 404, 200, 307, 1, 1]
+    # slash redirect path-only (an absolute one would be http:// behind the tunnel), the
+    # bare-prefix one keeping its query
+    assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}) == [200, 404, 200, 307, 1, 1, 1]
 
 
 def test_scratch_is_off_unless_configured():
