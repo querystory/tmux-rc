@@ -120,6 +120,7 @@ class _Meter:
         self.model = model
         self.text = text  # typed turns, written replies: no mic, no playback
         self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
+        self.superseded = False  # the user typed past a card: the rest of its turn is declined
         # Pasted images by conversation-wide number, kept for every turn the chat model's next
         # request can still show: the kept history, plus the queued turns and the one being
         # answered, which are numbered here before they enter that history.
@@ -424,6 +425,8 @@ async def _approved(
             card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
+    if meter.superseded:  # a later call in a turn the user already moved on from
+        answer.set_result(None)
     try:
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
@@ -899,9 +902,11 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     await websocket.send_json({"type": "error", "refused": True, "message": busy})
                     continue
                 meter.keep_images(images)
-                for answer in meter.approvals.values():  # an unanswered card: this supersedes it
-                    if not answer.done():
-                        answer.set_result(None)
+                # An unanswered card (not one tapped and still unwinding): this supersedes
+                # it, and the rest of its turn.
+                for answer in [a for a in meter.approvals.values() if not a.done()]:
+                    meter.superseded = True
+                    answer.set_result(None)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
@@ -918,6 +923,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
     """Model → client: voice audio, both transcripts, tool calls, barge-in. Also meters
     the session — takes each usage event into `meter` and emits a per-turn OTel record
     at every turn boundary."""
+    meter.superseded = False  # a reconnect drops the turn it belonged to
     async for ev in session.events():
         if ev.kind == "usage":
             meter.usage.set(ev.usage)
@@ -929,6 +935,7 @@ async def _receiver(websocket: WebSocket, session, watcher, meter: _Meter) -> No
         elif ev.kind == "transcript":
             await _transcript(websocket, meter, ev.role, ev.text)
         elif ev.kind == "turn_complete":
+            meter.superseded = False
             meter.end_turn()
             await websocket.send_json({"type": "turn_complete"})
         elif ev.kind == "interrupted":
