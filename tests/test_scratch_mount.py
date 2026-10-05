@@ -11,6 +11,8 @@ from openbus import server
 c = TestClient(server.app, follow_redirects=False)
 for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/sub/", "/scratch"):
     print(c.get(path).status_code)
+csp = c.get("/scratch/mock.html").headers.get("content-security-policy", "")
+print(int(csp.startswith("sandbox") and "allow-same-origin" not in csp))
 """
 
 
@@ -27,8 +29,9 @@ def test_scratch_serves_only_inside_the_configured_dir(tmp_path):
     (scratch / "mock.html").write_text("mock")
     (scratch / "sub" / "index.html").write_text("site")
     (tmp_path / "secret.txt").write_text("outside")
-    # file, traversal refused, directory index, bare prefix redirected to the slash form
-    assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}) == [200, 404, 200, 307]
+    # file, traversal refused, directory index, bare prefix redirected to the slash form,
+    # and the page sandboxed into an opaque origin so its scripts can't drive /api/*
+    assert _probe({"TMUXRC_SCRATCH_DIR": str(scratch)}) == [200, 404, 200, 307, 1]
 
 
 def test_scratch_is_off_unless_configured():

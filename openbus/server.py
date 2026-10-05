@@ -432,6 +432,12 @@ async def no_cache(request, call_next):
     # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
     # browser prompts (and the PWA keeps the grant) instead of silently rejecting.
     resp.headers["Permissions-Policy"] = "microphone=(self)"
+    # Scratch previews are arbitrary HTML on the daemon's own origin, where a script could
+    # call /api/* (type into terminals) with the viewer's session. A CSP sandbox without
+    # allow-same-origin gives them an opaque origin instead: they still run, but the
+    # daemon's API is cross-origin to them, exactly as from any other site.
+    if request.url.path.startswith("/scratch/"):
+        resp.headers["Content-Security-Policy"] = "sandbox allow-scripts allow-popups allow-forms"
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
