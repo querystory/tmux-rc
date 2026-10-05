@@ -312,14 +312,17 @@ def _question_prompt(question) -> str | None:
     return prompt if isinstance(prompt, str) and prompt.strip() else None
 
 
-def _last_occurrence(prompt: str, visible: str, *, row: bool = False) -> re.Match | None:
-    """The prompt's last match; with row, only one that is a whole row bar its frame, so
+def _occurrences(prompt: str, visible: str, *, row: bool = False) -> list[re.Match]:
+    """The prompt's matches; with row, only those that are a whole row bar the frame, so
     the same words inside a command (`printf "Proceed?"; rm …`) never stand in for it."""
     words = r"\s+".join(map(re.escape, prompt.split()))
     if row:
         words = rf"^[ \t│┃╎]*{words}(?=[ \t│┃╎]*$)"
-    *_, found = [None, *re.finditer(words, visible, re.IGNORECASE | re.MULTILINE)]
-    return found
+    return list(re.finditer(words, visible, re.IGNORECASE | re.MULTILINE))
+
+
+def _last_occurrence(prompt: str, visible: str) -> re.Match | None:
+    return next(reversed(_occurrences(prompt, visible)), None)
 
 
 def _omp_asking_view(text: str) -> str:
@@ -445,7 +448,7 @@ def _ground_visible_fields(
 # A widget's own top edge (a ─── rule or a ╭ box corner), its first option row, and the
 # box/gutter glyphs framing each of its rows.
 _WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
-_FIRST_OPTION_RE = re.compile(r"^[\s│❯›>]*1[.)]\s")
+_FIRST_OPTION_RE = re.compile(r"^[ \t│❯›>]*1[.)]\s", re.MULTILINE)
 _FRAME_RE = re.compile(r"^\s*[│┃╎]|[\s│┃╎]+$")  # the glyphs only: indentation is content
 _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
@@ -459,9 +462,14 @@ def _widget_text(prompt: str, visible: str) -> str:
     this is both the evidence the restatement reads and the question's identity.
     "Do you want to proceed?" alone is meaningless on a card. With no top edge close
     above, the rows there are the conversation, so none are taken."""
-    found = _last_occurrence(prompt, visible, row=True)
-    if found is None:
+    found = _occurrences(prompt, visible, row=True)
+    if not found:
         return ""
+    # A command can hold the prompt's own row too (a heredoc, below Codex's prompt): the
+    # widget's prompt is the first such row since the previous menu, not the last.
+    floor = max((m.end() for m in _FIRST_OPTION_RE.finditer(visible, 0, found[-1].start())),
+                default=0)
+    found = next(m for m in found if m.start() >= floor)
     above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
     top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
                 if _WIDGET_TOP_RE.match(above[i])), None)
