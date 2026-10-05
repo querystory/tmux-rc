@@ -268,7 +268,7 @@ _JUDGE_SYSTEM = (
     "rows substituted for the referenced edits. Both headline and table content must "
     "pass. When expected_ask is provided, ALSO judge candidate_ask, the card's plain "
     "restatement of an approval prompt: it must be one short plain-English sentence "
-    "(about 120 characters at most) ending in a question such as \"Continue?\", say what "
+    "(about 120 characters at most) ending in a question such as 'Continue?', say what "
     "approving actually does with the SAME most consequential effect as expected_ask, "
     "name every destructive step and any description/command mismatch that expected_ask "
     "names, and contain no command text, flags or tool name. Missing or empty fails. "
