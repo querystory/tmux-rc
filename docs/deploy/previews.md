@@ -32,10 +32,11 @@ Files added later appear without a restart.
 
 Scratch pages are also sandboxed into an opaque origin. They sit on the daemon's own
 hostname, so without that a script in a preview could call the daemon's API, which types
-into your terminals, with your session. The cost is that a preview cannot use
-`localStorage`, `fetch` its own files, or load module scripts. Static pages and classic
-scripts work fine. Anything that needs more belongs in a committed mock or on its own
-hostname.
+into your terminals, with your session. Forms and script requests are blocked too: a
+request whose answer the page can't read still carries your session. The cost is that a
+preview cannot use `localStorage`, make requests from script, submit forms, or load
+module scripts. Static pages and classic scripts work fine. Anything that needs more
+belongs in a committed mock or on its own hostname.
 
 ## If you do run a second tunnel client
 
