@@ -38,6 +38,7 @@ _FAILED = "(The model call failed; try again.)"
 # then invents a tool that was never offered instead of answering.
 STEPS = 8
 _LAST = "(No more tools this turn: answer the user now from what you have found.)"
+_REFUSED = {"status": "rejected", "reason": "no more tools this turn"}
 # A request can succeed with nothing in it (a blocked prompt, a refusal with no fallback):
 # a turn with nothing else to show still gets a visible answer rather than silence.
 _EMPTY = "(No response from the model; try again.)"
@@ -131,9 +132,13 @@ class _Chat:
                 acted = True
                 # live._receiver runs each call to completion (consent included) and
                 # answers it through send_tool_result before asking for the next event,
-                # so every answer is in by the time this generator resumes.
+                # so every answer is in by the time this generator resumes. A call made
+                # after tools were withdrawn is answered as refused, never run.
                 for call in calls:
-                    yield Event("tool_call", call=call)
+                    if last:
+                        self._answers.append((call, _REFUSED))
+                    else:
+                        yield Event("tool_call", call=call)
                 self._results(self._answers)
                 self._answers = []
             else:  # quiet or still calling on the last step: closed, as a quiet turn is
