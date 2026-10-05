@@ -6,7 +6,7 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, questionContext, paneHeadline, paneMeta, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
@@ -259,7 +259,7 @@ function route() {
 function makeRow(pane) {
   const button = document.createElement("button");
   button.className = "pane-row";
-  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="q-context"></span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span><span class="badge"></span></span></span>`;
+  button.innerHTML = `<span class="pane-icon"><img alt=""></span><span class="row-body"><span class="row-title"><strong></strong><span class="row-age"></span>${licon("chevron", 14)}</span><span class="row-status"></span><span class="row-meta"><span class="session-chip" hidden></span><span class="row-details"></span><span class="q-flag"></span><span class="badge"></span></span></span>`;
   button.onclick = () => navigate(pane.pane_id);
   return button;
 }
@@ -276,7 +276,7 @@ function updateRow(button, pane) {
   const badge = button.querySelector(".badge");
   badge.className = `badge ${activityClass(pane)}`;
   text(badge, activityLabel(pane));
-  text(button.querySelector(".q-context"), questionContext(pane));
+  flagTag(button.querySelector(".q-flag"), pane);
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
   sessionChip.hidden = sort !== "updated" || !pane.session;
@@ -285,7 +285,7 @@ function updateRow(button, pane) {
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, logos: LOGOS, navigate, notice,
-  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
+  active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose, flagTag,
   setFilter: (value) => { filter = value; stayPut(); } });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
@@ -640,8 +640,8 @@ function render() {
   reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
-  text($("question-context"), pane ? questionContext(pane) : "");
-  text($("prompt"), question?.prompt || "");
+  text($("prompt"), question?.ask || question?.prompt || "");
+  text($("question-context"), question?.context || "");
   const answered = !!pane && isAnswered(pane);
   show("answer-status", answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
@@ -921,6 +921,13 @@ async function sendKeys(body, answer = false, id = active) {
 // Needs you cards alike. Free-text escapes ("Type something") are left to the composer.
 function answerOptions(question) {
   return (Array.isArray(question?.options) ? question.options : []).map((option, index) => ({ option, index })).filter(({ option }) => typeof option === "string" && option.trim() && !/^(type\b|other\b|something else|let me|custom|free.?text|write )/i.test(option.trim()));
+}
+// A held widget's block reason ("Git Destructive", read off its own notice) as a small amber
+// tag, on the list row and the sidebar card alike.
+function flagTag(el, pane) {
+  const flag = needsYou(pane) && pane.question?.flag;
+  html(el, flag ? `${licon("alert", 12)}<span></span>` : "");
+  if (flag) text(el.lastChild, flag);
 }
 function isAnswered(pane) { return pendingAnswers.get(pane.pane_id) === JSON.stringify(pane.question); }
 function answer(id, option, index) {

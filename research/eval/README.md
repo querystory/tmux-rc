@@ -70,6 +70,12 @@ strictness is correct:
 - `question` — compared by *shape*: present-or-absent, and if present its
   `answer_style` (`menu` vs `text` — the phone sends a keystroke vs typed text, so this
   is behavior). The prompt body is prose, left to the judge.
+- `question.context` — opt-in exact string: the widget rows classify() reads around a
+  menu's prompt (deterministic, so pinned exactly).
+- `question.ask` — opt-in, judged: the plain "The agent wants to … Continue?" restatement
+  of an approval prompt must carry the same most consequential effect as the expected
+  one, name its destructive steps (and a description/command mismatch), and quote no
+  command text.
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.

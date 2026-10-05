@@ -173,9 +173,15 @@ DETAIL = {
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
-# Questions answered with one keystroke rather than typed text, with what each asks about.
-MENU = {"dependency audit": "Bash command — npm install react@20 vite@8 eslint@10 · "
-                            "Upgrade three packages with breaking changes"}
+# Questions answered with one keystroke rather than typed text, with the widget fields
+# classify() adds to one: its raw rows, their plain restatement and its block reason.
+MENU = {"dependency audit": {
+    "context": "Bash command — npm install react@20 vite@8 eslint@10 · Upgrade three "
+               "packages with breaking changes — Latest blocked action: [Breaking Upgrade]",
+    "ask": "Upgrade React, Vite and ESLint to new major versions? Auto mode flagged it as "
+           "a breaking upgrade.",
+    "flag": "Breaking Upgrade",
+}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -219,7 +225,7 @@ def _pane(i: int, line: str, window: int) -> dict:
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(","),
                               "answer_style": "menu" if title in MENU else "text",
-                              "context": MENU.get(title)}}
+                              **MENU.get(title, {})}}
     return pane | DETAIL.get(title, {})
 
 
