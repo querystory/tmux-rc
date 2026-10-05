@@ -521,6 +521,13 @@ _ASK_SYSTEM = (
 _asks: dict[tuple, str] = {}  # by (prompt, widget): one call per ask, not per tick
 
 
+def is_approval(question: dict) -> bool:
+    """A menu whose option 1 is "Yes…": an approval, which only its restatement describes."""
+    options = question.get("options")
+    first = options[0] if isinstance(options, list) and options else None
+    return isinstance(first, str) and bool(re.match(r"(?i)(?:\d+[.)]\s*)?yes\b", first))
+
+
 def _restate(question: dict, replies_fn) -> str | None:
     """The plain restatement of a widget question, or None without a model or on an
     unusable answer (retried when the screen next changes): the card then shows the bare
@@ -922,12 +929,9 @@ def classify(
         asked = question.get("answer_style") == "menu" and _question_prompt(question)
         if context := asked and _widget_text(asked, visible):
             question["context"] = context
-            # Only an approval (option 1 is "Yes…") is restated: a numbered choice such as
-            # "Which environment?" keeps its own question.
-            options = question.get("options")
-            first = options[0] if isinstance(options, list) and options else None
-            if isinstance(first, str) and re.match(r"(?i)(?:\d+[.)]\s*)?yes\b", first) and (
-                    ask := _restate(question, replies_fn)):
+            # Only an approval is restated: a numbered choice such as "Which environment?"
+            # keeps its own question.
+            if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
