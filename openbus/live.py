@@ -563,7 +563,8 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
 async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     """Past sessions for a topic, trimmed to what choosing needs. No message text: the
     model routes on titles, recency and liveness, and nothing from an old session is
-    handed to it as if it were current."""
+    handed to it as if it were current. The query terms each one matched are passed on,
+    since a title often never names the topic and the model otherwise dismisses a hit."""
     query = args.get("query")
     rec["keys"] = str(query)  # the user's words: speech, like a transcript
     if set(args) - {"query"} or not isinstance(query, str) or not query.strip():
@@ -584,6 +585,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
                 "tool": s.get("harness"),  # which agent CLI it resumes in
                 "title": s.get("title") or "(untitled)",
                 "last_active": (s.get("last_active") or "")[:10],
+                "matched": s.get("matched") or [],
                 # Named the way windows are everywhere else, once the watcher has it.
                 **({"running_in": labels.get(pane, pane), "pane_id": pane} if pane else {}),
                 **({"running_elsewhere": True} if s.get("running") and not pane else {}),
