@@ -1105,11 +1105,13 @@ def test_widget_ask_is_restated_once_per_widget():
     ask(capture.replace("4200", "4300"), good)
     ask(capture.replace("ss -ltnp", "ss  -ltnp"), good)
     assert len(calls) == 3  # ...so a new command, even by whitespace, is a new ask
-    # A failed call leaves the bare prompt (never the raw rows) and is retried next time.
+    # A failed call, or one off the asked-for shape, leaves the bare prompt (never the
+    # raw rows) and is retried next time.
+    assert "ask" not in ask(capture.replace("4100", "3"), restate({"ask": "Sure, kill them."}))
     failed = capture.replace("4100", "2")
     assert "ask" not in ask(failed, restate(None))
     ask(failed, restate(None))
-    assert len(calls) == 5
+    assert len(calls) == 6
 
 
 def test_users_own_turn_under_a_live_spinner_is_not_a_question():

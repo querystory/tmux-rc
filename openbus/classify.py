@@ -509,10 +509,14 @@ def _restate(question: dict, replies_fn) -> str | None:
         reply = replies_fn(_ASK_SYSTEM, "\n\n".join(
             [question["context"], question["prompt"], "Options: " + " / ".join(options)]))
         ask = reply.get("ask") if isinstance(reply, dict) else None
-        if isinstance(ask, str) and 0 < len(ask.strip()) <= 300 and ask.isprintable():
+        ask = " ".join(ask.split()) if isinstance(ask, str) else ""
+        # Only the asked-for shape replaces the prompt (and becomes the push body); stray
+        # prose falls back to the grounded prompt. The length allows the mismatch form.
+        if ask.startswith("The agent ") and ask.endswith("?") and len(ask) <= 160 and (
+                ask.isprintable()):
             if len(_asks) > 256:
                 _asks.clear()
-            _asks[key] = " ".join(ask.split())
+            _asks[key] = ask
     return _asks.get(key)
 
 
