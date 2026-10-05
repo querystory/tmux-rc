@@ -6,7 +6,8 @@
 // every pane's running sub-agents under its row in either density (Needs you cards only
 // count them): seeing them is its own question, apart from how much of each pane's
 // activity to show. Folded, the sidebar is a rail of live agents.
-// Phones never call this: their list is renderList's rows in app.js.
+// Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
+// borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, records, liveSubagents, subagentCount, since, age } from "/m/pane-model.js";
@@ -48,10 +49,10 @@ function groups(subset, query) {
 export function setupSidebar(ctx) {
   const { licon, reconcile, text, renderItems } = ctx;
   const root = document.getElementById("side-list");
-  let shown = [], replyTo = null, last = null;
+  let shown = [], replyTo = null;
   // Inline drafts, per pane like the footer's: kept until sent or cancelled.
   const drafts = new Map(), draft = () => drafts.get(replyTo);
-  const repaint = () => { if (last) render(...last); };
+  const repaint = ctx.repaint;
   // A control never moves under the pointer: whatever it folds, unfolds or reorders moves
   // around it, so a second click undoes the first. Every control re-renders through here,
   // which holds the last-clicked button's screen position (and its focus, which reconcile
@@ -123,21 +124,23 @@ export function setupSidebar(ctx) {
     open.className = "sb-open";
     open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? "<p></p>" : "");
     node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
-    if (card) {
-      node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
-      const form = node.querySelector("form");
-      // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
-      const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
-      form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
-      enterSubmits(form, (target) => !!draft()?.editor.contains(target));
-      form.onsubmit = async (event) => {
-        event.preventDefault();
-        const id = node._p.pane_id, value = drafts.get(id);
-        if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
-      };
-    }
+    if (card) addAnswers(node);
     open.onclick = () => ctx.navigate(node._p.pane_id);
     return node;
+  }
+  // A Needs-you card's answer buttons and its Reply composer, for the pane in `node._p`.
+  function addAnswers(node) {
+    node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
+    const form = node.querySelector("form");
+    // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
+    const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
+    form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
+    enterSubmits(form, (target) => !!draft()?.editor.contains(target));
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const id = node._p.pane_id, value = drafts.get(id);
+      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
+    };
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
@@ -270,7 +273,6 @@ export function setupSidebar(ctx) {
   addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this
 
   function render(subset, query, filter) {
-    last = [subset, query, filter];
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     if (prefs.rail) rail(subset); else list(subset, query, filter);
@@ -279,7 +281,6 @@ export function setupSidebar(ctx) {
   }
   function list(subset, query, filter) {
     shown = groups(subset, query);
-    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
     // A folded group still shows the open pane, so the selection never disappears.
     const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
     // The controls head the list, above everything they fold or expand (Needs you included).
@@ -293,5 +294,9 @@ export function setupSidebar(ctx) {
     ctx.html(subs, `${licon("bot", 14)}Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span><i></i>`);
   }
   render.drafts = drafts; // for the app's unsent-draft guard on reload
+  // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
+  render.answers = { add: addAnswers, update: replies, prune: (subset) => {
+    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
+  } };
   return render;
 }

@@ -54,14 +54,16 @@ h2 { font-size: 16px; line-height: 1.5; font-weight: 600; }
    out); in a pane, where the brand is hidden, the dot stands on its own. */
 .app-header #connection { font-size: 0; gap: 0; }
 .app-header #brand { position: relative; }
-.app-header #brand::before { content: ""; position: absolute; left: 20px; top: 19px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--bg); }
-.app-header:has(#connection.online) #brand::before { background: var(--accent); }
-.app-header #brand:not([hidden]) + #connection { position: absolute; opacity: 0; }
+.app-header #brand::before, #list-title::after { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+.app-header #brand::before { position: absolute; left: 20px; top: 19px; box-shadow: 0 0 0 2px var(--bg); }
+.app-header:has(#connection.online) #brand::before, .app-header:has(#connection.online) #list-title::after { background: var(--accent); }
+.app-header :is(#brand, #list-title):not([hidden]) ~ #connection { position: absolute; opacity: 0; }
+/* The list screen's large title, its live dot beside it. */
+#list-title { display: flex; align-items: center; gap: 8px; margin-right: auto; font-size: 28px; font-weight: 750; white-space: nowrap; }
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 a.icon-button { color: var(--fg); text-decoration: none; }
 #notice { flex: none; background: var(--amber-bg); color: var(--amber); font-size: 13px; padding: 8px 16px; }
 #sessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.list-heading { padding: 16px 20px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #new-window { background: var(--accent-bg); color: var(--accent); }
 .search { margin: 0 20px 16px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); }
 .search input { min-width: 0; width: 100%; height: 44px; background: none; border: 0; outline: none; font-size: 16px; }
@@ -71,9 +73,6 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 @media (forced-colors: active) {
   .search:focus-within { outline: 2px solid Highlight; outline-offset: 2px; }
 }
-#sort-picker { margin-left: auto; color: var(--muted); font-size: 13px; }
-#sort-picker summary { padding: 0; }
-.list-heading h1, #new-window { flex-shrink: 0; }
 .session-label { padding: 14px 20px 6px; font-size: 12px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 /* A messages-app row: unread dot in the gutter, a round avatar, then a text column that owns
    the separator, so dividers start at the text rather than under the avatar. Amber dot: needs
@@ -82,16 +81,15 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-row::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .pane-row.needs-you::before { background: var(--amber); }
 .pane-row.fresh::before { background: var(--accent); }
-.pane-row.needs-you { background: var(--amber-bg); --card: var(--amber-bg); }
-/* Colour in this list means STATUS (badge, amber Needs-you row), so selection uses none: a
-   raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. It
-   layers over the status background, so a selected Needs-you row stays amber. Only the
+.needs-you .row-age { color: var(--amber); font-weight: 700; }
+.needs-you .row-status { color: var(--fg); } /* the ask is the row's point */
+/* Colour in this list means STATUS (badge, amber dot and age), so selection uses none: a
+   raised card (soft ink hairline and shadow) with a short ink bar and a heavier title. Only the
    selected row is inset, so the other rows' full-width dividers are untouched. The ring is
    an inset box-shadow, leaving the focus outline free to look different. :not(:disabled)
    outranks the global button hover rule, so hover cannot repaint a selected row. */
 .row-title strong { font-weight: 600; }
 .pane-row[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); width: calc(100% - 12px); margin-inline: 6px; border-radius: 10px; border-bottom-color: transparent; position: relative; box-shadow: inset 4px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent), 0 2px 10px rgb(0 0 0 / .2); }
-.pane-row.needs-you[aria-current="true"]:not(:disabled) { background: var(--amber-bg); --card: var(--amber-bg); }
 .pane-row[aria-current="true"] .row-title strong { font-weight: 800; }
 .pane-row[aria-current="true"] .row-body { border-bottom-color: transparent; }
 .pane-icon { width: 50px; height: 50px; flex: none; display: grid; place-items: center; position: relative; }
@@ -100,7 +98,6 @@ a.icon-button { color: var(--fg); text-decoration: none; }
    logo that ships its own tile (Claude, OpenCode, omp) becomes the whole disc, so no square sits
    inside the circle. The working ring and motion ride on the same box, so they scale with it. */
 .pane-icon > img:first-child { width: 100%; height: 100%; padding: 6px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
-.needs-you .pane-icon > img:first-child { background: var(--surface); }
 .pane-icon > .working:first-child { background: var(--accent-bg); }
 .pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src="/omp-working.svg"]) { padding: 0; }
 /* Claude's png carries a ~1px drop shadow on its bottom and right edges, which reads as a dark rim on
@@ -340,7 +337,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
     column-gap: 0;
   }
   #app.rail     { grid-template-columns: 60px minmax(0, 1fr); }
-  .app-header, .list-heading, #pane-list { display: none; }
+  .app-header, #pane-list { display: none; }
   #update-notice{ grid-column: 2; grid-row: 1; }
   #notice       { grid-column: 2; grid-row: 2; }
   #sessions     { grid-column: 1; grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); --card: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
@@ -407,8 +404,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #sb-nav ~ .search .search-clear { width: 36px; height: 36px; min-height: 36px; }
 #side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-.sb-icon { width: 32px; height: 32px; min-height: 32px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
-.sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
 .sb-bar { display: flex; flex-wrap: wrap; row-gap: 8px; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .sb-bar .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); }
 .sb-bar .seg button { min-height: 22px; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted); }
@@ -453,14 +448,6 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-card.need { background: var(--amber-bg); --card: var(--amber-bg); }
 .sb-card .sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
 .sb-open p { flex-basis: 100%; padding-left: 31px; color: var(--muted); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
-.sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
-.sb-replies button:not(:disabled):hover { border-color: var(--amber); }
-.sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
-.sb-compose[hidden] { display: none; }
-.sb-compose #side-reply { flex: 1; min-width: 0; min-height: 32px; max-height: 120px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.sb-compose #side-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
-.sb-compose .primary { color: var(--bg); }
 .sb-open:not(:disabled):hover { background: transparent; } /* the row underneath carries state and selection */
 :is(.sb-row, .sb-card):not(.need):not([aria-current="true"]):hover { background: var(--raised); }
 #side-hover { position: fixed; z-index: 30; width: 320px; display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); --card: var(--surface); color: var(--fg); box-shadow: 0 8px 28px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; pointer-events: none; }
@@ -496,6 +483,17 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-rail:not([data-agents=""])::after { content: attr(data-agents); position: absolute; top: 1px; right: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--accent); color: var(--bg); font-size: 9.5px; font-weight: 700; line-height: 14px; text-align: center; }
 .sb-more { min-height: 28px; padding: 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 }
+/* A Needs-you card's answers and inline Reply: the sidebar's, and the phone list's too. */
+.sb-icon { width: 32px; height: 32px; min-height: 32px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
+.sb-replies:not(:empty), .sb-compose { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
+.sb-replies button { min-height: 28px; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
+.sb-replies button:not(:disabled):hover { border-color: var(--amber); }
+.sb-compose { flex-wrap: nowrap; align-items: flex-end; gap: 2px; }
+.sb-compose[hidden] { display: none; }
+.sb-compose #side-reply { flex: 1; min-width: 0; min-height: 32px; max-height: 120px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sb-compose #side-reply:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.sb-compose .primary { color: var(--bg); }
 
 .landing-inner { padding: 32px; max-width: 2400px; }
 .landing-inner h2 { margin: 0 0 4px; font-size: 20px; }
@@ -645,6 +643,20 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
   #landing .atlas-panel { padding: 16px; }
   #list-nav button { font-size: 11px; }
   .sb-only { display: none !important; }
+  .search { margin: 8px 16px; border: 0; border-radius: 10px; background: var(--raised); }
+  .search:focus-within { box-shadow: 0 0 0 2px var(--accent); }
+  .session-label.alert { color: var(--amber); }
+  /* Needs-you rows answer in place: pill answers under the text column, the divider under all. */
+  .pane-card { border-bottom: 1px solid var(--line); }
+  .pane-card .row-body { border-bottom-color: transparent; }
+  .pane-card .sb-replies:not(:empty), .pane-card .sb-compose { gap: 8px; padding: 0 16px 12px 84px; }
+  .pane-card .sb-replies button { min-height: 40px; padding: 0 14px; border-radius: 20px; font-size: 14px; }
+  .pane-card .sb-icon { width: 40px; height: 40px; min-height: 40px; }
+  .pane-card #side-reply { min-height: 40px; padding: 9px 12px; border-radius: 20px; font-size: 16px; line-height: 20px; } /* 16px: iOS zooms a smaller field */
+  /* New window floats over the list's foot; sticky, so the list's end scrolls clear of it.
+     It steps aside while a field has the keyboard up. */
+  #new-window { position: sticky; bottom: 16px; z-index: 5; display: flex; width: 56px; height: 56px; margin: 8px 16px 16px auto; border-radius: 50%; background: var(--accent); color: var(--bg); box-shadow: 0 4px 14px rgb(0 0 0 / .3); }
+  #sessions:has(input:focus, [contenteditable]:focus) #new-window { display: none; }
 }
 
 

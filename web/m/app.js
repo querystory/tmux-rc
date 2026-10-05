@@ -11,7 +11,6 @@ import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
 
-const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
@@ -69,6 +68,7 @@ const LUCIDE = {
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
+  arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -228,8 +228,7 @@ function route() {
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort } = state);
   if (active) returnPane = null;
-  $("sort").value = sort;
-  refreshSortPicker();
+  $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("overview").scrollTop = 0;
@@ -287,7 +286,7 @@ function updateRow(button, pane) {
 }
 const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); } });
+  setFilter: (value) => { filter = value; stayPut(); }, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -302,6 +301,7 @@ function renderList() {
   // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
+  renderSidebar.answers.prune(subset);
   if (WIDE.matches) renderSidebar(subset, query, filter);
   else renderPhoneList(subset);
   show("empty", !subset.length);
@@ -320,15 +320,31 @@ function renderList() {
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
 }
+// Needs you is pinned on top as cards answerable in place (the sidebar's answers and Reply);
+// the rest follow by recency, or under their session's label.
 function renderPhoneList(subset) {
-  const sessions = [...new Set(subset.map((p) => p.session))];
-  const rows = sort === "updated"
-    ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
-    : sessions.flatMap((session) => [{ session, group: true }, ...subset.filter((p) => p.session === session)]);
-  reconcile($("pane-list"), rows, (p) => p.group ? `session:${p.session}` : p.pane_id, (p) => {
-    if (!p.group) return makeRow(p);
-    const label = document.createElement("h2"); label.className = "session-label"; return label;
-  }, (node, p) => p.group ? text(node, p.session || "Session") : updateRow(node, p));
+  const recent = (list) => list.sort((a, b) => lastActivity(b) - lastActivity(a));
+  const need = recent(subset.filter(needsYou)), rest = subset.filter((p) => !needsYou(p));
+  const label = (key, heading, alert = false) => ({ key, heading, alert });
+  const rows = [
+    ...(need.length ? [label("need", `Needs you · ${need.length}`, true), ...need] : []),
+    ...(sort === "updated" ? [...(need.length && rest.length ? [label("rest", "Panes")] : []), ...recent(rest)]
+      : [...new Set(rest.map((p) => p.session))].flatMap((session) => [label(`session:${session}`, session || "Session"), ...rest.filter((p) => p.session === session)])),
+  ];
+  reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
+    if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
+    if (!needsYou(p)) return makeRow(p);
+    const card = document.createElement("div");
+    card.className = "pane-card";
+    card.append(makeRow(p));
+    renderSidebar.answers.add(card);
+    return card;
+  }, (node, p) => {
+    if (p.heading) { node.classList.toggle("alert", p.alert); return text(node, p.heading); }
+    node._p = p;
+    updateRow(node.querySelector(".pane-row") || node, p);
+    if (node.matches(".pane-card")) renderSidebar.answers.update(node, p);
+  });
 }
 
 // The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
@@ -578,7 +594,7 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  show("brand", !inPane || wide);
+  show("brand", wide || (!inPane && dashboard)); show("list-title", !inPane && !dashboard);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -1007,7 +1023,7 @@ $("reply-form").onsubmit = (event) => {
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1064,7 +1080,7 @@ $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
 $("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
-$("sort").onchange = () => { sort = $("sort").value; stayPut(); };
+$("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
 $("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);
