@@ -510,7 +510,7 @@ def new_session(name: str, cwd: str, command: str | None = None, window: str = "
     if window:
         argv += ["-n", window]
     return _run([*argv, *([command] if command else [])], prefix=scope,
-                env=env or server_env()).strip()
+                env=server_env() if env is None else env).strip()
 
 
 # OSC 8 hyperlink: ESC]8;params;URL(BEL|ESC\) LABEL ESC]8;;(BEL|ESC\). Terminals show

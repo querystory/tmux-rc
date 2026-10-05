@@ -955,6 +955,10 @@ def new_session(body: NewSessionBody, request: Request):
         _audit(request, "new_session", "-", detail, outcome=f"rejected: {why}"[:80])
         raise HTTPException(status, why)
 
+    # Single-pane mode publishes only its target, so the new pane could never appear
+    # (the history tools are withheld for the same reason: agent_history.offered).
+    if os.environ.get("TMUXRC_TARGET"):
+        refuse(409, "single-pane mode (TMUXRC_TARGET) cannot show a new session")
     # tmux silently rewrites ':' and '.' in a session name (they are target syntax), so
     # the session would not be called what was asked for; refuse rather than surprise.
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body.name):

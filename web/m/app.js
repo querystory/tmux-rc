@@ -315,6 +315,8 @@ function renderList() {
   $("dash-nav").setAttribute("aria-pressed", String(dashboardVisible()));
   // No panes means no session to open a window in: offer to start one instead — the
   // only way back after a reboot, when no tmux server is running at all.
+  // Not before boot: an empty `panes` then would open the dialog in New session mode.
+  $("new-window").disabled = !booted;
   const startable = booted && !panes.length;
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
