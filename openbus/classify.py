@@ -474,7 +474,8 @@ def _widget_text(prompt: str, visible: str) -> str:
     top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
                 if _WIDGET_TOP_RE.match(above[i])), None)
     below = visible[found.end():].splitlines()[1:]
-    stop = next((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), 0)
+    # The LAST option-1 row: a command's own "1. payload" row sits above the real options.
+    stop = max((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), default=0)
     # A rule is the widget's only when the whole raw row is one: "│ ━━━" is content.
     text = "\n".join("" if _RULE_ROW_RE.match(raw) else _FRAME_RE.sub("", raw) for raw in
                      [*(above[top + 1:] if top is not None else ()), "", *below[:stop]])
@@ -904,7 +905,8 @@ def classify(
     if isinstance(question, dict):  # read off the screen, never passed through from the model
         for key in ("context", "ask"):
             question.pop(key, None)
-        asked = question.get("answer_style") in ("menu", "cursor") and _question_prompt(question)
+        # Numbered menus only: a cursor picker is a plain choice, never an approval.
+        asked = question.get("answer_style") == "menu" and _question_prompt(question)
         if context := asked and _widget_text(asked, visible):
             question["context"] = context
             if ask := _restate(question, replies_fn):

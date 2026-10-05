@@ -1059,9 +1059,18 @@ def test_menu_context_is_read_off_its_own_widget():
     proceed, run = "Do you want to proceed?", "Would you like to run the following command?"
     for name, prompt in (("69_claude_permission_context", proceed),
                          ("05_claude_permission_box", proceed), ("06_codex_permission_box", run),
-                         ("75_codex_permission_prompt_in_command", run)):
+                         ("75_codex_permission_prompt_in_command", run),
+                         ("76_codex_numbered_rows_in_command", run)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
+    # A command's own "1." row is not option 1: commands sharing that prefix stay distinct.
+    numbered = _sample("76_codex_numbered_rows_in_command")
+    assert ask(numbered.replace("rm -rf build", "rm -rf src"), run)["question"]["context"] != (
+        ask(numbered, run)["question"]["context"])
+    # A cursor picker is a plain choice: its prompt boxed earlier in the transcript is no
+    # widget to read, nor an approval to restate.
+    picker = ask(_sample("62_omp_ask_picker"), "Which color do you prefer?", style="cursor")
+    assert "context" not in picker["question"]
     # Indentation inside the command is content; only the widget's margin goes.
     nested = ("\x1e[visible screen]\x1f\n───\n │ python - <<EOF\n │ if x:\n │     go()\n"
               " │ EOF\n\n Go?")
