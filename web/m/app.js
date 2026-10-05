@@ -663,8 +663,11 @@ function render() {
   const question = pane?.question;
   text($("prompt"), question?.ask || question?.prompt || "");
   // The widget's own rows, once and folded away: the restatement above is what to read.
-  $("question-command").hidden = !question?.context;
-  text($("question-command").lastChild, question?.context || "");
+  // Folded again for each new pane or command: an expanded one must not carry over.
+  const command = $("question-command"), commandKey = `${active}\n${question?.context || ""}`;
+  if (command._key !== commandKey) { command._key = commandKey; command.open = false; }
+  command.hidden = !question?.context;
+  text(command.lastChild, question?.context || "");
   const answered = !!pane && isAnswered(pane);
   show("answer-status", answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
