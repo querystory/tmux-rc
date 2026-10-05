@@ -75,7 +75,8 @@ strictness is correct:
 - `question.ask` — opt-in, judged: the plain "The agent wants to … Continue?" restatement
   of an approval prompt must carry the same most consequential effect as the expected
   one, name its destructive steps (and a description/command mismatch), and quote no
-  command text.
+  command text. Pinned `null`, it asserts the menu is not restated at all (a numbered
+  choice that is not an approval keeps its own question).
 - `question.reply_buttons` — opt-in: the model-written reply buttons must be an accept
   ("Yes…") then a decline ("No…"); their wording is not pinned.
 - `rewind`, `tasks`, `copyables` — compared by *presence* only.

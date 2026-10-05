@@ -1059,9 +1059,19 @@ def test_menu_context_is_read_off_its_own_widget():
     proceed, run = "Do you want to proceed?", "Would you like to run the following command?"
     for name, prompt in (("69_claude_permission_context", proceed),
                          ("05_claude_permission_box", proceed), ("06_codex_permission_box", run),
-                         ("75_codex_permission_prompt_in_command", run)):
+                         ("75_codex_permission_prompt_in_command", run),
+                         ("76_codex_numbered_rows_in_command", run),
+                         ("78_claude_box_row_ends_in_glyph", proceed)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
+    # A command's own "1." row is not option 1: commands sharing that prefix stay distinct.
+    numbered = _sample("76_codex_numbered_rows_in_command")
+    assert ask(numbered.replace("rm -rf build", "rm -rf src"), run)["question"]["context"] != (
+        ask(numbered, run)["question"]["context"])
+    # A cursor picker is a plain choice: its prompt boxed earlier in the transcript is no
+    # widget to read, nor an approval to restate.
+    picker = ask(_sample("62_omp_ask_picker"), "Which color do you prefer?", style="cursor")
+    assert "context" not in picker["question"]
     # Indentation inside the command is content; only the widget's margin goes.
     nested = ("\x1e[visible screen]\x1f\n───\n │ python - <<EOF\n │ if x:\n │     go()\n"
               " │ EOF\n\n Go?")
@@ -1069,6 +1079,11 @@ def test_menu_context_is_read_off_its_own_widget():
     spaced = nested.replace("if x:\n", "if x:\n │\n │ ━━━\n")  # blank rows and rule text too
     want = "python - <<EOF\nif x:\n\n━━━\n    go()\nEOF"
     assert ask(spaced, "Go?")["question"]["context"] == want
+    # Only a ╭ box's own right border goes: a row's trailing "│" is content, so commands
+    # differing by one never share an identity.
+    box = "\x1e[visible screen]\x1f\n╭────╮\n│ echo a │ │\n│ Go?      │\n│ 1. Yes   │\n╰────╯"
+    assert ask(box, "Go?")["question"]["context"] == "echo a │"
+    assert ask(nested.replace(" EOF\n", " EOF │\n"), "Go?")["question"]["context"].endswith("EOF │")
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
@@ -1114,6 +1129,14 @@ def test_widget_ask_is_restated_once_per_widget():
     assert "ask" not in ask(capture.replace("4100", "3"), restate({"ask": "Sure, kill them."}))
     off_shape = restate({"ask": "The agent is unable to summarize this?"})
     assert "ask" not in ask(capture.replace("4100", "4"), off_shape)
+    # A numbered choice that is no approval keeps its own question, with no call made.
+    choice = classify(_pane("node"), _sample("77_claude_numbered_choice_not_approval"),
+                      _llm({"tool": "claude", "question": {
+                          "prompt": "Which environment should I deploy to?",
+                          "answer_style": "menu", "options": ["Staging", "Production"]}}),
+                      replies_fn=good)["question"]
+    assert choice["context"] == "Deploy target" and "ask" not in choice
+    assert len(calls) == 5  # unchanged
     failed = capture.replace("4100", "2")
     assert "ask" not in ask(failed, restate(None))
     ask(failed, restate(None))
