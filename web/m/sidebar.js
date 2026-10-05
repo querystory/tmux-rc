@@ -121,7 +121,7 @@ export function setupSidebar(ctx) {
     const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? '<p></p><span class="q-flag"></span>' : "");
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? "<p></p>" : "");
     node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
     if (card) {
       node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
@@ -160,7 +160,6 @@ export function setupSidebar(ctx) {
     ctx.html(badge, `${licon("bot", 12)}${agents.length}`);
     renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
-      ctx.flagTag(node.querySelector(".q-flag"), p);
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
       replies(node, p);
     }
