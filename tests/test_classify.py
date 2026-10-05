@@ -1065,6 +1065,8 @@ def test_menu_context_is_read_off_its_own_widget():
     nested = ("\x1e[visible screen]\x1f\n───\n │ python - <<EOF\n │ if x:\n │     go()\n"
               " │ EOF\n\n Go?")
     assert ask(nested, "Go?")["question"]["context"] == "python - <<EOF\nif x:\n    go()\nEOF"
+    spaced = nested.replace("if x:\n", "if x:\n │\n │\n")  # so are blank rows, every one
+    assert ask(spaced, "Go?")["question"]["context"] == "python - <<EOF\nif x:\n\n\n    go()\nEOF"
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
