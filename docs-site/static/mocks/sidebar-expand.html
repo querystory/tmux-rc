@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar Expand Models</title>
+<style>
+/* Tokens: copied from web/m/style.css so the frame reads as the real app. */
+:root {
+  color-scheme: dark;
+  --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
+  --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
+  --amber: #f1c56a; --amber-bg: #352d1c; --red: #ff9696; --purple: #a371f7;
+}
+:root.light {
+  color-scheme: light;
+  --bg: #f5f7f6; --surface: #fff; --raised: #e7ede9; --line: #ccd7d0;
+  --fg: #1b2821; --muted: #53655b; --accent: #146b46; --accent-bg: #dcf4e7; --lift: #fff;
+  --amber: #815600; --amber-bg: #fff2d4; --red: #b52c36; --purple: #8250df;
+}
+* { box-sizing: border-box; letter-spacing: 0; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; background: transparent; border: 0; border-radius: 6px; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg { flex-shrink: 0; vertical-align: middle; }
+p { margin: 0; }
+
+/* ── Mock chrome (outside the app frame) ─────────────────────────── */
+.mk-top { height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.mk-top h1 { margin: 0; font-size: 14px; font-weight: 650; white-space: nowrap; }
+.mk-top h1 small { color: var(--muted); font-weight: 500; }
+.mk-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.mk-tabs button { min-height: 34px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.mk-tabs button b { color: var(--fg); margin-right: 6px; font-weight: 700; }
+.mk-tabs button:hover { background: var(--raised); }
+.mk-tabs button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); }
+.mk-tabs button[aria-pressed="true"] b { color: var(--accent); }
+.mk-main { display: grid; grid-template-columns: minmax(0, 1fr) 350px; height: calc(100% - 52px); }
+.mk-stage { position: relative; overflow: hidden; padding: 14px 0 14px 16px; }
+.mk-stage.actual { overflow: auto; padding-right: 16px; }
+.mk-stage:not(.actual)::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 48px; background: linear-gradient(to right, transparent, var(--bg)); pointer-events: none; }
+.mk-holder { position: relative; }
+.mk-aside { overflow-y: auto; border-left: 1px solid var(--line); background: var(--surface); padding: 14px 16px 24px; font-size: 13px; line-height: 1.45; }
+.mk-aside h2 { margin: 0 0 4px; font-size: 16px; }
+.mk-aside h3 { margin: 16px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.mk-aside p { margin: 0 0 8px; }
+.mk-aside ul { margin: 0; padding-left: 18px; }
+.mk-aside li { margin-bottom: 4px; }
+.mk-set { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.mk-set > span { color: var(--muted); font-size: 12px; }
+.mk-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); justify-self: start; }
+.mk-seg button { min-height: 24px; padding: 1px 9px; border-radius: 5px; font-size: 12px; color: var(--muted); }
+.mk-seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+.mk-check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--raised); font-size: 12.5px; cursor: pointer; }
+.mk-check input { margin-top: 3px; accent-color: var(--accent); }
+.mk-trade { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mk-trade th { width: 92px; text-align: left; vertical-align: top; padding: 6px 8px 6px 0; color: var(--muted); font-weight: 600; }
+.mk-trade td { padding: 6px 0; vertical-align: top; }
+.mk-trade tr + tr > * { border-top: 1px solid var(--line); }
+.mk-metric { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--accent-bg); color: var(--fg); font-size: 12.5px; }
+.mk-metric b { font-variant-numeric: tabular-nums; }
+.mk-only { margin-bottom: 12px; padding: 8px 10px; border-radius: 8px; background: var(--amber-bg); color: var(--fg); font-size: 13px; }
+.mk-only b { color: var(--amber); }
+.mk-reset { margin-top: 14px; min-height: 30px; padding: 0 12px; border: 1px solid var(--line); font-size: 12.5px; }
+.mk-reset:hover { background: var(--raised); }
+kbd, .mk-k { font: 600 11.5px/1 inherit; padding: 2px 5px; border-radius: 4px; background: var(--raised); white-space: nowrap; }
+@media (max-width: 900px) {
+  body { overflow: auto; }
+  .mk-top { height: auto; flex-wrap: wrap; padding: 8px 16px; }
+  .mk-tabs { width: 100%; }
+  .mk-main { display: block; height: auto; }
+  .mk-stage { height: 70vh; }
+  .mk-aside { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+/* ── The app frame: a 1440×900 or 1920×1080 screen ─────────────────── */
+.frame { position: absolute; top: 0; left: 0; transform-origin: 0 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; box-shadow: 0 6px 30px rgb(0 0 0 / .25); --bar: 46px; }
+.frame button { min-height: 44px; }
+.frame button:not(:disabled):hover { background: var(--raised); --card: var(--raised); }
+#sessions { border-right: 1px solid var(--line); background: var(--surface); --card: var(--surface); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+#sb-head { display: flex; align-items: center; gap: 2px; min-height: var(--bar); padding: 0 8px 0 14px; flex: none; }
+#brand { display: flex; align-items: center; gap: 8px; margin-right: auto; font-size: 16px; font-weight: 650; }
+#sb-nav, #sb-foot { display: flex; align-items: center; gap: 2px; padding: 0 8px 6px; flex: none; }
+#sb-foot { padding-block: 6px; border-top: 1px solid var(--line); }
+.icon-button { width: 36px; height: 36px; min-height: 36px !important; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 8px; }
+#new-window { flex: 1; width: auto; justify-content: flex-start; gap: 8px; padding: 0 10px; font-size: 14px; font-weight: 600; white-space: nowrap; color: var(--accent); }
+#connection { margin: 0 auto 0 6px; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+#connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.search { margin: 2px 12px 6px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; color: var(--muted); flex: none; }
+.search input { min-width: 0; width: 100%; height: 36px; background: none; border: 0; outline: none; font-size: 14px; }
+.search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+#side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
+
+/* Sidebar rules: web/m/style.css (main + #312), with mock-only additions marked. */
+.sb-icon { width: 32px; height: 32px; min-height: 32px !important; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
+.sb-bar { white-space: nowrap; display: flex; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); }
+.seg button { min-height: 22px !important; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
+.seg button[aria-pressed="true"]:hover { background: var(--surface) !important; }
+.pick { margin-left: auto; position: relative; display: inline-flex; align-items: center; }
+.pick select { appearance: none; field-sizing: content; min-height: 28px; padding: 2px 20px 2px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.pick select:hover { background: var(--raised); }
+.pick::after { content: ""; position: absolute; right: 7px; top: 9px; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); pointer-events: none; }
+/* mock-only: the labelled second bar row some options add (Show / Tree / View). */
+.sb-bar2 { display: flex; align-items: center; gap: 6px; padding: 4px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.sb-bar2 > span:first-child { min-width: 34px; }
+.sb-bar2 .tb { min-height: 26px !important; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); border-radius: 6px; }
+.sb-bar2 .tb:disabled { opacity: .45; cursor: default; }
+.sb-bar2 .n { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; }
+.sb-group { display: flex; align-items: center; gap: 2px; margin: 4px 6px 0; }
+.sb-fold { flex: 1; min-width: 0; min-height: 32px !important; display: flex; align-items: center; gap: 6px; padding: 0 8px; text-align: left; font-size: 12.5px; font-weight: 600; }
+.sb-fold > svg { color: var(--muted); }
+.sb-fold > svg + svg { color: var(--amber); }
+.sb-fold .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-fold .c { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.sb-fold .c i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.sb-row, .sb-card { display: flex; flex-wrap: wrap; align-items: flex-start; margin: 0 6px; border-radius: 7px; }
+:is(.sb-row, .sb-card) > :not(.sb-open, .sb-sub, .twisty) { flex-basis: 100%; }
+.sb-open { flex: 1; min-width: 0; min-height: 32px !important; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: inherit; text-align: left; white-space: nowrap; }
+.sb-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-open b { font-weight: 500; }
+.sb-card b { font-weight: 600; }
+.sb-open .s { color: var(--muted); font-size: 11.5px; }
+.sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sb-sub { min-height: 32px !important; display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sb-sub > svg:first-child { color: var(--accent); }
+.sb-card .sb-sub { margin-top: 2px; }
+.sb-agents { display: grid; padding: 0 8px 4px 41px; }
+.agent { display: flex; min-width: 0; align-items: center; gap: 6px; min-height: 22px; font-size: 12px; white-space: nowrap; }
+.agent svg { width: 11px; height: 11px; flex: none; color: var(--accent); }
+.agent.compacting svg { color: var(--purple); }
+.agent.done { color: var(--muted); }
+.agent.done svg { color: var(--muted); }
+.agent > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agent small { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.need .a { color: var(--amber); font-weight: 700; }
+.sb-logo { position: relative; flex: none; width: 22px; height: 22px; display: grid; place-items: center; }
+.sb-logo img { width: 20px; height: 20px; object-fit: contain; }
+.model-badge { position: absolute; width: 11px !important; height: 11px !important; padding: 1px; right: -4px; bottom: -4px; border-radius: 50%; background: var(--card, var(--bg)); }
+.sb-card { margin-bottom: 4px; border-radius: 9px; }
+.sb-card.need { background: var(--amber-bg); --card: var(--amber-bg); }
+.sb-card .sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
+.sb-open p { flex-basis: 100%; padding-left: 31px; color: var(--muted); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sb-replies { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 8px 41px; }
+.sb-replies button { min-height: 28px !important; max-width: 100%; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12px; font-weight: 600; }
+.sb-replies button:not(:disabled):hover { border-color: var(--amber); background: var(--surface); }
+.sb-open:not(:disabled):hover { background: transparent !important; }
+:is(.sb-row, .sb-card):not(.need):not([aria-current="true"]):hover { background: var(--raised); }
+:is(.sb-row, .sb-card)[aria-current="true"] { background: var(--lift); --card: var(--lift); box-shadow: inset 3px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent); }
+.sb-card.need[aria-current="true"] { background: var(--amber-bg); --card: var(--amber-bg); }
+:is(.sb-row, .sb-card)[aria-current="true"] b { font-weight: 800; }
+/* mock-only: a static sub-agent count (E1, E5, E6) — same look as #312's toggle, minus the chevron. */
+.sb-badge { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sb-badge svg { color: var(--accent); }
+/* mock-only E4: one dot per sub-agent. */
+.strip { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.strip i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.strip i.compacting { background: var(--purple); }
+.strip i.done { background: transparent; box-shadow: inset 0 0 0 1.2px var(--muted); }
+.strip span { margin-left: 3px; }
+/* mock-only E3: file-tree disclosure and indented children with a guide line. */
+.twisty { flex: none; width: 18px; min-height: 32px !important; padding: 0; margin-right: -6px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); border-radius: 5px; }
+.sb-card > .twisty { margin-top: 4px; min-height: 28px !important; }
+.sb-agents.tree { position: relative; padding-left: 47px; }
+.sb-agents.tree::before { content: ""; position: absolute; left: 33px; top: -4px; bottom: 14px; border-left: 1px solid var(--line); }
+.sb-agents.tree .agent::before { content: ""; width: 8px; margin-left: -14px; border-top: 1px solid var(--line); flex: none; }
+/* mock-only E7: one labelled switch for every pane's sub-agents. */
+.sw { min-height: 30px !important; display: inline-flex; align-items: center; gap: 6px; padding: 0 6px 0 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--fg); }
+.sw .n { color: var(--muted); }
+.sw .knob { width: 28px; height: 16px; border-radius: 8px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); position: relative; }
+.sw .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+.sw[aria-checked="true"] { border-color: var(--accent); background: var(--accent-bg) !important; color: var(--accent); }
+.sw[aria-checked="true"] .n { color: var(--accent); }
+.sw[aria-checked="true"] .knob { background: var(--accent); box-shadow: none; }
+.sw[aria-checked="true"] .knob::after { transform: translateX(12px); background: var(--bg); }
+/* mock-only E6: the Agents view's parent row and footnote. */
+.ag-parent .sb-open b { font-weight: 600; }
+.ag-parent + .sb-agents { padding-bottom: 6px; }
+.sb-note { margin: 10px 16px 0; color: var(--muted); font-size: 12px; }
+.sb-note button { min-height: 0 !important; padding: 0; color: var(--accent); font-size: 12px; text-decoration: underline; }
+/* Working logo, as in the app. */
+.working { border-radius: 50%; background: var(--accent-bg); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 0 1px var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .working { animation: logo-clench 1.4s ease-in-out infinite; } .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; } .working[data-tool="omp"] { animation: none; border-radius: 19%; } }
+@keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
+@keyframes logo-spin { to { transform: rotate(1turn); } }
+
+/* Hover card (sidebar.js #side-hover), positioned inside the frame. */
+#side-hover { position: absolute; z-index: 30; left: 308px; width: 320px; display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); --card: var(--surface); color: var(--fg); box-shadow: 0 8px 28px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; pointer-events: none; }
+#side-hover .h { display: flex; align-items: center; gap: 10px; }
+#side-hover .h > span:last-child { min-width: 0; display: grid; }
+#side-hover .h .sb-logo, #side-hover .h .sb-logo > img:first-child { width: 28px; height: 28px; }
+#side-hover small { color: var(--muted); font-size: 12px; }
+#side-hover .badge { justify-self: start; font-size: 11px; font-weight: 600; color: var(--muted); }
+#side-hover .badge.running { color: var(--accent); } #side-hover .badge.waiting { color: var(--amber); } #side-hover .badge.compacting { color: var(--purple); }
+#side-hover .q { color: var(--amber); font-weight: 600; }
+#side-hover .sb-agents { padding: 0; }
+#side-hover .agent small { font-size: 11px; }
+#side-hover :is(p, small):empty, #side-hover .sb-agents:empty { display: none; }
+
+/* The work column: a stub of the pane the selection opens. */
+.work { display: grid; grid-template-rows: var(--bar) minmax(0, 1fr); min-width: 0; min-height: 0; }
+.wk-head { display: flex; align-items: center; gap: 4px; padding: 0 16px 0 10px; border-bottom: 1px solid var(--line); }
+.wk-head .tab { min-height: 32px !important; padding: 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.wk-head .tab.on { color: var(--fg); background: var(--raised); }
+.wk-head .ttl { margin-left: auto; text-align: right; min-width: 0; }
+.wk-head .ttl b { font-size: 14px; font-weight: 600; }
+.wk-head .ttl small { display: block; font-size: 12px; color: var(--muted); line-height: 1.2; }
+.wk-body { overflow: hidden; }
+.wk-body section { padding: 20px 28px; border-bottom: 1px solid var(--line); max-width: 760px; }
+.wk-body .sec { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+.wk-body .status { margin: 8px 0 4px; font-size: 19px; line-height: 1.45; font-weight: 550; }
+.wk-body .q { background: var(--amber-bg); }
+.wk-body .q h2 { margin: 6px 0 12px; font-size: 17px; }
+.wk-body .q button { display: block; width: 100%; min-height: 44px; margin-top: 8px; padding: 0 14px; text-align: left; border: 1px solid var(--line); background: var(--surface); }
+.wk-body .agent { min-height: 30px; font-size: 14px; gap: 10px; }
+.wk-body .agent svg { width: 15px; height: 15px; }
+.wk-body .agent small { font-size: 12px; }
+.wk-empty { margin: 40px 28px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<header class="mk-top">
+  <h1>Expand models <small>· mock</small></h1>
+  <nav class="mk-tabs" id="tabs" aria-label="Expand model"></nav>
+</header>
+<div class="mk-main">
+  <div class="mk-stage" id="stage"><div class="mk-holder" id="holder">
+    <div class="frame" id="frame">
+      <aside id="sessions">
+        <div id="sb-head"><span id="brand"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj4KICA8IS0tIEFwcCBpY29uOiB0aGUgdG11eCBsb2dvbWFyayAoSVNDLCDCqSAyMDE1IEphc29uIExvbmcg4oCUIHNlZSB0bXV4LWxvZ28uTElDRU5TRSkKICAgICAgIHdpdGggb3VyIGdyZWVuICJyYyIgc3VwZXJzY3JpcHQsIG1hdGNoaW5nIHRoZSBpbi1hcHAgaGVhZGVyIGJyYW5kLgogICAgICAgVGhlIGljb24gaXMgZGVjbGFyZWQgbWFza2FibGUsIGFuZCBBbmRyb2lkIGNyb3BzIHRvIGEgQ0lSQ0xFIG9mIHJhZGl1cyA0MCUKICAgICAgICg3Ni44cHggZnJvbSBjZW50ZXIpIOKAlCBldmVyeSBjb3JuZXIgb2YgdGhlIGFydHdvcmsgbXVzdCBzdGF5IGluc2lkZSB0aGF0CiAgICAgICBjaXJjbGUsIG5vdCBqdXN0IGluc2lkZSBhIHNxdWFyZSBtYXJnaW4uIFRoZSBkYXJrIGJnIGZ1bGwtYmxlZWRzIHRoZSBtYXNrLiAtLT4KICA8cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjQwIiBmaWxsPSIjMGIwZjE0Ii8+CiAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMzUsNjQpIHNjYWxlKDAuNTIpIj4KICAgIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAsMTE2KSIgZmlsbD0iIzFCQjkxRiI+CiAgICAgIDxwYXRoIGQ9Ik0wLDAgTDE2MCwwIEwxNjAsMjguOTk2MTI3NiBDMTYwLDM3LjI4MjUzNzUgMTUzLjI3ODAzNSw0NCAxNDUuMDAxNTM1LDQ0IEwxNC45OTg0NjU0LDQ0IEM2LjcxNTA0MTY5LDQ0IDAsMzcuMjkzNDE0OSAwLDI4Ljk5NjEyNzYgTDAsMCBaIE0wLDAgTDE2MCwwIEwxNjAsMzAgTDAsMzAgTDAsMCBaIi8+CiAgICA8L2c+CiAgICA8cGF0aCBmaWxsPSIjYWRiYWM3IiBkPSJNODMsNzAgTDgzLDAgTDc3LDAgTDc3LDE0NiBMODMsMTQ2IEw4Myw3NiBMMTYwLDc2IEwxNjAsNzAgTDgzLDcwIFogTTAsMTUuMDA2NDg2NyBDMCw2LjcxODYzMjkzIDYuNzIxOTY0ODksMCAxNC45OTg0NjU0LDAgTDE0NS4wMDE1MzUsMCBDMTUzLjI4NDk1OCwwIDE2MCw2LjcyNDkxOTUzIDE2MCwxNS4wMDY0ODY3IEwxNjAsMTQ2IEwwLDE0NiBMMCwxNS4wMDY0ODY3IFoiLz4KICA8L2c+CiAgPHRleHQgeD0iMTIwIiB5PSI3NiIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzIiIGZvbnQtd2VpZ2h0PSI3MDAiIGZpbGw9IiMxQkI5MUYiPnJjPC90ZXh0Pgo8L3N2Zz4K" alt="" width="26" height="26"><span>tmux-rc</span></span><button class="icon-button" id="theme-btn" title="Change theme"></button><button class="icon-button" id="collapse-btn" title="Collapse sidebar (not mocked)"></button></div>
+        <div id="sb-nav"><button class="icon-button" id="new-window"></button><button class="icon-button" id="dash-btn" title="Dashboard (not mocked)"></button></div>
+        <label class="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" autocomplete="off"></label>
+        <div id="side-list"></div>
+        <div id="sb-foot"><span id="connection">Connected</span><button class="icon-button" id="bell-btn" title="Notifications (not mocked)"></button></div>
+      </aside>
+      <main class="work" id="work"></main>
+      <div id="side-hover" role="tooltip" hidden></div>
+    </div>
+  </div></div>
+  <aside class="mk-aside" id="aside">
+    <div class="mk-only" id="only"></div>
+    <div class="mk-set">
+      <span>Screen</span><span class="mk-seg" id="set-frame"><button data-v="1440">1440 × 900</button><button data-v="1920">1920 × 1080</button></span>
+      <span>Zoom</span><span class="mk-seg" id="set-zoom"><button data-v="fit">Fit height</button><button data-v="actual">100%</button></span>
+      <span>Theme</span><span class="mk-seg" id="set-theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></span>
+      <span>Finished<br>sub-agents</span><span class="mk-seg" id="set-done"><button data-v="hide">Hover only</button><button data-v="show">Inline too</button></span>
+    </div>
+    <h3>Live measure</h3>
+    <div class="mk-metric" id="metric"></div>
+    <div id="caption"></div>
+    <button class="mk-reset" id="reset">Reset this option</button>
+  </aside>
+</div>
+
+<script>
+// Inline Lucide paths, as web/m/app.js does (no external fetches).
+const LUCIDE = {
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  check: '<path d="m20 6-11 11-5-5"/>',
+  circle: '<circle cx="12" cy="12" r="9"/>',
+  bell: '<path d="M10.3 21h3.4M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
+  list: '<path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/>',
+  listTree: '<path d="M21 12h-8M21 6H8M21 18h-8M3 6v4c0 1.1.9 2 2 2h3M3 10v6c0 1.1.9 2 2 2h3"/>',
+  unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
+  fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
+};
+const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const $ = (id) => document.getElementById(id);
+const LOGOS = { claude: "data:image/png;base64,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", codex: "data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjMTBhMzdmIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+T3BlbkFJPC90aXRsZT48cGF0aCBkPSJNMjIuMjgxOSA5LjgyMTFhNS45ODQ3IDUuOTg0NyAwIDAgMC0uNTE1Ny00LjkxMDggNi4wNDYyIDYuMDQ2MiAwIDAgMC02LjUwOTgtMi45QTYuMDY1MSA2LjA2NTEgMCAwIDAgNC45ODA3IDQuMTgxOGE1Ljk4NDcgNS45ODQ3IDAgMCAwLTMuOTk3NyAyLjkgNi4wNDYyIDYuMDQ2MiAwIDAgMCAuNzQyNyA3LjA5NjYgNS45OCA1Ljk4IDAgMCAwIC41MTEgNC45MTA3IDYuMDUxIDYuMDUxIDAgMCAwIDYuNTE0NiAyLjkwMDFBNS45ODQ3IDUuOTg0NyAwIDAgMCAxMy4yNTk5IDI0YTYuMDU1NyA2LjA1NTcgMCAwIDAgNS43NzE4LTQuMjA1OCA1Ljk4OTQgNS45ODk0IDAgMCAwIDMuOTk3Ny0yLjkwMDEgNi4wNTU3IDYuMDU1NyAwIDAgMC0uNzQ3NS03LjA3Mjl6bS05LjAyMiAxMi42MDgxYTQuNDc1NSA0LjQ3NTUgMCAwIDEtMi44NzY0LTEuMDQwOGwuMTQxOS0uMDgwNCA0Ljc3ODMtMi43NTgyYS43OTQ4Ljc5NDggMCAwIDAgLjM5MjctLjY4MTN2LTYuNzM2OWwyLjAyIDEuMTY4NmEuMDcxLjA3MSAwIDAgMSAuMDM4LjA1MnY1LjU4MjZhNC41MDQgNC41MDQgMCAwIDEtNC40OTQ1IDQuNDk0NHptLTkuNjYwNy00LjEyNTRhNC40NzA4IDQuNDcwOCAwIDAgMS0uNTM0Ni0zLjAxMzdsLjE0Mi4wODUyIDQuNzgzIDIuNzU4MmEuNzcxMi43NzEyIDAgMCAwIC43ODA2IDBsNS44NDI4LTMuMzY4NXYyLjMzMjRhLjA4MDQuMDgwNCAwIDAgMS0uMDMzMi4wNjE1TDkuNzQgMTkuOTUwMmE0LjQ5OTIgNC40OTkyIDAgMCAxLTYuMTQwOC0xLjY0NjR6TTIuMzQwOCA3Ljg5NTZhNC40ODUgNC40ODUgMCAwIDEgMi4zNjU1LTEuOTcyOFYxMS42YS43NjY0Ljc2NjQgMCAwIDAgLjM4NzkuNjc2NWw1LjgxNDQgMy4zNTQzLTIuMDIwMSAxLjE2ODVhLjA3NTcuMDc1NyAwIDAgMS0uMDcxIDBsLTQuODMwMy0yLjc4NjVBNC41MDQgNC41MDQgMCAwIDEgMi4zNDA4IDcuODcyem0xNi41OTYzIDMuODU1OEwxMy4xMDM4IDguMzY0IDE1LjExOTIgNy4yYS4wNzU3LjA3NTcgMCAwIDEgLjA3MSAwbDQuODMwMyAyLjc5MTNhNC40OTQ0IDQuNDk0NCAwIDAgMS0uNjc2NSA4LjEwNDJ2LTUuNjc3MmEuNzkuNzkgMCAwIDAtLjQwNy0uNjY3em0yLjAxMDctMy4wMjMxbC0uMTQyLS4wODUyLTQuNzczNS0yLjc4MThhLjc3NTkuNzc1OSAwIDAgMC0uNzg1NCAwTDkuNDA5IDkuMjI5N1Y2Ljg5NzRhLjA2NjIuMDY2MiAwIDAgMSAuMDI4NC0uMDYxNWw0LjgzMDMtMi43ODY2YTQuNDk5MiA0LjQ5OTIgMCAwIDEgNi42ODAyIDQuNjZ6TTguMzA2NSAxMi44NjNsLTIuMDItMS4xNjM4YS4wODA0LjA4MDQgMCAwIDEtLjAzOC0uMDU2N1Y2LjA3NDJhNC40OTkyIDQuNDk5MiAwIDAgMSA3LjM3NTctMy40NTM3bC0uMTQyLjA4MDVMOC43MDQgNS40NTlhLjc5NDguNzk0OCAwIDAgMC0uMzkyNy42ODEzem0xLjA5NzYtMi4zNjU0bDIuNjAyLTEuNDk5OCAyLjYwNjkgMS40OTk4djIuOTk5NGwtMi41OTc0IDEuNDk5Ny0yLjYwNjctMS40OTk3WiIvPjwvc3ZnPg==", gemini: "data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjNDI4NUY0IiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+R29vZ2xlIEdlbWluaTwvdGl0bGU+PHBhdGggZD0iTTExLjA0IDE5LjMyUTEyIDIxLjUxIDEyIDI0cTAtMi40OS45My00LjY4Ljk2LTIuMTkgMi41OC0zLjgxdDMuODEtMi41NVEyMS41MSAxMiAyNCAxMnEtMi40OSAwLTQuNjgtLjkzYTEyLjMgMTIuMyAwIDAgMS0zLjgxLTIuNTggMTIuMyAxMi4zIDAgMCAxLTIuNTgtMy44MVExMiAyLjQ5IDEyIDBxMCAyLjQ5LS45NiA0LjY4LS45MyAyLjE5LTIuNTUgMy44MWExMi4zIDEyLjMgMCAwIDEtMy44MSAyLjU4UTIuNDkgMTIgMCAxMnEyLjQ5IDAgNC42OC45NiAyLjE5LjkzIDMuODEgMi41NXQyLjU1IDMuODEiLz48L3N2Zz4=", opencode: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBmaWxsPSJub25lIj4KICA8cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzEzMTAxMCIvPgogIDxwYXRoIGQ9Ik0zMjAgMjI0VjM1MkgxOTJWMjI0SDMyMFoiIGZpbGw9IiM1QTU4NTgiLz4KICA8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCIgZD0iTTM4NCA0MTZIMTI4Vjk2SDM4NFY0MTZaTTMyMCAxNjBIMTkyVjM1MkgzMjBWMTYwWiIgZmlsbD0id2hpdGUiLz4KPC9zdmc+Cg==", omp: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZWQ0YWJmIiAvPgogICAgICA8c3RvcCBvZmZzZXQ9Ii41IiBzdG9wLWNvbG9yPSIjOWI0ZGZmIiAvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM1YWQ4ZTYiIC8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxMiIgZmlsbD0iIzBmMGExNCIgLz4KICA8cGF0aCBmaWxsPSJ1cmwoI2cpIiBkPSJNMTQgMTZoMzZ2OEg0MHYzMmgtOFYyNGgtNnYyMmgtOFYyNGgtNHoiIC8+Cjwvc3ZnPgo=", shell: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyZpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNi1jMTExIDc5LjE1ODMyNSwgMjAxNS8wOS8xMC0wMToxMDoyMCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTUgKFdpbmRvd3MpIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOjhEQTVFNTU3QUZCMzExRTVCQUMxQTM2MTkwQUIwNjhCIiB4bXBNTTpEb2N1bWVudElEPSJ4bXAuZGlkOjhEQTVFNTU4QUZCMzExRTVCQUMxQTM2MTkwQUIwNjhCIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6OERBNUU1NTVBRkIzMTFFNUJBQzFBMzYxOTBBQjA2OEIiIHN0UmVmOmRvY3VtZW50SUQ9InhtcC5kaWQ6OERBNUU1NTZBRkIzMTFFNUJBQzFBMzYxOTBBQjA2OEIiLz4gPC9yZGY6RGVzY3JpcHRpb24+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InIiPz5XLxAeAAALlUlEQVR42uRb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" };
+const PROVIDER = (m) => /claude|opus|sonnet/i.test(m) ? LOGOS.claude : /gpt/i.test(m) ? LOGOS.codex : "";
+
+// ── The synthetic fleet: demo_fleet.py's sessions and panes, plus sub-agents ──
+const A = (label, state, elapsed, tokens) => ({ label, state, elapsed, tokens });
+const R = "running", C = "compacting", D = "done";
+const SESSIONS = ["shop-api", "ci", "research", "docs", "ops"];
+const RAW = [
+  ["shop-api", "claude", "Sonnet 5", "need", "api contract diff", "3m", "Two endpoints changed shape; both break existing clients.", "Two endpoints changed. Bump the API version?", ["Bump to v3", "Keep v2"],
+    [A("Reading the payments schema", R, "2m", "14.2k"), A("Diffing the generated clients", D, "1m", "6.1k")]],
+  ["shop-api", "codex", "GPT-6.1", "run", "migration planner", "now", "Mapping table dependencies before proposing an order.", "", [],
+    [A("Reading the payments schema", R, "3m", "22.4k"), A("Tracing foreign keys in orders", R, "2m", "11.8k"), A("Estimating lock time per table", C, "5m", "61.0k"), A("Listing unused indexes", D, "1m", "4.3k")]],
+  ["shop-api", "opencode", "Claude Sonnet 5", "run", "schema reviewer", "now", "Checking the new column constraints against live data.", "", [],
+    [A("Sampling 10k rows from orders", R, "48s", "3.9k")]],
+  ["shop-api", "claude", "Opus 5", "run", "refund flow fix", "now", "Writing a regression test for partial refunds.", "", [],
+    [A("Running the unit suite", R, "1m", "8.0k"), A("Searching for other refund call sites", R, "2m", "12.5k"), A("Reviewing the webhook handler", R, "40s", "2.2k")]],
+  ["shop-api", "claude", "Sonnet 5", "done", "fact checker agent", "2m", "Waiting for the preview build after updating review docs.", "", [],
+    [A("Checking claims against the API docs", D, "3m", "17.0k"), A("Verifying code samples compile", D, "2m", "9.4k")]],
+  ["shop-api", "claude", "Opus 5", "idle", "preview deploy", "2h", "Deployed. Link posted in the PR thread.", "", [], [A("Smoke-testing the preview URL", D, "1m", "3.1k")]],
+  ["shop-api", "shell", "", "idle", "zsh ~/src/shop-api", "41m", "git status: clean, on main.", "", [], []],
+  ["shop-api", "codex", "GPT-6.1", "idle", "seed data refresh", "5h", "Refreshed 12 fixtures. Tests green.", "", [], []],
+  ["ci", "claude", "Opus 5", "need", "flaky test hunter", "4m", "Two reruns disagree on which suite is flaky.", "Two reruns disagree. Which suite to quarantine?", ["e2e", "integration"],
+    [A("Re-running checkout.spec 20 times", R, "4m", "18.4k"), A("Bisecting the last 12 commits", R, "3m", "15.0k"), A("Comparing CI and local timings", D, "2m", "7.7k")]],
+  ["ci", "claude", "Opus 5", "run", "e2e triage", "now", "Re-running checkout.spec with tracing on.", "", [],
+    [A("Running the e2e suite", R, "6m", "41.2k"), A("Diff passing and failing traces", R, "2m", "9.1k"), A("Search for other networkidle waits", D, "1m", "4.0k"), A("Reading the Playwright retry config", R, "30s", "1.8k"), A("Summarizing flaky test history", C, "7m", "88.3k"), A("Checking iframe load order", R, "1m", "5.6k")]],
+  ["ci", "codex", "GPT-6.1", "done", "lint autofix", "12m", "Fixed 38 warnings across 9 files. Ready to commit.", "", [],
+    [A("Fixing warnings in api/", D, "4m", "12.2k"), A("Fixing warnings in web/", D, "3m", "10.8k")]],
+  ["ci", "codex", "GPT-6.1", "run", "release pipeline", "now", "Waiting on the arm64 build to finish.", "", [], [A("Watching the arm64 build log", R, "9m", "2.1k")]],
+  ["ci", "shell", "", "idle", "build cache warmer", "1h", "Cache warm: 214 layers, 3.1 GB.", "", [], []],
+  ["ci", "shell", "", "idle", "zsh ~/src/ci", "3h", "make test passed in 2m 41s.", "", [], []],
+  ["research", "claude", "Opus 5", "run", "eval harness", "now", "Scoring 120 samples against the candidate prompt.", "", [],
+    [A("Scoring samples 1–40", R, "3m", "30.1k"), A("Scoring samples 41–80", R, "3m", "28.7k"), A("Scoring samples 81–120", R, "2m", "19.4k"), A("Collecting regressions", R, "20s", "1.1k"), A("Loading the baseline run", D, "1m", "3.2k")]],
+  ["research", "codex", "GPT-6.1", "run", "prompt A/B sweep", "now", "Variant C leads by 4 points after 60 of 200 runs.", "", [],
+    [A("Running variant B", R, "12m", "54.0k"), A("Running variant C", C, "12m", "97.5k")]],
+  ["research", "opencode", "GPT-6.1", "done", "dataset dedupe", "25m", "Removed 1,204 near-duplicates. Report written.", "", [],
+    [A("Hashing 48k records", D, "6m", "5.5k"), A("Clustering near-duplicates", D, "9m", "21.0k"), A("Writing the dedupe report", D, "2m", "6.8k")]],
+  ["research", "claude", "Sonnet 5", "idle", "paper notes", "1d", "Summarised sections 3 and 4.", "", [], []],
+  ["research", "gemini", "Gemini 3.5 Pro", "idle", "literature scan", "2d", "Compared eight related papers.", "", [], [A("Fetching the eight PDFs", D, "3m", "40.2k")]],
+  ["research", "shell", "", "idle", "notebook scratch", "6h", "Kernel idle.", "", [], []],
+  ["docs", "omp", "Claude Opus 5", "run", "release notes drafter", "now", "Grouping merged PRs since v0.14 by area.", "", [],
+    [A("Reading 46 merged PRs", R, "2m", "25.0k"), A("Grouping changes by area", R, "1m", "7.4k"), A("Checking for breaking changes", R, "50s", "3.0k")]],
+  ["docs", "claude", "Sonnet 5", "need", "style guide pass", "6m", "14 pages still say workspace.", "Rename 'workspace' to 'project' in 14 pages?", ["Rename all", "Skip"], []],
+  ["docs", "claude", "Opus 5", "done", "screenshot refresher", "8m", "Regenerated 22 screenshots for the light theme.", "", [],
+    [A("Capturing the dashboard", D, "2m", "2.4k"), A("Capturing pane views", D, "3m", "3.0k"), A("Capturing the sidebar", D, "1m", "1.9k"), A("Diffing against the old set", D, "1m", "4.4k")]],
+  ["docs", "opencode", "Claude Sonnet 5", "idle", "api reference regen", "3h", "Reference rebuilt, no broken links.", "", [], []],
+  ["docs", "shell", "", "idle", "zsh ~/src/docs", "1d", "Idle at the prompt.", "", [], []],
+  ["ops", "claude", "Opus 5", "need", "alert tuning", "11m", "Disk on build-02 grows 2 GB a day.", "Silence the disk alert on build-02 for 24 hours?", ["Silence 24h", "Keep"],
+    [A("Checking disk growth on build-02", R, "5m", "6.6k")]],
+  ["ops", "codex", "GPT-6.1", "compact", "cost report", "now", "Compacting the conversation", "", [],
+    [A("Pulling the billing export", R, "4m", "16.0k"), A("Grouping spend by team", R, "2m", "9.9k")]],
+  ["ops", "claude", "Opus 5", "run", "terraform plan review", "now", "Reading a 41-resource plan; 2 replacements so far.", "", [],
+    [A("Check replacements for data loss", R, "3m", "21.7k"), A("Cross-check IAM changes", R, "2m", "12.3k"), A("Summarize the 33 in-place changes", R, "48s", "6.2k")]],
+  ["ops", "claude", "Sonnet 5", "idle", "pager rota sync", "4h", "Rota synced through next Friday.", "", [], [A("Reading the holiday calendar", D, "1m", "2.7k")]],
+  ["ops", "shell", "", "idle", "zsh ~/ops", "2h", "Idle at the prompt.", "", [], []],
+  ["ops", "shell", "", "idle", "backup verify", "1d", "All 6 snapshots restored and checked.", "", [], []],
+];
+const fresh = () => RAW.map(([session, tool, model, state, title, age, activity, question, options, subs], i) =>
+  ({ id: `%${i + 11}`, session, tool, model, state, title, age, activity, question, options, subs: subs.map((a) => ({ ...a })), win: (i % 4) + 1 }));
+let PANES = fresh();
+
+const isRun = (p) => p.state === "run" || p.state === "compact";
+const RANK = { need: 0, run: 1, compact: 1, done: 2, idle: 3 };
+const FILTERS = [["all", "All", () => true], ["running", "Running", isRun], ["recent", "Recent", (p) => p.state !== "idle"], ["attention", "Needs you", (p) => p.state === "need"]];
+const STATES = [["run", "Working", isRun], ["done", "Just finished", (p) => p.state === "done"], ["idle", "Idle", (p) => p.state === "idle"]];
+
+// ── State ──
+const S = { opt: "E1", frame: "1440", zoom: "fit", theme: matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark", finished: false,
+  by: "state", filter: "all", q: "", fold: {}, selected: "%20", hover: null };
+const initial = () => ({
+  E1: { all: null, lvl: {}, sel: true },
+  E2: { all: null, cards: {}, ov: {} },
+  E3: { all: null, cards: {}, open: {}, tree: false },
+  E4: { all: null, cards: {} },
+  E5: { cards: false, hoverOpen: false },
+  E6: { all: null, cards: {}, view: "panes" },
+  E7: { all: null, cards: {}, on: true }, // on by default: sub-agents without descriptions is the common case
+  E8: { all: null, lvl: {}, sel: false },
+});
+let O = initial();
+try { Object.assign(S, JSON.parse(localStorage.getItem("expandmock")) || {}); } catch {}
+if (typeof S.e7on === "boolean") O.E7.on = S.e7on; // the switch is remembered
+const fromHash = () => { const k = location.hash.slice(1).toUpperCase(); if (OPTS[k]) S.opt = k; };
+const params = new URLSearchParams(location.search);
+for (const k of ["opt", "frame", "theme", "zoom"]) if (params.get(k)) S[k] = params.get(k);
+if (params.get("finished")) S.finished = params.get("finished") === "show";
+if (params.get("view")) O.E6.view = params.get("view");
+if (params.get("e7")) O.E7.on = params.get("e7") === "on";
+const persist = () => { try { localStorage.setItem("expandmock", JSON.stringify({ opt: S.opt, frame: S.frame, zoom: S.zoom, theme: S.theme, finished: S.finished, e7on: O.E7.on })); } catch {} };
+
+const subsOf = (p) => p.subs.filter((a) => S.finished || a.state !== "done");
+const cardsOf = (o, g) => o.cards[g.id] ?? o.all ?? g.id === "need";
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+// ── Options: what the bar, a group header and each row show ──
+// E1 and E8 are one density control with three ordered steps; they differ only in the middle step.
+const LEVELS = {
+  E1: [{ icon: "list", label: "Compact", tip: "one line" }, { icon: "rows", label: "Detail", tip: "latest activity", card: true }, { icon: "listTree", label: "Full", tip: "activity + sub-agents", card: true, list: true }],
+  E8: [{ icon: "list", label: "Compact", tip: "one line" }, { icon: "bot", label: "Agents", tip: "one line + sub-agents", list: true }, { icon: "listTree", label: "Full", tip: "activity + sub-agents", card: true, list: true }],
+};
+const NEED_LEVEL = { E1: 1, E8: 2 }; // Needs you starts with its answers showing
+const lvlOf = (k, g) => O[k].lvl[g.id] ?? O[k].all ?? (g.id === "need" ? NEED_LEVEL[k] : 0);
+const levelOption = (k, tab) => ({
+  tab,
+  barRight: () => "",
+  bar2: (shown) => {
+    const LV = LEVELS[k], levels = new Set(shown.map((g) => lvlOf(k, g))), cur = levels.size === 1 ? [...levels][0] : -1;
+    return `<div class="sb-bar2"><span>Show</span><span class="seg">${LV.map((l, i) => `<button data-act="lvlall" data-v="${i}" aria-pressed="${cur === i}" title="Every group: ${l.tip}">${licon(l.icon, 13)}${l.label}</button>`).join("")}</span></div>`;
+  },
+  groupCtl: (g) => { const LV = LEVELS[k], l = lvlOf(k, g), next = LV[(l + 1) % 3]; return `<button class="sb-icon" data-act="lvlgrp" data-g="${esc(g.id)}" aria-pressed="${l > 0}" title="${esc(g.label)}: ${LV[l].label} (${LV[l].tip}). Click for ${next.label}">${licon(LV[l].icon, 15)}</button>`; },
+  row: (p, g) => { const L = LEVELS[k][lvlOf(k, g)], list = !!L.list || (O[k].sel && p.id === S.selected); return { card: !!L.card, list, ctl: list ? "" : "badge" }; },
+});
+// The ⇕ expand/compact-all button of today's sidebar (E2 reinterprets what "expanded" means).
+const allButton = (o, shown, act = "all") => {
+  const expand = shown.some((g) => !cardsOf(o, g));
+  const tip = act === "e2all" ? (expand ? "Expand every group: activity and sub-agents" : "Compact every group and fold sub-agents") : (expand ? "Show the latest activity in every group" : "Compact every group");
+  return `<button class="sb-icon" data-act="${act}" data-v="${expand}" title="${tip}">${licon(expand ? "unfold" : "fold", 15)}</button>`;
+};
+const densityButton = (o, g, act = "cards", tip) => `<button class="sb-icon" data-act="${act}" data-g="${esc(g.id)}" aria-pressed="${cardsOf(o, g)}" title="${tip || (cardsOf(o, g) ? "Compact rows" : "Show the latest activity")} for ${esc(g.label)}">${licon("rows", 15)}</button>`;
+
+const OPTS = {
+  E1: levelOption("E1", "One axis"),
+  E2: {
+    tab: "Expand-all + row override",
+    barRight: (shown) => allButton(O.E2, shown, "e2all"),
+    groupCtl: (g) => densityButton(O.E2, g, "e2grp", cardsOf(O.E2, g) ? "Compact rows and fold sub-agents" : "Show activity and sub-agents"),
+    row: (p, g) => { const open = O.E2.ov[p.id] ?? cardsOf(O.E2, g); return { card: cardsOf(O.E2, g), list: open, ctl: "toggle", open, override: p.id in O.E2.ov }; },
+  },
+  E3: {
+    tab: "Tree",
+    barRight: (shown) => allButton(O.E3, shown),
+    bar2: () => {
+      const withSubs = visible().filter((p) => subsOf(p).length), open = withSubs.filter((p) => treeOpen(p)).length;
+      return `<div class="sb-bar2"><span>Tree</span><button class="tb" data-act="e3tree" data-v="true" ${open === withSubs.length ? "disabled" : ""}>${licon("plus", 13)}Expand all</button><button class="tb" data-act="e3tree" data-v="false" ${open ? "" : "disabled"}>${licon("minus", 13)}Collapse all</button><span class="n" style="margin-left:auto" title="Panes with sub-agents unfolded">${open}/${withSubs.length}</span></div>`;
+    },
+    groupCtl: (g) => densityButton(O.E3, g),
+    row: (p, g) => ({ card: cardsOf(O.E3, g), list: treeOpen(p), tree: true, open: treeOpen(p) }),
+  },
+  E4: {
+    tab: "Inline summary",
+    barRight: (shown) => allButton(O.E4, shown),
+    groupCtl: (g) => densityButton(O.E4, g),
+    row: (p, g) => ({ card: cardsOf(O.E4, g), list: false, ctl: "strip" }),
+  },
+  E5: {
+    tab: "Selected pane expands",
+    barRight: () => `<button class="sb-icon" data-act="e5all" aria-pressed="${O.E5.cards}" title="${O.E5.cards ? "Compact rows" : "Show the latest activity"} everywhere">${licon(O.E5.cards ? "fold" : "unfold", 15)}</button>`,
+    groupCtl: () => "",
+    row: (p, g) => { const list = p.id === S.selected || (O.E5.hoverOpen && p.id === S.hover); return { card: O.E5.cards || g.id === "need", list, ctl: list ? "" : "badge" }; },
+  },
+  E6: {
+    tab: "Panes | Agents",
+    barRight: (shown) => O.E6.view === "panes" ? allButton(O.E6, shown) : "",
+    top: () => {
+      const n = visible().reduce((s, p) => s + subsOf(p).length, 0);
+      return `<div class="sb-bar2" style="padding-top:10px"><span>View</span><span class="seg"><button data-act="e6view" data-v="panes" aria-pressed="${O.E6.view === "panes"}">Panes <span class="n">${visible().length}</span></button><button data-act="e6view" data-v="agents" aria-pressed="${O.E6.view === "agents"}">${licon("bot", 13)}Agents <span class="n">${n}</span></button></span></div>`;
+    },
+    groupCtl: (g) => O.E6.view === "panes" ? densityButton(O.E6, g) : "",
+    row: (p, g) => ({ card: cardsOf(O.E6, g), list: false, ctl: "badge" }),
+  },
+};
+OPTS.E7 = {
+  tab: "Sub-agents switch",
+  barRight: (shown) => allButton(O.E7, shown),
+  top: () => {
+    const n = visible().reduce((s, p) => s + subsOf(p).length, 0), on = O.E7.on;
+    return `<div class="sb-bar2" style="padding-top:10px"><span>Show</span><button class="sw" role="switch" data-act="e7sw" aria-checked="${on}" title="${on ? "Hide" : "Show"} every pane's sub-agents under its row">${licon("bot", 14)}Sub-agents <span class="n">${n}</span><i class="knob"></i></button></div>`;
+  },
+  groupCtl: (g) => densityButton(O.E7, g),
+  row: (p, g) => ({ card: cardsOf(O.E7, g), list: O.E7.on, ctl: O.E7.on ? "" : "badge" }),
+};
+OPTS.E8 = levelOption("E8", "E1 reordered");
+const treeOpen = (p) => !!subsOf(p).length && (O.E3.open[p.id] ?? O.E3.tree);
+
+// ── Rendering ──
+function visible() {
+  const test = FILTERS.find((f) => f[0] === S.filter)[2], q = S.q.toLowerCase();
+  return PANES.filter((p) => test(p) && (!q || `${p.title} ${p.session} ${p.subs.map((a) => a.label).join(" ")}`.toLowerCase().includes(q)));
+}
+function groups(panes) {
+  const rest = panes.filter((p) => p.state !== "need");
+  const list = S.by === "session"
+    ? SESSIONS.map((s) => ({ id: `session:${s}`, label: s, panes: rest.filter((p) => p.session === s) }))
+    : STATES.map(([id, label, test]) => ({ id, label, panes: rest.filter(test) }));
+  list.unshift({ id: "need", label: "Needs you", panes: panes.filter((p) => p.state === "need"), alert: true });
+  for (const g of list) { g.panes.sort((a, b) => RANK[a.state] - RANK[b.state]); g.open = !!S.q || !S.fold[g.id]; }
+  return list.filter((g) => g.panes.length);
+}
+function logo(p) {
+  const badge = ["omp", "opencode"].includes(p.tool) && PROVIDER(p.model) ? `<img class="model-badge" src="${PROVIDER(p.model)}" alt="">` : "";
+  return `<span class="sb-logo"><img class="${isRun(p) ? "working" : ""}" data-tool="${p.tool}" src="${LOGOS[p.tool]}" alt="${p.tool}">${badge}</span>`;
+}
+const agentLine = (a, full = false) => `<div class="agent ${a.state}" title="${esc(a.label)}"><span role="img" aria-label="${a.state}">${licon(a.state === "done" ? "check" : "circle", 16)}</span><span>${esc(a.label)}</span><small>${[a.state === "compacting" ? "compacting" : "", a.elapsed, full ? `${a.tokens} tokens` : a.tokens].filter(Boolean).join(" · ")}</small></div>`;
+function head(g, ctl) {
+  const running = g.panes.filter(isRun).length;
+  return `<div class="sb-group"><button class="sb-fold" data-act="fold" data-g="${esc(g.id)}" aria-expanded="${g.open}">${licon(g.open ? "chevronDown" : "chevron", 14)}${g.alert ? licon("alert", 13) : ""}<span class="l">${esc(g.label)}</span><span class="c">${running && g.id !== "run" ? `<i></i>${running} · ` : ""}${g.panes.length}</span></button>${ctl}</div>`;
+}
+function row(p, g, m) {
+  const subs = subsOf(p), n = subs.length, sel = p.id === S.selected, need = p.state === "need";
+  const cls = `${m.card ? "sb-card" : "sb-row"}${need ? " need" : ""}${m.parent ? " ag-parent" : ""}`;
+  const sess = S.by === "state" || g.id === "need" ? ` · ${p.session}` : "";
+  const strip = m.ctl === "strip" && p.subs.length ? `<span class="strip" title="${plural(subs.filter((a) => a.state !== "done").length, "sub-agent")} working">${subsOf(p).slice(0, 6).map((a) => `<i class="${a.state}"></i>`).join("")}${n ? `<span>${n}</span>` : ""}</span>` : "";
+  const badge = m.ctl === "badge" && n ? `<span class="sb-badge" title="${plural(n, "sub-agent")}">${licon("bot", 13)}${n}</span>` : "";
+  const twisty = m.tree ? (n ? `<button class="twisty" data-act="e3row" data-p="${p.id}" aria-expanded="${m.open}" title="${m.open ? "Hide" : "Show"} ${plural(n, "sub-agent")}">${licon(m.open ? "chevronDown" : "chevron", 13)}</button>` : `<span class="twisty"></span>`) : "";
+  const toggle = m.ctl === "toggle" && n ? `<button class="sb-sub" data-act="e2row" data-p="${p.id}" aria-expanded="${m.open}" title="${plural(n, "sub-agent")}: ${m.open ? "hide" : "show"}${m.override ? " (overrides its group)" : ""}">${licon("bot", 13)}${n}${licon(m.open ? "chevronDown" : "chevron", 12)}</button>` : "";
+  const list = m.list && n ? `<div class="sb-agents${m.tree ? " tree" : ""}">${subs.map((a) => agentLine(a)).join("")}</div>` : "";
+  const replies = m.card && need ? `<div class="sb-replies">${p.options.map((o) => `<button data-act="answer" data-p="${p.id}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}<button data-act="sel" data-p="${p.id}">Reply</button></div>` : "";
+  return `<div class="${cls}" data-p="${p.id}"${sel ? ' aria-current="true"' : ""}>${twisty}<button class="sb-open" data-act="sel" data-p="${p.id}">${logo(p)}<span class="t"><b>${esc(p.title)}</b><span class="s">${esc(sess)}</span></span>${strip}${badge}<span class="a">${esc(p.age)}</span>${m.card ? `<p>${esc(p.activity)}</p>` : ""}</button>${toggle}${list}${replies}</div>`;
+}
+function renderList() {
+  const opt = OPTS[S.opt], panes = visible(), shown = groups(panes), sideList = $("side-list"), top = sideList.scrollTop;
+  const bar = `<div class="sb-bar"><span>Group by</span><span class="seg"><button data-act="by" data-v="state" aria-pressed="${S.by === "state"}">State</button><button data-act="by" data-v="session" aria-pressed="${S.by === "session"}">Session</button></span><span class="pick"><select data-act="filter" aria-label="Filter panes">${FILTERS.map(([v, l]) => `<option value="${v}"${v === S.filter ? " selected" : ""}>${l}</option>`).join("")}</select></span>${opt.barRight(shown)}</div>${opt.bar2 ? opt.bar2(shown) : ""}`;
+  const agentsView = S.opt === "E6" && O.E6.view === "agents";
+  const of = (g) => {
+    const members = agentsView ? g.panes.filter((p) => subsOf(p).length) : g.panes;
+    if (!members.length) return "";
+    const rows = members.filter((p) => g.open || p.id === S.selected).map((p) => agentsView
+      ? row(p, g, { card: false, ctl: "", parent: true }) + `<div class="sb-agents tree">${subsOf(p).map((a) => agentLine(a)).join("")}</div>`
+      : row(p, g, opt.row(p, g)));
+    return head({ ...g, panes: members }, opt.groupCtl(g)) + rows.join("");
+  };
+  const need = shown[0]?.id === "need" ? 1 : 0;
+  let html = (opt.top ? opt.top() : "") + shown.slice(0, need).map(of).join("") + bar + shown.slice(need).map(of).join("");
+  if (agentsView) { const none = panes.filter((p) => !subsOf(p).length).length; if (none) html += `<p class="sb-note">${plural(none, "pane")} without ${S.finished ? "" : "running "}sub-agents are in <button data-act="e6view" data-v="panes">Panes</button>.</p>`; }
+  if (!panes.length) html += `<p class="sb-note">No panes match.</p>`;
+  sideList.innerHTML = html;
+  sideList.scrollTop = top;
+}
+function renderWork() {
+  const p = PANES.find((x) => x.id === S.selected);
+  if (!p) { $("work").innerHTML = `<div class="wk-head"></div><p class="wk-empty">Select a pane.</p>`; return; }
+  $("work").innerHTML = `<div class="wk-head"><button class="tab on">Overview</button><button class="tab">Terminal</button><span class="ttl"><b>${esc(p.title)}</b><small>${esc(p.session)} / window ${p.win} / ${p.id}</small></span></div>
+  <div class="wk-body">${p.state === "need" ? `<section class="q"><div class="sec"><span>Needs you · ${esc(p.age)}</span></div><h2>${esc(p.question)}</h2>${p.options.map((o) => `<button data-act="answer" data-p="${p.id}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}</section>` : ""}
+  <section><div class="sec"><span>Status</span><span>${esc(p.tool)}${p.model ? ` · ${esc(p.model)}` : ""}</span></div><p class="status">${esc(p.activity)}</p></section>
+  ${p.subs.length ? `<section><div class="sec"><span>Sub-agents · ${p.subs.filter((a) => a.state !== "done").length} working, ${p.subs.filter((a) => a.state === "done").length} done</span></div>${p.subs.map((a) => agentLine(a, true)).join("")}</section>` : ""}
+  <p class="wk-empty">The pane's overview opens here; the terminal is a tab away. This column is a stub — the sidebar is what's being compared.</p></div>`;
+}
+const ACT = { run: ["running", "Running"], compact: ["compacting", "Compacting"], need: ["waiting", "Needs you"], done: ["", "Finished"], idle: ["", "Idle"] };
+function fillHover(p) {
+  const done = p.subs.filter((a) => a.state === "done").length, live = p.subs.length - done;
+  $("side-hover").innerHTML = `<div class="h">${logo(p)}<span><b>${esc(p.title)}</b><small>${esc([p.tool, p.model].filter(Boolean).join(" · "))}</small></span></div><small>${esc(p.session)} / window ${p.win} / ${p.id}</small><span class="badge ${ACT[p.state][0]}">${ACT[p.state][1]} · ${esc(p.age)}</span><p>${esc(p.activity)}</p><p class="q">${esc(p.question)}</p><small>${p.subs.length ? `Sub-agents: ${live} working${done ? `, ${done} done` : ""}` : ""}</small><div class="sb-agents">${p.subs.map((a) => agentLine(a, true)).join("")}</div>`;
+}
+function render() {
+  document.documentElement.classList.toggle("light", S.theme === "light");
+  $("theme-btn").innerHTML = licon(S.theme === "light" ? "moon" : "sun", 20);
+  $("tabs").innerHTML = Object.entries(OPTS).map(([k, o]) => `<button data-opt="${k}" aria-pressed="${k === S.opt}"><b>${k}</b>${o.tab}</button>`).join("");
+  for (const [id, v] of [["set-frame", S.frame], ["set-zoom", S.zoom], ["set-theme", S.theme], ["set-done", S.finished ? "show" : "hide"]])
+    $(id).querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+  renderList(); renderWork(); caption(); layout(); persist();
+  if (S.hover) { const p = PANES.find((x) => x.id === S.hover); if (p) fillHover(p); }
+}
+
+// ── Captions ──
+const CAP = {
+  E1: { title: "E1 · One axis",
+    model: "Density is the only expand control, with three ordered steps: <b>Compact</b> (one line) → <b>Detail</b> (latest activity) → <b>Full</b> (activity plus one line per sub-agent). Rows have no toggles; a robot count just says sub-agents exist.",
+    controls: ["<b>Show</b> Compact / Detail / Full: sets every group (no button lit = groups differ).", "Group header icon: cycles that group through the three steps.", "Option below: the selected pane always lists its sub-agents, whatever its group's step (borrowed from E5)."],
+    trade: [["Discoverable", "High. One labelled control; “more” always means more."], ["See everything", "1 click: Show → Full."], ["Vertical cost", "Full on ~30 panes is several screens. Without the selection rule, one pane's sub-agents cost its whole group."], ["Consistency", "One mental model at two scopes. Gives up “sub-agents without activity lines”."]],
+    extra: () => `<label class="mk-check"><input type="checkbox" data-act="e1sel" ${O.E1.sel ? "checked" : ""}> Selected pane always lists its sub-agents</label>`,
+    only: "not possible. Full brings the descriptions too; the closest is selecting a pane, which lists its own.",
+    tryIt: "Click Full, then Compact. Cycle one group's icon. Click different panes with the checkbox on and off." },
+  E2: { title: "E2 · Expand-all includes sub-agents + row override",
+    model: "Today's controls, redefined: <b>expanded</b> now means card + sub-agents. ⇕ and each group's density icon expand both. Each row keeps #312's robot toggle as a per-pane override, and the next group or global click wipes the overrides in its scope.",
+    controls: ["⇕ (bar): expand or compact every group, sub-agents included; clears all row overrides.", "Group density icon: same, for one group; clears that group's overrides.", "Row robot toggle: flip just that pane."],
+    trade: [["Discoverable", "Medium. Two kinds of control remain, but the big one now does everything."], ["See everything", "1 click: ⇕."], ["Vertical cost", "Same as E1 Full. Cards without sub-agents take a row-by-row fold."], ["Consistency", "Overrides are hidden state: a row that disagrees with its group looks like a bug, and a group click silently discards it."]],
+    only: "a robot toggle per row (~20 clicks). ⇕ always brings the descriptions with them.",
+    tryIt: "Expand all, then fold two rows by their robot toggle, then click that group's density icon twice." },
+  E3: { title: "E3 · Sub-agents as children in a tree",
+    model: "Two orthogonal axes, each labelled. <b>Density</b> (rows / cards) is today's ⇕ and group icons. <b>Tree</b> is file-tree disclosure: every pane with sub-agents gets a triangle, children indent under it on a guide line, and its own labelled row expands or collapses them all.",
+    controls: ["⇕ and group icons: rows vs cards only, as shipped.", "Tree: Expand all / Collapse all (count shows how many are open).", "Row triangle: one pane."],
+    trade: [["Discoverable", "High. Triangles are universal, and the labels remove “which expand?”."], ["See everything", "1 click: Tree → Expand all."], ["Vertical cost", "Your choice per axis; tree-open + rows is the densest way to see every sub-agent. Costs a 30px bar row and an 18px gutter on every row."], ["Consistency", "Two controls, but named and non-overlapping, so neither surprises the other."]],
+    only: "Tree → Expand all, with density left on rows. 1 click.",
+    tryIt: "Expand all in Tree, then flip density both ways. Open one triangle with the tree collapsed." },
+  E4: { title: "E4 · Inline summary, details on demand",
+    model: "Sub-agents never unfold in the list. Each row carries a strip: one dot per sub-agent (filled running, purple compacting, hollow finished) and a count. The names live in the hover card (350 ms) and in the pane's overview when selected. Density is unchanged.",
+    controls: ["⇕ and group icons: rows vs cards, as shipped.", "Hover a row: the card lists every sub-agent with elapsed and tokens.", "Click: the overview (right) lists them."],
+    trade: [["Discoverable", "Hover is invisible until tried, but the dots invite it."], ["See everything", "Not at once: one hover or one click per pane."], ["Vertical cost", "Zero. The list stays as dense as today."], ["Consistency", "One expand control. The confusion is fixed by deleting the second one."]],
+    only: "not inline. Hover a row (or select it) to see its sub-agents.",
+    tryIt: "Hover a few Working rows. Flip “Finished sub-agents” to see hollow dots." },
+  E5: { title: "E5 · The selected pane expands",
+    model: "Only the selected pane unfolds its sub-agents inline, accordion-style: select another and the first folds. Everything else stays compact and shows a count. One global density toggle; no per-group or per-row expanders.",
+    controls: ["⇕ (bar): rows vs cards everywhere (Needs you stays cards).", "Click a pane: it opens and its sub-agents unfold in the list.", "Option below: also unfold on hover."],
+    trade: [["Discoverable", "Implicit: it happens when you click, nothing to learn, nothing to find."], ["See everything", "Never all at once: one pane at a time."], ["Vertical cost", "Near zero: one pane's worth."], ["Consistency", "Simplest, but the list shifts when selection moves. Turn on hover to feel why that's usually bad."]],
+    extra: () => `<label class="mk-check"><input type="checkbox" data-act="e5hover" ${O.E5.hoverOpen ? "checked" : ""}> Also unfold the hovered pane (after 350 ms)</label>`,
+    only: "one pane at a time: click it. Never all at once.",
+    tryIt: "Click down the Working group. Then turn on hover-unfold and sweep the mouse down the list." },
+  E6: { title: "E6 · Panes | Agents view",
+    model: "A view switch replaces the expand question. <b>Panes</b> is today's sidebar with a count. <b>Agents</b> lists every sub-agent under its parent pane, keeping the same State / Session groups, and answers “what is all my parallel work doing?”. Panes without sub-agents drop out.",
+    controls: ["View: Panes / Agents (counts on both).", "Panes: ⇕ and group icons, as shipped.", "Agents: no density; folds and filters still apply."],
+    trade: [["Discoverable", "High. A labelled switch at the top."], ["See everything", "1 click: Agents."], ["Vertical cost", "Every sub-agent line, but idle panes leave, so it's shorter than E1 Full."], ["Consistency", "Two views, one job each. You lose sub-agents beside the other panes in one list."]],
+    only: "View → Agents. 1 click, but panes without sub-agents leave the list.",
+    tryIt: "Switch to Agents, group by Session, filter to Needs you." },
+};
+CAP.E7 = { title: "E7 · Sub-agents switch",
+  only: "the Sub-agents switch, with rows (the default density). On by default, so 0 clicks; your choice is remembered.",
+  model: "Density stays exactly as shipped: rows or cards, which is about the <b>description</b>. Sub-agents get <b>one labelled switch</b> at the top of the list that shows every pane's sub-agents under its row, in whatever density you're in. Rows + switch on = sub-agents only.",
+  controls: ["<b>Sub-agents</b> switch (top of the list): every pane, every group, on or off. Remembered across reloads.", "⇕ and group icons: rows vs cards, as shipped.", "No per-row toggles. A robot count shows while the switch is off."],
+  trade: [["Discoverable", "High. A labelled switch with a count, first thing in the list."], ["See everything", "0 clicks (on by default), or 1."], ["Vertical cost", "Every running sub-agent is a line: about 2.7 screens at 1440×900 in rows (see Live measure); ⇕ adds descriptions on top."], ["Consistency", "Two controls, two nouns: density = description, switch = sub-agents. Neither changes what the other does. The Group-by row is full at 300px, so the switch gets its own row."]],
+  tryIt: "Flip the switch off and on. Then flip ⇕ to cards: sub-agents stay, descriptions join them." };
+CAP.E8 = { title: "E8 · E1 reordered",
+  only: "Show → Agents. 1 click from the default.",
+  model: "E1's single density control, reordered so the common case is the middle step: <b>Compact</b> (one line) → <b>Agents</b> (one line + sub-agents, no description) → <b>Full</b> (description + sub-agents). Rows have no toggles.",
+  controls: ["<b>Show</b> Compact / Agents / Full: sets every group.", "Group header icon: cycles that group through the three steps.", "Needs you starts at Full so its answer buttons show."],
+  trade: [["Discoverable", "High. One labelled control, and “Agents” says what it does."], ["See everything", "1 click: Agents, or Full for descriptions too."], ["Vertical cost", "Agents is the same as E7 with rows."], ["Consistency", "One axis, but it's no longer “more”: you can't have descriptions without sub-agents (E1's Detail is gone). Show → Agents also turns Needs you into rows, which hides its answer buttons until its group icon goes back to Full."]],
+  tryIt: "Click Agents. Cycle the Working group's icon. Compare with E7." };
+function caption() {
+  const c = CAP[S.opt];
+  $("only").innerHTML = `<b>Sub-agents only, no descriptions:</b> ${c.only}`;
+  $("caption").innerHTML = `<h3>Model</h3><h2>${c.title}</h2><p>${c.model}</p>${c.extra ? c.extra() : ""}<h3>Controls</h3><ul>${c.controls.map((x) => `<li>${x}</li>`).join("")}</ul><h3>Tradeoffs</h3><table class="mk-trade">${c.trade.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table><h3>Try</h3><p>${c.tryIt}</p>`;
+}
+function metric() {
+  const list = $("side-list"), lines = list.querySelectorAll(".sb-agents .agent").length, total = PANES.reduce((s, p) => s + subsOf(p).length, 0);
+  $("metric").innerHTML = `<span>List height <b>${list.scrollHeight.toLocaleString()} px</b> in a <b>${list.clientHeight} px</b> viewport — <b>${(list.scrollHeight / list.clientHeight).toFixed(1)}×</b> screens</span><span>Sub-agent lines inline: <b>${lines}</b> of <b>${total}</b> ${S.finished ? "" : "running "}sub-agents</span><span>${PANES.length} panes · ${PANES.filter((p) => p.subs.length).length} with sub-agents</span>`;
+}
+
+// ── Frame sizing ──
+function layout() {
+  const [w, h] = S.frame === "1920" ? [1920, 1080] : [1440, 900];
+  const frame = $("frame"), stage = $("stage"), holder = $("holder");
+  stage.classList.toggle("actual", S.zoom === "actual");
+  const scale = S.zoom === "actual" ? 1 : Math.min(1, (stage.clientHeight - 28) / h);
+  Object.assign(frame.style, { width: `${w}px`, height: `${h}px`, transform: `scale(${scale})` });
+  Object.assign(holder.style, { width: `${w * scale}px`, height: `${h * scale}px` });
+  frame._scale = scale;
+  metric();
+}
+addEventListener("resize", layout);
+
+// ── Interaction ──
+function act(el) {
+  const a = el.dataset.act, v = el.dataset.v, g = el.dataset.g, id = el.dataset.p, o = O[S.opt];
+  const groupPanes = (gid) => groups(visible()).find((x) => x.id === gid)?.panes || [];
+  switch (a) {
+    case "sel": S.selected = id; break;
+    case "fold": S.fold[g] = !S.fold[g]; break;
+    case "by": S.by = v; break;
+    case "all": o.all = v === "true"; o.cards = {}; break;
+    case "cards": { const gr = groups(visible()).find((x) => x.id === g); o.cards[g] = !cardsOf(o, gr); break; }
+    case "lvlall": o.all = +v; o.lvl = {}; break;
+    case "lvlgrp": { const gr = groups(visible()).find((x) => x.id === g); o.lvl[g] = (lvlOf(S.opt, gr) + 1) % 3; break; }
+    case "e7sw": O.E7.on = !O.E7.on; break;
+    case "e2all": O.E2.all = v === "true"; O.E2.cards = {}; O.E2.ov = {}; break;
+    case "e2grp": { const gr = groups(visible()).find((x) => x.id === g); O.E2.cards[g] = !cardsOf(O.E2, gr); groupPanes(g).forEach((p) => delete O.E2.ov[p.id]); break; }
+    case "e2row": { const p = PANES.find((x) => x.id === id), gr = groups(visible()).find((x) => x.panes.includes(p)); const open = O.E2.ov[id] ?? cardsOf(O.E2, gr); if (!open === cardsOf(O.E2, gr)) delete O.E2.ov[id]; else O.E2.ov[id] = !open; break; }
+    case "e3tree": O.E3.tree = v === "true"; O.E3.open = {}; break;
+    case "e3row": O.E3.open[id] = !treeOpen(PANES.find((x) => x.id === id)); break;
+    case "e5all": O.E5.cards = !O.E5.cards; break;
+    case "e6view": O.E6.view = v; break;
+    case "answer": { const p = PANES.find((x) => x.id === id); Object.assign(p, { state: "run", age: "now", activity: `Answer sent: ${v}. Continuing.`, question: "" }); break; }
+    default: return;
+  }
+  unhover(); render();
+}
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-act], [data-opt]");
+  if (!t || t.matches("select, input")) return;
+  if (t.dataset.opt) { S.opt = t.dataset.opt; history.replaceState(null, "", `${location.search}#${S.opt}`); S.hover = null; unhover(); render(); $("side-list").scrollTop = 0; return; }
+  act(t);
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.dataset.act === "filter") { S.filter = t.value; render(); }
+  if (t.dataset.act === "e1sel") { O.E1.sel = t.checked; render(); }
+  if (t.dataset.act === "e5hover") { O.E5.hoverOpen = t.checked; render(); }
+});
+$("search").addEventListener("input", (e) => { S.q = e.target.value; render(); });
+for (const [id, key] of [["set-frame", "frame"], ["set-zoom", "zoom"], ["set-theme", "theme"]])
+  $(id).addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { S[key] = b.dataset.v; render(); } });
+$("set-done").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { S.finished = b.dataset.v === "show"; render(); } });
+$("theme-btn").addEventListener("click", () => { S.theme = S.theme === "light" ? "dark" : "light"; render(); });
+$("reset").addEventListener("click", () => { O[S.opt] = initial()[S.opt]; Object.assign(S, { by: "state", filter: "all", q: "", fold: {} }); $("search").value = ""; PANES = fresh(); render(); });
+$("collapse-btn").innerHTML = licon("panel", 20);
+$("new-window").innerHTML = `${licon("plus", 20)}New window`;
+$("dash-btn").innerHTML = licon("dashboard", 20);
+$("bell-btn").innerHTML = licon("bell", 20);
+$("search-icon").innerHTML = licon("search", 18);
+
+// Hover card: 350 ms like sidebar.js; tracked by pane id so re-renders don't lose it.
+let timer = 0;
+function unhover() { clearTimeout(timer); $("side-hover").hidden = true; if (S.hover && S.opt === "E5" && O.E5.hoverOpen) { S.hover = null; renderList(); metric(); } S.hover = null; }
+function place(id) {
+  const node = $("side-list").querySelector(`[data-p="${CSS.escape(id)}"].sb-row, [data-p="${CSS.escape(id)}"].sb-card`);
+  if (!node) return;
+  const card = $("side-hover"), f = $("frame").getBoundingClientRect(), s = $("frame")._scale, r = node.getBoundingClientRect();
+  const top = (r.top - f.top) / s, bottom = (r.bottom - f.top) / s, h = card.offsetHeight, H = $("frame").offsetHeight;
+  card.style.top = `${Math.max(8, top + h > H - 8 ? bottom - h : top)}px`;
+}
+$("side-list").addEventListener("pointerover", (e) => {
+  const node = e.target.closest(".sb-row, .sb-card");
+  if (!node || e.pointerType !== "mouse" || node.dataset.p === S.hover) return;
+  clearTimeout(timer);
+  const id = node.dataset.p;
+  timer = setTimeout(() => {
+    S.hover = id;
+    if (S.opt === "E5" && O.E5.hoverOpen) { renderList(); metric(); }
+    fillHover(PANES.find((x) => x.id === id)); $("side-hover").hidden = false; place(id);
+  }, 350);
+});
+$("side-list").addEventListener("pointerleave", unhover);
+$("side-list").addEventListener("pointerout", (e) => {
+  const from = e.target.closest(".sb-row, .sb-card"), to = e.relatedTarget?.closest?.(".sb-row, .sb-card");
+  if (from && from.dataset.p !== to?.dataset.p) unhover();
+});
+$("side-list").addEventListener("scroll", () => { if (S.hover) { $("side-hover").hidden = true; } }, { passive: true });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") unhover(); });
+
+addEventListener("hashchange", () => { fromHash(); unhover(); render(); });
+fromHash();
+render();
+</script>
+</body>
+</html>
