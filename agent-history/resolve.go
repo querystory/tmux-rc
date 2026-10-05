@@ -75,7 +75,7 @@ type Project struct {
 
 type Scored struct {
 	Entry
-	Score   float64  `json:"score"`
+	Score float64 `json:"score"`
 	// Matched: the query terms found in it, so a caller can see why a session whose
 	// title never names the topic was returned at all.
 	Matched []string `json:"matched,omitempty"`
