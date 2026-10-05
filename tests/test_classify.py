@@ -1062,7 +1062,8 @@ def test_menu_context_is_read_off_its_own_widget():
                          ("75_codex_permission_prompt_in_command", run),
                          ("76_codex_numbered_rows_in_command", run),
                          ("78_claude_box_row_ends_in_glyph", proceed),
-                         ("79_codex_unframed_rows_keep_glyphs", run)):
+                         ("79_codex_unframed_rows_keep_glyphs", run),
+                         ("80_codex_numbered_row_then_prompt_in_command", run)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
     # Unframed (no edge), a command's own "│" or "━━━" row is content, not frame.

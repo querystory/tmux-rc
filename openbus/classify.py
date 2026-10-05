@@ -453,6 +453,10 @@ _FRAME_RE = re.compile(r"^\s*[│┃╎]|\s+$")  # left glyph and padding: inden
 _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
 
+def _indent(row: str) -> int:
+    return len(row) - len(row.lstrip(" \t│┃╎"))
+
+
 def _widget_text(prompt: str, visible: str) -> str:
     """What a menu asks about, read off its own widget: the rows from the widget's top
     edge down to the prompt (Claude's tool, description, command and any blocking notice)
@@ -463,19 +467,22 @@ def _widget_text(prompt: str, visible: str) -> str:
     "Do you want to proceed?" alone is meaningless on a card. With no top edge close
     above, the rows there are the conversation, so none are taken."""
     found = _occurrences(prompt, visible, row=True)
+    option = next(reversed(list(_FIRST_OPTION_RE.finditer(visible))), None)
+    if found and option and option.start() > found[-1].start():
+        # The options are the LAST option-1 row (a command's own "1. payload" sits above
+        # them), and the prompt is the last row level with them: a command's rows, a
+        # quoted copy of the prompt among them, are indented deeper than the widget's.
+        found = [m for m in found if _indent(m.group()) == _indent(option.group())]
+        end = option.start()
+    else:
+        end = 0  # no options below: the rows after the prompt are not its own
     if not found:
         return ""
-    # A command can hold the prompt's own row too (a heredoc, below Codex's prompt): the
-    # widget's prompt is the first such row since the previous menu, not the last.
-    floor = max((m.end() for m in _FIRST_OPTION_RE.finditer(visible, 0, found[-1].start())),
-                default=0)
-    found = next(m for m in found if m.start() >= floor)
+    found = found[-1]
     above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
     top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
                 if _WIDGET_TOP_RE.match(above[i])), None)
-    below = visible[found.end():].splitlines()[1:]
-    # The LAST option-1 row: a command's own "1. payload" row sits above the real options.
-    stop = max((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), default=0)
+    below = visible[found.end():end].splitlines()[1:]
     # With no edge the rows are unframed (Codex): only the terminal's padding goes, so
     # a command's own "│" or "━━━" row stays part of the identity. Framed, a rule is the
     # widget's only when the whole raw row is one ("│ ━━━" is content), and only a ╭ box
@@ -484,7 +491,7 @@ def _widget_text(prompt: str, visible: str) -> str:
     text = "\n".join(raw.rstrip() if top is None else "" if _RULE_ROW_RE.match(raw) else
                      _FRAME_RE.sub("", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw)
                      for raw in [*(above[top + 1:] if top is not None else ()), "",
-                                 *below[:stop]])
+                                 *below])
     return textwrap.dedent(text).strip("\n")
 
 
