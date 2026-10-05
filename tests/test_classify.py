@@ -1060,7 +1060,8 @@ def test_menu_context_is_read_off_its_own_widget():
     for name, prompt in (("69_claude_permission_context", proceed),
                          ("05_claude_permission_box", proceed), ("06_codex_permission_box", run),
                          ("75_codex_permission_prompt_in_command", run),
-                         ("76_codex_numbered_rows_in_command", run)):
+                         ("76_codex_numbered_rows_in_command", run),
+                         ("78_claude_box_row_ends_in_glyph", proceed)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
     # A command's own "1." row is not option 1: commands sharing that prefix stay distinct.
@@ -1078,6 +1079,11 @@ def test_menu_context_is_read_off_its_own_widget():
     spaced = nested.replace("if x:\n", "if x:\n │\n │ ━━━\n")  # blank rows and rule text too
     want = "python - <<EOF\nif x:\n\n━━━\n    go()\nEOF"
     assert ask(spaced, "Go?")["question"]["context"] == want
+    # Only a ╭ box's own right border goes: a row's trailing "│" is content, so commands
+    # differing by one never share an identity.
+    box = "\x1e[visible screen]\x1f\n╭────╮\n│ echo a │ │\n│ Go?      │\n│ 1. Yes   │\n╰────╯"
+    assert ask(box, "Go?")["question"]["context"] == "echo a │"
+    assert ask(nested.replace(" EOF\n", " EOF │\n"), "Go?")["question"]["context"].endswith("EOF │")
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"

@@ -1,0 +1,15 @@
+{
+  "description": "Claude Code permission box (a ╭ box: every row closes with exactly one right border) whose command writes a row of box-drawing text, so a command row itself ends in a literal │. Only the box's own right border is stripped: the content's trailing │ stays in the context, which is the push identity, so two commands differing by that glyph never share one. Synthetic.",
+  "current_command": "node",
+  "capture": "[visible screen]\n● I'll record the sizes, then clear the old build output.\n\n╭────────────────────────────────────────────────────────────────────────────────╮\n│ Bash command                                                                   │\n│                                                                                │\n│   cat > sizes.txt <<EOF                                                        │\n│   │ name │ size │                                                              │\n│   EOF                                                                          │\n│   rm -rf dist                                                                  │\n│   Write the size table and clear the dist folder                               │\n│                                                                                │\n│ Do you want to proceed?                                                        │\n│ ❯ 1. Yes                                                                       │\n│   2. Yes, and don't ask again for cat commands in this project                 │\n│   3. No, and tell Claude what to do differently (esc)                          │\n│                                                                                │\n╰────────────────────────────────────────────────────────────────────────────────╯\n  ~/src/app  main    Opus 5.5   22% ctx   12m   $1.40",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "Bash command\n\n  cat > sizes.txt <<EOF\n  │ name │ size │\n  EOF\n  rm -rf dist\n  Write the size table and clear the dist folder"
+    },
+    "headline": "Asking to write a size table and delete the dist folder"
+  }
+}

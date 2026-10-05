@@ -449,7 +449,7 @@ def _ground_visible_fields(
 # box/gutter glyphs framing each of its rows.
 _WIDGET_TOP_RE = re.compile(r"^\s*(?:[─━]{3,}|╭)")
 _FIRST_OPTION_RE = re.compile(r"^[ \t│❯›>]*1[.)]\s", re.MULTILINE)
-_FRAME_RE = re.compile(r"^\s*[│┃╎]|[\s│┃╎]+$")  # the glyphs only: indentation is content
+_FRAME_RE = re.compile(r"^\s*[│┃╎]|\s+$")  # left glyph and padding: indentation is content
 _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
 
@@ -476,8 +476,12 @@ def _widget_text(prompt: str, visible: str) -> str:
     below = visible[found.end():].splitlines()[1:]
     # The LAST option-1 row: a command's own "1. payload" row sits above the real options.
     stop = max((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), default=0)
-    # A rule is the widget's only when the whole raw row is one: "│ ━━━" is content.
-    text = "\n".join("" if _RULE_ROW_RE.match(raw) else _FRAME_RE.sub("", raw) for raw in
+    # Only a ╭ box closes each row with a right border, exactly one: a content row's own
+    # trailing "│" stays part of the identity. A rule is the widget's only when the whole
+    # raw row is one: "│ ━━━" is content.
+    boxed = top is not None and "╭" in above[top]
+    text = "\n".join("" if _RULE_ROW_RE.match(raw) else _FRAME_RE.sub(
+        "", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw) for raw in
                      [*(above[top + 1:] if top is not None else ()), "", *below[:stop]])
     return textwrap.dedent(text).strip("\n")
 
