@@ -129,8 +129,10 @@ Finding only reads, so it runs at once. Both are recorded by the same audit poin
 
 ## Who should be able to query it, and how
 
-Today only the human can, through the phone and Live. Agents have concrete reasons to
-ask:
+Through tmux-rc, only the human can today, from the phone and Live. An unsandboxed agent
+running as the same user can already read the index files or run the CLI, so Connect
+does not make agent reads possible. It makes them discoverable, scoped and audited.
+Agents have concrete reasons to ask:
 - an orchestrator needs the directory;
 - a stuck agent wants to know what a sibling found;
 - a new session wants the last session's decisions on this branch.
@@ -303,7 +305,10 @@ different user from the daemon.
 ### Scopes
 
 - **read**: the fleet directory and pane detail, limited to the panes the human sees.
-- **history**: search and get, limited to the grantee's repo unless widened.
+- **history**: search and get, limited to the grantee's repo unless widened. The limit
+  has to apply before ranking: Live asks `resolve` for the top three projects
+  fleet-wide, so filtering its answer afterwards can drop real in-repo matches. That
+  needs a repo filter in the CLI, and `get_session` checks the entry's repo itself.
 - **message**: send to reachable peers, under the tiers above.
 - **reachable**: may receive peer messages.
 - **act**: keys, windows, resume and handoff. This is control's charter only.
@@ -339,6 +344,8 @@ harness's per-launch override, never by writing the user's global config:
 - OpenCode: a config file named by an environment variable.
 - omp: an MCP file or extension for that launch. The exact mechanism still needs
   checking.
+- Gemini, a default launcher too: not designed yet. Connect stays unavailable for its
+  launchers until a per-launch override is found.
 
 Today's launchers are opaque shell strings, which the daemon deliberately does not
 parse, so it cannot safely append flags to them. Connect therefore needs launchers in a
@@ -458,6 +465,7 @@ written as plain argv, and adds the structured launcher form alongside the opaqu
    - a structured (argv plus environment) launcher form, and launch injection for
      Claude Code and Codex launchers written that way;
    - the indicator and the audit actor;
+   - the repo filter in `agent-history resolve` that the history scope needs;
    - the loopback fix;
    - the consent and audit gate, extracted from Live.
 
