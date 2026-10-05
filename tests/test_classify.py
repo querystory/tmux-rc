@@ -1061,9 +1061,16 @@ def test_menu_context_is_read_off_its_own_widget():
                          ("05_claude_permission_box", proceed), ("06_codex_permission_box", run),
                          ("75_codex_permission_prompt_in_command", run),
                          ("76_codex_numbered_rows_in_command", run),
-                         ("78_claude_box_row_ends_in_glyph", proceed)):
+                         ("78_claude_box_row_ends_in_glyph", proceed),
+                         ("79_codex_unframed_rows_keep_glyphs", run),
+                         ("80_codex_numbered_row_then_prompt_in_command", run)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
+    # Unframed (no edge), a command's own "│" or "━━━" row is content, not frame.
+    unframed = _sample("79_codex_unframed_rows_keep_glyphs")
+    for row in ("    │ build report\n", "    ━━━━━━━━━━━━\n"):
+        assert ask(unframed.replace(row, ""), run)["question"]["context"] != (
+            ask(unframed, run)["question"]["context"])
     # A command's own "1." row is not option 1: commands sharing that prefix stay distinct.
     numbered = _sample("76_codex_numbered_rows_in_command")
     assert ask(numbered.replace("rm -rf build", "rm -rf src"), run)["question"]["context"] != (
@@ -1137,6 +1144,10 @@ def test_widget_ask_is_restated_once_per_widget():
                       replies_fn=good)["question"]
     assert choice["context"] == "Deploy target" and "ask" not in choice
     assert len(calls) == 5  # unchanged
+    bad = classify(_pane("node"), capture, _llm({"tool": "claude", "question": {
+        "prompt": "Do you want to proceed?", "answer_style": "menu", "options": 1}}),
+        replies_fn=good)["question"]  # malformed options: no restatement, no crash
+    assert bad["context"] and "ask" not in bad and len(calls) == 5
     failed = capture.replace("4100", "2")
     assert "ask" not in ask(failed, restate(None))
     ask(failed, restate(None))

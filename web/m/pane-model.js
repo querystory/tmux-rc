@@ -146,6 +146,6 @@ export function matchesSearch(pane, query) {
   const text = [pane.session, pane.title, pane.label, pane.window_name, pane.pane_id, pane.tool, pane.model,
     pane.question?.prompt, pane.question?.ask, pane.question?.context, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
     pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : "", ...refs]
-    .filter(Boolean).join(" ").toLowerCase();
+    .filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "); // context keeps its rows and runs of spaces
   return text.includes(String(query).trim().toLowerCase().replace(/\s+/g, " "));
 }

@@ -453,6 +453,10 @@ _FRAME_RE = re.compile(r"^\s*[│┃╎]|\s+$")  # left glyph and padding: inden
 _RULE_ROW_RE = re.compile(r"^\s*[─━╌┄]{3,}\s*$")  # a separator inside the widget
 
 
+def _indent(row: str) -> int:
+    return len(row) - len(row.lstrip(" \t│┃╎"))
+
+
 def _widget_text(prompt: str, visible: str) -> str:
     """What a menu asks about, read off its own widget: the rows from the widget's top
     edge down to the prompt (Claude's tool, description, command and any blocking notice)
@@ -463,26 +467,31 @@ def _widget_text(prompt: str, visible: str) -> str:
     "Do you want to proceed?" alone is meaningless on a card. With no top edge close
     above, the rows there are the conversation, so none are taken."""
     found = _occurrences(prompt, visible, row=True)
+    option = next(reversed(list(_FIRST_OPTION_RE.finditer(visible))), None)
+    if found and option and option.start() > found[-1].start():
+        # The options are the LAST option-1 row (a command's own "1. payload" sits above
+        # them), and the prompt is the last row level with them: a command's rows, a
+        # quoted copy of the prompt among them, are indented deeper than the widget's.
+        found = [m for m in found if _indent(m.group()) == _indent(option.group())]
+        end = option.start()
+    else:
+        end = 0  # no options below: the rows after the prompt are not its own
     if not found:
         return ""
-    # A command can hold the prompt's own row too (a heredoc, below Codex's prompt): the
-    # widget's prompt is the first such row since the previous menu, not the last.
-    floor = max((m.end() for m in _FIRST_OPTION_RE.finditer(visible, 0, found[-1].start())),
-                default=0)
-    found = next(m for m in found if m.start() >= floor)
+    found = found[-1]
     above = visible[:visible.rfind("\n", 0, found.start()) + 1].splitlines()  # whole rows
     top = next((i for i in reversed(range(max(len(above) - 16, 0), len(above)))
                 if _WIDGET_TOP_RE.match(above[i])), None)
-    below = visible[found.end():].splitlines()[1:]
-    # The LAST option-1 row: a command's own "1. payload" row sits above the real options.
-    stop = max((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), default=0)
-    # Only a ╭ box closes each row with a right border, exactly one: a content row's own
-    # trailing "│" stays part of the identity. A rule is the widget's only when the whole
-    # raw row is one: "│ ━━━" is content.
+    below = visible[found.end():end].splitlines()[1:]
+    # With no edge the rows are unframed (Codex): only the terminal's padding goes, so
+    # a command's own "│" or "━━━" row stays part of the identity. Framed, a rule is the
+    # widget's only when the whole raw row is one ("│ ━━━" is content), and only a ╭ box
+    # closes each row with a right border, exactly one.
     boxed = top is not None and "╭" in above[top]
-    text = "\n".join("" if _RULE_ROW_RE.match(raw) else _FRAME_RE.sub(
-        "", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw) for raw in
-                     [*(above[top + 1:] if top is not None else ()), "", *below[:stop]])
+    text = "\n".join(raw.rstrip() if top is None else "" if _RULE_ROW_RE.match(raw) else
+                     _FRAME_RE.sub("", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw)
+                     for raw in [*(above[top + 1:] if top is not None else ()), "",
+                                 *below])
     return textwrap.dedent(text).strip("\n")
 
 
@@ -510,6 +519,13 @@ _ASK_SYSTEM = (
     "it."
 )
 _asks: dict[tuple, str] = {}  # by (prompt, widget): one call per ask, not per tick
+
+
+def is_approval(question: dict) -> bool:
+    """A menu whose option 1 is "Yes…": an approval, which only its restatement describes."""
+    options = question.get("options")
+    first = options[0] if isinstance(options, list) and options else None
+    return isinstance(first, str) and bool(re.match(r"(?i)(?:\d+[.)]\s*)?yes\b", first))
 
 
 def _restate(question: dict, replies_fn) -> str | None:
@@ -913,11 +929,9 @@ def classify(
         asked = question.get("answer_style") == "menu" and _question_prompt(question)
         if context := asked and _widget_text(asked, visible):
             question["context"] = context
-            # Only an approval (option 1 is "Yes…") is restated: a numbered choice such as
-            # "Which environment?" keeps its own question.
-            first = next(iter(question.get("options") or ()), None)
-            if isinstance(first, str) and re.match(r"(?i)(?:\d+[.)]\s*)?yes\b", first) and (
-                    ask := _restate(question, replies_fn)):
+            # Only an approval is restated: a numbered choice such as "Which environment?"
+            # keeps its own question.
+            if is_approval(question) and (ask := _restate(question, replies_fn)):
                 question["ask"] = ask
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
