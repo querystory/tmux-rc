@@ -115,6 +115,15 @@ def test_refusals_never_touch_tmux(sock, audits, body, status):
     assert audits and audits[-1][2].startswith("rejected")
 
 
+def test_single_pane_mode_refuses(sock, audits, tmp_path, monkeypatch):
+    """The watcher publishes only TMUXRC_TARGET, so a new session could never be shown."""
+    monkeypatch.setenv("TMUXRC_TARGET", "%3")
+    r = TestClient(S.app).post("/api/sessions", json={"name": "t", "cwd": str(tmp_path)})
+    assert r.status_code == 409, r.text
+    assert not T.server_running()
+    assert audits[-1][2].startswith("rejected")
+
+
 def test_no_server_preflight_ignores_the_daemons_own_path(sock, audits, tmp_path, monkeypatch):
     """A command only the daemon can see (its virtualenv's bin) is not on the PATH the
     server it starts will get, so the window would die at once: refuse up front."""
