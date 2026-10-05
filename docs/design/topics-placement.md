@@ -181,7 +181,8 @@ of the mock page.
 What the table says:
 
 - **Distance is binary.** Sidebar variants sit within 10px of the list; T0's gap grows with
-  the screen, from 690px to 1,850px. T4 and T7 bring the dashboard cloud to 33px.
+  the screen, from 691px at 1440 to 1,849px at 3440 (134px at 1280, where the cloud is below
+  the fold). T4 and T7 bring the dashboard cloud to 33px.
 - **Height is the real sidebar cost.** T1's 238px costs about half the visible list on
   laptops (3 items instead of 7 at 1280). The strip's 34px costs one or two. T2 costs nothing.
 - **Lists read better than clouds.** Chips and suggestions hold 12 to 13px everywhere; clouds
@@ -203,7 +204,7 @@ It is simple and fast, and it fails in three predictable ways:
   9 of the top 15 words are state or narration words; on the live fleet 6 of 15 are.
 - **Fragments count as topics.** "src" (from shell paths), "build-02", "against", "since"
   and "next" pass because the rule cannot tell a path or a preposition from a subject.
-- **Singletons dominate the tail.** Most words appear in exactly one pane: 176 on the demo
+- **Singletons dominate the tail.** Most words appear in exactly one pane: 211 on the demo
   fleet, 391 on the live one. A word only one pane uses is that pane's name, not a topic.
 
 Candidate fixes, from cheapest to most capable:
