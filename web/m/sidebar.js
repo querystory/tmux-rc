@@ -3,7 +3,8 @@
 // everything else is grouped by state or by tmux session. Each group folds and switches
 // between one-line rows and activity cards, and those choices are a per-screen preference,
 // so they live in localStorage, not the URL. Folded, the sidebar is a rail of live agents.
-// Phones never call this: their list is renderList's rows in app.js.
+// Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
+// borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
 import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age } from "/m/pane-model.js";
@@ -45,10 +46,10 @@ function groups(subset, query) {
 export function setupSidebar(ctx) {
   const { licon, reconcile, text } = ctx;
   const root = document.getElementById("side-list");
-  let shown = [], replyTo = null, last = null;
+  let shown = [], replyTo = null;
   // Inline drafts, per pane like the footer's: kept until sent or cancelled.
   const drafts = new Map(), draft = () => drafts.get(replyTo);
-  const repaint = () => { if (last) render(...last); }, rerender = () => { save(); repaint(); };
+  const repaint = ctx.repaint, rerender = () => { save(); repaint(); };
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
@@ -96,21 +97,25 @@ export function setupSidebar(ctx) {
     open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? "<p></p>" : "");
     if (card) {
       open.className = "sb-open";
-      node.innerHTML = `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`;
+      addAnswers(node);
       node.prepend(open);
-      const form = node.querySelector("form");
-      // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
-      const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
-      form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
-      enterSubmits(form, (target) => !!draft()?.editor.contains(target));
-      form.onsubmit = async (event) => {
-        event.preventDefault();
-        const id = node._p.pane_id, value = drafts.get(id);
-        if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
-      };
     }
     open.onclick = () => ctx.navigate(node._p.pane_id);
     return node;
+  }
+  // A Needs-you card's answer buttons and its Reply composer, for the pane in `node._p`.
+  function addAnswers(node) {
+    node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
+    const form = node.querySelector("form");
+    // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
+    const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
+    form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
+    enterSubmits(form, (target) => !!draft()?.editor.contains(target));
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const id = node._p.pane_id, value = drafts.get(id);
+      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
+    };
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
@@ -232,7 +237,6 @@ export function setupSidebar(ctx) {
   addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this
 
   function render(subset, query, filter) {
-    last = [subset, query, filter];
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     if (prefs.rail) rail(subset); else list(subset, query, filter);
@@ -241,7 +245,6 @@ export function setupSidebar(ctx) {
   }
   function list(subset, query, filter) {
     shown = groups(subset, query);
-    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
     // A folded group still shows the open pane, so the selection never disappears.
     const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
     const need = shown[0]?.id === "need" ? 1 : 0;
@@ -256,5 +259,9 @@ export function setupSidebar(ctx) {
     ctx.html(all, licon(all._expand ? "unfold" : "fold", 15));
   }
   render.drafts = drafts; // for the app's unsent-draft guard on reload
+  // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
+  render.answers = { add: addAnswers, update: replies, prune: (subset) => {
+    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
+  } };
   return render;
 }
