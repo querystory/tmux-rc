@@ -170,6 +170,22 @@ def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
     assert _said(ws.sent) == ["Left it.", "Got it."]
 
 
+def test_a_card_already_tapped_is_not_superseded():
+    """A Send tapped just before the message, its turn still unwinding, stands."""
+    from tests.test_live_mode import _ScriptedWS
+
+    meter = L._Meter("s", "a", _FLASH, text=True)
+
+    async def go():
+        meter.approvals["p"] = tapped = asyncio.get_running_loop().create_future()
+        tapped.set_result(True)
+        await L._forward_client(_ScriptedWS([{"action": "text", "text": "test"},
+                                             {"action": "stop"}]), _Fake([]), meter)
+
+    asyncio.run(go())
+    assert not meter.superseded
+
+
 def test_pane_updates_ride_in_front_of_the_next_turn_and_stay_bounded(monkeypatch):
     s = _Fake([("ok", [])])
     for i in range(C.CONTEXT_KEPT + 2):

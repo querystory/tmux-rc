@@ -897,11 +897,11 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     await websocket.send_json({"type": "error", "refused": True, "message": busy})
                     continue
                 meter.keep_images(images)
-                if meter.approvals:  # an unanswered card: this supersedes it, and its turn
+                # An unanswered card (not one tapped and still unwinding): this supersedes
+                # it, and the rest of its turn.
+                for answer in [a for a in meter.approvals.values() if not a.done()]:
                     meter.superseded = True
-                    for answer in meter.approvals.values():
-                        if not answer.done():
-                            answer.set_result(None)
+                    answer.set_result(None)
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
