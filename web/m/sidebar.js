@@ -65,7 +65,7 @@ export function setupSidebar(ctx) {
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
-  const subs = Object.assign(document.createElement("button"), { className: "sb-switch", title: "List every pane's running sub-agents under its row" });
+  const subs = Object.assign(document.createElement("button"), { className: "sb-switch", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.setAttribute("role", "switch");
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
   const show = Object.assign(document.createElement("div"), { className: "sb-show", textContent: "Show" });
