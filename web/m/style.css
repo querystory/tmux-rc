@@ -406,7 +406,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
 .sb-icon { width: 32px; height: 32px; min-height: 32px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .sb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-bg); }
-.sb-bar { display: flex; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.sb-bar { display: flex; flex-wrap: wrap; row-gap: 8px; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .sb-bar .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); }
 .sb-bar .seg button { min-height: 22px; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted); }
 .sb-bar .seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
@@ -419,18 +419,24 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .sb-fold .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-fold .c { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .sb-fold .c i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-/* A row or card is its pane's button, the sub-agent toggle beside it, then full-width lines. */
-.sb-row, .sb-card { display: flex; flex-wrap: wrap; align-items: flex-start; margin: 0 6px; border-radius: 7px; }
-:is(.sb-row, .sb-card) > :not(.sb-open, .sb-sub) { flex-basis: 100%; }
-.sb-open { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: inherit; text-align: left; white-space: nowrap; }
+/* A row or card is its pane's button, then its sub-agent lines (and a card's answers). */
+.sb-row, .sb-card { margin: 0 6px; border-radius: 7px; }
+.sb-open { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: inherit; text-align: left; white-space: nowrap; }
 .sb-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-open b { font-weight: 500; }
 .sb-card b { font-weight: 600; }
 .sb-open .s { color: var(--muted); font-size: 11.5px; }
 .sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.sb-sub:not([hidden]) { min-height: 32px; display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.sb-sub > svg:first-child { color: var(--accent); }
-.sb-card .sb-sub { margin-top: 2px; }
+.sb-n:not([hidden]) { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: -3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sb-n svg { color: var(--accent); }
+/* The Sub-agents switch: a labelled pill with a knob, accent while on. */
+.sb-show { flex-basis: 100%; display: flex; align-items: center; gap: 6px; }
+.sb-switch { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 5px 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sb-switch i { position: relative; width: 24px; height: 14px; border-radius: 7px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
+.sb-switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.sb-switch[aria-checked="true"] { border-color: var(--accent); color: var(--accent); }
+.sb-switch[aria-checked="true"] i { background: var(--accent); box-shadow: none; }
+.sb-switch[aria-checked="true"] i::after { left: 12px; background: var(--bg); }
 /* The overview's agent lines, compact: in a row (indented under its name) and the hover card. */
 .sb-agents:not([hidden]) { display: grid; padding: 0 8px 4px 41px; }
 .sb-agents .agent { min-width: 0; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
