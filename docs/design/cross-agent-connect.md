@@ -150,7 +150,8 @@ no daemon. But it has three problems:
   aware.
 - It carries no identity.
 - Anything beyond reading the index becomes "curl the daemon", unauthenticated and
-  outside the audit record.
+  unattributed: mutating routes are audited, but as a generic local peer with no agent
+  identity or scope, and reads such as the digest are not audited at all.
 
 **(c) A daemon-served MCP endpoint.** The bus verbs plus history become tools in the
 harness's own list. The agent client's evidence decides this: the orchestrator *could*
@@ -319,7 +320,8 @@ and reachable). Single scopes are an advanced setting.
 ### Where the grant lives and how it takes effect
 
 Identity is the agent session, not the pane: pane ids recycle, and session ids survive
-resume. A grant is therefore stored against the harness session id. For a manifest agent
+resume. A grant is therefore stored against the pair (harness, session id), since ids
+can collide across harnesses. For a manifest agent
 it is a tool-surface field in C4. For an ad-hoc pane it goes in a small daemon table
 keyed the same way. A brand-new agent has no session id until it starts, so its
 launch token is first bound to the new pane and process. It is rebound to the session id
@@ -442,7 +444,10 @@ of that path, and adds no second way in. Agent B never sees the endpoint.
    `_handle_tool_call` gate into that shared path rather than writing a third.
 5. **Peer messages** are confirmed sends with provenance, delivered at idle, with hop
    and rate limits. Both ends opt in, and a new pair needs one tap.
-6. **Anything read from another agent is data,** never instructions.
+6. **Anything read from another agent is data,** never instructions. An approved peer
+   message is the one exception: it arrives as a prompt, attributed by its provenance
+   line, and the recipient treats it as untrusted input it may act on, not as the
+   human's word.
 7. **A skill for history search** is the documented fallback that needs no
    infrastructure.
 8. **Close the loopback identity gap:** a secret against accidental spoofing now, and a
@@ -459,8 +464,9 @@ written as plain argv, and adds the structured launcher form alongside the opaqu
 
 1. **Observe (first PR).** The endpoint with read and history only: directory, pane
    detail, `find_sessions`, `get_session`. `get_session` takes harness and session id
-   together, because session ids can collide across harnesses and `agent-history get`
-   takes only the id today. It also carries:
+   together, because session ids can collide across harnesses. `agent-history get`
+   takes only the id today and returns the first harness that matches, so this phase
+   adds a harness selector to it. It also carries:
    - per-agent tokens;
    - a structured (argv plus environment) launcher form, and launch injection for
      Claude Code and Codex launchers written that way;
@@ -471,7 +477,7 @@ written as plain argv, and adds the structured launcher form alongside the opaqu
 
    Nothing in this phase can change a pane.
 2. **Connect running agents.** Relaunch through the resume command, with grants stored
-   by session id so restore keeps them.
+   by (harness, session id) so restore keeps them.
 3. **Collaborate.** Confirmed send and peer messaging: the queue, the cards, pair
    approval, hop and rate limits.
 4. **Control.** It takes the act scope, per the routing doc's build order.
