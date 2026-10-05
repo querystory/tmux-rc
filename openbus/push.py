@@ -319,6 +319,8 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
         # The same "Do you want to proceed?" over a different command is a different ask:
         # a notification describing one must not approve the other.
         "context": question.get("context") if question else None,
+        # The body is the restatement: one that arrives late (a retried call) re-notifies.
+        "ask": question.get("ask") if question else None,
     }
     digest = hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
     return digest, question

@@ -1061,6 +1061,10 @@ def test_menu_context_is_read_off_its_own_widget():
                          ("05_claude_permission_box", proceed), ("06_codex_permission_box", run)):
         got = ask(_sample(name), prompt)["question"].get("context")
         assert got == _sample(name, "expected")["question"]["context"]
+    # Indentation inside the command is content; only the widget's margin goes.
+    nested = ("\x1e[visible screen]\x1f\n───\n │ python - <<EOF\n │ if x:\n │     go()\n"
+              " │ EOF\n\n Go?")
+    assert ask(nested, "Go?")["question"]["context"] == "python - <<EOF\nif x:\n    go()\nEOF"
     # The edge may sit a full 16 rows above the prompt's own row.
     edge = "\x1e[visible screen]\x1f\n───\n Bash command\n" + "\n" * 14 + " Do you want to proceed?"
     assert ask(edge, "Do you want to proceed?")["question"]["context"] == "Bash command"
