@@ -909,7 +909,11 @@ def classify(
         asked = question.get("answer_style") == "menu" and _question_prompt(question)
         if context := asked and _widget_text(asked, visible):
             question["context"] = context
-            if ask := _restate(question, replies_fn):
+            # Only an approval (option 1 is "Yes…") is restated: a numbered choice such as
+            # "Which environment?" keeps its own question.
+            first = next(iter(question.get("options") or ()), None)
+            if isinstance(first, str) and re.match(r"(?i)(?:\d+[.)]\s*)?yes\b", first) and (
+                    ask := _restate(question, replies_fn)):
                 question["ask"] = ask
     # A detected question/rewind means the pane is waiting, regardless of what the
     # model put in "activity" — this is the one bit of logic we keep out of the model.
