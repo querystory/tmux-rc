@@ -476,13 +476,15 @@ def _widget_text(prompt: str, visible: str) -> str:
     below = visible[found.end():].splitlines()[1:]
     # The LAST option-1 row: a command's own "1. payload" row sits above the real options.
     stop = max((i for i, row in enumerate(below) if _FIRST_OPTION_RE.match(row)), default=0)
-    # Only a ╭ box closes each row with a right border, exactly one: a content row's own
-    # trailing "│" stays part of the identity. A rule is the widget's only when the whole
-    # raw row is one: "│ ━━━" is content.
+    # With no edge the rows are unframed (Codex): only the terminal's padding goes, so
+    # a command's own "│" or "━━━" row stays part of the identity. Framed, a rule is the
+    # widget's only when the whole raw row is one ("│ ━━━" is content), and only a ╭ box
+    # closes each row with a right border, exactly one.
     boxed = top is not None and "╭" in above[top]
-    text = "\n".join("" if _RULE_ROW_RE.match(raw) else _FRAME_RE.sub(
-        "", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw) for raw in
-                     [*(above[top + 1:] if top is not None else ()), "", *below[:stop]])
+    text = "\n".join(raw.rstrip() if top is None else "" if _RULE_ROW_RE.match(raw) else
+                     _FRAME_RE.sub("", re.sub(r"[│┃╎]\s*$", "", raw) if boxed else raw)
+                     for raw in [*(above[top + 1:] if top is not None else ()), "",
+                                 *below[:stop]])
     return textwrap.dedent(text).strip("\n")
 
 
@@ -915,7 +917,8 @@ def classify(
             question["context"] = context
             # Only an approval (option 1 is "Yes…") is restated: a numbered choice such as
             # "Which environment?" keeps its own question.
-            first = next(iter(question.get("options") or ()), None)
+            options = question.get("options")
+            first = options[0] if isinstance(options, list) and options else None
             if isinstance(first, str) and re.match(r"(?i)(?:\d+[.)]\s*)?yes\b", first) and (
                     ask := _restate(question, replies_fn)):
                 question["ask"] = ask
