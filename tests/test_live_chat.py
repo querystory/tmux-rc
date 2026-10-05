@@ -25,7 +25,7 @@ class _Fake(C._Chat):
 
     def __init__(self, script):
         super().__init__(_FLASH, "system")
-        self.script = list(script)
+        self.script, self.offered = list(script), []
 
     def _user(self, text, images=()):
         self.history.append(("user", text, *images))
@@ -33,7 +33,8 @@ class _Fake(C._Chat):
     def _model(self, text):
         self.history.append(("model", text, []))
 
-    async def _complete(self):
+    async def _complete(self, *, tools=True):
+        self.offered.append(tools)
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -174,7 +175,7 @@ def test_gemini_wire_shapes(monkeypatch):
     seen = {}
 
     async def generate_content(model, contents, config):
-        seen.update(model=model, n=len(contents), tools=config.tools)
+        seen.update(model=model, n=len(contents), tools=config.tools, cfg=config)
         return Ns(candidates=[Ns(content=content)], usage_metadata=usage)
 
     client = Ns(aio=Ns(models=Ns(generate_content=generate_content)))
@@ -190,6 +191,8 @@ def test_gemini_wire_shapes(monkeypatch):
     assert seen["model"] == "gemini-3-flash-preview" and s.history[-1] is content
     s._results([(calls[0], {"status": "ok"})])
     (part,) = s.history[-1].parts
+    asyncio.run(s._complete(tools=False))
+    assert seen["cfg"].tool_config.function_calling_config.mode == "NONE"
     assert (part.function_response.id, part.function_response.response) == ("f1", {"status": "ok"})
 
 
@@ -215,20 +218,25 @@ def test_claude_wire_shapes():
     assert (reply, split) == ("Checking.", P.Split(105, 20, 0, 0, 900, 0))
     assert seen["model"] == "claude-sonnet-5-5" and seen["system"] == "sys"
     assert seen["tools"][0].keys() == {"name", "description", "input_schema"}
+    assert seen["tool_choice"] == {"type": "auto"}
     assert s.history[-1] == {"role": "assistant", "content": blocks}
     s._results([(calls[0], {"status": "ok"})])
     assert s.history[-1]["content"] == [
         {"type": "tool_result", "tool_use_id": "tu1", "content": '{"status": "ok"}'}]
+    asyncio.run(s._complete(tools=False))
+    assert seen["tool_choice"] == {"type": "none"}
 
 
-def test_a_model_that_never_stops_calling_tools_is_stopped(monkeypatch):
+def test_a_model_that_never_stops_calling_tools_answers_without_them(monkeypatch):
+    """The last step offers no tools, so the turn ends on an answer, not a dead end."""
     monkeypatch.setattr(L.agent_history, "offered", lambda: True)
     monkeypatch.setattr(L.agent_history, "resolve", lambda q: [])
-    s = _Fake([("", [("find_sessions", {"query": "x"})])] * C.STEPS)
+    s = _Fake([("", [("find_sessions", {"query": "x"})])] * (C.STEPS - 1) + [("None.", [])])
     frames, audits, _ = _turn(s, "loop", monkeypatch)
-    assert len(audits) == C.STEPS and not s.script
-    assert _said(frames) == [C._STOPPED] and frames[-1]["type"] == "turn_complete"
-    assert s.history[-1] == ("model", C._STOPPED, [])  # the chain ends before the next turn
+    assert len(audits) == C.STEPS - 1 and not s.script
+    assert s.offered == [True] * (C.STEPS - 1) + [False]
+    assert _said(frames) == ["None."] and frames[-1]["type"] == "turn_complete"
+    assert s.history[-2] == ("user", C._LAST)
 
 
 def test_an_empty_response_still_answers_the_turn(monkeypatch):

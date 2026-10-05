@@ -76,6 +76,9 @@ type Project struct {
 type Scored struct {
 	Entry
 	Score   float64  `json:"score"`
+	// Matched: the query terms found in it, so a caller can see why a session whose
+	// title never names the topic was returned at all.
+	Matched []string `json:"matched,omitempty"`
 	Running *Running `json:"running,omitempty"` // set when a process has it open now
 	// RunningUnknown: the live-process registry couldn't be read, so no Running here
 	// does not mean it's stopped. Callers must not resume on that basis.
@@ -105,7 +108,8 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 
 	byRepo := map[string]*Project{}
 	for _, e := range entries {
-		score := relevance(e, weights) * recency(e.LastActive, opt.Now)
+		score, matched := relevance(e, weights)
+		score *= recency(e.LastActive, opt.Now)
 		if score == 0 {
 			continue
 		}
@@ -114,7 +118,7 @@ func Resolve(entries []Entry, query string, opt ResolveOptions) []Project {
 			byRepo[repo] = &Project{Repo: repo}
 		}
 		p := byRepo[repo]
-		scored := Scored{Entry: e, Score: score, RunningUnknown: opt.RunningErr[e.Harness] != nil}
+		scored := Scored{Entry: e, Score: score, Matched: matched, RunningUnknown: opt.RunningErr[e.Harness] != nil}
 		if r, ok := opt.Running[e.ID]; ok {
 			scored.Running = &r
 		}
@@ -162,18 +166,23 @@ func idf(entries []Entry, terms []string) map[string]float64 {
 }
 
 // relevance counts term hits in what the human said, weighting the session's name and
-// its branches and PRs more, since those were chosen to describe the work.
-func relevance(e Entry, weights map[string]float64) float64 {
-	score := 0.0
+// its branches and PRs more, since those were chosen to describe the work. It also
+// returns the terms that hit, sorted.
+func relevance(e Entry, weights map[string]float64) (float64, []string) {
+	score, matched := 0.0, []string{}
 	for t, w := range weights {
 		// Hits saturate so one long session repeating a word doesn't bury the rest.
 		hits := min(strings.Count(e.body, " "+t+" "), 5)
 		if strings.Contains(e.named, " "+t+" ") {
 			hits += 5
 		}
+		if hits > 0 {
+			matched = append(matched, t)
+		}
 		score += w * float64(hits)
 	}
-	return score
+	slices.Sort(matched)
+	return score, matched
 }
 
 // recency halves a session's weight every two weeks, so the latest work on a topic

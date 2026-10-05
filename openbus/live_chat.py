@@ -33,8 +33,11 @@ _FATAL = {401, 403, 404}
 _FAILED = "(The model call failed; try again.)"
 # Model requests per typed turn. A turn normally takes two or three (look up, act, say);
 # a model that keeps calling tools instead of answering is stopped, not paid for forever.
+# The last request offers no tools and says so, so the turn ends with an answer from what
+# the model has gathered rather than a dead end. Disabling tools alone isn't enough: Flash
+# then invents a tool that was never offered instead of answering.
 STEPS = 8
-_STOPPED = f"(Stopped after {STEPS} steps without a reply.)"
+_LAST = "(No more tools this turn: answer the user now from what you have found.)"
 # A request can succeed with nothing in it (a blocked prompt, a refusal with no fallback):
 # a turn with nothing else to show still gets a visible answer rather than silence.
 _EMPTY = "(No response from the model; try again.)"
@@ -80,7 +83,7 @@ class _Chat:
         self._answers.append((call, payload))
 
     async def events(self):
-        """A turn the model did not finish (failed, stopped, empty) is closed in history with
+        """A turn the model did not finish (failed, empty) is closed in history with
         the note the user saw, so a later request cannot resume its request or tool chain."""
         while True:
             text, images = await self._inbox.get()
@@ -93,9 +96,12 @@ class _Chat:
             self._context.clear()
             sep = ""  # both clients join a turn's model transcripts verbatim
             acted = asked = False
-            for _ in range(STEPS):
+            for step in range(STEPS):
+                last = step == STEPS - 1
+                if last:
+                    self._user(_LAST)
                 try:
-                    reply, calls, usage = await self._complete()
+                    reply, calls, usage = await self._complete(tools=not last)
                 except Exception as e:
                     code = getattr(e, "status_code", None) or getattr(e, "code", None)
                     if code in _FATAL:
@@ -130,9 +136,8 @@ class _Chat:
                     yield Event("tool_call", call=call)
                 self._results(self._answers)
                 self._answers = []
-            else:
-                self._model(_STOPPED)
-                yield Event("transcript", role="model", text=sep + _STOPPED)
+            else:  # quiet or still calling on the last step: closed, as a quiet turn is
+                self._model(_DONE)
             yield Event("turn_complete")
 
 
@@ -149,6 +154,8 @@ class _Gemini(_Chat):
             automatic_function_calling=t.AutomaticFunctionCallingConfig(disable=True),
             http_options=t.HttpOptions(timeout=60_000),
         )
+        self._toolless = self._cfg.model_copy(update={"tool_config": t.ToolConfig(
+            function_calling_config=t.FunctionCallingConfig(mode="NONE"))})
 
     def _user(self, text: str, images=()) -> None:
         t = llm.genai_types()
@@ -161,9 +168,10 @@ class _Gemini(_Chat):
         t = llm.genai_types()
         self.history.append(t.Content(role="model", parts=[t.Part(text=text)]))
 
-    async def _complete(self):
+    async def _complete(self, *, tools: bool = True):
         r = await llm._client().aio.models.generate_content(  # noqa: SLF001 - reuse, see class doc
-            model=self.model.model, contents=self.history, config=self._cfg
+            model=self.model.model, contents=self.history,
+            config=self._cfg if tools else self._toolless,
         )
         content = r.candidates[0].content if r.candidates else None
         parts = (content and content.parts) or []
@@ -209,10 +217,11 @@ class _Claude(_Chat):
     def _model(self, text: str) -> None:
         self.history.append({"role": "assistant", "content": text})
 
-    async def _complete(self):
+    async def _complete(self, *, tools: bool = True):
         r = await self._client.beta.messages.create(
             model=self.model.model, max_tokens=16000, system=self.system,
             messages=self.history, tools=self._tools, cache_control={"type": "ephemeral"},
+            tool_choice={"type": "auto" if tools else "none"},
             output_config={"effort": "low"},
             betas=["server-side-fallback-2026-07-01"], fallbacks="default",
         )
