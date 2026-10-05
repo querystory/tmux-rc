@@ -2,8 +2,10 @@
 // I5's inbox). Needs you is pinned as cards you can answer without opening the pane;
 // everything else is grouped by state or by tmux session. Each group folds and switches
 // between one-line rows and activity cards, and those choices are a per-screen preference,
-// so they live in localStorage, not the URL, as does which rows show their sub-agents.
-// Folded, the sidebar is a rail of live agents.
+// so they live in localStorage, not the URL. So does the one Sub-agents switch, which lists
+// every pane's running sub-agents under its row in either density: seeing them is its own
+// question, apart from how much of each pane's activity to show. Folded, the sidebar is a
+// rail of live agents.
 // Phones never call this: their list is renderList's rows in app.js.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
@@ -11,8 +13,7 @@ import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, pan
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
-// all: the last expand/compact-all, under per-group choices; agents: panes whose sub-agents are listed.
-const prefs = { by: "state", rail: false, fold: {}, cards: {}, all: null, agents: {} };
+const prefs = { by: "state", rail: false, fold: {}, cards: {}, subagents: true };
 try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && saved.cards) Object.assign(prefs, saved); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
@@ -38,7 +39,7 @@ function groups(subset, query) {
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
     g.panes.sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
-    g.cards = prefs.cards[g.id] ?? prefs.all ?? g.id === "need";
+    g.cards = prefs.cards[g.id] ?? g.id === "need";
     g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
   }
   return list.filter((g) => g.panes.length);
@@ -77,7 +78,7 @@ export function setupSidebar(ctx) {
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
 
-  // Group by, the URL's filter (wide has no tab bar to carry it), and expand/compact all.
+  // Group by, the URL's filter (wide has no tab bar to carry it), and the Sub-agents switch.
   const bar = document.createElement("div");
   bar.className = "sb-bar";
   bar.innerHTML = `<span>Group by</span><span class="seg"><button data-by="state">State</button><button data-by="session">Session</button></span>`;
@@ -86,11 +87,12 @@ export function setupSidebar(ctx) {
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
-  const all = document.createElement("button");
-  all.className = "sb-icon";
-  // Every group, including those a filter or search hides right now.
-  all.onclick = () => { prefs.all = all._expand; prefs.cards = {}; rerender(); };
-  bar.append(pick, all);
+  const subs = Object.assign(document.createElement("button"), { className: "sb-switch", title: "List every pane's running sub-agents under its row" });
+  subs.setAttribute("role", "switch");
+  subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
+  const show = Object.assign(document.createElement("div"), { className: "sb-show", textContent: "Show" });
+  show.append(subs);
+  bar.append(pick, show);
   const refreshPick = headerPicker(pick);
 
   function head(g) {
@@ -113,17 +115,14 @@ export function setupSidebar(ctx) {
   }
 
   // A row is one line; a card adds the latest activity and, for Needs you, the answers.
-  // Either way the pane's button is .sb-open, beside the toggle for its running sub-agents
-  // (collapsed by default: the count says they exist, the hover card and the open pane's
-  // overview list them, and a list of rows that each unfold would no longer scan).
+  // Either way the pane's button is .sb-open, and its running sub-agents are listed under it
+  // while the switch is on; off, a count beside the age says they are there.
   function row(card) {
-    const node = document.createElement("div"), open = document.createElement("button"), sub = document.createElement("button");
+    const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
     open.className = "sb-open";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? "<p></p>" : "");
-    sub.className = "sb-sub";
-    sub.onclick = () => { const id = node._p.pane_id; if (prefs.agents[id]) delete prefs.agents[id]; else prefs.agents[id] = true; rerender(); };
-    node.append(open, sub, Object.assign(document.createElement("div"), { className: "sb-agents" }));
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? "<p></p>" : "");
+    node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
     if (card) {
       node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
       const form = node.querySelector("form");
@@ -154,11 +153,10 @@ export function setupSidebar(ctx) {
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
     text(node.querySelector(".a"), age(p));
-    const agents = liveSubagents(p), sub = node.querySelector(".sb-sub"), list = node.querySelector(".sb-agents"), open = !!prefs.agents[p.pane_id];
-    sub.hidden = !agents.length; list.hidden = !agents.length || !open; list.id = `sb-agents-${p.pane_id}`;
-    sub.setAttribute("aria-expanded", String(open)); sub.setAttribute("aria-controls", list.id);
-    sub.title = sub.ariaLabel = `${agents.length} sub-agent${agents.length === 1 ? "" : "s"} working: ${open ? "hide" : "show"}`;
-    ctx.html(sub, `${licon("bot", 13)}${agents.length}${licon(open ? "chevronDown" : "chevron", 12)}`);
+    const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents");
+    badge.hidden = !agents.length || prefs.subagents; list.hidden = !agents.length || !prefs.subagents;
+    badge.title = badge.ariaLabel = `${agents.length} sub-agent${agents.length === 1 ? "" : "s"} working`;
+    ctx.html(badge, `${licon("bot", 12)}${agents.length}`);
     renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
@@ -288,9 +286,8 @@ export function setupSidebar(ctx) {
       (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));
     bar.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
     if (pick.value !== filter) { pick.value = filter; refreshPick(); }
-    all._expand = shown.some((g) => !g.cards);
-    all.title = all.ariaLabel = all._expand ? "Show the latest activity in every group" : "Compact every group";
-    ctx.html(all, licon(all._expand ? "unfold" : "fold", 15));
+    subs.setAttribute("aria-checked", String(prefs.subagents));
+    ctx.html(subs, `${licon("bot", 14)}Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span><i></i>`);
   }
   render.drafts = drafts; // for the app's unsent-draft guard on reload
   return render;

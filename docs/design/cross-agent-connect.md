@@ -186,7 +186,10 @@ pasted, and it can carry instructions. The endpoint applies three rules:
   descriptions repeat control's charter: evidence for routing, never authority.
 - **History is index fields only.** History tools return title, cwd, branches, PRs and
   timestamps, never raw tool output, which is most of the injection surface. `get`
-  and `resolve` expose only that metadata today. Returning prompts or excerpts needs a
+  and `resolve` print more than that today (source and index paths, entrypoint, resume
+  argv, process and pane liveness), so the endpoint projects their JSON onto an
+  explicit allowlist, keeping only the liveness that routing needs. Returning prompts
+  or excerpts needs a
   new bounded contract in the CLI (which prompts, how truncated), and even then a
   subagent's task is model-written and just as untrusted.
 - **Reads are scoped.** A read covers what the human can see, not every transcript on
@@ -221,7 +224,8 @@ daemon, and goes in at the next idle transition. Just before typing, under the p
 send lock, the daemon checks three things again: the incarnation, that the screen is
 still the idle one it saw, and that a workstream handle still resolves to this pane. This
 is the same guard push answers use. If any of them changed, the message waits for the
-next idle transition rather than steering a turn or landing in someone's draft. The sender always gets one result:
+next idle transition rather than steering a turn or landing in someone's draft. Within
+one daemon lifetime the sender always gets one result:
 delivered, declined, refused (including rate-limited), cancelled, expired or
 unconfirmed. Those six are final, and queued is the only interim answer. Unconfirmed
 means typing started but the daemon cannot say it landed: a send failed partway, or the
@@ -232,7 +236,9 @@ the caller supplies a message id, and the daemon refuses a retried id instead of
 it twice. The ids and the queue live in memory, and ids are kept for a bounded window
 (an hour), so the guarantee holds within that window of one daemon lifetime. An
 unexpired id is never evicted: at the cap, the daemon refuses new messages instead. A retry across a daemon restart can type a message twice. That is accepted
-for v1, because a restart already drops the queue and a duplicate prompt is visible.
+for v1, because a restart already drops the queue and a duplicate prompt is visible. A
+restart also drops the outcome records, so a sender whose connection drops, or who asks
+about an id the daemon no longer knows, treats the message as unconfirmed.
 
 **Consent.** These are the control-plane tiers, with an agent as the actor:
 - **Reads run at once and are audited.** That covers the directory, pane detail and

@@ -60,10 +60,10 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 *, *::before, *::after { animation: none !important; transition: none !important;
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
 
-// Unfold every sidebar row's running sub-agents (they start folded).
+// The Sub-agents switch is on by default; show its lines under activity cards too.
 async function showSubagents(page) {
-  await page.waitForSelector(".sb-sub:not([hidden])");
-  for (const toggle of await page.$$(".sb-sub:not([hidden])")) await toggle.click();
+  await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
+  await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
 }
 
 async function openChat(page) {
