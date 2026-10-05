@@ -131,7 +131,8 @@ def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
     model is told why, and the new message is answered as its own turn."""
     from tests.test_live_mode import _ScriptedWS
 
-    s = _Fake([("", [("type_in_pane", {"pane_id": "%1", "text": "rebase"})]),
+    s = _Fake([("", [("type_in_pane", {"pane_id": "%1", "text": "rebase"}),
+                     ("press_key", {"pane_id": "%1", "key": "Enter"})]),
                ("Left it.", []), ("Got it.", [])])
     meter = L._Meter("s", "a", _FLASH, text=True)
     typed, answers = [], []
@@ -144,7 +145,8 @@ def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
     class Browser(_Browser):
         async def send_json(self, obj):
             self.sent.append(obj)
-            if obj["type"] == "propose":  # the user ignores the card and types instead
+            # The user types past the first card (and only that one).
+            if obj["type"] == "propose" and [f["type"] for f in self.sent].count("propose") == 1:
                 await L._forward_client(_ScriptedWS([{"action": "text", "text": "test"},
                                                      {"action": "stop"}]), s, meter)
             if self.sent.count({"type": "turn_complete"}) == 2:
@@ -159,10 +161,11 @@ def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
         rx.cancel()
 
     asyncio.run(go())
-    decided = next(f for f in ws.sent if f["type"] == "decided")
-    assert decided["ok"] is None  # the client labels it "Cancelled — you sent a new message"
-    assert answers == [{"status": "declined", "reason": L._DECLINED["superseded"]}]
-    assert typed == [] and meter.approvals == {}
+    # Both cards, the one typed past and the next call in that turn, read "Cancelled — you
+    # sent a new message" on the client, and neither holds the new message up.
+    assert [f["ok"] for f in ws.sent if f["type"] == "decided"] == [None, None]
+    assert answers == [{"status": "declined", "reason": L._DECLINED["superseded"]}] * 2
+    assert typed == [] and meter.approvals == {} and not meter.superseded
     assert ("user", "test") in s.history  # delivered, and answered as its own turn
     assert _said(ws.sent) == ["Left it.", "Got it."]
 
