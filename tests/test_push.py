@@ -267,7 +267,7 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     clock = [100.0]
     watcher = Watcher()
     watcher.states = [waiting({"prompt": "Proceed?", "answer_style": "menu",
-                               "options": ["Yes", "No"], "context": "Bash command — ls"})]
+                               "options": ["Yes", "No"], "ask": "List the files?"})]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
 
@@ -276,7 +276,7 @@ def test_wait_settles_then_notifies_once_and_can_notify_after_clear(tmp_path, mo
     service.evaluate()
     service.evaluate()
     assert len(sender.payloads) == 1
-    assert sender.payloads[0]["body"] == "Proceed?"  # the raw widget rows stay off push
+    assert sender.payloads[0]["body"] == "List the files?"
     assert sender.payloads[0]["url"] == "/m#pane=%251&from=push"
     assert [a["title"] for a in sender.payloads[0]["actions"]] == ["Yes", "No"]
 
