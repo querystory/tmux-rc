@@ -126,6 +126,67 @@ def test_a_pane_change_waits_for_send_or_cancel(monkeypatch, ok):
     assert audits == ["live_type_in_pane"]
 
 
+def test_a_new_message_supersedes_an_unanswered_card(monkeypatch):
+    """Typing instead of tapping Send/Cancel must not leave the turn stuck on the card with
+    the new message queued silently behind it: the card is declined as superseded, the
+    model is told why, and the new message is answered as its own turn."""
+    from tests.test_live_mode import _ScriptedWS
+
+    s = _Fake([("", [("type_in_pane", {"pane_id": "%1", "text": "rebase"}),
+                     ("press_key", {"pane_id": "%1", "key": "Enter"})]),
+               ("Left it.", []), ("Got it.", [])])
+    meter = L._Meter("s", "a", _FLASH, text=True)
+    typed, answers = [], []
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "42")
+    record = s.send_tool_result
+    monkeypatch.setattr(s, "send_tool_result", lambda c, p: (answers.append(p), record(c, p))[1])
+
+    class Browser(_Browser):
+        async def send_json(self, obj):
+            self.sent.append(obj)
+            # The user types past the first card (and only that one).
+            if obj["type"] == "propose" and [f["type"] for f in self.sent].count("propose") == 1:
+                await L._forward_client(_ScriptedWS([{"action": "text", "text": "test"},
+                                                     {"action": "stop"}]), s, meter)
+            if self.sent.count({"type": "turn_complete"}) == 2:
+                self.done.set()
+
+    ws = Browser(meter)
+
+    async def go():
+        rx = asyncio.create_task(L._receiver(ws, s, _Watcher(), meter))
+        await s.send_text("tell work to rebase")
+        await asyncio.wait_for(ws.done.wait(), 5)
+        rx.cancel()
+
+    asyncio.run(go())
+    # Both cards, the one typed past and the next call in that turn, read "Cancelled — you
+    # sent a new message" on the client, and neither holds the new message up.
+    assert [f["ok"] for f in ws.sent if f["type"] == "decided"] == [None, None]
+    assert answers == [{"status": "declined", "reason": L._DECLINED["superseded"]}] * 2
+    assert typed == [] and meter.approvals == {} and not meter.superseded
+    assert ("user", "test") in s.history  # delivered, and answered as its own turn
+    assert _said(ws.sent) == ["Left it.", "Got it."]
+
+
+def test_a_card_already_tapped_is_not_superseded():
+    """A Send tapped just before the message, its turn still unwinding, stands."""
+    from tests.test_live_mode import _ScriptedWS
+
+    meter = L._Meter("s", "a", _FLASH, text=True)
+
+    async def go():
+        meter.approvals["p"] = tapped = asyncio.get_running_loop().create_future()
+        tapped.set_result(True)
+        await L._forward_client(_ScriptedWS([{"action": "text", "text": "test"},
+                                             {"action": "stop"}]), _Fake([]), meter)
+
+    asyncio.run(go())
+    assert not meter.superseded
+
+
 def test_pane_updates_ride_in_front_of_the_next_turn_and_stay_bounded(monkeypatch):
     s = _Fake([("ok", [])])
     for i in range(C.CONTEXT_KEPT + 2):
