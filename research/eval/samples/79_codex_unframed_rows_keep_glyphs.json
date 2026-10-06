@@ -1,0 +1,16 @@
+{
+  "description": "Codex permission prompt (no widget edge: its rows are unframed) whose heredoc writes a row starting with a literal │ and a row of only ━━━. With no frame found, only the terminal's right padding is stripped: those rows are command content and stay in the context, the push identity, so commands differing by them never share one. Synthetic.",
+  "current_command": "codex",
+  "capture": "[visible screen]\n› I'll write the report header and clear the old build.\n\n  Would you like to run the following command?\n\n    cat > REPORT.txt <<EOF\n    │ build report\n    ━━━━━━━━━━━━\n    EOF\n    rm -rf build\n\n  1. Yes\n  2. Yes, and don't ask again for commands that start with cat\n  3. No, and tell Codex what to do differently (esc)\n\n[visible screen]\n  gpt-5.5 xhigh fast · ~/src/app",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "cat > REPORT.txt <<EOF\n│ build report\n━━━━━━━━━━━━\nEOF\nrm -rf build"
+    },
+    "headline": "Asking to write a report header and delete the build directory",
+    "session": null
+  }
+}

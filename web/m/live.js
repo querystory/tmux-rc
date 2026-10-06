@@ -161,8 +161,9 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
     return row;
   }
   // A pane-changing action in a text session waits for the user: Send runs it, Cancel
-  // tells the model the user declined (live._approved). The card shows a final answer
-  // only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
+  // tells the model the user declined (live._approved), and so does typing a new message
+  // instead (superseded: a card never holds the next turn hostage). The card shows a final
+  // answer only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
   function propose(current, { id, text, image }) {
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
@@ -365,7 +366,7 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
         add("error", message.message);
       }
       else if (message.type === "propose") propose(current, message);
-      else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : "Declined");
+      else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : message.ok === null ? "Cancelled — you sent a new message" : "Declined");
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
     };

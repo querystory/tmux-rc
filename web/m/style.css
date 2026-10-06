@@ -1,4 +1,5 @@
 :root {
+  --mono: ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace;
   color-scheme: dark;
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
@@ -131,6 +132,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .row-title strong { font-size: 15px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-age { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row-title svg { flex: none; color: var(--muted); }
+/* A held widget's raw rows (tool, command, notice): folded in the pane view, and in the
+   hover card; cards show its plain restatement instead. */
+.q-cmd { margin: 4px 0 0; color: var(--muted); font: 11.5px/1.35 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+#side-hover .q-cmd:not(:empty) { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.q-command { margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+.q-command summary { cursor: pointer; }
+.q-cmd:empty { display: none; }
 .row-status { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .row-meta { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 3px; white-space: nowrap; }
 .row-details { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -165,6 +173,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .task svg, .agent svg { margin-top: 3px; color: var(--accent); }
 .agent.compacting svg { color: var(--purple); }
 .task.done { color: var(--muted); }
+.agent small { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .event { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .event:last-child { border-bottom: 0; padding-bottom: 0; }
 .event time { color: var(--muted); font-size: 11px; }
@@ -186,7 +195,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
    tap that toggles also hovers, so the new mode explains itself as it switches. */
 #click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
-#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; transition: transform .2s ease-out; }
+#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
 #capture > span > span { display: inline-block; vertical-align: top; }
@@ -395,7 +404,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #sb-nav ~ .search .search-clear { width: 36px; height: 36px; min-height: 36px; }
 #side-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 8px; font-size: 13px; }
 #side-list + .empty { flex: none; padding: 16px; font-size: 13px; }
-.sb-bar { display: flex; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.sb-bar { display: flex; flex-wrap: wrap; row-gap: 8px; align-items: center; gap: 6px; padding: 10px 8px 2px 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .sb-bar .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--raised); }
 .sb-bar .seg button { min-height: 22px; padding: 1px 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted); }
 .sb-bar .seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .18); }
@@ -408,24 +417,39 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .sb-fold .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-fold .c { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .sb-fold .c i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.sb-row, .sb-open { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: 7px; text-align: left; white-space: nowrap; }
-.sb-row { width: calc(100% - 12px); margin: 0 6px; }
-.sb-row .t, .sb-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.sb-row b, .sb-open b { font-weight: 500; }
-.sb-open b { font-weight: 600; }
-.sb-row .s, .sb-open .s { color: var(--muted); font-size: 11.5px; }
-.sb-row .a, .sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* A row or card is its pane's button, then its sub-agent lines (and a card's answers). */
+.sb-row, .sb-card { margin: 0 6px; border-radius: 7px; }
+.sb-open { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 10px; border-radius: inherit; text-align: left; white-space: nowrap; }
+.sb-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-open b { font-weight: 500; }
+.sb-card b { font-weight: 600; }
+.sb-open .s { color: var(--muted); font-size: 11.5px; }
+.sb-open .a { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sb-n:not([hidden]) { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: -3px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sb-n svg { color: var(--accent); }
+/* The Sub-agents switch: a labelled pill with a knob, accent while on. */
+.sb-show { flex-basis: 100%; display: flex; align-items: center; gap: 6px; }
+.sb-switch { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 5px 0 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sb-switch i { position: relative; width: 24px; height: 14px; border-radius: 7px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
+.sb-switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.sb-switch[aria-checked="true"] { border-color: var(--accent); color: var(--accent); }
+.sb-switch[aria-checked="true"] i { background: var(--accent); box-shadow: none; }
+.sb-switch[aria-checked="true"] i::after { left: 12px; background: var(--bg); }
+/* The overview's agent lines, compact: in a row (indented under its name) and the hover card. */
+.sb-agents:not([hidden]) { display: grid; padding: 0 8px 4px 41px; }
+.sb-agents .agent { min-width: 0; align-items: center; gap: 6px; padding: 0; min-height: 22px; font-size: 12px; white-space: nowrap; }
+.sb-agents .agent svg { width: 11px; height: 11px; margin: 0; flex: none; }
+.sb-agents .agent > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .need .a { color: var(--amber); font-weight: 700; }
 .sb-logo { position: relative; flex: none; width: 22px; height: 22px; display: grid; place-items: center; }
 .sb-logo img { width: 20px; height: 20px; object-fit: contain; }
 .sb-logo .model-badge { width: 11px; height: 11px; padding: 1px; right: -4px; bottom: -4px; }
-.sb-card { margin: 0 6px 4px; border-radius: 9px; }
+.sb-card { margin-bottom: 4px; border-radius: 9px; }
 .sb-card.need { background: var(--amber-bg); --card: var(--amber-bg); }
-.sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
-.sb-open .t { white-space: nowrap; }
+.sb-card .sb-open { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; padding: 7px 10px; white-space: normal; }
 .sb-open p { flex-basis: 100%; padding-left: 31px; color: var(--muted); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sb-open:not(:disabled):hover { background: transparent; } /* the card underneath carries state and selection */
-.sb-card:not(.need):not([aria-current="true"]):hover { background: var(--raised); }
+.sb-open:not(:disabled):hover { background: transparent; } /* the row underneath carries state and selection */
+:is(.sb-row, .sb-card):not(.need):not([aria-current="true"]):hover { background: var(--raised); }
 #side-hover { position: fixed; z-index: 30; width: 320px; display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); --card: var(--surface); color: var(--fg); box-shadow: 0 8px 28px rgb(0 0 0 / .28); font-size: 13px; line-height: 1.4; pointer-events: none; }
 #side-hover .h { display: flex; align-items: center; gap: 10px; }
 #side-hover .h > span:last-child { min-width: 0; display: grid; }
@@ -436,7 +460,8 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #side-hover .x, #side-hover .q { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 #side-hover .q { color: var(--amber); font-weight: 600; }
 #side-hover .l { display: grid; gap: 2px; }
-#side-hover :is(p, small):empty, #side-hover .l:empty { display: none; }
+#side-hover .sb-agents { padding: 0; }
+#side-hover :is(p, small):empty, #side-hover :is(.l, .sb-agents):empty { display: none; }
 /* Selection is #277's neutral card, not a colour: colour here means state. */
 :is(.sb-row, .sb-card, .sb-rail)[aria-current="true"]:not(:disabled) { background: var(--lift); --card: var(--lift); box-shadow: inset 3px 0 var(--fg), inset 0 0 0 1px color-mix(in srgb, var(--fg) 45%, transparent); }
 /* :not(:disabled) outranks the global button hover, so hover cannot repaint a selection. */
@@ -451,10 +476,11 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #app.rail #sb-nav #new-window::after { content: none; }
 #app.rail #sb-foot #connection { margin: 6px 0; font-size: 0; gap: 0; }
 #app.rail #side-list { width: 100%; display: grid; justify-items: center; align-content: start; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
-.sb-rail { width: 40px; height: 40px; min-height: 40px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
+.sb-rail { position: relative; width: 40px; height: 40px; min-height: 40px; padding: 0; display: grid; place-items: center; border-radius: 10px; }
 .sb-rail .sb-logo, .sb-rail .sb-logo img:not(.model-badge) { width: 24px; height: 24px; }
 .sb-rail.need { background: var(--amber-bg); --card: var(--amber-bg); }
 .sb-rail.need:not([aria-current="true"]) { box-shadow: inset 0 0 0 1.5px var(--amber); }
+.sb-rail:not([data-agents=""])::after { content: attr(data-agents); position: absolute; top: 1px; right: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--accent); color: var(--bg); font-size: 9.5px; font-weight: 700; line-height: 14px; text-align: center; }
 .sb-more { min-height: 28px; padding: 0 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 }
 /* A Needs-you card's answers and inline Reply: the sidebar's, and the phone list's too. */
