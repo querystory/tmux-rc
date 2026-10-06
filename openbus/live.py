@@ -396,10 +396,15 @@ async def _approved(
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
+    card = {"type": "propose"}
     if fc.name == "resume_session":
-        entry = agent_history.offered() and isinstance(args.get("session_id"), str) and (
-            await asyncio.to_thread(agent_history.get, args["session_id"]))
-        summary = f"Resume {(entry or {}).get('title') or args.get('session_id')}"
+        entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
+            await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
+        summary = f"Resume {entry.get('title') or args.get('session_id')}"
+        if entry:  # titles repeat: the card also says which tool, where, when, and which id
+            card["session"] = {
+                "tool": entry.get("harness"), "cwd": _home_relative(entry.get("cwd") or ""),
+                "last_active": entry.get("last_active"), "id": entry["session_id"][:8]}
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
     elif fc.name == "send_image_to_pane":
@@ -407,15 +412,13 @@ async def _approved(
         caption = args.get("caption")
         summary = f"Send image {image[0] if image else args.get('image_number')} to {pane}" + (
             f": {caption}" if caption else "")
+        if image:  # the card shows what would be sent; no image: refused below, as approved
+            card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
-    card = {"type": "propose", "text": summary}
-    if fc.name == "send_image_to_pane":
-        image = meter.image(args.get("image_number"))
-        if image:  # the card shows what would be sent; no image: refused below, as approved
-            card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
+    card["text"] = summary
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     try:
