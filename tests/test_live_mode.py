@@ -182,11 +182,12 @@ def test_explicit_pr_target_precedes_conversational_continuity():
     assert "If no association matches, inspect current pane context or ask which window" in prompt
 
 
-def _dispatch(fc, monkeypatch, watcher=None, meter=_METER):
+def _dispatch(fc, monkeypatch, watcher=None, meter=_METER, panes=()):
     w = watcher or _Watcher()
     ws, session = _WS(), _Session()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "list_panes", lambda: list(panes))  # never the real tmux
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
     _run(L._handle_tool_call(ws, session, fc, w, meter))
     return w, ws, session, typed
@@ -215,6 +216,14 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
     assert ws.sent == [{"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"'}]
     assert session.responses[0][1] == {"status": "done", "pane": 'window 3 "work"'}
     assert typed == [] and w.reparsed == []
+
+
+def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
+    """resume_session returns a pane id the digest may not hold yet; tmux vouches for it."""
+    fresh = L.tmux.Pane("work", "7", "auth fix", "0", "%40", "claude", "")
+    _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
+                            panes=[fresh])
+    assert ws.sent == [{"type": "open_pane", "pane_id": "%40", "label": 'window 7 "auth fix"'}]
 
 
 @pytest.mark.parametrize(

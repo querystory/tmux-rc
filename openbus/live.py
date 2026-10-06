@@ -17,6 +17,7 @@ import contextlib
 import json
 import logging
 import os
+import subprocess
 import time
 import uuid
 from collections import deque
@@ -590,6 +591,12 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict) -> dict:
     may be mid-sentence in the composer when the reply lands."""
     pane_id = args.get("pane_id")
     pane = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
+    # Not published yet: a window resume_session just opened, before the watcher's next tick.
+    if pane is None and isinstance(pane_id, str):
+        with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
+            pane = next(({"window_index": p.window_index, "label": p.window_name}
+                         for p in await asyncio.to_thread(tmux.list_panes) if p.id == pane_id),
+                        None)
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
     rec["pane_id"] = pane_id
