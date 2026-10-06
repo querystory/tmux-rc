@@ -615,6 +615,7 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
 
     watcher = Watcher()
     watcher.state_version, watcher.booted = lambda: 1, lambda: True
+    watcher.tmux_running = True  # read by /api/state once the start-tmux PR lands
     watcher.states = [waiting(held(context="mkdir s1"))]
     stale = push.contract(watcher.states[0], "123")[0] + ":0"
     watcher.states = [waiting(held(context="mkdir s2"))]  # parsed at generation 0
