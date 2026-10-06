@@ -77,7 +77,7 @@ from . import telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
-from .push import PushManager  # noqa: E402
+from .push import PushManager, contract, held_question  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -137,6 +137,7 @@ class SendBody(BaseModel):
     keys: str
     enter: bool = True
     literal: bool = True  # False ⇒ keys is a tmux key-name (Escape, Up, C-c)
+    question: str | None = None  # a menu answer's question fingerprint (its `fp`)
 
 
 class PushKeysBody(BaseModel):
@@ -529,6 +530,11 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
+    # Each question carries its push-contract digest, so a menu answer can name the ask
+    # it was tapped on and /send can refuse it once the pane holds a different one.
+    for s in panes:
+        if isinstance(s.get("question"), dict):
+            s["question"] = {**s["question"], "fp": contract(s, w.pane_birth(s.get("pane_id")))[0]}
     return {
         "version": version,  # echo so the client re-holds on the next value
         "stale": w.is_stale(),
@@ -783,13 +789,17 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     _invalidate_input_actions(pane.id)
+    # A menu digit means nothing on its own: the "1" that said Yes to one ask says Yes to
+    # whatever replaced it. So a menu answer names its question, checked under the send lock.
+    w, fp = app.state.watcher, body.question
     try:
-        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
+        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
+                       guard=(lambda: held_question(w, pane.id, fp)) if fp else None)
     except Exception as e:
         _audit(
             request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
         )
-        if isinstance(e, tmux.PaneChangedError):
+        if isinstance(e, (tmux.PaneChangedError, ValueError)):
             raise HTTPException(409, str(e)) from e
         raise
     _audit(request, "send_keys", pane_id, detail, body.keys)

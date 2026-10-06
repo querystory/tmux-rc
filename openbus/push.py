@@ -327,6 +327,23 @@ def contract(pane: dict, birth: str | None) -> tuple[str, dict | None]:
     return digest, question
 
 
+def held_question(watcher, pane_id: str, fingerprint: str) -> tuple[dict, str]:
+    """The pane's held question and birth, only while it is still the one `fingerprint`
+    (contract's digest) names: an answer tapped on one ask must never land on the next."""
+    if watcher.is_stale() or not watcher.pane_parse_valid(pane_id):
+        raise ValueError("pane state is temporarily unavailable")
+    pane = next((dict(s) for s in watcher.states if s.get("pane_id") == pane_id), None)
+    birth = watcher.pane_birth(pane_id)
+    if pane is None or contract(pane, birth)[0] != fingerprint:
+        raise ValueError("the pending question has changed")
+    if not birth:
+        raise ValueError("the pane has changed")
+    question = pane.get("question")
+    if not isinstance(question, dict):
+        raise ValueError("the pending question has changed")  # noqa: TRY004
+    return question, birth
+
+
 def option_keys(question: dict, index: int) -> str:
     options = question.get("options")
     if not isinstance(options, list) or index < 0 or index >= len(options):
@@ -409,22 +426,10 @@ class PushManager:
             raise ValueError("notification answer expired or was already used")
         if option_index not in issued["indices"]:
             raise ValueError("option was not offered by this notification")
-        if (self.watcher.is_stale()
-                or not self.watcher.pane_parse_valid(issued["pane_id"])):
-            raise ValueError("pane state is temporarily unavailable")
         if (self.watcher.pane_input_generation(issued["pane_id"])
                 != issued["input_generation"]):
             raise ValueError("the pane received newer input")
-        pane = next((dict(s) for s in self.watcher.states
-                     if s.get("pane_id") == issued["pane_id"]), None)
-        birth = self.watcher.pane_birth(issued["pane_id"])
-        if pane is None or contract(pane, birth)[0] != issued["fingerprint"]:
-            raise ValueError("the pending question has changed")
-        if not birth:
-            raise ValueError("the pane has changed")
-        question = pane.get("question")
-        if not isinstance(question, dict):
-            raise ValueError("the pending question has changed")  # noqa: TRY004
+        question, birth = held_question(self.watcher, issued["pane_id"], issued["fingerprint"])
         keys = option_keys(question, option_index)
         def guard() -> None:
             if (self.watcher.pane_input_generation(issued["pane_id"])

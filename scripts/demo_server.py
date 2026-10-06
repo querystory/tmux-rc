@@ -59,6 +59,7 @@ class DemoWatcher:
     def note_live_poll(self, *_): pass
     def label_for(self, pane_id): return pane_id
     def tool_for(self, _pane_id): return None
+    def pane_birth(self, _pane_id): return None
 
     async def wait_for_state_change(self, since, timeout):  # noqa: ASYNC109 - mirrors Watcher
         await asyncio.sleep(timeout)  # nothing ever changes

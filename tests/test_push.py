@@ -603,3 +603,36 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
         service.answer(nonce, 0)
     with pytest.raises(ValueError, match="already used"):
         service.answer(nonce, 0)
+
+
+def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
+    """A digit names a row, not an ask: the "1" tapped on prompt A must not approve the
+    prompt B that replaced it. /send checks the tapped question's fingerprint."""
+    from fastapi.testclient import TestClient
+
+    from openbus import server
+    from openbus.tmux import Pane
+
+    watcher = Watcher()
+    watcher.states = [waiting(held(context="mkdir s1"))]
+    stale = push.contract(watcher.states[0], "123")[0]
+    watcher.states = [waiting(held(context="mkdir s2"))]
+    monkeypatch.setattr(server.tmux, "list_panes", lambda: [
+        Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
+    sent = []
+    def send(_pane, keys, **kwargs):
+        kwargs["guard"]()
+        sent.append(keys)
+
+    monkeypatch.setattr(server.tmux, "send_keys", send)
+    monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
+    client = TestClient(server.app)
+    body = {"keys": "1", "enter": False, "literal": True}
+
+    response = client.post("/api/panes/%1/send", json={**body, "question": stale})
+    assert response.status_code == 409
+    assert "changed" in response.json()["detail"]
+    assert sent == []
+    current = push.contract(watcher.states[0], "123")[0]
+    assert client.post("/api/panes/%1/send", json={**body, "question": current}).status_code == 200
+    assert sent == ["1"]

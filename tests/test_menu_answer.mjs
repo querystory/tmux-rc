@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { answerBody } from "../web/cursor-pick.js";
 
-const menu = (...options) => ({ answer_style: "menu", options });
-const digit = (keys) => ({ keys, enter: false, literal: true });
+const menu = (...options) => ({ answer_style: "menu", options, fp: "q1" });
+// A menu answer names the question it was tapped on, so the server can refuse a stale one.
+const digit = (keys) => ({ keys, enter: false, literal: true, question: "q1" });
 
 test("a menu tap sends only its shortcut, never Enter", () => {
   // Codex commits on the digit: an Enter would confirm the reasoning menu that follows.
