@@ -530,13 +530,14 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # thread's in-place updates (the fast tmux_active flip) can't mutate objects mid-encode.
     version = w.state_version()
     panes = [dict(s) for s in w.states]
-    # Each question carries what a push nonce binds: its contract digest and the pane's
-    # input generation. A menu answer names both, and /send refuses it once the pane holds
-    # a different ask or has taken input since (a double tap, a second client).
+    # Each question carries what a push nonce binds: its contract digest and the input
+    # generation its parse captured. A menu answer names both, and /send refuses it once
+    # the pane holds a different ask or has taken input since that parse (a double tap,
+    # a second client, a refetch before the reparse lands).
     for s in panes:
         if isinstance(s.get("question"), dict):
             pid = s.get("pane_id")
-            fp = f"{contract(s, w.pane_birth(pid))[0]}:{w.pane_input_generation(pid)}"
+            fp = f"{contract(s, w.pane_birth(pid))[0]}:{w.question_generation(pid)}"
             s["question"] = {**s["question"], "fp": fp}
     return {
         "version": version,  # echo so the client re-holds on the next value
@@ -795,6 +796,7 @@ def send(pane_id: str, body: SendBody, request: Request):
     # whatever replaced it. So a menu answer names its question, and under the send lock
     # it is checked and its generation consumed in one step, as the push guard does.
     w, fp = app.state.watcher, body.question
+    birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
 
     def claim() -> None:
         digest, _, generation = fp.partition(":")
@@ -807,7 +809,7 @@ def send(pane_id: str, body: SendBody, request: Request):
         _invalidate_input_actions(pane.id)
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
-                       guard=claim if fp else None)
+                       expected_pid=birth, guard=claim if fp else None)
     except Exception as e:
         _audit(
             request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]

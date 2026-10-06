@@ -607,36 +607,44 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
 
 def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
     """A digit names a row, not an ask: the "1" tapped on prompt A must not approve the
-    prompt B that replaced it. /send checks the tapped question's fingerprint."""
+    prompt B that replaced it. /send checks the token the card was rendered with."""
     from fastapi.testclient import TestClient
 
     from openbus import server
     from openbus.tmux import Pane
 
     watcher = Watcher()
+    watcher.state_version, watcher.booted = lambda: 1, lambda: True
+    watcher.question_generation = lambda _pane: 0  # no reparse lands during this test
     watcher.states = [waiting(held(context="mkdir s1"))]
     stale = push.contract(watcher.states[0], "123")[0] + ":0"
     watcher.states = [waiting(held(context="mkdir s2"))]
     monkeypatch.setattr(server.tmux, "list_panes", lambda: [
         Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
+    monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
     sent = []
     def send(_pane, keys, **kwargs):
+        assert kwargs["expected_pid"] == "123"  # bound to the incarnation the token names
         kwargs["guard"]()
         sent.append(keys)
 
     monkeypatch.setattr(server.tmux, "send_keys", send)
     monkeypatch.setattr(server.app.state, "watcher", watcher, raising=False)
     client = TestClient(server.app)
-    body = {"keys": "1", "enter": False, "literal": True}
+    def tap(token):
+        body = {"keys": "1", "enter": False, "literal": True, "question": token}
+        return client.post("/api/panes/%1/send", json=body)
+    def token():
+        return client.get("/api/state").json()["panes"][0]["question"]["fp"]
 
-    response = client.post("/api/panes/%1/send", json={**body, "question": stale})
+    response = tap(stale)
     assert response.status_code == 409
     assert "changed" in response.json()["detail"]
     assert sent == []
-    current = push.contract(watcher.states[0], "123")[0] + ":0"
-    assert client.post("/api/panes/%1/send", json={**body, "question": current}).status_code == 200
+    assert tap(token()).status_code == 200
     assert sent == ["1"]
-    # Before the reparse the screen still reads the same, but the answer consumed the
-    # input generation: a double tap cannot land on whatever the first one opened.
-    assert client.post("/api/panes/%1/send", json={**body, "question": current}).status_code == 409
+    # Until a reparse reads the pane again the screen still shows the same question, but
+    # the answer consumed its generation: neither a double tap nor a refetched card can
+    # land a second digit on whatever the first one opened.
+    assert tap(token()).status_code == 409
     assert sent == ["1"]

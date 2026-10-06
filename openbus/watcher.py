@@ -280,6 +280,7 @@ class Watcher:
         self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
+        self._parsed_generation: dict[str, int] = {}  # input generation a parse captured
         self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
@@ -924,12 +925,18 @@ class Watcher:
         with self._input_generation_lock:
             return self._input_generation.get(pane_id, 0)
 
+    def question_generation(self, pane_id: str) -> int:
+        """The input generation the published question was captured at: input since then
+        (a menu answer above all) makes it stale until a fresh parse reads the pane."""
+        return self._parsed_generation.get(pane_id, 0)
+
     def _stores(self):
         return (
             self._prev_fp,
             self._seen_fp,
             self._parse_fails,
             self._parse_valid,
+            self._parsed_generation,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -1144,6 +1151,7 @@ class Watcher:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
         # one); snapshot_text() strips the markers at the phone-facing boundary.
+        generation = self.pane_input_generation(pane.id)  # read first: later input wins
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
         # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
@@ -1434,5 +1442,6 @@ class Watcher:
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
         state["parsed_at"] = now
+        self._parsed_generation[pane.id] = generation
         self._state[pane.id] = state
         return state
