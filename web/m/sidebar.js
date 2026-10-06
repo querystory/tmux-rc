@@ -2,15 +2,19 @@
 // I5's inbox). Needs you is pinned as cards you can answer without opening the pane;
 // everything else is grouped by state or by tmux session. Each group folds and switches
 // between one-line rows and activity cards, and those choices are a per-screen preference,
-// so they live in localStorage, not the URL. Folded, the sidebar is a rail of live agents.
-// Phones never call this: their list is renderList's rows in app.js.
+// so they live in localStorage, not the URL. So does the one Sub-agents switch, which lists
+// every pane's running sub-agents under its row in either density (Needs you cards only
+// count them): seeing them is its own question, apart from how much of each pane's
+// activity to show. Folded, the sidebar is a rail of live agents.
+// Phones never draw this list (theirs is renderPhoneList in app.js), but their Needs-you rows
+// borrow its answers and inline Reply: render.answers, so there is one of each.
 import { headerPicker } from "/m/header-picker.js";
 import { Composer, enterSubmits } from "/m/composer.js";
-import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age } from "/m/pane-model.js";
+import { needsYou, isRunning, isRecent, markWorking, paneName, lastActivity, paneActivity, paneHeadline, paneMeta, activityLabel, activityClass, since, age, records, liveSubagents, subagentCount } from "/m/pane-model.js";
 import { paneLinks } from "/pr-links.js";
 
 const KEY = "tmuxrc-sidebar-list";
-const prefs = { by: "state", rail: false, fold: {}, cards: {}, all: null }; // all: the last expand/compact-all, under per-group choices
+const prefs = { by: "state", rail: false, fold: {}, cards: {}, subagents: true };
 try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.fold && saved.cards) Object.assign(prefs, saved); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {} };
 
@@ -36,24 +40,46 @@ function groups(subset, query) {
   list.unshift({ id: "need", label: "Needs you", panes: subset.filter(needsYou), alert: true });
   for (const g of list) {
     g.panes.sort((a, b) => rank(a) - rank(b) || lastActivity(b) - lastActivity(a));
-    g.cards = prefs.cards[g.id] ?? prefs.all ?? g.id === "need";
+    g.cards = prefs.cards[g.id] ?? g.id === "need";
     g.open = !!query || !prefs.fold[g.id]; // open unless the user folded it (only explicit folds are stored)
   }
   return list.filter((g) => g.panes.length);
 }
 
 export function setupSidebar(ctx) {
-  const { licon, reconcile, text } = ctx;
+  const { licon, reconcile, text, renderItems } = ctx;
   const root = document.getElementById("side-list");
-  let shown = [], replyTo = null, last = null;
+  let shown = [], replyTo = null;
   // Inline drafts, per pane like the footer's: kept until sent or cancelled.
   const drafts = new Map(), draft = () => drafts.get(replyTo);
-  const repaint = () => { if (last) render(...last); }, rerender = () => { save(); repaint(); };
+  const repaint = ctx.repaint;
+  // A control never moves under the pointer: whatever it folds, unfolds or reorders moves
+  // around it, so a second click undoes the first. Every control re-renders through here,
+  // which holds the last-clicked button's screen position (and its focus, which reconcile
+  // drops when it moves the node). Folding near the end leaves too little list below to
+  // scroll back by, so the shortfall is padded until the next control changes it.
+  let anchor = null;
+  root.addEventListener("click", (e) => { anchor = e.target.closest("button"); }, true);
+  const rerender = () => {
+    save();
+    const el = anchor?.isConnected ? anchor : null, y = el?.getBoundingClientRect().top, focused = el === document.activeElement;
+    root.style.paddingBottom = "";
+    repaint();
+    if (!el?.isConnected) return;
+    const want = root.scrollTop + el.getBoundingClientRect().top - y;
+    root.scrollTop = want;
+    if (root.scrollTop < want - 1) { // pad a screen, scroll, then trim the padding to fit
+      root.style.paddingBottom = `${root.clientHeight}px`;
+      root.scrollTop = want;
+      root.style.paddingBottom = `${2 * root.clientHeight + want - root.scrollHeight}px`;
+    }
+    if (focused) el.focus({ preventScroll: true });
+  };
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
 
-  // Group by, the URL's filter (wide has no tab bar to carry it), and expand/compact all.
+  // Group by, the URL's filter (wide has no tab bar to carry it), and the Sub-agents switch.
   const bar = document.createElement("div");
   bar.className = "sb-bar";
   bar.innerHTML = `<span>Group by</span><span class="seg"><button data-by="state">State</button><button data-by="session">Session</button></span>`;
@@ -62,11 +88,12 @@ export function setupSidebar(ctx) {
   pick.setAttribute("aria-label", "Filter panes");
   pick.append(...FILTERS.map(([v, l]) => new Option(l, v)));
   pick.onchange = () => ctx.setFilter(pick.value);
-  const all = document.createElement("button");
-  all.className = "sb-icon";
-  // Every group, including those a filter or search hides right now.
-  all.onclick = () => { prefs.all = all._expand; prefs.cards = {}; rerender(); };
-  bar.append(pick, all);
+  const subs = Object.assign(document.createElement("button"), { className: "sb-switch", title: "List the running sub-agents of every pane outside Needs you under its row" });
+  subs.setAttribute("role", "switch");
+  subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
+  const show = Object.assign(document.createElement("div"), { className: "sb-show", textContent: "Show" });
+  show.append(subs);
+  bar.append(pick, show);
   const refreshPick = headerPicker(pick);
 
   function head(g) {
@@ -89,34 +116,37 @@ export function setupSidebar(ctx) {
   }
 
   // A row is one line; a card adds the latest activity and, for Needs you, the answers.
+  // Either way the pane's button is .sb-open, and its running sub-agents are listed under it
+  // while the switch is on; off, a count beside the age says they are there.
   function row(card) {
-    const node = document.createElement(card ? "div" : "button");
-    const open = card ? document.createElement("button") : node;
+    const node = document.createElement("div"), open = document.createElement("button");
     node.className = card ? "sb-card" : "sb-row";
-    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span>' + (card ? "<p></p>" : "");
-    if (card) {
-      open.className = "sb-open";
-      node.innerHTML = `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`;
-      node.prepend(open);
-      const form = node.querySelector("form");
-      // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
-      const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
-      form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
-      enterSubmits(form, (target) => !!draft()?.editor.contains(target));
-      form.onsubmit = async (event) => {
-        event.preventDefault();
-        const id = node._p.pane_id, value = drafts.get(id);
-        if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
-      };
-    }
+    open.className = "sb-open";
+    open.innerHTML = '<span class="sb-logo"><img alt=""></span><span class="t"><b></b><span class="s"></span></span><span class="a"></span><span class="sb-n" role="img"></span>' + (card ? "<p></p>" : "");
+    node.append(open, Object.assign(document.createElement("div"), { className: "sb-agents" }));
+    if (card) addAnswers(node);
     open.onclick = () => ctx.navigate(node._p.pane_id);
     return node;
+  }
+  // A Needs-you card's answer buttons and its Reply composer, for the pane in `node._p`.
+  function addAnswers(node) {
+    node.insertAdjacentHTML("beforeend", `<div class="sb-replies"></div><form class="sb-compose" hidden><button type="button" class="sb-icon" aria-label="Cancel" title="Cancel">${licon("x", 15)}</button><button type="submit" class="sb-icon primary" aria-label="Send message" title="Send message">${licon("up", 15)}</button></form>`);
+    const form = node.querySelector("form");
+    // Pasted images are object URLs: release them with the draft, as pruneDrafts does.
+    const done = (id) => { drafts.get(id)?.files.forEach((_, chip) => URL.revokeObjectURL(chip.src)); drafts.delete(id); if (replyTo === id) replyTo = null; repaint(); };
+    form.querySelector("[type=button]").onclick = () => done(node._p.pane_id);
+    enterSubmits(form, (target) => !!draft()?.editor.contains(target));
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const id = node._p.pane_id, value = drafts.get(id);
+      if (!ctx.sending() && value?.segments().length && await ctx.compose(id, value)) done(id);
+    };
   }
   function updateRow(node, { p, g, card }) {
     node._p = p;
     node.classList.toggle("need", needsYou(p));
     // On the card for its styling and on its button, which is what assistive tech lands on.
-    for (const el of new Set([node, node.querySelector(".sb-open") || node])) {
+    for (const el of [node, node.firstChild]) {
       if (p.pane_id === ctx.active()) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
     }
     const img = node.querySelector("img");
@@ -126,6 +156,12 @@ export function setupSidebar(ctx) {
     text(node.querySelector("b"), paneName(p));
     text(node.querySelector(".s"), prefs.by === "state" || g.id === "need" ? ` · ${p.session}` : "");
     text(node.querySelector(".a"), age(p));
+    // Needs you is about the question and its answers, so its cards only count sub-agents.
+    const agents = liveSubagents(p), badge = node.querySelector(".sb-n"), list = node.querySelector(".sb-agents"), lines = prefs.subagents && g.id !== "need";
+    badge.hidden = !agents.length || lines; list.hidden = !agents.length || !lines;
+    badge.title = badge.ariaLabel = `${agents.length} sub-agent${agents.length === 1 ? "" : "s"} working`;
+    ctx.html(badge, `${licon("bot", 12)}${agents.length}`);
+    renderItems(list, list.hidden ? [] : agents, true);
     if (card) {
       text(node.querySelector("p"), paneActivity(p) || "No recent activity");
       replies(node, p);
@@ -169,8 +205,10 @@ export function setupSidebar(ctx) {
     }, (b, p) => {
       if (p.more) { text(b, `+${p.more}`); b.title = b.ariaLabel = `${p.more} idle panes: expand the sidebar`; return; }
       b._p = p;
-      b.ariaLabel = `${p.session} / ${paneName(p)}`;
+      const agents = subagentCount(p);
+      b.ariaLabel = `${p.session} / ${paneName(p)}${agents ? `, ${agents} sub-agent${agents === 1 ? "" : "s"} working` : ""}`;
       b.classList.toggle("need", needsYou(p));
+      b.dataset.agents = agents || "";
       if (p.pane_id === ctx.active()) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       markWorking(b.querySelector("img"), p, ctx.logos);
     });
@@ -181,12 +219,12 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
-  const paneOf = (el) => (el.closest(".sb-card") || el)._p;
+  const paneOf = (el) => (el.closest(".sb-row, .sb-card") || el)._p;
   function fill(el) {
-    const p = paneOf(el), $c = (sel) => card.querySelector(sel), tasks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => t && typeof t === "object");
+    const p = paneOf(el), $c = (sel) => card.querySelector(sel), tasks = records(p.tasks);
     markWorking($c("img"), p, ctx.logos);
     text($c("b"), paneName(p));
     text($c(".h small"), [p.tool, p.model].filter(Boolean).join(" · "));
@@ -194,8 +232,11 @@ export function setupSidebar(ctx) {
     $c(".badge").className = `badge ${activityClass(p)}`;
     text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
     text($c(".x"), paneHeadline(p) || "No recent activity");
-    text($c(".q"), needsYou(p) && p.question?.prompt !== paneHeadline(p) ? p.question?.prompt || "" : "");
+    const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
+    text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
+    text($c(".q-cmd"), (needsYou(p) && p.question?.context) || "");
     text($c(".m"), paneMeta(p));
+    renderItems($c(".sb-agents"), records(p.subagents), true);
     text($c(".k"), tasks.length ? `Tasks ${tasks.filter((t) => t.done).length}/${tasks.length}` : "");
     reconcile($c(".l"), paneLinks(p).slice(0, 2), (l) => l.href, () => document.createElement("small"), (n, l) => text(n, l.detail ? `${l.text} (${l.detail})` : l.text));
   }
@@ -224,7 +265,7 @@ export function setupSidebar(ctx) {
   const target = (e, sel = ".sb-row, .sb-rail, .sb-card") => e.target.closest?.(sel);
   root.addEventListener("pointerover", (e) => { if (e.pointerType === "mouse" && target(e)) hover(target(e)); });
   root.addEventListener("pointerout", (e) => { const el = target(e); if (el && !el.contains(e.relatedTarget)) unhover(); });
-  root.addEventListener("focusin", (e) => { const el = target(e, ".sb-row, .sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
+  root.addEventListener("focusin", (e) => { const el = target(e, ".sb-rail, .sb-open"); if (el?.matches(":focus-visible")) hover(el); });
   root.addEventListener("focusout", unhover);
   root.addEventListener("scroll", unhover, { passive: true });
   root.addEventListener("click", unhover);
@@ -232,7 +273,6 @@ export function setupSidebar(ctx) {
   addEventListener("resize", unhover); // a breakpoint crossing hides the sidebar but not this
 
   function render(subset, query, filter) {
-    last = [subset, query, filter];
     app.classList.toggle("rail", prefs.rail);
     collapse.title = collapse.ariaLabel = prefs.rail ? "Expand sidebar" : "Collapse sidebar";
     if (prefs.rail) rail(subset); else list(subset, query, filter);
@@ -241,20 +281,22 @@ export function setupSidebar(ctx) {
   }
   function list(subset, query, filter) {
     shown = groups(subset, query);
-    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
     // A folded group still shows the open pane, so the selection never disappears.
     const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
-    const need = shown[0]?.id === "need" ? 1 : 0;
-    const items = [...shown.slice(0, need).flatMap(of), { bar: true }, ...shown.slice(need).flatMap(of)];
+    // The controls head the list, above everything they fold or expand (Needs you included).
+    const items = [{ bar: true }, ...shown.flatMap(of)];
     reconcile(root, items, (i) => i.bar ? "bar" : i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
       (i) => i.bar ? bar : i.p ? row(i.card) : head(i.g),
       (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));
     bar.querySelectorAll("[data-by]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.by === prefs.by)));
     if (pick.value !== filter) { pick.value = filter; refreshPick(); }
-    all._expand = shown.some((g) => !g.cards);
-    all.title = all.ariaLabel = all._expand ? "Show the latest activity in every group" : "Compact every group";
-    ctx.html(all, licon(all._expand ? "unfold" : "fold", 15));
+    subs.setAttribute("aria-checked", String(prefs.subagents));
+    ctx.html(subs, `${licon("bot", 14)}Sub-agents <span class="n">${subset.reduce((n, p) => n + liveSubagents(p).length, 0)}</span><i></i>`);
   }
   render.drafts = drafts; // for the app's unsent-draft guard on reload
+  // Both layouts' lists call this first: a Reply closes once its pane stops needing you.
+  render.answers = { add: addAnswers, update: replies, prune: (subset) => {
+    if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
+  } };
   return render;
 }

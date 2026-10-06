@@ -1,0 +1,16 @@
+{
+  "description": "Claude Code asks a numbered selection question (AskUserQuestion: digits, so answer_style=menu) that is NOT an approval: its options are environments, not Yes/No. The widget rows are still read as context, but the card must keep its own question: restating it as \"The agent wants to … Continue?\" would replace the real question while its buttons stay environment choices. Synthetic.",
+  "current_command": "node",
+  "capture": "[visible screen]\n> Deploy the release once the checks pass.\n\n● All checks passed.\n\n────────────────────────────────────────────────────────────────────────────────\n Deploy target\n\nWhich environment should I deploy to?\n\n❯ 1. Staging\n     Safe to break; resets nightly\n  2. Production\n     Live customer traffic\n  3. Type something.\n\nEnter to select · ↑/↓ to navigate · Esc to cancel",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "Deploy target",
+      "ask": null
+    },
+    "headline": "Asking which environment to deploy the release to"
+  }
+}
