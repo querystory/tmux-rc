@@ -615,10 +615,9 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
 
     watcher = Watcher()
     watcher.state_version, watcher.booted = lambda: 1, lambda: True
-    watcher.question_generation = lambda _pane: 0  # no reparse lands during this test
     watcher.states = [waiting(held(context="mkdir s1"))]
     stale = push.contract(watcher.states[0], "123")[0] + ":0"
-    watcher.states = [waiting(held(context="mkdir s2"))]
+    watcher.states = [waiting(held(context="mkdir s2"))]  # parsed at generation 0
     monkeypatch.setattr(server.tmux, "list_panes", lambda: [
         Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
     monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")

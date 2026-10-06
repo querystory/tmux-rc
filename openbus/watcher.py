@@ -280,7 +280,6 @@ class Watcher:
         self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
-        self._parsed_generation: dict[str, int] = {}  # input generation a parse captured
         self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
@@ -925,18 +924,12 @@ class Watcher:
         with self._input_generation_lock:
             return self._input_generation.get(pane_id, 0)
 
-    def question_generation(self, pane_id: str) -> int:
-        """The input generation the published question was captured at: input since then
-        (a menu answer above all) makes it stale until a fresh parse reads the pane."""
-        return self._parsed_generation.get(pane_id, 0)
-
     def _stores(self):
         return (
             self._prev_fp,
             self._seen_fp,
             self._parse_fails,
             self._parse_valid,
-            self._parsed_generation,
             self._unchanged_since,
             self._state_since,
             self._state_key,
@@ -1057,6 +1050,7 @@ class Watcher:
         if card := row["card"]:
             pid, state = pane.id, card["state"]
             state.pop("last_activity_at", None)  # the row's column is the source of truth
+            state.pop("input_generation", None)  # the last run's counter, not this one's
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._checkpointed[pid] = None  # see _checkpoint
             self._state_key[pid] = self._pending_key(state)
@@ -1206,6 +1200,7 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1442,6 +1437,9 @@ class Watcher:
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
         state["parsed_at"] = now
-        self._parsed_generation[pane.id] = generation
+        # The input generation this question was captured at, on the state itself so it
+        # publishes with it: input since (a menu answer above all) leaves the question
+        # unanswerable from the app until a fresh parse reads the pane (server.send).
+        state["input_generation"] = generation
         self._state[pane.id] = state
         return state

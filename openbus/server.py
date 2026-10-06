@@ -537,7 +537,7 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     for s in panes:
         if isinstance(s.get("question"), dict):
             pid = s.get("pane_id")
-            fp = f"{contract(s, w.pane_birth(pid))[0]}:{w.question_generation(pid)}"
+            fp = f"{contract(s, w.pane_birth(pid))[0]}:{s.get('input_generation', 0)}"
             s["question"] = {**s["question"], "fp": fp}
     return {
         "version": version,  # echo so the client re-holds on the next value
