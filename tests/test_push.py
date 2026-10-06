@@ -615,7 +615,7 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
 
     watcher = Watcher()
     watcher.states = [waiting(held(context="mkdir s1"))]
-    stale = push.contract(watcher.states[0], "123")[0]
+    stale = push.contract(watcher.states[0], "123")[0] + ":0"
     watcher.states = [waiting(held(context="mkdir s2"))]
     monkeypatch.setattr(server.tmux, "list_panes", lambda: [
         Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
@@ -633,6 +633,10 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
     assert response.status_code == 409
     assert "changed" in response.json()["detail"]
     assert sent == []
-    current = push.contract(watcher.states[0], "123")[0]
+    current = push.contract(watcher.states[0], "123")[0] + ":0"
     assert client.post("/api/panes/%1/send", json={**body, "question": current}).status_code == 200
+    assert sent == ["1"]
+    # Before the reparse the screen still reads the same, but the answer consumed the
+    # input generation: a double tap cannot land on whatever the first one opened.
+    assert client.post("/api/panes/%1/send", json={**body, "question": current}).status_code == 409
     assert sent == ["1"]
