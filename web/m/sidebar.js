@@ -51,7 +51,29 @@ export function setupSidebar(ctx) {
   let shown = [], replyTo = null, last = null;
   // Inline drafts, per pane like the footer's: kept until sent or cancelled.
   const drafts = new Map(), draft = () => drafts.get(replyTo);
-  const repaint = () => { if (last) render(...last); }, rerender = () => { save(); repaint(); };
+  const repaint = () => { if (last) render(...last); };
+  // A control never moves under the pointer: whatever it folds, unfolds or reorders moves
+  // around it, so a second click undoes the first. Every control re-renders through here,
+  // which holds the last-clicked button's screen position (and its focus, which reconcile
+  // drops when it moves the node). Folding near the end leaves too little list below to
+  // scroll back by, so the shortfall is padded until the next control changes it.
+  let anchor = null;
+  root.addEventListener("click", (e) => { anchor = e.target.closest("button"); }, true);
+  const rerender = () => {
+    save();
+    const el = anchor?.isConnected ? anchor : null, y = el?.getBoundingClientRect().top, focused = el === document.activeElement;
+    root.style.paddingBottom = "";
+    repaint();
+    if (!el?.isConnected) return;
+    const want = root.scrollTop + el.getBoundingClientRect().top - y;
+    root.scrollTop = want;
+    if (root.scrollTop < want - 1) { // pad a screen, scroll, then trim the padding to fit
+      root.style.paddingBottom = `${root.clientHeight}px`;
+      root.scrollTop = want;
+      root.style.paddingBottom = `${2 * root.clientHeight + want - root.scrollHeight}px`;
+    }
+    if (focused) el.focus({ preventScroll: true });
+  };
   const app = document.getElementById("app");
   const collapse = document.getElementById("collapse");
   collapse.onclick = () => { prefs.rail = !prefs.rail; rerender(); };
@@ -194,7 +216,7 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="sb-agents"></div><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
   const paneOf = (el) => (el.closest(".sb-row, .sb-card") || el)._p;
@@ -207,7 +229,9 @@ export function setupSidebar(ctx) {
     $c(".badge").className = `badge ${activityClass(p)}`;
     text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
     text($c(".x"), paneHeadline(p) || "No recent activity");
-    text($c(".q"), needsYou(p) && p.question?.prompt !== paneHeadline(p) ? p.question?.prompt || "" : "");
+    const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
+    text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
+    text($c(".q-cmd"), (needsYou(p) && p.question?.context) || "");
     text($c(".m"), paneMeta(p));
     renderItems($c(".sb-agents"), records(p.subagents), true);
     text($c(".k"), tasks.length ? `Tasks ${tasks.filter((t) => t.done).length}/${tasks.length}` : "");
@@ -258,8 +282,8 @@ export function setupSidebar(ctx) {
     if (replyTo && (!drafts.has(replyTo) || !subset.some((p) => p.pane_id === replyTo && needsYou(p)))) replyTo = null;
     // A folded group still shows the open pane, so the selection never disappears.
     const of = (g) => [{ g }, ...g.panes.filter((p) => g.open || p.pane_id === ctx.active()).map((p) => ({ p, g, card: g.cards }))];
-    const need = shown[0]?.id === "need" ? 1 : 0;
-    const items = [...shown.slice(0, need).flatMap(of), { bar: true }, ...shown.slice(need).flatMap(of)];
+    // The controls head the list, above everything they fold or expand (Needs you included).
+    const items = [{ bar: true }, ...shown.flatMap(of)];
     reconcile(root, items, (i) => i.bar ? "bar" : i.p ? `${i.card ? "c" : "r"}:${i.p.pane_id}` : `g:${i.g.id}`,
       (i) => i.bar ? bar : i.p ? row(i.card) : head(i.g),
       (node, i) => i.bar ? null : i.p ? updateRow(node, i) : updateHead(node, i.g));

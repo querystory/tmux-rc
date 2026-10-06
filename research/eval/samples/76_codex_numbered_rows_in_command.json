@@ -1,0 +1,16 @@
+{
+  "description": "Codex permission prompt whose command holds numbered rows of its own (a heredoc writing \"1. payload\") above the real options. The context must run to the REAL option 1, the last one, keeping the rm after the heredoc: stopping at the command's \"1.\" row would drop it, so two commands sharing that prefix would share an identity and a push answer for one could approve the other. Synthetic.",
+  "current_command": "codex",
+  "capture": "[visible screen]\n› I'll write the release notes and clear the old build.\n\n  Would you like to run the following command?\n\n    cat > NOTES.md <<EOF\n    1. payload\n    2. docs\n    EOF\n    rm -rf build\n\n  1. Yes\n  2. Yes, and don't ask again for commands that start with cat\n  3. No, and tell Codex what to do differently (esc)\n\n[visible screen]\n  gpt-5.5 xhigh fast · ~/src/app",
+  "expected": {
+    "tool": "codex",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "context": "cat > NOTES.md <<EOF\n1. payload\n2. docs\nEOF\nrm -rf build"
+    },
+    "headline": "Asking to write release notes and delete the build directory",
+    "session": null
+  }
+}

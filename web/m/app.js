@@ -640,7 +640,13 @@ function render() {
   reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
-  text($("prompt"), question?.prompt || "");
+  text($("prompt"), question?.ask || question?.prompt || "");
+  // The widget's own rows, once and folded away: the restatement above is what to read.
+  // Folded again for each new pane or command: an expanded one must not carry over.
+  const command = $("question-command"), commandKey = `${active}\n${question?.context || ""}`;
+  if (command._key !== commandKey) { command._key = commandKey; command.open = false; }
+  command.hidden = !question?.context;
+  text(command.lastChild, question?.context || "");
   const answered = !!pane && isAnswered(pane);
   show("answer-status", answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
