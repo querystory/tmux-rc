@@ -29,9 +29,10 @@
 // A menu's shortcut is always its row's digit, even when the rows read Yes / No: Claude
 // Code's "❯ 1. Yes / 2. No" permission box ignores a bare y, so a y/n shortcut left the
 // tap doing nothing. Digits are what the classifier requires to call a widget a menu.
+// Row 10 on has no shortcut: Codex commits "1" on its own, so "10" picks row 1. null.
 export function answerBody(q, opt, i) {
   if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
-  return { keys: String(i + 1), enter: false, literal: true };
+  return i < 9 ? { keys: String(i + 1), enter: false, literal: true } : null;
 }
 
 // How many moves we will walk before handing over to the widget's own search box. A row

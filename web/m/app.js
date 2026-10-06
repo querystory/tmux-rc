@@ -928,7 +928,10 @@ function answer(id, option, index) {
   // digit both land in the picker's search box. It needs a verified walk, and the walk
   // stops the moment its pane is off screen, so a sidebar tap opens the pane first.
   if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
-  else sendKeys(answerBody(current.question, option, index), true, id);
+  else {
+    const body = answerBody(current.question, option, index);
+    if (body) sendKeys(body, true, id); else notice("Use the keyboard for this option.");
+  }
 }
 
 // This surface's half of the shared cursor walk. No send here sets `pendingAnswers`:
