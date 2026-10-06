@@ -39,6 +39,10 @@
   <div id="app">
     <header class="app-header">
       <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
+      <!-- A phone's list screen is one iOS-style large-title row: this title, its live dot
+           and the actions. It names the app, not "Sessions": the list holds panes and
+           agents, which belong to sessions. The brand stands in on the dashboard. -->
+      <h1 id="list-title">tmux-rc</h1>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
       <span id="connection" role="status">Connecting</span>
       <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
@@ -48,6 +52,7 @@
         <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
         <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
         <a id="docs" class="icon-button" href="/docs/" hidden aria-label="Documentation" title="Documentation"></a>
+        <button id="sort" class="icon-button" title="Switch the sort order"></button>
       </div></details>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
@@ -57,11 +62,13 @@
     <section id="sessions" aria-label="Sessions">
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
       <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
-      <div class="list-heading"><h1>Sessions</h1><select id="sort" aria-label="Sort panes"><option value="updated">Last updated</option><option value="session">Session order</option></select><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
       <div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
       <p id="empty" class="empty" role="status">Loading sessions...</p>
+      <!-- A phone's floating action button, pinned to the list's foot (sticky, so the list's
+           end scrolls clear of it). -->
+      <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
       <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
