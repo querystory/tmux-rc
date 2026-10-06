@@ -1,4 +1,5 @@
 :root {
+  --mono: ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace;
   color-scheme: dark;
   --bg: #101312; --surface: #191d1b; --raised: #252b28; --line: #343d38;
   --fg: #edf2ef; --muted: #a1ada6; --accent: #83ddb3; --accent-bg: #193c2c; --lift: #2b322f;
@@ -130,6 +131,13 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .row-title strong { font-size: 15px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-age { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row-title svg { flex: none; color: var(--muted); }
+/* A held widget's raw rows (tool, command, notice): folded in the pane view, and in the
+   hover card; cards show its plain restatement instead. */
+.q-cmd { margin: 4px 0 0; color: var(--muted); font: 11.5px/1.35 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+#side-hover .q-cmd:not(:empty) { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.q-command { margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+.q-command summary { cursor: pointer; }
+.q-cmd:empty { display: none; }
 .row-status { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .row-meta { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 3px; white-space: nowrap; }
 .row-details { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -185,7 +193,7 @@ a.icon-button { color: var(--fg); text-decoration: none; }
    tap that toggles also hovers, so the new mode explains itself as it switches. */
 #click-mode:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: 240px; padding: 8px 10px; border-radius: 8px; background: #252b28; color: #edf2ef; border: 1px solid #343d38; font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; pointer-events: none; }
 #terminal-scroll { flex: 1; overflow: auto; min-height: 0; overscroll-behavior: contain; }
-#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 ui-monospace, Menlo, "DejaVu Sans Mono", Consolas, monospace; tab-size: 8; transition: transform .2s ease-out; }
+#capture { margin: 0; padding: 12px; min-width: 100%; width: max-content; font: 13px/1.45 var(--mono); tab-size: 8; transition: transform .2s ease-out; }
 /* Each outer span is a captured row; its SGR spans must paint the entire
    line box, including leading, so adjacent highlight backgrounds meet. */
 #capture > span > span { display: inline-block; vertical-align: top; }

@@ -1,0 +1,15 @@
+{
+  "description": "Description and command agree, and the effect is destructive: deleting a whole git checkout. question.ask must name the deletion of the qs-app repo. Synthetic.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n● Removing the stale checkout so we can clone fresh.\n\n──────────────────────────────────────────────────────────────────────────────────\n Bash command · from the general-purpose agent\n Delete the old qs-app checkout\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ rm -rf ~/src/qs-app\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "ask": "The agent wants to delete the qs-app git repo at ~/src/qs-app. Continue?"
+    },
+    "headline": "Asking to delete the old qs-app checkout"
+  }
+}

@@ -118,7 +118,9 @@ export function paneName(pane) {
   return pane.title || pane.label || pane.window_name || pane.pane_id;
 }
 // The line a list shows under the name: the question it is stuck on, else what it is doing.
-export const paneActivity = (pane) => pane.question?.prompt || pane.status_line || pane.session_summary || "";
+// A held widget's question reads as its plain restatement (`ask`, classify._restate): a bare
+// "Do you want to proceed?" says nothing on a card.
+export const paneActivity = (pane) => pane.question?.ask || pane.question?.prompt || pane.status_line || pane.session_summary || "";
 // The pane overview's headline and its stats line (model / context / cost / elapsed); the
 // sidebar's hover card shows the same two, so they are defined once.
 export const paneHeadline = (pane) => pane?.headline || pane?.status_line || pane?.session_summary || "";
@@ -135,8 +137,8 @@ export function matchesSearch(pane, query) {
         `${repo} ${pr.number}`, `${repo} PR ${pr.number}`, `${repo} PR #${pr.number}`])];
   });
   const text = [pane.session, pane.title, pane.label, pane.window_name, pane.pane_id, pane.tool, pane.model,
-    pane.question?.prompt, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
+    pane.question?.prompt, pane.question?.ask, pane.question?.context, pane.headline, pane.status_line, pane.session_summary, activityLabel(pane),
     pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : "", ...refs]
-    .filter(Boolean).join(" ").toLowerCase();
+    .filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, " "); // context keeps its rows and runs of spaces
   return text.includes(String(query).trim().toLowerCase().replace(/\s+/g, " "));
 }

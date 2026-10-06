@@ -203,7 +203,7 @@ export function setupSidebar(ctx) {
   // Mouse only: a tap is a navigation, and phones never render this list anyway.
   const card = Object.assign(document.createElement("div"), { id: "side-hover", hidden: true });
   card.setAttribute("role", "tooltip");
-  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><small class="m"></small><small class="k"></small><div class="l"></div>';
+  card.innerHTML = '<div class="h"><span class="sb-logo"><img alt=""></span><span><b></b><small></small></span></div><small class="w"></small><span class="badge"></span><p class="x"></p><p class="q"></p><p class="q-cmd"></p><small class="m"></small><small class="k"></small><div class="l"></div>';
   document.body.append(card);
   let hoverOn = null, pending = null, hoverTimer = 0;
   const paneOf = (el) => (el.closest(".sb-card") || el)._p;
@@ -216,7 +216,9 @@ export function setupSidebar(ctx) {
     $c(".badge").className = `badge ${activityClass(p)}`;
     text($c(".badge"), `${activityLabel(p)} · ${since(p)}`);
     text($c(".x"), paneHeadline(p) || "No recent activity");
-    text($c(".q"), needsYou(p) && p.question?.prompt !== paneHeadline(p) ? p.question?.prompt || "" : "");
+    const asked = needsYou(p) && (p.question?.ask || p.question?.prompt);
+    text($c(".q"), asked && asked !== paneHeadline(p) ? asked : "");
+    text($c(".q-cmd"), (needsYou(p) && p.question?.context) || "");
     text($c(".m"), paneMeta(p));
     text($c(".k"), tasks.length ? `Tasks ${tasks.filter((t) => t.done).length}/${tasks.length}` : "");
     reconcile($c(".l"), paneLinks(p).slice(0, 2), (l) => l.href, () => document.createElement("small"), (n, l) => text(n, l.detail ? `${l.text} (${l.detail})` : l.text));

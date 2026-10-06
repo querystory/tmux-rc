@@ -45,7 +45,7 @@ SNAPSHOT_HISTORY = 200
 CHECKPOINT_EVENTS = 100
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 7
+CARD_VERSION = 10
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -734,6 +734,15 @@ class Watcher:
         return q.get("prompt") if isinstance(q, dict) else None
 
     @staticmethod
+    def _pending_key(state: dict) -> tuple:
+        """What the waiting clock is keyed on: the activity and the pending question, by
+        prompt AND widget context (the same "Do you want to proceed?" over a different
+        command is a new ask)."""
+        q = state.get("question")
+        return (state.get("activity"), Watcher._question_prompt(state),
+                q.get("context") if isinstance(q, dict) else None)
+
+    @staticmethod
     def _deck_fp(states: list[dict]) -> str:
         # repr() of a tuple, NOT an f-string join: f-strings coerce None -> "None", so a
         # field flipping between None and the literal string "None" would look unchanged
@@ -1043,7 +1052,7 @@ class Watcher:
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._checkpointed[pid] = None  # see _checkpoint
-            self._state_key[pid] = (state.get("activity"), self._question_prompt(state))
+            self._state_key[pid] = self._pending_key(state)
             self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
                                          now)
             if state.get("summary"):
@@ -1114,7 +1123,7 @@ class Watcher:
         churn (a spinner/clock that trips the fingerprint) does NOT reset it, so
         time-in-state stays honest even across re-parses. Persisted per pane so an
         unchanged re-parse leaves it put and the clock keeps climbing."""
-        key = (state.get("activity"), self._question_prompt(state))
+        key = self._pending_key(state)
         if self._state_key.get(pane_id) != key:
             # Restart amnesia (#129): these clocks live in daemon memory, so a restart
             # used to stamp every long-parked pane "went idle just now" — the whole
