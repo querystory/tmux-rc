@@ -297,11 +297,13 @@ _HISTORY_TOOLS = [
         "name": "find_sessions",
         "description": (
             "Look up the user's past coding-agent sessions by topic, across every repo — "
-            "including sessions no window shows now. Use only when the user asks to "
-            "resume, continue, or find earlier work (“resume the live mode session”, "
-            "“where was I on the auth fix”). Returns repos, each with sessions: id, the "
-            "agent tool (claude, codex, or omp), title, last active date, and the window "
-            "running it if one is. Titles are hints for choosing, not facts about the work."
+            "including sessions no window shows now. Use when the user asks to resume, "
+            "continue, or find earlier work (“resume the live mode session”, “where was I "
+            "on the auth fix”, “was there a session about X”), rather than asking a window. "
+            "Returns repos, each with sessions: id, the agent tool (claude, codex, or omp), "
+            "title, last active date, the query terms it matched, and the window running it "
+            "if one is. Every returned session matched the query (in its title, branches, PR "
+            "links or transcript); titles are short hints and often don't mention the topic."
         ),
         "parameters": {
             "type": "object",
