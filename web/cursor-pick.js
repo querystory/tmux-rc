@@ -31,9 +31,12 @@
 // tap doing nothing. Digits are what the classifier requires to call a widget a menu.
 // Rows 10 and later have no one-key shortcut (Codex commits the "1" of "10" as row 1),
 // so answerBody returns null for them and the caller sends nothing.
+// A digit names a row, not an ask: a stale "1" would approve whatever prompt replaced
+// the one on the card. So a menu answer carries its question's fingerprint (`fp`, from
+// /api/state), and the server refuses it once the pane holds a different question.
 export function answerBody(q, opt, i) {
   if (q.answer_style !== "menu") return { keys: opt, enter: true, literal: true };
-  return i < 9 ? { keys: String(i + 1), enter: false, literal: true } : null;
+  return i < 9 ? { keys: String(i + 1), enter: false, literal: true, question: q.fp } : null;
 }
 
 // How many moves we will walk before handing over to the widget's own search box. A row

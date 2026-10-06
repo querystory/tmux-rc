@@ -1056,6 +1056,7 @@ class Watcher:
         if card := row["card"]:
             pid, state = pane.id, card["state"]
             state.pop("last_activity_at", None)  # the row's column is the source of truth
+            state.pop("input_generation", None)  # the last run's counter, not this one's
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._checkpointed[pid] = None  # see _checkpoint
             self._state_key[pid] = self._pending_key(state)
@@ -1150,6 +1151,7 @@ class Watcher:
         # Dim-marked so the parser can tell drafts/suggestions/chrome from output.
         # Snapshots store the marked text too (prior frames must match the current
         # one); snapshot_text() strips the markers at the phone-facing boundary.
+        generation = self.pane_input_generation(pane.id)  # read first: later input wins
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
         # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
@@ -1204,6 +1206,7 @@ class Watcher:
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
+            cached.setdefault("input_generation", generation)  # a restored card has none
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1440,5 +1443,9 @@ class Watcher:
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
         state["parsed_at"] = now
+        # The input generation this question was captured at, on the state itself so it
+        # publishes with it: input since (a menu answer above all) leaves the question
+        # unanswerable from the app until a fresh parse reads the pane (server.send).
+        state["input_generation"] = generation
         self._state[pane.id] = state
         return state

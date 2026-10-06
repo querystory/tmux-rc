@@ -942,8 +942,11 @@ async function sendKeys(body, answer = false, id = active) {
     }
     if (active === id) text($("draft-status"), "Sent");
     startState();
-  } catch { notice("Delivery could not be confirmed. Check the terminal before retrying."); }
-  finally { sending = false; render(); }
+  } catch (error) {
+    // 409 on a menu answer: the pane holds a different question now, and nothing was sent.
+    if (body.question && error.status === 409) { notice("This question changed — check the pane"); startState(); }
+    else notice("Delivery could not be confirmed. Check the terminal before retrying.");
+  } finally { sending = false; render(); }
   return delivered;
 }
 
