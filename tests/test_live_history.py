@@ -267,7 +267,8 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
     monkeypatch.setattr(agent_history, "resolve", lambda q: [{
         "repo": "/home/u/src/tmux-rc", "score": 9,
         "sessions": [
-            {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}, "prs": ["x"], "source": "/s"},
+            {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}, "prs": ["x"], "source": "/s",
+             "matched": ["live", "mode"]},
             {**LIVE, "session_id": "old", "title": "", "running_unknown": True},
             {**LIVE, "session_id": "new", "running": {"pid": 6, "tmux_pane": "%77"}},
             {**LIVE, "session_id": "ide", "running": {"pid": 7}},
@@ -279,15 +280,16 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
     assert w.reparsed == ["%77"]  # the unpublished running pane is woken
     assert r == {"status": "ok", "results": [{"repo": "~/src/tmux-rc", "sessions": [
         {"session_id": "live-1", "tool": "claude", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05", "running_in": "work", "pane_id": "%1"},
+         "last_active": "2026-09-05", "matched": ["live", "mode"], "running_in": "work",
+         "pane_id": "%1"},
         {"session_id": "old", "tool": "claude", "title": "(untitled)",
-         "last_active": "2026-09-05", "running_unknown": True},
+         "last_active": "2026-09-05", "matched": [], "running_unknown": True},
         {"session_id": "new", "tool": "claude", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05", "running_in": "%77", "pane_id": "%77"},
+         "last_active": "2026-09-05", "matched": [], "running_in": "%77", "pane_id": "%77"},
         {"session_id": "ide", "tool": "claude", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05", "running_elsewhere": True},
+         "last_active": "2026-09-05", "matched": [], "running_elsewhere": True},
         {"session_id": "cx", "tool": "codex", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05"},
+         "last_active": "2026-09-05", "matched": []},
     ]}]}
     monkeypatch.setattr(agent_history, "resolve", lambda q: None)
     assert _call("find_sessions", {"query": "x"})[1]["status"] == "error"

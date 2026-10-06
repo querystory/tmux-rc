@@ -57,6 +57,7 @@ func TestResolveRanksRareTermsAndPhrases(t *testing.T) {
 	got := Resolve(entries, "fix live mode", defaults)
 	check(t, "top repo", got[0].Repo, "/tmux-rc")
 	check(t, "top session (phrase beats scattered words)", ids(got[0])[0], "live")
+	check(t, "matched terms", strings.Join(got[0].Sessions[0].Matched, ","), "live,live mode,mode")
 }
 
 func TestResolveWeightsNamesAndRecency(t *testing.T) {
