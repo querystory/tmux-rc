@@ -26,7 +26,7 @@ const SHOTS = [
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
-  ["wide-chat", WIDE, "light", "#pane=%259", openChat],
+  ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
@@ -34,6 +34,7 @@ const SHOTS = [
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
+  ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1")],
 ];
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
@@ -49,22 +50,28 @@ async function showSubagents(page) {
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
 }
 
-async function openChat(page) {
+function chat(ask) { // hoisted: SHOTS above calls it
+  return async (page) => {
   await page.click("#chat");
   await page.waitForFunction(() => document.getElementById("voice-status")?.textContent === "Connected");
-  await page.fill("#chat-input", "Which panes need me?");
+  await page.fill("#chat-input", ask);
   await page.press("#chat-input", "Enter");
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
+  };
 }
 
-// A canned Live Mode socket: answers any typed message with the same summary.
+// A canned Live Mode socket: a window named is offered with an Open button (open_pane),
+// anything else gets the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
     const message = JSON.parse(raw);
     if (message.action !== "text") return;
     socket.send(JSON.stringify({ type: "transcript", role: "user", text: message.text }));
-    socket.send(JSON.stringify({ type: "transcript", role: "model", text:
+    if (/window/.test(message.text)) {
+      socket.send(JSON.stringify({ type: "transcript", role: "model", text: "Window 1 is **e2e triage**, rerunning checkout.spec with tracing on." }));
+      socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: 'window 1 "e2e triage"' }));
+    } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
       "Four panes need you:\n\n- **api contract diff** asks whether to bump the public API to v3\n" +
       "- **flaky test hunter** wants you to pick a suite to quarantine\n" +
       "- **alert tuning** asks to silence the disk alert on build-02\n" +

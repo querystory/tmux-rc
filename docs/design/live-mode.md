@@ -445,6 +445,14 @@ control plane's risk-tier idea (agentic-control-plane.md) applied at the smalles
 Voice keeps acting directly, because a tap would end hands-free use and the spoken "Typing
 X into Y" announcement is voice's confirmation.
 
+**Taking the user to a window.** Asked to "go back to window 20", the assistant could only
+say the window was ready and ask what to do there: it could talk about panes but not show
+one. `open_pane` closes that gap by putting an Open button in the log, which goes where
+tapping the pane's row goes (on a phone it also minimizes the sheet). It changes only the
+view, so it skips the consent card, and it is a button rather than an automatic jump
+because the reply can land while the user is typing their next message, and a view that
+changes under them would lose their place. Voice gets the same tool and button.
+
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
 starts. Switching mid-conversation, as the history doc asks, now means moving a
