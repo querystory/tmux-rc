@@ -962,7 +962,9 @@ function answer(id, option, index) {
   if (current.question.answer_style === "cursor") { if (active !== id) navigate(id); pickCursorRow(cursorIO(id), option, index); }
   else {
     const body = answerBody(current.question, option, index);
-    if (body) sendKeys(body, true, id); else notice("Use the keyboard for this option.");
+    if (body) sendKeys(body, true, id);
+    // Open the pane first, as the cursor walk does, so the keyboard reaches the right one.
+    else { if (active !== id) navigate(id); notice("Use the keyboard for this option."); }
   }
 }
 
