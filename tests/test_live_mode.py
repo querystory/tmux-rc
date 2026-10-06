@@ -182,13 +182,14 @@ def test_explicit_pr_target_precedes_conversational_continuity():
     assert "If no association matches, inspect current pane context or ask which window" in prompt
 
 
-def _dispatch(fc, monkeypatch, watcher=None):
+def _dispatch(fc, monkeypatch, watcher=None, meter=_METER, panes=()):
     w = watcher or _Watcher()
     ws, session = _WS(), _Session()
     typed = []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.tmux, "list_panes", lambda: list(panes))  # never the real tmux
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
-    _run(L._handle_tool_call(ws, session, fc, w, _METER))
+    _run(L._handle_tool_call(ws, session, fc, w, meter))
     return w, ws, session, typed
 
 
@@ -203,6 +204,33 @@ def test_typing_dispatches_and_logs(monkeypatch):
     assert payload == {"status": "done", "pane": "work"}
     # the tool result never carries screen content (echo-loop guard)
     assert "screen" not in str(payload)
+
+
+@pytest.mark.parametrize("text", [False, True])
+def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text):
+    """open_pane only changes the view: no consent card even in a text session, nothing
+    typed, and the client is told which pane, named the way the model names it."""
+    w, ws, session, typed = _dispatch(
+        _FC(name="open_pane", args={"pane_id": "%1"}), monkeypatch,
+        meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
+    assert ws.sent == [{"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"'}]
+    assert session.responses[0][1] == {"status": "done", "pane": 'window 3 "work"'}
+    assert typed == [] and w.reparsed == []
+
+
+def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
+    """resume_session returns a pane id the digest may not hold yet; tmux vouches for it."""
+    fresh = L.tmux.Pane("work", "7", "auth fix", "0", "%40", "claude", "")
+    _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
+                            panes=[fresh])
+    assert ws.sent == [{"type": "open_pane", "pane_id": "%40", "label": 'window 7 "auth fix"'}]
+
+
+@pytest.mark.parametrize(
+    "args", [{"pane_id": "%9"}, {"pane_id": ["%1"]}, {"pane_id": "%1", "x": 1}, "oops"])
+def test_open_pane_refuses_an_unknown_pane_or_malformed_call(monkeypatch, args):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args=args), monkeypatch)
+    assert ws.sent == [] and session.responses[0][1]["status"] == "rejected"
 
 
 @pytest.mark.parametrize("ok", [True, False])

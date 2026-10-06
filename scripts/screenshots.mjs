@@ -37,6 +37,7 @@ const SHOTS = [
   ["mobile-no-tmux", PHONE, "light", "", noTmux],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
   ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
+  ["mobile-chat-open", PHONE, "light", "", (page) => openChat(page, "Let's go back to window 1")],
 ];
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
@@ -75,8 +76,8 @@ async function openChat(page, ask = "Which panes need me?") {
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
 }
 
-// A canned Live Mode socket: answers a typed "Resume..." with a consent card, and anything
-// else with the same summary.
+// A canned Live Mode socket: answers a typed "Resume..." with a consent card, a window named
+// with an Open button (open_pane), and anything else with the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
@@ -86,7 +87,10 @@ function stubChat(socket) {
     if (message.text.startsWith("Resume")) return socket.send(JSON.stringify({ type: "propose", id: "p1",
       text: "Resume checkout flake hunt", session: { tool: "codex", cwd: "~/src/example-org/storefront",
         last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }));
-    socket.send(JSON.stringify({ type: "transcript", role: "model", text:
+    if (/window/.test(message.text)) {
+      socket.send(JSON.stringify({ type: "transcript", role: "model", text: "Window 1 is **e2e triage**, rerunning checkout.spec with tracing on." }));
+      socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: 'window 1 "e2e triage"' }));
+    } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
       "Four panes need you:\n\n- **api contract diff** asks whether to bump the public API to v3\n" +
       "- **flaky test hunter** wants you to pick a suite to quarantine\n" +
       "- **alert tuning** asks to silence the disk alert on build-02\n" +

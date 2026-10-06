@@ -264,6 +264,21 @@ TOOLS = [
             "required": ["pane_id", "key"],
         },
     },
+    {
+        "name": "open_pane",
+        "description": (
+            "Give the user a button that takes their screen to one window. Call it whenever "
+            "the user wants to go to, open, see, switch to or get back to a window (“go back "
+            "to window 20”, “show me the auth fix”), including one find_sessions or "
+            "resume_session just named, instead of asking what to do there. It changes only "
+            "what the user sees, never the pane."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"pane_id": _PANE_ID},
+            "required": ["pane_id"],
+        },
+    },
 ]
 
 
@@ -302,8 +317,9 @@ _HISTORY_TOOLS = [
             "on the auth fix”, “was there a session about X”), rather than asking a window. "
             "Returns repos, each with sessions: id, the agent tool (claude, codex, or omp), "
             "title, last active date, the query terms it matched, and the window running it "
-            "if one is. Every returned session matched the query (in its title, branches, PR "
-            "links or transcript); titles are short hints and often don't mention the topic."
+            "if one is (running_in, and its pane_id for open_pane or type_in_pane). Every "
+            "returned session matched the query (in its title, branches, PR links or "
+            "transcript); titles are short hints and often don't mention the topic."
         ),
         "parameters": {
             "type": "object",

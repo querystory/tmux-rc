@@ -17,6 +17,7 @@ import contextlib
 import json
 import logging
 import os
+import subprocess
 import time
 import uuid
 from collections import deque
@@ -220,10 +221,14 @@ def _fmt_age(sec: float) -> str:
     return f"{sec // 86400}d"
 
 
-def _pane_block(d: dict, screen: str | None) -> str:
-    """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
-    leads with the user-facing identity (window number + title) and gives the internal
-    pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
+def _labels(watcher) -> dict[str, str]:
+    """Each watched pane's window label by pane id: what the feed and the audit call it."""
+    return {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+
+
+def _pane_name(d: dict) -> str:
+    """A pane's user-facing identity, `window <number> "<title>"`: how the prompt lists it
+    and the model names it, so an Open button reads the same as the reply above it."""
     win = d.get("window_index")
     head = f"window {win}" if win not in (None, "") else "window"
     # Best-first name, matching the phone card: the agent's self-published title, else
@@ -234,7 +239,14 @@ def _pane_block(d: dict, screen: str | None) -> str:
     if name:
         name = " ".join(str(name).split()).replace('"', "")
         head += f' "{name}"'
-    head += f" (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
+    return head
+
+
+def _pane_block(d: dict, screen: str | None) -> str:
+    """One pane's state as prompt text. `d` is a watcher.digest() entry. The heading
+    leads with the user-facing identity (window number + title) and gives the internal
+    pane id only as `id=%N` — the handle for tool calls, never spoken (see live_prompt)."""
+    head = f"{_pane_name(d)} (id={d['pane_id']}) — {d.get('tool') or 'unknown'}"
     head += f" — {d.get('activity') or 'unknown'}"
     # Idle AGE, not just the state: "idle for 2d" and "idle for 40s" are different routing
     # candidates — the prompt tells the model a long-idle pane is rarely where a new
@@ -395,7 +407,7 @@ async def _approved(
     removes actions."""
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    labels = _labels(watcher)
     known = isinstance(pane_id, str) and pane_id in labels
     pane = labels[pane_id] if known else pane_id
     # "" when the lookup finds no process: it matches no pane, so the send is refused
@@ -456,6 +468,8 @@ async def _dispatch(
         return await _HISTORY_TOOLS[fc.name](websocket, args, watcher, rec)
     if fc.name == "send_image_to_pane":
         return await _send_image(websocket, args, watcher, rec, expected_pid, meter)
+    if fc.name == "open_pane":
+        return await _open_pane(websocket, args, watcher, rec)
 
     # Keep the RAW value as well as the coerced one: str() turns a dict or an int into a
     # perfectly plausible-looking string, and the guards below have to reject a wrong TYPE
@@ -463,7 +477,7 @@ async def _dispatch(
     # as a new call is exactly how a dict arrives here.
     raw_pane_id = args.get("pane_id")
     pane_id = str(raw_pane_id or "").strip()
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    labels = _labels(watcher)
 
     # Parse per-tool into (send_args for tmux.send_keys, a human "what" for the audit/feed,
     # whether it counts as submitted). malformed stays None ⇒ reject below.
@@ -547,7 +561,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     from .server import attach_image  # noqa: PLC0415 - server imports this module
 
     pane_id, caption = args.get("pane_id"), args.get("caption", "")
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    labels = _labels(watcher)
     if (set(args) - {"pane_id", "image_number", "caption"} or not isinstance(caption, str)
             or not isinstance(pane_id, str) or pane_id not in labels):
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
@@ -572,6 +586,25 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     return {"status": "done", "pane": labels[pane_id]}
 
 
+async def _open_pane(websocket, args: dict, watcher, rec: dict) -> dict:
+    """Put an Open button for a pane in the chat. It changes only what the phone shows,
+    never the pane, so no consent card guards it, and a button rather than a jump: the user
+    may be mid-sentence in the composer when the reply lands."""
+    pane_id = args.get("pane_id")
+    pane = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
+    # Not published yet: a window resume_session just opened, before the watcher's next tick.
+    if pane is None and isinstance(pane_id, str):
+        with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
+            pane = next(({"window_index": p.window_index, "label": p.window_name}
+                         for p in await asyncio.to_thread(tmux.list_panes) if p.id == pane_id),
+                        None)
+    if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
+        return {"status": "rejected", "reason": "malformed call or unknown pane"}
+    rec["pane_id"] = pane_id
+    await websocket.send_json({"type": "open_pane", "pane_id": pane_id, "label": _pane_name(pane)})
+    return {"status": "done", "pane": _pane_name(pane)}
+
+
 async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     """Past sessions for a topic, trimmed to what choosing needs. No message text: the
     model routes on titles, recency and liveness, and nothing from an old session is
@@ -584,7 +617,7 @@ async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
     projects = await asyncio.to_thread(agent_history.resolve, query.strip())
     if projects is None:
         return {"status": "error", "reason": "session history unavailable"}
-    labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+    labels = _labels(watcher)
     results = []
     for p in projects:
         sessions = []
@@ -704,7 +737,7 @@ async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:
         if not pane:
             return {"status": "rejected", "reason": "already running outside this tmux"}
         rec["pane_id"] = pane
-        labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
+        labels = _labels(watcher)
         if pane not in labels:
             watcher.request_reparse(pane)  # publish it before the model types there
         return {"status": "already_running", "pane_id": pane, "pane": labels.get(pane, pane)}
@@ -765,7 +798,7 @@ def _session_for(panes, cwd: str) -> str | None:
 
 
 _HISTORY_TOOLS = {"find_sessions": _find_sessions, "resume_session": _resume_session}
-_TOOLS = {"type_in_pane", "press_key", "send_image_to_pane", *_HISTORY_TOOLS}
+_TOOLS = {"type_in_pane", "press_key", "send_image_to_pane", "open_pane", *_HISTORY_TOOLS}
 
 
 # Keep strong refs to fire-and-forget tasks so they aren't GC'd mid-flight.

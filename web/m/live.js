@@ -16,7 +16,7 @@ const TRANSCRIPT_ROWS = 40; // Oldest transcript rows are dropped past this coun
 const FOLLOW_SLACK_PX = 48; // Keep auto-scrolling while the log is within this distance of the bottom.
 const CHAT_MODEL_KEY = "tmuxrc-chat-model"; // Chat's last model, apart from the voice picker's
 
-export function setupLiveMode({ request, session, licon, wide, report = () => {}, onVersion = () => {} }) {
+export function setupLiveMode({ request, session, licon, wide, open, report = () => {}, onVersion = () => {} }) {
   const $ = (id) => document.getElementById(id);
   const mic = licon("mic"), dialog = $("voice-dialog"), log = $("voice-log");
   $("live-mode").innerHTML = $("voice-mute").innerHTML = mic;
@@ -145,9 +145,9 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
     if (!grow) {
       row = document.createElement("div"); row.className = "voice-entry";
       row.dataset.role = role;
-      row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
+      row.classList.add(["user", "model", "typed", "error", "propose", "open"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
-      heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
+      heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act", open: "Window" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
     if (role === "model") appendChatMarkdown(row.lastChild, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
@@ -191,6 +191,14 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
     meta.className = "voice-meta";
     meta.textContent = [[tool, cwd], [when, id]].map((line) => line.filter(Boolean).join(" · ")).filter(Boolean).join("\n");
     return meta;
+  }
+  // open_pane: a button to a pane, going exactly where its row in the list goes (the
+  // caller's navigate). A phone minimizes the sheet on the way, a docked panel stays put.
+  function offer({ pane_id, label }) {
+    const button = document.createElement("button"); button.type = "button";
+    button.append(`Open ${label}`); button.insertAdjacentHTML("beforeend", licon("chevron", 16));
+    button.onclick = () => { if (!docked()) hide(); open(pane_id); };
+    add("open").lastChild.append(button);
   }
   function settle(current, id, label) {
     const card = current.proposals.get(id);
@@ -376,6 +384,7 @@ export function setupLiveMode({ request, session, licon, wide, report = () => {}
         add("error", message.message);
       }
       else if (message.type === "propose") propose(current, message);
+      else if (message.type === "open_pane") offer(message);
       else if (message.type === "decided") settle(current, message.id, message.ok ? "Approved" : message.ok === null ? "Cancelled — you sent a new message" : "Declined");
       else if (message.type === "interrupted") silence(current);
       else if (message.type === "audio") { try { playAudio(current, message.data, message.sample_rate); } catch { add("error", "Could not play this audio chunk."); } }
