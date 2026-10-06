@@ -18,6 +18,10 @@ test("a menu tap sends only its shortcut, never Enter", () => {
   assert.deepEqual(answerBody(proceed, "No", 1), digit("2"));
   // Two options that are not yes/no still get their digit, not the typed label.
   assert.deepEqual(answerBody(menu("Retry", "Abort"), "Abort", 1), digit("2"));
+  // Row 10 has no one-key shortcut: Codex commits the "1" of "10" as row 1.
+  const long = menu(...Array.from({ length: 12 }, (_, i) => `Model ${i + 1}`));
+  assert.deepEqual(answerBody(long, "Model 9", 8), digit("9"));
+  assert.equal(answerBody(long, "Model 10", 9), null);
 });
 
 test("a typed reply keeps its Enter", () => {

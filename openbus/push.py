@@ -338,6 +338,8 @@ def option_keys(question: dict, index: int) -> str:
     if style == "cursor":
         raise ValueError("cursor questions must be answered in the app")
     if style == "menu":  # mirrors answerBody in web/cursor-pick.js: always the row's digit
+        if index >= 9:  # "10" would commit row 1 on its first key
+            raise ValueError("use the keyboard for menu rows past 9")
         return str(index + 1)
     return option
 

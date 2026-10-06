@@ -197,6 +197,10 @@ def test_option_mapping_matches_card_semantics():
     assert push.option_keys(question, 0) == "1"
     assert push.option_keys(question, 1) == "2"
     assert push.option_keys({"answer_style": "menu", "options": ["Retry", "Abort"]}, 1) == "2"
+    months = {"answer_style": "menu", "options": [f"M{i}" for i in range(12)]}
+    assert push.option_keys(months, 8) == "9"
+    with pytest.raises(ValueError, match="past 9"):
+        push.option_keys(months, 9)
     question = {"answer_style": "menu", "options": ["Alpha", "Other", "Beta"]}
     assert push.renderable_options(question) == [(0, "Alpha"), (2, "Beta")]
     assert push.option_keys(question, 2) == "3"
