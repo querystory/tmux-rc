@@ -176,11 +176,14 @@ export function setupSidebar(ctx) {
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id) : ctx.answer(node._p.pane_id, o.option, o.index);
+      // At a password prompt Reply opens the pane, whose composer is the password field.
+      button.onclick = () => o.reply ? (node._p.secret ? ctx.navigate : openReply)(node._p.pane_id) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
     }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
-    const form = node.querySelector(".sb-compose");
-    form.hidden = replyTo !== p.pane_id;
+    const form = node.querySelector(".sb-compose"), typed = drafts.get(p.pane_id);
+    // Text typed here before the prompt showed up is probably the password: drop it.
+    if (p.secret && typed?.segments().length) typed.replace([]);
+    form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
     form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
