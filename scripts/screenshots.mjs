@@ -34,7 +34,7 @@ const SHOTS = [
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
-  ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1")],
+  ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .open button")],
 ];
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
@@ -50,13 +50,14 @@ async function showSubagents(page) {
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
 }
 
-function chat(ask) { // hoisted: SHOTS above calls it
+function chat(ask, until) { // hoisted: SHOTS above calls it
   return async (page) => {
   await page.click("#chat");
   await page.waitForFunction(() => document.getElementById("voice-status")?.textContent === "Connected");
   await page.fill("#chat-input", ask);
   await page.press("#chat-input", "Enter");
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
+  if (until) await page.waitForSelector(until); // a frame after the transcripts, e.g. open_pane
   };
 }
 
