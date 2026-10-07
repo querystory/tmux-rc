@@ -897,16 +897,19 @@ def send_secret(pane: Pane, secret: str) -> None:
     type a password into whatever replaced the prompt."""
     name = f"tmuxrc-secret-{secrets.token_hex(8)}"
     with _pane_lock(pane.id):
-        check_pane(pane.id, pane.pid)
-        if not at_password_prompt(pane.id, unknown=False):
-            raise PaneChangedError("The pane is no longer asking for a password; nothing was sent.")
         try:
             _run(["load-buffer", "-b", name, "-"], stdin=secret)
+            # Checked after the load, right before the paste: the pane can be replaced
+            # (and its id recycled) while load-buffer runs.
+            check_pane(pane.id, pane.pid)
+            if not at_password_prompt(pane.id, unknown=False):
+                raise PaneChangedError(
+                    "The pane is no longer asking for a password; nothing was sent.")
             _run(["paste-buffer", "-d", "-p", "-b", name, "-t", pane.id])
+            _run(["send-keys", "-t", pane.id, "Enter"])
         finally:  # -d already deleted it after a paste; any failure must not leave it
             with suppress(OSError, subprocess.CalledProcessError):
                 _run(["delete-buffer", "-b", name])
-        _run(["send-keys", "-t", pane.id, "Enter"])
 
 
 def click(pane_id: str, from_bottom: int, col: int, *,

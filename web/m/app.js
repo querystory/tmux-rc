@@ -672,7 +672,7 @@ function render() {
   updateComposer();
   if (focusPushComposer && pane?.question && needsYou(pane)) {
     focusPushComposer = false;
-    requestAnimationFrame(() => $("reply").focus({ preventScroll: true }));
+    requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));
   }
   if (pane && overviewVisible()) loadEvents(pane);
 }
