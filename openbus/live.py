@@ -715,7 +715,8 @@ async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
     # Tapping Send on the card asked to go there, so take them; voice has no card, and a
     # model's own open_pane only offers a button.
     if rec.get("consent") == "approved" and result.get("pane_id"):
-        await _open_pane(websocket, {"pane_id": result["pane_id"]}, watcher, rec, auto=True)
+        shown = await _open_pane(websocket, {"pane_id": result["pane_id"]}, watcher, rec, auto=True)
+        result["shown"] = shown["status"] == "done"  # so the model offers no second button
     return result
 
 

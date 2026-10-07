@@ -83,7 +83,8 @@ def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monk
     monkeypatch.setattr(tmux, "list_panes", lambda: [
         Pane("work", "7", "tmuxrc live mode", "0", "%40", "claude", "", cwd="/repo")])
     ws, rec = _WS(), {"consent": consent} if consent else {}
-    _run(L._resume_session(ws, {"session_id": "live-1"}, _Watcher(), rec))
+    r = _run(L._resume_session(ws, {"session_id": "live-1"}, _Watcher(), rec))
+    assert r.get("shown", False) == bool(consent)  # steers the model off a second button
     opens = [m for m in ws.sent if m["type"] == "open_pane"]
     assert opens == ([{"type": "open_pane", "pane_id": "%40", "auto": True,
                        "label": 'window 7 "tmuxrc live mode"'}] if consent else [])
