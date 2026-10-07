@@ -451,7 +451,10 @@ one. `open_pane` closes that gap by putting an Open button in the log, which goe
 tapping the pane's row goes (on a phone it also minimizes the sheet). It changes only the
 view, so it skips the consent card, and it is a button rather than an automatic jump
 because the reply can land while the user is typing their next message, and a view that
-changes under them would lose their place. Voice gets the same tool and button.
+changes under them would lose their place. Voice gets the same tool and button. The one jump is a resume the user just tapped
+Send on: that tap asked to go there, so the daemon sends the same message marked `auto`
+and the client clicks the button it adds, which stays for getting back. The result tells
+the model the user is already there, so it offers no second button.
 
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
