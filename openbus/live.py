@@ -514,9 +514,10 @@ async def _dispatch(
         logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
                        exc_info=telemetry.QSDEBUG)
         return {"status": "error", "reason": "pane did not accept input"}
+    finally:  # even a failure has moved the input generation on (server._pane_input)
+        watcher.request_reparse(pane_id)
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
-    watcher.request_reparse(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
@@ -564,8 +565,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
         logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,
                        exc_info=telemetry.QSDEBUG)
         return {"status": "error", "reason": "pane did not accept the image"}
-    rec["detail"] += f" via {mode}"
-    watcher.request_reparse(pane_id)
+    rec["detail"] += f" via {mode}"  # attach_image has already requested the reparse
     await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
                                "text": f"[image] {caption}".strip(), "submitted": True})
     return {"status": "done", "pane": labels[pane_id]}

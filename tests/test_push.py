@@ -8,21 +8,26 @@ from py_vapid import Vapid
 from pydantic import ValidationError
 
 from openbus import push
+from openbus.classify import widget_context
+from openbus.watcher import _fingerprint
+
+
+def box(command):
+    """Claude Code's permission box over `command`, as capture_pane returns it."""
+    return f"{'─' * 40}\n Bash command\n\n   {command}\n\n Proceed?\n ❯ 1. Yes\n   2. No\n"
 
 
 @pytest.fixture(autouse=True)
 def _screen(monkeypatch):
-    """What the pane shows when an answer's guard captures it: by default the frame every
-    test state was parsed from (none, so ""). Set `[0]` to advance it from the keyboard."""
-    screen = [""]
+    """What the pane shows when an answer's guard captures it: by default the screen every
+    test state was parsed from. Set `[0]` to advance it from the keyboard."""
+    screen = [box("ls")]
     monkeypatch.setattr(push.tmux, "capture_pane", lambda _pane, **_kw: screen[0])
     return screen
 
 
 class Watcher:
-    @staticmethod
-    def frame_fp(text):
-        return text
+    frame_fp = staticmethod(_fingerprint)  # the real normalization, minus the hash
 
     def __init__(self):
         self.states = []
@@ -70,16 +75,18 @@ class Sender:
         pass
 
 
-def held(**fields):
-    """A held approval menu with its widget rows and restatement, as classify sends it."""
-    return {"prompt": "Proceed?", "answer_style": "menu", "context": "ls",
+def held(command="ls", **fields):
+    """A held approval menu with its widget rows (read off box(command), as classify reads
+    them) and restatement."""
+    return {"prompt": "Proceed?", "answer_style": "menu",
+            "context": widget_context({"prompt": "Proceed?"}, box(command)),
             "options": ["Yes", "No"], "ask": "List the files?", **fields}
 
 
-def waiting(question=None):
+def waiting(question=None, screen=box("ls")):
     state = {
         "pane_id": "%1", "label": "Build", "activity": "waiting",
-        "waiting_on": "user", "headline": "Approval needed",
+        "waiting_on": "user", "headline": "Approval needed", "frame": _fingerprint(screen),
     }
     if question is not None:
         state["question"] = question
@@ -509,7 +516,7 @@ def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatc
     published, only a fresh capture shows the notification's question is gone."""
     clock = [100.0]
     watcher = Watcher()
-    watcher.states = [{**waiting(held()), "frame": "A"}]
+    watcher.states = [waiting(held())]
     service, sender = manager(tmp_path, watcher, clock)
     monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
     sent = []
@@ -521,7 +528,7 @@ def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatc
     service.evaluate()
     clock[0] += push.SETTLE_SECONDS
     service.evaluate()
-    _screen[0] = "B"
+    _screen[0] = box("rm -rf build")
     with pytest.raises(ValueError, match="changed"):
         service.answer(sender.payloads[0]["nonce"], 0)
     assert sent == []
@@ -670,11 +677,12 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, 
     watcher = Watcher()
     watcher.state_version, watcher.booted = lambda: 1, lambda: True
     watcher.tmux_running = True  # read by /api/state once the start-tmux PR lands
-    watcher.states = [waiting(held(context="mkdir s1"))]
-    stale = push.contract(watcher.states[0], "123")[0] + ":0:A"
-    watcher.states = [{**waiting(held(context="mkdir s2")), "frame": "B"}]
-    screen = _screen  # what the pane shows now; B was parsed at input generation 0
-    screen[0] = "B"
+    a = waiting(held("mkdir s1"), box("mkdir s1"))
+    stale = f"{push.contract(a, '123')[0]}:0:{a['frame']}"
+    # B is held now, parsed at input generation 0.
+    watcher.states = [waiting(held("sleep 10s"), box("sleep 10s"))]
+    screen = _screen
+    screen[0] = box("sleep 10s")
     monkeypatch.setattr(server.tmux, "list_panes", lambda: [
         Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
     monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
@@ -697,11 +705,14 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, 
     assert response.status_code == 409
     assert "changed" in response.json()["detail"]
     assert sent == []
-    # Advanced from the keyboard, its parse not yet published: B's card would approve C.
-    screen[0] = "C"
+    # Advanced from the keyboard to C, its parse not yet published, so B's card would
+    # approve C. The frame hash cannot tell them apart (durations are normalized out so a
+    # timer can't break it); the widget rows, re-read losslessly, can.
+    screen[0] = box("sleep 20s")
+    assert _fingerprint(box("sleep 10s")) == _fingerprint(box("sleep 20s"))
     assert tap(token()).status_code == 409
     assert sent == []
-    screen[0] = "B"
+    screen[0] = box("sleep 10s")
     assert tap(token()).status_code == 200
     assert sent == ["1"]
     # Until a reparse reads the pane again the screen still shows the same question, but

@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
@@ -762,14 +762,25 @@ def _emit_live_round(
         logger.debug("live emit failed", exc_info=True)
 
 
-def _invalidate_input_actions(pane_id: str) -> None:
-    """Invalidate push actions before competing for the pane's send lock."""
+@contextmanager
+def _pane_input(pane_id: str, *, invalidate: bool = True):
+    """Wrap one input attempt on a pane. Before it, invalidate push actions and app menu
+    tokens ahead of competing for the pane's send lock. After it, whatever the outcome,
+    force a reparse: input changes the screen, so an answered question clears from its
+    card within a capture, and an attempt that failed or sent nothing has still moved the
+    generation past every published token, which only a fresh parse reissues. Never
+    reparse before delivery: that parse could stamp the new generation on the old screen.
+    `pane_id` must be canonical: the watcher matches its forced set against pane.id, so
+    an alias would never fire."""
     watcher = getattr(app.state, "watcher", None)
-    if watcher is None:
-        return
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
-    if invalidate is not None:
-        tmux.before_send(pane_id, lambda: invalidate(pane_id))
+    bump = getattr(watcher, "invalidate_input_actions", None)
+    if invalidate and bump is not None:
+        tmux.before_send(pane_id, lambda: bump(pane_id))
+    try:
+        yield
+    finally:
+        if watcher is not None:
+            watcher.request_reparse(pane_id)
 
 
 @app.post("/api/panes/{pane_id}/send")
@@ -804,11 +815,10 @@ def send(pane_id: str, body: SendBody, request: Request):
         digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
         claim_question(w, pane.id, digest, int(generation), frame)
 
-    if not fp:
-        _invalidate_input_actions(pane.id)
     try:
-        tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
-                       expected_pid=birth, guard=claim if fp else None)
+        with _pane_input(pane.id, invalidate=not fp):  # a menu answer's claim bumps it
+            tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
+                           expected_pid=birth, guard=claim if fp else None)
     except Exception as e:
         _audit(
             request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
@@ -816,14 +826,6 @@ def send(pane_id: str, body: SendBody, request: Request):
         if isinstance(e, (tmux.PaneChangedError, ValueError)):
             raise HTTPException(409, str(e)) from e
         raise
-    finally:
-        # Input changes the screen — force an immediate re-parse so an answered question /
-        # closed menu reflects on the card within a capture, not a poll interval later.
-        # A failed send too: it may have consumed a menu answer's generation, or been
-        # refused over a screen the card no longer matches, and only a fresh parse issues
-        # a token that can pass again. The canonical id again: the watcher matches this
-        # set against pane.id, so a request queued under an alias would never fire.
-        w.request_reparse(pane.id)
     _audit(request, "send_keys", pane_id, detail, body.keys)
     return {"ok": True}
 
@@ -834,12 +836,9 @@ def click(pane_id: str, body: ClickBody, request: Request):
     them (tmux.click). `sent: false` is a normal answer — the tap landed on a shell, or
     on history — so the client just lets it be a tap."""
     def deliver(pane: tmux.Pane) -> bool:
-        _invalidate_input_actions(pane.id)
-        sent = tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
-                          expected_frame=body.frame)
-        if sent:
-            app.state.watcher.request_reparse(pane.id)
-        return sent
+        with _pane_input(pane.id):
+            return tmux.click(pane.id, body.from_bottom, body.col, expected_pid=pane.pid,
+                              expected_frame=body.frame)
     return {"sent": _mouse("click", pane_id, f"from_bottom={body.from_bottom} col={body.col}",
                            request, deliver)}
 
@@ -1052,7 +1051,6 @@ async def send_image(pane_id: str, file: UploadFile, request: Request):
             raise HTTPException(409, str(error)) from error
         raise
     _audit(request, "paste_image", pane_id, detail=f"{detail} via {mode}")
-    app.state.watcher.request_reparse(pane.id)
     return {"ok": True, "mode": mode, "path": path, "bytes": len(data)}
 
 
@@ -1064,13 +1062,14 @@ async def attach_image(
     delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane.
     With a caption (even ""), the image, the caption and the submitting Enter go in as one
     composer draft under a single pane lock, so no other sender can land between them."""
-    _invalidate_input_actions(pane_id)
-    path = _stage_image(data, mime)
-    # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
-    if caption is None:
-        return path, await asyncio.to_thread(_deliver_image, pane_id, data, path, expected_pid)
-    segments = [(data, path), *([caption] if caption else [])]
-    return path, await asyncio.to_thread(_deliver_composer, pane_id, expected_pid, segments)
+    with _pane_input(pane_id):
+        path = _stage_image(data, mime)
+        # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
+        if caption is None:
+            return path, await asyncio.to_thread(
+                _deliver_image, pane_id, data, path, expected_pid)
+        segments = [(data, path), *([caption] if caption else [])]
+        return path, await asyncio.to_thread(_deliver_composer, pane_id, expected_pid, segments)
 
 
 def _stage_image(data: bytes, mime: str) -> str:
@@ -1144,10 +1143,9 @@ async def _compose(pane_id: str, request: Request):
                 raise HTTPException(400, "invalid composer segment")
     if not segments:
         raise HTTPException(400, "empty composer")
-    _invalidate_input_actions(pane.id)
-    await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+    with _pane_input(pane.id):
+        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
     _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
-    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 
