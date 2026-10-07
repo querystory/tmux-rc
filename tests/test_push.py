@@ -770,6 +770,9 @@ def test_send_ignores_output_streaming_above_the_menu_s_edge(monkeypatch, _scree
     assert sent == ["1"]
     codex = "  Run this?\n    cat > R <<EOF\n    ━━━━━━\n    EOF\n\n  1. Yes\n  2. No\n"
     assert question_rows({"options": ["Yes", "No"]}, codex) == codex.rstrip("\n")
+    # The last option's own description is its meaning; the footer below is not.
+    claude = f"{'─' * 9}\n❯ 1. Stage\n     Resets\n  2. Prod\n     Waits 20s\n\nEsc to cancel\n"
+    assert question_rows({"options": ["Stage", "Prod"]}, claude).endswith("Prod\n     Waits 20s")
 
 
 def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):
