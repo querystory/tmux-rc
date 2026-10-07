@@ -77,7 +77,7 @@ from . import telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
-from .push import PushManager, contract, held_question  # noqa: E402
+from .push import PushManager, claim_question, contract  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -795,19 +795,14 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     # A menu digit means nothing on its own: the "1" that said Yes to one ask says Yes to
-    # whatever replaced it. So a menu answer names its question, and under the send lock
-    # it is checked and its generation consumed in one step, as the push guard does.
+    # whatever replaced it. So a menu answer names its question, claimed under the send
+    # lock exactly as a push action is.
     w, fp = app.state.watcher, body.question
     birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
 
     def claim() -> None:
         digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
-        if generation != str(w.pane_input_generation(pane.id)):
-            raise ValueError("the pane received newer input")
-        held_question(w, pane.id, digest)
-        if w.frame_fp(tmux.capture_pane(pane.id, mark_dim=True)) != frame:
-            raise ValueError("the pending question has changed")
-        w.invalidate_input_actions(pane.id)
+        claim_question(w, pane.id, digest, int(generation), frame)
 
     if not fp:
         _invalidate_input_actions(pane.id)
