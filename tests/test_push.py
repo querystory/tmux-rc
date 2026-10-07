@@ -768,6 +768,8 @@ def test_send_ignores_output_streaming_above_the_menu_s_edge(monkeypatch, _scree
     tap, token, sent = _send_app(monkeypatch, watcher)
     assert tap(token()).status_code == 200
     assert sent == ["1"]
+    codex = "  Run this?\n    cat > R <<EOF\n    ━━━━━━\n    EOF\n\n  1. Yes\n  2. No\n"
+    assert question_rows({"options": ["Yes", "No"]}, codex) == codex.rstrip("\n")
 
 
 def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):
