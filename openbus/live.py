@@ -501,12 +501,13 @@ async def _dispatch(
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
 
+    from .server import _input_attempt  # noqa: PLC0415 - server imports this module
+
     label = labels[pane_id]
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
     try:
-        if invalidate is not None:
-            await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
-        await asyncio.to_thread(tmux.send_keys, *send_args, expected_pid=expected_pid)
+        await asyncio.to_thread(
+            _input_attempt, pane_id, lambda: tmux.send_keys(*send_args, expected_pid=expected_pid),
+            watcher=watcher)
     except Exception as e:  # report, don't kill the session
         # The error's text can quote the typed text (send-keys argv): speech, so only
         # the class leaves here unless QSDEBUG.
@@ -514,8 +515,6 @@ async def _dispatch(
         logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
                        exc_info=telemetry.QSDEBUG)
         return {"status": "error", "reason": "pane did not accept input"}
-    finally:  # even a failure has moved the input generation on (server._pane_input)
-        watcher.request_reparse(pane_id)
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
     # Every action the voice takes is visibly logged in the overlay.

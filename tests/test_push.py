@@ -721,3 +721,26 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, 
     # land a second digit on whatever the first one opened.
     assert tap(token()).status_code == 409
     assert sent == ["1"]
+
+
+def test_an_input_attempt_reparses_only_after_its_delivery():
+    """Bump, deliver, reparse, all in one synchronous call: run whole in a worker thread,
+    so cancelling the request cannot reparse while the delivery is still typing."""
+    from types import SimpleNamespace
+
+    from openbus import server
+
+    order = []
+    watcher = SimpleNamespace(invalidate_input_actions=lambda _p: order.append("bump"),
+                              request_reparse=lambda _p: order.append("reparse"))
+    def deliver(error=None):
+        order.append("deliver")
+        if error:
+            raise error
+
+    assert server._input_attempt("%1", deliver, watcher=watcher) is None
+    assert order == ["bump", "deliver", "reparse"]
+    order.clear()
+    with pytest.raises(RuntimeError):
+        server._input_attempt("%1", deliver, RuntimeError("send-keys failed"), watcher=watcher)
+    assert order == ["bump", "deliver", "reparse"]  # a failed delivery still reparses

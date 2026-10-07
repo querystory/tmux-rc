@@ -763,7 +763,7 @@ def _emit_live_round(
 
 
 @contextmanager
-def _pane_input(pane_id: str, *, invalidate: bool = True):
+def _pane_input(pane_id: str, *, invalidate: bool = True, watcher=None):
     """Wrap one input attempt on a pane. Before it, invalidate push actions and app menu
     tokens ahead of competing for the pane's send lock. After it, whatever the outcome,
     force a reparse: input changes the screen, so an answered question clears from its
@@ -772,7 +772,7 @@ def _pane_input(pane_id: str, *, invalidate: bool = True):
     reparse before delivery: that parse could stamp the new generation on the old screen.
     `pane_id` must be canonical: the watcher matches its forced set against pane.id, so
     an alias would never fire."""
-    watcher = getattr(app.state, "watcher", None)
+    watcher = watcher or getattr(app.state, "watcher", None)
     bump = getattr(watcher, "invalidate_input_actions", None)
     if invalidate and bump is not None:
         tmux.before_send(pane_id, lambda: bump(pane_id))
@@ -781,6 +781,14 @@ def _pane_input(pane_id: str, *, invalidate: bool = True):
     finally:
         if watcher is not None:
             watcher.request_reparse(pane_id)
+
+
+def _input_attempt(pane_id: str, deliver: Callable, *args, watcher=None):
+    """deliver(*args) inside _pane_input, synchronously: run it in a worker thread whole.
+    Cancelling an await does not stop the thread behind it, so a context held around
+    `await asyncio.to_thread(...)` would reparse while the delivery is still typing."""
+    with _pane_input(pane_id, watcher=watcher):
+        return deliver(*args)
 
 
 @app.post("/api/panes/{pane_id}/send")
@@ -1062,14 +1070,14 @@ async def attach_image(
     delivery path for the pane composer's endpoint and Live Chat's send_image_to_pane.
     With a caption (even ""), the image, the caption and the submitting Enter go in as one
     composer draft under a single pane lock, so no other sender can land between them."""
-    with _pane_input(pane_id):
-        path = _stage_image(data, mime)
-        # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
-        if caption is None:
-            return path, await asyncio.to_thread(
-                _deliver_image, pane_id, data, path, expected_pid)
-        segments = [(data, path), *([caption] if caption else [])]
-        return path, await asyncio.to_thread(_deliver_composer, pane_id, expected_pid, segments)
+    path = _stage_image(data, mime)
+    # Delivery blocks (Pillow/subprocess waits), so run it outside the event loop.
+    if caption is None:
+        return path, await asyncio.to_thread(
+            _input_attempt, pane_id, _deliver_image, pane_id, data, path, expected_pid)
+    segments = [(data, path), *([caption] if caption else [])]
+    return path, await asyncio.to_thread(
+        _input_attempt, pane_id, _deliver_composer, pane_id, expected_pid, segments)
 
 
 def _stage_image(data: bytes, mime: str) -> str:
@@ -1143,8 +1151,8 @@ async def _compose(pane_id: str, request: Request):
                 raise HTTPException(400, "invalid composer segment")
     if not segments:
         raise HTTPException(400, "empty composer")
-    with _pane_input(pane.id):
-        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+    await asyncio.to_thread(
+        _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
     _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
     return {"ok": True}
 
