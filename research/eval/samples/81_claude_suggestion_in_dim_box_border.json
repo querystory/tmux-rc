@@ -1,0 +1,10 @@
+{
+  "description": "Claude Code idle after a scheduled task's turn finished ('✻ Cogitated for 9s · done 9:47 AM'), with Claude's greyed next-prompt suggestion in the empty input box. Live, the box's gray border merges with the faint suggestion into one dim run, so the row reads '⟪/dim⟫❯ ⟪placeholder⟫…⟪/placeholder⟫⟪dim⟫'. Before the capture recognised that shape the suggestion stayed a plain ⟪dim⟫ run, the deterministic finished-turn override counted the ❯ row as a newer typed turn, and the phone showed 'running: Setting up a systemd timer…' on an idle pane for hours.",
+  "current_command": "claude",
+  "capture": "\u001e[visible screen]\u001f\n⟪dim⟫✻ Cooked for 18s · done 9:08 AM\n\n✻ Running scheduled task (Oct 7 9:47am)\n\n  Ran 1 shell command\n\n⟪/dim⟫● Web Search(\"Reflection AI Beam weights released\")\n⟪dim⟫  ⎿  ⟪/dim⟫Did 1 search in 5s\n⟪dim⟫  ⎿  Allowed by auto mode classifier\n\n⟪/dim⟫● Still not released. The Hugging Face API has no Reflection AI org and no Beam repo, and the web search found no weights announcement.\n\n⟪dim⟫✻ Cogitated for 9s · done 9:47 AM\n\n────────────────────────────────────────────────────────────\n⟪/dim⟫❯ ⟪placeholder⟫set up the systemd timer version⟪/placeholder⟫⟪dim⟫\n────────────────────────────────────────────────────────────\n  ⟪/dim⟫~/src/weights-watch ⟪dim⟫on ⟪/dim⟫feat/otlp-grpc-exporter ⟪dim⟫| ⟪/dim⟫Sonnet 5.5 ⟪dim⟫| dev@example-org.com | telemetry: ⟪/dim⟫•⟪dim⟫stats ⟪/dim⟫•⟪dim⟫prompts ⟪/dim⟫•⟪dim⟫tools\n  session: +0/-0 lines · ⟪/dim⟫6% ⟪dim⟫ctx · ⟪/dim⟫17h33m ⟪dim⟫· ⟪/dim⟫$0.47 ⟪dim⟫  |  history: ⟪/dim⟫13 ⟪dim⟫prompts · ⟪/dim⟫10 ⟪dim⟫tools · 325.4KB\n  ⟪/dim⟫⏵⏵ auto mode on⟪dim⟫ (shift+tab to cycle) · ← for agents⟪/dim⟫",
+  "expected": {
+    "tool": "claude",
+    "activity": "idle",
+    "headline": "Beam weights still not released"
+  }
+}
