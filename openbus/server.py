@@ -537,8 +537,7 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     # a different screen (advanced from the keyboard, its parse not yet published).
     for s in panes:
         if isinstance(s.get("question"), dict):
-            pid = s.get("pane_id")
-            fp = ":".join((contract(s, w.pane_birth(pid))[0],
+            fp = ":".join((contract(s, s.get("birth"))[0],
                            str(s.get("input_generation", 0)), s.get("frame", "")))
             s["question"] = {**s["question"], "fp": fp}
     return {

@@ -8,7 +8,7 @@ from py_vapid import Vapid
 from pydantic import ValidationError
 
 from openbus import push
-from openbus.classify import question_rows
+from openbus.classify import _widget_text, question_rows
 from openbus.watcher import Watcher as RealWatcher
 from openbus.watcher import _fingerprint
 
@@ -81,14 +81,14 @@ def held(command="ls", **fields):
     """A held approval menu with its widget rows (read off box(command), as classify reads
     them) and restatement."""
     return {"prompt": "Proceed?", "answer_style": "menu",
-            "context": question_rows({"prompt": "Proceed?"}, box(command)),
+            "context": _widget_text("Proceed?", box(command)),
             "options": ["Yes", "No"], "ask": "List the files?", **fields}
 
 
 def waiting(question=None, screen=box("ls")):
     state = {
         "pane_id": "%1", "label": "Build", "activity": "waiting",
-        "waiting_on": "user", "headline": "Approval needed",
+        "waiting_on": "user", "headline": "Approval needed", "birth": "123",
         "frame": Watcher().frame_fp(screen, question),
     }
     if question is not None:
@@ -748,6 +748,29 @@ def test_send_compares_a_menu_without_widget_rows_losslessly_too(monkeypatch, _s
     assert tap(token()).status_code == 409
     assert sent == []
     _screen[0] = plain("sleep 10s")
+    assert tap(token()).status_code == 200
+    assert sent == ["1"]
+
+
+def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):
+    """Options that differ only in a duration are a different menu; a snapshot published
+    for a pane id since recycled is a different pane."""
+    def menu(a, b):
+        return f"{'─' * 40}\n Pick a delay\n\n Wait how long?\n ❯ 1. Wait {a}\n   2. Wait {b}\n"
+
+    question = {"prompt": "Wait how long?", "answer_style": "menu", "options": ["Wait 10s",
+                "Wait 20s"], "context": _widget_text("Wait how long?", menu("10s", "20s"))}
+    watcher = Watcher()
+    watcher.states = [waiting(question, menu("10s", "20s"))]
+    _screen[0] = menu("30s", "40s")  # advanced from the keyboard, not yet reparsed
+    tap, token, sent = _send_app(monkeypatch, watcher)
+    assert _fingerprint(menu("10s", "20s")) == _fingerprint(menu("30s", "40s"))
+    assert tap(token()).status_code == 409
+    _screen[0] = menu("10s", "20s")
+    watcher.states = [{**waiting(question, menu("10s", "20s")), "birth": "99"}]  # old pane
+    assert tap(token()).status_code == 409
+    assert sent == []
+    watcher.states = [waiting(question, menu("10s", "20s"))]
     assert tap(token()).status_code == 200
     assert sent == ["1"]
 

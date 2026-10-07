@@ -483,7 +483,9 @@ class PushManager:
             if (not isinstance(pane_id, str)
                     or not self.watcher.pane_parse_valid(pane_id)):
                 continue
-            fp, question = contract(pane, self.watcher.pane_birth(pane_id))
+            # The snapshot's own birth: held_question checks it against the live one, so
+            # a recycled pane id can never inherit this question.
+            fp, question = contract(pane, pane.get("birth"))
             active.add((pane_id, fp))
             previous = self._stable.get(pane_id)
             if previous is None or previous[0] != fp:

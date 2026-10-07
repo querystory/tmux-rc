@@ -220,6 +220,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
         boot_title = None  # history from a previous agent must not name its replacement
     s["title"] = p.display_title or s.get("agent_title") or boot_title
     s["tmux_label"] = p.label
+    s["birth"] = getattr(p, "pid", None)  # the incarnation this snapshot describes
     s["session"] = p.session
     s["cwd"] = getattr(p, "cwd", "")
     s["window_index"] = p.window_index

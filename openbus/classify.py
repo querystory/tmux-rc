@@ -496,17 +496,11 @@ def _widget_text(prompt: str, visible: str) -> str:
 
 
 def question_rows(question: dict, text: str) -> str:
-    """The rows a menu `question` reads off capture `text`, verbatim, so a command that
-    differs only in a duration or a cost still differs: its widget's (exactly as `context`
-    was taken) or, with no widget edge, the whole viewport down to its last option row,
-    the command in the conversation above included. Never the rows below, where an input
-    box or status line animates."""
-    asked = _question_prompt(question)
-    if not asked:
-        return ""
+    """The rows a menu `question` reads off capture `text`, verbatim, so a command or an
+    option that differs only in a duration or a cost still differs: the whole viewport
+    down to its last option row, widget, prompt, options and the conversation above
+    included. Never the rows below, where an input box or status line animates."""
     visible = _visible(text)
-    if context := _widget_text(asked, visible):
-        return context
     options = question.get("options")
     last = len(options) if isinstance(options, list) else 0
     end = list(re.finditer(rf"^[ \t│❯›>]*{last}[.)]\s.*$", visible, re.MULTILINE)) if last else []
