@@ -500,6 +500,10 @@ async def _dispatch(
     rec["pane_id"] = pane_id
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
+    # A password goes from the user's own password field to the pane, never via a model.
+    if send_args[3] and any(d.get("secret") for d in watcher.digest() if d["pane_id"] == pane_id):
+        return {"status": "rejected",
+                "reason": "the pane is asking for a password; the user types it in the app"}
 
     label = labels[pane_id]
     invalidate = getattr(watcher, "invalidate_input_actions", None)

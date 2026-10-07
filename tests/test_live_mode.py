@@ -853,3 +853,18 @@ def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch)
     ws.send_json = paste_meanwhile
     _forward(meter, ws)
     assert events[0][3:5] == (b"PNG", "image/png")
+
+
+def test_typing_at_a_password_prompt_is_refused(monkeypatch):
+    """A password reaches a pane from the user's password field only, never via a model."""
+    class AtPrompt(_Watcher):
+        def digest(self):
+            return [{**d, "secret": d["pane_id"] == "%2"} for d in super().digest()]
+
+    _, _, _, typed = _dispatch(_FC(args={"pane_id": "%2", "text": "hunter2"}), monkeypatch,
+                               AtPrompt())
+    assert typed == []
+    # A named key still goes through: Ctrl-C is how the model backs out of the prompt.
+    _, _, _, typed = _dispatch(_FC("press_key", {"pane_id": "%2", "key": "C-c"}),
+                               monkeypatch, AtPrompt())
+    assert typed == [("%2", "C-c", False, False)]

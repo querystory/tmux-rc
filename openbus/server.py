@@ -133,6 +133,10 @@ _EXT = {
 }
 
 
+# Text for a pane at a password prompt goes only through the composer's secret field.
+AT_PASSWORD = "The pane is asking for a password: use the password field."
+
+
 class SendBody(BaseModel):
     keys: str
     enter: bool = True
@@ -782,6 +786,9 @@ def send(pane_id: str, body: SendBody, request: Request):
             outcome="rejected: pane not found",
         )
         raise HTTPException(404, "pane not found")
+    if body.literal and body.keys and pane.secret:
+        _audit(request, "send_keys", pane_id, detail, outcome="rejected: password prompt")
+        raise HTTPException(409, AT_PASSWORD)
     _invalidate_input_actions(pane.id)
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
@@ -1095,7 +1102,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments = []
+    segments, secret = [], None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -1114,13 +1121,25 @@ async def _compose(pane_id: str, request: Request):
                 if not data or len(data) > IMG_MAX_BYTES:
                     raise HTTPException(413, "image empty or too large")
                 segments.append((data, _stage_image(data, mime)))
+            elif kind == "secret" and isinstance(value, str) and secret is None:
+                secret = value
             else:
                 raise HTTPException(400, "invalid composer segment")
-    if not segments:
-        raise HTTPException(400, "empty composer")
+    # A password answers a no-echo prompt alone, and never reaches an audit or log
+    # line: the record says only that one was sent. See tmux.send_secret. The
+    # converse holds too: at that prompt plain text is refused, since send-keys would
+    # put the password in argv and the audit line.
+    if bool(segments) == bool(secret):
+        raise HTTPException(400, "send a draft or a secret")
+    if segments and pane.secret:
+        raise HTTPException(409, AT_PASSWORD)
     _invalidate_input_actions(pane.id)
-    await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
-    _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
+    if secret:
+        await asyncio.to_thread(tmux.send_secret, pane, secret)
+    else:
+        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+    _audit(request, "compose", pane_id,
+           detail="secret" if secret else f"{len(segments)} segments")
     app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 

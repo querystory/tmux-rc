@@ -225,6 +225,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     s["window_index"] = p.window_index
     s["window_name"] = p.window_name
     s["session_active"] = p.session_active
+    s["secret"] = getattr(p, "secret", False)  # at a password prompt: see Pane.secret
 
 
 def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
@@ -428,6 +429,7 @@ class Watcher:
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
+                    "secret": s.get("secret"),  # at a password prompt (Pane.secret)
                     "idle_seconds": s.get("idle_seconds"),
                     "state_since": s.get("state_since"),  # ts state entered; client ticks it
                     "headline": s.get("headline"),
