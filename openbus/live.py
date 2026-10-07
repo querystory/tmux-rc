@@ -595,7 +595,8 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
     # Not published yet: a window resume_session just opened, before the watcher's next tick.
     if pane is None and isinstance(pane_id, str):
         with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
-            pane = next(({"window_index": p.window_index, "label": p.window_name}
+            pane = next(({"window_index": p.window_index, "label": p.label,
+                          "title": p.display_title}
                          for p in await asyncio.to_thread(tmux.list_panes) if p.id == pane_id),
                         None)
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
