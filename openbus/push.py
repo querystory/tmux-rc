@@ -21,6 +21,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
@@ -360,6 +361,36 @@ def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, fra
     watcher.invalidate_input_actions(pane_id)
 
 
+@contextmanager
+def pane_input(watcher, pane_id: str, *, invalidate: bool = True):
+    """Wrap one input attempt on a pane. Before it, invalidate push actions and app menu
+    tokens ahead of competing for the pane's send lock. After it, unless a claim refused
+    it, invalidate them again before that lock is released: a parse that read the
+    generation while the keys were still going out captured the old screen, and no
+    other sender may claim its token in between. Whatever the outcome, force a reparse:
+    input changes the screen, so an answered question clears from its card within a
+    capture, and only a fresh parse reissues a token. Never reparse before delivery:
+    that parse could stamp the new generation on the old screen. `pane_id` must be
+    canonical: the watcher matches its forced set against pane.id, and the send lock is
+    keyed by it."""
+    bump = getattr(watcher, "invalidate_input_actions", None)
+    if invalidate and bump is not None:
+        tmux.before_send(pane_id, lambda: bump(pane_id))
+    try:
+        with tmux._pane_lock(pane_id):  # noqa: SLF001 - reentrant; the delivery retakes it
+            try:
+                yield
+            except ValueError:  # a refused claim (claim_question): no key went out
+                bump = None
+                raise
+            finally:
+                if bump is not None:
+                    bump(pane_id)
+    finally:
+        if watcher is not None:
+            watcher.request_reparse(pane_id)
+
+
 def option_keys(question: dict, index: int) -> str:
     options = question.get("options")
     if not isinstance(options, list) or index < 0 or index >= len(options):
@@ -447,7 +478,7 @@ class PushManager:
             raise ValueError("the pane received newer input")
         question, birth = held_question(self.watcher, issued["pane_id"], issued["fingerprint"])
         keys = option_keys(question, option_index)
-        try:
+        with pane_input(self.watcher, issued["pane_id"], invalidate=False):  # claim bumps
             # A menu commits on its shortcut; an Enter would confirm the NEXT menu's default.
             tmux.send_keys(
                 issued["pane_id"], keys, enter=question.get("answer_style") != "menu",
@@ -455,8 +486,6 @@ class PushManager:
                     self.watcher, issued["pane_id"], issued["fingerprint"],
                     issued["input_generation"], issued["frame"]),
             )
-        finally:  # a failed send may have consumed the generation: only a parse reissues
-            self.watcher.request_reparse(issued["pane_id"])
         return issued["pane_id"], keys
 
     async def _loop(self) -> None:

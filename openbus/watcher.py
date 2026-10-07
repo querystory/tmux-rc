@@ -1217,11 +1217,11 @@ class Watcher:
         # note at the top of this module).
         cached = self._state.get(pane.id)
         forced = pane.id in self._forced_this_tick  # drained snapshot (see _tick)
-        if cached is not None and not changed and not forced:
+        # A card checkpointed before frames were kept is read again: a frame taken off
+        # today's screen would vouch for a question parsed from an older one.
+        if cached is not None and not changed and not forced and "frame" in cached:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached.setdefault("input_generation", generation)  # a restored card has none
-            if "frame" not in cached:  # nor one checkpointed before frames were kept
-                cached["frame"] = self.frame_fp(text, cached.get("question"))
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.

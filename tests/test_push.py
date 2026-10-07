@@ -770,6 +770,9 @@ def test_send_ignores_output_streaming_above_the_menu_s_edge(monkeypatch, _scree
     assert sent == ["1"]
     codex = "  Run this?\n    cat > R <<EOF\n    ━━━━━━\n    EOF\n\n  1. Yes\n  2. No\n"
     assert question_rows({"options": ["Yes", "No"]}, codex) == codex.rstrip("\n")
+    # The last option's own description is its meaning; the footer below is not.
+    claude = f"{'─' * 9}\n❯ 1. Stage\n     Resets\n  2. Prod\n     Waits 20s\n\nEsc to cancel\n"
+    assert question_rows({"options": ["Stage", "Prod"]}, claude).endswith("Prod\n     Waits 20s")
 
 
 def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):
@@ -803,7 +806,9 @@ def test_an_input_attempt_reparses_only_after_its_delivery():
     from openbus import server
 
     order = []
-    watcher = SimpleNamespace(invalidate_input_actions=lambda _p: order.append("bump"),
+    def bump(_p):  # under the send lock, so no other sender claims in between
+        order.append("bump" if push.tmux._pane_lock("%1")._is_owned() else "unlocked bump")
+    watcher = SimpleNamespace(invalidate_input_actions=bump,
                               request_reparse=lambda _p: order.append("reparse"))
     def deliver(error=None):
         order.append("deliver")
@@ -811,8 +816,11 @@ def test_an_input_attempt_reparses_only_after_its_delivery():
             raise error
 
     assert server._input_attempt("%1", deliver, watcher=watcher) is None
-    assert order == ["bump", "deliver", "reparse"]
+    # Bumped again after delivery, before the lock is released: a parse that read the
+    # generation mid-send saw the old screen, and must not publish it as current for an
+    # identical successor prompt.
+    assert order == ["bump", "deliver", "bump", "reparse"]
     order.clear()
     with pytest.raises(RuntimeError):
         server._input_attempt("%1", deliver, RuntimeError("send-keys failed"), watcher=watcher)
-    assert order == ["bump", "deliver", "reparse"]  # a failed delivery still reparses
+    assert order == ["bump", "deliver", "bump", "reparse"]  # a failed delivery too
