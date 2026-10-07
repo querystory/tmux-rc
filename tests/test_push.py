@@ -752,6 +752,24 @@ def test_send_compares_a_menu_without_widget_rows_losslessly_too(monkeypatch, _s
     assert sent == ["1"]
 
 
+def test_send_ignores_output_streaming_above_the_menu_s_edge(monkeypatch, _screen):
+    """Claude keeps working behind its own dialog ("Switch model?" mid-turn): new tool rows
+    land above the ▔ edge after the parse, so a frame over the whole screen refused every
+    tap until the turn ended. Only the dialog's own rows identify it."""
+    def screen(above):
+        return (f"● {above}\n✽ Hashing… (18s · ↓ 1.0k tokens)\n{'▔' * 40}\n Switch model?\n\n"
+                " ❯ 1. Yes, switch to Opus 5.5\n   2. No, go back\n")
+
+    question = {"prompt": "Switch model?", "answer_style": "menu",
+                "options": ["Yes, switch to Opus 5.5", "No, go back"]}
+    watcher = Watcher()
+    watcher.states = [waiting(question, screen("Searching related issues"))]
+    _screen[0] = screen("Reading related issue 4640")  # streamed on; reparse not landed
+    tap, token, sent = _send_app(monkeypatch, watcher)
+    assert tap(token()).status_code == 200
+    assert sent == ["1"]
+
+
 def test_send_binds_option_rows_and_the_snapshot_s_own_birth(monkeypatch, _screen):
     """Options that differ only in a duration are a different menu; a snapshot published
     for a pane id since recycled is a different pane."""
