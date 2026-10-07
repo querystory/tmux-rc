@@ -935,12 +935,12 @@ class Watcher:
     def frame_fp(self, text: str, question: dict | None = None) -> str:
         """A capture's hash, as _tick_pane keys its parses. The parser version and LLM mode
         are mixed in so a stored card from a different classifier misses on restart. With
-        a menu `question`, its own rows go in verbatim too (classify.question_rows): the
+        a menu `question`, only its own rows, verbatim (classify.question_rows): the
         normalized screen can't tell "sleep 10s" from "sleep 20s", and an answer token
-        must."""
+        must, yet output still streaming above the menu must not make it look stale."""
         rows = question_rows(question, text) if isinstance(question, dict) else ""
-        return hashlib.sha256((f"{CARD_VERSION}:{self.use_llm}\n{_fingerprint(text)}"
-                               + (f"\n{rows}" if rows else "")).encode()).hexdigest()
+        return hashlib.sha256(
+            f"{CARD_VERSION}:{self.use_llm}\n{rows or _fingerprint(text)}".encode()).hexdigest()
 
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
