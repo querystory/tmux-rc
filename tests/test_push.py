@@ -616,9 +616,12 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
     watcher = Watcher()
     watcher.state_version, watcher.booted = lambda: 1, lambda: True
     watcher.tmux_running = True  # read by /api/state once the start-tmux PR lands
+    watcher.frame_fp = lambda text: f"frame of {text}"
     watcher.states = [waiting(held(context="mkdir s1"))]
-    stale = push.contract(watcher.states[0], "123")[0] + ":0"
-    watcher.states = [waiting(held(context="mkdir s2"))]  # parsed at generation 0
+    stale = push.contract(watcher.states[0], "123")[0] + ":0:frame of A"
+    watcher.states = [{**waiting(held(context="mkdir s2")), "frame": "frame of B"}]
+    screen = ["B"]  # what the pane shows now; B was parsed at input generation 0
+    monkeypatch.setattr(server.tmux, "capture_pane", lambda _pane, **_kw: screen[0])
     monkeypatch.setattr(server.tmux, "list_panes", lambda: [
         Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
     monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
@@ -641,6 +644,11 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
     assert response.status_code == 409
     assert "changed" in response.json()["detail"]
     assert sent == []
+    # Advanced from the keyboard, its parse not yet published: B's card would approve C.
+    screen[0] = "C"
+    assert tap(token()).status_code == 409
+    assert sent == []
+    screen[0] = "B"
     assert tap(token()).status_code == 200
     assert sent == ["1"]
     # Until a reparse reads the pane again the screen still shows the same question, but
