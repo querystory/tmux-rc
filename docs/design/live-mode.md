@@ -456,6 +456,15 @@ Send on: that tap asked to go there, so the daemon sends the same message marked
 and the client clicks the button it adds, which stays for getting back. The result tells
 the model the user is already there, so it offers no second button.
 
+A consent card that targets a pane carries the same button, because the card is where a
+wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
+pane idle for two days over the window titled "qslinux codex installation", and the card
+named it only by its tmux address, so nothing on it said which window that was. The card
+now names the pane as the prompt and list do (window number and title, plus the label when
+it adds something), and Open lets the user look before answering. Opening does not answer
+the card: it stays pending on the chat bubble until Send or Cancel, since looking is the
+point and a card that resolved on navigation would force a choice before the look.
+
 A text session's prompt labels relayed messages "(via text)" rather than "(via voice)",
 and it tells the model its actions are approved first. The mode is fixed when the session
 starts. Switching mid-conversation, as the history doc asks, now means moving a

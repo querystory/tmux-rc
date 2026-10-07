@@ -233,7 +233,8 @@ vm.runInNewContext(source + '\nglobalThis.setup = setupLiveMode; globalThis.Comp
   sandbox);
 const version = JSON.parse(process.env.LIVE_VERSION || 'null');
 const wide = Object.assign(new EventTarget(), {matches: false}); // app.js's WIDE query
-const live = sandbox.setup({licon: (name) => name, wide,
+const opened = []; // panes app.js was asked to navigate to
+const live = sandbox.setup({licon: (name) => name, wide, open: (id) => opened.push(id),
   request: async () => { if (!version) throw Error('offline'); return version; }});
 const flush = async () => {for (let i = 0; i < 20; i++) await Promise.resolve();};
 const status = () => document.getElementById('voice-status').textContent;
@@ -403,6 +404,17 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
   sockets[0].onmessage({data: JSON.stringify({type: 'decided', id: 'p1', ok: true})});
   assert.equal(badge.textContent, '');
   bubble.onclick(); assert.equal(dialog.open, true); assert.equal(bubble.hidden, true);
+  // A card's Open goes to its pane without answering it: still pending on the bubble,
+  // and still pending in the log when the user comes back to approve.
+  sockets[0].onmessage({data: JSON.stringify(
+    {type: 'propose', id: 'p3', text: 'Send to work', pane_id: '%1'})});
+  const card = document.getElementById('voice-log').children.at(-1), actions = card.lastChild;
+  actions.children.find((b) => b.className === 'open').onclick();
+  assert.deepEqual(opened, ['%1']); assert.equal(dialog.open, false);
+  assert.equal(badge.textContent, 1); assert.equal(sockets[0].sent.length, 0);
+  bubble.onclick(); assert.equal(card.lastChild, actions);
+  assert.equal(card.firstChild.textContent, 'Wants to act');
+  sockets[0].onmessage({data: JSON.stringify({type: 'decided', id: 'p3', ok: false})});
   // Tapping chat again brings the running conversation back rather than starting another.
   $('chat').onclick(); await flush();
   assert.equal(sockets.length, 1);

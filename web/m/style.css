@@ -286,7 +286,7 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
 .voice-actions { display: flex; gap: 8px; margin-top: 10px; }
 .voice-actions button, .voice-entry.open button { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
-.voice-entry.open button { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; border-color: var(--accent); color: var(--accent); text-align: left; }
+.voice-entry button.open { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; border-color: var(--accent); color: var(--accent); text-align: left; }
 /* Chat's model switcher: between the title and minimize, as small as a label. */
 #voice-switch { width: auto; min-width: 0; max-width: 55%; min-height: 36px; margin-left: auto; padding: 4px 8px; }
 .voice-compose { display: flex; flex: none; gap: 8px; padding-top: 12px; }
