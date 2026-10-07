@@ -367,6 +367,7 @@ def test_input_generation_updates_are_atomic():
     from openbus.watcher import Watcher as RealWatcher
 
     watcher = RealWatcher(None, use_llm=False)
+    start = watcher.pane_input_generation("%1")  # this run's base, not 0
     def increment():
         for _ in range(500):
             watcher.invalidate_input_actions("%1")
@@ -376,7 +377,7 @@ def test_input_generation_updates_are_atomic():
         worker.start()
     for worker in workers:
         worker.join()
-    assert watcher.pane_input_generation("%1") == 4000
+    assert watcher.pane_input_generation("%1") == start + 4000
 
 
 def test_stale_watcher_suppresses_until_live_state_resumes(tmp_path, monkeypatch):

@@ -280,6 +280,9 @@ class Watcher:
         self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
+        # Each run's generations start past every earlier run's (a pane bumps once per input,
+        # never a nanosecond's worth), so no answer token survives a restart.
+        self._generation_base = time.time_ns()
         self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
@@ -522,7 +525,8 @@ class Watcher:
     def invalidate_input_actions(self, pane_id: str) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock."""
         with self._input_generation_lock:
-            self._input_generation[pane_id] = self._input_generation.get(pane_id, 0) + 1
+            self._input_generation[pane_id] = self._input_generation.get(
+                pane_id, self._generation_base) + 1
 
     def note_input(self, pane_id: str) -> None:
         """Record successful push input and schedule a fresh classification."""
@@ -928,7 +932,7 @@ class Watcher:
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
         with self._input_generation_lock:
-            return self._input_generation.get(pane_id, 0)
+            return self._input_generation.get(pane_id, self._generation_base)
 
     def _stores(self):
         return (
