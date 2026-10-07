@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from pywebpush import WebPushException, webpush
 
 from . import tmux
-from .classify import is_approval, widget_context
+from .classify import is_approval
 
 logger = logging.getLogger(__name__)
 
@@ -353,12 +353,9 @@ def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, fra
     if watcher.pane_input_generation(pane_id) != generation:
         raise ValueError("the pane received newer input")
     question, _ = held_question(watcher, pane_id, fingerprint)
-    # The frame hash ignores timers, costs and token counts so animation can't break it,
-    # which also blinds it to "sleep 10s" becoming "sleep 20s"; the widget's own rows,
-    # re-read losslessly, are what tell those two asks apart.
-    text = tmux.capture_pane(pane_id, mark_dim=True)
-    if watcher.frame_fp(text) != frame or (
-            question.get("context") and widget_context(question, text) != question["context"]):
+    # The frame hashes the normalized screen plus the question's own rows verbatim, so
+    # neither animation nor "sleep 10s" becoming "sleep 20s" fools it.
+    if watcher.frame_fp(tmux.capture_pane(pane_id, mark_dim=True), question) != frame:
         raise ValueError("the pending question has changed")
     watcher.invalidate_input_actions(pane_id)
 

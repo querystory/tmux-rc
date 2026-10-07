@@ -8,7 +8,8 @@ from py_vapid import Vapid
 from pydantic import ValidationError
 
 from openbus import push
-from openbus.classify import widget_context
+from openbus.classify import question_rows
+from openbus.watcher import Watcher as RealWatcher
 from openbus.watcher import _fingerprint
 
 
@@ -27,7 +28,8 @@ def _screen(monkeypatch):
 
 
 class Watcher:
-    frame_fp = staticmethod(_fingerprint)  # the real normalization, minus the hash
+    use_llm = False
+    frame_fp = RealWatcher.frame_fp  # the real frame: normalized screen + question rows
 
     def __init__(self):
         self.states = []
@@ -79,14 +81,15 @@ def held(command="ls", **fields):
     """A held approval menu with its widget rows (read off box(command), as classify reads
     them) and restatement."""
     return {"prompt": "Proceed?", "answer_style": "menu",
-            "context": widget_context({"prompt": "Proceed?"}, box(command)),
+            "context": question_rows({"prompt": "Proceed?"}, box(command)),
             "options": ["Yes", "No"], "ask": "List the files?", **fields}
 
 
 def waiting(question=None, screen=box("ls")):
     state = {
         "pane_id": "%1", "label": "Build", "activity": "waiting",
-        "waiting_on": "user", "headline": "Approval needed", "frame": _fingerprint(screen),
+        "waiting_on": "user", "headline": "Approval needed",
+        "frame": Watcher().frame_fp(screen, question),
     }
     if question is not None:
         state["question"] = question
@@ -667,23 +670,15 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
         service.answer(nonce, 0)
 
 
-def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, _screen):
-    """A digit names a row, not an ask: the "1" tapped on prompt A must not approve the
-    prompt B that replaced it. /send checks the token the card was rendered with."""
+def _send_app(monkeypatch, watcher):
+    """/send and /api/state over `watcher`'s pane %1: (tap(token), token(), sent keys)."""
     from fastapi.testclient import TestClient
 
     from openbus import server
     from openbus.tmux import Pane
 
-    watcher = Watcher()
     watcher.state_version, watcher.booted = lambda: 1, lambda: True
     watcher.tmux_running = True  # read by /api/state once the start-tmux PR lands
-    a = waiting(held("mkdir s1"), box("mkdir s1"))
-    stale = f"{push.contract(a, '123')[0]}:0:{a['frame']}"
-    # B is held now, parsed at input generation 0.
-    watcher.states = [waiting(held("sleep 10s"), box("sleep 10s"))]
-    screen = _screen
-    screen[0] = box("sleep 10s")
     monkeypatch.setattr(server.tmux, "list_panes", lambda: [
         Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
     monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
@@ -701,25 +696,59 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, 
         return client.post("/api/panes/%1/send", json=body)
     def token():
         return client.get("/api/state").json()["panes"][0]["question"]["fp"]
+    return tap, token, sent
+
+
+def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, _screen):
+    """A digit names a row, not an ask: the "1" tapped on prompt A must not approve the
+    prompt B that replaced it. /send checks the token the card was rendered with."""
+    watcher = Watcher()
+    a = waiting(held("mkdir s1"), box("mkdir s1"))
+    stale = f"{push.contract(a, '123')[0]}:0:{a['frame']}"
+    # B is held now, parsed at input generation 0.
+    watcher.states = [waiting(held("sleep 10s"), box("sleep 10s"))]
+    _screen[0] = box("sleep 10s")
+    tap, token, sent = _send_app(monkeypatch, watcher)
 
     response = tap(stale)
     assert response.status_code == 409
     assert "changed" in response.json()["detail"]
     assert sent == []
     # Advanced from the keyboard to C, its parse not yet published, so B's card would
-    # approve C. The frame hash cannot tell them apart (durations are normalized out so a
-    # timer can't break it); the widget rows, re-read losslessly, can.
-    screen[0] = box("sleep 20s")
+    # approve C. The normalized screen cannot tell them apart (durations are normalized
+    # out so a timer can't break it); the frame's verbatim widget rows can.
+    _screen[0] = box("sleep 20s")
     assert _fingerprint(box("sleep 10s")) == _fingerprint(box("sleep 20s"))
     assert tap(token()).status_code == 409
     assert sent == []
-    screen[0] = box("sleep 10s")
+    _screen[0] = box("sleep 10s")
     assert tap(token()).status_code == 200
     assert sent == ["1"]
     # Until a reparse reads the pane again the screen still shows the same question, but
     # the answer consumed its generation: neither a double tap nor a refetched card can
     # land a second digit on whatever the first one opened.
     assert tap(token()).status_code == 409
+    assert sent == ["1"]
+
+
+def test_send_compares_a_menu_without_widget_rows_losslessly_too(monkeypatch, _screen):
+    """A menu with no widget edge has no context, so its frame takes the viewport down to
+    its last option verbatim: the command in the conversation above still counts."""
+    def plain(command):
+        return f"● Bash({command})\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n"
+
+    question = {"prompt": "Do you want to proceed?", "answer_style": "menu",
+                "options": ["Yes", "No"]}
+    assert question_rows(question, plain("sleep 10s")).startswith("● Bash(sleep 10s)")
+    watcher = Watcher()
+    watcher.states = [waiting(question, plain("sleep 10s"))]
+    _screen[0] = plain("sleep 20s")  # advanced from the keyboard, not yet reparsed
+    tap, token, sent = _send_app(monkeypatch, watcher)
+    assert _fingerprint(plain("sleep 10s")) == _fingerprint(plain("sleep 20s"))
+    assert tap(token()).status_code == 409
+    assert sent == []
+    _screen[0] = plain("sleep 10s")
+    assert tap(token()).status_code == 200
     assert sent == ["1"]
 
 
