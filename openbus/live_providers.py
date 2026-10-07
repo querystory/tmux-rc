@@ -335,9 +335,9 @@ _HISTORY_TOOLS = [
         "description": (
             "Reopen a past session from find_sessions in a new window, in its original "
             "directory. Use after find_sessions, once you know which one the user means; "
-            "if find_sessions says a window already runs it, talk to that window with "
-            "type_in_pane instead. It opens idle: to give it an instruction, type_in_pane "
-            "into the returned pane_id afterwards."
+            "if find_sessions says a window already runs it, open_pane that window instead "
+            "(type_in_pane only to pass on an instruction). It opens idle: to give it an "
+            "instruction, type_in_pane into the returned pane_id afterwards."
         ),
         "parameters": {
             "type": "object",

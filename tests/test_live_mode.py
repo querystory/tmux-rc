@@ -220,8 +220,9 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
 
 
 def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
-    """resume_session returns a pane id the digest may not hold yet; tmux vouches for it."""
-    fresh = L.tmux.Pane("work", "7", "auth fix", "0", "%40", "claude", "")
+    """resume_session returns a pane id the digest may not hold yet; tmux vouches for it,
+    and it is named as the watcher would: the agent's own title over tmux's "claude"."""
+    fresh = L.tmux.Pane("work", "7", "claude", "0", "%40", "claude", "auth fix")
     _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
                             panes=[fresh])
     assert ws.sent == [

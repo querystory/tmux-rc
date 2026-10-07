@@ -198,7 +198,8 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   function offer({ pane_id, label, auto }) {
     const button = document.createElement("button"); button.type = "button";
     button.append(`Open ${label}`); button.insertAdjacentHTML("beforeend", licon("chevron", 16));
-    button.onclick = () => { if (!docked()) hide(); open(pane_id); };
+    const at = Date.now(); // a button offered moments ago may name a window state lacks yet
+    button.onclick = () => { if (!docked()) hide(); open(pane_id, at); };
     add("open").lastChild.append(button);
     if (auto) button.click();
   }
