@@ -532,7 +532,10 @@ class PushManager:
                     self._nonces[nonce] = {
                         "pane_id": pane_id, "fingerprint": fp,
                         "indices": {index for index, _ in offered},
-                        "input_generation": self.watcher.pane_input_generation(pane_id),
+                        # Both from the published snapshot the question came from, as
+                        # /api/state takes them: a live generation would vouch for a
+                        # stale frame whose successor's parse has not landed yet.
+                        "input_generation": pane.get("input_generation", 0),
                         "frame": pane.get("frame", ""),
                         "expires": now + NONCE_SECONDS,
                     }

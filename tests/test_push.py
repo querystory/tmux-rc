@@ -528,6 +528,23 @@ def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatc
     assert watcher.reparsed == ["%1"]  # refused, but the card still gets a fresh read
 
 
+def test_nonce_takes_its_generation_from_the_question_s_snapshot(tmp_path, monkeypatch):
+    """Input landing after the question was parsed but before its reparse is published
+    must not mint a nonce that vouches for the stale question."""
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting(held())]  # parsed at input generation 0
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    monkeypatch.setattr(push.tmux, "send_keys", lambda *_a, **kw: kw["guard"]())
+    watcher.invalidate_input_actions("%1")
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    with pytest.raises(ValueError, match="newer input"):
+        service.answer(sender.payloads[0]["nonce"], 0)
+
+
 def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
