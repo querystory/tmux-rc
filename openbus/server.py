@@ -856,9 +856,9 @@ def send(pane_id: str, body: SendBody, request: Request):
             tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal,
                            expected_pid=birth, guard=claim if fp else None)
     except Exception as e:
-        _audit(
-            request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
-        )
+        # Keys refused at a password prompt are probably the password: never recorded.
+        keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
+        _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, (tmux.PaneChangedError, ValueError)):
             raise HTTPException(409, str(e)) from e
         raise
@@ -1226,7 +1226,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments = []
+    segments, secret = [], None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -1245,13 +1245,24 @@ async def _compose(pane_id: str, request: Request):
                 if not data or len(data) > IMG_MAX_BYTES:
                     raise HTTPException(413, "image empty or too large")
                 segments.append((data, _stage_image(data, mime)))
+            elif kind == "secret" and isinstance(value, str) and secret is None:
+                secret = value
             else:
                 raise HTTPException(400, "invalid composer segment")
-    if not segments:
-        raise HTTPException(400, "empty composer")
-    await asyncio.to_thread(
-        _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
-    _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
+    # A password answers a no-echo prompt alone, and never reaches an audit or log
+    # line: the record says only that one was sent. See tmux.send_secret. The
+    # converse, refusing plain text at that prompt, is send_keys' own guard.
+    if bool(segments) == bool(secret):
+        raise HTTPException(400, "send a draft or a secret")
+    if not (secret or "").isprintable():  # a newline or ^D would end the read early,
+        raise HTTPException(400, "a password is printable text")  # the rest run as input
+    if secret:
+        await asyncio.to_thread(_input_attempt, pane.id, tmux.send_secret, pane, secret)
+    else:
+        await asyncio.to_thread(
+            _input_attempt, pane.id, _deliver_composer, pane.id, pane.pid, segments)
+    _audit(request, "compose", pane_id,
+           detail="secret" if secret else f"{len(segments)} segments")
     return {"ok": True}
 
 

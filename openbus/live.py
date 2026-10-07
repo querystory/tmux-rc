@@ -534,7 +534,10 @@ async def _dispatch(
         rec["detail"] = type(e).__name__
         logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
                        exc_info=telemetry.QSDEBUG)
-        return {"status": "error", "reason": "pane did not accept input"}
+        # A password prompt refuses model text (tmux.send_keys): say so, so the model
+        # can tell the user to type it in the app.
+        reason = str(e) if isinstance(e, tmux.PasswordPromptError) else "pane did not accept input"
+        return {"status": "error", "reason": reason}
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
     # Every action the voice takes is visibly logged in the overlay.

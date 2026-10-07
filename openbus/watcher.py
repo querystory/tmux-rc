@@ -227,6 +227,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     s["window_index"] = p.window_index
     s["window_name"] = p.window_name
     s["session_active"] = p.session_active
+    s["secret"] = getattr(p, "secret", False)  # at a password prompt: see Pane.secret
 
 
 def _append_events(log: list[dict], events: list[dict], ts: float) -> None:

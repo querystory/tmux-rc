@@ -282,6 +282,34 @@ computed. `/live` is its own tight capture loop — no LLM, its own cadence. `/s
 image upload off the event loop (they run in worker threads) so live streaming and
 polling stay responsive.
 
+## Password prompts
+
+A pane waiting for a password (sudo, ssh, a `read -s`) turns the composer into a password
+field, and what is typed there goes to that pane and nowhere else.
+
+**Detection reads the tty, not the screen.** A program asking for a password switches its
+terminal's echo off and leaves line editing on. Full-screen apps, the agent TUIs included,
+and an idle shell's readline turn echo off too, but they also turn line editing off (raw
+mode), so "echo off, line editing on" picks out password prompts and nothing else. That
+was checked against Claude Code, codex, vim and bash at its prompt, which are all raw, and
+sudo, ssh, Python's getpass and `read -s`, which all match. Reading the classifier's view
+of the screen instead would cost a model call. Worse, a misread would put a password field
+over an agent's prompt, or leave a plain composer echoing a password onto the screen. The
+flag is one ioctl on a pts the daemon's user already owns, so the watcher reads it every
+tick, and the send path reads it again under the pane's send lock.
+
+**The secret takes its own narrow path.** Ordinary text goes through `send-keys`, whose
+argv any local `ps` can read, and the audit line carries typed keys by default. The
+secret instead goes in on tmux's stdin through a one-shot paste buffer, and its audit line
+says only that a secret was sent, and it must be printable text, since anything after a
+newline or a ^D would run as the shell's next input. The rule also runs the other way: at a password
+prompt, `send-keys` refuses text and every key name that could type, re-reading the tty
+under the pane's send lock, and refusing when it can't be read. That one choke point covers the composer, the key row,
+Live Mode and push answers together, so a page that is out of date, or a model told the
+password aloud, can't send it down a path that records it. A secret aimed at a pane that echoes is refused too, so a stale page
+can't type a password into an agent's prompt. The browser keeps the value only in the
+input, which is never a draft and never stored, and is cleared once it is sent.
+
 ## Where to go deeper
 
 - [Design notes index](../) — every subsystem's *why*.

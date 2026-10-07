@@ -132,10 +132,15 @@ CAPTURES = {
         "", RULE, "❯ ", RULE,
         f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
     ]),
+    "backup verify": "\n".join([
+        f"{grn('dev@ops')}$ sudo ./verify-snapshots.sh", "[sudo] password for dev: "]),
 }
 
 # Extra card fields for the panes the screenshots open, so every section has something.
 DETAIL = {
+    # A sudo prompt: its tty stopped echoing, so the composer is a password field.
+    "backup verify": {"secret": True, "headline": "sudo is asking for a password.",
+                      "status_line": "sudo is asking for a password."},
     "e2e triage": {
         "model": "Opus 5", "context_pct": 41, "cost": "$3.12", "mode": "accept-edits",
         "session_summary": "The checkout flake reproduces only when the payment iframe loads "

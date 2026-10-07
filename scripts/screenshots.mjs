@@ -39,6 +39,7 @@ const SHOTS = [
   ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
   ["mobile-chat-open", PHONE, "light", "", (page) => openChat(page, "Let's go back to window 1")],
   ["mobile-chat-consent", PHONE, "light", "", (page) => openChat(page, "Tell e2e triage to rerun it headed")],
+  ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
 ];
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so

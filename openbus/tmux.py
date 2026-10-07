@@ -12,15 +12,17 @@ import logging
 import math
 import os
 import re
+import secrets
 import shlex
 import shutil
 import socket
 import subprocess
+import termios
 import threading
 import time
 import weakref
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -57,8 +59,20 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
         "#{pane_active}",
         "#{window_activity}",
         "#{session_attached}",
+        "#{pane_tty}",
     ]
 )
+
+
+def _no_echo(tty: str) -> bool:
+    """`tty` has ECHO off and ICANON on: a password prompt (see Pane.secret). Raises
+    OSError / termios.error when it can't tell; each caller picks its own default."""
+    fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        lflag = termios.tcgetattr(fd)[3]
+    finally:
+        os.close(fd)
+    return lflag & (termios.ECHO | termios.ICANON) == termios.ICANON
 
 
 @dataclass(frozen=True)
@@ -93,6 +107,22 @@ class Pane:
     # terminal and it reads "2". Only used to pick which group member's name a shared
     # pane is filed under, via `is_attached` rather than any comparison to "1".
     session_attached: str = "0"
+    tty: str = ""  # the pane's pts, read for `secret`
+
+    @property
+    def secret(self) -> bool:
+        """Is the pane at a password prompt? A program asking for a password turns its
+        tty's ECHO off and leaves line editing (ICANON) on — sudo, ssh, getpass, `read
+        -s` all do exactly that — while full-screen apps (agent TUIs, editors, an
+        interactive shell's readline) run raw, with ICANON off too. So the termios
+        flags answer this without reading the screen or asking a model, and a misread
+        screen cannot turn an agent's prompt into a password field. Read fresh on every
+        access: one open + ioctl on a pts the daemon's own user owns. Unknown reads as
+        no: this only picks the composer, and the send path decides for itself."""
+        try:
+            return _no_echo(self.tty)
+        except (OSError, termios.error):
+            return False
 
     @property
     def display_title(self) -> str | None:
@@ -168,7 +198,7 @@ def _meaningful(name: str) -> bool:
     return bool(name) and name.lower() not in _GENERIC_NAMES and not name.isdigit()
 
 
-def _run(args: list[str], *, prefix: list[str] | None = None,
+def _run(args: list[str], stdin: str | None = None, *, prefix: list[str] | None = None,
          env: dict[str, str] | None = None) -> str:
     """Run a tmux command, returning stdout. Raises on non-zero exit.
 
@@ -186,7 +216,7 @@ def _run(args: list[str], *, prefix: list[str] | None = None,
         sock = os.environ.get("TMUXRC_TMUX_SOCKET")
         return subprocess.run(
             [*(prefix or []), "tmux", *(["-L", sock] if sock else []), *args],
-            capture_output=True, text=True, check=True, timeout=10, env=env,
+            input=stdin, capture_output=True, text=True, check=True, timeout=10, env=env,
         ).stdout
     except subprocess.TimeoutExpired as e:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
@@ -777,6 +807,27 @@ class PaneChangedError(RuntimeError):
     """Delivery stopped because the original pane can no longer be identified."""
 
 
+class PasswordPromptError(PaneChangedError):
+    """Text refused because the pane is at a password prompt: send_keys would put it in
+    argv, and its callers in the audit trail. A password goes only through send_secret."""
+
+
+AT_PASSWORD = "The pane is asking for a password: use the password field."
+# Keys that may reach a password prompt by name: they abandon or submit it, and type
+# nothing. Any other name could type (tmux sends an unknown name as its text).
+PROMPT_KEYS = frozenset({"Enter", "Escape", "C-c", "C-d", "C-u"})
+
+
+def at_password_prompt(pane_id: str, *, unknown: bool = True) -> bool:
+    """Read fresh, for the send lock's holder (see Pane.secret). An unreadable tty reads
+    as `unknown`, which each caller sets to fail closed: True for plain text, which
+    might be a password, and False for a password, which needs the prompt confirmed."""
+    try:
+        return _no_echo(_run(["display-message", "-p", "-t", pane_id, "#{pane_tty}"]).strip())
+    except (OSError, termios.error, subprocess.CalledProcessError):
+        return unknown
+
+
 def check_pane(pane_id: str, expected: str | None) -> None:
     if expected is None or pane_pid(pane_id) != expected:
         raise PaneChangedError(
@@ -854,6 +905,8 @@ def send_keys(
             guard()
         if expected_pid is not None:
             check_pane(pane_id, expected_pid)
+        if (keys if literal else keys not in PROMPT_KEYS) and at_password_prompt(pane_id):
+            raise PasswordPromptError(AT_PASSWORD)
         if literal:
             identity = expected_pid if keys and expected_pid is not None else (
                 pane_pid(pane_id) if keys else None
@@ -909,6 +962,29 @@ def send_keys(
             if expected_pid is not None:
                 check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, "Enter"])
+
+
+def send_secret(pane: Pane, secret: str) -> None:
+    """Answer `pane`'s password prompt with `secret` and submit it. The secret goes in
+    on tmux's stdin (`load-buffer -`), never argv, where any local `ps` could read it,
+    and its one-shot buffer is deleted as it is pasted. Refuses unless the pane is the
+    same one and still not echoing, checked under the send lock: a stale page must not
+    type a password into whatever replaced the prompt."""
+    name = f"tmuxrc-secret-{secrets.token_hex(8)}"
+    with _pane_lock(pane.id):
+        try:
+            _run(["load-buffer", "-b", name, "-"], stdin=secret)
+            # Checked after the load, right before the paste: the pane can be replaced
+            # (and its id recycled) while load-buffer runs.
+            check_pane(pane.id, pane.pid)
+            if not at_password_prompt(pane.id, unknown=False):
+                raise PaneChangedError(
+                    "The pane is no longer asking for a password; nothing was sent.")
+            _run(["paste-buffer", "-d", "-p", "-b", name, "-t", pane.id])
+            _run(["send-keys", "-t", pane.id, "Enter"])
+        finally:  # -d already deleted it after a paste; any failure must not leave it
+            with suppress(OSError, subprocess.CalledProcessError):
+                _run(["delete-buffer", "-b", name])
 
 
 def click(pane_id: str, from_bottom: int, col: int, *,
