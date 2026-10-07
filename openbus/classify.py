@@ -495,11 +495,16 @@ def _widget_text(prompt: str, visible: str) -> str:
     return textwrap.dedent(text).strip("\n")
 
 
-def widget_context(question: dict, text: str) -> str:
-    """The widget rows `question` reads off capture `text`, exactly as its `context` was
-    taken: lossless, so a command that differs only in a duration or a cost still differs."""
-    asked = _question_prompt(question)
-    return (asked and _widget_text(asked, _visible(text))) or ""
+def question_rows(question: dict, text: str) -> str:
+    """The rows a menu `question` reads off capture `text`, verbatim, so a command or an
+    option that differs only in a duration or a cost still differs: the whole viewport
+    down to its last option row, widget, prompt, options and the conversation above
+    included. Never the rows below, where an input box or status line animates."""
+    visible = _visible(text)
+    options = question.get("options")
+    last = len(options) if isinstance(options, list) else 0
+    end = list(re.finditer(rf"^[ \t│❯›>]*{last}[.)]\s.*$", visible, re.MULTILINE)) if last else []
+    return visible[:end[-1].end()] if end else ""
 
 
 # The widget's raw rows are evidence, not something to read on a card: one small cached
