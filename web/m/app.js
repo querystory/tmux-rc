@@ -1257,6 +1257,20 @@ async function openLaunch(fresh) {
 }
 $("close-launch").onclick = () => $("launch-dialog").close();
 let launching = false, launched = null;
+// Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE
+// navigating to it: startState only *starts* a fetch, so the hashchange this triggers
+// reaches render() while `panes` is still the previous poll's, without the pane that was
+// created a moment ago. See awaitingLaunch.
+function openLaunched(id) {
+  launched = { id, at: Date.now() };
+  // The exemption expires on a clock, but only a render can act on it, and renders are
+  // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
+  // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
+  // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
+  // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
+  setTimeout(render, LAUNCH_GRACE_MS);
+  startState(); navigate(id);
+}
 async function launchWindow(launcher, button) {
   const session = $("launch-session").value, name = $("launch-name").value.trim() || $("launch-name").placeholder;
   if (launching) return;
@@ -1267,17 +1281,7 @@ async function launchWindow(launcher, button) {
     const data = await (session ? post("/api/windows", { session, launcher })
       : post("/api/sessions", { name, cwd: $("launch-dir").value.trim() || "~", launcher }));
     if (!session) try { localStorage.setItem(LAST_DIR, $("launch-dir").value.trim()); } catch {}
-    // Record the id BEFORE navigating to it: startState only *starts* a fetch, so the
-    // hashchange this triggers reaches render() while `panes` is still the previous
-    // poll's, without the pane that was created a moment ago. See awaitingLaunch.
-    launched = { id: data.pane_id, at: Date.now() };
-    // The exemption expires on a clock, but only a render can act on it, and renders are
-    // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
-    // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
-    // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
-    // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
-    setTimeout(render, LAUNCH_GRACE_MS);
-    $("launch-dialog").close(); startState(); navigate(data.pane_id);
+    $("launch-dialog").close(); openLaunched(data.pane_id);
   } catch (error) {
     text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying.");
     // The list was a snapshot from the GET; if the daemon has since decided it can't run
@@ -1358,7 +1362,7 @@ window.addEventListener("pageshow", () => { startState(); restartDetail(); fitVi
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
 setupPush($("push"), notice, licon("bell"));
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: (id) => navigate(id), report: reportError, onVersion: observeVersion });
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: (id) => panes.some((p) => p.pane_id === id) ? navigate(id) : openLaunched(id), report: reportError, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {
   return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
