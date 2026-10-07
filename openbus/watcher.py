@@ -429,7 +429,6 @@ class Watcher:
                     "tool": s.get("tool"),
                     "tmux_active": s.get("tmux_active"),  # the pane tmux has focused
                     "activity": s.get("activity"),
-                    "secret": s.get("secret"),  # at a password prompt (Pane.secret)
                     "idle_seconds": s.get("idle_seconds"),
                     "state_since": s.get("state_since"),  # ts state entered; client ticks it
                     "headline": s.get("headline"),

@@ -133,10 +133,6 @@ _EXT = {
 }
 
 
-# Text for a pane at a password prompt goes only through the composer's secret field.
-AT_PASSWORD = "The pane is asking for a password: use the password field."
-
-
 class SendBody(BaseModel):
     keys: str
     enter: bool = True
@@ -786,16 +782,13 @@ def send(pane_id: str, body: SendBody, request: Request):
             outcome="rejected: pane not found",
         )
         raise HTTPException(404, "pane not found")
-    if body.literal and body.keys and pane.secret:
-        _audit(request, "send_keys", pane_id, detail, outcome="rejected: password prompt")
-        raise HTTPException(409, AT_PASSWORD)
     _invalidate_input_actions(pane.id)
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
     except Exception as e:
-        _audit(
-            request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
-        )
+        # Keys refused at a password prompt are probably the password: never recorded.
+        keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
+        _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, tmux.PaneChangedError):
             raise HTTPException(409, str(e)) from e
         raise
@@ -1127,12 +1120,11 @@ async def _compose(pane_id: str, request: Request):
                 raise HTTPException(400, "invalid composer segment")
     # A password answers a no-echo prompt alone, and never reaches an audit or log
     # line: the record says only that one was sent. See tmux.send_secret. The
-    # converse holds too: at that prompt plain text is refused, since send-keys would
-    # put the password in argv and the audit line.
+    # converse, refusing plain text at that prompt, is send_keys' own guard.
     if bool(segments) == bool(secret):
         raise HTTPException(400, "send a draft or a secret")
-    if segments and pane.secret:
-        raise HTTPException(409, AT_PASSWORD)
+    if any(c in (secret or "") for c in "\r\n"):
+        raise HTTPException(400, "a password is one line")  # else the rest runs as input
     _invalidate_input_actions(pane.id)
     if secret:
         await asyncio.to_thread(tmux.send_secret, pane, secret)

@@ -64,6 +64,19 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
 )
 
 
+def _no_echo(tty: str) -> bool:
+    """`tty` has ECHO off and ICANON on: a password prompt (see Pane.secret)."""
+    try:
+        fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            lflag = termios.tcgetattr(fd)[3]
+        finally:
+            os.close(fd)
+    except (OSError, termios.error):
+        return False
+    return lflag & (termios.ECHO | termios.ICANON) == termios.ICANON
+
+
 @dataclass(frozen=True)
 class Pane:
     """Identity of a tmux pane. `id` (e.g. "%3") is the stable target for tmux commands."""
@@ -107,15 +120,7 @@ class Pane:
         flags answer this without reading the screen or asking a model, and a misread
         screen cannot turn an agent's prompt into a password field. Read fresh on every
         access: one open + ioctl on a pts the daemon's own user owns."""
-        try:
-            fd = os.open(self.tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
-            try:
-                lflag = termios.tcgetattr(fd)[3]
-            finally:
-                os.close(fd)
-        except (OSError, termios.error):
-            return False
-        return lflag & (termios.ECHO | termios.ICANON) == termios.ICANON
+        return _no_echo(self.tty)
 
     @property
     def display_title(self) -> str | None:
@@ -725,6 +730,25 @@ class PaneChangedError(RuntimeError):
     """Delivery stopped because the original pane can no longer be identified."""
 
 
+class PasswordPromptError(PaneChangedError):
+    """Text refused because the pane is at a password prompt: send_keys would put it in
+    argv, and its callers in the audit trail. A password goes only through send_secret."""
+
+
+AT_PASSWORD = "The pane is asking for a password: use the password field."
+# Keys that may reach a password prompt by name: they abandon or submit it, and type
+# nothing. Any other name could type (tmux sends an unknown name as its text).
+PROMPT_KEYS = frozenset({"Enter", "Escape", "C-c", "C-d", "C-u"})
+
+
+def at_password_prompt(pane_id: str) -> bool:
+    """Read fresh, for the send lock's holder (see Pane.secret)."""
+    try:
+        return _no_echo(_run(["display-message", "-p", "-t", pane_id, "#{pane_tty}"]).strip())
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+
 def check_pane(pane_id: str, expected: str | None) -> None:
     if expected is None or pane_pid(pane_id) != expected:
         raise PaneChangedError(
@@ -802,6 +826,8 @@ def send_keys(
             guard()
         if expected_pid is not None:
             check_pane(pane_id, expected_pid)
+        if (keys if literal else keys not in PROMPT_KEYS) and at_password_prompt(pane_id):
+            raise PasswordPromptError(AT_PASSWORD)
         if literal:
             identity = expected_pid if keys and expected_pid is not None else (
                 pane_pid(pane_id) if keys else None
@@ -868,7 +894,7 @@ def send_secret(pane: Pane, secret: str) -> None:
     name = f"tmuxrc-secret-{secrets.token_hex(8)}"
     with _pane_lock(pane.id):
         check_pane(pane.id, pane.pid)
-        if not pane.secret:
+        if not at_password_prompt(pane.id):
             raise PaneChangedError("The pane is no longer asking for a password; nothing was sent.")
         _run(["load-buffer", "-b", name, "-"], stdin=secret)
         try:

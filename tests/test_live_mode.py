@@ -855,16 +855,16 @@ def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch)
     assert events[0][3:5] == (b"PNG", "image/png")
 
 
-def test_typing_at_a_password_prompt_is_refused(monkeypatch):
-    """A password reaches a pane from the user's password field only, never via a model."""
-    class AtPrompt(_Watcher):
-        def digest(self):
-            return [{**d, "secret": d["pane_id"] == "%2"} for d in super().digest()]
 
-    _, _, _, typed = _dispatch(_FC(args={"pane_id": "%2", "text": "hunter2"}), monkeypatch,
-                               AtPrompt())
-    assert typed == []
-    # A named key still goes through: Ctrl-C is how the model backs out of the prompt.
-    _, _, _, typed = _dispatch(_FC("press_key", {"pane_id": "%2", "key": "C-c"}),
-                               monkeypatch, AtPrompt())
-    assert typed == [("%2", "C-c", False, False)]
+def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
+    """send_keys refuses model text at a password prompt; the model is told why, so it can
+    send the user to the app's password field rather than retry."""
+    def refuse(*a, **k):
+        raise L.tmux.PasswordPromptError(L.tmux.AT_PASSWORD)
+
+    monkeypatch.setattr(L.tmux, "send_keys", refuse)
+    monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    fc = _FC(args={"pane_id": "%2", "text": "hunter2"})
+    session = _Session()
+    _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
+    assert "password field" in str(session.responses)

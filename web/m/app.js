@@ -916,7 +916,10 @@ function updateComposer() {
   // field. Its value lives only in that input: never a draft, never stored, cleared
   // when sent or when the prompt goes away.
   const secret = !!panes.find((p) => p.pane_id === active)?.secret;
+  // And the other way: text already in the draft when the prompt appeared was likely
+  // typed for it, so it must not wait there to be sent in the clear once the prompt ends.
   if (!secret) $("secret").value = "";
+  else if (value.segments().length) value.replace([]);
   $("reply").hidden = secret;
   $("secret").hidden = !secret;
   $("attach").hidden = secret;

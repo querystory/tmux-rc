@@ -301,10 +301,12 @@ tick, and the send path reads it again under the pane's send lock.
 **The secret takes its own narrow path.** Ordinary text goes through `send-keys`, whose
 argv any local `ps` can read, and the audit line carries typed keys by default. The
 secret instead goes in on tmux's stdin through a one-shot paste buffer, and its audit line
-says only that a secret was sent. The rule also runs the other way: at a password prompt
-the daemon refuses plain text from the composer, the key row and Live Mode alike. A
-page that is out of date, or a model told the password aloud, then can't send it down a
-path that records it. A secret aimed at a pane that echoes is refused too, so a stale page
+says only that a secret was sent, and it must be one line, since anything after a newline
+would run as the shell's next input. The rule also runs the other way: at a password
+prompt, `send-keys` refuses text and every key name that could type, re-reading the tty
+under the pane's send lock. That one choke point covers the composer, the key row,
+Live Mode and push answers together, so a page that is out of date, or a model told the
+password aloud, can't send it down a path that records it. A secret aimed at a pane that echoes is refused too, so a stale page
 can't type a password into an agent's prompt. The browser keeps the value only in the
 input, which is never a draft and never stored, and is cleared once it is sent.
 

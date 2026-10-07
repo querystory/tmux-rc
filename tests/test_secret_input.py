@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 
 from openbus import server, tmux, watcher
 
+AT_PROMPT = tmux.at_password_prompt  # the real one: conftest stubs it for unit tests
+
 SECRET = "hunter2-correct-horse"
 ENV = {k: v for k, v in os.environ.items() if k != "TMUX"}
 
@@ -37,6 +39,7 @@ def private_tmux(tmp_path, monkeypatch):
 
     monkeypatch.setattr(tmux, "_run", run)
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: tmux.find_pane(pane_id).pid)
+    monkeypatch.setattr(tmux, "at_password_prompt", AT_PROMPT)
     yield SimpleNamespace(run=run, spawn=spawn, argvs=argvs)
     for pane_id in created:
         subprocess.run(["tmux", "-S", socket, "kill-pane", "-t", pane_id], env=ENV,
@@ -75,7 +78,13 @@ def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, c
     assert client.post(f"/api/panes/{echoing}/compose",
                        files=[("secret", (None, SECRET))]).status_code == 409
     # Plain text is refused at the prompt: it would ride send-keys argv and the audit line.
+    # So is a "key name" tmux would just type.
     assert client.post(f"/api/panes/{prompt}/send", json={"keys": SECRET}).status_code == 409
+    assert client.post(f"/api/panes/{prompt}/send",
+                       json={"keys": SECRET, "literal": False}).status_code == 409
+    # One line only: the rest of a multi-line "password" would run as the shell's input.
+    assert client.post(f"/api/panes/{prompt}/compose",
+                       files=[("secret", (None, f"{SECRET}\nls"))]).status_code == 400
     assert client.post(f"/api/panes/{prompt}/compose",
                        files=[("text", (None, SECRET))]).status_code == 409
     assert client.post(f"/api/panes/{prompt}/compose", files=[

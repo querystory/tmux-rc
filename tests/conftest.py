@@ -20,4 +20,5 @@ def _no_enter_settle(monkeypatch):
     monkeypatch.setattr(tmux, "_ENTER_SETTLE_S", 0)
     # Unit tests never address a real pane. Identity-specific tests override this.
     monkeypatch.setattr(tmux, "pane_pid", lambda pane_id: "1234")
+    monkeypatch.setattr(tmux, "at_password_prompt", lambda pane_id: False)
     monkeypatch.setattr(tmux, "_last_paste", {})
