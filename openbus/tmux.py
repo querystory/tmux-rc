@@ -22,7 +22,7 @@ import threading
 import time
 import weakref
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -743,13 +743,14 @@ AT_PASSWORD = "The pane is asking for a password: use the password field."
 PROMPT_KEYS = frozenset({"Enter", "Escape", "C-c", "C-d", "C-u"})
 
 
-def at_password_prompt(pane_id: str) -> bool:
-    """Read fresh, for the send lock's holder (see Pane.secret). Fails closed: when the
-    tty can't be read, the text being sent might be a password, so it is not sent."""
+def at_password_prompt(pane_id: str, *, unknown: bool = True) -> bool:
+    """Read fresh, for the send lock's holder (see Pane.secret). An unreadable tty reads
+    as `unknown`, which each caller sets to fail closed: True for plain text, which
+    might be a password, and False for a password, which needs the prompt confirmed."""
     try:
         return _no_echo(_run(["display-message", "-p", "-t", pane_id, "#{pane_tty}"]).strip())
     except (OSError, termios.error, subprocess.CalledProcessError):
-        return True
+        return unknown
 
 
 def check_pane(pane_id: str, expected: str | None) -> None:
@@ -897,14 +898,14 @@ def send_secret(pane: Pane, secret: str) -> None:
     name = f"tmuxrc-secret-{secrets.token_hex(8)}"
     with _pane_lock(pane.id):
         check_pane(pane.id, pane.pid)
-        if not at_password_prompt(pane.id):
+        if not at_password_prompt(pane.id, unknown=False):
             raise PaneChangedError("The pane is no longer asking for a password; nothing was sent.")
-        _run(["load-buffer", "-b", name, "-"], stdin=secret)
         try:
+            _run(["load-buffer", "-b", name, "-"], stdin=secret)
             _run(["paste-buffer", "-d", "-p", "-b", name, "-t", pane.id])
-        except subprocess.CalledProcessError:
-            _run(["delete-buffer", "-b", name])
-            raise
+        finally:  # -d already deleted it after a paste; any failure must not leave it
+            with suppress(OSError, subprocess.CalledProcessError):
+                _run(["delete-buffer", "-b", name])
         _run(["send-keys", "-t", pane.id, "Enter"])
 
 
