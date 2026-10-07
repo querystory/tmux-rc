@@ -65,15 +65,13 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
 
 
 def _no_echo(tty: str) -> bool:
-    """`tty` has ECHO off and ICANON on: a password prompt (see Pane.secret)."""
+    """`tty` has ECHO off and ICANON on: a password prompt (see Pane.secret). Raises
+    OSError / termios.error when it can't tell; each caller picks its own default."""
+    fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     try:
-        fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
-        try:
-            lflag = termios.tcgetattr(fd)[3]
-        finally:
-            os.close(fd)
-    except (OSError, termios.error):
-        return False
+        lflag = termios.tcgetattr(fd)[3]
+    finally:
+        os.close(fd)
     return lflag & (termios.ECHO | termios.ICANON) == termios.ICANON
 
 
@@ -119,8 +117,12 @@ class Pane:
         interactive shell's readline) run raw, with ICANON off too. So the termios
         flags answer this without reading the screen or asking a model, and a misread
         screen cannot turn an agent's prompt into a password field. Read fresh on every
-        access: one open + ioctl on a pts the daemon's own user owns."""
-        return _no_echo(self.tty)
+        access: one open + ioctl on a pts the daemon's own user owns. Unknown reads as
+        no: this only picks the composer, and the send path decides for itself."""
+        try:
+            return _no_echo(self.tty)
+        except (OSError, termios.error):
+            return False
 
     @property
     def display_title(self) -> str | None:
@@ -742,11 +744,12 @@ PROMPT_KEYS = frozenset({"Enter", "Escape", "C-c", "C-d", "C-u"})
 
 
 def at_password_prompt(pane_id: str) -> bool:
-    """Read fresh, for the send lock's holder (see Pane.secret)."""
+    """Read fresh, for the send lock's holder (see Pane.secret). Fails closed: when the
+    tty can't be read, the text being sent might be a password, so it is not sent."""
     try:
         return _no_echo(_run(["display-message", "-p", "-t", pane_id, "#{pane_tty}"]).strip())
-    except (OSError, subprocess.CalledProcessError):
-        return False
+    except (OSError, termios.error, subprocess.CalledProcessError):
+        return True
 
 
 def check_pane(pane_id: str, expected: str | None) -> None:

@@ -855,7 +855,6 @@ def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch)
     assert events[0][3:5] == (b"PNG", "image/png")
 
 
-
 def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     """send_keys refuses model text at a password prompt; the model is told why, so it can
     send the user to the app's password field rather than retry."""

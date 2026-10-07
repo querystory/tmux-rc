@@ -1123,8 +1123,8 @@ async def _compose(pane_id: str, request: Request):
     # converse, refusing plain text at that prompt, is send_keys' own guard.
     if bool(segments) == bool(secret):
         raise HTTPException(400, "send a draft or a secret")
-    if any(c in (secret or "") for c in "\r\n"):
-        raise HTTPException(400, "a password is one line")  # else the rest runs as input
+    if not (secret or "").isprintable():  # a newline or ^D would end the read early,
+        raise HTTPException(400, "a password is printable text")  # the rest run as input
     _invalidate_input_actions(pane.id)
     if secret:
         await asyncio.to_thread(tmux.send_secret, pane, secret)
