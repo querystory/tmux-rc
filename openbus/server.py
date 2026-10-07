@@ -77,7 +77,7 @@ from . import agent_history, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
-from .push import PushManager, contract, held_question  # noqa: E402
+from .push import PushManager, claim_question, contract  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -574,13 +574,15 @@ async def get_state(v: int | None = None, client: str = "", visible: bool = Fals
     version = w.state_version()
     panes = [dict(s) for s in w.states]
     # Each question carries what a push nonce binds: its contract digest and the input
-    # generation its parse captured. A menu answer names both, and /send refuses it once
-    # the pane holds a different ask or has taken input since that parse (a double tap,
-    # a second client, a refetch before the reparse lands).
+    # generation its parse captured, plus that parse's frame. A menu answer names all
+    # three, and /send refuses it once the pane holds a different ask, has taken input
+    # since (a double tap, a second client, a refetch before the reparse lands), or shows
+    # a different screen (advanced from the keyboard, its parse not yet published).
     for s in panes:
         if isinstance(s.get("question"), dict):
             pid = s.get("pane_id")
-            fp = f"{contract(s, w.pane_birth(pid))[0]}:{s.get('input_generation', 0)}"
+            fp = ":".join((contract(s, w.pane_birth(pid))[0],
+                           str(s.get("input_generation", 0)), s.get("frame", "")))
             s["question"] = {**s["question"], "fp": fp}
     return {
         "version": version,  # echo so the client re-holds on the next value
@@ -837,17 +839,14 @@ def send(pane_id: str, body: SendBody, request: Request):
         )
         raise HTTPException(404, "pane not found")
     # A menu digit means nothing on its own: the "1" that said Yes to one ask says Yes to
-    # whatever replaced it. So a menu answer names its question, and under the send lock
-    # it is checked and its generation consumed in one step, as the push guard does.
+    # whatever replaced it. So a menu answer names its question, claimed under the send
+    # lock exactly as a push action is.
     w, fp = app.state.watcher, body.question
     birth = w.pane_birth(pane.id) if fp else None  # the incarnation the question names
 
     def claim() -> None:
-        digest, _, generation = fp.partition(":")
-        if generation != str(w.pane_input_generation(pane.id)):
-            raise ValueError("the pane received newer input")
-        held_question(w, pane.id, digest)
-        w.invalidate_input_actions(pane.id)
+        digest, generation, frame = fp.split(":")  # a malformed token: ValueError, 409
+        claim_question(w, pane.id, digest, int(generation), frame)
 
     if not fp:
         _invalidate_input_actions(pane.id)
@@ -861,13 +860,15 @@ def send(pane_id: str, body: SendBody, request: Request):
         if isinstance(e, (tmux.PaneChangedError, ValueError)):
             raise HTTPException(409, str(e)) from e
         raise
+    finally:
+        # Input changes the screen — force an immediate re-parse so an answered question /
+        # closed menu reflects on the card within a capture, not a poll interval later.
+        # A failed send too: it may have consumed a menu answer's generation, or been
+        # refused over a screen the card no longer matches, and only a fresh parse issues
+        # a token that can pass again. The canonical id again: the watcher matches this
+        # set against pane.id, so a request queued under an alias would never fire.
+        w.request_reparse(pane.id)
     _audit(request, "send_keys", pane_id, detail, body.keys)
-    # Input changes the screen — force an immediate re-parse so an answered question /
-    # closed menu reflects on the card within a capture, not a poll interval later. The
-    # canonical id again: the watcher matches this set against pane.id, so a request
-    # queued under an alias would simply never fire and the card would go stale until the
-    # next poll.
-    app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 
 

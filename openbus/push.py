@@ -344,6 +344,20 @@ def held_question(watcher, pane_id: str, fingerprint: str) -> tuple[dict, str]:
     return question, birth
 
 
+def claim_question(watcher, pane_id: str, fingerprint: str, generation: int, frame: str) -> None:
+    """Run under the pane's send lock, just before an answer's keys go out: refuse unless
+    the pane still holds the question the answer was offered on (held_question), has taken
+    no input since (the generation) and still shows the frame that question was parsed
+    from (keyboard input never reaches the generation), then consume the generation, so
+    only the first of two answers to one question can pass."""
+    if watcher.pane_input_generation(pane_id) != generation:
+        raise ValueError("the pane received newer input")
+    held_question(watcher, pane_id, fingerprint)
+    if watcher.frame_fp(tmux.capture_pane(pane_id, mark_dim=True)) != frame:
+        raise ValueError("the pending question has changed")
+    watcher.invalidate_input_actions(pane_id)
+
+
 def option_keys(question: dict, index: int) -> str:
     options = question.get("options")
     if not isinstance(options, list) or index < 0 or index >= len(options):
@@ -431,19 +445,16 @@ class PushManager:
             raise ValueError("the pane received newer input")
         question, birth = held_question(self.watcher, issued["pane_id"], issued["fingerprint"])
         keys = option_keys(question, option_index)
-        def guard() -> None:
-            if (self.watcher.pane_input_generation(issued["pane_id"])
-                    != issued["input_generation"]):
-                raise ValueError("the pane received newer input")
-            # Reserve the generation while the pane lock is held. Even if two distinct
-            # valid nonces somehow coexist, only the first guard can pass.
-            self.watcher.invalidate_input_actions(issued["pane_id"])
-        # A menu commits on its shortcut; an Enter would confirm the NEXT menu's default.
-        tmux.send_keys(
-            issued["pane_id"], keys, enter=question.get("answer_style") != "menu", literal=True,
-            expected_pid=birth, guard=guard,
-        )
-        self.watcher.request_reparse(issued["pane_id"])
+        try:
+            # A menu commits on its shortcut; an Enter would confirm the NEXT menu's default.
+            tmux.send_keys(
+                issued["pane_id"], keys, enter=question.get("answer_style") != "menu",
+                literal=True, expected_pid=birth, guard=lambda: claim_question(
+                    self.watcher, issued["pane_id"], issued["fingerprint"],
+                    issued["input_generation"], issued["frame"]),
+            )
+        finally:  # a failed send may have consumed the generation: only a parse reissues
+            self.watcher.request_reparse(issued["pane_id"])
         return issued["pane_id"], keys
 
     async def _loop(self) -> None:
@@ -521,7 +532,11 @@ class PushManager:
                     self._nonces[nonce] = {
                         "pane_id": pane_id, "fingerprint": fp,
                         "indices": {index for index, _ in offered},
-                        "input_generation": self.watcher.pane_input_generation(pane_id),
+                        # Both from the published snapshot the question came from, as
+                        # /api/state takes them: a live generation would vouch for a
+                        # stale frame whose successor's parse has not landed yet.
+                        "input_generation": pane.get("input_generation", 0),
+                        "frame": pane.get("frame", ""),
                         "expires": now + NONCE_SECONDS,
                     }
             deep_link = {"pane": pane_id, "from": "push"}

@@ -925,6 +925,12 @@ class Watcher:
         """Whether this pane's published classification came from a successful parse."""
         return self._parse_valid.get(pane_id, False)
 
+    def frame_fp(self, text: str) -> str:
+        """A capture's hash, as _tick_pane keys its parses. The parser version and LLM mode
+        are mixed in so a stored card from a different classifier misses on restart."""
+        return hashlib.sha256(
+            f"{CARD_VERSION}:{self.use_llm}\n{_fingerprint(text)}".encode()).hexdigest()
+
     def pane_input_generation(self, pane_id: str) -> int:
         """Monotonic token changed immediately after accepted pane input."""
         with self._input_generation_lock:
@@ -1154,11 +1160,7 @@ class Watcher:
         generation = self.pane_input_generation(pane.id)  # read first: later input wins
         text = tmux.capture_pane(pane.id, mark_dim=True)
         now = time.time()
-        # Hashed: cheap to hold per pane, and the same value the checkpoint stores. The
-        # parser version and LLM mode are mixed in so a stored card from a different
-        # classifier misses on restart and is re-read.
-        fp = hashlib.sha256(
-            f"{CARD_VERSION}:{self.use_llm}\n{_fingerprint(text)}".encode()).hexdigest()
+        fp = self.frame_fp(text)  # cheap to hold per pane; the checkpoint stores it too
         # First sighting since startup (or since a recycled id): resume from the
         # checkpoint when the screen is unchanged, else seed the clocks from tmux.
         row = None if pane.id in self._seen_fp else self._restore(pane, fp, now)
@@ -1207,6 +1209,7 @@ class Watcher:
         if cached is not None and not changed and not forced:
             cached["idle_seconds"] = idle  # just tick the timer, reuse everything else
             cached.setdefault("input_generation", generation)  # a restored card has none
+            cached.setdefault("frame", fp)  # as is one checkpointed before frames were kept
             # Same activity/question as the last parse (nothing re-classified), so this
             # returns the persisted entry time unchanged — the client's clock keeps
             # climbing while the pane sits still.
@@ -1443,9 +1446,9 @@ class Watcher:
         # which also bumps on idle-timer ticks. The phone watches it to know a forced
         # reparse has actually landed — so it can stop spinning the answered control.
         state["parsed_at"] = now
-        # The input generation this question was captured at, on the state itself so it
-        # publishes with it: input since (a menu answer above all) leaves the question
-        # unanswerable from the app until a fresh parse reads the pane (server.send).
-        state["input_generation"] = generation
+        # The input generation and frame this question was read from, on the state itself
+        # so they publish with it: input since (a menu answer above all) or a screen that
+        # has moved on leaves the question unanswerable from the app (server.send).
+        state["input_generation"], state["frame"] = generation, fp
         self._state[pane.id] = state
         return state

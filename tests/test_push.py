@@ -10,7 +10,20 @@ from pydantic import ValidationError
 from openbus import push
 
 
+@pytest.fixture(autouse=True)
+def _screen(monkeypatch):
+    """What the pane shows when an answer's guard captures it: by default the frame every
+    test state was parsed from (none, so ""). Set `[0]` to advance it from the keyboard."""
+    screen = [""]
+    monkeypatch.setattr(push.tmux, "capture_pane", lambda _pane, **_kw: screen[0])
+    return screen
+
+
 class Watcher:
+    @staticmethod
+    def frame_fp(text):
+        return text
+
     def __init__(self):
         self.states = []
         self.births = {"%1": "123"}
@@ -491,6 +504,47 @@ def test_action_nonce_is_one_shot_and_bound_to_live_contract(tmp_path, monkeypat
         service.answer(nonce, 0)
 
 
+def test_action_refuses_a_screen_advanced_from_the_keyboard(tmp_path, monkeypatch, _screen):
+    """Keyboard input never reaches the input generation: until the new frame's parse is
+    published, only a fresh capture shows the notification's question is gone."""
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [{**waiting(held()), "frame": "A"}]
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    sent = []
+    def send(_pane, keys, **kwargs):
+        kwargs["guard"]()
+        sent.append(keys)
+
+    monkeypatch.setattr(push.tmux, "send_keys", send)
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    _screen[0] = "B"
+    with pytest.raises(ValueError, match="changed"):
+        service.answer(sender.payloads[0]["nonce"], 0)
+    assert sent == []
+    assert watcher.reparsed == ["%1"]  # refused, but the card still gets a fresh read
+
+
+def test_nonce_takes_its_generation_from_the_question_s_snapshot(tmp_path, monkeypatch):
+    """Input landing after the question was parsed but before its reparse is published
+    must not mint a nonce that vouches for the stale question."""
+    clock = [100.0]
+    watcher = Watcher()
+    watcher.states = [waiting(held())]  # parsed at input generation 0
+    service, sender = manager(tmp_path, watcher, clock)
+    monkeypatch.setattr(push.tmux, "client_active_within", lambda _seconds: False)
+    monkeypatch.setattr(push.tmux, "send_keys", lambda *_a, **kw: kw["guard"]())
+    watcher.invalidate_input_actions("%1")
+    service.evaluate()
+    clock[0] += push.SETTLE_SECONDS
+    service.evaluate()
+    with pytest.raises(ValueError, match="newer input"):
+        service.answer(sender.payloads[0]["nonce"], 0)
+
+
 def test_action_rejects_stale_watcher_state_and_consumes_nonce(tmp_path, monkeypatch):
     clock = [100.0]
     watcher = Watcher()
@@ -605,7 +659,7 @@ def test_action_rejects_a_reordered_question_and_consumes_nonce(tmp_path, monkey
         service.answer(nonce, 0)
 
 
-def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
+def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch, _screen):
     """A digit names a row, not an ask: the "1" tapped on prompt A must not approve the
     prompt B that replaced it. /send checks the token the card was rendered with."""
     from fastapi.testclient import TestClient
@@ -617,8 +671,10 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
     watcher.state_version, watcher.booted = lambda: 1, lambda: True
     watcher.tmux_running = True  # read by /api/state once the start-tmux PR lands
     watcher.states = [waiting(held(context="mkdir s1"))]
-    stale = push.contract(watcher.states[0], "123")[0] + ":0"
-    watcher.states = [waiting(held(context="mkdir s2"))]  # parsed at generation 0
+    stale = push.contract(watcher.states[0], "123")[0] + ":0:A"
+    watcher.states = [{**waiting(held(context="mkdir s2")), "frame": "B"}]
+    screen = _screen  # what the pane shows now; B was parsed at input generation 0
+    screen[0] = "B"
     monkeypatch.setattr(server.tmux, "list_panes", lambda: [
         Pane("work", "0", "Build", "0", "%1", "node", "t", "/x")])
     monkeypatch.setattr(server.tmux, "prefix_key", lambda: "C-b")
@@ -641,6 +697,11 @@ def test_send_refuses_a_menu_answer_tapped_on_a_different_question(monkeypatch):
     assert response.status_code == 409
     assert "changed" in response.json()["detail"]
     assert sent == []
+    # Advanced from the keyboard, its parse not yet published: B's card would approve C.
+    screen[0] = "C"
+    assert tap(token()).status_code == 409
+    assert sent == []
+    screen[0] = "B"
     assert tap(token()).status_code == 200
     assert sent == ["1"]
     # Until a reparse reads the pane again the screen still shows the same question, but
