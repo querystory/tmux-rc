@@ -764,11 +764,12 @@ def _emit_live_round(
 @contextmanager
 def _pane_input(pane_id: str, *, invalidate: bool = True, watcher=None):
     """Wrap one input attempt on a pane. Before it, invalidate push actions and app menu
-    tokens ahead of competing for the pane's send lock. After it, whatever the outcome,
-    force a reparse: input changes the screen, so an answered question clears from its
-    card within a capture, and an attempt that failed or sent nothing has still moved the
-    generation past every published token, which only a fresh parse reissues. Never
-    reparse before delivery: that parse could stamp the new generation on the old screen.
+    tokens ahead of competing for the pane's send lock. After it, unless a claim refused
+    it, invalidate them again, since a parse that read the generation while the keys were
+    still going out captured the old screen. Whatever the outcome, force a reparse:
+    input changes the screen, so an answered question clears from its card within a
+    capture, and only a fresh parse reissues a token. Never reparse before delivery:
+    that parse could stamp the new generation on the old screen.
     `pane_id` must be canonical: the watcher matches its forced set against pane.id, so
     an alias would never fire."""
     watcher = watcher or getattr(app.state, "watcher", None)
@@ -777,7 +778,12 @@ def _pane_input(pane_id: str, *, invalidate: bool = True, watcher=None):
         tmux.before_send(pane_id, lambda: bump(pane_id))
     try:
         yield
+    except ValueError:  # a refused claim (push.claim_question): no key went out
+        bump = None
+        raise
     finally:
+        if bump is not None:
+            bump(pane_id)
         if watcher is not None:
             watcher.request_reparse(pane_id)
 

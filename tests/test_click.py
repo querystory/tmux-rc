@@ -111,7 +111,7 @@ def test_click_endpoint_canonicalizes_and_always_reparses(monkeypatch, sent):
     assert response.status_code == 200
     assert response.json() == {"sent": sent}
     click.assert_called_once_with("%7", 2, 4, expected_pid="42", expected_frame="a" * 32)
-    watcher.invalidate_input_actions.assert_called_once_with("%7")
+    assert watcher.invalidate_input_actions.call_count == 2  # before and after delivery
     watcher.request_reparse.assert_called_once_with("%7")
 
 

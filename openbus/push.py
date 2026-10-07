@@ -455,8 +455,8 @@ class PushManager:
                     self.watcher, issued["pane_id"], issued["fingerprint"],
                     issued["input_generation"], issued["frame"]),
             )
-        finally:  # a failed send may have consumed the generation: only a parse reissues
-            self.watcher.request_reparse(issued["pane_id"])
+        finally:  # a parse overlapping delivery read the old screen: void it, reparse
+            self.watcher.note_input(issued["pane_id"])
         return issued["pane_id"], keys
 
     async def _loop(self) -> None:

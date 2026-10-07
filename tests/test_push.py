@@ -814,8 +814,10 @@ def test_an_input_attempt_reparses_only_after_its_delivery():
             raise error
 
     assert server._input_attempt("%1", deliver, watcher=watcher) is None
-    assert order == ["bump", "deliver", "reparse"]
+    # Bumped again after delivery: a parse that read the generation mid-send saw the old
+    # screen, and must not publish it as current for an identical successor prompt.
+    assert order == ["bump", "deliver", "bump", "reparse"]
     order.clear()
     with pytest.raises(RuntimeError):
         server._input_attempt("%1", deliver, RuntimeError("send-keys failed"), watcher=watcher)
-    assert order == ["bump", "deliver", "reparse"]  # a failed delivery still reparses
+    assert order == ["bump", "deliver", "bump", "reparse"]  # a failed delivery too
