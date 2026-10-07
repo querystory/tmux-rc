@@ -259,7 +259,9 @@ def test_text_session_runs_a_pane_action_only_once_the_user_approves(monkeypatch
     _run(L._handle_tool_call(ws, session, fc, _Watcher(), meter))
 
     assert ws.sent[0]["type"] == "propose"
-    assert ws.sent[0]["text"] == "Send to work: rebase onto main"
+    # Named as the list names it, with the id the card's Open button navigates to.
+    assert ws.sent[0]["text"] == 'Send to window 3 "work": rebase onto main'
+    assert ws.sent[0]["pane_id"] == "%1"
     assert ws.sent[1] == {"type": "decided", "id": ws.sent[0]["id"], "ok": ok}  # then final
     assert typed == ([("%1", "rebase onto main", True, True)] if ok else [])
     assert session.responses[0][1] == (
@@ -303,10 +305,14 @@ def test_proposal_says_when_approving_will_not_press_enter(monkeypatch):
 
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    class Titled(_Watcher):  # an unnamed window, whose list label is a bare tmux address
+        def digest(self):
+            return [{**super().digest()[0], "title": "Prevent leaks", "label": "misc-1:3"}]
+
     ws = Cancel()
     fc = _FC(args={"pane_id": "%1", "text": "draft", "press_enter": False})
-    _run(L._handle_tool_call(ws, _Session(), fc, _Watcher(), meter))
-    assert ws.sent[0]["text"] == "Type (no Enter) into work: draft"
+    _run(L._handle_tool_call(ws, _Session(), fc, Titled(), meter))
+    assert ws.sent[0]["text"] == 'Type (no Enter) into window 3 "Prevent leaks" (misc-1:3): draft'
 
 
 def test_text_session_prompt_labels_relays_as_typed():
@@ -824,7 +830,7 @@ def test_forwarding_an_image_waits_for_send_and_binds_to_the_pane(monkeypatch):
     assert _forward(meter, ws, image_number=1, caption="what is this?") == {
         "status": "done", "pane": "work"}
     card = ws.sent[0]
-    assert card["text"] == "Send image 1 to work: what is this?"
+    assert card["text"] == 'Send image 1 to window 3 "work": what is this?'
     assert card["image"] == "data:image/png;base64,UE5H"  # the thumbnail the user approves
     assert events == [  # delivered once, bound to the pid the card showed, caption in the draft
         ("attach", "%1", "4242", b"PNG", "image/png", "what is this?")]

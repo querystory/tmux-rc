@@ -165,7 +165,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // instead (superseded: a card never holds the next turn hostage). The card shows a final
   // answer only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
-  function propose(current, { id, text, image }) {
+  function propose(current, { id, text, image, pane_id }) {
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     actions.className = "voice-actions";
     for (const [label, ok] of [["Send", true], ["Cancel", false]]) {
@@ -179,17 +179,23 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
       };
       actions.append(button);
     }
+    // Look before approving: opening leaves the card pending, and the bubble brings it back.
+    if (pane_id) actions.append(openButton(pane_id, "Open"));
     row.append(actions); current.proposals.set(id, { row, actions }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
-  // open_pane: a button to a pane, going exactly where its row in the list goes (the
-  // caller's navigate). A phone minimizes the sheet on the way, a docked panel stays put.
-  // `auto` (a resume the user just tapped Send on) also takes that path at once.
-  function offer({ pane_id, label, auto }) {
-    const button = document.createElement("button"); button.type = "button";
-    button.append(`Open ${label}`); button.insertAdjacentHTML("beforeend", licon("chevron", 16));
+  // A button to a pane, going exactly where its row in the list goes (the caller's
+  // navigate). A phone minimizes the sheet on the way, a docked panel stays put.
+  function openButton(pane_id, label) {
+    const button = document.createElement("button"); button.type = "button"; button.className = "open";
+    button.textContent = label; button.insertAdjacentHTML("beforeend", licon("chevron", 16));
     const at = Date.now(); // a button offered moments ago may name a window state lacks yet
     button.onclick = () => { if (!docked()) hide(); open(pane_id, at); };
+    return button;
+  }
+  // open_pane: `auto` (a resume the user just tapped Send on) also takes that path at once.
+  function offer({ pane_id, label, auto }) {
+    const button = openButton(pane_id, `Open ${label}`);
     add("open").lastChild.append(button);
     if (auto) button.click();
   }

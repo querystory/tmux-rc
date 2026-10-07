@@ -407,9 +407,12 @@ async def _approved(
     removes actions."""
     args = fc.args if isinstance(fc.args, dict) else {}
     pane_id = args.get("pane_id")
-    labels = _labels(watcher)
-    known = isinstance(pane_id, str) and pane_id in labels
-    pane = labels[pane_id] if known else pane_id
+    d = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
+    known, pane = d is not None, pane_id
+    if known:  # named as the prompt names it, so the card matches the reply above it, plus
+        # the list's label (a bare tmux address for an unnamed window) unless that IS the title
+        pane, label = _pane_name(d), d.get("label") or pane_id
+        pane += "" if pane.endswith(f'"{label}"') else f" ({label})"
     # "" when the lookup finds no process: it matches no pane, so the send is refused
     # rather than going out unguarded (None would mean "don't check").
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
@@ -430,7 +433,7 @@ async def _approved(
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
-    card = {"type": "propose", "text": summary}
+    card = {"type": "propose", "text": summary, "pane_id": pane_id if known else None}  # Open
     if fc.name == "send_image_to_pane":
         image = meter.image(args.get("image_number"))
         if image:  # the card shows what would be sent; no image: refused below, as approved
