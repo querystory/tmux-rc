@@ -12,6 +12,7 @@ import hashlib
 import logging
 import os
 import re
+import secrets
 import subprocess
 import threading
 import time
@@ -281,9 +282,10 @@ class Watcher:
         self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
         self._input_generation: dict[str, int] = {}
-        # Each run's generations start past every earlier run's (a pane bumps once per input,
-        # never a nanosecond's worth), so no answer token survives a restart.
-        self._generation_base = time.time_ns()
+        # Each run counts from its own random base, so no answer token survives a restart:
+        # a pane bumps once per input, a vanishing slice of 2**62. Not the clock, which a
+        # rollback or a restored snapshot can repeat.
+        self._generation_base = secrets.randbits(62)
         self._input_generation_lock = threading.Lock()
         self._parse_fails: dict[str, int] = {}  # pane_id -> consecutive failed parses
         self._unchanged_since: dict[str, float] = {}
