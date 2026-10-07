@@ -1226,15 +1226,15 @@ let launching = false, launched = null;
 // Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE
 // navigating to it: startState only *starts* a fetch, so the hashchange this triggers
 // reaches render() while `panes` is still the previous poll's, without the pane that was
-// created a moment ago. See awaitingLaunch.
-function openLaunched(id) {
-  launched = { id, at: Date.now() };
+// created a moment ago. See awaitingLaunch. `at` is when the daemon reported it.
+function openLaunched(id, at = Date.now()) {
+  launched = { id, at };
   // The exemption expires on a clock, but only a render can act on it, and renders are
   // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
   // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
   // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
   // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
-  setTimeout(render, LAUNCH_GRACE_MS);
+  setTimeout(render, at + LAUNCH_GRACE_MS - Date.now());
   startState(); navigate(id);
 }
 async function launchWindow(launcher, button) {
@@ -1324,7 +1324,11 @@ window.addEventListener("pageshow", () => { startState(); restartDetail(); fitVi
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
 setupPush($("push"), notice, licon("bell"));
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: (id) => panes.some((p) => p.pane_id === id) ? navigate(id) : openLaunched(id), report: reportError, onVersion: observeVersion });
+// A chat Open button offered within the launch grace may name a window too new for
+// /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
+const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
+  ? openLaunched(id, at) : navigate(id);
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {
   return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);
