@@ -172,3 +172,12 @@ def test_last_activity_survives_refresh_and_restart(monkeypatch):
     assert changed["last_activity_at"] == 12_000.0
     assert changed["state_since"] == first["state_since"]
     assert Watcher._deck_fp([first]) != Watcher._deck_fp([{**first, "last_activity_at": 12_000.0}])
+
+
+def test_input_generations_never_repeat_across_runs():
+    """A menu answer token names its input generation; a restart must not reissue one an
+    earlier run handed out, or a token held across it could approve an identical ask."""
+    first = Watcher(target=None, use_llm=False)
+    first.invalidate_input_actions("%1")
+    second = Watcher(target=None, use_llm=False)
+    assert second.pane_input_generation("%1") > first.pane_input_generation("%1")

@@ -495,6 +495,13 @@ def _widget_text(prompt: str, visible: str) -> str:
     return textwrap.dedent(text).strip("\n")
 
 
+def widget_context(question: dict, text: str) -> str:
+    """The widget rows `question` reads off capture `text`, exactly as its `context` was
+    taken: lossless, so a command that differs only in a duration or a cost still differs."""
+    asked = _question_prompt(question)
+    return (asked and _widget_text(asked, _visible(text))) or ""
+
+
 # The widget's raw rows are evidence, not something to read on a card: one small cached
 # call per distinct ask (prompt + widget) restates it in plain words. Like the reply
 # buttons, it lives beside the parser prompt rather than in it. The agent writes the

@@ -518,12 +518,13 @@ async def _dispatch(
     if send_args is None:
         return {"status": "rejected", "reason": "malformed call"}
 
+    from .server import _input_attempt  # noqa: PLC0415 - server imports this module
+
     label = labels[pane_id]
-    invalidate = getattr(watcher, "invalidate_input_actions", None)
     try:
-        if invalidate is not None:
-            await asyncio.to_thread(tmux.before_send, pane_id, lambda: invalidate(pane_id))
-        await asyncio.to_thread(tmux.send_keys, *send_args, expected_pid=expected_pid)
+        await asyncio.to_thread(
+            _input_attempt, pane_id, lambda: tmux.send_keys(*send_args, expected_pid=expected_pid),
+            watcher=watcher)
     except Exception as e:  # report, don't kill the session
         # The error's text can quote the typed text (send-keys argv): speech, so only
         # the class leaves here unless QSDEBUG.
@@ -533,7 +534,6 @@ async def _dispatch(
         return {"status": "error", "reason": "pane did not accept input"}
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
-    watcher.request_reparse(pane_id)
     # Every action the voice takes is visibly logged in the overlay.
     await websocket.send_json(
         {"type": "typed", "pane_id": pane_id, "label": label,
@@ -579,8 +579,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
         logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,
                        exc_info=telemetry.QSDEBUG)
         return {"status": "error", "reason": "pane did not accept the image"}
-    rec["detail"] += f" via {mode}"
-    watcher.request_reparse(pane_id)
+    rec["detail"] += f" via {mode}"  # attach_image has already requested the reparse
     await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
                                "text": f"[image] {caption}".strip(), "submitted": True})
     return {"status": "done", "pane": labels[pane_id]}
