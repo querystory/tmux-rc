@@ -806,7 +806,9 @@ def test_an_input_attempt_reparses_only_after_its_delivery():
     from openbus import server
 
     order = []
-    watcher = SimpleNamespace(invalidate_input_actions=lambda _p: order.append("bump"),
+    def bump(_p):  # under the send lock, so no other sender claims in between
+        order.append("bump" if push.tmux._pane_lock("%1")._is_owned() else "unlocked bump")
+    watcher = SimpleNamespace(invalidate_input_actions=bump,
                               request_reparse=lambda _p: order.append("reparse"))
     def deliver(error=None):
         order.append("deliver")
@@ -814,8 +816,9 @@ def test_an_input_attempt_reparses_only_after_its_delivery():
             raise error
 
     assert server._input_attempt("%1", deliver, watcher=watcher) is None
-    # Bumped again after delivery: a parse that read the generation mid-send saw the old
-    # screen, and must not publish it as current for an identical successor prompt.
+    # Bumped again after delivery, before the lock is released: a parse that read the
+    # generation mid-send saw the old screen, and must not publish it as current for an
+    # identical successor prompt.
     assert order == ["bump", "deliver", "bump", "reparse"]
     order.clear()
     with pytest.raises(RuntimeError):

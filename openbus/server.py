@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
@@ -77,7 +77,7 @@ from . import telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
-from .push import PushManager, claim_question, contract  # noqa: E402
+from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
 # One standard, human-readable log format for ALL loggers (uvicorn included — main()
@@ -761,31 +761,10 @@ def _emit_live_round(
         logger.debug("live emit failed", exc_info=True)
 
 
-@contextmanager
 def _pane_input(pane_id: str, *, invalidate: bool = True, watcher=None):
-    """Wrap one input attempt on a pane. Before it, invalidate push actions and app menu
-    tokens ahead of competing for the pane's send lock. After it, unless a claim refused
-    it, invalidate them again, since a parse that read the generation while the keys were
-    still going out captured the old screen. Whatever the outcome, force a reparse:
-    input changes the screen, so an answered question clears from its card within a
-    capture, and only a fresh parse reissues a token. Never reparse before delivery:
-    that parse could stamp the new generation on the old screen.
-    `pane_id` must be canonical: the watcher matches its forced set against pane.id, so
-    an alias would never fire."""
-    watcher = watcher or getattr(app.state, "watcher", None)
-    bump = getattr(watcher, "invalidate_input_actions", None)
-    if invalidate and bump is not None:
-        tmux.before_send(pane_id, lambda: bump(pane_id))
-    try:
-        yield
-    except ValueError:  # a refused claim (push.claim_question): no key went out
-        bump = None
-        raise
-    finally:
-        if bump is not None:
-            bump(pane_id)
-        if watcher is not None:
-            watcher.request_reparse(pane_id)
+    """push.pane_input on the app's watcher unless one is given."""
+    return pane_input(watcher or getattr(app.state, "watcher", None), pane_id,
+                      invalidate=invalidate)
 
 
 def _input_attempt(pane_id: str, deliver: Callable, *args, watcher=None):
