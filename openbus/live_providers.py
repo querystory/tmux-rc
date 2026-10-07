@@ -270,8 +270,9 @@ TOOLS = [
             "Give the user a button that takes their screen to one window. Call it whenever "
             "the user wants to go to, open, see, switch to or get back to a window (“go back "
             "to window 20”, “show me the auth fix”), including one find_sessions or "
-            "resume_session just named, instead of asking what to do there. It changes only "
-            "what the user sees, never the pane."
+            "resume_session just named (not when its result says shown: the user is already "
+            "there), instead of asking what to do there. It changes only what the user sees, "
+            "never the pane."
         ),
         "parameters": {
             "type": "object",
