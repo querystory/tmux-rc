@@ -586,10 +586,11 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     return {"status": "done", "pane": labels[pane_id]}
 
 
-async def _open_pane(websocket, args: dict, watcher, rec: dict) -> dict:
+async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = False) -> dict:
     """Put an Open button for a pane in the chat. It changes only what the phone shows,
     never the pane, so no consent card guards it, and a button rather than a jump: the user
-    may be mid-sentence in the composer when the reply lands."""
+    may be mid-sentence in the composer when the reply lands. `auto` jumps as well, for a
+    resume the user just tapped Send on."""
     pane_id = args.get("pane_id")
     pane = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
     # Not published yet: a window resume_session just opened, before the watcher's next tick.
@@ -601,7 +602,8 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict) -> dict:
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
     rec["pane_id"] = pane_id
-    await websocket.send_json({"type": "open_pane", "pane_id": pane_id, "label": _pane_name(pane)})
+    await websocket.send_json(
+        {"type": "open_pane", "pane_id": pane_id, "label": _pane_name(pane), "auto": auto})
     return {"status": "done", "pane": _pane_name(pane)}
 
 
@@ -709,7 +711,12 @@ async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
     if set(args) - {"session_id"} or not isinstance(sid, str) or not sid.strip():
         return {"status": "rejected", "reason": "malformed call"}
     async with _resume_lock:
-        return await _resume_locked(websocket, sid.strip(), watcher, rec)
+        result = await _resume_locked(websocket, sid.strip(), watcher, rec)
+    # Tapping Send on the card asked to go there, so take them; voice has no card, and a
+    # model's own open_pane only offers a button.
+    if rec.get("consent") == "approved" and result.get("pane_id"):
+        await _open_pane(websocket, {"pane_id": result["pane_id"]}, watcher, rec, auto=True)
+    return result
 
 
 async def _resume_locked(websocket, sid: str, watcher, rec: dict) -> dict:

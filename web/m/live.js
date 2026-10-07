@@ -194,11 +194,13 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   }
   // open_pane: a button to a pane, going exactly where its row in the list goes (the
   // caller's navigate). A phone minimizes the sheet on the way, a docked panel stays put.
-  function offer({ pane_id, label }) {
+  // `auto` (a resume the user just tapped Send on) also takes that path at once.
+  function offer({ pane_id, label, auto }) {
     const button = document.createElement("button"); button.type = "button";
     button.append(`Open ${label}`); button.insertAdjacentHTML("beforeend", licon("chevron", 16));
     button.onclick = () => { if (!docked()) hide(); open(pane_id); };
     add("open").lastChild.append(button);
+    if (auto) button.click();
   }
   function settle(current, id, label) {
     const card = current.proposals.get(id);

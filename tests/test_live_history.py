@@ -74,6 +74,21 @@ def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     assert any(m["type"] == "typed" and m["pane_id"] == "%40" for m in ws.sent)
 
 
+@pytest.mark.parametrize("consent", ["approved", None])
+def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monkeypatch, consent):
+    # A tapped Send asked to go there: the client gets open_pane with auto, which also
+    # leaves the button. Voice (no card) gets no jump.
+    sessions, _ = history
+    sessions["live-1"] = LIVE
+    monkeypatch.setattr(tmux, "list_panes", lambda: [
+        Pane("work", "7", "tmuxrc live mode", "0", "%40", "claude", "", cwd="/repo")])
+    ws, rec = _WS(), {"consent": consent} if consent else {}
+    _run(L._resume_session(ws, {"session_id": "live-1"}, _Watcher(), rec))
+    opens = [m for m in ws.sent if m["type"] == "open_pane"]
+    assert opens == ([{"type": "open_pane", "pane_id": "%40", "auto": True,
+                       "label": 'window 7 "tmuxrc live mode"'}] if consent else [])
+
+
 def test_resume_is_idempotent_until_the_session_registers(history):
     # Right after a launch the registry doesn't list it yet; a repeat must not relaunch.
     sessions, opened = history

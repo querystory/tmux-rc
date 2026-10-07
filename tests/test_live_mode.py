@@ -213,7 +213,8 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
     w, ws, session, typed = _dispatch(
         _FC(name="open_pane", args={"pane_id": "%1"}), monkeypatch,
         meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
-    assert ws.sent == [{"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"'}]
+    assert ws.sent == [
+        {"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"', "auto": False}]
     assert session.responses[0][1] == {"status": "done", "pane": 'window 3 "work"'}
     assert typed == [] and w.reparsed == []
 
@@ -223,7 +224,8 @@ def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
     fresh = L.tmux.Pane("work", "7", "auth fix", "0", "%40", "claude", "")
     _, ws, _, _ = _dispatch(_FC(name="open_pane", args={"pane_id": "%40"}), monkeypatch,
                             panes=[fresh])
-    assert ws.sent == [{"type": "open_pane", "pane_id": "%40", "label": 'window 7 "auth fix"'}]
+    assert ws.sent == [
+        {"type": "open_pane", "pane_id": "%40", "label": 'window 7 "auth fix"', "auto": False}]
 
 
 @pytest.mark.parametrize(
