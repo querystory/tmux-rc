@@ -1312,9 +1312,7 @@ async function launchWindow(launcher, button) {
 }
 
 function fitViewport() {
-  // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
-  const viewport = window.visualViewport;
-  if (!viewport || viewport.scale !== 1) return;
+  const viewport = window.visualViewport, root = document.documentElement;
   const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
   const focused = document.activeElement;
   const textInput = focused?.tagName === "INPUT"
@@ -1323,12 +1321,15 @@ function fitViewport() {
     || ((textInput || focused?.tagName === "TEXTAREA") && !focused.readOnly && !focused.disabled);
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
-  document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
-  // Translucent installs expose a top safe area excluded from visualViewport;
-  // opaque-status-bar installs report zero. Preserve both without sniffing the installer.
-  const topInset = standalone && !editing ? parseFloat(getComputedStyle($("app")).paddingTop) || 0 : 0;
-  document.documentElement.style.setProperty("--app-height", `${viewport.height + topInset}px`);
-  document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
+  root.classList.toggle("standalone-fill", !!standalone && !editing);
+  // Only an editor measures: iOS resizes the visual viewport, not the layout viewport, for
+  // its keyboard. At rest CSS sizes the app from dvh, so a height measured with the keyboard
+  // up (or mid-dismissal, or while backgrounded) has nothing left to strand.
+  if (!editing) for (const name of ["--app-height", "--app-top"]) root.style.removeProperty(name);
+  else if (viewport?.scale === 1) {
+    root.style.setProperty("--app-height", `${viewport.height}px`);
+    root.style.setProperty("--app-top", `${viewport.offsetTop}px`);
+  }
 }
 window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
@@ -1371,7 +1372,7 @@ $("kill-pane").onclick = async () => {
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); });
+document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); fitViewport(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
