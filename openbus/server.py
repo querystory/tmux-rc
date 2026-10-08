@@ -439,7 +439,7 @@ async def lifespan(app: FastAPI):
 # (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
 # auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
 # OTEL_* env the session shares with Claude Code, and ship every request span, metric and
-# log to that receiver. Our only export is telemetry.py's scoped parse records.
+# log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
     title="tmux-rc",
     lifespan=lifespan,
