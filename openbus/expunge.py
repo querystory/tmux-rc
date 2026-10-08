@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import threading
 import time
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,22 +81,28 @@ def _children(pid: int) -> list[int]:
     return []
 
 
+def _registration(path: Path) -> dict:
+    """A Claude registration, or {} if there is none. One that can't be read could be the
+    session in question, so it refuses rather than be looked past."""
+    try:
+        reg = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        reg = None
+    if not isinstance(reg, dict):
+        raise Refused("an agent registration in this pane can't be read")
+    return reg
+
+
 def _agent(pid: int, screen: str) -> Session | None:
     """The Claude or Codex session this process is, if it is one."""
     start = "".join(_stat(pid)[19:20])
     home = _home(pid, "CLAUDE_CONFIG_DIR", ".claude")
     # Claude Code registers each running session as sessions/<pid>.json. A file left by an
-    # earlier process with this pid has a different start time; one that can't be read
-    # could be this process's, so it refuses rather than look past it.
-    try:
-        reg = json.loads((home / "sessions" / f"{pid}.json").read_text())
-    except FileNotFoundError:
-        reg = {}
-    except (OSError, ValueError) as e:
-        raise Refused("an agent registration in this pane can't be read") from e
-    if not isinstance(reg, dict):
-        raise Refused("an agent registration in this pane can't be read")
-    if reg and reg.get("pid") == pid and start and reg.get("procStart") == start:
+    # earlier process with this pid has a different start time.
+    reg = _registration(home / "sessions" / f"{pid}.json")
+    if reg.get("pid") == pid and start and reg.get("procStart") == start:
         return Session("claude", str(reg.get("sessionId")), home, _index(pid, "claude"), pid,
                        start)
     if tmux.proc_read(pid, "comm").strip() != "codex":
@@ -105,10 +112,17 @@ def _agent(pid: int, screen: str) -> Session | None:
     # A UUID-shaped segment counts only if a rollout here is named for it, so another
     # segment that happens to look like one (a branch, say) is never taken for the thread.
     home = _home(pid, "CODEX_HOME", ".codex")
+    try:
+        tui = tomllib.loads((home / "config.toml").read_text()).get("tui", {})
+    except (OSError, ValueError):
+        tui = {}
+    if "session-id" not in tui.get("status_line", []):
+        raise Refused("Codex's status line does not show the thread id "
+                      "(add session-id to [tui] status_line)")
     ids = {i for i in codex_status_segments(screen)
            if _ID.fullmatch(i) and any(home.glob(f"sessions/*/*/*/rollout-*-{i}*.jsonl"))}
     if len(ids) != 1:
-        raise Refused("Codex's status line does not show this thread's id (add session-id to it)")
+        raise Refused("Codex's status line does not show exactly one thread id")
     return Session("codex", ids.pop(), home, _index(pid, "codex"), pid, start)
 
 
@@ -140,6 +154,9 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
     # agent-history's copy of what was typed goes last, after the transcript it is rebuilt from.
     found = [(root, p) for root, globs in ((s.root, _FILES[s.harness]), (s.index, _INDEX))
              for g in globs for p in root.glob(g.format(id=s.session_id))]
+    reg = s.root / "sessions" / f"{s.pid}.json"  # normally gone once Claude exits
+    if s.harness == "claude" and _registration(reg).get("sessionId") == s.session_id:
+        found.append((s.root, reg))
     shared = [(s.root, s.root / name) for name in _LINES[s.harness]]
     for root, path in found + shared:
         if not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
@@ -162,8 +179,8 @@ def wait_gone(s: Session, timeout: float = 5.0) -> bool:
 
 def _drop_lines(path: Path, key: str, sid: str) -> int:
     """Rewrite a JSONL log without the lines whose `key` is `sid`, atomically, keeping its
-    mode. The harnesses append to these logs without a lock, so a rewrite that the log
-    outgrew while it was being written is thrown away and done again."""
+    mode. The harnesses append without a lock, so whatever lands in the old file while the
+    new one is written, or as it is renamed into place, is carried over to it."""
     path = Path(os.path.realpath(path))
     def ours(line: bytes) -> bool:
         # A line that names the id but can't be parsed (one a crash cut short) goes too:
@@ -174,24 +191,25 @@ def _drop_lines(path: Path, key: str, sid: str) -> int:
             return json.loads(line).get(key) == sid
         except (ValueError, AttributeError):
             return True
-    for _ in range(5):
-        data = path.read_bytes()
-        lines = data.splitlines(keepends=True)
-        keep = [line for line in lines if not ours(line)]
-        if len(keep) == len(lines):
+    def kept(data: bytes) -> bytes:
+        return b"".join(line for line in data.splitlines(keepends=True) if not ours(line))
+    with path.open("rb") as old:
+        data = old.read()
+        if (keep := kept(data)) == data:
             return 0
         # A fresh, exclusive temp file: a fixed name could be a planted symlink.
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".expunge")
         try:
             with os.fdopen(fd, "wb") as f:
-                f.write(b"".join(keep))
+                f.write(keep)
             shutil.copymode(path, tmp)
-            if path.stat().st_size == len(data):  # nothing was appended meanwhile
-                os.replace(tmp, path)
-                return len(lines) - len(keep)
+            os.replace(tmp, path)
         finally:
             Path(tmp).unlink(missing_ok=True)
-    raise OSError(f"{path.name} kept growing; left as it was")
+        if late := old.read():  # appended to the old file since the first read
+            with path.open("ab") as f:
+                f.write(kept(late))
+    return len(data.splitlines()) - len(keep.splitlines())
 
 
 def expunge(s: Session) -> dict:

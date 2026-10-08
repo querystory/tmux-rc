@@ -957,18 +957,19 @@ def close_window(pane_id: str, request: Request):
 
 
 def _pane_session(pane_id: str, expected: str | None = None):
-    """The pane's one agent session and its targets (openbus/expunge.py), or the refusal.
-    A path that resolves outside its root refuses here, before anything is killed."""
-    pid = tmux.pane_pid(pane_id)
+    """The pane (resolved to its canonical %N), its one agent session and that session's
+    targets (openbus/expunge.py), or the refusal. A path that resolves outside its root
+    refuses here, before anything is killed."""
+    pane = tmux.find_pane(pane_id)
     try:  # read now, not from the watcher: a cached screen may predate a recycled pane id
-        screen = tmux.capture_pane(pane_id)
+        screen = tmux.capture_pane(pane.id) if pane and pane.pid else ""
     except (OSError, subprocess.CalledProcessError):
-        pid = None
-    if pid is None:
+        pane = None
+    if not (pane and pane.pid):
         raise HTTPException(404, "pane not found")
     try:  # a screen from a newer pane under this id fails the pid guard on the kill
-        s = expunge.identify(pid, screen, expected)
-        return pid, s, expunge.targets(s)
+        s = expunge.identify(pane.pid, screen, expected)
+        return pane, s, expunge.targets(s)
     except expunge.Refused as e:
         raise HTTPException(409, str(e)) from e
 
@@ -988,8 +989,8 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
     line names the pane and session, never what was deleted."""
     detail = f"session={body.session_id[:64]}"
     try:
-        pid, s, _ = _pane_session(pane_id, body.session_id)
-        uid = app.state.watcher.checkpoint_key(pane_id, pid)
+        pane, s, _ = _pane_session(pane_id, body.session_id)
+        uid = app.state.watcher.checkpoint_key(pane.id, pane.pid)
     except HTTPException as e:
         _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
         raise
@@ -997,7 +998,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         _audit(request, "expunge", pane_id, detail, outcome="rejected: no tmux server id")
         raise HTTPException(409, "tmux can't name its server, so tmux-rc's own card for the "
                                  "pane couldn't be found: nothing was killed") from e
-    _kill_window(request, pane_id, "expunge", detail, pid)
+    _kill_window(request, pane.id, "expunge", detail, pane.pid)
     if not expunge.wait_gone(s):
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
         raise HTTPException(409, "the window closed, but the agent is still running: "

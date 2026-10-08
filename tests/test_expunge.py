@@ -1,6 +1,7 @@
 """Expunge deletes exactly one session's files, found by its id, and refuses rather than
 guess. Every config dir here is a temp dir: never the real ~/.claude or ~/.codex."""
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -87,17 +88,40 @@ def test_a_path_resolving_outside_the_root_refuses_before_deleting(claude, tmp_p
     assert files(tmp_path) == before
 
 
-def test_a_line_appended_during_the_rewrite_survives(claude, monkeypatch):
-    log, mkstemp = claude / "history.jsonl", expunge.tempfile.mkstemp
+def test_lines_appended_during_the_rewrite_survive(claude, monkeypatch):
+    log, mkstemp, replace = claude / "history.jsonl", expunge.tempfile.mkstemp, os.replace
+    writer = log.open("a")  # another session's, opened before the rename
 
-    def appending(**kwargs):  # another session writes while this rewrite is under way
-        if "late" not in log.read_text():
-            with log.open("a") as f:
-                f.write(json.dumps({"display": "late", "sessionId": B}) + "\n")
+    def line(text):
+        writer.write(json.dumps({"display": text, "sessionId": B}) + "\n")
+        writer.flush()
+
+    def appending(**kwargs):  # while the new file is written
+        line("during")
         return mkstemp(**kwargs)
+
+    def racing(src, dst):  # and into the old file as the new one takes its name
+        replace(src, dst)
+        line("racing")
     monkeypatch.setattr(expunge.tempfile, "mkstemp", appending)
+    monkeypatch.setattr(expunge.os, "replace", racing)
     assert expunge.expunge(session("claude", claude))["lines"] == 1
-    assert [json.loads(line)["display"] for line in log.open()] == ["b", A, "late"]
+    assert [json.loads(x)["display"] for x in log.open()] == ["b", A, "during", "racing"]
+
+
+def test_codex_without_session_id_on_its_status_line_refuses(monkeypatch, tmp_path):
+    fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model", "git-branch"]\n')
+    with pytest.raises(Refused, match="session-id"):
+        expunge.identify("10", CODEX_SCREEN)
+
+
+def test_a_leftover_registration_of_the_session_goes_too(claude):
+    (claude / "sessions").mkdir()
+    (claude / "sessions/1.json").write_text(json.dumps({"pid": 1, "sessionId": A}))
+    (claude / "sessions/2.json").write_text(json.dumps({"pid": 2, "sessionId": B}))
+    assert "1.json" in expunge.expunge(session("claude", claude))["files"]
+    assert [p.name for p in (claude / "sessions").iterdir()] == ["2.json"]
 
 
 def test_a_session_file_that_is_a_symlink_refuses(claude, tmp_path):
@@ -119,6 +143,7 @@ def fake_procs(monkeypatch, tmp_path, procs):
             return comm + "\n"
         env = f"CLAUDE_CONFIG_DIR={tmp_path}\0CODEX_HOME={tmp_path}\0AGENT_HISTORY_DIR={tmp_path}\0"
         return env if name == "environ" else ""
+    (tmp_path / "config.toml").write_text('[tui]\nstatus_line = ["model", "session-id"]\n')
     (tmp_path / "sessions/2026/10/08").mkdir(parents=True)
     for sid in (A, B):  # Codex threads that exist here
         (tmp_path / f"sessions/2026/10/08/rollout-2026-10-08T10-00-00-{sid}.jsonl").touch()
@@ -165,6 +190,7 @@ def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
 
 def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
     killed = []
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id=p, pid="1234"))
     monkeypatch.setattr(tmux, "kill_window", killed.append)
     monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
@@ -179,12 +205,14 @@ def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
 
 
 def test_route_kills_first_then_deletes(monkeypatch, claude):
-    order, panes, newer = [], {"%1": "1234"}, ["999"]
+    order, panes, calls = [], {"%1": "1234"}, []
 
-    def find_pane(pane_id):  # by the kill, tmux may have given %1 to a newer process
-        if newer:
-            panes[pane_id] = newer.pop()
-        return SimpleNamespace(id=pane_id)
+    def find_pane(alias):  # "work:0.0" is %1; by the kill, %1 may be a newer process's
+        calls.append(alias)
+        pane = SimpleNamespace(id="%1", pid=panes["%1"])
+        if len(calls) == 1:
+            panes["%1"] = "999"
+        return pane
 
     def kill(pane_id, pid=None):  # tmux.kill_window's guard, as the tmux server applies it
         if panes[pane_id] == pid:
@@ -201,10 +229,10 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
         forget_checkpoint=lambda uid: order.append(uid) or True)
     client = TestClient(server.app)
     # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.
-    assert client.post("/api/panes/%251/expunge", json={"session_id": A}).status_code == 409
+    assert client.post("/api/panes/work:0.0/expunge", json={"session_id": A}).status_code == 409
     assert not order and panes == {"%1": "999"}
     panes["%1"] = "1234"
-    r = client.post("/api/panes/%251/expunge", json={"session_id": A})
+    r = client.post("/api/panes/work:0.0/expunge", json={"session_id": A})
     assert r.status_code == 200 and r.json()["lines"] == 1
     assert order == ["kill", "gone", "boot:1:%1:1234"]
     assert not (claude / f"projects/-src-api/{A}.jsonl").exists()

@@ -36,8 +36,8 @@ So the hard part is the identity, not the deletion.
   reliable signal is the thread id on the status line, which is the same evidence the
   Live resume path already trusts (`live._codex_pane`). A UUID-shaped segment counts
   only if a rollout under `CODEX_HOME` is named for it, so another segment that happens
-  to look like an id is never taken for the thread. Without `session-id` on the status
-  line, Expunge refuses and says to add it.
+  to look like an id is never taken for the thread. Unless Codex's `[tui] status_line`
+  config includes `session-id`, Expunge refuses and says to add it.
 
 The walk stops at the first agent down each branch, so an agent's own subprocesses
 (a headless `claude -p` it ran) are not a second session. Two agents side by side, no
@@ -52,12 +52,13 @@ different session by the time the user confirms, the request is refused.
 
 Claude, under the agent's config dir: the `projects/*/<id>.jsonl` transcript and its
 sibling `<id>/` (subagents, tool results), `file-history/<id>`, `session-env/<id>`,
-`tasks/<id>`, `todos/<id>-*` and `debug/<id>.txt`, plus the session's lines in
-`history.jsonl`.
+`tasks/<id>`, `todos/<id>-*` and `debug/<id>.txt`, the agent's `sessions/<pid>.json`
+registration if it outlived the process and still names the session, plus the
+session's lines in `history.jsonl`.
 
 Codex, under `CODEX_HOME`: the `sessions/…/rollout-*-<id>[_<segment>].jsonl` files (a
-resumed thread has several), `archived_sessions/`, `shell_snapshots/<id>.*`, the thread's
-and lines in `history.jsonl` and `session_index.jsonl`.
+resumed thread has several), `archived_sessions/`, `shell_snapshots/<id>.*`, and the
+thread's lines in `history.jsonl` and `session_index.jsonl`.
 
 agent-history: the session's index entry and its subagents' entries, under the agent's own
 `AGENT_HISTORY_DIR` (or the default). That index exists to outlive the harness's own
@@ -105,9 +106,10 @@ The audit line records the pane and the session id, and nothing else.
   `codex-native-context.md` already rules out a second writable owner of that state.
   Removing those rows is Codex's job, through its own interface.
 - The harnesses append to their shared logs without a lock. Expunges are serialized
-  within the daemon, and a rewrite the log outgrew while it was being written is thrown
-  away and redone, so a concurrent append survives. One gap remains: a writer that keeps
-  the old file open, rather than opening it for each append, would write past the rename.
+  within the daemon, and the rewrite keeps the old file open. Anything appended to it
+  while the new file is written, or as it is renamed into place, is read back and
+  carried over. One gap remains: a write still in progress at that last read loses its
+  remainder to the old file.
 - Claude's hook-driven agent-history indexer can race the deletion and rewrite the
   entry. Deleting the transcript first and the index entry last keeps that window small.
 - Codex's shared app-server, not the closed client, holds the thread. If it writes to
