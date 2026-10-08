@@ -762,13 +762,19 @@ def capture_pane(
         history = shlex.join([*capture, "-S", f"-{lines}", "-E", "-1"])
         args = ["if-shell", "-F", "-t", pane_id, "#{>:#{history_size},0}", history,
                 ";", "display-message", "-p", nonce,
-                ";", *capture, "-S", "0"]
+                ";", *capture, "-S", "0",
+                ";", "display-message", "-p", "-t", pane_id, "#{e|-|:#{cursor_y},#{pane_height}}"]
     out = _materialize_links(_run(args)).replace(nonce, VISIBLE_SCREEN, 1)
     if keep_colors:
         return out.rstrip("\n")  # live view: raw SGR, client colorizes
+    tail = ""
     if mark_dim:
+        # The cursor on a blank row below all output ends the text in one empty row, so
+        # the classifier can tell a prompt still awaiting input from one answered above.
+        out, cursor = out.rstrip("\n").rsplit("\n", 1)  # cursor: its row minus the height
+        tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(out))
-    return _ANSI.sub("", out).rstrip("\n")
+    return _ANSI.sub("", out).rstrip("\n") + tail
 
 
 # tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
