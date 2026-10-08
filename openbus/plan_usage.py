@@ -111,7 +111,9 @@ def claude_samples(data: dict, now: float) -> list[dict]:
     """The OAuth usage response's windows. A null window is one not yet opened: 0%."""
     out = []
     for key, (name, seconds) in CLAUDE_WINDOWS.items():
-        w = data.get(key) or {}
+        if key not in data:  # a changed shape reads unavailable, never as 0%
+            raise KeyError(key)
+        w = data[key] or {}
         resets = w.get("resets_at")
         out.append({"window": name, "seconds": seconds, "t": now,
                     "pct": float(w.get("utilization") or 0),

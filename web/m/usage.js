@@ -1,7 +1,6 @@
 // Plan limits: each Claude and Codex account's 5h and 7d windows, from /api/usage. A phone
 // gets a percentage, a bar and the reset countdown; the wide sidebar swaps each bar for the
 // window's trend, dashed on to the reset at the fitted pace. See docs/design/plan-usage.md.
-const WINDOWS = ['5h', '7d'];
 const NAMES = { claude: 'Claude', codex: 'Codex' };
 const LOGOS = { claude: '/claude.png', codex: '/openai.svg' };
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
@@ -11,36 +10,44 @@ export function countdown(ms) {
   return d ? `${d}d${h}h` : h ? `${h}h${m % 60}m` : `${m}m`; // statusline-compact: 2d12h, 1h8m
 }
 
-// The window's samples and, dashed, the fitted pace from the latest one to the reset, or to
+// The window's samples held to now, the even pace (a faint diagonal from 0% at its start to 100% at
+// its reset) and, dashed, the fitted pace from the latest sample on to the reset, or to
 // 100% if it gets there first. x spans the window, y 0..100%.
 function spark(w, now) {
   const W = 120, H = 24, span = w.resets_at - w.start;
   const at = ([t, p]) => `${((t - w.start) / span * W).toFixed(1)},${(H - Math.min(p, 100) / 100 * H).toFixed(1)}`;
-  const last = w.samples[w.samples.length - 1] || [Math.min(Math.max(now, w.start), w.resets_at), w.pct];
+  const held = [Math.min(Math.max(now, w.start), w.resets_at), w.pct]; // as project() holds it
   const end = w.limit_at ? [w.limit_at, 100] : [w.resets_at, w.projected ?? w.pct];
   return `<svg class="usage-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
-    + `<line x1="0" y1="0.5" x2="${W}" y2="0.5" class="limit"/>`
-    + `<polyline points="${[[w.start, 0], ...w.samples].map(at).join(' ')}"/>`
-    + `<polyline class="proj" points="${at(last)} ${at(end)}"/></svg>`;
+    + `<line x1="0" y1="0.5" x2="${W}" y2="0.5" class="limit"/><line x1="0" y1="${H}" x2="${W}" y2="0" class="limit"/>`
+    + `<polyline points="${[[w.start, 0], ...w.samples, held].map(at).join(' ')}"/>`
+    + `<polyline class="proj" points="${at(held)} ${at(end)}"/></svg>`;
 }
 
-function cell(w, name, provider, wide, now) {
-  if (!w) return `<div class="usage-cell none" title="${esc(`${NAMES[provider]} has no ${name} limit on this plan`)}"><span>${name}</span><b>—</b></div>`;
-  const level = w.pct >= 90 ? 'full' : w.limit_at ? 'warn' : '';
+// A meter that fills up: the fill is what is used, the faint stretch past it is where the
+// fitted pace ends by the reset, and the tick is the even pace (the share of the window
+// gone), so a fill past the tick is ahead of it. Wide, the trend says the same over time.
+// Both are coloured by the projection's verdict.
+function cell(w, provider, wide, now) {
+  const projected = Math.min(100, w.projected ?? w.pct), used = Math.min(100, w.pct);
+  const level = w.limit_at || w.pct >= 100 ? 'full' : projected >= 90 ? 'warn' : '';
   const when = w.resets_at ? countdown(w.resets_at - now) : '';
-  const note = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : when;
-  const title = `${NAMES[provider]} ${name}: ${Math.round(w.pct)}% used${when && `, resets in ${when}`}`
+  const note = w.limit_at ? `full in ${countdown(w.limit_at - now)}` : when && `resets ${when}`;
+  const title = `${NAMES[provider]} ${w.window}: ${Math.round(w.pct)}% used${when && `, resets in ${when}`}`
     + (w.projected != null ? `; at this pace ${Math.round(w.projected)}% by the reset` : '');
-  const graph = wide && w.resets_at ? spark(w, now) : `<i class="usage-bar"><i style="width:${Math.min(100, w.pct)}%"></i></i>`;
-  return `<div class="usage-cell ${level}" title="${esc(title)}"><span>${name}</span><b>${Math.round(w.pct)}%</b><small>${esc(note)}</small>${graph}</div>`;
+  const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
+  const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
+    + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
+  return `<div class="usage-cell ${level}" data-w="${w.window}" title="${esc(title)}"><span>${w.window}</span><b>${Math.round(w.pct)}%</b><em>used</em>`
+    + `${wide && w.resets_at ? spark(w, now) : bar}<small>${esc(note)}</small></div>`;
 }
 
 export function renderUsage(el, accounts, wide, now = Date.now()) {
   el.hidden = !accounts.length;
   const markup = accounts.map(a => {
-    const name = a.label || NAMES[a.provider], by = Object.fromEntries(a.windows.map(w => [w.window, w]));
+    const name = a.label || NAMES[a.provider];
     const cells = a.error ? `<div class="usage-cell none wide">${esc(a.error)}</div>`
-      : WINDOWS.map(n => cell(by[n], n, a.provider, wide, now)).join('');
+      : a.windows.map(w => cell(w, a.provider, wide, now)).join(''); // a plan without a window shows none
     return `<div class="usage-account"><span class="usage-name"><img src="${LOGOS[a.provider]}" alt="" width="14" height="14"><span>${esc(name)}</span></span>${cells}</div>`;
   }).join('');
   if (el._html !== markup) { el.innerHTML = markup; el._html = markup; }
