@@ -403,10 +403,15 @@ async def _approved(
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
+    card = {"type": "propose"}
     if fc.name == "resume_session":
-        entry = agent_history.offered() and isinstance(args.get("session_id"), str) and (
-            await asyncio.to_thread(agent_history.get, args["session_id"]))
-        summary = f"Resume {(entry or {}).get('title') or args.get('session_id')}"
+        entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
+            await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
+        summary = f"Resume {entry.get('title') or args.get('session_id')}"
+        if entry:  # titles repeat: the card also says which tool, where, when, and which id
+            card["session"] = {
+                "tool": entry.get("harness"), "cwd": _home_relative(entry.get("cwd") or ""),
+                "last_active": entry.get("last_active"), "id": entry["session_id"][:8]}
     elif fc.name == "press_key":
         summary = f"Press {args.get('key')} in {pane}"
     elif fc.name == "send_image_to_pane":
@@ -414,15 +419,13 @@ async def _approved(
         caption = args.get("caption")
         summary = f"Send image {image[0] if image else args.get('image_number')} to {pane}" + (
             f": {caption}" if caption else "")
+        if image:  # the card shows what would be sent; no image: refused below, as approved
+            card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
     else:  # the card must say whether approving also presses Enter (runs it)
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
-    card = {"type": "propose", "text": summary}
-    if fc.name == "send_image_to_pane":
-        image = meter.image(args.get("image_number"))
-        if image:  # the card shows what would be sent; no image: refused below, as approved
-            card["image"] = f"data:{image[1]};base64,{base64.b64encode(image[2]).decode()}"
+    card["text"] = summary
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     if meter.superseded:  # a later call in a turn the user already moved on from
@@ -555,8 +558,6 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
 
     pane_id, caption = args.get("pane_id"), args.get("caption", "")
     labels = {d["pane_id"]: d.get("label") or d["pane_id"] for d in watcher.digest()}
-    if not meter.text:
-        return {"status": "rejected", "reason": "images are only available in a text chat"}
     if (set(args) - {"pane_id", "image_number", "caption"} or not isinstance(caption, str)
             or not isinstance(pane_id, str) or pane_id not in labels):
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
@@ -838,29 +839,34 @@ TYPED_TURN_CHARS = 4000
 # JPEG no longer than 1568 px (a few hundred KB), so a current client never nears the bytes.
 CHAT_IMAGES = 4
 CHAT_IMAGE_BYTES = 8 * 2**20
-_IMAGE_REFUSED = (f"Images go to a text chat, at most {CHAT_IMAGES} a turn and 8 MB together, as "
-                  "PNG, JPEG, WebP or GIF; not sent")
 
 
-def _images(raw, text_session: bool) -> list[tuple[str, bytes]] | None:
-    """A typed turn's pasted images as (mime, bytes); None refuses the whole turn. The types
-    are the pane paste's (server.send_image), and only a chat model sees images."""
+def _images(raw, session) -> list[tuple[str, bytes]] | str:
+    """A typed turn's pasted images as (mime, bytes), or why the whole turn is refused —
+    named per cause, so a voice model that can't see images never reads as a size limit.
+    The types are the pane paste's (server.send_image); `session.images` says whether the
+    model can take them at all."""
     if raw is None or raw == []:
         return []
     from .server import _EXT  # noqa: PLC0415 - server imports this module
 
-    if not text_session or not isinstance(raw, list) or len(raw) > CHAT_IMAGES:
-        return None
+    if not session.images:
+        return "This voice model can't take images; switch to Chat to send them"
+    if not isinstance(raw, list):
+        return "Could not read that image; not sent"
+    if len(raw) > CHAT_IMAGES:
+        return f"At most {CHAT_IMAGES} images a turn; not sent"
     out = []
     for image in raw:
         try:
             mime, data = image["mime"], base64.b64decode(image["data"], validate=True)
         except Exception:  # noqa: BLE001 - any malformed entry refuses the turn
-            return None
+            return "Could not read that image; not sent"
         if not isinstance(mime, str) or mime not in _EXT or not data:
-            return None
+            return "Images go as PNG, JPEG, WebP or GIF; not sent"
         out.append((mime, data))
-    return out if sum(len(data) for _, data in out) <= CHAT_IMAGE_BYTES else None
+    return out if sum(len(data) for _, data in out) <= CHAT_IMAGE_BYTES else (
+        "Images are over 8 MB together; not sent")
 
 
 async def _transcript(websocket: WebSocket, meter: _Meter, role: str, text: str, **extra) -> None:
@@ -889,11 +895,11 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
         elif action == "text":
             text = data.get("text")
             text = text.strip() if isinstance(text, str) else ""
-            images = _images(data.get("images"), meter.text)
+            images = _images(data.get("images"), session)
             # Each typed turn gets exactly one answer, the echo (with its image count) or a
             # refusal, which is how the client pairs its thumbnails with the right turn.
             refusal = ("Too long; not sent" if len(text) > TYPED_TURN_CHARS
-                       else _IMAGE_REFUSED if images is None else None)
+                       else images if isinstance(images, str) else None)
             if refusal:
                 await websocket.send_json({"type": "error", "message": refusal, "refused": True})
             elif text or images:
