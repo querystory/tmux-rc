@@ -1346,14 +1346,14 @@ $("expunge-pane").onclick = async () => {
   let plan;
   try { plan = await request(paneUrl(pane, "expunge")); } catch (error) { return notice(error.detail || "Could not find this pane's session."); }
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
-  text($("expunge-what"), `This kills “${title}” and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${n} local file${n === 1 ? "" : "s"} or folder${n === 1 ? "" : "s"}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.`);
+  text($("expunge-what"), `This kills “${title}” and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${n} local file${n === 1 ? "" : "s"} or folder${n === 1 ? "" : "s"}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     try {
       // Long enough for the server's whole run (the agent's exit, then busy databases), so a
       // timeout never reports a failure while the deletion is still going on.
       const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 60000);
-      notice(`Expunged: ${done.files.length} files, ${done.lines} history lines, ${done.rows} database rows deleted.`);
+      notice(`Expunged: ${done.files.length} files and ${done.lines} history lines deleted.`);
     } catch (error) { notice(`Expunge failed: ${error.detail || error.message}`); }
   };
   $("expunge-dialog").showModal();

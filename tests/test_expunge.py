@@ -1,7 +1,6 @@
 """Expunge deletes exactly one session's files, found by its id, and refuses rather than
 guess. Every config dir here is a temp dir: never the real ~/.claude or ~/.codex."""
 import json
-import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -59,7 +58,7 @@ def test_claude_expunges_one_session_and_leaves_the_other(claude, tmp_path):
     assert {f"claude/projects/-src-api/{B}.jsonl", f"ah/index/claude/{B}.md"} <= files(tmp_path)
 
 
-def test_codex_expunges_rollout_lines_and_rows(tmp_path):
+def test_codex_expunges_rollouts_and_lines(tmp_path):
     root = tmp_path / "codex"
     day = root / "sessions/2026/10/08"
     day.mkdir(parents=True)
@@ -70,19 +69,11 @@ def test_codex_expunges_rollout_lines_and_rows(tmp_path):
     with (root / "history.jsonl").open("a") as f:
         f.write(f'{{"session_id":"{A}","text":"cut short by a cra')
     jsonl(root / "session_index.jsonl", [{"id": A}, {"id": B}])
-    with sqlite3.connect(root / "state_5.sqlite") as db:
-        db.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT)")
-        db.execute("CREATE TABLE thread_items (thread_id TEXT, item_json TEXT)")
-        db.executemany("INSERT INTO threads VALUES (?, 't')", [(A,), (B,)])
-        db.executemany("INSERT INTO thread_items VALUES (?, '{}')", [(A,), (A,), (B,)])
     result = expunge.expunge(session("codex", root))
     assert sorted(result["files"]) == [f"rollout-2026-10-08T10-00-00-{A}.jsonl",
                                        f"rollout-2026-10-09T10-00-00-{A}_0001.jsonl"]
-    assert (result["lines"], result["rows"]) == (3, 3)
+    assert result["lines"] == 3
     assert all(B in p.name for p in day.iterdir()) and len(list(day.iterdir())) == 2
-    with sqlite3.connect(root / "state_5.sqlite") as db:
-        assert db.execute("SELECT id FROM threads").fetchall() == [(B,)]
-        assert db.execute("SELECT thread_id FROM thread_items").fetchall() == [(B,)]
 
 
 def test_a_path_resolving_outside_the_root_refuses_before_deleting(claude, tmp_path):
@@ -94,6 +85,19 @@ def test_a_path_resolving_outside_the_root_refuses_before_deleting(claude, tmp_p
     with pytest.raises(Refused, match="outside"):
         expunge.expunge(session("claude", claude))
     assert files(tmp_path) == before
+
+
+def test_a_line_appended_during_the_rewrite_survives(claude, monkeypatch):
+    log, mkstemp = claude / "history.jsonl", expunge.tempfile.mkstemp
+
+    def appending(**kwargs):  # another session writes while this rewrite is under way
+        if "late" not in log.read_text():
+            with log.open("a") as f:
+                f.write(json.dumps({"display": "late", "sessionId": B}) + "\n")
+        return mkstemp(**kwargs)
+    monkeypatch.setattr(expunge.tempfile, "mkstemp", appending)
+    assert expunge.expunge(session("claude", claude))["lines"] == 1
+    assert [json.loads(line)["display"] for line in log.open()] == ["b", A, "late"]
 
 
 def test_a_session_file_that_is_a_symlink_refuses(claude, tmp_path):
@@ -115,9 +119,11 @@ def fake_procs(monkeypatch, tmp_path, procs):
             return comm + "\n"
         env = f"CLAUDE_CONFIG_DIR={tmp_path}\0CODEX_HOME={tmp_path}\0AGENT_HISTORY_DIR={tmp_path}\0"
         return env if name == "environ" else ""
+    (tmp_path / "sessions/2026/10/08").mkdir(parents=True)
+    for sid in (A, B):  # Codex threads that exist here
+        (tmp_path / f"sessions/2026/10/08/rollout-2026-10-08T10-00-00-{sid}.jsonl").touch()
     for pid, (_, _, sid) in procs.items():
         if sid:
-            (tmp_path / "sessions").mkdir(exist_ok=True)
             (tmp_path / "sessions" / f"{pid}.json").write_text(
                 json.dumps({"pid": pid, "sessionId": sid, "procStart": "777"}))
     monkeypatch.setattr(tmux, "proc_read", read)
@@ -152,6 +158,9 @@ def test_identify_refuses_rather_than_guess(monkeypatch, tmp_path, procs, screen
 def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
     fake_procs(monkeypatch, tmp_path, {10: ("codex", [], None)})
     assert expunge.identify("10", CODEX_SCREEN).session_id == A
+    # A UUID-shaped segment no rollout is named for (a branch, say) is not a second thread.
+    branch = "0d0d0d0d-9999-4aaa-8bbb-cccccccccccc"
+    assert expunge.identify("10", CODEX_SCREEN.replace("api ·", f"{branch} ·")).session_id == A
 
 
 def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):

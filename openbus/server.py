@@ -1004,7 +1004,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
                                  "nothing was deleted")
     try:
         result = expunge.expunge(s)
-    except (OSError, sqlite3.Error, expunge.Refused) as e:
+    except (OSError, expunge.Refused) as e:
         # Only the error's type: its message can carry a path (a project's name).
         _audit(request, "expunge", pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise HTTPException(500, f"expunge failed partway: {e}") from e

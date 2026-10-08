@@ -28,14 +28,16 @@ So the hard part is the identity, not the deletion.
   config dir. The daemon walks the pane's process tree and takes the agent whose
   registration matches its pid *and* kernel start time, so a stale file left by a
   reused pid never counts. A registration that can't be read refuses the whole
-  expunge, since it could be this pane's own session. The config dir comes from that process's own
-  `CLAUDE_CONFIG_DIR`, not the daemon's, so a pane running a second profile is
-  handled correctly.
+  expunge, since it could be this pane's own session. The config dir comes from that
+  process's own `CLAUDE_CONFIG_DIR`, not the daemon's, so a pane running a second
+  profile is handled correctly.
 - **Codex** keeps no registry, and its shared app-server, not the terminal client,
   holds the rollout open, so no process proves which thread a pane shows. The one
   reliable signal is the thread id on the status line, which is the same evidence the
-  Live resume path already trusts (`live._codex_pane`). Without `session-id` on the
-  status line, Expunge refuses and says to add it.
+  Live resume path already trusts (`live._codex_pane`). A UUID-shaped segment counts
+  only if a rollout under `CODEX_HOME` is named for it, so another segment that happens
+  to look like an id is never taken for the thread. Without `session-id` on the status
+  line, Expunge refuses and says to add it.
 
 The walk stops at the first agent down each branch, so an agent's own subprocesses
 (a headless `claude -p` it ran) are not a second session. Two agents side by side, no
@@ -55,19 +57,18 @@ sibling `<id>/` (subagents, tool results), `file-history/<id>`, `session-env/<id
 
 Codex, under `CODEX_HOME`: the `sessions/…/rollout-*-<id>[_<segment>].jsonl` files (a
 resumed thread has several), `archived_sessions/`, `shell_snapshots/<id>.*`, the thread's
-lines in `history.jsonl` and `session_index.jsonl`, and its rows in Codex's SQLite
-stores. The rows matter because those databases keep a full copy of each thread's items.
-Deleting only the rollout would leave the conversation behind.
+and lines in `history.jsonl` and `session_index.jsonl`.
 
 agent-history: the session's index entry and its subagents' entries, under the agent's own
-`AGENT_HISTORY_DIR` (or the default). That index exists
-to outlive the harness's own retention, so leaving it would defeat the point.
+`AGENT_HISTORY_DIR` (or the default). That index exists to outlive the harness's own
+retention, so leaving it would defeat the point.
 
 tmux-rc itself: the pane's checkpoint row (its card, summary and recent events), which
 would otherwise stay on disk until the next restart prunes it. A tombstone stops
 any tick in flight from writing it back. If the database is busy, the deletion is
-retried every tick, and the response reports the failure instead of claiming success. The structural pane
-history (counts and states per minute) holds no session content and is left alone.
+retried every tick, and the response reports the failure instead of claiming success.
+The structural pane history (counts and states per minute) holds no session content and
+is left alone.
 
 ## Order and safety
 
@@ -97,10 +98,16 @@ The audit line records the pane and the session id, and nothing else.
   so they refuse rather than guess.
 - Codex threads the session spawned have their own ids and are left in place. Only
   their agent-history entries go, since those sit under the parent.
-- Expunges are serialized within the daemon, so two never undo each other's rewrites.
-  A line another agent appends to a shared `history.jsonl` between the read and the
-  rename is still lost. That window is milliseconds long, and the alternative, locking
-  files the harnesses do not lock, would not stop them anyway.
+- Codex's SQLite stores (`state_*.sqlite`, `thread_history_*.sqlite`, `logs_*.sqlite`)
+  keep their own copy of the thread's items, and the confirmation says so for Codex.
+  tmux-rc deliberately doesn't write to them. They belong to Codex's app-server, which
+  outlives the client and has a schema that changes between versions, and
+  `codex-native-context.md` already rules out a second writable owner of that state.
+  Removing those rows is Codex's job, through its own interface.
+- The harnesses append to their shared logs without a lock. Expunges are serialized
+  within the daemon, and a rewrite the log outgrew while it was being written is thrown
+  away and redone, so a concurrent append survives. One gap remains: a writer that keeps
+  the old file open, rather than opening it for each append, would write past the rename.
 - Claude's hook-driven agent-history indexer can race the deletion and rewrite the
   entry. Deleting the transcript first and the index entry last keeps that window small.
 - Codex's shared app-server, not the closed client, holds the thread. If it writes to

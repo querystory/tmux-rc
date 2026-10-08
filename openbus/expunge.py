@@ -1,7 +1,7 @@
 """Expunge: end a pane's agent and delete that one session's local files.
 
-Everything is found by the session id, and only the files named for it (or the lines and
-rows carrying it in the harness's shared logs) are touched. See docs/design/expunge.md."""
+Everything is found by the session id, and only the files named for it (or the lines
+carrying it in the harness's shared logs) are touched. See docs/design/expunge.md."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import tempfile
 import threading
 import time
@@ -103,11 +102,14 @@ def _agent(pid: int, screen: str) -> Session | None:
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
     # rollout open; the thread id is only on the pane's status line (see live._codex_pane).
-    ids = {s for s in codex_status_segments(screen) if _ID.fullmatch(s)}
+    # A UUID-shaped segment counts only if a rollout here is named for it, so another
+    # segment that happens to look like one (a branch, say) is never taken for the thread.
+    home = _home(pid, "CODEX_HOME", ".codex")
+    ids = {i for i in codex_status_segments(screen)
+           if _ID.fullmatch(i) and any(home.glob(f"sessions/*/*/*/rollout-*-{i}*.jsonl"))}
     if len(ids) != 1:
         raise Refused("Codex's status line does not show this thread's id (add session-id to it)")
-    return Session("codex", ids.pop(), _home(pid, "CODEX_HOME", ".codex"), _index(pid, "codex"),
-                   pid, start)
+    return Session("codex", ids.pop(), home, _index(pid, "codex"), pid, start)
 
 
 def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session:
@@ -139,8 +141,6 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
     found = [(root, p) for root, globs in ((s.root, _FILES[s.harness]), (s.index, _INDEX))
              for g in globs for p in root.glob(g.format(id=s.session_id))]
     shared = [(s.root, s.root / name) for name in _LINES[s.harness]]
-    if s.harness == "codex":
-        shared += [(s.root, p) for p in s.root.glob("*.sqlite")]
     for root, path in found + shared:
         if not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
             raise Refused(f"{path.name} resolves outside {root.name}")
@@ -162,9 +162,9 @@ def wait_gone(s: Session, timeout: float = 5.0) -> bool:
 
 def _drop_lines(path: Path, key: str, sid: str) -> int:
     """Rewrite a JSONL log without the lines whose `key` is `sid`, atomically, keeping its
-    mode. A line another agent appends between the read and the replace is lost."""
+    mode. The harnesses append to these logs without a lock, so a rewrite that the log
+    outgrew while it was being written is thrown away and done again."""
     path = Path(os.path.realpath(path))
-    lines = path.read_bytes().splitlines(keepends=True)
     def ours(line: bytes) -> bool:
         # A line that names the id but can't be parsed (one a crash cut short) goes too:
         # it is already corrupt, and keeping it could keep this session's words.
@@ -174,31 +174,24 @@ def _drop_lines(path: Path, key: str, sid: str) -> int:
             return json.loads(line).get(key) == sid
         except (ValueError, AttributeError):
             return True
-    keep = [line for line in lines if not ours(line)]
-    if len(keep) < len(lines):
+    for _ in range(5):
+        data = path.read_bytes()
+        lines = data.splitlines(keepends=True)
+        keep = [line for line in lines if not ours(line)]
+        if len(keep) == len(lines):
+            return 0
         # A fresh, exclusive temp file: a fixed name could be a planted symlink.
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".expunge")
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(b"".join(keep))
             shutil.copymode(path, tmp)
-            os.replace(tmp, path)
-        except BaseException:
+            if path.stat().st_size == len(data):  # nothing was appended meanwhile
+                os.replace(tmp, path)
+                return len(lines) - len(keep)
+        finally:
             Path(tmp).unlink(missing_ok=True)
-            raise
-    return len(lines) - len(keep)
-
-
-def _drop_rows(db: Path, sid: str) -> int:
-    """Delete this thread's rows from one of Codex's databases: every table's `thread_id`
-    rows, and the `threads` row itself."""
-    with contextlib.closing(sqlite3.connect(db, timeout=5)) as conn, conn:
-        tables = [t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        # Table and column names come from the database's own schema, never from input.
-        return sum(conn.execute(f'DELETE FROM "{t}" WHERE "{col}"=?', (sid,)).rowcount
-                   for t in tables
-                   for col in {r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')}
-                   & ({"thread_id", "id"} if t == "threads" else {"thread_id"}))
+    raise OSError(f"{path.name} kept growing; left as it was")
 
 
 def expunge(s: Session) -> dict:
@@ -214,10 +207,5 @@ def _expunge(s: Session) -> dict:
             shutil.rmtree(path)
         else:
             path.unlink(missing_ok=True)
-    lines = rows = 0
-    for path in shared:
-        if path.suffix == ".sqlite":
-            rows += _drop_rows(path, s.session_id)
-        else:
-            lines += _drop_lines(path, _LINES[s.harness][path.name], s.session_id)
-    return {"files": [p.name for p in own], "lines": lines, "rows": rows}
+    lines = sum(_drop_lines(p, _LINES[s.harness][p.name], s.session_id) for p in shared)
+    return {"files": [p.name for p in own], "lines": lines}
