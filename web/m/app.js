@@ -6,12 +6,11 @@ import { Composer, bindAttach, enterSubmits } from "/m/composer.js";
 import { answerBody, pickCursorRow } from "/cursor-pick.js";
 import { sendPresence, setupPush, stateUrl } from "/push.js";
 import { paneLinks } from "/pr-links.js";
-import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
+import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecent, matchesFilter, matchesSearch, lastActivity, stillOnPane, paneName, paneActivity, paneHeadline, paneMeta, records, itemDone, awaitingLaunch, LAUNCH_GRACE_MS, age } from "/m/pane-model.js";
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
 
-const refreshSortPicker = headerPicker(document.getElementById("sort"));
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
 // Ordinary API calls: long enough for a slow tmux host, short enough that a dead link
@@ -68,6 +67,8 @@ const LUCIDE = {
   rows: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 4h7M14 9h7M14 15h7M14 20h7"/>',
   unfold: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
   fold: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  arrowUpDown: '<path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16"/>',
+  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
 };
 const licon = (name, size = 20) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE[name]}</svg>`;
 const $ = (id) => document.getElementById(id);
@@ -227,8 +228,7 @@ function route() {
   focusPushComposer = state.compose;
   ({ dashboard, view, filter, sort } = state);
   if (active) returnPane = null;
-  $("sort").value = sort;
-  refreshSortPicker();
+  $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
     $("overview").scrollTop = 0;
@@ -279,14 +279,14 @@ function updateRow(button, pane) {
   text(badge, activityLabel(pane));
   text(button.querySelector(".row-status"), paneActivity(pane) || "No recent activity");
   const sessionChip = button.querySelector(".session-chip");
-  sessionChip.hidden = sort !== "updated" || !pane.session;
+  sessionChip.hidden = sort !== "updated" || !pane.session; // a session label already says it
   text(sessionChip, pane.session || "");
   sessionChip.title = pane.session ? `Session: ${pane.session}` : "";
   text(button.querySelector(".row-details"), [pane.tool, pane.model, pane.window_index !== "" && pane.window_index != null ? `Window ${pane.window_index}` : ""].filter(Boolean).join(" / "));
 }
-const renderSidebar = setupSidebar({ licon, reconcile, text, html, logos: LOGOS, navigate, notice,
+const renderSidebar = setupSidebar({ licon, reconcile, text, html, renderItems, logos: LOGOS, navigate, notice,
   active: () => active, sending: () => sending, answers: answerOptions, answered: isAnswered, answer, compose,
-  setFilter: (value) => { filter = value; stayPut(); } });
+  setFilter: (value) => { filter = value; stayPut(); }, repaint: () => renderList() });
 function emptyMessage(query) {
   if (!loaded) return "Loading sessions...";
   if (!booted) return "Reading terminal sessions...";
@@ -301,6 +301,7 @@ function renderList() {
   // One composer per pane, in either layout: an open pane takes over its sidebar Reply draft.
   const inline = renderSidebar.drafts.get(active);
   if (inline) { draft().append(inline); inline.editor.remove(); renderSidebar.drafts.delete(active); }
+  renderSidebar.answers.prune(subset);
   if (WIDE.matches) renderSidebar(subset, query, filter);
   else renderPhoneList(subset);
   show("empty", !subset.length);
@@ -321,15 +322,25 @@ function renderList() {
   show("list-start", startable && !WIDE.matches); // wide: the dashboard's button says it
   show("landing-start", startable);
 }
+// Needs-you rows are cards answerable in place (the sidebar's answers and Reply), left in their
+// sorted place: pinning them on top shoved the list around whenever a pane started asking.
 function renderPhoneList(subset) {
-  const sessions = [...new Set(subset.map((p) => p.session))];
-  const rows = sort === "updated"
-    ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
-    : sessions.flatMap((session) => [{ session, group: true }, ...subset.filter((p) => p.session === session)]);
-  reconcile($("pane-list"), rows, (p) => p.group ? `session:${p.session}` : p.pane_id, (p) => {
-    if (!p.group) return makeRow(p);
-    const label = document.createElement("h2"); label.className = "session-label"; return label;
-  }, (node, p) => p.group ? text(node, p.session || "Session") : updateRow(node, p));
+  const rows = sort === "updated" ? subset.sort((a, b) => lastActivity(b) - lastActivity(a))
+    : [...new Set(subset.map((p) => p.session))].flatMap((session) => [{ heading: session || "Session", key: `session:${session}` }, ...subset.filter((p) => p.session === session)]);
+  reconcile($("pane-list"), rows, (p) => p.heading ? p.key : needsYou(p) ? `ask:${p.pane_id}` : p.pane_id, (p) => {
+    if (p.heading) { const node = document.createElement("h2"); node.className = "session-label"; return node; }
+    if (!needsYou(p)) return makeRow(p);
+    const card = document.createElement("div");
+    card.className = "pane-card";
+    card.append(makeRow(p));
+    renderSidebar.answers.add(card);
+    return card;
+  }, (node, p) => {
+    if (p.heading) return text(node, p.heading);
+    node._p = p;
+    updateRow(node.querySelector(".pane-row") || node, p);
+    if (node.matches(".pane-card")) renderSidebar.answers.update(node, p);
+  });
 }
 
 // The wide-screen main column before a pane is picked. Deliberately the SAME numbers the
@@ -579,7 +590,8 @@ function render() {
   // The brand keeps its slot for the same reason. Narrow is unchanged.
   const wide = WIDE.matches;
   show("sessions", (!inPane && !dashboard) || wide); show("list-nav", !inPane && !wide);
-  show("brand", !inPane || wide);
+  const list = !inPane && !dashboard; // a phone's list screen: the only one with its title and sort
+  show("brand", wide || (!inPane && dashboard)); show("list-title", list); show("sort", list);
   show("back", inPane && !wide); show("close-pane", wide); show("heading", inPane); show("detail", inPane);
   // The main column is never blank on a wide screen: with no pane chosen it answers the
   // question the sidebar cannot, which is what the whole fleet is doing right now.
@@ -645,7 +657,13 @@ function render() {
   reconcile($("session-chips"), chips, (_, i) => i, () => document.createElement("span"), (node, value) => text(node, value));
   show("question", !!pane?.question && needsYou(pane));
   const question = pane?.question;
-  text($("prompt"), question?.prompt || "");
+  text($("prompt"), question?.ask || question?.prompt || "");
+  // The widget's own rows, once and folded away: the restatement above is what to read.
+  // Folded again for each new pane or command: an expanded one must not carry over.
+  const command = $("question-command"), commandKey = `${active}\n${question?.context || ""}`;
+  if (command._key !== commandKey) { command._key = commandKey; command.open = false; }
+  command.hidden = !question?.context;
+  text(command.lastChild, question?.context || "");
   const answered = !!pane && isAnswered(pane);
   show("answer-status", answered);
   text($("answer-status"), "Answer sent. Waiting for the pane...");
@@ -700,20 +718,10 @@ function renderRichContent(pane) {
 }
 
 function renderTasks(pane) {
-  const records = (items) => Array.isArray(items) ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
   const tasks = records(pane?.tasks), agents = records(pane?.subagents), copyables = records(pane?.copyables);
   show("task-section", !!tasks.length); show("agent-section", !!agents.length); show("copy-section", !!copyables.length);
   text($("task-count"), `${tasks.filter((t) => t.done).length}/${tasks.length}`);
-  for (const [id, values] of [["tasks", tasks], ["agents", agents]]) {
-    reconcile($(id), values, (value, i) => `${i}:${value.text || value.label}`, () => {
-      const node = document.createElement("div"); node.innerHTML = "<span></span><span></span>"; return node;
-    }, (node, value) => {
-      const done = value.done || value.state === "done";
-      node.className = `${id === "tasks" ? "task" : "agent"}${done ? " done" : ""}${id === "agents" && value.state === "compacting" ? " compacting" : ""}`;
-      html(node.firstChild, licon(done ? "check" : "circle", 16));
-      text(node.lastChild, [value.text || value.label, id === "agents" ? value.state : null, value.elapsed].filter(Boolean).join(" / "));
-    });
-  }
+  renderItems($("tasks"), tasks); renderItems($("agents"), agents, true);
   reconcile($("copyables"), copyables, (value, i) => `${i}:${value.label}`, () => {
     const node = document.createElement("div"); node.className = "copyable";
     node.innerHTML = '<div class="copy-heading"><strong></strong><button class="icon-button" aria-label="Copy text" title="Copy text">' + licon("clipboard") + '</button></div><pre></pre>';
@@ -723,6 +731,24 @@ function renderTasks(pane) {
     };
     return node;
   }, (node, value) => { node._value = value.text; text(node.querySelector("strong"), value.label); text(node.querySelector("pre"), value.text); });
+}
+
+// One line per task or sub-agent: the pane overview's lists, and the sidebar's agent rows.
+// An open circle already says running (and its role=img label says it aloud), so only the
+// other states are spelled out.
+function renderItems(el, values, agents = false) {
+  reconcile(el, values, (value, i) => `${i}:${value.text || value.label}`, () => {
+    const node = document.createElement("div"); node.innerHTML = "<span></span><span></span><small></small>"; return node;
+  }, (node, value) => {
+    const done = itemDone(value);
+    node.className = `${agents ? "agent" : "task"}${done ? " done" : ""}${agents && value.state === "compacting" ? " compacting" : ""}`;
+    html(node.firstChild, licon(done ? "check" : "circle", 16));
+    node.firstChild.setAttribute("role", "img");
+    node.firstChild.ariaLabel = done ? "done" : agents ? value.state || "running" : "to do";
+    text(node.children[1], value.text || value.label);
+    node.title = value.text || value.label || "";
+    text(node.lastChild, agents ? [value.state === "running" ? "" : value.state, value.elapsed, value.tokens ? `${value.tokens} tokens` : ""].filter(Boolean).join(" · ") : "");
+  });
 }
 
 async function loadEvents(pane) {
@@ -997,7 +1023,7 @@ $("reply-form").onsubmit = (event) => {
 enterSubmits($("reply-form"), (target) => $("reply").contains(target));
 bindAttach($("attach"), $("image-file"), () => active && !sending ? draft() : null);
 
-for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
+for (const [id, name] of Object.entries({ collapse: "panel", "dash-nav": "dashboard", back: "back", theme: "sun", docs: "book", "close-pane": "x", "pane-menu-button": "ellipsis", "more-button": "ellipsis", sort: "arrowUpDown", "new-window": "plus", "search-icon": "search", "clear-search": "x", send: "up", attach: "paperclip", keyboard: "keyboard", "close-launch": "x", "zoom-in": "plus", "zoom-out": "minus", tail: "down" })) icon(id, name);
 for (const [id, label, glyph] of [["all", "All", "layers"], ["running", "Running", "terminal"], ["recent", "Recent", "clock"], ["attention", "Needs you", "alert"]]) {
   html($(`${id}-tab`), `<span class="nav-icon">${licon(glyph)}<span id="${id}-count" class="count">0</span></span><span>${label}</span>`);
 }
@@ -1054,7 +1080,7 @@ $("dashboard-tab").onclick = $("dash-nav").onclick = () => openDashboard();
 $("back").onclick = $("close-pane").onclick = () => navigate();
 $("search").oninput = renderList;
 $("clear-search").onclick = () => { $("search").value = ""; renderList(); $("search").focus(); };
-$("sort").onchange = () => { sort = $("sort").value; stayPut(); };
+$("sort").onclick = () => { sort = sort === "updated" ? "session" : "updated"; stayPut(); };
 $("list-nav").querySelectorAll("button[data-filter]").forEach((button) => { button.onclick = () => { filter = button.dataset.filter; stayPut(); }; });
 function applyTheme(light) {
   document.documentElement.classList.toggle("light", light);

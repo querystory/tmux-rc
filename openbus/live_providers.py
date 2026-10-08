@@ -267,7 +267,7 @@ TOOLS = [
 ]
 
 
-# Text sessions only (the handler refuses it in voice): forwards a pasted image to a pane.
+# Forwards a pasted image to a pane (any session whose model takes images; see live._images).
 TOOLS.append({
     "name": "send_image_to_pane",
     "description": (
@@ -297,11 +297,13 @@ _HISTORY_TOOLS = [
         "name": "find_sessions",
         "description": (
             "Look up the user's past coding-agent sessions by topic, across every repo — "
-            "including sessions no window shows now. Use only when the user asks to "
-            "resume, continue, or find earlier work (“resume the live mode session”, "
-            "“where was I on the auth fix”). Returns repos, each with sessions: id, the "
-            "agent tool (claude, codex, or omp), title, last active date, and the window "
-            "running it if one is. Titles are hints for choosing, not facts about the work."
+            "including sessions no window shows now. Use when the user asks to resume, "
+            "continue, or find earlier work (“resume the live mode session”, “where was I "
+            "on the auth fix”, “was there a session about X”), rather than asking a window. "
+            "Returns repos, each with sessions: id, the agent tool (claude, codex, or omp), "
+            "title, last active date, the query terms it matched, and the window running it "
+            "if one is. Every returned session matched the query (in its title, branches, PR "
+            "links or transcript); titles are short hints and often don't mention the topic."
         ),
         "parameters": {
             "type": "object",
@@ -386,8 +388,11 @@ class _GeminiSession:
     """Gemini Live over the google-genai SDK — on Vertex (service account) or the AI Studio
     API (key), which is the only place Gemini 3.x Live models are served."""
 
-    def __init__(self, session) -> None:
+    def __init__(self, session, images: bool) -> None:
         self._s = session
+        # Whether send_text takes pasted images (live._images refuses them otherwise). They
+        # ride client content, which 3.x Live on AI Studio accepts only as initial history.
+        self.images = images
 
     @staticmethod
     @contextlib.asynccontextmanager
@@ -436,7 +441,7 @@ class _GeminiSession:
             ),
         )
         async with client.aio.live.connect(model=model.model, config=cfg) as s:
-            yield _GeminiSession(s)
+            yield _GeminiSession(s, images=model.backend == "vertex")
 
     async def send_audio(self, pcm16k: bytes) -> None:
         from google.genai import types  # noqa: PLC0415 - deferred; see _GeminiSession.open
@@ -445,8 +450,16 @@ class _GeminiSession:
             audio=types.Blob(data=pcm16k, mime_type="audio/pcm;rate=16000")
         )
 
-    async def send_text(self, text: str) -> None:
-        """A typed user turn: realtime input, so the model answers it as if spoken."""
+    async def send_text(self, text: str, images=()) -> None:
+        """A typed user turn: realtime input, so the model answers it as if spoken. Pasted
+        images go first as reply-less client content, like send_context: as realtime video
+        frames they race the text, which is often answered before the frame is seen."""
+        from google.genai import types  # noqa: PLC0415 - deferred; see _GeminiSession.open
+
+        if images:
+            await self._s.send_client_content(turns=types.Content(role="user", parts=[
+                types.Part.from_bytes(data=data, mime_type=mime) for mime, data in images
+            ]), turn_complete=False)
         await self._s.send_realtime_input(text=text)
 
     async def send_context(self, text: str) -> None:
@@ -561,6 +574,17 @@ def openai_endpoint(model: LiveModel) -> tuple[str, dict[str, str]]:
     )
 
 
+def openai_message(role: str, text: str, images=()) -> dict:
+    """A message item in the shape Realtime and GPT-Live's Responses backend share: pasted
+    images as data URLs ahead of the text, like a chat model's turn (live_chat._user)."""
+    return {"type": "message", "role": role, "content": [
+        *({"type": "input_image",
+           "image_url": f"data:{mime};base64,{base64.b64encode(data).decode()}"}
+          for mime, data in images),
+        {"type": "input_text", "text": text},
+    ]}
+
+
 def resample_16k_to_24k(pcm: bytes) -> bytes:
     """Linear interpolation, 2 samples in → 3 out, int16 mono little-endian. Stateless per
     frame: the at-most-one-sample seam between 4096-sample frames is inaudible on speech
@@ -586,6 +610,8 @@ class _OpenAISession:
     dozen JSON event types, and an SDK would be a dependency wrapping a websocket we
     already hold. Realtime is 24 kHz PCM16 both ways; the browser captures 16 kHz, so
     input is resampled here and web/ never learns which provider is on the wire."""
+
+    images = True  # input_image, documented for gpt-realtime and gpt-realtime-2
 
     def __init__(self, ws) -> None:
         self._ws = ws
@@ -668,17 +694,10 @@ class _OpenAISession:
             }
         )
 
-    async def send_text(self, text: str) -> None:
-        """A typed user turn, and the response it asks for."""
+    async def send_text(self, text: str, images=()) -> None:
+        """A typed user turn, with any pasted images, and the response it asks for."""
         await self._send(
-            {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": text}],
-                },
-            }
+            {"type": "conversation.item.create", "item": openai_message("user", text, images)}
         )
         await self._respond()
 
@@ -687,14 +706,7 @@ class _OpenAISession:
         it lands in the conversation and nothing fires until the user next speaks. System
         rather than user role so the model can't mistake a state refresh for speech."""
         await self._send(
-            {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "system",
-                    "content": [{"type": "input_text", "text": text}],
-                },
-            }
+            {"type": "conversation.item.create", "item": openai_message("system", text)}
         )
 
     async def send_tool_result(self, call: ToolCall, payload: dict) -> None:

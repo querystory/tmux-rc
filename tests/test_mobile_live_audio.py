@@ -66,9 +66,11 @@ def _run_live(body: str, version: dict | None = None) -> None:
     web = Path(__file__).resolve().parents[1] / "web"
     args = [str(web / p) for p in ("m/live.js", "live-close.js", "live-chat.js", "m/composer.js",
                                  "chat-starters.js")]
-    markdown = json.dumps((web / "chat-markdown.js").as_uri())
+    markdown, model = (json.dumps((web / p).as_uri())
+                       for p in ("chat-markdown.js", "m/pane-model.js"))
     script = ("globalThis.requestAnimationFrame = fn => fn();\n"
               "(async () => { const { appendChatMarkdown } = await import(" + markdown + ");\n"
+              "const { since } = await import(" + model + ");\n"
               + _HARNESS + body + "\n})().catch(e => { console.error(e); process.exitCode = 1; });")
     result = subprocess.run(["node", "-e", script, *args],
                             capture_output=True, text=True, timeout=30,
@@ -211,7 +213,7 @@ const navigator = {audioSession, wakeLock: {request: async () => {
   streams.push(stream); return stream;
 }}};
 const sandbox = {document, window, navigator, AudioContext: Context, WebSocket: Socket,
-  appendChatMarkdown,
+  appendChatMarkdown, since,
   AudioWorkletNode: class { constructor() {this.port = {};} connect() {} disconnect() {} },
   Audio: class {
     constructor() {this.paused = true; this.pending = initialPlayPending; outputs.push(this);}
@@ -427,6 +429,21 @@ def test_chat_opens_a_text_session_without_the_mic_minimizes_and_sends_images():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_resume_card_names_the_session_past_its_title():
+    _run_live(r"""
+(async () => {
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const last = new Date(Date.now() - 6 * 86400e3).toISOString();
+  sockets[0].onmessage({data: JSON.stringify({type: 'propose', id: 'p1', text: 'Resume dreamforce',
+    session: {tool: 'codex', cwd: '~/src/df', last_active: last, id: 'ab12cd34'}})});
+  const text = document.getElementById('voice-log').children.at(-1).children[1];
+  assert.match(text.lastChild.textContent, /^codex · ~\/src\/df\n.+ · 6d ago · ab12cd34$/);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_chat_shows_a_working_row_until_each_turn_is_answered():
     _run_live(r"""
 (async () => {
@@ -488,6 +505,15 @@ def test_chat_shows_a_working_row_until_each_turn_is_answered():
   say({type: 'status', status: 'reconnecting'});
   assert.ok(!roles().includes('typing'));
   say({type: 'status', status: 'listening'});
+  // Typing instead of answering a card supersedes it: the card says so, and the dots
+  // return for the new message rather than it sitting queued behind the card.
+  say({type: 'propose', id: 'p2', text: 'Send to work'});
+  send('never mind');
+  assert.equal(roles().at(-1), 'propose');
+  say({type: 'decided', id: 'p2', ok: null});
+  const card = log.children.filter((row) => row.dataset.role === 'propose').at(-1);
+  assert.equal(card.firstChild.textContent, 'Cancelled — you sent a new message');
+  assert.equal(roles().at(-1), 'typing');
   send('five');
   $('voice-end').onclick();
   assert.ok(!roles().includes('typing'));

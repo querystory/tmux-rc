@@ -27,6 +27,7 @@ const SHOTS = [
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
   ["wide-chat", WIDE, "light", "#pane=%259", openChat],
+  ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
   ["mobile-pane", PHONE, "light", "#pane=%259"],
@@ -35,6 +36,7 @@ const SHOTS = [
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-no-tmux", PHONE, "light", "", noTmux],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
+  ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
 ];
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
@@ -59,21 +61,31 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 *, *::before, *::after { animation: none !important; transition: none !important;
   caret-color: transparent !important; scroll-behavior: auto !important; scrollbar-width: none !important; }`;
 
-async function openChat(page) {
+// The Sub-agents switch is on by default; show its lines under activity cards too.
+async function showSubagents(page) {
+  await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
+  await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
+}
+
+async function openChat(page, ask = "Which panes need me?") {
   await page.click("#chat");
   await page.waitForFunction(() => document.getElementById("voice-status")?.textContent === "Connected");
-  await page.fill("#chat-input", "Which panes need me?");
+  await page.fill("#chat-input", ask);
   await page.press("#chat-input", "Enter");
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
 }
 
-// A canned Live Mode socket: answers any typed message with the same summary.
+// A canned Live Mode socket: answers a typed "Resume..." with a consent card, and anything
+// else with the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
     const message = JSON.parse(raw);
     if (message.action !== "text") return;
     socket.send(JSON.stringify({ type: "transcript", role: "user", text: message.text }));
+    if (message.text.startsWith("Resume")) return socket.send(JSON.stringify({ type: "propose", id: "p1",
+      text: "Resume checkout flake hunt", session: { tool: "codex", cwd: "~/src/example-org/storefront",
+        last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }));
     socket.send(JSON.stringify({ type: "transcript", role: "model", text:
       "Four panes need you:\n\n- **api contract diff** asks whether to bump the public API to v3\n" +
       "- **flaky test hunter** wants you to pick a suite to quarantine\n" +

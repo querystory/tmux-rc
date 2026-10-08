@@ -1,0 +1,15 @@
+{
+  "description": "Force-push over main, flagged by auto mode. question.ask must say it force-pushes over main (overwriting remote history), not quote the git command. Synthetic.",
+  "current_command": "node",
+  "capture": "\u001e[visible screen]\u001f\n● The rebase is done; publishing it now.\n\n──────────────────────────────────────────────────────────────────────────────────\n Bash command · from the general-purpose agent\n Push the rebased branch\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ git push --force origin HEAD:main\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ Auto mode classifier requires confirmation for this command.\n │ \n │ Latest blocked action: [Git Destructive]\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend",
+  "expected": {
+    "tool": "claude",
+    "activity": "waiting",
+    "waiting_on": "user",
+    "question": {
+      "answer_style": "menu",
+      "ask": "The agent wants to force-push over main in this repo, overwriting its remote history. Continue?"
+    },
+    "headline": "Asking to force-push the rebased branch over main"
+  }
+}

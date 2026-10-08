@@ -7,7 +7,8 @@
     "activity": "waiting",
     "waiting_on": "user",
     "question": {
-      "answer_style": "menu"
+      "answer_style": "menu",
+      "context": "git apply /tmp/watcher.patch"
     },
     "headline": "Asking to apply the watcher patch with git apply",
     "session": null
