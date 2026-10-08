@@ -94,6 +94,15 @@ def test_a_path_resolving_outside_the_root_refuses_before_deleting(claude, tmp_p
     assert files(tmp_path) == before
 
 
+def test_a_session_file_that_is_a_symlink_refuses(claude, tmp_path):
+    transcript = claude / f"projects/-src-api/{A}.jsonl"
+    transcript.rename(claude / "elsewhere.jsonl")
+    transcript.symlink_to(claude / "elsewhere.jsonl")  # inside the root, but not the file
+    with pytest.raises(Refused, match="symlink"):
+        expunge.expunge(Session("claude", A, claude, 1, "1"))
+    assert (claude / "elsewhere.jsonl").exists()
+
+
 def fake_procs(monkeypatch, tmp_path, procs):
     """procs: pid -> (comm, children, claude session id or None)."""
     def read(pid, name):

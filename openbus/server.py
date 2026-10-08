@@ -1006,8 +1006,8 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         raise HTTPException(500, f"expunge failed partway: {e}") from e
     if not app.state.watcher.forget_checkpoint(uid):
         _audit(request, "expunge", pane_id, detail, outcome="error: checkpoint kept")
-        raise HTTPException(500, "the session's files are deleted, but tmux-rc's own card for "
-                                 "the pane is still on disk; it retries every few seconds")
+        raise HTTPException(500, "the session's files are deleted, but tmux-rc could not "
+                                 "delete its own stored card for the pane yet")
     _audit(request, "expunge", pane_id, detail)
     return {"ok": True, **result}
 

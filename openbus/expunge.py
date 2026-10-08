@@ -143,6 +143,9 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
     for root, path in found + shared:
         if not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
             raise Refused(f"{path.name} resolves outside {root.name}")
+    # Unlinking a symlink would report its target deleted while the target stays.
+    if links := [p.name for _, p in found if p.is_symlink()]:
+        raise Refused(f"{links[0]} is a symlink, not the session's own file")
     return [p for _, p in found], [p for _, p in shared if p.exists()]
 
 
@@ -205,8 +208,8 @@ def expunge(s: Session) -> dict:
 
 def _expunge(s: Session) -> dict:
     own, shared = targets(s)
-    for path in own:
-        if path.is_dir() and not path.is_symlink():
+    for path in own:  # never a symlink: targets() refuses those
+        if path.is_dir():
             shutil.rmtree(path)
         else:
             path.unlink(missing_ok=True)

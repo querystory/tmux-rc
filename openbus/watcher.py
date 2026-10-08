@@ -467,8 +467,10 @@ class Watcher:
         """Delete the forgotten rows not yet deleted; whether none is left. A busy database
         is retried every tick, and meanwhile the tombstone keeps the row from coming back."""
         with self._forget_lock:
-            if not (self._undeleted and self.history):
+            if not self._undeleted:
                 return True
+            if not self.history:  # no database to clean: can't say the card is gone
+                return False
             try:
                 self.history.delete_checkpoints(list(self._undeleted))
                 self._undeleted.clear()
