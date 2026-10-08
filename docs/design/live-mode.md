@@ -456,6 +456,20 @@ Send on: that tap asked to go there, so the daemon sends the same message marked
 and the client clicks the button it adds, which stays for getting back. The result tells
 the model the user is already there, so it offers no second button.
 
+The model names the window and the daemon finds it. Left to pick a pane id itself, the
+model twice opened the wrong window: "take me to the slack inbox merge" (a voice slip for
+"pane") went to past-session search, whose top hits matched all three words, and opened
+the pane running one of them rather than the window titled "slack inbox"; "the QS linux
+OMP session" read the tool column and chose an idle omp pane. So `open_pane` takes the
+user's words and scores each live pane by the words its title, label, tool and number hold
+whole (two adjacent words may also match run together, for "qslinux"). A pane opens only
+when it alone tops the scores with most of the words; otherwise the model gets the closest
+few to ask about or offer side by side, or "no match" and a pointer to find_sessions. A
+deterministic matcher is testable and cannot be talked out of an exact title; prompt rules
+for the same ranking would be relitigated on every model change. Typing still takes a pane
+id: a wrong Open costs a tap back, a wrong prompt costs work, and the id is checked on a
+card or announced aloud.
+
 A consent card that targets a pane carries the same button, because the card is where a
 wrong target gets caught: asked for "the QS linux OMP session", the model picked an omp
 pane idle for two days over the window titled "qslinux codex installation", and the card

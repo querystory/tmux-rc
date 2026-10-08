@@ -230,10 +230,53 @@ def test_open_pane_finds_a_window_opened_before_the_watcher_saw_it(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "args", [{"pane_id": "%9"}, {"pane_id": ["%1"]}, {"pane_id": "%1", "x": 1}, "oops"])
+    "args", [{"pane_id": "%9"}, {"pane_id": ["%1"]}, {"pane_id": "%1", "x": 1}, "oops",
+             {"name": "work", "pane_id": "%1"}, {"name": 3}])
 def test_open_pane_refuses_an_unknown_pane_or_malformed_call(monkeypatch, args):
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args=args), monkeypatch)
     assert ws.sent == [] and session.responses[0][1]["status"] == "rejected"
+
+
+class _Fleet(_Watcher):
+    """The two field misses, fictionalised: an exact title the model passed over for a
+    pane that merely shared a word, and a run-together title lost to the tool column."""
+
+    def digest(self):
+        def pane(pid, win, label, title, tool):
+            return {"pane_id": pid, "window_index": win, "label": label, "title": title,
+                    "tool": tool, "activity": "idle"}
+        return [
+            pane("%11", "9", "app-0:9", "billing write back | billing-capture-inbox", "node"),
+            pane("%12", "3", "❋ acmelinux codex", "acmelinux codex installation", "codex"),
+            pane("%13", "10", "misc:10", "release notifications", "omp"),
+            pane("%14", "13", "omp-history", "Follow review instructions", "omp"),
+            pane("%10", "25", "❋ slack inbox", "✳ slack inbox", "claude"),
+        ]
+
+
+@pytest.mark.parametrize(("name", "pane_id"), [
+    ("slack inbox merge", "%10"),      # a stray word: "inbox" alone must not win
+    ("acme linux OMP session", "%12"),  # "acme linux" is "acmelinux"; one tool word loses
+    ("window 25", "%10"),
+])
+def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
+                                  watcher=_Fleet())
+    assert [m["pane_id"] for m in ws.sent] == [pane_id]
+    assert session.responses[0][1]["status"] == "done"
+
+
+@pytest.mark.parametrize(("name", "status", "candidates"), [
+    ("the omp pane", "ambiguous", ["%13", "%14"]),
+    ("deploy dashboard", "no_match", []),
+])
+def test_open_pane_by_name_offers_candidates_rather_than_guess(
+        monkeypatch, name, status, candidates):
+    _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
+                                  watcher=_Fleet())
+    result = session.responses[0][1]
+    assert ws.sent == [] and result["status"] == status
+    assert [c["pane_id"] for c in result.get("candidates", [])] == candidates
 
 
 @pytest.mark.parametrize("ok", [True, False])
