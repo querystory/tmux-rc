@@ -58,8 +58,8 @@ def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, c
     # ICANON and bracketed paste left on by an earlier app, as sudo met them in the field.
     prompt = private_tmux.spawn("""bash -c 'printf "\\033[?2004h"; stty -icanon; \
 read -s -p "Password: " x; echo; echo "got:${#x}:$x"; sleep 30'""")
-    # The prompt wraps: the cursor's row alone is "…xx-x:", no "password" in it.
-    user = "x" * 90
+    # The prompt wraps over a dozen rows: the cursor's row alone has no "password" in it.
+    user = "x" * 900
     canonical = private_tmux.spawn(f"""bash -c 'read -s -p "[sudo] password for {user}-x: " x'""")
     echoing = private_tmux.spawn("cat")
     # A full-screen app runs with echo off too, like an agent TUI, vim or an idle shell:
@@ -92,6 +92,8 @@ tty.setraw(0); sys.stdin.read(1)'""")
     assert client.post(f"/api/panes/{prompt}/send", json={"keys": SECRET}).status_code == 409
     assert client.post(f"/api/panes/{prompt}/send",
                        json={"keys": SECRET, "literal": False}).status_code == 409
+    assert client.post(f"/api/panes/{prompt}/compose",
+                       files=[("secret", (None, "x" * 4097))]).status_code == 413
     # One line only: the rest of a multi-line "password" would run as the shell's input.
     assert client.post(f"/api/panes/{prompt}/compose",
                        files=[("secret", (None, f"{SECRET}\nls"))]).status_code == 400
