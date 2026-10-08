@@ -93,7 +93,7 @@ tty.setraw(0); sys.stdin.read(1)'""")
     assert client.post(f"/api/panes/{prompt}/send",
                        json={"keys": SECRET, "literal": False}).status_code == 409
     assert client.post(f"/api/panes/{prompt}/compose",
-                       files=[("secret", (None, "x" * 4097))]).status_code == 413
+                       files=[("secret", (None, "é" * 2049))]).status_code == 413
     # One line only: the rest of a multi-line "password" would run as the shell's input.
     assert client.post(f"/api/panes/{prompt}/compose",
                        files=[("secret", (None, f"{SECRET}\nls"))]).status_code == 400
