@@ -667,7 +667,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 #usage { display: grid; grid-template-columns: max-content 1fr 1fr; gap: 8px 16px; align-items: center; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail #usage { display: none; }
 .usage-account { display: contents; }
-.usage-name { display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.usage-name { grid-column: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; white-space: nowrap; } /* column 1 starts every account on its own row, even one with a single window */
 .usage-name img { border-radius: 3px; }
 .usage-name > span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; } /* labels are user-chosen; never let one push the cells off-screen */
 .usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
