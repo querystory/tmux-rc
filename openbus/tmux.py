@@ -79,9 +79,11 @@ def _password_prompt(pane_id: str, tty: str) -> bool:
         os.close(fd)
     if lflag & termios.ECHO:
         return False
-    y, *screen = _run(["display-message", "-p", "-t", pane_id, "#{cursor_y}",
-                       ";", "capture-pane", "-p", "-t", pane_id]).split("\n")
-    return any(_PASSWORD_PROMPT.search(row) for row in screen[int(y):int(y) + 1])
+    # The cursor's whole line: a narrow pane wraps a long prompt over several rows, which
+    # -J joins (from a few rows up, history included, so the start is never cut off).
+    y = int(_run(["display-message", "-p", "-t", pane_id, "#{cursor_y}"]))
+    line = _run(["capture-pane", "-p", "-J", "-t", pane_id, "-S", str(y - 8), "-E", str(y)])
+    return bool(_PASSWORD_PROMPT.search(line.removesuffix("\n").rpartition("\n")[2]))
 
 
 @dataclass(frozen=True)
@@ -126,7 +128,7 @@ class Pane:
         the row the cursor sits on ends in a password prompt. ICANON is not a signal:
         sudo keeps whatever mode it finds, and a tty a crashed app left raw (-icanon)
         is common in the field. Read fresh on every access: an ioctl on a pts the
-        daemon's own user owns, plus one capture only when echo is off. Unknown
+        daemon's own user owns, plus two tmux calls only when echo is off. Unknown
         reads as no: this only picks the composer, and the send path decides for
         itself."""
         try:

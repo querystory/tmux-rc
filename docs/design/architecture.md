@@ -293,13 +293,13 @@ like `[sudo] password for x:`. Echo off alone is not enough: agent TUIs, editors
 shell's readline turn it off too. The first version told them apart by line editing
 (ICANON), on in a password prompt and off in raw apps, and it failed on the first real
 sudo: sudo keeps whatever mode it finds, and an earlier app had left that tty raw, so the
-prompt looked exactly like Claude Code. The cursor's row is what actually differs: a raw
+prompt looked exactly like Claude Code. The cursor's row (its whole line, when a narrow pane wraps a long prompt) is what actually differs: a raw
 app's cursor sits on its own input line, a shell's on its prompt, and output that merely
 mentions a password is never under the cursor. "The foreground process isn't the shell"
 was rejected: it misses `read -s` typed at a shell, and an agent TUI is never the shell
 anyway. Asking the classifier instead would cost a model call, and a misread would put a
 password field over an agent's prompt, or leave a plain composer echoing a password onto
-the screen. The check is one ioctl, plus one tmux call only when echo is off, so the
+the screen. The check is one ioctl, plus two tmux calls only when echo is off, so the
 watcher runs it every tick, and the send path runs the same helper again under the pane's
 send lock.
 

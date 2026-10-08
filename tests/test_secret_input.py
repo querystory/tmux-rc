@@ -58,17 +58,19 @@ def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, c
     # ICANON and bracketed paste left on by an earlier app, as sudo met them in the field.
     prompt = private_tmux.spawn("""bash -c 'printf "\\033[?2004h"; stty -icanon; \
 read -s -p "Password: " x; echo; echo "got:${#x}:$x"; sleep 30'""")
-    canonical = private_tmux.spawn("""bash -c 'read -s -p "[sudo] password for x: " x'""")
+    # The prompt wraps: the cursor's row alone is "…xx-x:", no "password" in it.
+    user = "x" * 90
+    canonical = private_tmux.spawn(f"""bash -c 'read -s -p "[sudo] password for {user}-x: " x'""")
     echoing = private_tmux.spawn("cat")
     # A full-screen app runs with echo off too, like an agent TUI, vim or an idle shell:
     # a "password:" on the screen but not on the cursor's row is not a prompt.
-    raw = private_tmux.spawn("""python3 -c 'import sys, tty; print("Password:"); \
-print("$ ", end="", flush=True); tty.setraw(0); sys.stdin.read(1)'""")
+    raw = private_tmux.spawn("""python3 -c 'import sys, tty; print("Password:", flush=True); \
+tty.setraw(0); sys.stdin.read(1)'""")
     pane = lambda pane_id: tmux.find_pane(pane_id)  # noqa: E731 - fresh flags per read
     assert _until(lambda: pane(prompt).secret and pane(canonical).secret)
     assert _until(lambda: "Password:" in tmux.capture_pane(prompt))
     assert not pane(echoing).secret
-    assert _until(lambda: "$" in tmux.capture_pane(raw))
+    assert _until(lambda: "Password:" in tmux.capture_pane(raw))
     time.sleep(0.2)  # let python reach setraw
     assert not pane(raw).secret
 
