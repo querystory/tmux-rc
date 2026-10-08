@@ -281,6 +281,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .voice-entry.typed, .voice-entry.typed strong { color: var(--amber); }
 .voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
 .voice-entry.propose strong { color: var(--accent); }
+.voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
 .voice-actions { display: flex; gap: 8px; margin-top: 10px; }
 .voice-actions button { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
 /* Chat's model switcher: between the title and minimize, as small as a label. */
