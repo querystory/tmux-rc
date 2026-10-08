@@ -220,9 +220,9 @@ class PlanUsage:
                 samples, account["error"] = [], "unavailable"
             rows += [(tool, key, s["window"], s["seconds"], s["t"], s["pct"], s["resets_at"])
                      for s in samples]
+        self.accounts = accounts  # first: a failed write (logged by run()) loses only samples
         if rows and self.history:
             self.history.record_usage(rows)
-        self.accounts = accounts
 
     async def run(self, watcher) -> None:
         while True:
