@@ -24,6 +24,7 @@ import weakref
 from collections.abc import Callable
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from functools import cached_property
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
 # The row the cursor sits on asks for a secret: "[sudo] password for x:", "x@host's
 # password:", git's "Password for 'https://x@host':", "Enter passphrase for key '…':".
 _PASSWORD_PROMPT = re.compile(r"\b(password|passphrase|pin)\b.*:\s*$", re.IGNORECASE)
-_UNREADABLE = (OSError, termios.error, subprocess.CalledProcessError, ValueError)
+_UNREADABLE = (OSError, termios.error, subprocess.CalledProcessError)
 
 
 def _password_prompt(pane_id: str, tty: str) -> bool:
@@ -79,9 +80,12 @@ def _password_prompt(pane_id: str, tty: str) -> bool:
         os.close(fd)
     if lflag & termios.ECHO:
         return False
-    y, *screen = _run(["display-message", "-p", "-t", pane_id, "#{cursor_y}",
-                       ";", "capture-pane", "-p", "-t", pane_id]).split("\n")
-    return any(_PASSWORD_PROMPT.search(row) for row in screen[int(y):int(y) + 1])
+    # The cursor's whole line: a narrow pane wraps a long prompt over several rows, which
+    # -J joins. From the top of the screen and a few rows of history, so a prompt's start
+    # is cut off only if the prompt is taller than the pane.
+    y = _run(["display-message", "-p", "-t", pane_id, "#{cursor_y}"]).strip()
+    line = _run(["capture-pane", "-p", "-J", "-t", pane_id, "-S", "-8", "-E", y])
+    return bool(_PASSWORD_PROMPT.search(line.removesuffix("\n").rpartition("\n")[2]))
 
 
 @dataclass(frozen=True)
@@ -118,15 +122,15 @@ class Pane:
     session_attached: str = "0"
     tty: str = ""  # the pane's pts, read for `secret`
 
-    @property
+    @cached_property  # once per listing, i.e. per watcher tick; the send path rereads
     def secret(self) -> bool:
         """Is the pane at a password prompt? Two deterministic signals, both required.
         The tty's ECHO is off — sudo, ssh, getpass and `read -s` all turn it off, but so
         do agent TUIs, editors and an idle shell's readline, so it only rules out. And
         the row the cursor sits on ends in a password prompt. ICANON is not a signal:
         sudo keeps whatever mode it finds, and a tty a crashed app left raw (-icanon)
-        is common in the field. Read fresh on every access: an ioctl on a pts the
-        daemon's own user owns, plus one capture only when echo is off. Unknown
+        is common in the field. Read once per pane listing: an ioctl on a pts the
+        daemon's own user owns, plus two tmux calls only when echo is off. Unknown
         reads as no: this only picks the composer, and the send path decides for
         itself."""
         try:

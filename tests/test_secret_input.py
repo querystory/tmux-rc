@@ -58,23 +58,28 @@ def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, c
     # ICANON and bracketed paste left on by an earlier app, as sudo met them in the field.
     prompt = private_tmux.spawn("""bash -c 'printf "\\033[?2004h"; stty -icanon; \
 read -s -p "Password: " x; echo; echo "got:${#x}:$x"; sleep 30'""")
-    canonical = private_tmux.spawn("""bash -c 'read -s -p "[sudo] password for x: " x'""")
+    # The prompt wraps over a dozen rows: the cursor's row alone has no "password" in it.
+    user = "x" * 900
+    canonical = private_tmux.spawn(f"""bash -c 'read -s -p "[sudo] password for {user}-x: " x'""")
     echoing = private_tmux.spawn("cat")
     # A full-screen app runs with echo off too, like an agent TUI, vim or an idle shell:
     # a "password:" on the screen but not on the cursor's row is not a prompt.
-    raw = private_tmux.spawn("""python3 -c 'import sys, tty; print("Password:"); \
-print("$ ", end="", flush=True); tty.setraw(0); sys.stdin.read(1)'""")
+    raw = private_tmux.spawn("""python3 -c 'import sys, tty; print("Password:", flush=True); \
+tty.setraw(0); sys.stdin.read(1)'""")
     pane = lambda pane_id: tmux.find_pane(pane_id)  # noqa: E731 - fresh flags per read
     assert _until(lambda: pane(prompt).secret and pane(canonical).secret)
     assert _until(lambda: "Password:" in tmux.capture_pane(prompt))
     assert not pane(echoing).secret
-    assert _until(lambda: "$" in tmux.capture_pane(raw))
+    assert _until(lambda: "Password:" in tmux.capture_pane(raw))
     time.sleep(0.2)  # let python reach setraw
     assert not pane(raw).secret
 
     state = {}
     watcher._stamp_identity(state, pane(prompt))
     assert state["secret"] is True
+    # A long-polling page must wake for it: the screen need not change with the tty.
+    fp = watcher.Watcher._deck_fp
+    assert fp([state]) != fp([{**state, "secret": False}])
 
     server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None)
     client = TestClient(server.app)
@@ -87,6 +92,8 @@ print("$ ", end="", flush=True); tty.setraw(0); sys.stdin.read(1)'""")
     assert client.post(f"/api/panes/{prompt}/send", json={"keys": SECRET}).status_code == 409
     assert client.post(f"/api/panes/{prompt}/send",
                        json={"keys": SECRET, "literal": False}).status_code == 409
+    assert client.post(f"/api/panes/{prompt}/compose",
+                       files=[("secret", (None, "é" * 2049))]).status_code == 413
     # One line only: the rest of a multi-line "password" would run as the shell's input.
     assert client.post(f"/api/panes/{prompt}/compose",
                        files=[("secret", (None, f"{SECRET}\nls"))]).status_code == 400

@@ -907,6 +907,14 @@ async function pollState(signal) {
 // way Composer.edited does) but keep any with content, so text is not lost if the pane
 // reappears. The active pane's draft is the editor on screen, so it always stays.
 function pruneDrafts() {
+  // Text already in a pane's draft when its password prompt appeared was likely typed for
+  // it: in any composer, active or not, it must not wait to be sent in the clear later.
+  for (const p of panes) {
+    if (!p.secret) continue;
+    for (const value of [drafts.get(p.pane_id), renderSidebar.drafts.get(p.pane_id)]) {
+      if (value?.segments().length) value.replace([]);
+    }
+  }
   for (const [id, value] of drafts) {
     if (id === active || panes.some((p) => p.pane_id === id)) continue;
     if (value.segments().length || value.pendingEnter) continue;
@@ -922,10 +930,7 @@ function updateComposer() {
   // field. Its value lives only in that input: never a draft, never stored, cleared
   // when sent or when the prompt goes away.
   const secret = !!panes.find((p) => p.pane_id === active)?.secret;
-  // And the other way: text already in the draft when the prompt appeared was likely
-  // typed for it, so it must not wait there to be sent in the clear once the prompt ends.
-  if (!secret) $("secret").value = "";
-  else if (value.segments().length) value.replace([]);
+  if (!secret) $("secret").value = ""; // and its draft is cleared by pruneDrafts
   $("reply").hidden = secret;
   $("secret").hidden = !secret;
   $("attach").hidden = secret;

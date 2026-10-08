@@ -1246,6 +1246,8 @@ async def _compose(pane_id: str, request: Request):
                     raise HTTPException(413, "image empty or too large")
                 segments.append((data, _stage_image(data, mime)))
             elif kind == "secret" and isinstance(value, str) and secret is None:
+                if len(value.encode()) > 4096:  # the tty line limit, not the image allowance
+                    raise HTTPException(413, "password too long")
                 secret = value
             else:
                 raise HTTPException(400, "invalid composer segment")

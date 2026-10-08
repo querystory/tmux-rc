@@ -768,6 +768,7 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                s.get("secret"),  # the composer mode: a tty change with an unchanged screen
                 tuple((p.get("repo"), p.get("number"), p.get("title"))
                       for p in (s.get("prs") or [])),
                 # The card renders it, and a refresh can land with no other deck

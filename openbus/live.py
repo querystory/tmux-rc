@@ -572,10 +572,7 @@ async def _dispatch(
         rec["detail"] = type(e).__name__
         logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
                        exc_info=telemetry.QSDEBUG)
-        # A password prompt refuses model text (tmux.send_keys): say so, so the model
-        # can tell the user to type it in the app.
-        reason = str(e) if isinstance(e, tmux.PasswordPromptError) else "pane did not accept input"
-        return {"status": "error", "reason": reason}
+        return _send_failed(e, rec, "pane did not accept input")
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
     # Every action the voice takes is visibly logged in the overlay.
@@ -596,6 +593,16 @@ async def _dispatch(
 
     _background(asyncio.create_task(refresh()))
     return {"status": "done", "pane": label}
+
+
+def _send_failed(e: Exception, rec: dict, reason: str) -> dict:
+    """The answer to a send that raised. A password prompt refuses model text
+    (tmux.send_keys): say so, so the model can tell the user to type it in the app. That
+    text is probably the password, so it is never recorded, even under QSDEBUG."""
+    if isinstance(e, tmux.PasswordPromptError):
+        rec["keys"] = None
+        return {"status": "error", "reason": str(e)}
+    return {"status": "error", "reason": reason}
 
 
 async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, meter) -> dict:
@@ -622,7 +629,7 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
         rec["detail"] += f" ({type(e).__name__})"
         logger.warning("[live] send_image_to_pane failed for %s: %s", pane_id, type(e).__name__,
                        exc_info=telemetry.QSDEBUG)
-        return {"status": "error", "reason": "pane did not accept the image"}
+        return _send_failed(e, rec, "pane did not accept the image")
     rec["detail"] += f" via {mode}"  # attach_image has already requested the reparse
     await websocket.send_json({"type": "typed", "pane_id": pane_id, "label": labels[pane_id],
                                "text": f"[image] {caption}".strip(), "submitted": True})
