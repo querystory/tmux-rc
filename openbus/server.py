@@ -992,6 +992,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
     except HTTPException as e:
         _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
         raise
+    uid = app.state.watcher.checkpoint_key(pane_id, pid)
     _kill_window(request, pane_id, "expunge", detail, pid)
     if not expunge.wait_gone(s):
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
@@ -1003,7 +1004,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         # Only the error's type: its message can carry a path (a project's name).
         _audit(request, "expunge", pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise HTTPException(500, f"expunge failed partway: {e}") from e
-    if not app.state.watcher.forget_checkpoint(pane_id, pid):
+    if not app.state.watcher.forget_checkpoint(uid):
         _audit(request, "expunge", pane_id, detail, outcome="error: checkpoint kept")
         raise HTTPException(500, "the session's files are deleted, but tmux-rc's own card for "
                                  "the pane is still on disk; it retries every few seconds")

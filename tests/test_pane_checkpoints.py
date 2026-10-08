@@ -186,7 +186,8 @@ def test_an_expunged_pane_is_never_checkpointed_again(monkeypatch, tmp_path):
     delete = w.history.delete_checkpoints
     monkeypatch.setattr(w.history, "delete_checkpoints", lambda uids: (_ for _ in ()).throw(
         sqlite3.OperationalError("database is locked")))
-    w.forget_checkpoint("%1", "101")  # the database is busy: the deletion waits for a tick
+    # The database is busy: the deletion is reported as not done, and waits for a tick.
+    assert not w.forget_checkpoint(w.checkpoint_key("%1", "101"))
     assert w.history.load_checkpoints()
     monkeypatch.setattr(w.history, "delete_checkpoints", delete)
     w._checkpointed.clear()  # stands for a tick that captured the pane before it closed

@@ -450,11 +450,16 @@ class Watcher:
             )
         return out
 
-    def forget_checkpoint(self, pane_id: str, pid: str) -> bool:
-        """Delete this pane incarnation's stored card (Expunge), and never write it again:
-        a tick that captured the pane before it closed can still be on its way to saving."""
+    def checkpoint_key(self, pane_id: str, pid: str) -> str:
+        """The key of this pane incarnation's stored card, under the current tmux server.
+        Taken before the pane closes: a new server may have started by the time it is used."""
+        return pane_key(self._server or "", pane_id, pid)
+
+    def forget_checkpoint(self, uid: str) -> bool:
+        """Delete a stored card (Expunge), and never write it again: a tick that captured
+        the pane before it closed can still be on its way to saving."""
         with self._forget_lock:  # never between a tick's filter and its save
-            self._forgotten.add(uid := pane_key(self._server or "", pane_id, pid))
+            self._forgotten.add(uid)
             self._undeleted.add(uid)
         return self._delete_forgotten()
 

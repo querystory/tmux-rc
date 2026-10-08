@@ -63,7 +63,10 @@ def test_codex_expunges_rollout_lines_and_rows(tmp_path, monkeypatch):
     day.mkdir(parents=True)
     for sid in (A, B):
         (day / f"rollout-2026-10-08T10-00-00-{sid}.jsonl").write_text("x")
+        (day / f"rollout-2026-10-09T10-00-00-{sid}_0001.jsonl").write_text("x")  # a segment
     jsonl(root / "history.jsonl", [{"session_id": A}, {"session_id": B}])
+    with (root / "history.jsonl").open("a") as f:
+        f.write(f'{{"session_id":"{A}","text":"cut short by a cra')
     jsonl(root / "session_index.jsonl", [{"id": A}, {"id": B}])
     with sqlite3.connect(root / "state_5.sqlite") as db:
         db.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT)")
@@ -71,8 +74,10 @@ def test_codex_expunges_rollout_lines_and_rows(tmp_path, monkeypatch):
         db.executemany("INSERT INTO threads VALUES (?, 't')", [(A,), (B,)])
         db.executemany("INSERT INTO thread_items VALUES (?, '{}')", [(A,), (A,), (B,)])
     result = expunge.expunge(Session("codex", A, root, 1, "1"))
-    assert result == {"files": [f"rollout-2026-10-08T10-00-00-{A}.jsonl"], "lines": 2, "rows": 3}
-    assert [p.name for p in day.iterdir()] == [f"rollout-2026-10-08T10-00-00-{B}.jsonl"]
+    assert sorted(result["files"]) == [f"rollout-2026-10-08T10-00-00-{A}.jsonl",
+                                       f"rollout-2026-10-09T10-00-00-{A}_0001.jsonl"]
+    assert (result["lines"], result["rows"]) == (3, 3)
+    assert all(B in p.name for p in day.iterdir()) and len(list(day.iterdir())) == 2
     with sqlite3.connect(root / "state_5.sqlite") as db:
         assert db.execute("SELECT id FROM threads").fetchall() == [(B,)]
         assert db.execute("SELECT thread_id FROM thread_items").fetchall() == [(B,)]
@@ -170,7 +175,8 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     monkeypatch.setattr(expunge, "identify", lambda *_a: Session("claude", A, claude, 1, "1"))
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
     server.app.state.watcher = SimpleNamespace(
-        forget_checkpoint=lambda pane_id, pid: order.append((pane_id, pid)) or True)
+        checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}",
+        forget_checkpoint=lambda uid: order.append(uid) or True)
     client = TestClient(server.app)
     # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.
     assert client.post("/api/panes/%251/expunge", json={"session_id": A}).status_code == 409
@@ -178,7 +184,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     panes["%1"] = "1234"
     r = client.post("/api/panes/%251/expunge", json={"session_id": A})
     assert r.status_code == 200 and r.json()["lines"] == 1
-    assert order == ["kill", "gone", ("%1", "1234")]
+    assert order == ["kill", "gone", "boot:1:%1:1234"]
     assert not (claude / f"projects/-src-api/{A}.jsonl").exists()
 
 

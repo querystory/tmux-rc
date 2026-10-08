@@ -53,8 +53,8 @@ sibling `<id>/` (subagents, tool results), `file-history/<id>`, `session-env/<id
 `tasks/<id>`, `todos/<id>-*` and `debug/<id>.txt`, plus the session's lines in
 `history.jsonl`.
 
-Codex, under `CODEX_HOME`: the `sessions/…/rollout-*-<id>.jsonl` files (a resumed
-thread has several), `archived_sessions/`, `shell_snapshots/<id>.*`, the thread's
+Codex, under `CODEX_HOME`: the `sessions/…/rollout-*-<id>[_<segment>].jsonl` files (a
+resumed thread has several), `archived_sessions/`, `shell_snapshots/<id>.*`, the thread's
 lines in `history.jsonl` and `session_index.jsonl`, and its rows in Codex's SQLite
 stores. The rows matter because those databases keep a full copy of each thread's items.
 Deleting only the rollout would leave the conversation behind.
@@ -81,7 +81,9 @@ history (counts and states per minute) holds no session content and is left alon
 3. Wait for the agent process to exit. If it has not exited after a few seconds, delete
    nothing, since a live agent would only write the files again.
 4. Resolve the targets again and delete them. Shared logs are rewritten through a temp
-   file and an atomic rename, keeping their mode. The result reports counts and
+   file and an atomic rename, keeping their mode. A line that names the id but can't be
+   parsed, such as one a crash cut short, is dropped as well. It is already corrupt, and
+   keeping it could keep this session's words. The result reports counts and
    basenames for the UI, never contents.
 
 The audit line records the pane and the session id, and nothing else.

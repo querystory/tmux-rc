@@ -29,7 +29,9 @@ _ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 _FILES = {
     "claude": ("projects/*/{id}.jsonl", "projects/*/{id}", "file-history/{id}",
                "session-env/{id}", "tasks/{id}", "todos/{id}-*", "debug/{id}.txt"),
-    "codex": ("sessions/*/*/*/rollout-*-{id}.jsonl", "archived_sessions/rollout-*-{id}.jsonl",
+    # A rollout is rollout-<time>-<id>[_<segment>].jsonl (agent-history/codex.go).
+    "codex": ("sessions/*/*/*/rollout-*-{id}.jsonl", "sessions/*/*/*/rollout-*-{id}_*.jsonl",
+              "archived_sessions/rollout-*-{id}.jsonl", "archived_sessions/rollout-*-{id}_*.jsonl",
               "shell_snapshots/{id}.*"),
 }
 _INDEX = ("{id}.md", "{id}")  # agent-history's entry, and its subagents' entries
@@ -160,9 +162,14 @@ def _drop_lines(path: Path, key: str, sid: str) -> int:
     path = Path(os.path.realpath(path))
     lines = path.read_bytes().splitlines(keepends=True)
     def ours(line: bytes) -> bool:
-        with contextlib.suppress(ValueError, AttributeError):
-            return sid.encode() in line and json.loads(line).get(key) == sid
-        return False
+        # A line that names the id but can't be parsed (one a crash cut short) goes too:
+        # it is already corrupt, and keeping it could keep this session's words.
+        if sid.encode() not in line:
+            return False
+        try:
+            return json.loads(line).get(key) == sid
+        except (ValueError, AttributeError):
+            return True
     keep = [line for line in lines if not ours(line)]
     if len(keep) < len(lines):
         # A fresh, exclusive temp file: a fixed name could be a planted symlink.
