@@ -62,17 +62,26 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
         "#{pane_tty}",
     ]
 )
+# The row the cursor sits on asks for a secret: "[sudo] password for x:", "x@host's
+# password:", git's "Password for 'https://x@host':", "Enter passphrase for key '…':".
+_PASSWORD_PROMPT = re.compile(r"\b(password|passphrase|pin)\b.*:\s*$", re.IGNORECASE)
+_UNREADABLE = (OSError, termios.error, subprocess.CalledProcessError, ValueError)
 
 
-def _no_echo(tty: str) -> bool:
-    """`tty` has ECHO off and ICANON on: a password prompt (see Pane.secret). Raises
-    OSError / termios.error when it can't tell; each caller picks its own default."""
+def _password_prompt(pane_id: str, tty: str) -> bool:
+    """`tty` has ECHO off and the cursor's row ends in a password prompt (see
+    Pane.secret). Raises one of _UNREADABLE when it can't tell; each caller picks its
+    own default."""
     fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     try:
         lflag = termios.tcgetattr(fd)[3]
     finally:
         os.close(fd)
-    return lflag & (termios.ECHO | termios.ICANON) == termios.ICANON
+    if lflag & termios.ECHO:
+        return False
+    y, *screen = _run(["display-message", "-p", "-t", pane_id, "#{cursor_y}",
+                       ";", "capture-pane", "-p", "-t", pane_id]).split("\n")
+    return any(_PASSWORD_PROMPT.search(row) for row in screen[int(y):int(y) + 1])
 
 
 @dataclass(frozen=True)
@@ -111,17 +120,18 @@ class Pane:
 
     @property
     def secret(self) -> bool:
-        """Is the pane at a password prompt? A program asking for a password turns its
-        tty's ECHO off and leaves line editing (ICANON) on — sudo, ssh, getpass, `read
-        -s` all do exactly that — while full-screen apps (agent TUIs, editors, an
-        interactive shell's readline) run raw, with ICANON off too. So the termios
-        flags answer this without reading the screen or asking a model, and a misread
-        screen cannot turn an agent's prompt into a password field. Read fresh on every
-        access: one open + ioctl on a pts the daemon's own user owns. Unknown reads as
-        no: this only picks the composer, and the send path decides for itself."""
+        """Is the pane at a password prompt? Two deterministic signals, both required.
+        The tty's ECHO is off — sudo, ssh, getpass and `read -s` all turn it off, but so
+        do agent TUIs, editors and an idle shell's readline, so it only rules out. And
+        the row the cursor sits on ends in a password prompt. ICANON is not a signal:
+        sudo keeps whatever mode it finds, and a tty a crashed app left raw (-icanon)
+        is common in the field. Read fresh on every access: an ioctl on a pts the
+        daemon's own user owns, plus one capture only when echo is off. Unknown
+        reads as no: this only picks the composer, and the send path decides for
+        itself."""
         try:
-            return _no_echo(self.tty)
-        except (OSError, termios.error):
+            return _password_prompt(self.id, self.tty)
+        except _UNREADABLE:
             return False
 
     @property
@@ -748,8 +758,9 @@ def at_password_prompt(pane_id: str, *, unknown: bool = True) -> bool:
     as `unknown`, which each caller sets to fail closed: True for plain text, which
     might be a password, and False for a password, which needs the prompt confirmed."""
     try:
-        return _no_echo(_run(["display-message", "-p", "-t", pane_id, "#{pane_tty}"]).strip())
-    except (OSError, termios.error, subprocess.CalledProcessError):
+        tty = _run(["display-message", "-p", "-t", pane_id, "#{pane_tty}"]).strip()
+        return _password_prompt(pane_id, tty)
+    except _UNREADABLE:
         return unknown
 
 

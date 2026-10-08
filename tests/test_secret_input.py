@@ -1,7 +1,7 @@
 """Password prompts, end to end against a private tmux server: detected from the tty's
-termios flags, answered through the composer's secret field, and never put in argv or
-the audit trail. The server is reached only by its own -S socket (never $TMUX), and its
-panes are closed by the ids created here, which ends it."""
+echo flag and the cursor's row, answered through the composer's secret field, and never
+put in argv or the audit trail. The server is reached only by its own -S socket (never
+$TMUX), and its panes are closed by the ids created here, which ends it."""
 
 import logging
 import os
@@ -55,15 +55,20 @@ def _until(check):
 
 
 def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, caplog):
+    # ICANON off, as sudo prompts on a tty an earlier app left raw: seen in the field.
     prompt = private_tmux.spawn(
-        """bash -c 'read -s -p "Password: " x; echo; echo "got:$x"; sleep 30'""")
+        """bash -c 'stty -icanon; read -s -p "Password: " x; echo; echo "got:$x"; sleep 30'""")
+    canonical = private_tmux.spawn("""bash -c 'read -s -p "[sudo] password for x: " x'""")
     echoing = private_tmux.spawn("cat")
-    # A full-screen app runs raw (ICANON off) with echo off too, like an agent TUI or vim.
-    raw = private_tmux.spawn("""python3 -c 'import sys, tty; tty.setraw(0); sys.stdin.read(1)'""")
+    # A full-screen app runs with echo off too, like an agent TUI, vim or an idle shell:
+    # a "password:" on the screen but not on the cursor's row is not a prompt.
+    raw = private_tmux.spawn("""python3 -c 'import sys, tty; print("Password:"); \
+print("$ ", end="", flush=True); tty.setraw(0); sys.stdin.read(1)'""")
     pane = lambda pane_id: tmux.find_pane(pane_id)  # noqa: E731 - fresh flags per read
-    assert _until(lambda: pane(prompt).secret and pane(raw).tty)
+    assert _until(lambda: pane(prompt).secret and pane(canonical).secret)
     assert _until(lambda: "Password:" in tmux.capture_pane(prompt))
     assert not pane(echoing).secret
+    assert _until(lambda: "$" in tmux.capture_pane(raw))
     time.sleep(0.2)  # let python reach setraw
     assert not pane(raw).secret
 
