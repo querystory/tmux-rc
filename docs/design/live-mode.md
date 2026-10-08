@@ -461,11 +461,16 @@ model twice opened the wrong window: "take me to the slack inbox merge" (a voice
 "pane") went to past-session search, whose top hits matched all three words, and opened
 the pane running one of them rather than the window titled "slack inbox"; "the QS linux
 OMP session" read the tool column and chose an idle omp pane. So `open_pane` takes the
-user's words and scores each live pane by the words its title, label and tool hold whole
-(two adjacent words may also match run together, for "qslinux"); a "window N" first
+user's words and scores each live pane by the words its title, label, tool and working
+directory's name hold whole (two adjacent words may also match run together, for "qslinux");
+the directory counts because a repo name is how people say "the sales kit session", and
+only one of three windows in that repo happened to carry it in its title; a "window N" first
 narrows to panes with that number, so a 25 in some other title never competes. A pane opens only
-when it alone tops the scores with most of the words; otherwise the model gets the closest
-few to ask about or offer side by side, or "no match" and a pointer to find_sessions. A
+when it alone tops the scores with most of the words; otherwise the closest few each get a
+button and the model is told to say how they differ (left to offer them itself, it named
+two windows in its reply and buttoned neither), or it gets "no match" and a pointer to
+find_sessions. Buttons go inside the reply's bubble, under its text: a separate card read
+as a second message about the same thing. A
 deterministic matcher is testable and cannot be talked out of an exact title; prompt rules
 for the same ranking would be relitigated on every model change. Typing still takes a pane
 id: a wrong Open costs a tap back, a wrong prompt costs work, and the id is checked on a

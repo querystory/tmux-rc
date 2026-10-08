@@ -256,6 +256,9 @@ class _Fleet(_Watcher):
             pane("%15", "6", "misc:6", "Café 認証 修正", "claude"),
             pane("%16", "25", "other:25", "auth fix", "codex"),  # same number
             pane("%17", "4", "misc:4", "release 25 notes", "claude"),  # number in title
+            *({**pane(p, w, "x", t, "codex"), "cwd": "~/src/sales-kit/"} for p, w, t in (
+                ("%19", "19", "pipeline fix"), ("%20", "20", "event | sales-kit"),
+                ("%28", "28", "copy tweaks"))),  # one repo: the title alone must not win
         ]
 
 
@@ -278,14 +281,16 @@ def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, na
     ("the omp pane", "ambiguous", ["%13", "%14"]),
     ("window 25", "ambiguous", ["%10", "%16"]),  # never %17, whose title says 25
     ("deploy dashboard", "no_match", []),
+    ("sales kit open session", "ambiguous", ["%19", "%20", "%28"]),
 ])
 def test_open_pane_by_name_offers_candidates_rather_than_guess(
         monkeypatch, name, status, candidates):
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
                                   watcher=_Fleet())
     result = session.responses[0][1]
-    assert ws.sent == [] and result["status"] == status
+    assert result["status"] == status  # and a button for each candidate
     assert [c["pane_id"] for c in result.get("candidates", [])] == candidates
+    assert [m["pane_id"] for m in ws.sent] == candidates
 
 
 @pytest.mark.parametrize("ok", [True, False])

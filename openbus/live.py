@@ -256,11 +256,12 @@ def _words(text: str) -> list[str]:
 
 def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     """The live panes a spoken window name may mean, best first, and whether the first
-    clearly wins. A pane scores the query words that its title, window label or tool holds
-    as whole words; two adjacent words also match run together, so "qs linux" finds
-    "qslinux". A "window N" in the name keeps only panes with that number and counts as a
-    word they all hold. It wins alone on top with most of the words: a stray extra word
-    ("slack inbox merge") still finds "slack inbox", one shared word decides nothing."""
+    clearly wins. A pane scores the query words that its title, window label, tool or cwd's
+    basename (its repo, usually) holds as whole words; two adjacent words also match run
+    together, so "qs linux" finds "qslinux". A "window N" in the name keeps only panes with
+    that number and counts as a word they all hold. It wins alone on top with most of the
+    words: a stray extra word ("slack inbox merge") still finds "slack inbox", one shared
+    word decides nothing."""
     number = re.search(r"\bwindow\s+(\d+)", name, re.IGNORECASE)
     if number:
         digest = [d for d in digest if str(d.get("window_index")) == number[1]]
@@ -268,7 +269,9 @@ def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     query = [w for w in _words(name) if w not in _FILLER]
 
     def score(d: dict) -> int:
-        have = set(_words(" ".join(str(d.get(k) or "") for k in ("title", "label", "tool"))))
+        fields = [str(d.get(k) or "") for k in ("title", "label", "tool")]
+        fields.append(os.path.basename(str(d.get("cwd") or "").rstrip("/")))
+        have = set(_words(" ".join(fields)))
         hit = set()
         for i, w in enumerate(query):
             if w in have:
@@ -639,6 +642,11 @@ async def _send_image(websocket, args: dict, watcher, rec: dict, expected_pid, m
     return {"status": "done", "pane": labels[pane_id]}
 
 
+async def _offer(websocket, pane_id: str, pane: dict, *, auto: bool = False) -> None:
+    await websocket.send_json(
+        {"type": "open_pane", "pane_id": pane_id, "label": _pane_name(pane), "auto": auto})
+
+
 async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = False) -> dict:
     """Put an Open button for a pane in the chat. It changes only what the phone shows,
     never the pane, so no consent card guards it, and a button rather than a jump: the user
@@ -652,8 +660,11 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
         if not found:
             return {"status": "no_match",
                     "reason": "no open window has that name; for past work use find_sessions"}
-        if not clear:
-            return {"status": "ambiguous", "reason": "ask which, or open_pane each by pane_id",
+        if not clear:  # a button for each: a window named in the reply is one tap away
+            for d in found:
+                await _offer(websocket, d["pane_id"], d)
+            return {"status": "ambiguous",
+                    "reason": "a button for each is shown, nothing is open; say how they differ",
                     "candidates": [{"pane_id": d["pane_id"], "window": _pane_name(d)}
                                    for d in found]}
         args = {"pane_id": found[0]["pane_id"]}
@@ -669,8 +680,7 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
     if set(args) - {"pane_id"} or not isinstance(pane_id, str) or pane is None:
         return {"status": "rejected", "reason": "malformed call or unknown pane"}
     rec["pane_id"] = pane_id
-    await websocket.send_json(
-        {"type": "open_pane", "pane_id": pane_id, "label": _pane_name(pane), "auto": auto})
+    await _offer(websocket, pane_id, pane, auto=auto)
     # Not "done": the model read that as "opened" and told the user so before any tap.
     return {"status": "button_shown", "pane": _pane_name(pane),
             "reason": "the user taps it to open; nothing is open yet"}
