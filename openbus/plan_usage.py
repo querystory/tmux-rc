@@ -181,6 +181,7 @@ class PlanUsage:
         self.history, self.fetch, self.read = history, fetch, read
         self.accounts: dict[tuple[str, str], dict] = {}
         self._fetched: dict[str, float] = {}
+        self._errors: dict[tuple[str, str], str | None] = {}
 
     def discover(self, panes: list[dict], birth) -> dict[tuple[str, str], dict]:
         """Every account a live agent pane uses, plus the daemon user's own defaults."""
@@ -216,8 +217,8 @@ class PlanUsage:
         accounts = self.discover(panes, birth)
         rows = []
         for (tool, key), account in accounts.items():
-            previous = self.accounts.get((tool, key), {})
-            account["error"] = previous.get("error")
+            # The last fetch's verdict outlives the account's absence from one poll.
+            account["error"] = self._errors.get((tool, key))
             try:
                 if tool == "codex":
                     samples, account["error"] = self.read(account["homes"][0]), None
@@ -230,6 +231,7 @@ class PlanUsage:
                 # The type only: an HTTP error's text could echo request details.
                 logger.info("plan usage unavailable for a %s account: %s", tool, type(e).__name__)
                 samples, account["error"] = [], "unavailable"
+            self._errors[(tool, key)] = account["error"]
             rows += [(tool, key, s["window"], s["seconds"], s["t"], s["pct"], s["resets_at"])
                      for s in samples]
         self.accounts = accounts  # first: a failed write (logged by run()) loses only samples

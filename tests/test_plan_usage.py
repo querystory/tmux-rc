@@ -184,3 +184,17 @@ def test_a_stale_config_dir_does_not_shadow_a_working_one_for_the_same_account(t
     usage = PlanUsage(None)
     usage.fetch = lambda config, now: [config.name] if config.name == "good" else 1 / 0
     assert usage._fetch_any([tmp_path / "stale", tmp_path / "good"], NOW) == ["good"]
+
+
+def test_a_failed_account_stays_unavailable_when_it_reappears_within_the_ttl(tmp_path, monkeypatch):
+    tmp_path.chmod(0o700)
+    work = _claude_home(tmp_path / "claude-work", "u-work", "dev@example.com")
+    monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(tmp_path / "nobody")})
+    monkeypatch.setattr(plan_usage, "pane_env",
+                        lambda pid, tool: {"CLAUDE_CONFIG_DIR": str(work)})
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"), fetch=lambda config, now: 1 / 0)
+    pane = [{"pane_id": "%1", "tool": "claude"}]
+    usage.poll(pane, lambda _: "1", now=NOW)
+    usage.poll([], lambda _: "1", now=NOW + 60)  # its last pane closed
+    usage.poll(pane, lambda _: "1", now=NOW + 120)  # back inside the TTL: no new fetch
+    assert usage.report(now=NOW)[0]["error"] == "unavailable"
