@@ -857,13 +857,18 @@ def test_an_omitted_image_number_is_pinned_to_the_image_on_the_card(monkeypatch)
 
 def test_typing_at_a_password_prompt_says_why_it_was_refused(monkeypatch):
     """send_keys refuses model text at a password prompt; the model is told why, so it can
-    send the user to the app's password field rather than retry."""
+    send the user to the app's password field rather than retry. The refused text is
+    probably the password, so its audit record never carries it, even under QSDEBUG."""
     def refuse(*a, **k):
         raise L.tmux.PasswordPromptError(L.tmux.AT_PASSWORD)
 
+    audits = []
     monkeypatch.setattr(L.tmux, "send_keys", refuse)
     monkeypatch.setattr(L.telemetry, "emit_action", lambda **k: None)
+    monkeypatch.setattr(L.telemetry, "QSDEBUG", True)
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append((a, k)))
     fc = _FC(args={"pane_id": "%2", "text": "hunter2"})
     session = _Session()
     _run(L._handle_tool_call(_WS(), session, fc, _Watcher(), _METER))
     assert "password field" in str(session.responses)
+    assert audits and "hunter2" not in str(audits)

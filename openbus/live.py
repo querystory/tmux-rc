@@ -514,9 +514,12 @@ async def _dispatch(
         logger.warning("[live] %s failed for %s: %s", fc.name, pane_id, rec["detail"],
                        exc_info=telemetry.QSDEBUG)
         # A password prompt refuses model text (tmux.send_keys): say so, so the model
-        # can tell the user to type it in the app.
-        reason = str(e) if isinstance(e, tmux.PasswordPromptError) else "pane did not accept input"
-        return {"status": "error", "reason": reason}
+        # can tell the user to type it in the app. That text is probably the password:
+        # never recorded, even under QSDEBUG.
+        if isinstance(e, tmux.PasswordPromptError):
+            rec["keys"] = None
+            return {"status": "error", "reason": str(e)}
+        return {"status": "error", "reason": "pane did not accept input"}
 
     rec["detail"] = f"into {label}" + (" +enter" if submitted else "")
     watcher.request_reparse(pane_id)
