@@ -318,10 +318,11 @@ class History:
 
     def latest_usage(self, provider: str, account: str) -> list[tuple]:
         """(window, seconds, t, pct, resets_at) of each window's newest sample."""
-        with self.connect() as db:  # SQLite takes the bare columns from the max(t) row
-            return db.execute("SELECT window, seconds, max(t), pct, resets_at FROM plan_usage "
-                              "WHERE provider=? AND account=? GROUP BY window ORDER BY window",
-                              (provider, account)).fetchall()
+        with self.connect() as db:
+            return db.execute("SELECT window, seconds, t, pct, resets_at FROM (SELECT *, "
+                              "row_number() OVER (PARTITION BY window ORDER BY t DESC) AS n "
+                              "FROM plan_usage WHERE provider=? AND account=?) "
+                              "WHERE n=1 ORDER BY window", (provider, account)).fetchall()
 
     def usage_since(self, provider: str, account: str, window: str, since: float) -> list[tuple]:
         with self.connect() as db:
