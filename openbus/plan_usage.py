@@ -229,6 +229,7 @@ class PlanUsage:
             # Stale numbers would mislead, and without History there are none to show.
             error = account["error"] or (None if self.history else "unavailable")
             rows = [] if error else self.history.latest_usage(tool, key)
+            error = error or (None if rows else "no data yet")  # not "no limits": unknown
             out.append({"provider": tool, "label": account["short"] if count[tool] > 1 else None,
                         "panes": account["panes"], "error": error,
                         "windows": [self._window(tool, key, row, now) for row in rows]})

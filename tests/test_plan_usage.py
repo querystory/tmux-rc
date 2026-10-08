@@ -135,3 +135,12 @@ def test_without_history_an_account_reads_unavailable_not_limitless(tmp_path, mo
                                                 "pct": 40.0, "resets_at": NOW + 60}])
     usage.poll([], lambda _: None, now=NOW)
     assert usage.report(now=NOW)[0]["error"] == "unavailable"
+
+
+def test_an_account_with_no_samples_yet_is_not_limitless(tmp_path, monkeypatch):
+    tmp_path.chmod(0o700)
+    (tmp_path / ".codex/sessions").mkdir(parents=True)
+    monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(tmp_path)})
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"), read=lambda home: [])
+    usage.poll([], lambda _: None, now=NOW)
+    assert usage.report(now=NOW)[0]["error"] == "no data yet"

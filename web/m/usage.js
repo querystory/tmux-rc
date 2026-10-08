@@ -39,7 +39,7 @@ export function renderUsage(el, accounts, wide, now = Date.now()) {
   el.hidden = !accounts.length;
   const markup = accounts.map(a => {
     const name = a.label || NAMES[a.provider], by = Object.fromEntries(a.windows.map(w => [w.window, w]));
-    const cells = a.error ? `<div class="usage-cell none wide">unavailable</div>`
+    const cells = a.error ? `<div class="usage-cell none wide">${esc(a.error)}</div>`
       : WINDOWS.map(n => cell(by[n], n, a.provider, wide, now)).join('');
     return `<div class="usage-account"><span class="usage-name"><img src="${LOGOS[a.provider]}" alt="" width="14" height="14">${esc(name)}</span>${cells}</div>`;
   }).join('');
