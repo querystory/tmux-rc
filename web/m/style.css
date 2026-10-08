@@ -669,6 +669,7 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 .usage-account { display: contents; }
 .usage-name { display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; white-space: nowrap; }
 .usage-name img { border-radius: 3px; }
+.usage-name > span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; } /* labels are user-chosen; never let one push the cells off-screen */
 .usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 6px; min-width: 0; }
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
