@@ -166,7 +166,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
   // instead (superseded: a card never holds the next turn hostage). The card shows a final
   // answer only once the daemon confirms it ("decided"); a dropped connection takes the daemon's
   // side of the proposal with it, so any card still open then is expired, never retried.
-  function propose(current, { id, text, image, session, pane_id }) {
+  function propose(current, { id, text, image, pane_id, session }) {
     const row = add("propose", text, false, image ? [image] : []), actions = document.createElement("div");
     if (session) row.lastChild.append(sessionMeta(session));
     actions.className = "voice-actions";
@@ -186,14 +186,6 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     row.append(actions); current.proposals.set(id, { row, actions }); badge();
     actions.scrollIntoView?.({ block: "nearest" }); // a card waiting on the user is never left clipped
   }
-  // Which session a resume card means, past a title several can share (live._approved).
-  function sessionMeta({ tool, cwd, last_active, id }) {
-    const at = Date.parse(last_active), meta = document.createElement("small");
-    const when = at && `${new Date(at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${since({ state_since: at / 1000 })} ago`;
-    meta.className = "voice-meta";
-    meta.textContent = [[tool, cwd], [when, id]].map((line) => line.filter(Boolean).join(" · ")).filter(Boolean).join("\n");
-    return meta;
-  }
   // A button to a pane, going exactly where its row in the list goes (the caller's
   // navigate). A phone minimizes the sheet on the way, a docked panel stays put.
   function openButton(pane_id, label) {
@@ -208,6 +200,14 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     const button = openButton(pane_id, `Open ${label}`);
     add("open").lastChild.append(button);
     if (auto) button.click();
+  }
+  // Which session a resume card means, past a title several can share (live._approved).
+  function sessionMeta({ tool, cwd, last_active, id }) {
+    const at = Date.parse(last_active), meta = document.createElement("small");
+    const when = at && `${new Date(at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${since({ state_since: at / 1000 })} ago`;
+    meta.className = "voice-meta";
+    meta.textContent = [[tool, cwd], [when, id]].map((line) => line.filter(Boolean).join(" · ")).filter(Boolean).join("\n");
+    return meta;
   }
   function settle(current, id, label) {
     const card = current.proposals.get(id);

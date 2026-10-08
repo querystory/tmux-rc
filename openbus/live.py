@@ -456,7 +456,7 @@ async def _approved(
     pid = (await asyncio.to_thread(tmux.pane_pid, pane_id) or "") if known else None
     if known:
         rec["pane_id"] = pane_id  # a real pane: recorded even if declined
-    card = {"type": "propose"}
+    card = {"type": "propose", "pane_id": pane_id if known else None}  # Open
     if fc.name == "resume_session":
         entry = (agent_history.offered() and isinstance(args.get("session_id"), str) and (
             await asyncio.to_thread(agent_history.get, args["session_id"]))) or {}
@@ -478,7 +478,7 @@ async def _approved(
         verb = "Type (no Enter) into" if args.get("press_enter") is False else "Send to"
         summary = f"{verb} {pane}: {args.get('text')}"
     rec["keys"] = summary  # speech, like the dispatch's own record of what it typed
-    card |= {"text": summary, "pane_id": pane_id if known else None}  # pane_id: Open
+    card["text"] = summary
     proposal = uuid.uuid4().hex
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     if meter.superseded:  # a later call in a turn the user already moved on from

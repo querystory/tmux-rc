@@ -26,7 +26,7 @@ const SHOTS = [
   ["wide-needs-you", WIDE, "light", "#pane=%254"],
   ["wide-dashboard", WIDE, "light", "#view=dashboard"],
   ["wide-dashboard-dark", WIDE, "dark", "#view=dashboard"],
-  ["wide-chat", WIDE, "light", "#pane=%259", openChat],
+  ["wide-chat", WIDE, "light", "#pane=%259", chat("Which panes need me?")],
   ["wide-subagents", WIDE, "dark", "#pane=%259", showSubagents],
   ["mobile-list", PHONE, "light", ""],
   ["mobile-list-dark", PHONE, "dark", ""],
@@ -36,10 +36,10 @@ const SHOTS = [
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-no-tmux", PHONE, "light", "", noTmux],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
-  ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
-  ["mobile-chat-open", PHONE, "light", "", (page) => openChat(page, "Let's go back to window 1")],
-  ["mobile-chat-consent", PHONE, "light", "", (page) => openChat(page, "Tell e2e triage to rerun it headed")],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
+  ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .open button")],
+  ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
 ];
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
@@ -70,16 +70,19 @@ async function showSubagents(page) {
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
 }
 
-async function openChat(page, ask = "Which panes need me?") {
+function chat(ask, until) { // hoisted: SHOTS above calls it
+  return async (page) => {
   await page.click("#chat");
   await page.waitForFunction(() => document.getElementById("voice-status")?.textContent === "Connected");
   await page.fill("#chat-input", ask);
   await page.press("#chat-input", "Enter");
   await page.waitForFunction(() => document.querySelectorAll("#voice-log .voice-entry").length >= 2);
+  if (until) await page.waitForSelector(until); // a frame after the transcripts, e.g. open_pane
+  };
 }
 
-// A canned Live Mode socket: answers a typed "Resume..." or "Tell..." with a consent card, a
-// window named with an Open button (open_pane), and anything else with the same summary.
+// A canned Live Mode socket: a window named is offered with an Open button (open_pane), a
+// "tell" or a "Resume..." waits on a consent card, anything else gets the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
@@ -89,9 +92,9 @@ function stubChat(socket) {
     if (message.text.startsWith("Resume")) return socket.send(JSON.stringify({ type: "propose", id: "p1",
       text: "Resume checkout flake hunt", session: { tool: "codex", cwd: "~/src/example-org/storefront",
         last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }));
-    if (/^Tell/.test(message.text)) return socket.send(JSON.stringify({ type: "propose", id: "p1", pane_id: "%9",
+    if (/^Tell/.test(message.text)) socket.send(JSON.stringify({ type: "propose", id: "p1", pane_id: "%9",
       text: 'Send to window 1 "e2e triage": From the user (via text): rerun it headed' }));
-    if (/window/.test(message.text)) {
+    else if (/window/.test(message.text)) {
       socket.send(JSON.stringify({ type: "transcript", role: "model", text: "Window 1 is **e2e triage**, rerunning checkout.spec with tracing on." }));
       socket.send(JSON.stringify({ type: "open_pane", pane_id: "%9", label: 'window 1 "e2e triage"' }));
     } else socket.send(JSON.stringify({ type: "transcript", role: "model", text:
