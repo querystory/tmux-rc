@@ -67,13 +67,15 @@ def test_codex_expunges_rollouts_and_lines(tmp_path):
         (day / f"rollout-2026-10-08T10-00-00-{sid}.jsonl").write_text("x")
         (day / f"rollout-2026-10-09T10-00-00-{sid}_0001.jsonl").write_text("x")  # a segment
     jsonl(root / "history.jsonl", [{"session_id": A}, {"session_id": B}])
-    with (root / "history.jsonl").open("a") as f:
-        f.write(f'{{"session_id":"{A}","text":"cut short by a cra')
+    with (root / "history.jsonl").open("a") as f:  # two lines a crash cut short
+        f.write(f'{{"session_id":"{B}","text":"about {A}, cut sh\n{{"session_id":"{A}","text":"cut')
     jsonl(root / "session_index.jsonl", [{"id": A}, {"id": B}])
     result = expunge.expunge(session("codex", root))
     assert sorted(result["files"]) == [f"rollout-2026-10-08T10-00-00-{A}.jsonl",
                                        f"rollout-2026-10-09T10-00-00-{A}_0001.jsonl"]
     assert result["lines"] == 3
+    assert [line[:20] for line in (root / "history.jsonl").open()] == [
+        f'{{"session_id": "{B}'[:20], f'{{"session_id":"{B}'[:20]]  # B's, even cut short
     assert all(B in p.name for p in day.iterdir()) and len(list(day.iterdir())) == 2
 
 

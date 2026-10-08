@@ -65,9 +65,16 @@ def _stat(pid: int) -> list[str]:
 
 
 def _home(pid: int, var: str, default: str) -> Path:
+    """The dir the agent's environment names in `var`, relative to the agent's own cwd."""
     for kv in tmux.proc_read(pid, "environ").split("\0"):
         if kv.startswith(var + "=") and kv != var + "=":
-            return Path(kv[len(var) + 1:])
+            value = Path(kv[len(var) + 1:])
+            if value.is_absolute():
+                return value
+            try:
+                return Path(os.readlink(f"/proc/{pid}/cwd"), value)
+            except OSError as e:
+                raise Refused("the agent's working directory can't be read") from e
     return Path.home() / default
 
 
@@ -184,14 +191,14 @@ def _drop_lines(path: Path, key: str, sid: str) -> int:
     new one is written, or as it is renamed into place, is carried over to it."""
     path = Path(os.path.realpath(path))
     def ours(line: bytes) -> bool:
-        # A line that names the id but can't be parsed (one a crash cut short) goes too:
-        # it is already corrupt, and keeping it could keep this session's words.
         if sid.encode() not in line:
             return False
         try:
             return json.loads(line).get(key) == sid
         except (ValueError, AttributeError):
-            return True
+            # One a crash cut short goes too if it still shows the id as its own key: it is
+            # already corrupt, and keeping it could keep this session's words.
+            return re.search(rb'"%b"\s*:\s*"%b"' % (key.encode(), sid.encode()), line) is not None
     def kept(data: bytes) -> bytes:
         return b"".join(line for line in data.splitlines(keepends=True) if not ours(line))
     with path.open("rb") as old:
