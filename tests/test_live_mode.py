@@ -251,6 +251,7 @@ class _Fleet(_Watcher):
             pane("%13", "10", "misc:10", "release notifications", "omp"),
             pane("%14", "13", "omp-history", "Follow review instructions", "omp"),
             pane("%10", "25", "❋ slack inbox", "✳ slack inbox", "claude"),
+            pane("%15", "6", "misc:6", "Café 認証 修正", "claude"),
         ]
 
 
@@ -258,6 +259,7 @@ class _Fleet(_Watcher):
     ("slack inbox merge", "%10"),      # a stray word: "inbox" alone must not win
     ("acme linux OMP session", "%12"),  # "acme linux" is "acmelinux"; one tool word loses
     ("window 25", "%10"),
+    ("café 認証", "%15"),             # names are not only ASCII
 ])
 def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,

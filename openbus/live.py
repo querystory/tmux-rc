@@ -248,7 +248,7 @@ _FILLER = frozenset({"the", "a", "my", "window", "pane", "session", "tab"})
 
 
 def _words(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    return re.findall(r"[^\W_]+", text.casefold())  # any script's letters and digits
 
 
 def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
