@@ -145,14 +145,15 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (!grow) {
       row = document.createElement("div"); row.className = "voice-entry";
       row.dataset.role = role;
-      row.classList.add(["user", "model", "typed", "error", "propose", "open"].includes(role) ? role : "model");
+      row.classList.add(["user", "model", "typed", "error", "propose"].includes(role) ? role : "model");
       const heading = document.createElement("strong");
-      heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act", open: "Window" }[role] || "Assistant";
+      heading.textContent = { user: "You", model: "Assistant", typed: "Sent to terminal", error: "Connection", propose: "Wants to act" }[role] || "Assistant";
       row.append(heading, document.createElement("div")); log.insertBefore(row, typing.isConnected ? typing : null);
     }
-    if (role === "model") appendChatMarkdown(row.lastChild, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
-    else row.lastChild.textContent += message || "";
-    row.lastChild.before(...images.map(chatThumb));
+    const body = row.querySelector(".voice-open")?.previousElementSibling || row.lastChild; // text over any Open buttons
+    if (role === "model") appendChatMarkdown(body, message, () => { if (follow) log.scrollTop = log.scrollHeight; });
+    else body.textContent += message || "";
+    body.before(...images.map(chatThumb));
     if (!dialog.open && role !== "user") unread = true; // not the user's own echo
     // Oldest first, but never a proposal still waiting on the user: the daemon would wait
     // forever for a Send/Cancel that is no longer on screen.
@@ -195,10 +196,12 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     button.onclick = () => { if (!docked()) hide(); open(pane_id, at); };
     return button;
   }
-  // open_pane: `auto` (a resume the user just tapped Send on) also takes that path at once.
+  // open_pane: the button goes under this turn's reply, in the same bubble, whether it lands
+  // before the text (the usual order) or after. `auto` (a resume the user just tapped Send
+  // on) also takes that path at once.
   function offer({ pane_id, label, auto }) {
-    const button = openButton(pane_id, `Open ${label}`);
-    add("open").lastChild.append(button);
+    const button = openButton(pane_id, `Open ${label}`), row = add("model", "");
+    (row.querySelector(".voice-open") || row.appendChild(Object.assign(document.createElement("div"), { className: "voice-open" }))).append(button);
     if (auto) button.click();
   }
   // Which session a resume card means, past a title several can share (live._approved).
