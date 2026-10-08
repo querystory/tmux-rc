@@ -317,12 +317,13 @@ class History:
             db.executemany("INSERT OR IGNORE INTO plan_usage VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
 
     def latest_usage(self, provider: str, account: str) -> list[tuple]:
-        """(window, seconds, t, pct, resets_at) of each window's newest sample."""
+        """(window, seconds, t, pct, resets_at) of the latest observation. One read stamps
+        all its windows alike, so a window a plan change dropped is left behind with it."""
         with self.connect() as db:
-            return db.execute("SELECT window, seconds, t, pct, resets_at FROM (SELECT *, "
-                              "row_number() OVER (PARTITION BY window ORDER BY t DESC) AS n "
-                              "FROM plan_usage WHERE provider=? AND account=?) "
-                              "WHERE n=1 ORDER BY window", (provider, account)).fetchall()
+            return db.execute("SELECT window, seconds, t, pct, resets_at FROM plan_usage "
+                              "WHERE provider=?1 AND account=?2 AND t=(SELECT max(t) FROM "
+                              "plan_usage WHERE provider=?1 AND account=?2) ORDER BY window",
+                              (provider, account)).fetchall()
 
     def usage_since(self, provider: str, account: str, window: str, since: float) -> list[tuple]:
         with self.connect() as db:

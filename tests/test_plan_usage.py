@@ -163,3 +163,12 @@ def test_a_redirect_never_carries_the_token():
     request = plan_usage.urllib.request.Request(plan_usage.USAGE_URL)
     assert plan_usage._NoRedirect().redirect_request(
         request, None, 302, "Found", {}, "https://elsewhere.example/") is None
+
+
+def test_a_window_the_plan_dropped_is_not_shown(tmp_path):
+    tmp_path.chmod(0o700)
+    history = History(tmp_path / "h.sqlite3")
+    history.record_usage([("codex", "a", "5h", 18000, NOW, 10, NOW + 60),
+                          ("codex", "a", "7d", 604800, NOW, 20, NOW + 60),
+                          ("codex", "a", "7d", 604800, NOW + 1, 21, NOW + 60)])
+    assert [r[0] for r in history.latest_usage("codex", "a")] == ["7d"]
