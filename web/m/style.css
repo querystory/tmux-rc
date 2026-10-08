@@ -664,23 +664,27 @@ dialog select { width: 100%; min-height: 48px; border: 1px solid var(--line); bo
 
 /* Plan limits (usage.js): one row per account, a cell per window. A phone pins it over the
    list; wide, it sits on the sidebar's foot with each bar swapped for the window's trend. */
-#usage { display: grid; grid-template-columns: max-content 1fr 1fr; gap: 6px 14px; align-items: center; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
+#usage { display: grid; grid-template-columns: max-content 1fr 1fr; gap: 8px 16px; align-items: center; padding: 8px 16px; font-size: 12px; line-height: 16px; flex: none; }
 #usage[hidden], #app.rail #usage { display: none; }
 .usage-account { display: contents; }
 .usage-name { display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; white-space: nowrap; }
 .usage-name img { border-radius: 3px; }
 .usage-name > span { max-width: 9em; overflow: hidden; text-overflow: ellipsis; } /* labels are user-chosen; never let one push the cells off-screen */
-.usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 6px; min-width: 0; }
+.usage-cell { --u: var(--accent); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 0 4px; min-width: 0; }
+.usage-cell[data-w="7d"] { grid-column: -2; } /* the last column, so a weekly-only plan's 7d lines up */
 .usage-cell.warn { --u: var(--amber); }
 .usage-cell.full { --u: var(--red); }
-.usage-cell span, .usage-cell small, .usage-cell.none { color: var(--muted); }
-.usage-cell b { font-variant-numeric: tabular-nums; }
+.usage-cell :is(span, em, small), .usage-cell.none { color: var(--muted); }
+.usage-cell em { font-style: normal; font-size: 11px; }
+.usage-cell b { font-variant-numeric: tabular-nums; margin-left: 2px; }
 .usage-cell:is(.warn, .full) :is(b, small) { color: var(--u); }
-.usage-cell small { font-size: 11px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage-cell small { grid-column: 1 / -1; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .usage-cell.wide { grid-column: span 2; }
 .usage-bar, .usage-spark { grid-column: 1 / -1; }
-.usage-bar { display: block; height: 3px; margin-top: 3px; border-radius: 2px; background: var(--raised); }
-.usage-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--u); }
+.usage-bar { display: block; position: relative; height: 5px; margin: 4px 0 2px; border-radius: 3px; background: var(--raised); }
+.usage-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--u); }
+.usage-bar > .ahead { opacity: .3; }
+.usage-bar > .pace { width: 2px; inset: -2px auto -2px auto; margin-left: -1px; border-radius: 1px; background: var(--fg); opacity: .55; }
 .usage-spark { display: block; width: 100%; height: 24px; margin-top: 3px; overflow: visible; }
 .usage-spark :is(polyline, line) { fill: none; stroke: var(--u); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .usage-spark .proj { stroke-dasharray: 3 3; }

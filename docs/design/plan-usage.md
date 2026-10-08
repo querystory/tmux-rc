@@ -12,6 +12,8 @@ on the phone's list, the sidebar foot on desktop; the collapsed rail leaves it o
 leaves out every card's text), and on desktop a trend with a dashed projection to
 the reset that turns amber when it crosses 100% first.
 
+The first version showed a bare "68%" and "59m", and that read either way: remaining or used, time left or time gone. So each meter now says "used", the time says "resets", and the bar carries direction itself. The fill is what is used. A faint stretch past it is where the fitted pace ends by the reset. A thin tick marks the even pace (the share of the window already gone), so a fill past the tick is ahead of it. Colour follows the projection, not the current value: amber when it ends at 90% or more, red when it runs out before the reset. A window a plan does not have, such as Codex's 5h on a weekly-only plan, is left out rather than drawn as a dash.
+
 ## Accounts, not providers
 
 One person often runs several Claude or Codex logins side by side, each with its own plan.
