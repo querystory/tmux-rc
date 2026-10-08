@@ -999,7 +999,8 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         result = expunge.expunge(s)
         app.state.watcher.forget_checkpoint(pane_id, pid)
     except (OSError, sqlite3.Error, expunge.Refused) as e:
-        _audit(request, "expunge", pane_id, detail, outcome=f"error: {e}"[:80])
+        # Only the error's type: its message can carry a path (a project's name).
+        _audit(request, "expunge", pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise HTTPException(500, f"expunge failed partway: {e}") from e
     _audit(request, "expunge", pane_id, detail)
     return {"ok": True, **result}
