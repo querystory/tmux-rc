@@ -10,18 +10,18 @@ export function countdown(ms) {
   return d ? `${d}d${h}h` : h ? `${h}h${m % 60}m` : `${m}m`; // statusline-compact: 2d12h, 1h8m
 }
 
-// The window's samples, the even pace (a faint diagonal from 0% at its start to 100% at
+// The window's samples held to now, the even pace (a faint diagonal from 0% at its start to 100% at
 // its reset) and, dashed, the fitted pace from the latest sample on to the reset, or to
 // 100% if it gets there first. x spans the window, y 0..100%.
 function spark(w, now) {
   const W = 120, H = 24, span = w.resets_at - w.start;
   const at = ([t, p]) => `${((t - w.start) / span * W).toFixed(1)},${(H - Math.min(p, 100) / 100 * H).toFixed(1)}`;
-  const last = w.samples[w.samples.length - 1] || [Math.min(Math.max(now, w.start), w.resets_at), w.pct];
+  const held = [Math.min(Math.max(now, w.start), w.resets_at), w.pct]; // as project() holds it
   const end = w.limit_at ? [w.limit_at, 100] : [w.resets_at, w.projected ?? w.pct];
   return `<svg class="usage-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
     + `<line x1="0" y1="0.5" x2="${W}" y2="0.5" class="limit"/><line x1="0" y1="${H}" x2="${W}" y2="0" class="limit"/>`
-    + `<polyline points="${[[w.start, 0], ...w.samples].map(at).join(' ')}"/>`
-    + `<polyline class="proj" points="${at(last)} ${at(end)}"/></svg>`;
+    + `<polyline points="${[[w.start, 0], ...w.samples, held].map(at).join(' ')}"/>`
+    + `<polyline class="proj" points="${at(held)} ${at(end)}"/></svg>`;
 }
 
 // A meter that fills up: the fill is what is used, the faint stretch past it is where the

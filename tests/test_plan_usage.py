@@ -58,6 +58,11 @@ def test_claude_response_windows():
          "resets_at": datetime(2026, 10, 9, 4, 0, 0, 71697, tzinfo=UTC).timestamp()}]
 
 
+def test_a_changed_claude_shape_is_an_error_not_zero():
+    with pytest.raises(KeyError):
+        claude_samples({"seven_day": {"utilization": 5}}, NOW)
+
+
 def test_expired_token_is_unavailable_without_a_request(tmp_path, monkeypatch):
     (tmp_path / ".credentials.json").write_text(json.dumps(
         {"claudeAiOauth": {"accessToken": "x", "expiresAt": (NOW - 1) * 1000}}))
@@ -110,7 +115,8 @@ def test_two_claude_config_dirs_are_two_accounts_fetched_once_each(tmp_path, mon
     def fetch(config, now):
         fetched.append(config)
         return claude_samples({"five_hour": {"utilization": 10 if config == work else 60,
-                                             "resets_at": "2026-10-08T14:00:00+00:00"}}, now)
+                                             "resets_at": "2026-10-08T14:00:00+00:00"},
+                               "seven_day": None}, now)
 
     usage = PlanUsage(History(tmp_path / "h.sqlite3"), fetch=fetch)
     panes = [{"pane_id": f"%{i}", "tool": "claude"} for i in "123"]
