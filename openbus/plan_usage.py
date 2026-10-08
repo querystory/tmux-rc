@@ -176,7 +176,8 @@ class PlanUsage:
     def discover(self, panes: list[dict], birth) -> dict[tuple[str, str], dict]:
         """Every account a live agent pane uses, plus the daemon user's own defaults."""
         found: dict[tuple[str, str], dict] = {}
-        sources = [(t, dict(os.environ), None) for t in ENV]
+        sources = [(t, {k: os.environ[k] for k in ("HOME", ENV[t]) if k in os.environ}, None)
+                   for t in ENV]
         sources += [(p["tool"], pane_env(pid, p["tool"]), p["pane_id"]) for p in panes
                     if p.get("tool") in ENV and (pid := birth(p["pane_id"]))]
         for tool, env, pane_id in sources:
@@ -233,7 +234,7 @@ class PlanUsage:
             return {"window": name, "pct": 0.0, "resets_at": None, "samples": []}
         samples = self.history.usage_since(tool, key, name, resets - seconds)
         trend = project(samples, resets, seconds, now)
-        thin = samples[::-1][::-(-len(samples) // SPARK_POINTS)][::-1]
+        thin = samples[::-1][::max(1, -(-len(samples) // SPARK_POINTS))][::-1]
         return {"window": name, "pct": pct, "resets_at": resets * 1000,
                 "start": (resets - seconds) * 1000, "samples": [[t * 1000, p] for t, p in thin],
                 "projected": trend["projected"],
