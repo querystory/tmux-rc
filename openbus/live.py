@@ -17,6 +17,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -240,6 +241,39 @@ def _pane_name(d: dict) -> str:
         name = " ".join(str(name).split()).replace('"', "")
         head += f' "{name}"'
     return head
+
+
+# Words that name the kind of thing, not which one: "the auth fix window".
+_FILLER = frozenset({"the", "a", "my", "window", "pane", "session", "tab"})
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
+    """The live panes a spoken window name may mean, best first, and whether the first
+    clearly wins. A pane scores the query words that its title, window label, tool or
+    number holds as whole words; two adjacent words also match run together, so "qs
+    linux" finds "qslinux". It wins alone on top with most of the words: a stray extra
+    word ("slack inbox merge") still finds "slack inbox", one shared word decides nothing."""
+    query = [w for w in _words(name) if w not in _FILLER]
+
+    def score(d: dict) -> int:
+        have = set(_words(" ".join(str(d.get(k) or "")
+                                   for k in ("title", "label", "tool", "window_index"))))
+        hit = set()
+        for i, w in enumerate(query):
+            if w in have:
+                hit.add(i)
+            if i and query[i - 1] + w in have:
+                hit |= {i - 1, i}
+        return len(hit)
+
+    ranked = [t for t in sorted(((score(d), d) for d in digest), key=lambda t: -t[0]) if t[0]]
+    clear = bool(ranked) and 2 * ranked[0][0] > len(query) and (
+        len(ranked) == 1 or ranked[1][0] < ranked[0][0])
+    return [d for _, d in ranked[:5]], clear
 
 
 def _pane_block(d: dict, screen: str | None) -> str:
@@ -595,9 +629,22 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
     """Put an Open button for a pane in the chat. It changes only what the phone shows,
     never the pane, so no consent card guards it, and a button rather than a jump: the user
     may be mid-sentence in the composer when the reply lands. `auto` jumps as well, for a
-    resume the user just tapped Send on."""
+    resume the user just tapped Send on. A `name` in the user's words is matched against
+    the live panes here, deterministically, rather than left to the model's reading."""
+    digest = watcher.digest()
+    if isinstance(name := args.get("name"), str) and set(args) == {"name"}:
+        rec["keys"] = name  # the user's words: speech, like a transcript
+        found, clear = _match_panes(digest, name)
+        if not found:
+            return {"status": "no_match",
+                    "reason": "no open window has that name; for past work use find_sessions"}
+        if not clear:
+            return {"status": "ambiguous", "reason": "ask which, or open_pane each by pane_id",
+                    "candidates": [{"pane_id": d["pane_id"], "window": _pane_name(d)}
+                                   for d in found]}
+        args = {"pane_id": found[0]["pane_id"]}
     pane_id = args.get("pane_id")
-    pane = next((d for d in watcher.digest() if d["pane_id"] == pane_id), None)
+    pane = next((d for d in digest if d["pane_id"] == pane_id), None)
     # Not published yet: a window resume_session just opened, before the watcher's next tick.
     if pane is None and isinstance(pane_id, str):
         with contextlib.suppress(subprocess.CalledProcessError, OSError):  # tmux unreachable
