@@ -118,10 +118,11 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 }
 /* CSS can't pause an <img>'s SMIL, but generated content can cover it with the still logo. Claude's
    keyframes do stop themselves, but Chromium's motion emulation (devtools, the screenshot harness)
-   never reaches into an image's document, so it is covered the same way. */
+   never reaches into an image's document, so it is covered too: its #still fragment is the same
+   shadowless spark, unmoving, where claude.png would bring back the rim the crop can't cut here. */
 @media (prefers-reduced-motion: reduce) {
   img[src="/omp-working.svg"] { content: url(/omp.svg); }
-  img[src="/claude-working.svg"] { content: url(/claude.png); }
+  img[src="/claude-working.svg"] { content: url(/claude-working.svg#still); }
 }
 .working[data-tool="omp"] { border-radius: 19%; } /* omp's tile is a rounded square (rx 12 of 64); a circle would crop it */
 @media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
