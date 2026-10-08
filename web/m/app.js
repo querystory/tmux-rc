@@ -230,6 +230,7 @@ function route() {
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
+    $("secret").value = ""; // a password is for the pane it was typed at
     $("overview").scrollTop = 0;
     text($("draft-status"), "");
     show("keys", false);
@@ -671,7 +672,7 @@ function render() {
   updateComposer();
   if (focusPushComposer && pane?.question && needsYou(pane)) {
     focusPushComposer = false;
-    requestAnimationFrame(() => $("reply").focus({ preventScroll: true }));
+    requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));
   }
   if (pane && overviewVisible()) loadEvents(pane);
 }
@@ -900,6 +901,14 @@ async function pollState(signal) {
 // way Composer.edited does) but keep any with content, so text is not lost if the pane
 // reappears. The active pane's draft is the editor on screen, so it always stays.
 function pruneDrafts() {
+  // Text already in a pane's draft when its password prompt appeared was likely typed for
+  // it: in any composer, active or not, it must not wait to be sent in the clear later.
+  for (const p of panes) {
+    if (!p.secret) continue;
+    for (const value of [drafts.get(p.pane_id), renderSidebar.drafts.get(p.pane_id)]) {
+      if (value?.segments().length) value.replace([]);
+    }
+  }
   for (const [id, value] of drafts) {
     if (id === active || panes.some((p) => p.pane_id === id)) continue;
     if (value.segments().length || value.pendingEnter) continue;
@@ -911,11 +920,19 @@ function updateComposer() {
   if (!active) return;
   const available = panes.some((p) => p.pane_id === active);
   const value = draft();
+  // A pane at a password prompt (its tty stopped echoing) swaps the draft for a password
+  // field. Its value lives only in that input: never a draft, never stored, cleared
+  // when sent or when the prompt goes away.
+  const secret = !!panes.find((p) => p.pane_id === active)?.secret;
+  if (!secret) $("secret").value = ""; // and its draft is cleared by pruneDrafts
+  $("reply").hidden = secret;
+  $("secret").hidden = !secret;
+  $("attach").hidden = secret;
   // Editability depends only on the pane existing: a non-editable div loses focus and
   // dismisses the phone keyboard on every send, and `sending` already guards re-entry.
   $("reply").contentEditable = String(available);
   $("reply").setAttribute("aria-disabled", String(!available));
-  $("send").disabled = sending || !available || (!value.segments().length && !value.pendingEnter);
+  $("send").disabled = sending || !available || (secret ? !$("secret").value : !value.segments().length && !value.pendingEnter);
   $("attach").disabled = sending || !available;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
 }
@@ -980,18 +997,20 @@ function cursorIO(id) {
 }
 // Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come
 // through here, so they share one endpoint and one confirmation. Resolves to delivered.
+// `value` is a Composer, or the password input, whose text goes as the one "secret" field.
 async function compose(id, value) {
-  const segments = value.segments();
+  const secret = value === $("secret");
   sending = true; notice(); render();
   try {
     const form = new FormData();
-    for (const segment of segments) {
+    if (secret) form.append("secret", value.value);
+    else for (const segment of value.segments()) {
       if (segment.file) form.append("image", segment.file);
       else form.append("text", segment.text);
     }
     await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
-    value.replace([]);
-    value.pendingEnter = false;
+    if (secret) value.value = "";
+    else { value.replace([]); value.pendingEnter = false; }
     if (active === id) text($("draft-status"), "Sent");
     startState();
     return true;
@@ -1000,8 +1019,9 @@ async function compose(id, value) {
 }
 $("reply-form").onsubmit = (event) => {
   event.preventDefault();
-  if (!sending && !$("send").disabled) compose(active, draft());
+  if (!sending && !$("send").disabled) compose(active, $("secret").hidden ? draft() : $("secret"));
 };
+$("secret").oninput = updateComposer;
 // Enter SENDS, Shift+Enter inserts a newline — the standard chat-composer contract.
 // It shipped requiring Cmd/Ctrl+Enter, a shortcut
 // a phone keyboard cannot type at all, so the most obvious way to send did nothing and

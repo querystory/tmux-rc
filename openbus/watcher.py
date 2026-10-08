@@ -225,6 +225,7 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
     s["window_index"] = p.window_index
     s["window_name"] = p.window_name
     s["session_active"] = p.session_active
+    s["secret"] = getattr(p, "secret", False)  # at a password prompt: see Pane.secret
 
 
 def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
@@ -756,6 +757,7 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                s.get("secret"),  # the composer mode: a tty change with an unchanged screen
                 tuple((p.get("repo"), p.get("number"), p.get("title"))
                       for p in (s.get("prs") or [])),
                 # The card renders it, and a refresh can land with no other deck

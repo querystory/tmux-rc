@@ -282,6 +282,44 @@ computed. `/live` is its own tight capture loop — no LLM, its own cadence. `/s
 image upload off the event loop (they run in worker threads) so live streaming and
 polling stay responsive.
 
+## Password prompts
+
+A pane waiting for a password (sudo, ssh, a `read -s`) turns the composer into a password
+field, and what is typed there goes to that pane and nowhere else.
+
+**Detection is two deterministic signals, not the classifier.** A program asking for a
+password switches its terminal's echo off, and the row the cursor sits on ends in a prompt
+like `[sudo] password for x:`. Echo off alone is not enough: agent TUIs, editors and an idle
+shell's readline turn it off too. The first version told them apart by line editing
+(ICANON), on in a password prompt and off in raw apps, and it failed on the first real
+sudo: sudo keeps whatever mode it finds, and an earlier app had left that tty raw, so the
+prompt looked exactly like Claude Code. The cursor's row (its whole line, when a narrow pane wraps a long prompt) is what actually differs: a raw
+app's cursor sits on its own input line, a shell's on its prompt, and output that merely
+mentions a password is never under the cursor. One case the row can't settle is the shell itself: idle readline
+also runs echo off, so a prompt-less shell after `printf 'Password: '` would match. So
+with line editing off, the reader must also not be the shell, which its foreground
+process group shows. That keeps sudo on a raw tty (its own job) and `read -s` (line
+editing on) while ruling out a shell that is merely waiting for a command. "Not the
+shell" alone was rejected as the rule: it would miss `read -s`, and an agent TUI is never
+the shell anyway. Asking the classifier instead would cost a model call, and a misread would put a
+password field over an agent's prompt, or leave a plain composer echoing a password onto
+the screen. The check is one ioctl, plus two tmux calls only when echo is off, so the
+watcher runs it every tick, and the send path runs the same helper again under the pane's
+send lock.
+
+**The secret takes its own narrow path.** Ordinary text goes through `send-keys`, whose
+argv any local `ps` can read, and the audit line carries typed keys by default. The
+secret instead goes in on tmux's stdin through a one-shot paste buffer, pasted without
+bracketed-paste marks (which a prompt would read as part of the password), and its audit line
+says only that a secret was sent, and it must be printable text, since anything after a
+newline or a ^D would run as the shell's next input. The rule also runs the other way: at a password
+prompt, `send-keys` refuses text and every key name that could type, re-checking the prompt
+under the pane's send lock, and refusing when it can't be read. That one choke point covers the composer, the key row,
+Live Mode and push answers together, so a page that is out of date, or a model told the
+password aloud, can't send it down a path that records it. A secret aimed at a pane that is not at a prompt is refused too, so a stale page
+can't type a password into an agent's prompt. The browser keeps the value only in the
+input, which is never a draft and never stored, and is cleared once it is sent.
+
 ## Where to go deeper
 
 - [Design notes index](../) — every subsystem's *why*.

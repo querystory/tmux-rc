@@ -34,6 +34,7 @@ const SHOTS = [
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
+  ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
   ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
 ];
 
