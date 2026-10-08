@@ -1350,9 +1350,9 @@ $("expunge-pane").onclick = async () => {
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     try {
-      // Long enough for the server's whole run (the agent's exit, then busy databases), so a
-      // timeout never reports a failure while the deletion is still going on.
-      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 60000);
+      // No client timeout (setTimeout's largest delay): aborting would not stop the server's
+      // run, so the answer must be its own outcome, never a failure while it deletes on.
+      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 2 ** 31 - 1);
       notice(`Expunged: ${done.files.length} files and ${done.lines} history lines deleted.`);
     } catch (error) { notice(`Expunge failed: ${error.detail || error.message}`); }
   };
