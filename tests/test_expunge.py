@@ -168,6 +168,9 @@ def test_identify_finds_the_one_agent_under_the_pane(monkeypatch, tmp_path):
     assert s.index == tmp_path / "index" / "claude"  # the agent's AGENT_HISTORY_DIR, not ours
     with pytest.raises(Refused, match="different session"):
         expunge.identify("10", "", expected=B)
+    monkeypatch.setattr(tmux, "proc_read", lambda pid, name: f"HOME={tmp_path}\0" * (
+        name == "environ") or "")
+    assert expunge._home(11, "CODEX_HOME", ".codex") == tmp_path / ".codex"  # its HOME
 
 
 @pytest.mark.parametrize(("procs", "screen", "reason"), [

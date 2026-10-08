@@ -65,17 +65,16 @@ def _stat(pid: int) -> list[str]:
 
 
 def _home(pid: int, var: str, default: str) -> Path:
-    """The dir the agent's environment names in `var`, relative to the agent's own cwd."""
-    for kv in tmux.proc_read(pid, "environ").split("\0"):
-        if kv.startswith(var + "=") and kv != var + "=":
-            value = Path(kv[len(var) + 1:])
-            if value.is_absolute():
-                return value
-            try:
-                return Path(os.readlink(f"/proc/{pid}/cwd"), value)
-            except OSError as e:
-                raise Refused("the agent's working directory can't be read") from e
-    return Path.home() / default
+    """The dir the agent's environment names in `var`, else `default` under the agent's
+    own HOME, resolved against the agent's own cwd: never the daemon's."""
+    env = dict(kv.split("=", 1) for kv in tmux.proc_read(pid, "environ").split("\0") if "=" in kv)
+    value = Path(env.get(var) or Path(env.get("HOME") or Path.home(), default))
+    if value.is_absolute():
+        return value
+    try:
+        return Path(os.readlink(f"/proc/{pid}/cwd"), value)
+    except OSError as e:
+        raise Refused("the agent's working directory can't be read") from e
 
 
 def _index(pid: int, harness: str) -> Path:
