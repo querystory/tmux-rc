@@ -9,6 +9,7 @@ See docs/design/plan-usage.md.
 from __future__ import annotations
 
 import asyncio
+import heapq
 import json
 import logging
 import os
@@ -96,10 +97,12 @@ def read_codex(codex_home: Path) -> list[dict]:
     """The latest limits Codex logged under this home. Concurrent sessions each write
     their own log, so the newest event wins, not the newest-touched file; a log last
     written before that event cannot hold a newer one, which ends the scan."""
-    files = sorted((codex_home / "sessions").glob("*/*/*/*.jsonl"),
-                   key=lambda f: f.stat().st_mtime, reverse=True)
+    # Every log is stat'ed (a long session keeps writing a file in an old date dir), but
+    # only the newest CODEX_FILES are kept: ~1ms for a few hundred logs.
+    files = heapq.nlargest(CODEX_FILES, (codex_home / "sessions").glob("*/*/*/*.jsonl"),
+                           key=lambda f: f.stat().st_mtime)
     best: list[dict] = []
-    for path in files[:CODEX_FILES]:
+    for path in files:
         if best and path.stat().st_mtime < best[0]["t"]:
             break
         if (samples := _last_limits(path)) and (not best or samples[0]["t"] > best[0]["t"]):
@@ -130,7 +133,8 @@ def claude_account(config: Path, env: dict) -> dict | None:
     except (OSError, ValueError):
         return None
     short = (account.get("emailAddress") or "?").split("@")[0]
-    return account.get("accountUuid") and {"key": account["accountUuid"], "short": short}
+    return account.get("accountUuid") and {"key": account["accountUuid"], "short": short,
+                                           "long": account.get("emailAddress") or short}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -193,8 +197,9 @@ class PlanUsage:
         for tool, env, pane_id in sources:
             config = home(tool, env)
             if tool == "codex":
-                ident = (config / "sessions").is_dir() and {"key": str(config),
-                                                            "short": config.name.lstrip(".")}
+                tilde = str(config).replace(str(Path.home()), "~")
+                ident = (config / "sessions").is_dir() and {
+                    "key": str(config), "short": config.name.lstrip("."), "long": tilde}
             else:
                 ident = claude_account(config, env)
             if ident:
@@ -265,13 +270,18 @@ class PlanUsage:
         now = time.time() if now is None else now
         accounts = self.accounts  # one snapshot: poll() swaps it from a worker thread
         count = {t: sum(k[0] == t for k in accounts) for t in ENV}
+        shorts = [(k[0], a["short"]) for k, a in accounts.items()]
         out = []
         for (tool, key), account in accounts.items():
             # Stale numbers would mislead, and without History there are none to show.
             error = account["error"] or (None if self.history else "unavailable")
             rows = [] if error else self.history.latest_usage(tool, key)
             error = error or (None if rows else "no data yet")  # not "no limits": unknown
-            out.append({"provider": tool, "label": account["short"] if count[tool] > 1 else None,
+            # One account: the provider's name. Several: short names, the full one on a clash.
+            short = account["short"]
+            label = (None if count[tool] < 2 else short if shorts.count((tool, short)) < 2
+                     else account["long"])
+            out.append({"provider": tool, "label": label,
                         "panes": account["panes"], "error": error,
                         "windows": [self._window(tool, key, row, now) for row in rows]})
         return sorted(out, key=lambda a: (a["provider"], a["label"] or ""))

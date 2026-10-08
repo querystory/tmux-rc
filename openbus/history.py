@@ -25,6 +25,7 @@ STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
 AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
+USAGE_KEEP = 8 * 86400  # plan_usage, unlike pane history, is pruned: see record_usage
 LEAD_BUCKETS = 2880  # 24h of 5-minute buckets plus a 7d lead fits; a 90d lead at 1h does not
 
 
@@ -320,6 +321,9 @@ class History:
         stamped with its log event's time, so re-reading the same event is a no-op."""
         with self.connect() as db:
             db.executemany("INSERT OR IGNORE INTO plan_usage VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+            # Only a current window is ever drawn: keep the longest one (7d) plus a day.
+            db.execute("DELETE FROM plan_usage WHERE t < ?",
+                       (max(r[4] for r in rows) - USAGE_KEEP,))
 
     def latest_usage(self, provider: str, account: str) -> list[tuple]:
         """(window, seconds, t, pct, resets_at) of the latest observation. One read stamps

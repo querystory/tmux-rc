@@ -198,3 +198,19 @@ def test_a_failed_account_stays_unavailable_when_it_reappears_within_the_ttl(tmp
     usage.poll([], lambda _: "1", now=NOW + 60)  # its last pane closed
     usage.poll(pane, lambda _: "1", now=NOW + 120)  # back inside the TTL: no new fetch
     assert usage.report(now=NOW)[0]["error"] == "unavailable"
+
+
+def test_clashing_short_names_fall_back_to_the_full_name():
+    usage = PlanUsage(None)
+    usage.accounts = {("claude", k): {"short": "dev", "long": f"dev@{k}.example", "panes": [],
+                                      "error": None} for k in ("home", "work")}
+    assert sorted(a["label"] for a in usage.report(now=NOW)) == [
+        "dev@home.example", "dev@work.example"]
+
+
+def test_samples_older_than_the_longest_window_are_pruned(tmp_path):
+    tmp_path.chmod(0o700)
+    history = History(tmp_path / "h.sqlite3")
+    history.record_usage([("codex", "a", "7d", 604800, NOW - 9 * 86400, 50, NOW - 2 * 86400)])
+    history.record_usage([("codex", "a", "7d", 604800, NOW, 5, NOW + 60)])
+    assert history.usage_between("codex", "a", "7d", 0, NOW) == [(NOW, 5.0)]
