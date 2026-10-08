@@ -7,6 +7,7 @@ import json
 import re
 
 from openbus.history import History
+from openbus.plan_usage import PlanUsage
 from scripts import demo_fleet as demo
 
 PRIVATE = re.compile(r"/home/|/Users/|querystory|qs-app|tmux-rc|shapor"
@@ -47,3 +48,14 @@ def test_history_fills_the_chart(tmp_path):
     day = history.query("24h", now=demo.NOW)["samples"]
     assert all(s["source"] == "daemon" for s in day)
     assert day[-1]["n"][1] == sum(p["activity"] == "running" for p in demo.fleet())
+
+
+def test_plan_usage_draws_every_state(tmp_path):
+    tmp_path.chmod(0o700)
+    report = demo.seed_usage(PlanUsage(History(tmp_path / "h.sqlite3"))).report(demo.NOW)
+    assert not PRIVATE.findall(json.dumps(report))
+    windows = [w for a in report for w in a["windows"]]
+    assert any(w["limit_at"] for w in windows)  # projected past 100% before the reset
+    assert any(w["pct"] >= 90 for w in windows)
+    assert {a["label"] for a in report} == {"dev", "ops", None}  # two Claudes, one Codex
+    assert any(a["windows"] and all(w["window"] != "5h" for w in a["windows"]) for a in report)

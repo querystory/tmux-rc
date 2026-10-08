@@ -4,6 +4,7 @@ with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 import pytest
 
 from openbus import classify as classify_mod
+from openbus import tmux
 from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
@@ -183,7 +184,8 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
 def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
-    monkeypatch.setattr(classify_mod, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    for module in (classify_mod, tmux):  # the process walk lives in tmux
+        monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
     pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool

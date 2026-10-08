@@ -28,6 +28,7 @@ from .tmux import (
     VISIBLE_SCREEN,
     Pane,
     proc_read,
+    processes,
     strip_dim,
 )
 
@@ -108,15 +109,10 @@ _OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological
 
 def _runs_omp(pid: str) -> bool:
     """Is omp among `pid` and its descendants: argv[0] `omp`, or bun/node running omp?"""
-    todo = [pid]
-    for _ in range(_OMP_PROC_LIMIT):
-        if not todo:
-            break
-        p = todo.pop()
+    for p in processes(pid, _OMP_PROC_LIMIT):
         argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
         if argv[0] == "omp" or (argv[0] in ("bun", "node") and argv[1:] == ["omp"]):
             return True
-        todo += proc_read(p, f"task/{p}/children").split()
     return False
 
 
