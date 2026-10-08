@@ -45,7 +45,8 @@ _lock = threading.Lock()
 
 
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
-    """Why this pane's session can't be expunged."""
+    """Why this pane's session can't be expunged. A fixed sentence, never a path: it is
+    audited."""
 
 
 @dataclass(frozen=True)
@@ -160,10 +161,10 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
     shared = [(s.root, s.root / name) for name in _LINES[s.harness]]
     for root, path in found + shared:
         if not os.path.realpath(path).startswith(os.path.realpath(root) + os.sep):
-            raise Refused(f"{path.name} resolves outside {root.name}")
+            raise Refused("a session file resolves outside its config dir")
     # Unlinking a symlink would report its target deleted while the target stays.
-    if links := [p.name for _, p in found if p.is_symlink()]:
-        raise Refused(f"{links[0]} is a symlink, not the session's own file")
+    if any(p.is_symlink() for _, p in found):
+        raise Refused("a session file is a symlink, not the file itself")
     return [p for _, p in found], [p for _, p in shared if p.exists()]
 
 

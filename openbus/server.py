@@ -938,7 +938,7 @@ def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
     try:
         tmux.kill_window(pane.id, pid)
     except Exception as e:
-        _audit(request, action, pane_id, detail, outcome=f"error: {e}"[:80])
+        _audit(request, action, pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise
     if pid is not None and tmux.pane_pid(pane.id) is not None:
         _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
