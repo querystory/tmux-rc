@@ -26,7 +26,7 @@ USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_WINDOWS = {"five_hour": ("5h", 5 * 3600), "seven_day": ("7d", 7 * 86400)}
 ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
-CODEX_FILES = 5  # newest session logs searched for a limits event
+CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
 
 
@@ -93,11 +93,17 @@ def _last_limits(path: Path) -> list[dict]:
 
 def read_codex(codex_home: Path) -> list[dict]:
     """The latest limits Codex logged under this home. Concurrent sessions each write
-    their own log, so the newest event wins, not the newest-touched file."""
+    their own log, so the newest event wins, not the newest-touched file; a log last
+    written before that event cannot hold a newer one, which ends the scan."""
     files = sorted((codex_home / "sessions").glob("*/*/*/*.jsonl"),
                    key=lambda f: f.stat().st_mtime, reverse=True)
-    found = (s for path in files[:CODEX_FILES] if (s := _last_limits(path)))
-    return max(found, key=lambda s: s[0]["t"], default=[])
+    best: list[dict] = []
+    for path in files[:CODEX_FILES]:
+        if best and path.stat().st_mtime < best[0]["t"]:
+            break
+        if (samples := _last_limits(path)) and (not best or samples[0]["t"] > best[0]["t"]):
+            best = samples
+    return best
 
 
 def claude_samples(data: dict, now: float) -> list[dict]:

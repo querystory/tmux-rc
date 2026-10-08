@@ -7,8 +7,9 @@ Status: **implemented** (`openbus/plan_usage.py`, `web/m/usage.js`).
 A fleet of agents burns subscription limits much faster than one person typing. The
 moment that matters is not "you are at 100%", it is "at this pace you hit 100% an hour
 before the window resets": that is when you pause a sweep, move work to another account,
-or let a pane idle. So the UI shows each window's percentage everywhere (a pinned strip on
-the phone, the sidebar foot on desktop), and on desktop a trend with a dashed projection to
+or let a pane idle. So the UI shows each window's percentage all the time (a pinned strip
+on the phone's list, the sidebar foot on desktop; the collapsed rail leaves it out, as it
+leaves out every card's text), and on desktop a trend with a dashed projection to
 the reset that turns amber when it crosses 100% first.
 
 ## Accounts, not providers
@@ -44,9 +45,10 @@ what Codex itself was told. Fragile, undocumented points: the slot names lie (a
 weekly-only plan reports its week as `primary`, with no `secondary`), so windows are named
 by `window_minutes`; older builds sent `resets_in_seconds` instead of `resets_at`; and a
 `limit_id` other than `codex` is a different meter and is skipped. Logs reach hundreds of
-MB, so only the last MiB of the few most recently written files is read, and the newest
-event among them wins (concurrent sessions each write their own log, so the most recently
-touched file need not hold the newest numbers). A sample is
+MB, so only the last MiB of a log is read. Concurrent sessions each write their own log,
+so the most recently touched file need not hold the newest numbers: logs are scanned
+newest-touched first and the newest event wins, stopping at the first log last written
+before that event (it cannot hold a newer one). A sample is
 stamped with its event's time, so re-reading the same event adds nothing.
 
 **Claude: the OAuth usage endpoint.** Claude Code does hand `rate_limits.five_hour` and
