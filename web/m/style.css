@@ -284,8 +284,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .voice-entry.propose { align-self: stretch; max-width: none; background: transparent; border: 1px solid var(--accent); border-radius: 8px; font-size: 14px; }
 .voice-entry.propose strong { color: var(--accent); }
 .voice-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
-.voice-actions { display: flex; gap: 8px; margin-top: 10px; }
-.voice-actions button, .voice-entry.open button { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
+.voice-actions, .voice-open { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.voice-actions button, .voice-entry button.open { min-height: 40px; padding: 0 18px; border: 1px solid var(--line); border-radius: 20px; }
 .voice-entry button.open { display: inline-flex; align-items: center; gap: 4px; padding-right: 12px; border-color: var(--accent); color: var(--accent); text-align: left; }
 /* Chat's model switcher: between the title and minimize, as small as a label. */
 #voice-switch { width: auto; min-width: 0; max-width: 55%; min-height: 36px; margin-left: auto; padding: 4px 8px; }

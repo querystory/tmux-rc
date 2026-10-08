@@ -140,7 +140,8 @@ const element = () => {
   const node = Object.assign(new EventTarget(), {
     classList: {add: (c) => classes.add(c), contains: (c) => classes.has(c),
       toggle: (c, on = !classes.has(c)) => on ? classes.add(c) : classes.delete(c)},
-    setAttribute() {}, insertAdjacentHTML() {}, querySelector() {}, remove() {},
+    setAttribute() {}, insertAdjacentHTML() {}, remove() {},
+    querySelector: (s) => node.children.find((c) => s === `.${c.className}`), // children only
     showModal() {node.open = node.modal = true;}, show() {node.open = true; node.modal = false;},
     focus() {},
     close() {node.open = false; node.dispatchEvent(new Event('close'));},
@@ -156,6 +157,7 @@ const element = () => {
       [...node.children].forEach((c) => c.remove()); node.append(...children);
     },
     append(...children) {children.forEach((child) => node.insertBefore(child, null));},
+    appendChild(child) {node.append(child); return child;},
     value: '', textContent: '', dataset: {}, children: []});
   Object.defineProperty(node, 'isConnected', {get: () => !!node.parent});
   Object.defineProperty(node, 'previousElementSibling',
@@ -451,6 +453,29 @@ def test_resume_card_names_the_session_past_its_title():
     session: {tool: 'codex', cwd: '~/src/df', last_active: last, id: 'ab12cd34'}})});
   const text = document.getElementById('voice-log').children.at(-1).children[1];
   assert.match(text.lastChild.textContent, /^codex · ~\/src\/df\n.+ · 6d ago · ab12cd34$/);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""", {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_open_buttons_sit_under_the_reply_in_one_bubble():
+    """open_pane's buttons usually land before the turn's text: still one Assistant bubble,
+    text over buttons, and a turn with no text still shows them."""
+    _run_live(r"""
+(async () => {
+  const log = document.getElementById('voice-log');
+  await live.refresh();
+  document.getElementById('chat').onclick(); await flush();
+  const say = (message) => sockets[0].onmessage({data: JSON.stringify(message)});
+  for (const pane_id of ['%1', '%2']) say({type: 'open_pane', pane_id, label: pane_id});
+  say({type: 'transcript', role: 'model', text: 'Here are both.'});
+  say({type: 'turn_complete'});
+  say({type: 'open_pane', pane_id: '%3', label: '%3'});
+  const shape = (row) => row.children.map((c) => c.className || c.textContent);
+  const reply = ['Assistant', '', 'voice-open']; // heading, text, then the buttons
+  assert.deepEqual(log.children.map(shape), [reply, reply]);
+  const labels = (row) => row.lastChild.children.map((b) => b.textContent);
+  assert.deepEqual(log.children.map(labels), [['Open %1', 'Open %2'], ['Open %3']]);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """, {"version": "v", "live_enabled": True, "live_models": [{"label": "Sonnet", "text": True}]})
 
