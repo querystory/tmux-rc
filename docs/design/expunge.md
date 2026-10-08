@@ -84,8 +84,8 @@ is left alone.
 3. Wait for the agent process to exit. If it has not exited after a few seconds, delete
    nothing, since a live agent would only write the files again.
 4. Resolve the targets again and delete them. Shared logs are rewritten through a temp
-   file and an atomic rename, keeping their mode. A line that names the id but can't be
-   parsed, such as one a crash cut short, is dropped as well. It is already corrupt, and
+   file and an atomic rename, keeping their mode. A line that can't be parsed, such as one a
+   crash cut short, is dropped as well if it still shows the id as its own key. It is already corrupt, and
    keeping it could keep this session's words. The result reports counts and
    basenames for the UI, never contents.
 

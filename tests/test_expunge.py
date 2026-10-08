@@ -121,8 +121,9 @@ def test_codex_without_session_id_on_its_status_line_refuses(monkeypatch, tmp_pa
 
 def test_a_leftover_registration_of_the_session_goes_too(claude):
     (claude / "sessions").mkdir()
-    (claude / "sessions/1.json").write_text(json.dumps({"pid": 1, "sessionId": A}))
-    (claude / "sessions/2.json").write_text(json.dumps({"pid": 2, "sessionId": B}))
+    for pid, sid in ((1, A), (2, B)):
+        (claude / f"sessions/{pid}.json").write_text(
+            json.dumps({"pid": pid, "sessionId": sid, "procStart": "9"}))
     assert "1.json" in expunge.expunge(session("claude", claude))["files"]
     assert [p.name for p in (claude / "sessions").iterdir()] == ["2.json"]
 
@@ -251,6 +252,7 @@ def test_kill_window_guard_runs_in_one_tmux_command(monkeypatch):
 def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):
     fake_procs(monkeypatch, tmp_path, {10: ("bash", [11, 12], None), 11: ("claude", [], A),
                                        12: ("claude", [], None)})
-    (tmp_path / "sessions" / "12.json").write_text("{half")
-    with pytest.raises(Refused, match="can't be read"):
-        expunge.identify("10", "")
+    for broken in ("{half", "{}", '{"pid": 12, "sessionId": "x"}'):  # no procStart
+        (tmp_path / "sessions" / "12.json").write_text(broken)
+        with pytest.raises(Refused, match="can't be read"):
+            expunge.identify("10", "")

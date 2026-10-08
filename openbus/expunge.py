@@ -98,7 +98,9 @@ def _registration(path: Path) -> dict:
         return {}
     except (OSError, ValueError):
         reg = None
-    if not isinstance(reg, dict):
+    # Only a complete registration can be told stale; anything less is unreadable.
+    if not (isinstance(reg, dict) and isinstance(reg.get("pid"), int)
+            and reg.get("sessionId") and reg.get("procStart")):
         raise Refused("an agent registration in this pane can't be read")
     return reg
 
