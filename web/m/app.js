@@ -1346,7 +1346,7 @@ $("expunge-pane").onclick = async () => {
   let plan;
   try { plan = await request(paneUrl(pane, "expunge")); } catch (error) { return notice(error.detail || "Could not find this pane's session."); }
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
-  text($("expunge-what"), `This kills “${title}” and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${n} local file${n === 1 ? "" : "s"} or folder${n === 1 ? "" : "s"}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
+  text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${n} local file${n === 1 ? "" : "s"} or folder${n === 1 ? "" : "s"}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     try {

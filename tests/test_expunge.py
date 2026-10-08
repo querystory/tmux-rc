@@ -102,10 +102,11 @@ def test_lines_appended_during_the_rewrite_survive(claude, monkeypatch):
 
     def racing(src, dst):  # and into the old file as the new one takes its name
         replace(src, dst)
+        writer.write(json.dumps({"display": "late", "sessionId": A}) + "\n")  # the session's
         line("racing")
     monkeypatch.setattr(expunge.tempfile, "mkstemp", appending)
     monkeypatch.setattr(expunge.os, "replace", racing)
-    assert expunge.expunge(session("claude", claude))["lines"] == 1
+    assert expunge.expunge(session("claude", claude))["lines"] == 2  # the late one counts
     assert [json.loads(x)["display"] for x in log.open()] == ["b", A, "during", "racing"]
 
 

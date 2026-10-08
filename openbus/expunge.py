@@ -207,10 +207,11 @@ def _drop_lines(path: Path, key: str, sid: str) -> int:
             os.replace(tmp, path)
         finally:
             Path(tmp).unlink(missing_ok=True)
-        if late := old.read():  # appended to the old file since the first read
+        late = old.read()  # appended to the old file since the first read
+        if late:
             with path.open("ab") as f:
                 f.write(kept(late))
-    return len(data.splitlines()) - len(keep.splitlines())
+    return sum(len(d.splitlines()) - len(kept(d).splitlines()) for d in (data, late))
 
 
 def expunge(s: Session) -> dict:
