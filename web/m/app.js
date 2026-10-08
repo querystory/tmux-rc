@@ -168,7 +168,7 @@ async function request(url, options = {}, timeout = REQUEST_TIMEOUT_MS) {
     external?.removeEventListener("abort", abort);
   }
 }
-const post = (url, body) => request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const post = (url, body, timeout) => request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeout);
 // Browser failures -> /api/client-error -> OTel (#57): a phone has no devtools, so a swallowed
 // mic denial or uncaught exception is otherwise invisible. Best-effort, deduped and capped, and
 // a failed report is never itself reported (no recursion).
@@ -1350,7 +1350,9 @@ $("expunge-pane").onclick = async () => {
   $("expunge-confirm").onclick = async () => {
     $("expunge-dialog").close();
     try {
-      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id });
+      // Long enough for the server's whole run (the agent's exit, then busy databases), so a
+      // timeout never reports a failure while the deletion is still going on.
+      const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 60000);
       notice(`Expunged: ${done.files.length} files, ${done.lines} history lines, ${done.rows} database rows deleted.`);
     } catch (error) { notice(`Expunge failed: ${error.detail || error.message}`); }
   };

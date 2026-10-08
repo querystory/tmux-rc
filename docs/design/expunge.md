@@ -70,7 +70,9 @@ history (counts and states per minute) holds no session content and is left alon
 1. Identify the session and resolve every target while the agent is still alive.
    If any path, through a symlink, resolves outside its root, refuse before
    anything is killed.
-2. Kill the window, using the same path as "Kill window".
+2. Kill the window, using the same path as "Kill window", but only while the pane
+   still belongs to the process that was identified. tmux reuses pane ids, and a
+   recycled `%N` must never take a newer window down with it.
 3. Wait for the agent process to exit. If it has not exited after a few seconds, delete
    nothing, since a live agent would only write the files again.
 4. Resolve the targets again and delete them. Shared logs are rewritten through a temp
@@ -87,10 +89,13 @@ The audit line records the pane and the session id, and nothing else.
   so they refuse rather than guess.
 - Codex threads the session spawned have their own ids and are left in place. Only
   their agent-history entries go, since those sit under the parent.
-- A line another agent appends to a shared `history.jsonl` between the read and the
-  rename is lost. That window is milliseconds long, and the alternative, locking
+- Expunges are serialized within the daemon, so two never undo each other's rewrites.
+  A line another agent appends to a shared `history.jsonl` between the read and the
+  rename is still lost. That window is milliseconds long, and the alternative, locking
   files the harnesses do not lock, would not stop them anyway.
 - Claude's hook-driven agent-history indexer can race the deletion and rewrite the
   entry. Deleting the transcript first and the index entry last keeps that window small.
+- Codex's shared app-server, not the closed client, holds the thread. If it writes to
+  the thread again after the deletion, a fragment can reappear.
 - OpenTelemetry exports, provider-side retention, backups, and copies in shell
   scrollback or other tools are out of reach.

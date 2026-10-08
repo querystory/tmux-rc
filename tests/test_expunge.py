@@ -152,14 +152,19 @@ def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
 
 def test_route_kills_first_then_deletes(monkeypatch, claude):
     order = []
-    monkeypatch.setattr(tmux, "find_pane", lambda _p: object())
+    pane = SimpleNamespace(pid="999")  # tmux gave %1 to a newer process: refuse to kill it
+    monkeypatch.setattr(tmux, "find_pane", lambda _p: pane)
     monkeypatch.setattr(tmux, "kill_window", lambda _p: order.append("kill"))
     monkeypatch.setattr(expunge, "identify", lambda *_a: Session("claude", A, claude, 1, "1"))
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
     history = SimpleNamespace(delete_checkpoints=lambda uids: order.append(uids))
     server.app.state.watcher = SimpleNamespace(snapshots={}, checkpoint_uid=lambda _p: "uid")
     server.app.state.history = history
-    r = TestClient(server.app).post("/api/panes/%251/expunge", json={"session_id": A})
+    client = TestClient(server.app)
+    assert client.post("/api/panes/%251/expunge", json={"session_id": A}).status_code == 409
+    assert not order
+    pane.pid = "1234"  # the pid conftest's pane_pid reports, as identified
+    r = client.post("/api/panes/%251/expunge", json={"session_id": A})
     assert r.status_code == 200 and r.json()["lines"] == 1
     assert order == ["kill", "gone", ["uid"]]
     assert not (claude / f"projects/-src-api/{A}.jsonl").exists()

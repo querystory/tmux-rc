@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,11 @@ _FILES = {
 _INDEX = ("{id}.md", "{id}")  # agent-history's entry, and its subagents' entries
 _LINES = {"claude": {"history.jsonl": "sessionId"},
           "codex": {"history.jsonl": "session_id", "session_index.jsonl": "id"}}
+
+
+# One expunge at a time: each rewrites shared logs by read, filter and replace, and two at
+# once would each restore the lines the other removed.
+_lock = threading.Lock()
 
 
 class Refused(Exception):  # noqa: N818 - a refusal, not an error: nothing was touched
@@ -172,6 +178,11 @@ def _drop_rows(db: Path, sid: str) -> int:
 
 def expunge(s: Session) -> dict:
     """Delete everything targets() names. Call only once the agent is gone (wait_gone)."""
+    with _lock:
+        return _expunge(s)
+
+
+def _expunge(s: Session) -> dict:
     own, shared = targets(s)
     for path in own:
         if path.is_dir() and not path.is_symlink():

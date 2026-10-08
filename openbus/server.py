@@ -927,10 +927,15 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
-def _kill_window(request: Request, pane_id: str, action: str, detail: str = "") -> None:
-    if tmux.find_pane(pane_id) is None:
-        _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
-        raise HTTPException(404, "pane not found")
+def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
+                 pid: str | None = None) -> None:
+    """Kill the pane's window; with `pid`, only while that process still owns the pane
+    (tmux reuses pane ids, so the id alone could name a newer window)."""
+    pane = tmux.find_pane(pane_id)
+    if pane is None or pid not in (None, pane.pid):
+        reason = "pane not found" if pane is None else "the pane changed"
+        _audit(request, action, pane_id, detail, outcome=f"rejected: {reason}")
+        raise HTTPException(404 if pane is None else 409, reason)
     try:
         tmux.kill_window(pane_id)
     except Exception as e:
@@ -958,7 +963,7 @@ def _pane_session(pane_id: str, expected: str | None = None):
     snaps = app.state.watcher.snapshots.get(pane_id) or [{}]
     try:
         s = expunge.identify(pid, snaps[-1].get("text") or "", expected)
-        return s, expunge.targets(s)
+        return pid, s, expunge.targets(s)
     except expunge.Refused as e:
         raise HTTPException(409, str(e)) from e
 
@@ -966,7 +971,7 @@ def _pane_session(pane_id: str, expected: str | None = None):
 @app.get("/api/panes/{pane_id}/expunge")
 def expunge_preview(pane_id: str):
     """What Expunge would delete, for the confirmation to name."""
-    s, (own, shared) = _pane_session(pane_id)
+    _, s, (own, shared) = _pane_session(pane_id)
     return {"harness": s.harness, "session_id": s.session_id,
             "files": [p.name for p in own], "shared": [p.name for p in shared]}
 
@@ -978,12 +983,12 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
     line names the pane and session, never what was deleted."""
     detail = f"session={body.session_id[:64]}"
     try:
-        s, _ = _pane_session(pane_id, body.session_id)
+        pid, s, _ = _pane_session(pane_id, body.session_id)
     except HTTPException as e:
         _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
         raise
     uid = app.state.watcher.checkpoint_uid(pane_id)
-    _kill_window(request, pane_id, "expunge", detail)
+    _kill_window(request, pane_id, "expunge", detail, pid)
     if not expunge.wait_gone(s):
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
         raise HTTPException(409, "the window closed, but the agent is still running: "
