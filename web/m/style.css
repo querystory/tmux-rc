@@ -103,10 +103,10 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 .pane-icon > img:first-child { width: 100%; height: 100%; padding: 6px; box-sizing: border-box; border-radius: 50%; background: var(--raised); }
 .needs-you .pane-icon > img:first-child { background: var(--surface); }
 .pane-icon > .working:first-child { background: var(--accent-bg); }
-.pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src="/omp-working.svg"]) { padding: 0; }
+.pane-icon > img:first-child:is([src="/claude.png"], [src="/opencode.svg"], [src="/omp.svg"], [src$="-working.svg"]) { padding: 0; }
 /* Claude's png carries a ~1px drop shadow on its bottom and right edges, which reads as a dark rim on
-   the disc: crop it off (unless working, where the clip would also cut the ring). */
-.pane-icon > img[src="/claude.png"]:not(.working):first-child { clip-path: circle(48.5% at 48.5% 48.5%); }
+   the disc: crop it off. Working, it is swapped for its own SVG, which has none, so the ring is uncut. */
+.pane-icon > img[src="/claude.png"]:first-child { clip-path: circle(48.5% at 48.5% 48.5%); }
 .pane-icon .model-badge { width: 18px; height: 18px; right: -2px; bottom: -2px; }
 /* Working logo: one treatment for the list row and the dashboard tile (see markWorking). A soft
    glow ring that breathes with the logo; transform only, so it never relayouts or repaints. */
@@ -114,10 +114,15 @@ a.icon-button { color: var(--fg); text-decoration: none; }
 @media (prefers-reduced-motion: no-preference) {
   .working { animation: logo-clench 1.4s ease-in-out infinite; }
   .working[data-tool="codex"] { animation: logo-spin 3s linear infinite; }
-  .working[data-tool="omp"] { animation: none; } /* omp's sweep is its own SVG (markWorking swaps it in) */
+  .working:is([data-tool="omp"], [data-tool="claude"]) { animation: none; } /* their motion is their own SVG (markWorking swaps it in) */
 }
-/* CSS can't pause an <img>'s SMIL, but generated content can cover it with the still logo. */
-@media (prefers-reduced-motion: reduce) { img[src="/omp-working.svg"] { content: url(/omp.svg); } }
+/* CSS can't pause an <img>'s SMIL, but generated content can cover it with the still logo. Claude's
+   keyframes do stop themselves, but Chromium's motion emulation (devtools, the screenshot harness)
+   never reaches into an image's document, so it is covered the same way. */
+@media (prefers-reduced-motion: reduce) {
+  img[src="/omp-working.svg"] { content: url(/omp.svg); }
+  img[src="/claude-working.svg"] { content: url(/claude.png); }
+}
 .working[data-tool="omp"] { border-radius: 19%; } /* omp's tile is a rounded square (rx 12 of 64); a circle would crop it */
 @media (forced-colors: active) { .working { outline: 2px solid Highlight; outline-offset: 1px; } } /* box-shadow is dropped in forced colors */
 @keyframes logo-clench { 0%, 100% { transform: scale(1); } 50% { transform: scale(.78); } }
