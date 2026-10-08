@@ -251,13 +251,18 @@ class _Fleet(_Watcher):
             pane("%13", "10", "misc:10", "release notifications", "omp"),
             pane("%14", "13", "omp-history", "Follow review instructions", "omp"),
             pane("%10", "25", "❋ slack inbox", "✳ slack inbox", "claude"),
+            pane("%15", "6", "misc:6", "Café 認証 修正", "claude"),
+            pane("%16", "25", "other:25", "auth fix", "codex"),  # same number
+            pane("%17", "4", "misc:4", "release 25 notes", "claude"),  # number in title
         ]
 
 
 @pytest.mark.parametrize(("name", "pane_id"), [
     ("slack inbox merge", "%10"),      # a stray word: "inbox" alone must not win
     ("acme linux OMP session", "%12"),  # "acme linux" is "acmelinux"; one tool word loses
-    ("window 25", "%10"),
+    ("window 25 slack", "%10"),        # the number filters, the words choose
+    ("window 25 auth", "%16"),
+    ("café 認証", "%15"),             # names are not only ASCII
 ])
 def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
@@ -268,6 +273,7 @@ def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, na
 
 @pytest.mark.parametrize(("name", "status", "candidates"), [
     ("the omp pane", "ambiguous", ["%13", "%14"]),
+    ("window 25", "ambiguous", ["%10", "%16"]),  # never %17, whose title says 25
     ("deploy dashboard", "no_match", []),
 ])
 def test_open_pane_by_name_offers_candidates_rather_than_guess(

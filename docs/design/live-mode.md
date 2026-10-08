@@ -461,8 +461,9 @@ model twice opened the wrong window: "take me to the slack inbox merge" (a voice
 "pane") went to past-session search, whose top hits matched all three words, and opened
 the pane running one of them rather than the window titled "slack inbox"; "the QS linux
 OMP session" read the tool column and chose an idle omp pane. So `open_pane` takes the
-user's words and scores each live pane by the words its title, label, tool and number hold
-whole (two adjacent words may also match run together, for "qslinux"). A pane opens only
+user's words and scores each live pane by the words its title, label and tool hold whole
+(two adjacent words may also match run together, for "qslinux"); a "window N" first
+narrows to panes with that number, so a 25 in some other title never competes. A pane opens only
 when it alone tops the scores with most of the words; otherwise the model gets the closest
 few to ask about or offer side by side, or "no match" and a pointer to find_sessions. A
 deterministic matcher is testable and cannot be talked out of an exact title; prompt rules

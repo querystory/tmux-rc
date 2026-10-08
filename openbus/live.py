@@ -248,30 +248,34 @@ _FILLER = frozenset({"the", "a", "my", "window", "pane", "session", "tab"})
 
 
 def _words(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    return re.findall(r"[^\W_]+", text.casefold())  # any script's letters and digits
 
 
 def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
     """The live panes a spoken window name may mean, best first, and whether the first
-    clearly wins. A pane scores the query words that its title, window label, tool or
-    number holds as whole words; two adjacent words also match run together, so "qs
-    linux" finds "qslinux". It wins alone on top with most of the words: a stray extra
-    word ("slack inbox merge") still finds "slack inbox", one shared word decides nothing."""
+    clearly wins. A pane scores the query words that its title, window label or tool holds
+    as whole words; two adjacent words also match run together, so "qs linux" finds
+    "qslinux". A "window N" in the name keeps only panes with that number and counts as a
+    word they all hold. It wins alone on top with most of the words: a stray extra word
+    ("slack inbox merge") still finds "slack inbox", one shared word decides nothing."""
+    number = re.search(r"\bwindow\s+(\d+)", name, re.IGNORECASE)
+    if number:
+        digest = [d for d in digest if str(d.get("window_index")) == number[1]]
+        name = name[:number.start()] + name[number.end():]
     query = [w for w in _words(name) if w not in _FILLER]
 
     def score(d: dict) -> int:
-        have = set(_words(" ".join(str(d.get(k) or "")
-                                   for k in ("title", "label", "tool", "window_index"))))
+        have = set(_words(" ".join(str(d.get(k) or "") for k in ("title", "label", "tool"))))
         hit = set()
         for i, w in enumerate(query):
             if w in have:
                 hit.add(i)
             if i and query[i - 1] + w in have:
                 hit |= {i - 1, i}
-        return len(hit)
+        return len(hit) + bool(number)
 
     ranked = [t for t in sorted(((score(d), d) for d in digest), key=lambda t: -t[0]) if t[0]]
-    clear = bool(ranked) and 2 * ranked[0][0] > len(query) and (
+    clear = bool(ranked) and 2 * ranked[0][0] > len(query) + bool(number) and (
         len(ranked) == 1 or ranked[1][0] < ranked[0][0])
     return [d for _, d in ranked[:5]], clear
 
