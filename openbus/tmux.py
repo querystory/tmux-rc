@@ -488,17 +488,22 @@ VISIBLE_SCREEN = "\x1e[visible screen]\x1f"
 # which renders near-white. Marking it distinctly stops every LLM path from reading the
 # suggestion as a real, pending instruction. Glyphs: ❯ (U+276F, Claude Code) and › (Codex),
 # each followed by a space (regular, or the non-breaking space Claude Code uses).
+# _mark_dim merges a run across rows, and Claude's gray box border sits on both sides of
+# that row, so live the row opens with the border's ⟪/dim⟫ and the run after the glyph
+# goes on into the border below: the suggestion ends at the close or at its row's end.
 PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE = "⟪placeholder⟫", "⟪/placeholder⟫"
 PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
 _PROMPT_DIM = re.compile(
-    "(?m)^([" + PROMPT_GLYPHS + r"][ \xa0]?)" + re.escape(DIM_OPEN) + r"(.*?)"
-    + re.escape(DIM_CLOSE)
+    "(?m)^((?:" + re.escape(DIM_CLOSE) + ")?[" + PROMPT_GLYPHS + r"][ \xa0]?)"
+    + re.escape(DIM_OPEN) + "(.*?)(?:(" + re.escape(DIM_CLOSE) + r")|([ \t]*)$)"
 )
 
 
 def _mark_placeholder(text: str) -> str:
-    """Promote the dim run right after a prompt glyph to a ⟪placeholder⟫ run."""
-    return _PROMPT_DIM.sub(r"\1" + PLACEHOLDER_OPEN + r"\2" + PLACEHOLDER_CLOSE, text)
+    """Promote the dim run right after a prompt glyph to a ⟪placeholder⟫ run, reopening
+    ⟪dim⟫ after it when the run carried on past the row."""
+    return _PROMPT_DIM.sub(lambda m: m[1] + PLACEHOLDER_OPEN + m[2] + PLACEHOLDER_CLOSE
+                           + ("" if m[3] else DIM_OPEN + m[4]), text)
 
 
 def strip_dim(text: str) -> str:

@@ -213,23 +213,19 @@ class Session:
                 }
             )
 
-    async def send_text(self, text):
+    # The voice frontend takes no images, but the Responses backend does ("Add images and
+    # visual context" in the live-delegation guide), and it is where typed turns go.
+    images = True
+
+    async def send_text(self, text, images=()):
         """The seam's typed-turn verb, for the composer in a voice session (GPT-Live has no
         text output, so it is never offered for a text one). Its voice frontend takes no
-        text, so the turn goes to the reasoning backend, which runs the same tools, and
-        the frontend voices the result."""
+        text or images, so the turn goes to the reasoning backend, which runs the same
+        tools, and the frontend voices the result."""
         if self.closing:
             return
-        await self.send(
-            {
-                "type": "response.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": text}],
-                },
-            }
-        )
+        await self.send({"type": "response.item.create",
+                         "item": live_providers.openai_message("user", text, images)})
         await self.send({"type": "response.create"})
 
     async def send_context(self, text):
@@ -250,16 +246,8 @@ class Session:
         # for terminal noise/non-English text. It is only a hint; pane answers delegate.
         snapshot = text.startswith("[tmux update] current pane state:")
         if text != self.last_context.get(snapshot):
-            await self.send(
-                {
-                    "type": "response.item.create",
-                    "item": {
-                        "type": "message",
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": text}],
-                    },
-                }
-            )
+            await self.send({"type": "response.item.create",
+                             "item": live_providers.openai_message("user", text)})
             self.last_context[snapshot] = text
         # Changed digests keep every pane represented without feeding full screens
         # into the voice model's small context window or repeating unchanged panes.

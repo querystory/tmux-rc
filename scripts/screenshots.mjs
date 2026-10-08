@@ -36,6 +36,7 @@ const SHOTS = [
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .open button")],
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
+  ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
 ];
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:
@@ -63,13 +64,16 @@ function chat(ask, until) { // hoisted: SHOTS above calls it
 }
 
 // A canned Live Mode socket: a window named is offered with an Open button (open_pane), a
-// "tell" waits on a consent card, anything else gets the same summary.
+// "tell" or a "Resume..." waits on a consent card, anything else gets the same summary.
 function stubChat(socket) {
   socket.send(JSON.stringify({ type: "status", status: "listening" }));
   socket.onMessage((raw) => {
     const message = JSON.parse(raw);
     if (message.action !== "text") return;
     socket.send(JSON.stringify({ type: "transcript", role: "user", text: message.text }));
+    if (message.text.startsWith("Resume")) return socket.send(JSON.stringify({ type: "propose", id: "p1",
+      text: "Resume checkout flake hunt", session: { tool: "codex", cwd: "~/src/example-org/storefront",
+        last_active: "2026-06-10T09:12:00Z", id: "5f3a9c1e" } }));
     if (/^Tell/.test(message.text)) socket.send(JSON.stringify({ type: "propose", id: "p1", pane_id: "%9",
       text: 'Send to window 1 "e2e triage": From the user (via text): rerun it headed' }));
     else if (/window/.test(message.text)) {

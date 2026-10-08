@@ -533,8 +533,15 @@ and accept the same types and size (PNG, JPEG, WebP or GIF under 20 MB). The dae
 checks the types against the pane paste's table, but its size limit is Chat's own: at most
 four images a turn and 8 MB together. Unlike a pane paste, a chat image is resent with
 every later request while its turn is kept, so the per-turn budget is what bounds a
-session's history. The daemon also refuses images in a
-voice session, whose models cannot see them through this seam. The client re-encodes
+session's history. A voice session takes them too, where its model can see them: each
+session says so (`images`), and the daemon refuses a turn it cannot carry with the actual
+cause — a voice model without images, too many, too large, wrong type — because a single
+"limits" message sent a user hunting for a size problem on a small screenshot. Realtime
+takes `input_image` in the user item. GPT-Live's voice frontend takes no images, but its
+Responses backend does, and typed turns already go there. Gemini Live on Vertex takes them
+as reply-less client content ahead of the realtime text; as realtime video frames they race
+the text, which 2.5 answered before seeing the frame. 3.x Live on AI Studio accepts client
+content only as initial history, so it stays off there. The client re-encodes
 each image as a JPEG no longer than 1568 px on its long edge before sending. A phone
 photo sent whole is several megabytes of base64 per turn, it exceeds Claude's per-image
 cap, and it is resent with every later request until the turn ages out of the kept
@@ -556,8 +563,8 @@ Delivery is not a second implementation: the tool calls the same function as the
 composer's image endpoint (`server.attach_image`), so the agent gets the image in the form a
 manual paste produces (inline via the clipboard, or the staged path when the session is
 locked), followed by the caption and Enter. Rejected alternative: a loopback HTTP call to the
-endpoint, which would add an auth hop and lose the pane-identity binding. Voice sessions
-refuse the tool, because voice has no images. The audit record carries the image type, size
+endpoint, which would add an auth hop and lose the pane-identity binding. In a voice
+session the tool acts without a card, like that session's other actions. The audit record carries the image type, size
 and target, never the bytes.
 
 ## v0.2 candidates (explicitly out of scope now)
