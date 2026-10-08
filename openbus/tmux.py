@@ -69,23 +69,28 @@ _PASSWORD_PROMPT = re.compile(r"\b(password|passphrase|pin)\b.*:\s*$", re.IGNORE
 _UNREADABLE = (OSError, termios.error, subprocess.CalledProcessError)
 
 
+def _echo_off(tty: str) -> bool:
+    fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        return not termios.tcgetattr(fd)[3] & termios.ECHO
+    finally:
+        os.close(fd)
+
+
 def _password_prompt(pane_id: str, tty: str) -> bool:
     """`tty` has ECHO off and the cursor's row ends in a password prompt (see
     Pane.secret). Raises one of _UNREADABLE when it can't tell; each caller picks its
     own default."""
-    fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
-    try:
-        lflag = termios.tcgetattr(fd)[3]
-    finally:
-        os.close(fd)
-    if lflag & termios.ECHO:
+    if not _echo_off(tty):
         return False
     # The cursor's whole line: a narrow pane wraps a long prompt over several rows, which
     # -J joins. From the top of the screen and a few rows of history, so a prompt's start
     # is cut off only if the prompt is taller than the pane.
     y = _run(["display-message", "-p", "-t", pane_id, "#{cursor_y}"]).strip()
     line = _run(["capture-pane", "-p", "-J", "-t", pane_id, "-S", "-8", "-E", y])
-    return bool(_PASSWORD_PROMPT.search(line.removesuffix("\n").rpartition("\n")[2]))
+    # ECHO again after the screen read: a prompt answered meanwhile left its row behind.
+    return bool(_PASSWORD_PROMPT.search(line.removesuffix("\n").rpartition("\n")[2])) \
+        and _echo_off(tty)
 
 
 @dataclass(frozen=True)
@@ -914,12 +919,12 @@ def send_secret(pane: Pane, secret: str) -> None:
     with _pane_lock(pane.id):
         try:
             _run(["load-buffer", "-b", name, "-"], stdin=secret)
-            # Checked after the load, right before the paste: the pane can be replaced
-            # (and its id recycled) while load-buffer runs.
-            check_pane(pane.id, pane.pid)
+            # Checked after the load, right before the paste, identity last: the pane can
+            # be replaced (and its id recycled) while load-buffer or the prompt check runs.
             if not at_password_prompt(pane.id, unknown=False):
                 raise PaneChangedError(
                     "The pane is no longer asking for a password; nothing was sent.")
+            check_pane(pane.id, pane.pid)
             # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
             _run(["paste-buffer", "-d", "-b", name, "-t", pane.id])
             _run(["send-keys", "-t", pane.id, "Enter"])
