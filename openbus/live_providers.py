@@ -272,9 +272,9 @@ TOOLS = [
             "to window 20”, “show me the auth fix”), including one find_sessions or "
             "resume_session just named (not when its result says shown: the user is already "
             "there), instead of asking what to do there. It changes only what the user sees, "
-            "never the pane. Give name, the window as the user said it, and the open windows "
-            "are matched for you: try it before find_sessions. Give pane_id instead only for "
-            "a pane a tool result named."
+            "never the pane. Give name, just the window as the user named it (auth fix, "
+            "window 20), and the open windows are matched for you: try it before "
+            "find_sessions. Give pane_id instead only for a pane a tool result named."
         ),
         "parameters": {
             "type": "object",
