@@ -958,11 +958,14 @@ def _pane_session(pane_id: str, expected: str | None = None):
     """The pane's one agent session and its targets (openbus/expunge.py), or the refusal.
     A path that resolves outside its root refuses here, before anything is killed."""
     pid = tmux.pane_pid(pane_id)
+    try:  # read now, not from the watcher: a cached screen may predate a recycled pane id
+        screen = tmux.capture_pane(pane_id)
+    except (OSError, subprocess.CalledProcessError):
+        pid = None
     if pid is None:
         raise HTTPException(404, "pane not found")
-    snaps = app.state.watcher.snapshots.get(pane_id) or [{}]
-    try:
-        s = expunge.identify(pid, snaps[-1].get("text") or "", expected)
+    try:  # a screen from a newer pane under this id fails the pid guard on the kill
+        s = expunge.identify(pid, screen, expected)
         return pid, s, expunge.targets(s)
     except expunge.Refused as e:
         raise HTTPException(409, str(e)) from e
@@ -987,7 +990,6 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
     except HTTPException as e:
         _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
         raise
-    uid = app.state.watcher.checkpoint_uid(pane_id)
     _kill_window(request, pane_id, "expunge", detail, pid)
     if not expunge.wait_gone(s):
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
@@ -995,8 +997,7 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
                                  "nothing was deleted")
     try:
         result = expunge.expunge(s)
-        if uid and app.state.history:
-            app.state.history.delete_checkpoints([uid])
+        app.state.watcher.forget_checkpoint(pane_id, pid)
     except (OSError, sqlite3.Error, expunge.Refused) as e:
         _audit(request, "expunge", pane_id, detail, outcome=f"error: {e}"[:80])
         raise HTTPException(500, f"expunge failed partway: {e}") from e

@@ -84,7 +84,7 @@ def _expunge_demo(root: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
     session = expunge.Session("claude", sid, root, 0, "")
-    return lambda *_a: (session, expunge.targets(session))
+    return lambda *_a: ("0", session, expunge.targets(session))
 
 
 @asynccontextmanager

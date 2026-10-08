@@ -177,3 +177,12 @@ def test_retiring_a_pr_rewrites_the_checkpoint(monkeypatch, tmp_path):
     w._pr_titles._cache[("o/r", 1)] = (float("inf"), {"title": "t", "state": "MERGED"})
     w._tick()
     assert w._prs["%1"] == [] and len(saves) == 1
+
+
+def test_an_expunged_pane_is_never_checkpointed_again(monkeypatch, tmp_path):
+    w, _ = daemon(monkeypatch, tmp_path / "h.db")
+    assert w.history.load_checkpoints()
+    w.forget_checkpoint("%1", "101")
+    w._checkpointed.clear()  # stands for a tick that captured the pane before it closed
+    w._tick()
+    assert w.history.load_checkpoints() == {}

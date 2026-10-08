@@ -140,7 +140,8 @@ def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
     killed = []
     monkeypatch.setattr(tmux, "kill_window", killed.append)
     monkeypatch.setattr(expunge, "identify", lambda *_a: Session("claude", A, claude, 1, "1"))
-    server.app.state.watcher = SimpleNamespace(snapshots={})
+    monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
+    server.app.state.watcher = SimpleNamespace()
     client = TestClient(server.app)
     assert client.get("/api/panes/%251/expunge").json()["session_id"] == A
     monkeypatch.setattr(expunge, "identify", lambda *_a: (_ for _ in ()).throw(
@@ -157,14 +158,14 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     monkeypatch.setattr(tmux, "kill_window", lambda _p: order.append("kill"))
     monkeypatch.setattr(expunge, "identify", lambda *_a: Session("claude", A, claude, 1, "1"))
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
-    history = SimpleNamespace(delete_checkpoints=lambda uids: order.append(uids))
-    server.app.state.watcher = SimpleNamespace(snapshots={}, checkpoint_uid=lambda _p: "uid")
-    server.app.state.history = history
+    monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
+    server.app.state.watcher = SimpleNamespace(
+        forget_checkpoint=lambda pane_id, pid: order.append((pane_id, pid)))
     client = TestClient(server.app)
     assert client.post("/api/panes/%251/expunge", json={"session_id": A}).status_code == 409
     assert not order
     pane.pid = "1234"  # the pid conftest's pane_pid reports, as identified
     r = client.post("/api/panes/%251/expunge", json={"session_id": A})
     assert r.status_code == 200 and r.json()["lines"] == 1
-    assert order == ["kill", "gone", ["uid"]]
+    assert order == ["kill", "gone", ("%1", "1234")]
     assert not (claude / f"projects/-src-api/{A}.jsonl").exists()

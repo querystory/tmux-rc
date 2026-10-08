@@ -317,6 +317,7 @@ class Watcher:
         self._prs: dict[str, list[dict]] = {}  # pane_id -> accumulated semantic associations
         self._pr_titles = PRTitles()
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
+        self._forgotten: set[str] = set()  # checkpoint keys Expunge deleted
         # Restart checkpoints: the preload (uid -> row, None until read), the tmux server
         # they are keyed under, and pane_id -> what was last written (skip if unchanged).
         self._checkpoints: dict[str, dict] | None = None
@@ -446,9 +447,13 @@ class Watcher:
             )
         return out
 
-    def checkpoint_uid(self, pane_id: str) -> str | None:
-        """The key of the pane's stored card, while the watcher still knows the pane."""
-        return self._server and pane_key(self._server, pane_id, self._birth.get(pane_id))
+    def forget_checkpoint(self, pane_id: str, pid: str) -> None:
+        """Delete this pane incarnation's stored card (Expunge), and never write it again:
+        a tick that captured the pane before it closed can still be on its way to saving."""
+        uid = pane_key(self._server or "", pane_id, pid)
+        self._forgotten.add(uid)
+        if self.history:
+            self.history.delete_checkpoints([uid])
 
     def snapshot_text(self, pane_id: str, snap_id: str) -> str | None:
         for s in self.snapshots.get(pane_id, []):
@@ -1116,7 +1121,8 @@ class Watcher:
             same = tmux.server_uid(strict=True) == self._server
         except (OSError, subprocess.CalledProcessError):
             same = False
-        if same and self.history.save_checkpoints(rows):
+        rows = [r for r in rows if r["uid"] not in self._forgotten]
+        if same and rows and self.history.save_checkpoints(rows):
             self._checkpointed.update(keys)
 
     def _state_since_for(

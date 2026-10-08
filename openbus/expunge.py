@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import sqlite3
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -157,10 +158,16 @@ def _drop_lines(path: Path, key: str, sid: str) -> int:
         return False
     keep = [line for line in lines if not ours(line)]
     if len(keep) < len(lines):
-        tmp = path.with_name(path.name + ".expunge")
-        tmp.write_bytes(b"".join(keep))
-        shutil.copymode(path, tmp)
-        tmp.replace(path)
+        # A fresh, exclusive temp file: a fixed name could be a planted symlink.
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".expunge")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(b"".join(keep))
+            shutil.copymode(path, tmp)
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
     return len(lines) - len(keep)
 
 
