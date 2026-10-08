@@ -904,7 +904,7 @@ def send_secret(pane: Pane, secret: str) -> None:
     """Answer `pane`'s password prompt with `secret` and submit it. The secret goes in
     on tmux's stdin (`load-buffer -`), never argv, where any local `ps` could read it,
     and its one-shot buffer is deleted as it is pasted. Refuses unless the pane is the
-    same one and still not echoing, checked under the send lock: a stale page must not
+    same one and still at the prompt, checked under the send lock: a stale page must not
     type a password into whatever replaced the prompt."""
     name = f"tmuxrc-secret-{secrets.token_hex(8)}"
     with _pane_lock(pane.id):
@@ -916,7 +916,8 @@ def send_secret(pane: Pane, secret: str) -> None:
             if not at_password_prompt(pane.id, unknown=False):
                 raise PaneChangedError(
                     "The pane is no longer asking for a password; nothing was sent.")
-            _run(["paste-buffer", "-d", "-p", "-b", name, "-t", pane.id])
+            # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
+            _run(["paste-buffer", "-d", "-b", name, "-t", pane.id])
             _run(["send-keys", "-t", pane.id, "Enter"])
         finally:  # -d already deleted it after a paste; any failure must not leave it
             with suppress(OSError, subprocess.CalledProcessError):
