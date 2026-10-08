@@ -61,7 +61,7 @@ def test_claude_response_windows():
 def test_expired_token_is_unavailable_without_a_request(tmp_path, monkeypatch):
     (tmp_path / ".credentials.json").write_text(json.dumps(
         {"claudeAiOauth": {"accessToken": "x", "expiresAt": (NOW - 1) * 1000}}))
-    monkeypatch.setattr(plan_usage.urllib.request, "urlopen", pytest.fail)
+    monkeypatch.setattr(plan_usage._OPENER, "open", pytest.fail)
     with pytest.raises(PermissionError):
         plan_usage.fetch_claude(tmp_path, NOW)
 
@@ -154,3 +154,9 @@ def test_an_account_with_no_samples_yet_is_not_limitless(tmp_path, monkeypatch):
     usage = PlanUsage(History(tmp_path / "h.sqlite3"), read=lambda home: [])
     usage.poll([], lambda _: None, now=NOW)
     assert usage.report(now=NOW)[0]["error"] == "no data yet"
+
+
+def test_a_redirect_never_carries_the_token():
+    request = plan_usage.urllib.request.Request(plan_usage.USAGE_URL)
+    assert plan_usage._NoRedirect().redirect_request(
+        request, None, 302, "Found", {}, "https://elsewhere.example/") is None

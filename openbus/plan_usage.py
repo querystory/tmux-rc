@@ -124,6 +124,14 @@ def claude_account(config: Path, env: dict) -> dict | None:
     return account.get("accountUuid") and {"key": account["accountUuid"], "short": short}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_):  # urllib would carry the token to any redirect target
+        return None  # so a 3xx is an HTTPError: "unavailable"
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def fetch_claude(config: Path, now: float) -> list[dict]:
     """GET the usage endpoint with this config dir's OAuth token, read in-process only.
     An expired token raises rather than refreshing: Claude Code owns that file."""
@@ -132,7 +140,7 @@ def fetch_claude(config: Path, now: float) -> list[dict]:
         raise PermissionError("token expired")
     request = urllib.request.Request(USAGE_URL, headers={
         "Authorization": f"Bearer {oauth['accessToken']}", "anthropic-beta": "oauth-2025-04-20"})
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with _OPENER.open(request, timeout=10) as response:
         return claude_samples(json.load(response), now)
 
 
@@ -233,9 +241,10 @@ class PlanUsage:
 
     def report(self, now: float | None = None) -> list[dict]:
         now = time.time() if now is None else now
-        count = {t: sum(k[0] == t for k in self.accounts) for t in ENV}
+        accounts = self.accounts  # one snapshot: poll() swaps it from a worker thread
+        count = {t: sum(k[0] == t for k in accounts) for t in ENV}
         out = []
-        for (tool, key), account in self.accounts.items():
+        for (tool, key), account in accounts.items():
             # Stale numbers would mislead, and without History there are none to show.
             error = account["error"] or (None if self.history else "unavailable")
             rows = [] if error else self.history.latest_usage(tool, key)
