@@ -162,7 +162,7 @@ def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
     t, p = points[-1]
     projected = p + slope * (resets_at - t)
     return {"projected": round(projected, 1),
-            "limit_at": t + (100 - p) / slope if projected >= 100 and p < 100 else None}
+            "limit_at": t + (100 - p) / slope if projected > 100 and p < 100 else None}
 
 
 class PlanUsage:

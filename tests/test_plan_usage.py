@@ -76,6 +76,9 @@ def test_projection_extends_the_fitted_pace_to_the_reset():
     fast = [(start + h * hour, 25.0 * h) for h in (1, 2, 3)]
     assert project(fast, start + 5 * hour, 5 * hour, start + 3 * hour) == {
         "projected": 125.0, "limit_at": start + 4 * hour}
+    # 20% an hour lands on exactly 100% at the reset: not before it, so no warning.
+    even = [(start + h * hour, 20.0 * h) for h in (1, 2, 3)]
+    assert project(even, start + 5 * hour, 5 * hour, start + 3 * hour)["limit_at"] is None
     # Quiet since: the pace slows, so the forecast moves out instead of into the past.
     later = project(fast, start + 5 * hour, 5 * hour, start + 3.5 * hour)
     assert start + 4 * hour < later["limit_at"] < start + 5 * hour
