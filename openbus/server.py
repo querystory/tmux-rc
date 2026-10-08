@@ -77,6 +77,7 @@ from . import agent_history, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager, claim_question, contract, pane_input  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
@@ -422,9 +423,12 @@ async def lifespan(app: FastAPI):
     app.state.watcher.start()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
+    app.state.usage = PlanUsage(app.state.history)
+    usage_task = asyncio.create_task(app.state.usage.run(app.state.watcher))
     try:
         yield
     finally:
+        usage_task.cancel()
         await app.state.push.stop()
         await app.state.watcher.stop()
 
@@ -548,6 +552,13 @@ def put_goal(body: GoalBody, request: Request):
     _history().set_goal(body.goal)
     _audit(request, "set_goal", "-", f"goal={body.goal}")
     return {"goal": body.goal}
+
+
+@app.get("/api/usage")
+def get_usage():
+    """Each Claude and Codex account's plan windows, trend and projection."""
+    usage = getattr(app.state, "usage", None)
+    return {"accounts": usage.report() if usage else []}
 
 
 @app.get("/api/state")

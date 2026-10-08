@@ -884,6 +884,17 @@ def proc_read(pid: int | str, name: str) -> str:
         return ""
 
 
+def processes(pid: int | str, limit: int = 64):
+    """`pid` and its descendants, at most `limit` of them (bounds a pathological tree)."""
+    todo = [str(pid)]
+    for _ in range(limit):
+        if not todo:
+            return
+        p = todo.pop()
+        yield p
+        todo += proc_read(p, f"task/{p}/children").split()
+
+
 def pane_pid(pane_id: str) -> str | None:
     """The PID of the process in `pane_id`, or None if the pane is gone.
 

@@ -75,6 +75,17 @@ MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("G
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
 
 
+# Plan limits: two Claude accounts and a weekly-only Codex plan, so the usage strip shows
+# every state it draws: on pace, projected past 100% before the reset (dev's 5h), nearly
+# full (ops' 7d), and no 5h window at all (Codex). provider | name | the sessions whose
+# panes draw on it | per window: name, seconds, share of it gone at NOW, % used at NOW.
+PLANS = [
+    ("claude", "dev", SESSIONS[:4], [("5h", 5 * 3600, 0.6, 72), ("7d", 7 * 86400, 0.64, 58)]),
+    ("claude", "ops", SESSIONS[4:], [("5h", 5 * 3600, 0.2, 12), ("7d", 7 * 86400, 0.89, 91)]),
+    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 0.43, 22)]),
+]
+
+
 # SGR helpers for the captures: the live view renders these as colored spans.
 def sgr(code: str, text: str) -> str:
     return f"\x1b[{code}m{text}\x1b[0m"
@@ -305,3 +316,19 @@ def seed_history(history: History) -> History:
     with history.connect() as db:  # the shared goal line; inert on builds without one
         db.execute("INSERT OR REPLACE INTO metadata VALUES ('running_goal', ?)", (str(GOAL),))
     return history
+
+
+def seed_usage(usage):
+    """Five-minute samples of each PLANS window, rising a little faster late in it, ending
+    at its share at NOW; and the accounts the panes draw on, as discovery would find them."""
+    rows, panes = [], fleet()
+    for tool, name, sessions, windows in PLANS:
+        for window, seconds, share, pct in windows:
+            start = NOW - share * seconds
+            rows += [(tool, name, window, seconds, t,
+                      round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
+                     for t in range(int(NOW), int(start), -300)]
+        usage.accounts[(tool, name)] = {"short": name, "error": None, "panes": [
+            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions]}
+    usage.history.record_usage(rows)
+    return usage

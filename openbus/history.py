@@ -181,8 +181,15 @@ def _add_checkpoints(db) -> None:
                "last_activity_at REAL NOT NULL, idle_since REAL, card TEXT)")
 
 
+def _add_plan_usage(db) -> None:
+    # Plan-limit samples per account and window; see docs/design/plan-usage.md.
+    db.execute("CREATE TABLE plan_usage (provider TEXT NOT NULL, account TEXT NOT NULL, "
+               "window TEXT NOT NULL, seconds INTEGER NOT NULL, t REAL NOT NULL, "
+               "pct REAL NOT NULL, resets_at REAL, PRIMARY KEY(provider, account, window, t))")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints)
+              _add_checkpoints, _add_plan_usage)
 
 
 class History:
@@ -302,6 +309,25 @@ class History:
     def delete_checkpoints(self, uids: list[str]) -> None:
         with self.connect() as db:
             db.executemany("DELETE FROM pane_checkpoints WHERE uid=?", [(u,) for u in uids])
+
+    def record_usage(self, rows: list[tuple]) -> None:
+        """(provider, account, window, seconds, t, pct, resets_at) rows. A Codex sample is
+        stamped with its log event's time, so re-reading the same event is a no-op."""
+        with self.connect() as db:
+            db.executemany("INSERT OR IGNORE INTO plan_usage VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+
+    def latest_usage(self, provider: str, account: str) -> list[tuple]:
+        """(window, seconds, t, pct, resets_at) of each window's newest sample."""
+        with self.connect() as db:  # SQLite takes the bare columns from the max(t) row
+            return db.execute("SELECT window, seconds, max(t), pct, resets_at FROM plan_usage "
+                              "WHERE provider=? AND account=? GROUP BY window ORDER BY window",
+                              (provider, account)).fetchall()
+
+    def usage_since(self, provider: str, account: str, window: str, since: float) -> list[tuple]:
+        with self.connect() as db:
+            return db.execute("SELECT t, pct FROM plan_usage WHERE provider=? AND account=? "
+                              "AND window=? AND t>=? ORDER BY t",
+                              (provider, account, window, since)).fetchall()
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

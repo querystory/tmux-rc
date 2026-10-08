@@ -10,6 +10,7 @@ import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecen
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
+import { renderUsage, paneAccount } from "/m/usage.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -574,6 +575,15 @@ function renderFleetSplit() {
   renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
+// Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
+let usage = [], usageAt = 0;
+const paintUsage = () => renderUsage($("usage"), usage, WIDE.matches);
+async function refreshUsage() {
+  if (Date.now() - usageAt < 60000) return;
+  usageAt = Date.now();
+  try { usage = (await request("/api/usage")).accounts || []; } catch { return; }
+  paintUsage(); render();
+}
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
@@ -623,7 +633,8 @@ function render() {
   const settled = booted && !awaitingLaunch(launched, active);
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
-  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  const account = pane && paneAccount(usage, pane.pane_id); // which plan's limits it draws on
+  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}${account ? ` · ${account}` : ""}` : "Waiting for session state");
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
   const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
@@ -872,7 +883,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshHistory();
+    refreshHistory(); refreshUsage();
     pollState(stateController.signal);
   }
 }
@@ -885,7 +896,7 @@ async function pollState(signal) {
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; tmuxRunning = data.tmux_running !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory();
+      refreshHistory(); refreshUsage();
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -1360,7 +1371,7 @@ function placeChrome() {
 }
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
-const resizeWorkspace = () => { placeChrome(); route(); };
+const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
