@@ -50,12 +50,11 @@ def test_history_fills_the_chart(tmp_path):
     assert day[-1]["n"][1] == sum(p["activity"] == "running" for p in demo.fleet())
 
 
-def test_plan_usage_draws_every_state(tmp_path):
+def test_plan_usage_reads_like_a_typical_day(tmp_path):
     tmp_path.chmod(0o700)
     report = demo.seed_usage(PlanUsage(History(tmp_path / "h.sqlite3"))).report(demo.NOW)
     assert not PRIVATE.findall(json.dumps(report))
-    windows = [w for a in report for w in a["windows"]]
-    assert any(w["limit_at"] for w in windows)  # projected past 100% before the reset
-    assert any(w["pct"] >= 90 for w in windows)
-    assert {a["label"] for a in report} == {"dev", "ops", None}  # two Claudes, one Codex
-    assert any(a["windows"] and all(w["window"] != "5h" for w in a["windows"]) for a in report)
+    by = {(a["provider"], w["window"]): w for a in report for w in a["windows"]}
+    assert set(by) == {("claude", "5h"), ("claude", "7d"), ("codex", "7d")}  # weekly-only Codex
+    assert 90 <= by["claude", "7d"]["projected"] < 100  # amber, not out before the reset
+    assert {a["label"] for a in report} == {None}  # one account each: provider names
