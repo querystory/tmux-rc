@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import time
+import unicodedata
 import uuid
 from collections import deque
 from types import SimpleNamespace
@@ -248,7 +249,9 @@ _FILLER = frozenset({"the", "a", "my", "window", "pane", "session", "tab"})
 
 
 def _words(text: str) -> list[str]:
-    return re.findall(r"[^\W_]+", text.casefold())  # any script's letters and digits
+    # Any script's letters and digits. NFKC first: \w skips combining marks, so a decomposed
+    # "Cafe\u0301" would otherwise split from the "Café" it displays as.
+    return re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", text).casefold())
 
 
 def _match_panes(digest: list[dict], name: str) -> tuple[list[dict], bool]:
