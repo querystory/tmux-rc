@@ -190,7 +190,13 @@ function pause(ms, signal) {
     else signal?.addEventListener("abort", finish, { once: true });
   });
 }
-function notice(message = "") { text($("notice"), message); show("notice", !!message); }
+// A notice stays until replaced or cleared; with `ms` it also clears itself, for a short
+// result that needs no action.
+let noticeTimer;
+function notice(message = "", ms = 0) {
+  clearTimeout(noticeTimer); text($("notice"), message); show("notice", !!message);
+  if (message && ms) noticeTimer = setTimeout(() => { if ($("notice").textContent === message) notice(); }, ms);
+}
 
 // Every user-driven move goes through here: the URL is written first, then the view is
 // routed synchronously (pushState/replaceState fire no hashchange). Back/Forward and edits
@@ -618,6 +624,8 @@ function render() {
   const settled = booted && !awaitingLaunch(launched, active);
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
+  // Expunge is offered only where it can work: a Claude Code or Codex pane (the server refuses the rest anyway).
+  for (const id of ["expunge-rule", "expunge-pane"]) show(id, ["claude", "codex"].includes(pane?.tool));
   text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
@@ -1344,7 +1352,7 @@ $("expunge-pane").onclick = async () => {
   const pane = active, title = $("pane-title").textContent;
   if (!pane) return;
   let plan;
-  try { plan = await request(paneUrl(pane, "expunge")); } catch (error) { return notice(error.detail || "Could not find this pane's session."); }
+  try { plan = await request(paneUrl(pane, "expunge")); } catch (error) { return notice(error.detail || "Could not find this pane's session.", 6000); }
   const harness = plan.harness === "codex" ? "Codex" : "Claude Code", n = plan.files.length;
   text($("expunge-what"), `This kills the tmux window of “${title}”, ending everything running in it, and permanently deletes its ${harness} session ${plan.session_id.slice(0, 8)}: ${n} local file${n === 1 ? "" : "s"} or folder${n === 1 ? "" : "s"}${plan.shared.length ? `, plus its entries in ${plan.shared.join(", ")}` : ""}.${plan.harness === "codex" ? " Codex's own databases keep their copy of the thread." : ""}`);
   $("expunge-confirm").onclick = async () => {
@@ -1353,7 +1361,7 @@ $("expunge-pane").onclick = async () => {
       // No client timeout (setTimeout's largest delay): aborting would not stop the server's
       // run, so the answer must be its own outcome, never a failure while it deletes on.
       const done = await post(paneUrl(pane, "expunge"), { session_id: plan.session_id }, 2 ** 31 - 1);
-      notice(`Expunged: ${done.files.length} files and ${done.lines} history lines deleted.`);
+      notice(`Expunged: ${done.files.length} files and ${done.lines} history lines deleted.`, 6000);
     } catch (error) { notice(`Expunge failed: ${error.detail || error.message}`); }
   };
   $("expunge-dialog").showModal();
