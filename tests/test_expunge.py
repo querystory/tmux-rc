@@ -152,20 +152,46 @@ def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
 
 
 def test_route_kills_first_then_deletes(monkeypatch, claude):
-    order = []
-    pane = SimpleNamespace(pid="999")  # tmux gave %1 to a newer process: refuse to kill it
-    monkeypatch.setattr(tmux, "find_pane", lambda _p: pane)
-    monkeypatch.setattr(tmux, "kill_window", lambda _p: order.append("kill"))
+    order, panes, newer = [], {"%1": "1234"}, ["999"]
+
+    def find_pane(pane_id):  # by the kill, tmux may have given %1 to a newer process
+        if newer:
+            panes[pane_id] = newer.pop()
+        return SimpleNamespace(id=pane_id)
+
+    def kill(pane_id, pid=None):  # tmux.kill_window's guard, as the tmux server applies it
+        if panes[pane_id] == pid:
+            order.append("kill")
+            panes.pop(pane_id)
+    monkeypatch.setattr(tmux, "find_pane", find_pane)
+    monkeypatch.setattr(tmux, "pane_pid", panes.get)
+    monkeypatch.setattr(tmux, "kill_window", kill)
+    monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
     monkeypatch.setattr(expunge, "identify", lambda *_a: Session("claude", A, claude, 1, "1"))
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
-    monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
     server.app.state.watcher = SimpleNamespace(
-        forget_checkpoint=lambda pane_id, pid: order.append((pane_id, pid)))
+        forget_checkpoint=lambda pane_id, pid: order.append((pane_id, pid)) or True)
     client = TestClient(server.app)
+    # Identified under 1234, but %1 is 999's by the kill: nothing is killed or deleted.
     assert client.post("/api/panes/%251/expunge", json={"session_id": A}).status_code == 409
-    assert not order
-    pane.pid = "1234"  # the pid conftest's pane_pid reports, as identified
+    assert not order and panes == {"%1": "999"}
+    panes["%1"] = "1234"
     r = client.post("/api/panes/%251/expunge", json={"session_id": A})
     assert r.status_code == 200 and r.json()["lines"] == 1
     assert order == ["kill", "gone", ("%1", "1234")]
     assert not (claude / f"projects/-src-api/{A}.jsonl").exists()
+
+
+def test_kill_window_guard_runs_in_one_tmux_command(monkeypatch):
+    sent = []
+    monkeypatch.setattr(tmux, "_run", sent.append)
+    tmux.kill_window("%1", "1234")
+    assert sent == [["if-shell", "-F", "-t", "%1", "#{==:#{pane_pid},1234}", "kill-window -t %1"]]
+
+
+def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):
+    fake_procs(monkeypatch, tmp_path, {10: ("bash", [11, 12], None), 11: ("claude", [], A),
+                                       12: ("claude", [], None)})
+    (tmp_path / "sessions" / "12.json").write_text("{half")
+    with pytest.raises(Refused, match="can't be read"):
+        expunge.identify("10", "")

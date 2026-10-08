@@ -78,12 +78,19 @@ def _agent(pid: int, screen: str) -> Session | None:
     """The Claude or Codex session this process is, if it is one."""
     start = "".join(_stat(pid)[19:20])
     home = _home(pid, "CLAUDE_CONFIG_DIR", ".claude")
-    with contextlib.suppress(OSError, ValueError):
-        # Claude Code registers each running session as sessions/<pid>.json; a file left by
-        # an earlier process with this pid has a different start time.
+    # Claude Code registers each running session as sessions/<pid>.json. A file left by an
+    # earlier process with this pid has a different start time; one that can't be read
+    # could be this process's, so it refuses rather than look past it.
+    try:
         reg = json.loads((home / "sessions" / f"{pid}.json").read_text())
-        if start and reg.get("procStart") == start:
-            return Session("claude", str(reg.get("sessionId")), home, pid, start)
+    except FileNotFoundError:
+        reg = {}
+    except (OSError, ValueError) as e:
+        raise Refused("an agent registration in this pane can't be read") from e
+    if not isinstance(reg, dict):
+        raise Refused("an agent registration in this pane can't be read")
+    if reg and reg.get("pid") == pid and start and reg.get("procStart") == start:
+        return Session("claude", str(reg.get("sessionId")), home, pid, start)
     if tmux.proc_read(pid, "comm").strip() != "codex":
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the

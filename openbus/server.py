@@ -930,17 +930,19 @@ def select(pane_id: str, request: Request):
 def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
                  pid: str | None = None) -> None:
     """Kill the pane's window; with `pid`, only while that process still owns the pane
-    (tmux reuses pane ids, so the id alone could name a newer window)."""
+    (tmux.kill_window), refusing if it no longer does."""
     pane = tmux.find_pane(pane_id)
-    if pane is None or pid not in (None, pane.pid):
-        reason = "pane not found" if pane is None else "the pane changed"
-        _audit(request, action, pane_id, detail, outcome=f"rejected: {reason}")
-        raise HTTPException(404 if pane is None else 409, reason)
+    if pane is None:
+        _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
     try:
-        tmux.kill_window(pane_id)
+        tmux.kill_window(pane.id, pid)
     except Exception as e:
         _audit(request, action, pane_id, detail, outcome=f"error: {e}"[:80])
         raise
+    if pid is not None and tmux.pane_pid(pane.id) is not None:
+        _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
+        raise HTTPException(409, "the pane changed")
 
 
 @app.post("/api/panes/{pane_id}/close")
@@ -997,11 +999,14 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
                                  "nothing was deleted")
     try:
         result = expunge.expunge(s)
-        app.state.watcher.forget_checkpoint(pane_id, pid)
     except (OSError, sqlite3.Error, expunge.Refused) as e:
         # Only the error's type: its message can carry a path (a project's name).
         _audit(request, "expunge", pane_id, detail, outcome=f"error: {type(e).__name__}")
         raise HTTPException(500, f"expunge failed partway: {e}") from e
+    if not app.state.watcher.forget_checkpoint(pane_id, pid):
+        _audit(request, "expunge", pane_id, detail, outcome="error: checkpoint kept")
+        raise HTTPException(500, "the session's files are deleted, but tmux-rc's own card for "
+                                 "the pane is still on disk; it retries every few seconds")
     _audit(request, "expunge", pane_id, detail)
     return {"ok": True, **result}
 

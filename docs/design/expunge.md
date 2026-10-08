@@ -27,7 +27,8 @@ So the hard part is the identity, not the deletion.
 - **Claude Code** registers each running session as `sessions/<pid>.json` under its
   config dir. The daemon walks the pane's process tree and takes the agent whose
   registration matches its pid *and* kernel start time, so a stale file left by a
-  reused pid never counts. The config dir comes from that process's own
+  reused pid never counts. A registration that can't be read refuses the whole
+  expunge, since it could be this pane's own session. The config dir comes from that process's own
   `CLAUDE_CONFIG_DIR`, not the daemon's, so a pane running a second profile is
   handled correctly.
 - **Codex** keeps no registry, and its shared app-server, not the terminal client,
@@ -62,7 +63,9 @@ agent-history: the session's index entry and its subagents' entries. That index 
 to outlive the harness's own retention, so leaving it would defeat the point.
 
 tmux-rc itself: the pane's checkpoint row (its card, summary and recent events), which
-would otherwise stay on disk until the next restart prunes it. The structural pane
+would otherwise stay on disk until the next restart prunes it. A tombstone stops
+any tick in flight from writing it back. If the database is busy, the deletion is
+retried every tick, and the response reports the failure instead of claiming success. The structural pane
 history (counts and states per minute) holds no session content and is left alone.
 
 ## Order and safety
@@ -72,7 +75,9 @@ history (counts and states per minute) holds no session content and is left alon
    anything is killed.
 2. Kill the window, using the same path as "Kill window", but only while the pane
    still belongs to the process that was identified. tmux reuses pane ids, and a
-   recycled `%N` must never take a newer window down with it.
+   recycled `%N` must never take a newer window down with it. The tmux server makes
+   that check and the kill in one command (`if-shell -F` on `pane_pid`), so the
+   id can't change hands between the two.
 3. Wait for the agent process to exit. If it has not exited after a few seconds, delete
    nothing, since a live agent would only write the files again.
 4. Resolve the targets again and delete them. Shared logs are rewritten through a temp

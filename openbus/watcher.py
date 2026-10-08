@@ -450,26 +450,27 @@ class Watcher:
             )
         return out
 
-    def forget_checkpoint(self, pane_id: str, pid: str) -> None:
+    def forget_checkpoint(self, pane_id: str, pid: str) -> bool:
         """Delete this pane incarnation's stored card (Expunge), and never write it again:
         a tick that captured the pane before it closed can still be on its way to saving."""
         with self._forget_lock:  # never between a tick's filter and its save
             self._forgotten.add(uid := pane_key(self._server or "", pane_id, pid))
             self._undeleted.add(uid)
-        self._delete_forgotten()
+        return self._delete_forgotten()
 
-    def _delete_forgotten(self) -> None:
-        """Delete the forgotten rows not yet deleted. A busy database is retried next tick;
-        meanwhile the tombstone keeps the row from being written again."""
+    def _delete_forgotten(self) -> bool:
+        """Delete the forgotten rows not yet deleted; whether none is left. A busy database
+        is retried every tick, and meanwhile the tombstone keeps the row from coming back."""
         with self._forget_lock:
             if not (self._undeleted and self.history):
-                return
+                return True
             try:
                 self.history.delete_checkpoints(list(self._undeleted))
                 self._undeleted.clear()
             except (OSError, sqlite3.Error):
                 logger.warning("could not delete an expunged checkpoint; retrying next tick",
                                exc_info=True)
+            return not self._undeleted
 
     def snapshot_text(self, pane_id: str, snap_id: str) -> str | None:
         for s in self.snapshots.get(pane_id, []):
@@ -556,6 +557,7 @@ class Watcher:
         self.request_reparse(pane_id)
 
     def _tick(self) -> None:
+        self._delete_forgotten()
         if not tmux.server_running():
             self._collection_failed = False
             self._gc(set())  # confirmed server absence ends every pane lifetime
@@ -1097,7 +1099,6 @@ class Watcher:
         """Write through the panes whose checkpoint would change: a new screen, idle
         entered or left, or a new parse or summary. Never every tick, and never a
         startup's "now": the clocks written are the ones the watcher holds."""
-        self._delete_forgotten()
         if self._checkpoints is None or self._server is None:
             return
         rows, keys = [], {}
