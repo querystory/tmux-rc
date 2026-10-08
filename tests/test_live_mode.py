@@ -263,6 +263,7 @@ class _Fleet(_Watcher):
     ("window 25 slack", "%10"),        # the number filters, the words choose
     ("window 25 auth", "%16"),
     ("café 認証", "%15"),             # names are not only ASCII
+    ("cafe\u0301 認証", "%15"),       # nor in one Unicode form
 ])
 def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, name, pane_id):
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
