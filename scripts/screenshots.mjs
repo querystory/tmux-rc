@@ -40,6 +40,7 @@ const SHOTS = [
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .open button")],
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
+  ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
 ];
 
 // A host after a reboot, with no tmux server at all. The demo fleet always has panes, so
