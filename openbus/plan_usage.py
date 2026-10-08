@@ -76,23 +76,28 @@ def codex_samples(event: dict) -> list[dict]:
     return out
 
 
+def _last_limits(path: Path) -> list[dict]:
+    """The last token_count event in this log's tail that carries limits."""
+    with path.open("rb") as f:
+        f.seek(max(0, f.seek(0, os.SEEK_END) - TAIL))
+        lines = f.read().splitlines()
+    for line in reversed(lines):
+        if b'"rate_limits"' in line:
+            try:
+                if samples := codex_samples(json.loads(line)):
+                    return samples
+            except (ValueError, KeyError, TypeError):
+                continue
+    return []
+
+
 def read_codex(codex_home: Path) -> list[dict]:
-    """The latest limits Codex logged under this home: the last token_count event that
-    carries them, from the tail of the most recently written session logs."""
+    """The latest limits Codex logged under this home. Concurrent sessions each write
+    their own log, so the newest event wins, not the newest-touched file."""
     files = sorted((codex_home / "sessions").glob("*/*/*/*.jsonl"),
                    key=lambda f: f.stat().st_mtime, reverse=True)
-    for path in files[:CODEX_FILES]:
-        with path.open("rb") as f:
-            f.seek(max(0, f.seek(0, os.SEEK_END) - TAIL))
-            lines = f.read().splitlines()
-        for line in reversed(lines):
-            if b'"rate_limits"' in line:
-                try:
-                    if samples := codex_samples(json.loads(line)):
-                        return samples
-                except (ValueError, KeyError, TypeError):
-                    continue
-    return []
+    found = (s for path in files[:CODEX_FILES] if (s := _last_limits(path)))
+    return max(found, key=lambda s: s[0]["t"], default=[])
 
 
 def claude_samples(data: dict, now: float) -> list[dict]:
@@ -131,12 +136,17 @@ def fetch_claude(config: Path, now: float) -> list[dict]:
         return claude_samples(json.load(response), now)
 
 
-def project(samples: list[tuple[float, float]], resets_at: float, seconds: int) -> dict:
+def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
+            now: float) -> dict:
     """Where the window ends at the current pace: a least-squares slope over this window's
-    samples, anchored at 0% when it opened, extended from the latest sample to the reset.
-    `limit_at` is when that line crosses 100%, if before the reset."""
+    samples, anchored at 0% when it opened, extended from now to the reset. The latest
+    value holds until now (no new Codex event means no new use), so a quiet spell slows
+    the pace instead of leaving a forecast in the past. `limit_at` is when that line
+    crosses 100%, if before the reset."""
     start = resets_at - seconds
     points = [(start, 0.0), *((t, p) for t, p in samples if t >= start)]
+    if now > points[-1][0]:
+        points.append((now, points[-1][1]))
     n = len(points)
     mt, mp = sum(t for t, _ in points) / n, sum(p for _, p in points) / n
     var = sum((t - mt) ** 2 for t, _ in points)
@@ -214,7 +224,7 @@ class PlanUsage:
         if resets is None or resets <= now:  # the window reset since: nothing used yet
             return {"window": name, "pct": 0.0, "resets_at": None, "samples": []}
         samples = self.history.usage_since(tool, key, name, resets - seconds)
-        trend = project(samples, resets, seconds)
+        trend = project(samples, resets, seconds, now)
         thin = samples[::-1][::-(-len(samples) // SPARK_POINTS)][::-1]
         return {"window": name, "pct": pct, "resets_at": resets * 1000,
                 "start": (resets - seconds) * 1000, "samples": [[t * 1000, p] for t, p in thin],

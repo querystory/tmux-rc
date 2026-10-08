@@ -44,7 +44,9 @@ what Codex itself was told. Fragile, undocumented points: the slot names lie (a
 weekly-only plan reports its week as `primary`, with no `secondary`), so windows are named
 by `window_minutes`; older builds sent `resets_in_seconds` instead of `resets_at`; and a
 `limit_id` other than `codex` is a different meter and is skipped. Logs reach hundreds of
-MB, so only the last MiB of the few most recently written files is read. A sample is
+MB, so only the last MiB of the few most recently written files is read, and the newest
+event among them wins (concurrent sessions each write their own log, so the most recently
+touched file need not hold the newest numbers). A sample is
 stamped with its event's time, so re-reading the same event adds nothing.
 
 **Claude: the OAuth usage endpoint.** Claude Code does hand `rate_limits.five_hour` and
@@ -77,8 +79,10 @@ not part of the `/api/state` long-poll, because that one returns on every pane c
 ## Projection
 
 A least-squares line over the current window's samples, plus a 0% anchor at the window's
-start (`resets_at − length`; both windows restart from zero), extended from the latest
-sample to the reset. The slope is clamped at zero since usage never falls inside a window.
+start (`resets_at − length`; both windows restart from zero), extended from now to the
+reset. The latest value is held until now: Codex writes an event on every turn, so silence
+means no use, and without that point a quiet afternoon would leave a "full in" forecast
+sitting in the past. The slope is clamped at zero since usage never falls inside a window.
 The anchor keeps a single sample meaningful (it becomes the window's average pace) and
 stops one noisy reading from swinging the line. A fit over the whole window lags a sudden
 burst, which we accept: it is meant to answer "at this rate", not to forecast. The server

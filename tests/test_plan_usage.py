@@ -40,6 +40,11 @@ def test_read_codex_takes_the_newest_logged_limits(tmp_path):
              {"timestamp": "2026-10-08T12:01:00Z", "type": "response_item", "payload": {}}]
     (day / "rollout.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
     assert [s["pct"] for s in read_codex(tmp_path)] == [5.0]
+    # A log touched later but holding an older event does not win.
+    older = tmp_path / "sessions/2026/10/07"
+    older.mkdir(parents=True)
+    (older / "rollout.jsonl").write_text(json.dumps(_event(limits, "2026-10-07T09:00:00Z")))
+    assert [s["pct"] for s in read_codex(tmp_path)] == [5.0]
     assert read_codex(tmp_path / "missing") == []
 
 
@@ -65,13 +70,18 @@ def test_projection_extends_the_fitted_pace_to_the_reset():
     hour, start = 3600, NOW
     # 10% an hour, steadily: 30% at 3h, so 50% by the 5h reset and no limit hit.
     steady = [(start + h * hour, 10.0 * h) for h in (1, 2, 3)]
-    assert project(steady, start + 5 * hour, 5 * hour) == {"projected": 50.0, "limit_at": None}
+    assert project(steady, start + 5 * hour, 5 * hour, start + 3 * hour) == {
+        "projected": 50.0, "limit_at": None}
     # 25% an hour reaches 100% at 4h, an hour before the reset.
     fast = [(start + h * hour, 25.0 * h) for h in (1, 2, 3)]
-    assert project(fast, start + 5 * hour, 5 * hour) == {"projected": 125.0,
-                                                         "limit_at": start + 4 * hour}
+    assert project(fast, start + 5 * hour, 5 * hour, start + 3 * hour) == {
+        "projected": 125.0, "limit_at": start + 4 * hour}
+    # Quiet since: the pace slows, so the forecast moves out instead of into the past.
+    later = project(fast, start + 5 * hour, 5 * hour, start + 3.5 * hour)
+    assert start + 4 * hour < later["limit_at"] < start + 5 * hour
+    assert project(fast, start + 5 * hour, 5 * hour, start + 4.5 * hour)["limit_at"] is None
     # Samples from the previous window are not this window's pace.
-    assert project([(start - hour, 90.0)], start + 5 * hour, 5 * hour)["projected"] == 0.0
+    assert project([(start - hour, 90.0)], start + 5 * hour, 5 * hour, start)["projected"] == 0.0
 
 
 def _claude_home(path, uuid, email):
