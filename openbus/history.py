@@ -188,8 +188,13 @@ def _add_plan_usage(db) -> None:
                "pct REAL NOT NULL, resets_at REAL, PRIMARY KEY(provider, account, window, t))")
 
 
+def _index_plan_usage(db) -> None:
+    # The latest observation is looked up by time across windows; the key leads with window.
+    db.execute("CREATE INDEX plan_usage_by_time ON plan_usage(provider, account, t)")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints, _add_plan_usage)
+              _add_checkpoints, _add_plan_usage, _index_plan_usage)
 
 
 class History:
@@ -325,11 +330,12 @@ class History:
                               "plan_usage WHERE provider=?1 AND account=?2) ORDER BY window",
                               (provider, account)).fetchall()
 
-    def usage_since(self, provider: str, account: str, window: str, since: float) -> list[tuple]:
+    def usage_between(self, provider: str, account: str, window: str,
+                      since: float, until: float) -> list[tuple]:
         with self.connect() as db:
             return db.execute("SELECT t, pct FROM plan_usage WHERE provider=? AND account=? "
-                              "AND window=? AND t>=? ORDER BY t",
-                              (provider, account, window, since)).fetchall()
+                              "AND window=? AND t BETWEEN ? AND ? ORDER BY t",
+                              (provider, account, window, since, until)).fetchall()
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

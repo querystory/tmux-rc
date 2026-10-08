@@ -247,10 +247,11 @@ class PlanUsage:
     def _window(self, tool: str, key: str, row: tuple, now: float) -> dict:
         """One window for the UI, in ms: its latest %, its trend thinned to SPARK_POINTS
         (newest kept), and the projection over every sample."""
-        name, seconds, _, pct, resets = row
+        name, seconds, observed, pct, resets = row
         if resets is None or resets <= now:  # the window reset since: nothing used yet
             return {"window": name, "pct": 0.0, "resets_at": None, "samples": []}
-        samples = self.history.usage_since(tool, key, name, resets - seconds)
+        # Up to the row's own observation: a poll landing in between can't skew the trend.
+        samples = self.history.usage_between(tool, key, name, resets - seconds, observed)
         trend = project(samples, resets, seconds, now)
         thin = samples[::-1][::max(1, -(-len(samples) // SPARK_POINTS))][::-1]
         return {"window": name, "pct": pct, "resets_at": resets * 1000,
