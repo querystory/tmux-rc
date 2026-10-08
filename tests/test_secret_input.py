@@ -75,6 +75,9 @@ print("$ ", end="", flush=True); tty.setraw(0); sys.stdin.read(1)'""")
     state = {}
     watcher._stamp_identity(state, pane(prompt))
     assert state["secret"] is True
+    # A long-polling page must wake for it: the screen need not change with the tty.
+    fp = watcher.Watcher._deck_fp
+    assert fp([state]) != fp([{**state, "secret": False}])
 
     server.app.state.watcher = SimpleNamespace(request_reparse=lambda p: None)
     client = TestClient(server.app)

@@ -179,9 +179,7 @@ export function setupSidebar(ctx) {
       button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
     }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
-    const form = node.querySelector(".sb-compose"), typed = drafts.get(p.pane_id);
-    // Text typed here before the prompt showed up is probably the password: drop it.
-    if (p.secret && typed?.segments().length) typed.replace([]);
+    const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
     form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
