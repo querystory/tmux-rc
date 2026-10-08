@@ -73,7 +73,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import telemetry, tmux  # noqa: E402
+from . import expunge, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
@@ -174,6 +174,10 @@ class ClickBody(BaseModel):
 
 class WheelBody(BaseModel):
     lines: int = Field(ge=-30, le=30)  # wheel notches, positive = up (see tmux.wheel)
+
+
+class ExpungeBody(BaseModel):
+    session_id: str  # the session the confirmation named; refused if the pane's has changed
 
 
 class NewWindowBody(BaseModel):
@@ -923,22 +927,76 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
+def _kill_window(request: Request, pane_id: str, action: str, detail: str = "") -> None:
+    if tmux.find_pane(pane_id) is None:
+        _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        tmux.kill_window(pane_id)
+    except Exception as e:
+        _audit(request, action, pane_id, detail, outcome=f"error: {e}"[:80])
+        raise
+
+
 @app.post("/api/panes/{pane_id}/close")
 def close_window(pane_id: str, request: Request):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
     Destructive: any process in the window is killed. The watcher evicts the pane on its next
     tick (emitting pane_removed), so the card disappears on the client's next poll with no
     special cleanup — the same path as a window closed on the host."""
-    if tmux.find_pane(pane_id) is None:
-        _audit(request, "kill_window", pane_id, outcome="rejected: pane not found")
-        raise HTTPException(404, "pane not found")
-    try:
-        tmux.kill_window(pane_id)
-    except Exception as e:
-        _audit(request, "kill_window", pane_id, outcome=f"error: {e}"[:80])
-        raise
+    _kill_window(request, pane_id, "kill_window")
     _audit(request, "kill_window", pane_id)
     return {"ok": True}
+
+
+def _pane_session(pane_id: str, expected: str | None = None):
+    """The pane's one agent session and its targets (openbus/expunge.py), or the refusal.
+    A path that resolves outside its root refuses here, before anything is killed."""
+    pid = tmux.pane_pid(pane_id)
+    if pid is None:
+        raise HTTPException(404, "pane not found")
+    snaps = app.state.watcher.snapshots.get(pane_id) or [{}]
+    try:
+        s = expunge.identify(pid, snaps[-1].get("text") or "", expected)
+        return s, expunge.targets(s)
+    except expunge.Refused as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@app.get("/api/panes/{pane_id}/expunge")
+def expunge_preview(pane_id: str):
+    """What Expunge would delete, for the confirmation to name."""
+    s, (own, shared) = _pane_session(pane_id)
+    return {"harness": s.harness, "session_id": s.session_id,
+            "files": [p.name for p in own], "shared": [p.name for p in shared]}
+
+
+@app.post("/api/panes/{pane_id}/expunge")
+def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
+    """Kill the window, then delete its agent session's local files. The window goes first
+    so the agent can't write them again, and files go only once it has exited. The audit
+    line names the pane and session, never what was deleted."""
+    detail = f"session={body.session_id[:64]}"
+    try:
+        s, _ = _pane_session(pane_id, body.session_id)
+    except HTTPException as e:
+        _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
+        raise
+    uid = app.state.watcher.checkpoint_uid(pane_id)
+    _kill_window(request, pane_id, "expunge", detail)
+    if not expunge.wait_gone(s):
+        _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
+        raise HTTPException(409, "the window closed, but the agent is still running: "
+                                 "nothing was deleted")
+    try:
+        result = expunge.expunge(s)
+        if uid and app.state.history:
+            app.state.history.delete_checkpoints([uid])
+    except (OSError, sqlite3.Error, expunge.Refused) as e:
+        _audit(request, "expunge", pane_id, detail, outcome=f"error: {e}"[:80])
+        raise HTTPException(500, f"expunge failed partway: {e}") from e
+    _audit(request, "expunge", pane_id, detail)
+    return {"ok": True, **result}
 
 
 @app.post("/api/client-error")

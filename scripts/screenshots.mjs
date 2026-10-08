@@ -35,6 +35,8 @@ const SHOTS = [
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
+  ["mobile-pane-menu", PHONE, "dark", "#pane=%259", (page) => page.click("#pane-menu-button")],
+  ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
 ];
 
@@ -49,6 +51,12 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 async function showSubagents(page) {
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
+}
+
+async function confirmExpunge(page) {
+  await page.click("#pane-menu-button");
+  await page.click("#expunge-pane");
+  await page.waitForSelector("#expunge-dialog[open]");
 }
 
 async function openChat(page, ask = "Which panes need me?") {

@@ -446,6 +446,10 @@ class Watcher:
             )
         return out
 
+    def checkpoint_uid(self, pane_id: str) -> str | None:
+        """The key of the pane's stored card, while the watcher still knows the pane."""
+        return self._server and pane_key(self._server, pane_id, self._birth.get(pane_id))
+
     def snapshot_text(self, pane_id: str, snap_id: str) -> str | None:
         for s in self.snapshots.get(pane_id, []):
             if s["id"] == snap_id:
