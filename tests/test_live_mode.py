@@ -215,7 +215,9 @@ def test_open_pane_offers_a_button_and_never_touches_the_pane(monkeypatch, text)
         meter=L._Meter("s1", "tester", P._DEFAULT[0], text=text))
     assert ws.sent == [
         {"type": "open_pane", "pane_id": "%1", "label": 'window 3 "work"', "auto": False}]
-    assert session.responses[0][1] == {"status": "done", "pane": 'window 3 "work"'}
+    assert session.responses[0][1] == {  # "done" read as "opened" to the model
+        "status": "button_shown", "pane": 'window 3 "work"',
+        "reason": "the user taps it to open; nothing is open yet"}
     assert typed == [] and w.reparsed == []
 
 
@@ -269,7 +271,7 @@ def test_open_pane_by_name_opens_the_window_that_clearly_matches(monkeypatch, na
     _, ws, session, _ = _dispatch(_FC(name="open_pane", args={"name": name}), monkeypatch,
                                   watcher=_Fleet())
     assert [m["pane_id"] for m in ws.sent] == [pane_id]
-    assert session.responses[0][1]["status"] == "done"
+    assert session.responses[0][1]["status"] == "button_shown"
 
 
 @pytest.mark.parametrize(("name", "status", "candidates"), [

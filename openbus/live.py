@@ -418,7 +418,7 @@ async def _handle_tool_call(websocket: WebSocket, session, fc, watcher, meter: _
         status, reason = result["status"], result.get("reason")
         _audit(
             meter, f"live_{fc.name if known else 'unknown_tool'}",
-            outcome="ok" if status in {"done", "ok", "opened"}
+            outcome="ok" if status in {"done", "ok", "opened", "button_shown"}
             else f"{status}: {reason}" if reason else status,
             latency_ms=round((time.monotonic() - started) * 1000), **rec,
         )
@@ -662,7 +662,9 @@ async def _open_pane(websocket, args: dict, watcher, rec: dict, *, auto: bool = 
     rec["pane_id"] = pane_id
     await websocket.send_json(
         {"type": "open_pane", "pane_id": pane_id, "label": _pane_name(pane), "auto": auto})
-    return {"status": "done", "pane": _pane_name(pane)}
+    # Not "done": the model read that as "opened" and told the user so before any tap.
+    return {"status": "button_shown", "pane": _pane_name(pane),
+            "reason": "the user taps it to open; nothing is open yet"}
 
 
 async def _find_sessions(_websocket, args: dict, watcher, rec: dict) -> dict:
@@ -774,7 +776,7 @@ async def _resume_session(websocket, args: dict, watcher, rec: dict) -> dict:
     # model's own open_pane only offers a button.
     if rec.get("consent") == "approved" and result.get("pane_id"):
         shown = await _open_pane(websocket, {"pane_id": result["pane_id"]}, watcher, rec, auto=True)
-        result["shown"] = shown["status"] == "done"  # so the model offers no second button
+        result["shown"] = shown["status"] == "button_shown"  # so the model offers no second button
     return result
 
 
