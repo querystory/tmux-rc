@@ -14,6 +14,7 @@ import logging
 import os
 import time
 import urllib.request
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -194,10 +195,19 @@ class PlanUsage:
             else:
                 ident = claude_account(config, env)
             if ident:
-                account = found.setdefault((tool, ident["key"]), {**ident, "home": config,
+                account = found.setdefault((tool, ident["key"]), {**ident, "homes": [],
                                                                   "panes": []})
+                account["homes"] += [config] if config not in account["homes"] else []
                 account["panes"] += [pane_id] if pane_id else []
         return found
+
+    def _fetch_any(self, homes: list[Path], now: float) -> list[dict]:
+        """One account can be logged in under several config dirs, and one dir's token may
+        be stale while another's works: the first that answers wins."""
+        for config in homes[:-1]:
+            with suppress(Exception):
+                return self.fetch(config, now)
+        return self.fetch(homes[-1], now)
 
     def poll(self, panes: list[dict], birth, now: float | None = None) -> None:
         now = time.time() if now is None else now
@@ -208,10 +218,10 @@ class PlanUsage:
             account["error"] = previous.get("error")
             try:
                 if tool == "codex":
-                    samples, account["error"] = self.read(account["home"]), None
+                    samples, account["error"] = self.read(account["homes"][0]), None
                 elif now - self._fetched.get(key, 0) >= CLAUDE_TTL:
                     self._fetched[key] = now
-                    samples, account["error"] = self.fetch(account["home"], now), None
+                    samples, account["error"] = self._fetch_any(account["homes"], now), None
                 else:
                     samples = []
             except Exception as e:  # noqa: BLE001 - any failure reads as "unavailable"

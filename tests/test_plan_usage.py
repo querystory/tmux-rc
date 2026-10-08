@@ -172,3 +172,9 @@ def test_a_window_the_plan_dropped_is_not_shown(tmp_path):
                           ("codex", "a", "7d", 604800, NOW, 20, NOW + 60),
                           ("codex", "a", "7d", 604800, NOW + 1, 21, NOW + 60)])
     assert [r[0] for r in history.latest_usage("codex", "a")] == ["7d"]
+
+
+def test_a_stale_config_dir_does_not_shadow_a_working_one_for_the_same_account(tmp_path):
+    usage = PlanUsage(None)
+    usage.fetch = lambda config, now: [config.name] if config.name == "good" else 1 / 0
+    assert usage._fetch_any([tmp_path / "stale", tmp_path / "good"], NOW) == ["good"]
