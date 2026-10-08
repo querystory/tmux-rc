@@ -989,10 +989,14 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
     detail = f"session={body.session_id[:64]}"
     try:
         pid, s, _ = _pane_session(pane_id, body.session_id)
+        uid = app.state.watcher.checkpoint_key(pane_id, pid)
     except HTTPException as e:
         _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
         raise
-    uid = app.state.watcher.checkpoint_key(pane_id, pid)
+    except (OSError, subprocess.CalledProcessError) as e:
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no tmux server id")
+        raise HTTPException(409, "tmux can't name its server, so tmux-rc's own card for the "
+                                 "pane couldn't be found: nothing was killed") from e
     _kill_window(request, pane_id, "expunge", detail, pid)
     if not expunge.wait_gone(s):
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")

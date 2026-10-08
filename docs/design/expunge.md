@@ -59,7 +59,8 @@ lines in `history.jsonl` and `session_index.jsonl`, and its rows in Codex's SQLi
 stores. The rows matter because those databases keep a full copy of each thread's items.
 Deleting only the rollout would leave the conversation behind.
 
-agent-history: the session's index entry and its subagents' entries. That index exists
+agent-history: the session's index entry and its subagents' entries, under the agent's own
+`AGENT_HISTORY_DIR` (or the default). That index exists
 to outlive the harness's own retention, so leaving it would defeat the point.
 
 tmux-rc itself: the pane's checkpoint row (its card, summary and recent events), which

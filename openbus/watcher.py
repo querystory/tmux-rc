@@ -451,9 +451,10 @@ class Watcher:
         return out
 
     def checkpoint_key(self, pane_id: str, pid: str) -> str:
-        """The key of this pane incarnation's stored card, under the current tmux server.
-        Taken before the pane closes: a new server may have started by the time it is used."""
-        return pane_key(self._server or "", pane_id, pid)
+        """The key of this pane incarnation's stored card, under the live tmux server (raises
+        if tmux can't name it). Taken before the pane closes: a new server may have started
+        by the time it is used."""
+        return pane_key(tmux.server_uid(strict=True), pane_id, pid)
 
     def forget_checkpoint(self, uid: str) -> bool:
         """Delete a stored card (Expunge), and never write it again: a tick that captured

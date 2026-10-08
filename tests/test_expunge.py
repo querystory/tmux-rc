@@ -19,14 +19,17 @@ def files(root: Path) -> set[str]:
     return {str(p.relative_to(root)) for p in root.rglob("*")}
 
 
+def session(harness: str, root: Path) -> Session:
+    return Session(harness, A, root, root.parent / "ah" / "index" / harness, 1, "1")
+
+
 def jsonl(path, rows):
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
 @pytest.fixture
-def claude(tmp_path, monkeypatch):
+def claude(tmp_path):
     """A Claude config dir and agent-history index holding sessions A and B."""
-    monkeypatch.setenv("AGENT_HISTORY_DIR", str(tmp_path / "ah"))
     root = tmp_path / "claude"
     for sid in (A, B):
         for rel in (f"projects/-src-api/{sid}.jsonl", f"projects/-src-api/{sid}/subagents/x.jsonl",
@@ -44,7 +47,7 @@ def claude(tmp_path, monkeypatch):
 
 def test_claude_expunges_one_session_and_leaves_the_other(claude, tmp_path):
     before = files(tmp_path)
-    result = expunge.expunge(Session("claude", A, claude, 1, "1"))
+    result = expunge.expunge(session("claude", claude))
     gone = before - files(tmp_path)
     assert gone and all(A in path for path in gone)
     assert sorted(result["files"]) == sorted([f"{A}.jsonl", A, A, A, f"{A}-agent-{A}.json",
@@ -56,8 +59,7 @@ def test_claude_expunges_one_session_and_leaves_the_other(claude, tmp_path):
     assert {f"claude/projects/-src-api/{B}.jsonl", f"ah/index/claude/{B}.md"} <= files(tmp_path)
 
 
-def test_codex_expunges_rollout_lines_and_rows(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENT_HISTORY_DIR", str(tmp_path / "ah"))
+def test_codex_expunges_rollout_lines_and_rows(tmp_path):
     root = tmp_path / "codex"
     day = root / "sessions/2026/10/08"
     day.mkdir(parents=True)
@@ -73,7 +75,7 @@ def test_codex_expunges_rollout_lines_and_rows(tmp_path, monkeypatch):
         db.execute("CREATE TABLE thread_items (thread_id TEXT, item_json TEXT)")
         db.executemany("INSERT INTO threads VALUES (?, 't')", [(A,), (B,)])
         db.executemany("INSERT INTO thread_items VALUES (?, '{}')", [(A,), (A,), (B,)])
-    result = expunge.expunge(Session("codex", A, root, 1, "1"))
+    result = expunge.expunge(session("codex", root))
     assert sorted(result["files"]) == [f"rollout-2026-10-08T10-00-00-{A}.jsonl",
                                        f"rollout-2026-10-09T10-00-00-{A}_0001.jsonl"]
     assert (result["lines"], result["rows"]) == (3, 3)
@@ -90,7 +92,7 @@ def test_a_path_resolving_outside_the_root_refuses_before_deleting(claude, tmp_p
     (claude / "projects/-linked").symlink_to(outside)
     before = files(tmp_path)
     with pytest.raises(Refused, match="outside"):
-        expunge.expunge(Session("claude", A, claude, 1, "1"))
+        expunge.expunge(session("claude", claude))
     assert files(tmp_path) == before
 
 
@@ -99,7 +101,7 @@ def test_a_session_file_that_is_a_symlink_refuses(claude, tmp_path):
     transcript.rename(claude / "elsewhere.jsonl")
     transcript.symlink_to(claude / "elsewhere.jsonl")  # inside the root, but not the file
     with pytest.raises(Refused, match="symlink"):
-        expunge.expunge(Session("claude", A, claude, 1, "1"))
+        expunge.expunge(session("claude", claude))
     assert (claude / "elsewhere.jsonl").exists()
 
 
@@ -111,7 +113,8 @@ def fake_procs(monkeypatch, tmp_path, procs):
             return f"{pid} ({comm}) S " + " ".join(["0"] * 18) + " 777 0"
         if name == "comm":
             return comm + "\n"
-        return f"CLAUDE_CONFIG_DIR={tmp_path}\0CODEX_HOME={tmp_path}\0" if name == "environ" else ""
+        env = f"CLAUDE_CONFIG_DIR={tmp_path}\0CODEX_HOME={tmp_path}\0AGENT_HISTORY_DIR={tmp_path}\0"
+        return env if name == "environ" else ""
     for pid, (_, _, sid) in procs.items():
         if sid:
             (tmp_path / "sessions").mkdir(exist_ok=True)
@@ -127,6 +130,7 @@ def test_identify_finds_the_one_agent_under_the_pane(monkeypatch, tmp_path):
                                        12: ("claude", [], B)})
     s = expunge.identify("10", "")
     assert (s.harness, s.session_id, s.root, s.pid) == ("claude", A, tmp_path, 11)
+    assert s.index == tmp_path / "index" / "claude"  # the agent's AGENT_HISTORY_DIR, not ours
     with pytest.raises(Refused, match="different session"):
         expunge.identify("10", "", expected=B)
 
@@ -153,7 +157,7 @@ def test_codex_thread_comes_from_its_status_line(monkeypatch, tmp_path):
 def test_route_refuses_a_changed_session_without_killing(monkeypatch, claude):
     killed = []
     monkeypatch.setattr(tmux, "kill_window", killed.append)
-    monkeypatch.setattr(expunge, "identify", lambda *_a: Session("claude", A, claude, 1, "1"))
+    monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
     server.app.state.watcher = SimpleNamespace()
     client = TestClient(server.app)
@@ -181,7 +185,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     monkeypatch.setattr(tmux, "pane_pid", panes.get)
     monkeypatch.setattr(tmux, "kill_window", kill)
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
-    monkeypatch.setattr(expunge, "identify", lambda *_a: Session("claude", A, claude, 1, "1"))
+    monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
     server.app.state.watcher = SimpleNamespace(
         checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}",

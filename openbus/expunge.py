@@ -53,6 +53,7 @@ class Session:
     harness: str
     session_id: str
     root: Path  # the harness's config dir, as the agent's own environment set it
+    index: Path  # agent-history's entries for the harness, likewise (agent-history/README.md)
     pid: int
     start: str  # kernel start time: tells the agent apart from a later reuse of its pid
 
@@ -67,6 +68,10 @@ def _home(pid: int, var: str, default: str) -> Path:
         if kv.startswith(var + "=") and kv != var + "=":
             return Path(kv[len(var) + 1:])
     return Path.home() / default
+
+
+def _index(pid: int, harness: str) -> Path:
+    return _home(pid, "AGENT_HISTORY_DIR", "agent-history") / "index" / harness
 
 
 def _children(pid: int) -> list[int]:
@@ -92,7 +97,8 @@ def _agent(pid: int, screen: str) -> Session | None:
     if not isinstance(reg, dict):
         raise Refused("an agent registration in this pane can't be read")
     if reg and reg.get("pid") == pid and start and reg.get("procStart") == start:
-        return Session("claude", str(reg.get("sessionId")), home, pid, start)
+        return Session("claude", str(reg.get("sessionId")), home, _index(pid, "claude"), pid,
+                       start)
     if tmux.proc_read(pid, "comm").strip() != "codex":
         return None
     # Codex keeps no registry, and its shared app-server, not this client, holds the
@@ -100,7 +106,8 @@ def _agent(pid: int, screen: str) -> Session | None:
     ids = {s for s in codex_status_segments(screen) if _ID.fullmatch(s)}
     if len(ids) != 1:
         raise Refused("Codex's status line does not show this thread's id (add session-id to it)")
-    return Session("codex", ids.pop(), _home(pid, "CODEX_HOME", ".codex"), pid, start)
+    return Session("codex", ids.pop(), _home(pid, "CODEX_HOME", ".codex"), _index(pid, "codex"),
+                   pid, start)
 
 
 def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session:
@@ -125,17 +132,11 @@ def identify(pane_pid: str, screen: str, expected: str | None = None) -> Session
     return found[0]
 
 
-def _index(s: Session) -> Path:
-    """agent-history's entries for this harness (agent-history/README.md)."""
-    root = os.environ.get("AGENT_HISTORY_DIR") or Path.home() / "agent-history"
-    return Path(root) / "index" / s.harness
-
-
 def targets(s: Session) -> tuple[list[Path], list[Path]]:
     """(the session's own files and dirs, the shared files to filter), all checked to
     resolve inside their root. Raises Refused, before anything is deleted, if one doesn't."""
     # agent-history's copy of what was typed goes last, after the transcript it is rebuilt from.
-    found = [(root, p) for root, globs in ((s.root, _FILES[s.harness]), (_index(s), _INDEX))
+    found = [(root, p) for root, globs in ((s.root, _FILES[s.harness]), (s.index, _INDEX))
              for g in globs for p in root.glob(g.format(id=s.session_id))]
     shared = [(s.root, s.root / name) for name in _LINES[s.harness]]
     if s.harness == "codex":

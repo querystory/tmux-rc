@@ -83,14 +83,13 @@ def _expunge_demo(root: Path):
                  root / "history.jsonl"):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
-    session = expunge.Session("claude", sid, root, 0, "")
+    session = expunge.Session("claude", sid, root, root.parent / "agent-history", 0, "")
     return lambda *_a: ("0", session, expunge.targets(session))
 
 
 @asynccontextmanager
 async def lifespan(app):
     with tempfile.TemporaryDirectory(prefix="tmux-rc-demo-") as tmp:
-        os.environ["AGENT_HISTORY_DIR"] = str(Path(tmp) / "agent-history")
         if hasattr(server, "_pane_session"):
             server._pane_session = _expunge_demo(Path(tmp) / "claude")  # noqa: SLF001
         app.state.history = demo.seed_history(DemoHistory(Path(tmp) / "history.sqlite3"))
