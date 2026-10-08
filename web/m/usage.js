@@ -38,7 +38,7 @@ function cell(w, provider, wide, now) {
   const pace = w.resets_at && Math.min(100, Math.max(0, (now - w.start) / (w.resets_at - w.start) * 100));
   const bar = `<i class="usage-bar"><i style="width:${projected}%" class="ahead"></i><i style="width:${used}%"></i>`
     + (pace ? `<i class="pace" style="left:${pace.toFixed(1)}%"></i>` : '') + '</i>';
-  return `<div class="usage-cell ${level}" data-w="${w.window}" title="${esc(title)}"><span>${w.window}</span><b>${Math.round(w.pct)}%</b><em>used</em>`
+  return `<div class="usage-cell ${level}" data-w="${w.window}" title="${esc(title)}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}" aria-valuetext="${esc(title)}"><span>${w.window}</span><b>${Math.round(w.pct)}%</b><em>used</em>`
     + `${wide && w.resets_at ? spark(w, now) : bar}<small>${esc(note)}</small></div>`;
 }
 

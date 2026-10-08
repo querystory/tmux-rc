@@ -77,7 +77,9 @@ Claude endpoint is called at most every five minutes per account, which is gentl
 undocumented endpoint and fine for windows measured in hours. Samples go into the existing
 history database (a `plan_usage` table keyed by provider, account, window and time) rather
 than a new store, so the trend survives restarts under the same permissions and migrations
-as the fleet chart. The UI fetches `/api/usage` once a minute; it is a separate endpoint,
+as the fleet chart. Unlike pane history, it is pruned to eight days (the longest window
+plus a day): only a current window is ever drawn, and a minute-level poll per account
+would otherwise grow without use. The UI fetches `/api/usage` once a minute; it is a separate endpoint,
 not part of the `/api/state` long-poll, because that one returns on every pane change.
 
 ## Projection

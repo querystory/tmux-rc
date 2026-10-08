@@ -75,14 +75,14 @@ MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("G
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
 
 
-# Plan limits: two Claude accounts and a weekly-only Codex plan, so the usage strip shows
-# every state it draws: on pace, projected past 100% before the reset (dev's 5h), nearly
-# full (ops' 7d), and no 5h window at all (Codex). provider | name | the sessions whose
+# Plan limits, one Claude and one weekly-only Codex account, as a typical day reads: a
+# light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), and
+# Codex ahead of pace with no 5h window at all. provider | name | the sessions whose
 # panes draw on it | per window: name, seconds, share of it gone at NOW, % used at NOW.
 PLANS = [
-    ("claude", "dev", SESSIONS[:4], [("5h", 5 * 3600, 0.6, 72), ("7d", 7 * 86400, 0.64, 58)]),
-    ("claude", "ops", SESSIONS[4:], [("5h", 5 * 3600, 0.2, 12), ("7d", 7 * 86400, 0.89, 91)]),
-    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 0.43, 22)]),
+    ("claude", "claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
+                                    ("7d", 7 * 86400, 1 - 7.5 / 168, 89)]),
+    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 14)]),
 ]
 
 

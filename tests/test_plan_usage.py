@@ -184,3 +184,33 @@ def test_a_stale_config_dir_does_not_shadow_a_working_one_for_the_same_account(t
     usage = PlanUsage(None)
     usage.fetch = lambda config, now: [config.name] if config.name == "good" else 1 / 0
     assert usage._fetch_any([tmp_path / "stale", tmp_path / "good"], NOW) == ["good"]
+
+
+def test_a_failed_account_stays_unavailable_when_it_reappears_within_the_ttl(tmp_path, monkeypatch):
+    tmp_path.chmod(0o700)
+    work = _claude_home(tmp_path / "claude-work", "u-work", "dev@example.com")
+    monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(tmp_path / "nobody")})
+    monkeypatch.setattr(plan_usage, "pane_env",
+                        lambda pid, tool: {"CLAUDE_CONFIG_DIR": str(work)})
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"), fetch=lambda config, now: 1 / 0)
+    pane = [{"pane_id": "%1", "tool": "claude"}]
+    usage.poll(pane, lambda _: "1", now=NOW)
+    usage.poll([], lambda _: "1", now=NOW + 60)  # its last pane closed
+    usage.poll(pane, lambda _: "1", now=NOW + 120)  # back inside the TTL: no new fetch
+    assert usage.report(now=NOW)[0]["error"] == "unavailable"
+
+
+def test_clashing_short_names_fall_back_to_the_full_name():
+    usage = PlanUsage(None)
+    usage.accounts = {("claude", k): {"short": "dev", "long": f"dev@{k}.example", "panes": [],
+                                      "error": None} for k in ("home", "work")}
+    assert sorted(a["label"] for a in usage.report(now=NOW)) == [
+        "dev@home.example", "dev@work.example"]
+
+
+def test_samples_older_than_the_longest_window_are_pruned(tmp_path):
+    tmp_path.chmod(0o700)
+    history = History(tmp_path / "h.sqlite3")
+    history.record_usage([("codex", "a", "7d", 604800, NOW - 9 * 86400, 50, NOW - 2 * 86400)])
+    history.record_usage([("codex", "a", "7d", 604800, NOW, 5, NOW + 60)])
+    assert history.usage_between("codex", "a", "7d", 0, NOW) == [(NOW, 5.0)]
