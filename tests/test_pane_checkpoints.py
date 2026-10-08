@@ -181,6 +181,7 @@ def test_retiring_a_pr_rewrites_the_checkpoint(monkeypatch, tmp_path):
 
 def test_an_expunged_pane_is_never_checkpointed_again(monkeypatch, tmp_path):
     w, _ = daemon(monkeypatch, tmp_path / "h.db")
+    monkeypatch.setattr(W, "summarize_events", lambda texts: None)
     assert w.history.load_checkpoints()
     w.forget_checkpoint("%1", "101")
     w._checkpointed.clear()  # stands for a tick that captured the pane before it closed
