@@ -37,6 +37,8 @@ const SHOTS = [
   ["mobile-no-tmux", PHONE, "light", "", noTmux],
   ["wide-new-session", WIDE, "light", "", async (page) => { await noTmux(page); await page.click(".start-session:not([hidden])"); }],
   ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
+  ["mobile-pane-menu", PHONE, "dark", "#pane=%259", (page) => page.click("#pane-menu-button")],
+  ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .voice-open button")],
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
@@ -69,6 +71,12 @@ const STILL = `body { font-family: "Liberation Sans", sans-serif !important; }
 async function showSubagents(page) {
   await page.locator(".sb-group", { hasText: "Working" }).locator(".sb-icon").click();
   await page.locator(".sb-card", { hasText: "terraform plan review" }).scrollIntoViewIfNeeded();
+}
+
+async function confirmExpunge(page) {
+  await page.click("#pane-menu-button");
+  await page.click("#expunge-pane");
+  await page.waitForSelector("#expunge-dialog[open]");
 }
 
 function chat(ask, until) { // hoisted: SHOTS above calls it

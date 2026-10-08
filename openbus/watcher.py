@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import secrets
+import sqlite3
 import subprocess
 import threading
 import time
@@ -326,6 +327,9 @@ class Watcher:
         self._prs: dict[str, list[dict]] = {}  # pane_id -> accumulated semantic associations
         self._pr_titles = PRTitles()
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
+        self._forgotten: set[str] = set()  # checkpoint keys Expunge deleted
+        self._undeleted: set[str] = set()  # ...whose row deletion is still to be retried
+        self._forget_lock = threading.Lock()
         # Restart checkpoints: the preload (uid -> row, None until read), the tmux server
         # they are keyed under, and pane_id -> what was last written (skip if unchanged).
         self._checkpoints: dict[str, dict] | None = None
@@ -455,6 +459,36 @@ class Watcher:
             )
         return out
 
+    def checkpoint_key(self, pane_id: str, pid: str) -> str:
+        """The key of this pane incarnation's stored card, under the live tmux server (raises
+        if tmux can't name it). Taken before the pane closes: a new server may have started
+        by the time it is used."""
+        return pane_key(tmux.server_uid(strict=True), pane_id, pid)
+
+    def forget_checkpoint(self, uid: str) -> bool:
+        """Delete a stored card (Expunge), and never write it again: a tick that captured
+        the pane before it closed can still be on its way to saving."""
+        with self._forget_lock:  # never between a tick's filter and its save
+            self._forgotten.add(uid)
+            self._undeleted.add(uid)
+        return self._delete_forgotten()
+
+    def _delete_forgotten(self) -> bool:
+        """Delete the forgotten rows not yet deleted; whether none is left. A busy database
+        is retried every tick, and meanwhile the tombstone keeps the row from coming back."""
+        with self._forget_lock:
+            if not self._undeleted:
+                return True
+            if not self.history:  # no database to clean: can't say the card is gone
+                return False
+            try:
+                self.history.delete_checkpoints(list(self._undeleted))
+                self._undeleted.clear()
+            except (OSError, sqlite3.Error):
+                logger.warning("could not delete an expunged checkpoint; retrying next tick",
+                               exc_info=True)
+            return not self._undeleted
+
     def snapshot_text(self, pane_id: str, snap_id: str) -> str | None:
         for s in self.snapshots.get(pane_id, []):
             if s["id"] == snap_id:
@@ -541,6 +575,7 @@ class Watcher:
         self.request_reparse(pane_id)
 
     def _tick(self) -> None:
+        self._delete_forgotten()
         self.tmux_running = tmux.server_running()
         if not self.tmux_running:
             self._collection_failed = False
@@ -1136,8 +1171,10 @@ class Watcher:
             same = tmux.server_uid(strict=True) == self._server
         except (OSError, subprocess.CalledProcessError):
             same = False
-        if same and self.history.save_checkpoints(rows):
-            self._checkpointed.update(keys)
+        with self._forget_lock:
+            rows = [r for r in rows if r["uid"] not in self._forgotten]
+            if same and rows and self.history.save_checkpoints(rows):
+                self._checkpointed.update(keys)
 
     def _state_since_for(
         self, pane_id: str, state: dict, now: float, activity_ts: float | None = None

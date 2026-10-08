@@ -615,8 +615,8 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
 .header-picker-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: max-content; max-width: calc(100vw - 40px); padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px #0002; }
 .header-picker-menu label, .header-picker-menu button { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .header-picker-menu label:hover, .header-picker-menu label:focus-within { background: var(--raised); }
-/* The overflow menus: an icon trigger (no picker chevron). The pane's holds the one
-   destructive action; the phone header's holds its settings-like controls, each its icon
+/* The overflow menus: an icon trigger (no picker chevron). The pane's holds its
+   window actions; the phone header's holds its settings-like controls, each its icon
    plus the label it already carries, so the toggles (the bell's state too) read in words. */
 :is(#pane-menu, #more-menu) { flex: none; }
 :is(#pane-menu, #more-menu) summary { padding: 0; justify-content: center; }
@@ -630,7 +630,13 @@ dialog select, dialog input { width: 100%; min-height: 48px; border: 1px solid v
    boxes abut (and X's overhangs the padding, as .search-clear does) so the gaps between
    the visible glyphs come out even and the X's ink lines up with the right gutter. */
 #close-pane { margin: 0 -12px; }
-#kill-pane { width: 100%; color: var(--red); white-space: nowrap; }
+#kill-pane, #expunge-pane { width: 100%; white-space: nowrap; }
+/* Expunge sits last, under a rule, and is the menu's one red item: killing a window ends a
+   process, expunging also deletes the session's files for good. */
+#pane-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+#expunge-pane, #expunge-confirm { color: var(--red); }
+#expunge-caveat { color: var(--muted); font-size: 13px; }
+#expunge-confirm { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--red); border-radius: 6px; font-weight: 600; }
 .header-picker-menu input { accent-color: var(--accent); }
 
 .header-picker summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

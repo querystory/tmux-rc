@@ -257,6 +257,13 @@ def _session_chrome(text: str) -> list[str]:
     return chrome
 
 
+def codex_status_segments(text: str) -> set[str]:
+    """The segments of a Codex status line the parser validates as live chrome. One is
+    the thread id when the status line is configured with `session-id`."""
+    return {s.strip() for line in _session_chrome(text) if _codex_model_segments(line)
+            for s in line.split("·")}
+
+
 def _session_evidence(text: str) -> str:
     titles = []
     for line in _session_chrome(text):
