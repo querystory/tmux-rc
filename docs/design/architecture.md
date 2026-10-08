@@ -295,9 +295,13 @@ shell's readline turn it off too. The first version told them apart by line edit
 sudo: sudo keeps whatever mode it finds, and an earlier app had left that tty raw, so the
 prompt looked exactly like Claude Code. The cursor's row (its whole line, when a narrow pane wraps a long prompt) is what actually differs: a raw
 app's cursor sits on its own input line, a shell's on its prompt, and output that merely
-mentions a password is never under the cursor. "The foreground process isn't the shell"
-was rejected: it misses `read -s` typed at a shell, and an agent TUI is never the shell
-anyway. Asking the classifier instead would cost a model call, and a misread would put a
+mentions a password is never under the cursor. One case the row can't settle is the shell itself: idle readline
+also runs echo off, so a prompt-less shell after `printf 'Password: '` would match. So
+with line editing off, the reader must also not be the shell, which its foreground
+process group shows. That keeps sudo on a raw tty (its own job) and `read -s` (line
+editing on) while ruling out a shell that is merely waiting for a command. "Not the
+shell" alone was rejected as the rule: it would miss `read -s`, and an agent TUI is never
+the shell anyway. Asking the classifier instead would cost a model call, and a misread would put a
 password field over an agent's prompt, or leave a plain composer echoing a password onto
 the screen. The check is one ioctl, plus two tmux calls only when echo is off, so the
 watcher runs it every tick, and the send path runs the same helper again under the pane's

@@ -54,14 +54,22 @@ def _until(check):
     return False
 
 
-def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, caplog):
-    # ICANON and bracketed paste left on by an earlier app, as sudo met them in the field.
-    prompt = private_tmux.spawn("""bash -c 'printf "\\033[?2004h"; stty -icanon; \
-read -s -p "Password: " x; echo; echo "got:${#x}:$x"; sleep 30'""")
+def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, caplog,
+                                                                  tmp_path):
+    # ICANON and bracketed paste left on by an earlier app, as sudo met them in the field:
+    # a job of a job-control shell, so the foreground is not the shell.
+    reader = tmp_path / "reader.sh"
+    reader.write_text('read -s -p "Password: " x; echo; echo "got:${#x}:$x"')
+    prompt = private_tmux.spawn(
+        f"""bash -c 'set -m; printf "\\033[?2004h"; stty -icanon; bash {reader}; sleep 30'""")
     # The prompt wraps over a dozen rows: the cursor's row alone has no "password" in it.
     user = "x" * 900
     canonical = private_tmux.spawn(f"""bash -c 'read -s -p "[sudo] password for {user}-x: " x'""")
     echoing = private_tmux.spawn("cat")
+    # Idle readline with an empty PS1 after `printf "Password: "`: echo off, the cursor
+    # row says "Password:", but the shell itself is reading, raw.
+    shell = private_tmux.spawn("env PS1= bash --norc -i")
+    private_tmux.run(["send-keys", "-t", shell, "printf 'Password: '", "Enter"])
     # A full-screen app runs with echo off too, like an agent TUI, vim or an idle shell:
     # a "password:" on the screen but not on the cursor's row is not a prompt.
     raw = private_tmux.spawn("""python3 -c 'import sys, tty; print("Password:", flush=True); \
@@ -73,6 +81,8 @@ tty.setraw(0); sys.stdin.read(1)'""")
     assert _until(lambda: "Password:" in tmux.capture_pane(raw))
     time.sleep(0.2)  # let python reach setraw
     assert not pane(raw).secret
+    assert _until(lambda: tmux.capture_pane(shell).rstrip().endswith("Password:"))
+    assert not pane(shell).secret
 
     state = {}
     watcher._stamp_identity(state, pane(prompt))

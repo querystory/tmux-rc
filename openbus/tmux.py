@@ -66,13 +66,13 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
 # The row the cursor sits on asks for a secret: "[sudo] password for x:", "x@host's
 # password:", git's "Password for 'https://x@host':", "Enter passphrase for key '…':".
 _PASSWORD_PROMPT = re.compile(r"\b(password|passphrase|pin)\b.*:\s*$", re.IGNORECASE)
-_UNREADABLE = (OSError, termios.error, subprocess.CalledProcessError)
+_UNREADABLE = (OSError, termios.error, subprocess.CalledProcessError, ValueError)
 
 
-def _password_prompt(pane_id: str, tty: str) -> bool:
-    """`tty` has ECHO off and the cursor's row ends in a password prompt (see
-    Pane.secret). Raises one of _UNREADABLE when it can't tell; each caller picks its
-    own default."""
+def _quiet_reader(tty: str, shell_pid: str) -> bool:
+    """Something reads `tty` with ECHO off that is not the pane's idle shell: either
+    line editing (ICANON) is on, which readline never leaves on, or the foreground
+    process group (the shell's tpgid, /proc field 8) is not the shell's own."""
     fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
     try:
         lflag = termios.tcgetattr(fd)[3]
@@ -80,12 +80,26 @@ def _password_prompt(pane_id: str, tty: str) -> bool:
         os.close(fd)
     if lflag & termios.ECHO:
         return False
+    if lflag & termios.ICANON:
+        return True
+    with open(f"/proc/{int(shell_pid)}/stat") as stat:
+        return stat.read().rpartition(")")[2].split()[5] != shell_pid
+
+
+def _password_prompt(pane_id: str, tty: str, shell_pid: str) -> bool:
+    """A quiet reader (above) and the cursor's row ends in a password prompt (see
+    Pane.secret). Raises one of _UNREADABLE when it can't tell; each caller picks its
+    own default."""
+    if not _quiet_reader(tty, shell_pid):
+        return False
     # The cursor's whole line: a narrow pane wraps a long prompt over several rows, which
     # -J joins. From the top of the screen and a few rows of history, so a prompt's start
     # is cut off only if the prompt is taller than the pane.
     y = _run(["display-message", "-p", "-t", pane_id, "#{cursor_y}"]).strip()
     line = _run(["capture-pane", "-p", "-J", "-t", pane_id, "-S", "-8", "-E", y])
-    return bool(_PASSWORD_PROMPT.search(line.removesuffix("\n").rpartition("\n")[2]))
+    # ECHO again after the screen read: a prompt answered meanwhile left its row behind.
+    return bool(_PASSWORD_PROMPT.search(line.removesuffix("\n").rpartition("\n")[2])) \
+        and _quiet_reader(tty, shell_pid)
 
 
 @dataclass(frozen=True)
@@ -126,7 +140,8 @@ class Pane:
     def secret(self) -> bool:
         """Is the pane at a password prompt? Two deterministic signals, both required.
         The tty's ECHO is off — sudo, ssh, getpass and `read -s` all turn it off, but so
-        do agent TUIs, editors and an idle shell's readline, so it only rules out. And
+        do agent TUIs, editors and an idle shell's readline, so it only rules out; an
+        idle shell is ruled out outright (see _quiet_reader). And
         the row the cursor sits on ends in a password prompt. ICANON is not a signal:
         sudo keeps whatever mode it finds, and a tty a crashed app left raw (-icanon)
         is common in the field. Read once per pane listing: an ioctl on a pts the
@@ -134,7 +149,7 @@ class Pane:
         reads as no: this only picks the composer, and the send path decides for
         itself."""
         try:
-            return _password_prompt(self.id, self.tty)
+            return _password_prompt(self.id, self.tty, self.pid)
         except _UNREADABLE:
             return False
 
@@ -837,8 +852,8 @@ def at_password_prompt(pane_id: str, *, unknown: bool = True) -> bool:
     as `unknown`, which each caller sets to fail closed: True for plain text, which
     might be a password, and False for a password, which needs the prompt confirmed."""
     try:
-        tty = _run(["display-message", "-p", "-t", pane_id, "#{pane_tty}"]).strip()
-        return _password_prompt(pane_id, tty)
+        tty, pid = _run(["display-message", "-p", "-t", pane_id, "#{pane_tty} #{pane_pid}"]).split()
+        return _password_prompt(pane_id, tty, pid)
     except _UNREADABLE:
         return unknown
 
@@ -989,12 +1004,12 @@ def send_secret(pane: Pane, secret: str) -> None:
     with _pane_lock(pane.id):
         try:
             _run(["load-buffer", "-b", name, "-"], stdin=secret)
-            # Checked after the load, right before the paste: the pane can be replaced
-            # (and its id recycled) while load-buffer runs.
-            check_pane(pane.id, pane.pid)
+            # Checked after the load, right before the paste, identity last: the pane can
+            # be replaced (and its id recycled) while load-buffer or the prompt check runs.
             if not at_password_prompt(pane.id, unknown=False):
                 raise PaneChangedError(
                     "The pane is no longer asking for a password; nothing was sent.")
+            check_pane(pane.id, pane.pid)
             # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
             _run(["paste-buffer", "-d", "-b", name, "-t", pane.id])
             _run(["send-keys", "-t", pane.id, "Enter"])
