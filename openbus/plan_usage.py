@@ -226,9 +226,10 @@ class PlanUsage:
         count = {t: sum(k[0] == t for k in self.accounts) for t in ENV}
         out = []
         for (tool, key), account in self.accounts.items():
-            known = self.history and not account["error"]  # stale numbers would mislead
-            rows = self.history.latest_usage(tool, key) if known else []
+            # Stale numbers would mislead, and without History there are none to show.
+            error = account["error"] or (None if self.history else "unavailable")
+            rows = [] if error else self.history.latest_usage(tool, key)
             out.append({"provider": tool, "label": account["short"] if count[tool] > 1 else None,
-                        "panes": account["panes"], "error": account["error"],
+                        "panes": account["panes"], "error": error,
                         "windows": [self._window(tool, key, row, now) for row in rows]})
         return sorted(out, key=lambda a: (a["provider"], a["label"] or ""))

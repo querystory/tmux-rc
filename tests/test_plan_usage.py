@@ -126,3 +126,12 @@ def test_report_drops_a_reset_window_and_hides_stale_data_on_error(tmp_path, mon
     usage.poll([], lambda _: None, now=NOW + 1)
     assert usage.report(now=NOW)[0] | {"panes": []} == {
         "provider": "codex", "label": None, "panes": [], "error": "unavailable", "windows": []}
+
+
+def test_without_history_an_account_reads_unavailable_not_limitless(tmp_path, monkeypatch):
+    (tmp_path / ".codex/sessions").mkdir(parents=True)
+    monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(tmp_path)})
+    usage = PlanUsage(None, read=lambda home: [{"window": "7d", "seconds": 604800, "t": NOW,
+                                                "pct": 40.0, "resets_at": NOW + 60}])
+    usage.poll([], lambda _: None, now=NOW)
+    assert usage.report(now=NOW)[0]["error"] == "unavailable"
