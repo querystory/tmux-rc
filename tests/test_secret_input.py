@@ -55,9 +55,9 @@ def _until(check):
 
 
 def test_password_prompts_are_detected_answered_and_never_logged(private_tmux, caplog):
-    # ICANON off, as sudo prompts on a tty an earlier app left raw: seen in the field.
-    prompt = private_tmux.spawn(
-        """bash -c 'stty -icanon; read -s -p "Password: " x; echo; echo "got:$x"; sleep 30'""")
+    # ICANON and bracketed paste left on by an earlier app, as sudo met them in the field.
+    prompt = private_tmux.spawn("""bash -c 'printf "\\033[?2004h"; stty -icanon; \
+read -s -p "Password: " x; echo; echo "got:${#x}:$x"; sleep 30'""")
     canonical = private_tmux.spawn("""bash -c 'read -s -p "[sudo] password for x: " x'""")
     echoing = private_tmux.spawn("cat")
     # A full-screen app runs with echo off too, like an agent TUI, vim or an idle shell:
@@ -97,7 +97,7 @@ print("$ ", end="", flush=True); tty.setraw(0); sys.stdin.read(1)'""")
 
     assert client.post(f"/api/panes/{prompt}/compose",
                        files=[("secret", (None, SECRET))]).status_code == 200
-    assert _until(lambda: f"got:{SECRET}" in tmux.capture_pane(prompt))
+    assert _until(lambda: f"got:{len(SECRET)}:{SECRET}" in tmux.capture_pane(prompt))
     assert _until(lambda: not pane(prompt).secret)  # `sleep` runs with echo back on
 
     assert not any(SECRET in " ".join(args) for args in private_tmux.argvs)
