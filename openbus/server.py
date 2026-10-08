@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
@@ -429,6 +429,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         usage_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await usage_task
         await app.state.push.stop()
         await app.state.watcher.stop()
 

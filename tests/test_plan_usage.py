@@ -40,6 +40,11 @@ def test_read_codex_takes_the_newest_logged_limits(tmp_path):
              {"timestamp": "2026-10-08T12:01:00Z", "type": "response_item", "payload": {}}]
     (day / "rollout.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
     assert [s["pct"] for s in read_codex(tmp_path)] == [5.0]
+    # A log touched later but holding an older event does not win.
+    older = tmp_path / "sessions/2026/10/07"
+    older.mkdir(parents=True)
+    (older / "rollout.jsonl").write_text(json.dumps(_event(limits, "2026-10-07T09:00:00Z")))
+    assert [s["pct"] for s in read_codex(tmp_path)] == [5.0]
     assert read_codex(tmp_path / "missing") == []
 
 
@@ -56,7 +61,7 @@ def test_claude_response_windows():
 def test_expired_token_is_unavailable_without_a_request(tmp_path, monkeypatch):
     (tmp_path / ".credentials.json").write_text(json.dumps(
         {"claudeAiOauth": {"accessToken": "x", "expiresAt": (NOW - 1) * 1000}}))
-    monkeypatch.setattr(plan_usage.urllib.request, "urlopen", pytest.fail)
+    monkeypatch.setattr(plan_usage._OPENER, "open", pytest.fail)
     with pytest.raises(PermissionError):
         plan_usage.fetch_claude(tmp_path, NOW)
 
@@ -65,13 +70,21 @@ def test_projection_extends_the_fitted_pace_to_the_reset():
     hour, start = 3600, NOW
     # 10% an hour, steadily: 30% at 3h, so 50% by the 5h reset and no limit hit.
     steady = [(start + h * hour, 10.0 * h) for h in (1, 2, 3)]
-    assert project(steady, start + 5 * hour, 5 * hour) == {"projected": 50.0, "limit_at": None}
+    assert project(steady, start + 5 * hour, 5 * hour, start + 3 * hour) == {
+        "projected": 50.0, "limit_at": None}
     # 25% an hour reaches 100% at 4h, an hour before the reset.
     fast = [(start + h * hour, 25.0 * h) for h in (1, 2, 3)]
-    assert project(fast, start + 5 * hour, 5 * hour) == {"projected": 125.0,
-                                                         "limit_at": start + 4 * hour}
+    assert project(fast, start + 5 * hour, 5 * hour, start + 3 * hour) == {
+        "projected": 125.0, "limit_at": start + 4 * hour}
+    # 20% an hour lands on exactly 100% at the reset: not before it, so no warning.
+    even = [(start + h * hour, 20.0 * h) for h in (1, 2, 3)]
+    assert project(even, start + 5 * hour, 5 * hour, start + 3 * hour)["limit_at"] is None
+    # Quiet since: the pace slows, so the forecast moves out instead of into the past.
+    later = project(fast, start + 5 * hour, 5 * hour, start + 3.5 * hour)
+    assert start + 4 * hour < later["limit_at"] < start + 5 * hour
+    assert project(fast, start + 5 * hour, 5 * hour, start + 4.5 * hour)["limit_at"] is None
     # Samples from the previous window are not this window's pace.
-    assert project([(start - hour, 90.0)], start + 5 * hour, 5 * hour)["projected"] == 0.0
+    assert project([(start - hour, 90.0)], start + 5 * hour, 5 * hour, start)["projected"] == 0.0
 
 
 def _claude_home(path, uuid, email):
@@ -126,3 +139,42 @@ def test_report_drops_a_reset_window_and_hides_stale_data_on_error(tmp_path, mon
     usage.poll([], lambda _: None, now=NOW + 1)
     assert usage.report(now=NOW)[0] | {"panes": []} == {
         "provider": "codex", "label": None, "panes": [], "error": "unavailable", "windows": []}
+
+
+def test_without_history_an_account_reads_unavailable_not_limitless(tmp_path, monkeypatch):
+    (tmp_path / ".codex/sessions").mkdir(parents=True)
+    monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(tmp_path)})
+    usage = PlanUsage(None, read=lambda home: [{"window": "7d", "seconds": 604800, "t": NOW,
+                                                "pct": 40.0, "resets_at": NOW + 60}])
+    usage.poll([], lambda _: None, now=NOW)
+    assert usage.report(now=NOW)[0]["error"] == "unavailable"
+
+
+def test_an_account_with_no_samples_yet_is_not_limitless(tmp_path, monkeypatch):
+    tmp_path.chmod(0o700)
+    (tmp_path / ".codex/sessions").mkdir(parents=True)
+    monkeypatch.setattr(plan_usage.os, "environ", {"HOME": str(tmp_path)})
+    usage = PlanUsage(History(tmp_path / "h.sqlite3"), read=lambda home: [])
+    usage.poll([], lambda _: None, now=NOW)
+    assert usage.report(now=NOW)[0]["error"] == "no data yet"
+
+
+def test_a_redirect_never_carries_the_token():
+    request = plan_usage.urllib.request.Request(plan_usage.USAGE_URL)
+    assert plan_usage._NoRedirect().redirect_request(
+        request, None, 302, "Found", {}, "https://elsewhere.example/") is None
+
+
+def test_a_window_the_plan_dropped_is_not_shown(tmp_path):
+    tmp_path.chmod(0o700)
+    history = History(tmp_path / "h.sqlite3")
+    history.record_usage([("codex", "a", "5h", 18000, NOW, 10, NOW + 60),
+                          ("codex", "a", "7d", 604800, NOW, 20, NOW + 60),
+                          ("codex", "a", "7d", 604800, NOW + 1, 21, NOW + 60)])
+    assert [r[0] for r in history.latest_usage("codex", "a")] == ["7d"]
+
+
+def test_a_stale_config_dir_does_not_shadow_a_working_one_for_the_same_account(tmp_path):
+    usage = PlanUsage(None)
+    usage.fetch = lambda config, now: [config.name] if config.name == "good" else 1 / 0
+    assert usage._fetch_any([tmp_path / "stale", tmp_path / "good"], NOW) == ["good"]

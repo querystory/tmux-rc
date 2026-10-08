@@ -14,6 +14,7 @@ import logging
 import os
 import time
 import urllib.request
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -26,7 +27,7 @@ USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_WINDOWS = {"five_hour": ("5h", 5 * 3600), "seven_day": ("7d", 7 * 86400)}
 ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
 TAIL = 1 << 20  # Codex session logs reach hundreds of MB; the newest limits sit at the end
-CODEX_FILES = 5  # newest session logs searched for a limits event
+CODEX_FILES = 20  # bounds the scan when recent logs hold no limits event at all
 SPARK_POINTS = 120  # samples sent per window: a sidebar sparkline's width, not a week of polls
 
 
@@ -76,23 +77,34 @@ def codex_samples(event: dict) -> list[dict]:
     return out
 
 
+def _last_limits(path: Path) -> list[dict]:
+    """The last token_count event in this log's tail that carries limits."""
+    with path.open("rb") as f:
+        f.seek(max(0, f.seek(0, os.SEEK_END) - TAIL))
+        lines = f.read().splitlines()
+    for line in reversed(lines):
+        if b'"rate_limits"' in line:
+            try:
+                if samples := codex_samples(json.loads(line)):
+                    return samples
+            except (ValueError, KeyError, TypeError):
+                continue
+    return []
+
+
 def read_codex(codex_home: Path) -> list[dict]:
-    """The latest limits Codex logged under this home: the last token_count event that
-    carries them, from the tail of the most recently written session logs."""
+    """The latest limits Codex logged under this home. Concurrent sessions each write
+    their own log, so the newest event wins, not the newest-touched file; a log last
+    written before that event cannot hold a newer one, which ends the scan."""
     files = sorted((codex_home / "sessions").glob("*/*/*/*.jsonl"),
                    key=lambda f: f.stat().st_mtime, reverse=True)
+    best: list[dict] = []
     for path in files[:CODEX_FILES]:
-        with path.open("rb") as f:
-            f.seek(max(0, f.seek(0, os.SEEK_END) - TAIL))
-            lines = f.read().splitlines()
-        for line in reversed(lines):
-            if b'"rate_limits"' in line:
-                try:
-                    if samples := codex_samples(json.loads(line)):
-                        return samples
-                except (ValueError, KeyError, TypeError):
-                    continue
-    return []
+        if best and path.stat().st_mtime < best[0]["t"]:
+            break
+        if (samples := _last_limits(path)) and (not best or samples[0]["t"] > best[0]["t"]):
+            best = samples
+    return best
 
 
 def claude_samples(data: dict, now: float) -> list[dict]:
@@ -119,6 +131,14 @@ def claude_account(config: Path, env: dict) -> dict | None:
     return account.get("accountUuid") and {"key": account["accountUuid"], "short": short}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_):  # urllib would carry the token to any redirect target
+        return None  # so a 3xx is an HTTPError: "unavailable"
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def fetch_claude(config: Path, now: float) -> list[dict]:
     """GET the usage endpoint with this config dir's OAuth token, read in-process only.
     An expired token raises rather than refreshing: Claude Code owns that file."""
@@ -127,16 +147,21 @@ def fetch_claude(config: Path, now: float) -> list[dict]:
         raise PermissionError("token expired")
     request = urllib.request.Request(USAGE_URL, headers={
         "Authorization": f"Bearer {oauth['accessToken']}", "anthropic-beta": "oauth-2025-04-20"})
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with _OPENER.open(request, timeout=10) as response:
         return claude_samples(json.load(response), now)
 
 
-def project(samples: list[tuple[float, float]], resets_at: float, seconds: int) -> dict:
+def project(samples: list[tuple[float, float]], resets_at: float, seconds: int,
+            now: float) -> dict:
     """Where the window ends at the current pace: a least-squares slope over this window's
-    samples, anchored at 0% when it opened, extended from the latest sample to the reset.
-    `limit_at` is when that line crosses 100%, if before the reset."""
+    samples, anchored at 0% when it opened, extended from now to the reset. The latest
+    value holds until now (no new Codex event means no new use), so a quiet spell slows
+    the pace instead of leaving a forecast in the past. `limit_at` is when that line
+    crosses 100%, if before the reset."""
     start = resets_at - seconds
     points = [(start, 0.0), *((t, p) for t, p in samples if t >= start)]
+    if now > points[-1][0]:
+        points.append((now, points[-1][1]))
     n = len(points)
     mt, mp = sum(t for t, _ in points) / n, sum(p for _, p in points) / n
     var = sum((t - mt) ** 2 for t, _ in points)
@@ -144,7 +169,7 @@ def project(samples: list[tuple[float, float]], resets_at: float, seconds: int) 
     t, p = points[-1]
     projected = p + slope * (resets_at - t)
     return {"projected": round(projected, 1),
-            "limit_at": t + (100 - p) / slope if projected >= 100 and p < 100 else None}
+            "limit_at": t + (100 - p) / slope if projected > 100 and p < 100 else None}
 
 
 class PlanUsage:
@@ -158,7 +183,8 @@ class PlanUsage:
     def discover(self, panes: list[dict], birth) -> dict[tuple[str, str], dict]:
         """Every account a live agent pane uses, plus the daemon user's own defaults."""
         found: dict[tuple[str, str], dict] = {}
-        sources = [(t, dict(os.environ), None) for t in ENV]
+        sources = [(t, {k: os.environ[k] for k in ("HOME", ENV[t]) if k in os.environ}, None)
+                   for t in ENV]
         sources += [(p["tool"], pane_env(pid, p["tool"]), p["pane_id"]) for p in panes
                     if p.get("tool") in ENV and (pid := birth(p["pane_id"]))]
         for tool, env, pane_id in sources:
@@ -169,10 +195,19 @@ class PlanUsage:
             else:
                 ident = claude_account(config, env)
             if ident:
-                account = found.setdefault((tool, ident["key"]), {**ident, "home": config,
+                account = found.setdefault((tool, ident["key"]), {**ident, "homes": [],
                                                                   "panes": []})
+                account["homes"] += [config] if config not in account["homes"] else []
                 account["panes"] += [pane_id] if pane_id else []
         return found
+
+    def _fetch_any(self, homes: list[Path], now: float) -> list[dict]:
+        """One account can be logged in under several config dirs, and one dir's token may
+        be stale while another's works: the first that answers wins."""
+        for config in homes[:-1]:
+            with suppress(Exception):
+                return self.fetch(config, now)
+        return self.fetch(homes[-1], now)
 
     def poll(self, panes: list[dict], birth, now: float | None = None) -> None:
         now = time.time() if now is None else now
@@ -183,10 +218,10 @@ class PlanUsage:
             account["error"] = previous.get("error")
             try:
                 if tool == "codex":
-                    samples, account["error"] = self.read(account["home"]), None
+                    samples, account["error"] = self.read(account["homes"][0]), None
                 elif now - self._fetched.get(key, 0) >= CLAUDE_TTL:
                     self._fetched[key] = now
-                    samples, account["error"] = self.fetch(account["home"], now), None
+                    samples, account["error"] = self._fetch_any(account["homes"], now), None
                 else:
                     samples = []
             except Exception as e:  # noqa: BLE001 - any failure reads as "unavailable"
@@ -195,9 +230,9 @@ class PlanUsage:
                 samples, account["error"] = [], "unavailable"
             rows += [(tool, key, s["window"], s["seconds"], s["t"], s["pct"], s["resets_at"])
                      for s in samples]
+        self.accounts = accounts  # first: a failed write (logged by run()) loses only samples
         if rows and self.history:
             self.history.record_usage(rows)
-        self.accounts = accounts
 
     async def run(self, watcher) -> None:
         while True:
@@ -214,8 +249,8 @@ class PlanUsage:
         if resets is None or resets <= now:  # the window reset since: nothing used yet
             return {"window": name, "pct": 0.0, "resets_at": None, "samples": []}
         samples = self.history.usage_since(tool, key, name, resets - seconds)
-        trend = project(samples, resets, seconds)
-        thin = samples[::-1][::-(-len(samples) // SPARK_POINTS)][::-1]
+        trend = project(samples, resets, seconds, now)
+        thin = samples[::-1][::max(1, -(-len(samples) // SPARK_POINTS))][::-1]
         return {"window": name, "pct": pct, "resets_at": resets * 1000,
                 "start": (resets - seconds) * 1000, "samples": [[t * 1000, p] for t, p in thin],
                 "projected": trend["projected"],
@@ -223,12 +258,15 @@ class PlanUsage:
 
     def report(self, now: float | None = None) -> list[dict]:
         now = time.time() if now is None else now
-        count = {t: sum(k[0] == t for k in self.accounts) for t in ENV}
+        accounts = self.accounts  # one snapshot: poll() swaps it from a worker thread
+        count = {t: sum(k[0] == t for k in accounts) for t in ENV}
         out = []
-        for (tool, key), account in self.accounts.items():
-            known = self.history and not account["error"]  # stale numbers would mislead
-            rows = self.history.latest_usage(tool, key) if known else []
+        for (tool, key), account in accounts.items():
+            # Stale numbers would mislead, and without History there are none to show.
+            error = account["error"] or (None if self.history else "unavailable")
+            rows = [] if error else self.history.latest_usage(tool, key)
+            error = error or (None if rows else "no data yet")  # not "no limits": unknown
             out.append({"provider": tool, "label": account["short"] if count[tool] > 1 else None,
-                        "panes": account["panes"], "error": account["error"],
+                        "panes": account["panes"], "error": error,
                         "windows": [self._window(tool, key, row, now) for row in rows]})
         return sorted(out, key=lambda a: (a["provider"], a["label"] or ""))
