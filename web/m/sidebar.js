@@ -83,7 +83,7 @@ export function setupSidebar(ctx) {
   // it), and the Sub-agents toggle, whose count's colour says whether it is on.
   const bar = document.createElement("div");
   bar.className = "sb-bar";
-  bar.innerHTML = '<button data-by="state">State</button><i>/</i><button data-by="session">Session</button>';
+  bar.innerHTML = '<button data-by="state" aria-label="Group by state">State</button><i aria-hidden="true">/</i><button data-by="session" aria-label="Group by session">Session</button>';
   bar.querySelectorAll("[data-by]").forEach((b) => { b.onclick = () => { prefs.by = b.dataset.by; rerender(); }; });
   const pick = Object.assign(document.createElement("select"), { id: "side-filter" });
   pick.setAttribute("aria-label", "Filter panes");
@@ -91,7 +91,7 @@ export function setupSidebar(ctx) {
   pick.onchange = () => ctx.setFilter(pick.value);
   const subs = Object.assign(document.createElement("button"), { className: "sb-subs", title: "List the running sub-agents of every pane outside Needs you under its row" });
   subs.onclick = () => { prefs.subagents = !prefs.subagents; rerender(); };
-  bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·" }), subs);
+  bar.append(pick, Object.assign(document.createElement("i"), { textContent: "·", ariaHidden: "true" }), subs);
   const refreshPick = headerPicker(pick);
 
   function head(g) {
