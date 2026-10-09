@@ -15,7 +15,8 @@ for path in ("/scratch/mock.html", "/scratch/%2e%2e/secret.txt", "/scratch/link.
 csp = c.get("/scratch/mock.html").headers.get("content-security-policy", "")
 print(int(csp.startswith("sandbox") and "allow-same-origin" not in csp
           and "form-action 'none'" in csp and "connect-src 'none'" in csp))
-print(int(c.get("/docs/mocks/x.html").headers.get("content-security-policy") == csp))
+print(int(all(c.get(p).headers.get("content-security-policy") == csp
+              for p in ("/docs/mocks/x.html", "/docs//mocks/x.html", "/scratch/"))))
 print(int(c.get("/scratch?opt=E7").headers.get("location") == "/scratch/?opt=E7"))
 print(int(c.get("/scratch/sub").headers.get("location") == "/scratch/sub/"))
 """
