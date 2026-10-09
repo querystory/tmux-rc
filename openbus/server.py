@@ -455,7 +455,8 @@ async def no_cache(request, call_next):
     # allow-same-origin gives them an opaque origin instead: they still run, but the
     # daemon's API is cross-origin to them, exactly as from any other site. That only stops
     # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
-    # would still carry the front door's cookie.
+    # would still carry the front door's cookie. Resource loads stay open: a bundle needs
+    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin.
     if request.url.path.startswith("/scratch/"):
         resp.headers["Content-Security-Policy"] = (
             "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")

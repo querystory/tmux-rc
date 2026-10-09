@@ -52,13 +52,19 @@ session. So every `/scratch/` response carries a Content-Security-Policy that:
 
 - runs the page's scripts in an opaque origin, so the daemon's API is as foreign to them as
   it is to any other website, and the page has no cookies or `localStorage`;
-- sets `connect-src 'none'`: no `fetch`, XHR, WebSocket or EventSource, to anywhere;
+- sets `connect-src 'none'`: scripts get no `fetch`, XHR, WebSocket or EventSource, to
+  anywhere;
 - sets `form-action 'none'`: no form submissions. A request whose answer the page cannot
   read would still carry your session, so blind writes are refused too.
 
-The consequence is simple: **a self-contained static bundle works; anything that needs a
-backend or remote data does not.** Plain HTML, CSS, images, PDFs and classic scripts with
-their data inlined are fine. A page that fetches JSON, calls an API, or loads module
+Ordinary resource loads are left alone: `<img>`, `<link>` and `<script src>` still fetch,
+from this host or another, because that is how a static bundle loads its own files, and
+the daemon's `GET` routes only read. Those reads go out without the page being able to
+see the answer.
+
+The consequence is simple: **a self-contained static bundle works; anything that needs to
+call a backend or fetch remote data from script does not.** Plain HTML, CSS, images, PDFs
+and classic scripts with their data inlined are fine. A page that fetches JSON, calls an API, or loads module
 scripts (which are fetched as CORS requests) will not work. Build those with their data
 baked in, or give them their own hostname (below).
 

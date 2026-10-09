@@ -34,8 +34,13 @@ into terminals, carrying the viewer's session. A `sandbox` directive without
 to it, as it is to any website. Cross-origin only protects responses, though: a form post
 or a no-cors fetch still delivers the request, with the front door's cookie. So
 `form-action` and `connect-src` are `'none'` too. The price is that pages needing a backend
-or remote data do not work. That is the right trade for a review tool; such pages have a
-documented escape hatch.
+or fetching remote data do not work. That is the right trade for a review tool; such pages
+have a documented escape hatch.
+
+Resource loads (`<img>`, `<script src>`) are deliberately left open: a bundle loads its own
+files that way, the API's `GET` routes only read, and a `default-src 'self'` would hinge on
+how each browser resolves `'self'` for an opaque-origin document, which is exactly where a
+preview would silently lose its own stylesheet on one phone and not another.
 
 **Committed mocks live in the docs site.** A mock that justifies a PR belongs with the PR,
 so `docs-site/static/mocks/` is the home for the ones worth keeping, and scratch stays

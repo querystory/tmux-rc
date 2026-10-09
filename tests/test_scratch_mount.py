@@ -21,8 +21,8 @@ print(int(c.get("/scratch/sub").headers.get("location") == "/scratch/sub/"))
 
 def _probe(env):
     env = {k: v for k, v in {**os.environ, **env}.items() if v is not None}
-    out = subprocess.run([sys.executable, "-c", PROBE], capture_output=True, text=True,
-                         check=True, env=env).stdout
+    out = subprocess.run([sys.executable, "-c", PROBE], stdout=subprocess.PIPE, text=True,
+                         check=True, env=env, timeout=60).stdout
     return [int(code) for code in out.split()]
 
 

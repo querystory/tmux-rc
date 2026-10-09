@@ -139,10 +139,10 @@ read-only at `https://<your-host>/scratch/<folder>/`, behind the same tunnel and
 the app. Drop in anything static (a mock an agent wrote, another project's built site, a
 report, images, PDFs) and open it on the phone, with no second server or tunnel. Unset
 means nothing is served. Everything there is visible to everyone the tunnel admits, and
-pages are sandboxed so they cannot make network requests or post forms: self-contained
-bundles work, anything needing a backend does not. It serves files and is not a proxy.
-Mocks worth keeping go in `docs-site/static/mocks/` instead. Details and the security
-model: [Previewing work](docs/deploy/previews.md).
+pages are sandboxed so their scripts cannot make requests (no `fetch`, XHR or WebSocket)
+or post forms: self-contained bundles work, anything that calls a backend does not. It
+serves files and is not a proxy. Mocks worth keeping go in `docs-site/static/mocks/`
+instead. Details and the security model: [Previewing work](docs/deploy/previews.md).
 
 ### Run without cloning
 
