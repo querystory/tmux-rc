@@ -277,6 +277,7 @@ class Watcher:
         ] = {}  # pane_id -> monotonic count of events ever appended (refetch signal)
         self.snapshots: dict[str, list[dict]] = {}  # pane_id -> [{id, text, ts}]
         self._prev_fp: dict[str, str] = {}  # pane_id -> fingerprint at last parse
+        self._parsed_reply: dict[str, str | None] = {}  # pane_id -> agent reply at last parse
         self._seen_fp: dict[str, str] = {}  # pane_id -> fingerprint at last CAPTURE
         self._collection_failed = False
         self._parse_valid: dict[str, bool] = {}
@@ -929,6 +930,7 @@ class Watcher:
     def _stores(self):
         return (
             self._prev_fp,
+            self._parsed_reply,
             self._seen_fp,
             self._parse_fails,
             self._parse_valid,
@@ -1171,7 +1173,11 @@ class Watcher:
         self._seen_fp[pane.id] = fp
         if moved:
             self._parse_fails.pop(pane.id, None)  # the retry budget is per SCREEN
-        changed = fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
+        # The agent's transcript can land after its screen settles; a reply the last
+        # parse didn't have re-reads the card even though the screen is unchanged.
+        reply = transcript.last_reply(pane, text)
+        changed = (fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
+                   or reply != self._parsed_reply.get(pane.id, reply))
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")
@@ -1248,12 +1254,13 @@ class Watcher:
             if self.use_llm
             else None
         )
+        self._parsed_reply[pane.id] = reply
         state = classify(
             pane,
             text,
             llm_fn=llm_fn,
             replies_fn=llm_fn and partial(llm_fn, kind="replies"),
-            reply=transcript.last_reply(pane, text),
+            reply=reply,
             prior=prior,
             recent_events=recent_texts,
             # What we last knew, so a failed parse holds that instead of guessing.

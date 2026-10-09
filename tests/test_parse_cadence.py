@@ -12,6 +12,7 @@ from openbus.watcher import Watcher
 class _Pane:
     def __init__(self, pid="%1", label="work", current_command="bash"):
         self.id = pid
+        self.pid = None  # no process: no agent transcript to read
         self.current_command = current_command  # real classify() anchors tool on this
         self.label = label
         self.title = self.display_title = label
@@ -271,6 +272,18 @@ def test_unchanged_screen_parses_once(monkeypatch):
         w._forced_this_tick = set()
         w._tick_pane(pane)
     assert calls["n"] == 1, "an unchanged screen must never re-parse (no heartbeat)"
+
+
+def test_reply_landing_after_the_screen_settled_reparses_once(monkeypatch):
+    w, calls = _harness(monkeypatch, ["• Run this:\n  make check"])
+    reply = [None]  # the transcript write trails the frame the first parse read
+    monkeypatch.setattr(W.transcript, "last_reply", lambda pane, text: reply[0])
+    pane = _Pane()
+    for i in range(6):
+        reply[0] = "Run this:\n```\nmake check\n```" if i >= 2 else None
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 2
 
 
 def test_content_change_reparses(monkeypatch):

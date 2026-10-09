@@ -3,6 +3,7 @@ Claude or Codex session file located from the pane."""
 
 import json
 import os
+import time
 
 import pytest
 
@@ -78,7 +79,8 @@ def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
     status = f"› Ask Codex to do anything\n  {SID} · gpt-6-sol medium · ~/src/app · Ready"
     assert transcript.last_reply(_pane(None), status) == "new"
     # Resumed, the thread continues in a segment file, here in the older flat shapes.
-    resumed = homes / f"codex/sessions/2026/10/10/rollout-2026-10-10T09-00-00-{SID}_seg.jsonl"
+    today = time.strftime("%Y/%m/%d")  # a resume writes its segment in today's folder
+    resumed = homes / f"codex/sessions/{today}/rollout-2026-10-10T09-00-00-{SID}_seg.jsonl"
     flat = [{"type": "event_msg", "payload": {"type": t, "message": m}}
             for t, m in (("agent_message", "stale"), ("user_message", "go on"),
                          ("agent_message", "resumed"))]

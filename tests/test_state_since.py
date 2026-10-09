@@ -11,6 +11,7 @@ from openbus.watcher import Watcher
 class _Pane:
     def __init__(self, pid="%1", label="work"):
         self.id = pid
+        self.pid = None  # no process: no agent transcript to read
         self.label = label
         self.display_title = label
         self.session = "work"

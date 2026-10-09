@@ -1041,8 +1041,9 @@ def classify(
     def _valid(cps, *, transcript=False):
         """Validated entries, lazily — islice below stops us at 3 without validating the
         rest of a long model response on the hot /api/state path. A transcript block is
-        exact by construction, so only its last line must be on screen: that proves the
-        reply is the one displayed even when its top has scrolled away."""
+        exact by construction, so only its last three lines must be on screen: enough to
+        show the reply is the one displayed (one `}` or `done` could be anything), while
+        its top may have scrolled away."""
         for c in cps:
             if not isinstance(c, dict) or not isinstance(c.get("text"), str):
                 continue
@@ -1052,7 +1053,8 @@ def classify(
             if (not stripped or len(c["text"]) > 4000 or stripped in hrefs
                     or " ".join(stripped.split()) in table_text):
                 continue
-            if not _shown(stripped.splitlines()[-1] if transcript else stripped):
+            lines = stripped.replace("\\\n", "").splitlines()  # as copy_source joins them
+            if not _shown("\n".join(lines[-3:]) if transcript else stripped):
                 continue
             yield {"label": str(c.get("label") or "")[:200], "text": c["text"]}
 
