@@ -377,6 +377,163 @@ def test_client_reports_whether_the_chat_is_in_view():
     assert meter.unseen_since is None
 
 
+def _chat(session="chat"):
+    return L._Meter(session, "tester", P._DEFAULT[0], text=True)
+
+
+_UNANSWERED = object()
+
+
+async def _drop_while_proposed(monkeypatch, session="chat", *, answer=_UNANSWERED,
+                               how="cancel"):
+    """Propose a type_in_pane, then drop the connection before anything ran: before any
+    answer, or with `answer` in hand, `how`: the call cancelled with its "decided" in flight,
+    that send raising, or ("race") cancelled before the answer it was just given wakes it.
+    Returns the card's id."""
+    shown, meter = asyncio.Event(), _chat(session)
+
+    class Shown(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose" and answer is not _UNANSWERED and how != "race":
+                meter.approvals[obj["id"]].set_result(answer)
+                return
+            shown.set()
+            if obj["type"] == "decided":
+                if how == "raise":
+                    raise ConnectionError
+                await asyncio.Event().wait()  # the socket died under it
+
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    ws = Shown()
+    call = asyncio.create_task(L._handle_tool_call(
+        ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), meter))
+    await shown.wait()
+    if how == "race":
+        meter.approvals[ws.sent[0]["id"]].set_result(answer)
+    call.cancel()
+    await asyncio.gather(call, return_exceptions=True)
+    return ws.sent[0]["id"]
+
+
+@pytest.mark.parametrize("drop", [None, "cancel", "raise"])
+@pytest.mark.parametrize("ok", [True, False])
+def test_a_card_survives_its_connection_dropping(monkeypatch, ok, drop):
+    """A phone drops the socket on every lock: the card stays up, so the same chat
+    reconnecting can still Send it, bound to the pane process it showed, or Cancel it,
+    even when a tap or its answer was lost in a drop, and over a second drop. It runs
+    once: a resent tap is told the answer again."""
+    L._parked.clear()
+    typed, audits, refreshes = [], [], []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append((a, k)))
+    monkeypatch.setattr(L, "_background", lambda task: (refreshes.append(task), task.cancel()))
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
+
+    async def go():
+        proposal = await _drop_while_proposed(
+            monkeypatch, **({"answer": True, "how": drop} if drop else {}))
+        assert audits[-1]["consent"] == "parked"
+
+        class Drops(_ScriptedWS):
+            async def send_json(self, obj):
+                raise ConnectionError  # this socket died too
+
+        with pytest.raises(ConnectionError):
+            await L._forward_client(Drops([{"action": "approve", "id": proposal, "ok": ok}]),
+                                    _Session(), _chat())
+        assert [k[2] for k in L._parked] == [proposal]
+        tap = {"action": "approve", "id": proposal, "ok": ok}
+        ws = _ScriptedWS([tap, tap, {"action": "stop"}])  # the second: its "decided" was lost
+        await L._forward_client(ws, _Session(), _chat())
+        return proposal, ws
+
+    proposal, ws = _run(go())
+    assert ws.sent[0] == ws.sent[-1] == {"type": "decided", "id": proposal, "ok": ok}
+    assert typed == ([(("%1", "rebase", True, True), {"expected_pid": "4242"})] if ok else [])
+    assert audits[-1]["consent"] == ("approved" if ok else "declined")
+    assert L._parked == {}  # answered once
+    assert refreshes == []  # no update tells the new model of an action it never took
+
+
+@pytest.mark.parametrize("how", ["cancel", "race"])
+def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
+    """A new message answered the card, and its "decided" died with the socket: a later
+    Send is told so, and never runs what the user moved on from."""
+    L._parked.clear()
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    async def go():
+        proposal = await _drop_while_proposed(monkeypatch, answer=None, how=how)
+        ws = _ScriptedWS([{"action": "approve", "id": proposal, "ok": True}, {"action": "stop"}])
+        await L._forward_client(ws, _Session(), _chat())
+        return proposal, ws
+
+    proposal, ws = _run(go())
+    assert ws.sent == [{"type": "decided", "id": proposal, "ok": None}]
+    assert typed == [] and L._parked == {}
+
+
+def test_a_reconnected_phone_learns_what_became_of_its_untapped_cards(monkeypatch):
+    """Sync settles the cards answered meanwhile (one a new message superseded, its
+    "decided" lost in a drop) and the ones the daemon no longer has, and leaves the ones
+    still waiting, parked or live, open. Each parked card a new message claims is recorded
+    before any is sent, so a socket dying mid-way loses none."""
+    L._parked.clear()
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    class Drops(_ScriptedWS):
+        async def send_json(self, obj):
+            if obj["type"] == "decided":
+                raise ConnectionError  # this socket died on the first answer
+
+    async def go():
+        first, second, waiting = [await _drop_while_proposed(monkeypatch) for _ in range(3)]
+        with pytest.raises(ConnectionError):
+            await L._forward_client(Drops([{"action": "text", "text": "never mind"}]),
+                                    _TypedSession(), _chat())
+        await _drop_while_proposed(monkeypatch)  # parked after the new message
+        meter = _chat()
+        meter.approvals["live"] = asyncio.get_running_loop().create_future()
+        later = next(k[2] for k in L._parked)
+        ws = _ScriptedWS([{"action": "sync", "ids": [first, second, waiting, later, "live",
+                                                     "restarted"]}, {"action": "stop"}])
+        await L._forward_client(ws, _TypedSession(), meter)
+        return ws, first, second, waiting
+
+    ws, first, second, waiting = _run(go())
+    superseded = [{"type": "decided", "id": p, "ok": None} for p in (first, second, waiting)]
+    assert ws.sent == [*superseded, {"type": "expired", "id": "restarted"}]
+    L._parked.clear()
+
+
+def test_a_parked_card_expires_for_real(monkeypatch):
+    """Another chat's card, one parked past PARKED_SECONDS, or one lost to a restart is
+    answered "expired"; a new message supersedes the chat's parked cards."""
+    L._parked.clear()
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    async def go():
+        other, stale, current = [await _drop_while_proposed(monkeypatch, s)
+                                 for s in ("other", "chat", "chat")]
+        key = next(k for k in L._parked if k[2] == stale)
+        L._parked[key] = (L._parked[key][0] - L.PARKED_SECONDS - 1, *L._parked[key][1:])
+        L._park(stale, L._parked.pop(key))  # parking sweeps: a card past its time is not kept
+        assert stale not in {k[2] for k in L._parked}
+        ws = _ScriptedWS([*({"action": "approve", "id": p, "ok": True}
+                            for p in (other, stale, "restarted")),
+                          {"action": "text", "text": "never mind"}, {"action": "stop"}])
+        await L._forward_client(ws, _TypedSession(), _chat())
+        return ws, other, stale, current
+
+    ws, other, stale, current = _run(go())
+    assert ws.sent[:4] == [*({"type": "expired", "id": p} for p in (other, stale, "restarted")),
+                           {"type": "decided", "id": current, "ok": None}]
+    assert [k[1] for k in L._parked] == ["other"]
+    L._parked.clear()
+
+
 def test_approval_is_refused_when_the_pane_had_no_process_to_bind(monkeypatch):
     """A failed pid lookup must not approve an unguarded send: it binds to "", which no
     live pane matches, so send_keys's identity check refuses it."""
