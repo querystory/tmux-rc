@@ -10,6 +10,7 @@ import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecen
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
+import { renderUsage, paneAccount } from "/m/usage.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -568,6 +569,15 @@ function renderFleetSplit() {
   renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
+// Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
+let usage = [], usageAt = 0;
+const paintUsage = () => renderUsage($("usage"), usage, WIDE.matches);
+async function refreshUsage() {
+  if (Date.now() - usageAt < 60000) return;
+  usageAt = Date.now();
+  try { usage = (await request("/api/usage")).accounts || []; } catch { return; }
+  paintUsage(); render();
+}
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
@@ -617,7 +627,8 @@ function render() {
   const settled = booted && !awaitingLaunch(launched, active);
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
-  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  const account = pane && paneAccount(usage, pane.pane_id); // which plan's limits it draws on
+  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}${account ? ` · ${account}` : ""}` : "Waiting for session state");
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
   const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
@@ -866,7 +877,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshHistory();
+    refreshHistory(); refreshUsage();
     pollState(stateController.signal);
   }
 }
@@ -879,7 +890,7 @@ async function pollState(signal) {
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory();
+      refreshHistory(); refreshUsage();
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -1243,23 +1254,27 @@ $("new-window").onclick = async () => {
 };
 $("close-launch").onclick = () => $("launch-dialog").close();
 let launching = false, launched = null;
+// Go to a window the daemon just opened (a launcher, or a chat resume). Record the id BEFORE
+// navigating to it: startState only *starts* a fetch, so the hashchange this triggers
+// reaches render() while `panes` is still the previous poll's, without the pane that was
+// created a moment ago. See awaitingLaunch. `at` is when the daemon reported it.
+function openLaunched(id, at = Date.now()) {
+  launched = { id, at };
+  // The exemption expires on a clock, but only a render can act on it, and renders are
+  // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
+  // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
+  // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
+  // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
+  setTimeout(render, at + LAUNCH_GRACE_MS - Date.now());
+  startState(); navigate(id);
+}
 async function launchWindow(launcher, button) {
   if (launching) return;
   launching = true; text($("launch-error"), "Creating window...");
   $("launch-choices").querySelectorAll("button").forEach((button) => { button.disabled = true; });
   try {
     const data = await post("/api/windows", { session: $("launch-session").value, launcher });
-    // Record the id BEFORE navigating to it: startState only *starts* a fetch, so the
-    // hashchange this triggers reaches render() while `panes` is still the previous
-    // poll's, without the pane that was created a moment ago. See awaitingLaunch.
-    launched = { id: data.pane_id, at: Date.now() };
-    // The exemption expires on a clock, but only a render can act on it, and renders are
-    // driven by /api/state — which may be parked on a 25s long poll. One scheduled render
-    // at the deadline is what makes LAUNCH_GRACE_MS mean anything at all. No cancellation: an
-    // extra render is idempotent, and both the pane-appeared and user-moved-on cases are
-    // already handled (by the pane being found, and by leaveMissingPane's stillOnPane).
-    setTimeout(render, LAUNCH_GRACE_MS);
-    $("launch-dialog").close(); startState(); navigate(data.pane_id);
+    $("launch-dialog").close(); openLaunched(data.pane_id);
   } catch (error) {
     text($("launch-error"), error.detail || "Creation could not be confirmed. Check sessions before retrying.");
     // The list was a snapshot from the GET; if the daemon has since decided it can't run
@@ -1318,7 +1333,7 @@ function placeChrome() {
 }
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
-const resizeWorkspace = () => { placeChrome(); route(); };
+const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
@@ -1341,7 +1356,11 @@ window.addEventListener("pageshow", () => { startState(); restartDetail(); fitVi
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });
 fitViewport(); route(); startState();
 setupPush($("push"), notice, licon("bell"));
-const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, report: reportError, onVersion: observeVersion });
+// A chat Open button offered within the launch grace may name a window too new for
+// /api/state; a stale one whose pane has since closed takes the normal gone-pane path.
+const openOffered = (id, at) => !panes.some((p) => p.pane_id === id) && awaitingLaunch({ id, at }, id)
+  ? openLaunched(id, at) : navigate(id);
+const live = setupLiveMode({ request, session: liveSession, licon, wide: WIDE, open: openOffered, report: reportError, onVersion: observeVersion });
 let assetVersion = null;
 function hasDrafts() {
   return [...drafts.values(), ...renderSidebar.drafts.values()].some((value) => value.pendingEnter || value.files.size || value.editor.textContent.length);

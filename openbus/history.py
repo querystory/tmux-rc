@@ -25,6 +25,7 @@ STATES = ("Needs you", "Running", "Idle", "Unknown", "Compacting", "Waiting")
 AGENT_TOOLS = {"claude", "codex", "gemini", "opencode", "omp"}
 MAX_SPAN = 90 * 86400  # bounds a request; the database itself is never pruned
 GOAL_KEY = "running_goal"
+USAGE_KEEP = 8 * 86400  # plan_usage, unlike pane history, is pruned: see record_usage
 LEAD_BUCKETS = 2880  # 24h of 5-minute buckets plus a 7d lead fits; a 90d lead at 1h does not
 
 
@@ -181,8 +182,20 @@ def _add_checkpoints(db) -> None:
                "last_activity_at REAL NOT NULL, idle_since REAL, card TEXT)")
 
 
+def _add_plan_usage(db) -> None:
+    # Plan-limit samples per account and window; see docs/design/plan-usage.md.
+    db.execute("CREATE TABLE plan_usage (provider TEXT NOT NULL, account TEXT NOT NULL, "
+               "window TEXT NOT NULL, seconds INTEGER NOT NULL, t REAL NOT NULL, "
+               "pct REAL NOT NULL, resets_at REAL, PRIMARY KEY(provider, account, window, t))")
+
+
+def _index_plan_usage(db) -> None:
+    # The latest observation is looked up by time across windows; the key leads with window.
+    db.execute("CREATE INDEX plan_usage_by_time ON plan_usage(provider, account, t)")
+
+
 MIGRATIONS = (_create_base, _add_valid_until, _widen_states, _compress_snapshots,
-              _add_checkpoints)
+              _add_checkpoints, _add_plan_usage, _index_plan_usage)
 
 
 class History:
@@ -302,6 +315,31 @@ class History:
     def delete_checkpoints(self, uids: list[str]) -> None:
         with self.connect() as db:
             db.executemany("DELETE FROM pane_checkpoints WHERE uid=?", [(u,) for u in uids])
+
+    def record_usage(self, rows: list[tuple]) -> None:
+        """(provider, account, window, seconds, t, pct, resets_at) rows. A Codex sample is
+        stamped with its log event's time, so re-reading the same event is a no-op."""
+        with self.connect() as db:
+            db.executemany("INSERT OR IGNORE INTO plan_usage VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+            # Only a current window is ever drawn: keep the longest one (7d) plus a day.
+            db.execute("DELETE FROM plan_usage WHERE t < ?",
+                       (max(r[4] for r in rows) - USAGE_KEEP,))
+
+    def latest_usage(self, provider: str, account: str) -> list[tuple]:
+        """(window, seconds, t, pct, resets_at) of the latest observation. One read stamps
+        all its windows alike, so a window a plan change dropped is left behind with it."""
+        with self.connect() as db:
+            return db.execute("SELECT window, seconds, t, pct, resets_at FROM plan_usage "
+                              "WHERE provider=?1 AND account=?2 AND t=(SELECT max(t) FROM "
+                              "plan_usage WHERE provider=?1 AND account=?2) ORDER BY window",
+                              (provider, account)).fetchall()
+
+    def usage_between(self, provider: str, account: str, window: str,
+                      since: float, until: float) -> list[tuple]:
+        with self.connect() as db:
+            return db.execute("SELECT t, pct FROM plan_usage WHERE provider=? AND account=? "
+                              "AND window=? AND t BETWEEN ? AND ? ORDER BY t",
+                              (provider, account, window, since, until)).fetchall()
 
     def import_logs(self, observations: list[tuple]) -> int:
         """Idempotent, transactional import. Raw screen/summary text is never stored."""

@@ -15,7 +15,7 @@ export const isRunning = (pane) => ["running", "compacting"].includes(activityCl
 // A tool whose working motion is its own animated image rather than a CSS transform. It is
 // swapped in as the src because SMIL in a CSS content:url() image does not reliably animate;
 // reduced motion is CSS's job (style.css shows the still logo over it, live as the setting flips).
-const WORKING_LOGOS = { omp: "/omp-working.svg" };
+const WORKING_LOGOS = { omp: "/omp-working.svg", claude: "/claude-working.svg" };
 const has = (map, key) => Object.prototype.hasOwnProperty.call(map, key);
 // omp and OpenCode drive any vendor's model, so their own logo can't say whose is running.
 // The families match how the parsers emit pane.model ("GPT-6.1-Sol", "Claude Opus 5.5",

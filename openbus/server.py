@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
@@ -77,6 +77,7 @@ from . import telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
@@ -393,17 +394,29 @@ async def lifespan(app: FastAPI):
     app.state.watcher.start()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
+    app.state.usage = PlanUsage(app.state.history)
+    usage_task = asyncio.create_task(app.state.usage.run(app.state.watcher))
     try:
         yield
     finally:
+        usage_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await usage_task
         await app.state.push.stop()
         await app.state.watcher.stop()
 
 
 # Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
 # (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+# auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
+# OTEL_* env the session shares with Claude Code, and ship every request span, metric and
+# log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
-    title="tmux-rc", lifespan=lifespan, docs_url="/apidocs", redoc_url="/apiredoc"
+    title="tmux-rc",
+    lifespan=lifespan,
+    docs_url="/apidocs",
+    redoc_url="/apiredoc",
+    telemetry={"auto_configure": False},
 )
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
@@ -504,6 +517,13 @@ def put_goal(body: GoalBody, request: Request):
     _history().set_goal(body.goal)
     _audit(request, "set_goal", "-", f"goal={body.goal}")
     return {"goal": body.goal}
+
+
+@app.get("/api/usage")
+def get_usage():
+    """Each Claude and Codex account's plan windows, trend and projection."""
+    usage = getattr(app.state, "usage", None)
+    return {"accounts": usage.report() if usage else []}
 
 
 @app.get("/api/state")
