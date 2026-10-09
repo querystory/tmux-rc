@@ -12,16 +12,19 @@ import logging
 import math
 import os
 import re
+import secrets
 import shlex
 import shutil
 import socket
 import subprocess
+import termios
 import threading
 import time
 import weakref
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from functools import cached_property
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +60,46 @@ _PANE_FMT = "\t".join(  # noqa: FLY002
         "#{pane_active}",
         "#{window_activity}",
         "#{session_attached}",
+        "#{pane_tty}",
     ]
 )
+# The row the cursor sits on asks for a secret: "[sudo] password for x:", "x@host's
+# password:", git's "Password for 'https://x@host':", "Enter passphrase for key '…':".
+_PASSWORD_PROMPT = re.compile(r"\b(password|passphrase|pin)\b.*:\s*$", re.IGNORECASE)
+_UNREADABLE = (OSError, termios.error, subprocess.CalledProcessError, ValueError)
+
+
+def _quiet_reader(tty: str, shell_pid: str) -> bool:
+    """Something reads `tty` with ECHO off that is not the pane's idle shell: either
+    line editing (ICANON) is on, which readline never leaves on, or the foreground
+    process group (the shell's tpgid, /proc field 8) is not the shell's own."""
+    fd = os.open(tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        lflag = termios.tcgetattr(fd)[3]
+    finally:
+        os.close(fd)
+    if lflag & termios.ECHO:
+        return False
+    if lflag & termios.ICANON:
+        return True
+    with open(f"/proc/{int(shell_pid)}/stat") as stat:
+        return stat.read().rpartition(")")[2].split()[5] != shell_pid
+
+
+def _password_prompt(pane_id: str, tty: str, shell_pid: str) -> bool:
+    """A quiet reader (above) and the cursor's row ends in a password prompt (see
+    Pane.secret). Raises one of _UNREADABLE when it can't tell; each caller picks its
+    own default."""
+    if not _quiet_reader(tty, shell_pid):
+        return False
+    # The cursor's whole line: a narrow pane wraps a long prompt over several rows, which
+    # -J joins. From the top of the screen and a few rows of history, so a prompt's start
+    # is cut off only if the prompt is taller than the pane.
+    y = _run(["display-message", "-p", "-t", pane_id, "#{cursor_y}"]).strip()
+    line = _run(["capture-pane", "-p", "-J", "-t", pane_id, "-S", "-8", "-E", y])
+    # ECHO again after the screen read: a prompt answered meanwhile left its row behind.
+    return bool(_PASSWORD_PROMPT.search(line.removesuffix("\n").rpartition("\n")[2])) \
+        and _quiet_reader(tty, shell_pid)
 
 
 @dataclass(frozen=True)
@@ -93,6 +134,24 @@ class Pane:
     # terminal and it reads "2". Only used to pick which group member's name a shared
     # pane is filed under, via `is_attached` rather than any comparison to "1".
     session_attached: str = "0"
+    tty: str = ""  # the pane's pts, read for `secret`
+
+    @cached_property  # once per listing, i.e. per watcher tick; the send path rereads
+    def secret(self) -> bool:
+        """Is the pane at a password prompt? Two deterministic signals, both required.
+        The tty's ECHO is off — sudo, ssh, getpass and `read -s` all turn it off, but so
+        do agent TUIs, editors and an idle shell's readline, so it only rules out; an
+        idle shell is ruled out outright (see _quiet_reader). And
+        the row the cursor sits on ends in a password prompt. ICANON is not a signal:
+        sudo keeps whatever mode it finds, and a tty a crashed app left raw (-icanon)
+        is common in the field. Read once per pane listing: an ioctl on a pts the
+        daemon's own user owns, plus two tmux calls only when echo is off. Unknown
+        reads as no: this only picks the composer, and the send path decides for
+        itself."""
+        try:
+            return _password_prompt(self.id, self.tty, self.pid)
+        except _UNREADABLE:
+            return False
 
     @property
     def display_title(self) -> str | None:
@@ -168,7 +227,7 @@ def _meaningful(name: str) -> bool:
     return bool(name) and name.lower() not in _GENERIC_NAMES and not name.isdigit()
 
 
-def _run(args: list[str]) -> str:
+def _run(args: list[str], stdin: str | None = None) -> str:
     """Run a tmux command, returning stdout. Raises on non-zero exit.
 
     Bounded by a timeout so a wedged tmux (server hang, blocked pipe) can't block the poll
@@ -178,7 +237,8 @@ def _run(args: list[str]) -> str:
     otherwise a raw TimeoutExpired would leak past them and fail a tick unexpectedly."""
     try:
         return subprocess.run(
-            ["tmux", *args], capture_output=True, text=True, check=True, timeout=10
+            ["tmux", *args], input=stdin, capture_output=True, text=True, check=True,
+            timeout=10,
         ).stdout
     except subprocess.TimeoutExpired as e:
         raise subprocess.CalledProcessError(returncode=124, cmd=e.cmd) from e
@@ -387,13 +447,22 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
-def kill_window(pane_id: str) -> None:
+def kill_window(pane_id: str, pid: str | None = None) -> bool:
     """Close the WINDOW that contains this pane (kill-window targets the pane's window),
     matching the phone's mental model: rows and cards are titled by window, and windows —
     not bare panes — are what "+ New window" creates. Any split panes in the window go with
     it, and whatever is running there is killed. The watcher's next tick sees the pane gone
-    and evicts it (watcher._gc), so no client-side cleanup is needed."""
-    _run(["kill-window", "-t", pane_id])
+    and evicts it (watcher._gc), so no client-side cleanup is needed.
+
+    With `pid`, only while that process still owns the pane: tmux reuses pane ids, and the
+    server checks and kills in one command, so a newer pane under the id is never hit. The
+    command's other branch says when it declined; whether it killed is returned."""
+    kill = ["kill-window", "-t", pane_id]
+    if pid is None:
+        _run(kill)
+        return True
+    return _run(["if-shell", "-F", "-t", pane_id, f"#{{==:#{{pane_pid}},{int(pid)}}}",
+                 shlex.join(kill), "display-message -p kept"]).strip() != "kept"
 
 
 def server_path() -> str | None:
@@ -488,17 +557,22 @@ VISIBLE_SCREEN = "\x1e[visible screen]\x1f"
 # which renders near-white. Marking it distinctly stops every LLM path from reading the
 # suggestion as a real, pending instruction. Glyphs: ❯ (U+276F, Claude Code) and › (Codex),
 # each followed by a space (regular, or the non-breaking space Claude Code uses).
+# _mark_dim merges a run across rows, and Claude's gray box border sits on both sides of
+# that row, so live the row opens with the border's ⟪/dim⟫ and the run after the glyph
+# goes on into the border below: the suggestion ends at the close or at its row's end.
 PLACEHOLDER_OPEN, PLACEHOLDER_CLOSE = "⟪placeholder⟫", "⟪/placeholder⟫"
 PROMPT_GLYPHS = "❯›"  # Claude Code (U+276F), Codex (U+203A)
 _PROMPT_DIM = re.compile(
-    "(?m)^([" + PROMPT_GLYPHS + r"][ \xa0]?)" + re.escape(DIM_OPEN) + r"(.*?)"
-    + re.escape(DIM_CLOSE)
+    "(?m)^((?:" + re.escape(DIM_CLOSE) + ")?[" + PROMPT_GLYPHS + r"][ \xa0]?)"
+    + re.escape(DIM_OPEN) + "(.*?)(?:(" + re.escape(DIM_CLOSE) + r")|([ \t]*)$)"
 )
 
 
 def _mark_placeholder(text: str) -> str:
-    """Promote the dim run right after a prompt glyph to a ⟪placeholder⟫ run."""
-    return _PROMPT_DIM.sub(r"\1" + PLACEHOLDER_OPEN + r"\2" + PLACEHOLDER_CLOSE, text)
+    """Promote the dim run right after a prompt glyph to a ⟪placeholder⟫ run, reopening
+    ⟪dim⟫ after it when the run carried on past the row."""
+    return _PROMPT_DIM.sub(lambda m: m[1] + PLACEHOLDER_OPEN + m[2] + PLACEHOLDER_CLOSE
+                           + ("" if m[3] else DIM_OPEN + m[4]), text)
 
 
 def strip_dim(text: str) -> str:
@@ -627,13 +701,19 @@ def capture_pane(
         history = shlex.join([*capture, "-S", f"-{lines}", "-E", "-1"])
         args = ["if-shell", "-F", "-t", pane_id, "#{>:#{history_size},0}", history,
                 ";", "display-message", "-p", nonce,
-                ";", *capture, "-S", "0"]
+                ";", *capture, "-S", "0",
+                ";", "display-message", "-p", "-t", pane_id, "#{e|-|:#{cursor_y},#{pane_height}}"]
     out = _materialize_links(_run(args)).replace(nonce, VISIBLE_SCREEN, 1)
     if keep_colors:
         return out.rstrip("\n")  # live view: raw SGR, client colorizes
+    tail = ""
     if mark_dim:
+        # The cursor on a blank row below all output ends the text in one empty row, so
+        # the classifier can tell a prompt still awaiting input from one answered above.
+        out, cursor = out.rstrip("\n").rsplit("\n", 1)  # cursor: its row minus the height
+        tail = "\n" * (not _ANSI.sub("", "".join(out.split("\n")[int(cursor):])).strip())
         out = _mark_placeholder(_mark_dim(out))
-    return _ANSI.sub("", out).rstrip("\n")
+    return _ANSI.sub("", out).rstrip("\n") + tail
 
 
 # tmux's client<->server transport caps one message at 16KB (imsg MAX_IMSGSIZE), so a
@@ -701,6 +781,28 @@ class PaneChangedError(RuntimeError):
     """Delivery stopped because the original pane can no longer be identified."""
 
 
+class PasswordPromptError(PaneChangedError):
+    """Text refused because the pane is at a password prompt: send_keys would put it in
+    argv, and its callers in the audit trail. A password goes only through send_secret."""
+
+
+AT_PASSWORD = "The pane is asking for a password: use the password field."
+# Keys that may reach a password prompt by name: they abandon or submit it, and type
+# nothing. Any other name could type (tmux sends an unknown name as its text).
+PROMPT_KEYS = frozenset({"Enter", "Escape", "C-c", "C-d", "C-u"})
+
+
+def at_password_prompt(pane_id: str, *, unknown: bool = True) -> bool:
+    """Read fresh, for the send lock's holder (see Pane.secret). An unreadable tty reads
+    as `unknown`, which each caller sets to fail closed: True for plain text, which
+    might be a password, and False for a password, which needs the prompt confirmed."""
+    try:
+        tty, pid = _run(["display-message", "-p", "-t", pane_id, "#{pane_tty} #{pane_pid}"]).split()
+        return _password_prompt(pane_id, tty, pid)
+    except _UNREADABLE:
+        return unknown
+
+
 def check_pane(pane_id: str, expected: str | None) -> None:
     if expected is None or pane_pid(pane_id) != expected:
         raise PaneChangedError(
@@ -725,6 +827,17 @@ def proc_read(pid: int | str, name: str) -> str:
             return f.read()
     except OSError:
         return ""
+
+
+def processes(pid: int | str, limit: int = 64):
+    """`pid` and its descendants, at most `limit` of them (bounds a pathological tree)."""
+    todo = [str(pid)]
+    for _ in range(limit):
+        if not todo:
+            return
+        p = todo.pop()
+        yield p
+        todo += proc_read(p, f"task/{p}/children").split()
 
 
 def pane_pid(pane_id: str) -> str | None:
@@ -778,6 +891,8 @@ def send_keys(
             guard()
         if expected_pid is not None:
             check_pane(pane_id, expected_pid)
+        if (keys if literal else keys not in PROMPT_KEYS) and at_password_prompt(pane_id):
+            raise PasswordPromptError(AT_PASSWORD)
         if literal:
             identity = expected_pid if keys and expected_pid is not None else (
                 pane_pid(pane_id) if keys else None
@@ -833,6 +948,30 @@ def send_keys(
             if expected_pid is not None:
                 check_pane(pane_id, expected_pid)
             _run(["send-keys", "-t", pane_id, "Enter"])
+
+
+def send_secret(pane: Pane, secret: str) -> None:
+    """Answer `pane`'s password prompt with `secret` and submit it. The secret goes in
+    on tmux's stdin (`load-buffer -`), never argv, where any local `ps` could read it,
+    and its one-shot buffer is deleted as it is pasted. Refuses unless the pane is the
+    same one and still at the prompt, checked under the send lock: a stale page must not
+    type a password into whatever replaced the prompt."""
+    name = f"tmuxrc-secret-{secrets.token_hex(8)}"
+    with _pane_lock(pane.id):
+        try:
+            _run(["load-buffer", "-b", name, "-"], stdin=secret)
+            # Checked after the load, right before the paste, identity last: the pane can
+            # be replaced (and its id recycled) while load-buffer or the prompt check runs.
+            if not at_password_prompt(pane.id, unknown=False):
+                raise PaneChangedError(
+                    "The pane is no longer asking for a password; nothing was sent.")
+            check_pane(pane.id, pane.pid)
+            # No -p: bracketed-paste marks (left on by an earlier TUI) would join the password.
+            _run(["paste-buffer", "-d", "-b", name, "-t", pane.id])
+            _run(["send-keys", "-t", pane.id, "Enter"])
+        finally:  # -d already deleted it after a paste; any failure must not leave it
+            with suppress(OSError, subprocess.CalledProcessError):
+                _run(["delete-buffer", "-b", name])
 
 
 def click(pane_id: str, from_bottom: int, col: int, *,

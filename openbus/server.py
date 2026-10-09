@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
@@ -73,10 +73,11 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from PIL import Image  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
 
-from . import telemetry, tmux  # noqa: E402
+from . import expunge, telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
@@ -174,6 +175,11 @@ class ClickBody(BaseModel):
 
 class WheelBody(BaseModel):
     lines: int = Field(ge=-30, le=30)  # wheel notches, positive = up (see tmux.wheel)
+
+
+class ExpungeBody(BaseModel):
+    session_id: str  # the session the confirmation named; refused if the pane's has changed
+    birth: str  # the pane incarnation the menu was drawn for (its `birth` in /api/state)
 
 
 class NewWindowBody(BaseModel):
@@ -393,17 +399,29 @@ async def lifespan(app: FastAPI):
     app.state.watcher.start()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
+    app.state.usage = PlanUsage(app.state.history)
+    usage_task = asyncio.create_task(app.state.usage.run(app.state.watcher))
     try:
         yield
     finally:
+        usage_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await usage_task
         await app.state.push.stop()
         await app.state.watcher.stop()
 
 
 # Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
 # (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+# auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
+# OTEL_* env the session shares with Claude Code, and ship every request span, metric and
+# log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
-    title="tmux-rc", lifespan=lifespan, docs_url="/apidocs", redoc_url="/apiredoc"
+    title="tmux-rc",
+    lifespan=lifespan,
+    docs_url="/apidocs",
+    redoc_url="/apiredoc",
+    telemetry={"auto_configure": False},
 )
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
@@ -519,6 +537,13 @@ def put_goal(body: GoalBody, request: Request):
     _history().set_goal(body.goal)
     _audit(request, "set_goal", "-", f"goal={body.goal}")
     return {"goal": body.goal}
+
+
+@app.get("/api/usage")
+def get_usage():
+    """Each Claude and Codex account's plan windows, trend and projection."""
+    usage = getattr(app.state, "usage", None)
+    return {"accounts": usage.report() if usage else []}
 
 
 @app.get("/api/state")
@@ -801,9 +826,9 @@ def send(pane_id: str, body: SendBody, request: Request):
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
     except Exception as e:
-        _audit(
-            request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
-        )
+        # Keys refused at a password prompt are probably the password: never recorded.
+        keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
+        _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, tmux.PaneChangedError):
             raise HTTPException(409, str(e)) from e
         raise
@@ -938,22 +963,107 @@ def select(pane_id: str, request: Request):
     return {"ok": True}
 
 
+def _kill_window(request: Request, pane_id: str, action: str, detail: str = "",
+                 pid: str | None = None) -> None:
+    """Kill the pane's window; with `pid`, only while that process still owns the pane
+    (tmux.kill_window), refusing if it no longer does."""
+    pane = tmux.find_pane(pane_id)
+    if pane is None:
+        _audit(request, action, pane_id, detail, outcome="rejected: pane not found")
+        raise HTTPException(404, "pane not found")
+    try:
+        killed = tmux.kill_window(pane.id, pid)
+    except Exception as e:
+        _audit(request, action, pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise
+    if not killed:
+        _audit(request, action, pane_id, detail, outcome="rejected: the pane changed")
+        raise HTTPException(409, "the pane changed")
+
+
 @app.post("/api/panes/{pane_id}/close")
 def close_window(pane_id: str, request: Request):
     """Close the WINDOW that contains this pane — the phone's "I'm done with this" control.
     Destructive: any process in the window is killed. The watcher evicts the pane on its next
     tick (emitting pane_removed), so the card disappears on the client's next poll with no
     special cleanup — the same path as a window closed on the host."""
-    if tmux.find_pane(pane_id) is None:
-        _audit(request, "kill_window", pane_id, outcome="rejected: pane not found")
-        raise HTTPException(404, "pane not found")
-    try:
-        tmux.kill_window(pane_id)
-    except Exception as e:
-        _audit(request, "kill_window", pane_id, outcome=f"error: {e}"[:80])
-        raise
+    _kill_window(request, pane_id, "kill_window")
     _audit(request, "kill_window", pane_id)
     return {"ok": True}
+
+
+def _pane_session(pane_id: str, birth: str, expected: str | None = None):
+    """The pane (resolved to its canonical %N), its one agent session and that session's
+    targets (openbus/expunge.py), or the refusal. `birth` is the incarnation the client's
+    menu describes: tmux reuses %N, so a stale menu must not reach a newer pane. A path
+    that resolves outside its root refuses here, before anything is killed."""
+    pane = tmux.find_pane(pane_id)
+    try:  # read now, not from the watcher: a cached screen may predate a recycled pane id
+        screen = tmux.capture_pane(pane.id) if pane and pane.pid else ""
+    except (OSError, subprocess.CalledProcessError):
+        pane = None
+    if not (pane and pane.pid):
+        raise HTTPException(404, "pane not found")
+    if pane.pid != birth:
+        raise HTTPException(409, "this is a different window now")
+    try:  # a screen from a newer pane under this id fails the pid guard on the kill
+        s = expunge.identify(pane.pid, screen, expected)
+        return pane, s, expunge.targets(s)
+    except expunge.Refused as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@app.get("/api/panes/{pane_id}/expunge")
+def expunge_preview(pane_id: str, birth: str):
+    """What Expunge would delete, for the confirmation to name."""
+    _, s, (own, shared) = _pane_session(pane_id, birth)
+    return {"harness": s.harness, "session_id": s.session_id,
+            "files": [p.name for p in own], "shared": [p.name for p in shared]}
+
+
+@app.post("/api/panes/{pane_id}/expunge")
+def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
+    """Kill the window, then delete its agent session's local files. The window goes first
+    so the agent can't write them again, and files go only once it has exited. The audit
+    line names the pane and session, never what was deleted."""
+    detail = f"session={body.session_id[:64]}"
+    try:
+        pane, s, _ = _pane_session(pane_id, body.birth, body.session_id)
+        uid = app.state.watcher.checkpoint_key(pane.id, pane.pid)
+    except HTTPException as e:
+        _audit(request, "expunge", pane_id, detail, outcome=f"rejected: {e.detail}"[:80])
+        raise
+    except (OSError, subprocess.CalledProcessError) as e:
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no tmux server id")
+        raise HTTPException(409, "tmux can't name its server, so tmux-rc's own card for the "
+                                 "pane couldn't be found: nothing was killed") from e
+    # The kill's guard is the pane's process, usually a shell; the agent it ran is checked
+    # here too, so one that was replaced since the preview never takes its successor down.
+    if not expunge.alive(s):
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: agent exited")
+        raise HTTPException(409, "the agent exited before the window was killed: nothing was "
+                                 "touched")
+    if app.state.watcher.history is None:  # its own card for the pane could not be deleted
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: no history database")
+        raise HTTPException(409, "tmux-rc's history database is unavailable: nothing was "
+                                 "touched")
+    _kill_window(request, pane.id, "expunge", detail, pane.pid)
+    if not expunge.wait_gone(s):  # the window is gone, so this is a failure, not a refusal
+        _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
+        raise HTTPException(500, "the window closed, but the agent is still running: "
+                                 "nothing was deleted")
+    try:
+        result = expunge.expunge(s)
+    except (OSError, expunge.Refused) as e:
+        # Only the error's type: its message can carry a path (a project's name).
+        _audit(request, "expunge", pane_id, detail, outcome=f"error: {type(e).__name__}")
+        raise HTTPException(500, f"expunge failed partway: {e}") from e
+    if not app.state.watcher.forget_checkpoint(uid):
+        _audit(request, "expunge", pane_id, detail, outcome="error: checkpoint kept")
+        raise HTTPException(500, "the session's files are deleted, but tmux-rc could not "
+                                 "delete its own stored card for the pane yet")
+    _audit(request, "expunge", pane_id, detail)
+    return {"ok": True, **result}
 
 
 @app.post("/api/client-error")
@@ -1110,7 +1220,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments = []
+    segments, secret = [], None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -1129,13 +1239,26 @@ async def _compose(pane_id: str, request: Request):
                 if not data or len(data) > IMG_MAX_BYTES:
                     raise HTTPException(413, "image empty or too large")
                 segments.append((data, _stage_image(data, mime)))
+            elif kind == "secret" and isinstance(value, str) and secret is None:
+                if len(value.encode()) > 4095:  # the tty's line, less its newline
+                    raise HTTPException(413, "password too long")
+                secret = value
             else:
                 raise HTTPException(400, "invalid composer segment")
-    if not segments:
-        raise HTTPException(400, "empty composer")
+    # A password answers a no-echo prompt alone, and never reaches an audit or log
+    # line: the record says only that one was sent. See tmux.send_secret. The
+    # converse, refusing plain text at that prompt, is send_keys' own guard.
+    if bool(segments) == bool(secret):
+        raise HTTPException(400, "send a draft or a secret")
+    if not (secret or "").isprintable():  # a newline or ^D would end the read early,
+        raise HTTPException(400, "a password is printable text")  # the rest run as input
     _invalidate_input_actions(pane.id)
-    await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
-    _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
+    if secret:
+        await asyncio.to_thread(tmux.send_secret, pane, secret)
+    else:
+        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+    _audit(request, "compose", pane_id,
+           detail="secret" if secret else f"{len(segments)} segments")
     app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 

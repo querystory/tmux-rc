@@ -23,6 +23,8 @@ JSON. It then scores the candidate against the sample's blessed `expected`:
   A second Vertex call (temperature 0) rules PASS/FAIL on whether the candidate
   headline captures the SAME situation as the expected one, given the screen.
   Concrete expected tables also require every referenced edit to survive in the output.
+  An expected `question.ask` (the plain restatement of an approval prompt) is judged the
+  same way: same most consequential effect, destructive steps named, no command text.
 
   A sample PASSES only if structured fields match AND the judge agrees. Both signals
   are surfaced so a failure tells you which half broke.
@@ -149,7 +151,9 @@ def _shape(field: dict | list | None, extra: tuple[str, ...] = ()) -> object:
     the walk that drives it is steered by the anchor and the advertised bindings, and a
     model that says "cursor" with a wrong anchor selects the WRONG SESSION — silently,
     and with an eval that was still green. Scored only where a sample asks for it, since
-    most screens have nothing to say about either."""
+    most screens have nothing to say about either. `context` (the widget rows classify()
+    reads around a menu's prompt) is pinned the same way, as an exact string; an `ask`
+    pinned null asserts a menu is NOT restated (a present one is left to the judge)."""
     if field is None:
         return None
     if isinstance(field, dict):
@@ -195,9 +199,10 @@ def score_structured(candidate: dict, expected: dict) -> tuple[bool, list[str]]:
                   if isinstance(subs, list) else [])
         if states != sorted(expected["subagent_states"]):
             diffs.append(f"subagent_states: got {states!r} want {expected['subagent_states']!r}")
-    # question — presence + answer_style, plus whichever cursor fields the sample pins
+    # question — presence + answer_style, plus whichever cursor/context fields the sample pins
     want_q = expected.get("question")
-    extra = tuple(k for k in ("selected", "keymap") if isinstance(want_q, dict) and k in want_q)
+    extra = tuple(k for k in ("selected", "keymap", "context", "ask")  # ask: only its absence
+                  if isinstance(want_q, dict) and k in want_q and (k != "ask" or not want_q[k]))
     cq, eq = _shape(candidate.get("question"), extra), _shape(want_q, extra)
     if cq != eq:
         diffs.append(f"question: got {cq!r} want {eq!r}")
@@ -262,7 +267,15 @@ _JUDGE_SYSTEM = (
     "ALSO check that candidate_tables contains every expected edit with its meaning "
     "intact. Ignore wording and table layout, but FAIL for missing edits or unrelated "
     "rows substituted for the referenced edits. Both headline and table content must "
-    "pass. Reply with compact JSON only: "
+    "pass. When expected_ask is provided, ALSO judge candidate_ask, the card's plain "
+    "restatement of an approval prompt: it must be one short plain-English sentence "
+    "(about 120 characters at most) ending in a question such as 'Continue?', say what "
+    "approving actually does with the SAME most consequential effect as expected_ask, "
+    "name every destructive step and any description/command mismatch that expected_ask "
+    "names, claim no effect the command does not have (a 'Latest blocked action' note "
+    "is about an earlier action, not this one), and contain no command text, flags or "
+    "tool name. Missing or empty fails. "
+    "Reply with compact JSON only: "
     '{"verdict":"PASS"|"FAIL","reason":"<one short line>"}.'
 )
 
@@ -276,6 +289,11 @@ def judge_freetext(sample: Sample, candidate: dict, llm_fn) -> tuple[bool, str]:
         "expected_headline": sample.expected.get("headline"),
         "candidate_headline": candidate.get("headline"),
     }
+    want_q = sample.expected.get("question")
+    if isinstance(want_q, dict) and want_q.get("ask"):
+        got_q = candidate.get("question")
+        fields["expected_ask"] = want_q["ask"]
+        fields["candidate_ask"] = got_q.get("ask") if isinstance(got_q, dict) else None
     # A boolean asserts presence only; concrete expected tables also assert meaning.
     if isinstance(sample.expected.get("tables"), list):
         fields["expected_tables"] = sample.expected["tables"]

@@ -12,6 +12,7 @@ import hashlib
 import logging
 import os
 import re
+import sqlite3
 import subprocess
 import threading
 import time
@@ -45,7 +46,7 @@ SNAPSHOT_HISTORY = 200
 CHECKPOINT_EVENTS = 100
 # Bump when classification or the fingerprint changes meaning: stored cards then miss
 # their hash once and every pane is re-read, instead of restoring an older parser's card.
-CARD_VERSION = 7
+CARD_VERSION = 10
 # LLM parse cadence. We capture every tick (cheap, for the snapshot buffer) but only
 # PARSE when the content fingerprint CHANGED vs. the last parse (or on a forced reparse).
 # `changed` compares against _prev_fp, which is written only on a SUCCESSFUL parse — so a
@@ -220,11 +221,13 @@ def _stamp_identity(s: dict, p: tmux.Pane) -> None:
         boot_title = None  # history from a previous agent must not name its replacement
     s["title"] = p.display_title or s.get("agent_title") or boot_title
     s["tmux_label"] = p.label
+    s["birth"] = getattr(p, "pid", None)  # the incarnation this snapshot describes
     s["session"] = p.session
     s["cwd"] = getattr(p, "cwd", "")
     s["window_index"] = p.window_index
     s["window_name"] = p.window_name
     s["session_active"] = p.session_active
+    s["secret"] = getattr(p, "secret", False)  # at a password prompt: see Pane.secret
 
 
 def _append_events(log: list[dict], events: list[dict], ts: float) -> None:
@@ -316,6 +319,9 @@ class Watcher:
         self._prs: dict[str, list[dict]] = {}  # pane_id -> accumulated semantic associations
         self._pr_titles = PRTitles()
         self._birth: dict[str, str] = {}  # pane_id -> pane pid; detects recycled ids
+        self._forgotten: set[str] = set()  # checkpoint keys Expunge deleted
+        self._undeleted: set[str] = set()  # ...whose row deletion is still to be retried
+        self._forget_lock = threading.Lock()
         # Restart checkpoints: the preload (uid -> row, None until read), the tmux server
         # they are keyed under, and pane_id -> what was last written (skip if unchanged).
         self._checkpoints: dict[str, dict] | None = None
@@ -445,6 +451,36 @@ class Watcher:
             )
         return out
 
+    def checkpoint_key(self, pane_id: str, pid: str) -> str:
+        """The key of this pane incarnation's stored card, under the live tmux server (raises
+        if tmux can't name it). Taken before the pane closes: a new server may have started
+        by the time it is used."""
+        return pane_key(tmux.server_uid(strict=True), pane_id, pid)
+
+    def forget_checkpoint(self, uid: str) -> bool:
+        """Delete a stored card (Expunge), and never write it again: a tick that captured
+        the pane before it closed can still be on its way to saving."""
+        with self._forget_lock:  # never between a tick's filter and its save
+            self._forgotten.add(uid)
+            self._undeleted.add(uid)
+        return self._delete_forgotten()
+
+    def _delete_forgotten(self) -> bool:
+        """Delete the forgotten rows not yet deleted; whether none is left. A busy database
+        is retried every tick, and meanwhile the tombstone keeps the row from coming back."""
+        with self._forget_lock:
+            if not self._undeleted:
+                return True
+            if not self.history:  # no database to clean: can't say the card is gone
+                return False
+            try:
+                self.history.delete_checkpoints(list(self._undeleted))
+                self._undeleted.clear()
+            except (OSError, sqlite3.Error):
+                logger.warning("could not delete an expunged checkpoint; retrying next tick",
+                               exc_info=True)
+            return not self._undeleted
+
     def snapshot_text(self, pane_id: str, snap_id: str) -> str | None:
         for s in self.snapshots.get(pane_id, []):
             if s["id"] == snap_id:
@@ -530,6 +566,7 @@ class Watcher:
         self.request_reparse(pane_id)
 
     def _tick(self) -> None:
+        self._delete_forgotten()
         if not tmux.server_running():
             self._collection_failed = False
             self._gc(set())  # confirmed server absence ends every pane lifetime
@@ -734,6 +771,15 @@ class Watcher:
         return q.get("prompt") if isinstance(q, dict) else None
 
     @staticmethod
+    def _pending_key(state: dict) -> tuple:
+        """What the waiting clock is keyed on: the activity and the pending question, by
+        prompt AND widget context (the same "Do you want to proceed?" over a different
+        command is a new ask)."""
+        q = state.get("question")
+        return (state.get("activity"), Watcher._question_prompt(state),
+                q.get("context") if isinstance(q, dict) else None)
+
+    @staticmethod
     def _deck_fp(states: list[dict]) -> str:
         # repr() of a tuple, NOT an f-string join: f-strings coerce None -> "None", so a
         # field flipping between None and the literal string "None" would look unchanged
@@ -747,6 +793,7 @@ class Watcher:
                 s.get("session"), s.get("window_index"), s.get("window_name"),
                 s.get("label"), s.get("title"), s.get("cwd"),
                 s.get("activity"), s.get("tool"), s.get("events_seq"),
+                s.get("secret"),  # the composer mode: a tty change with an unchanged screen
                 tuple((p.get("repo"), p.get("number"), p.get("title"))
                       for p in (s.get("prs") or [])),
                 # The card renders it, and a refresh can land with no other deck
@@ -1043,7 +1090,7 @@ class Watcher:
             state.pop("last_activity_at", None)  # the row's column is the source of truth
             self._state[pid], self._prev_fp[pid], self._parse_valid[pid] = state, fp, True
             self._checkpointed[pid] = None  # see _checkpoint
-            self._state_key[pid] = (state.get("activity"), self._question_prompt(state))
+            self._state_key[pid] = self._pending_key(state)
             self._state_since[pid] = min(row["idle_since"] or state.get("state_since") or now,
                                          now)
             if state.get("summary"):
@@ -1101,8 +1148,10 @@ class Watcher:
             same = tmux.server_uid(strict=True) == self._server
         except (OSError, subprocess.CalledProcessError):
             same = False
-        if same and self.history.save_checkpoints(rows):
-            self._checkpointed.update(keys)
+        with self._forget_lock:
+            rows = [r for r in rows if r["uid"] not in self._forgotten]
+            if same and rows and self.history.save_checkpoints(rows):
+                self._checkpointed.update(keys)
 
     def _state_since_for(
         self, pane_id: str, state: dict, now: float, activity_ts: float | None = None
@@ -1114,7 +1163,7 @@ class Watcher:
         churn (a spinner/clock that trips the fingerprint) does NOT reset it, so
         time-in-state stays honest even across re-parses. Persisted per pane so an
         unchanged re-parse leaves it put and the clock keeps climbing."""
-        key = (state.get("activity"), self._question_prompt(state))
+        key = self._pending_key(state)
         if self._state_key.get(pane_id) != key:
             # Restart amnesia (#129): these clocks live in daemon memory, so a restart
             # used to stamp every long-parked pane "went idle just now" — the whole

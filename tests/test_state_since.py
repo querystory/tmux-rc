@@ -106,6 +106,13 @@ def test_state_since_resets_on_new_question_but_persists_on_same(monkeypatch):
     w._forced_this_tick = set()
     assert w._tick_pane(pane)["state_since"] == 1100.0, "a new question restarts the clock"
 
+    # The same prompt over a different command (widget context) is a new ask too.
+    clock[0] = 1150.0
+    frame[0] = "Overwrite file? > (b)"
+    state[0] = {**state[0], "question": {"prompt": "Overwrite file?", "context": "b.txt"}}
+    w._forced_this_tick = set()
+    assert w._tick_pane(pane)["state_since"] == 1150.0, "a new context restarts the clock"
+
 
 def test_restart_seeds_idle_clock_from_tmux_activity(monkeypatch):
     """A fresh daemon seeing an already-idle pane must seed state_since from tmux's
@@ -139,7 +146,7 @@ def test_list_panes_populates_window_activity(monkeypatch):
     (and an 11-field line would be dropped by the length guard entirely)."""
     tmux = W.tmux
     fields = ["work", "0", "work", "0", "%1", "bash", "title", "/home/u", "42",
-              "1", "1", "4000", "1"]
+              "1", "1", "4000", "1", ""]
     monkeypatch.setattr(tmux, "_run", lambda args: "\t".join(fields) + "\n")
     (pane,) = tmux.list_panes()
     assert pane.window_activity == "4000"

@@ -33,12 +33,17 @@
   <link rel="modulepreload" href="/m/url-state.js">
   <link rel="modulepreload" href="/m/overscroll.js">
   <link rel="modulepreload" href="/m/sidebar.js">
+  <link rel="modulepreload" href="/m/usage.js">
   <link rel="modulepreload" href="/cursor-pick.js">
 </head>
 <body>
   <div id="app">
     <header class="app-header">
       <button id="back" class="icon-button" aria-label="Back to sessions" title="Back to sessions" hidden></button>
+      <!-- A phone's list screen is one iOS-style large-title row: this title, its live dot
+           and the actions. It names the app, not "Sessions": the list holds panes and
+           agents, which belong to sessions. The brand stands in on the dashboard. -->
+      <h1 id="list-title">tmux-rc</h1>
       <a id="brand" href="/m" aria-label="tmux-rc sessions"><img src="/icon.svg" alt="" width="28" height="28"><span>tmux-rc</span></a>
       <span id="connection" role="status">Connecting</span>
       <button id="chat" class="icon-button" aria-label="Chat" title="Chat" hidden></button>
@@ -48,6 +53,7 @@
         <button id="push" class="icon-button" aria-label="Notifications" aria-pressed="false" hidden></button>
         <button id="theme" class="icon-button" aria-label="Change theme" title="Change theme"></button>
         <a id="docs" class="icon-button" href="/docs/" hidden aria-label="Documentation" title="Documentation"></a>
+        <button id="sort" class="icon-button" title="Switch the sort order"></button>
       </div></details>
     </header>
     <div id="update-notice" role="status" hidden><span>Update available</span><button id="reload-update" type="button">Reload</button></div>
@@ -57,11 +63,15 @@
     <section id="sessions" aria-label="Sessions">
       <div id="sb-head" class="sb-only"><button id="collapse" class="icon-button"></button></div>
       <div id="sb-nav" class="sb-only"><button id="dash-nav" class="icon-button" aria-label="Dashboard" title="Dashboard"></button></div>
-      <div class="list-heading"><h1>Sessions</h1><select id="sort" aria-label="Sort panes"><option value="updated">Last updated</option><option value="session">Session order</option></select><button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button></div>
       <div class="search" role="search"><span id="search-icon"></span><input id="search" type="search" placeholder="Find a session or pane" aria-label="Find a session or pane" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button></div>
       <div id="pane-list"></div>
       <div id="side-list" class="sb-only"></div>
       <p id="empty" class="empty" role="status">Loading sessions...</p>
+      <!-- A phone's floating action button, pinned to the list's foot (sticky, so the list's
+           end scrolls clear of it). -->
+      <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
+      <!-- Plan limits (usage.js): pinned over a phone's list by CSS, above the wide foot. -->
+      <div id="usage" role="region" aria-label="Plan usage" hidden></div>
       <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
@@ -84,13 +94,13 @@
            the tabs exactly as the old header row read, wide sits it on the tab line. -->
       <div id="heading" hidden><div class="pane-heading-text"><h1 id="pane-title" tabindex="-1"></h1><p id="pane-location"></p></div>
         <div id="layout-control"><div id="mobile-view-toggle" role="group" aria-label="Session view"><button type="button" data-view="summary" aria-pressed="true">Overview</button><button type="button" data-view="terminal" aria-pressed="false">Terminal</button></div><span>Layout</span><select id="review-layout" aria-label="Session view"><option value="auto">Auto</option><option value="side">Side by side</option><option value="stack">Overview above</option><option value="summary">Overview</option><option value="terminal">Terminal</option></select></div>
-        <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><button id="kill-pane" type="button"></button></div></details>
+        <details id="pane-menu" class="header-picker"><summary id="pane-menu-button" class="icon-button" aria-label="More actions" title="More actions"></summary><div class="header-picker-menu"><button id="kill-pane" type="button"></button><hr id="expunge-rule" hidden><button id="expunge-pane" hidden type="button"></button></div></details>
         <button id="close-pane" class="icon-button" aria-label="Close" title="Close"></button>
       </div>
       <div id="review-divider" role="separator" tabindex="0" aria-label="Resize overview" hidden></div>
       <div id="overview" class="scroller">
         <section class="pane-summary"><div class="section-heading"><span id="activity" class="badge"></span><span id="tool"></span></div><h2 id="status-line"></h2><p id="session-summary" hidden></p><p id="metadata"></p></section>
-        <section id="question" hidden><h2 id="prompt"></h2><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
+        <section id="question" hidden><h2 id="prompt"></h2><details id="question-command" class="q-command" hidden><summary>Details</summary><pre class="q-cmd"></pre></details><div id="options"></div><p id="answer-status" role="status" hidden></p></section>
         <section id="link-section" hidden><h2>Links</h2><div id="links"></div></section>
         <section id="table-section" hidden><div id="tables"></div></section>
         <section id="task-section" hidden><h2>Tasks <span id="task-count"></span></h2><div id="tasks"></div></section>
@@ -108,7 +118,7 @@
         <!-- Empty until there is something to say ("Draft" / "Sent"), and :empty collapses
              it to zero height, so the status costs no space on a resting screen. -->
         <p id="draft-status" role="status"></p>
-        <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
+        <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><input id="secret" type="password" autocomplete="off" placeholder="Password for this pane only" aria-label="Password for this pane" hidden><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
         <input id="image-file" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       </footer>
       <!-- Wide only: the fleet chart docked under the pane, sized by its seam (app.js). -->
@@ -117,6 +127,7 @@
     </section>
     <nav id="list-nav" aria-label="Sessions and dashboard"><button id="dashboard-tab" aria-pressed="false"></button><button id="all-tab" data-filter="all" aria-pressed="true"></button><button id="running-tab" data-filter="running" aria-pressed="false"></button><button id="recent-tab" data-filter="recent" aria-pressed="false"></button><button id="attention-tab" data-filter="attention" aria-pressed="false"></button></nav>
     <dialog id="launch-dialog" aria-labelledby="launch-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="launch-title">New window</h2><button type="button" id="close-launch" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><label for="launch-session">Session</label><select id="launch-session" required></select><div id="launch-choices" class="choice-list" aria-label="Agent"></div><p id="launch-error" role="status"></p></dialog>
+    <dialog id="expunge-dialog" aria-labelledby="expunge-title"><div class="sheet-handle"></div><div class="dialog-heading"><h2 id="expunge-title">Expunge session</h2><button type="button" id="close-expunge" class="icon-button" aria-label="Cancel" title="Cancel"></button></div><p id="expunge-what"></p><p id="expunge-caveat">Copies already sent via OpenTelemetry, or kept by Anthropic or OpenAI, are not affected.</p><button type="button" id="expunge-confirm"></button></dialog>
     <dialog id="voice-dialog" aria-labelledby="voice-title" tabindex="-1">
       <div class="sheet-handle"></div>
       <div class="dialog-heading"><h2 id="voice-title">Live Mode</h2><select id="voice-switch" aria-label="Chat model" hidden></select><button id="voice-close" class="icon-button" aria-label="Close panel" title="Close panel"></button><button id="voice-end" class="icon-button" aria-label="End chat and close" title="End chat and close" hidden></button></div>

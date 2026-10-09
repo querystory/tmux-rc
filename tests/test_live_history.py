@@ -74,6 +74,22 @@ def test_resume_opens_the_indexed_command_in_its_directory(history, argv):
     assert any(m["type"] == "typed" and m["pane_id"] == "%40" for m in ws.sent)
 
 
+@pytest.mark.parametrize("consent", ["approved", None])
+def test_resume_jumps_to_the_window_only_when_the_user_tapped_send(history, monkeypatch, consent):
+    # A tapped Send asked to go there: the client gets open_pane with auto, which also
+    # leaves the button. Voice (no card) gets no jump.
+    sessions, _ = history
+    sessions["live-1"] = LIVE
+    monkeypatch.setattr(tmux, "list_panes", lambda: [
+        Pane("work", "7", "tmuxrc live mode", "0", "%40", "claude", "", cwd="/repo")])
+    ws, rec = _WS(), {"consent": consent} if consent else {}
+    r = _run(L._resume_session(ws, {"session_id": "live-1"}, _Watcher(), rec))
+    assert r.get("shown", False) == bool(consent)  # steers the model off a second button
+    opens = [m for m in ws.sent if m["type"] == "open_pane"]
+    assert opens == ([{"type": "open_pane", "pane_id": "%40", "auto": True,
+                       "label": 'window 7 "tmuxrc live mode"'}] if consent else [])
+
+
 def test_resume_is_idempotent_until_the_session_registers(history):
     # Right after a launch the registry doesn't list it yet; a repeat must not relaunch.
     sessions, opened = history
@@ -267,7 +283,8 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
     monkeypatch.setattr(agent_history, "resolve", lambda q: [{
         "repo": "/home/u/src/tmux-rc", "score": 9,
         "sessions": [
-            {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}, "prs": ["x"], "source": "/s"},
+            {**LIVE, "running": {"pid": 5, "tmux_pane": "%1"}, "prs": ["x"], "source": "/s",
+             "matched": ["live", "mode"]},
             {**LIVE, "session_id": "old", "title": "", "running_unknown": True},
             {**LIVE, "session_id": "new", "running": {"pid": 6, "tmux_pane": "%77"}},
             {**LIVE, "session_id": "ide", "running": {"pid": 7}},
@@ -279,15 +296,16 @@ def test_find_sessions_returns_routing_hints_only(monkeypatch):
     assert w.reparsed == ["%77"]  # the unpublished running pane is woken
     assert r == {"status": "ok", "results": [{"repo": "~/src/tmux-rc", "sessions": [
         {"session_id": "live-1", "tool": "claude", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05", "running_in": "work", "pane_id": "%1"},
+         "last_active": "2026-09-05", "matched": ["live", "mode"], "running_in": "work",
+         "pane_id": "%1"},
         {"session_id": "old", "tool": "claude", "title": "(untitled)",
-         "last_active": "2026-09-05", "running_unknown": True},
+         "last_active": "2026-09-05", "matched": [], "running_unknown": True},
         {"session_id": "new", "tool": "claude", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05", "running_in": "%77", "pane_id": "%77"},
+         "last_active": "2026-09-05", "matched": [], "running_in": "%77", "pane_id": "%77"},
         {"session_id": "ide", "tool": "claude", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05", "running_elsewhere": True},
+         "last_active": "2026-09-05", "matched": [], "running_elsewhere": True},
         {"session_id": "cx", "tool": "codex", "title": "tmuxrc live mode",
-         "last_active": "2026-09-05"},
+         "last_active": "2026-09-05", "matched": []},
     ]}]}
     monkeypatch.setattr(agent_history, "resolve", lambda q: None)
     assert _call("find_sessions", {"query": "x"})[1]["status"] == "error"
@@ -304,10 +322,10 @@ def test_tools_offered_only_with_agent_history(monkeypatch):
     monkeypatch.setattr(agent_history, "resolve", lambda q: [])
     assert {"find_sessions", "resume_session"} <= offered()
     monkeypatch.setenv("TMUXRC_TARGET", "%3")  # single-pane mode can't address new windows
-    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
+    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane", "open_pane"}
     monkeypatch.delenv("TMUXRC_TARGET")
     monkeypatch.setattr(agent_history, "binary", lambda: None)
-    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane"}
+    assert offered() == {"type_in_pane", "press_key", "send_image_to_pane", "open_pane"}
 
 
 def test_client_runs_the_binary_with_a_literal_query(monkeypatch, tmp_path):
@@ -364,3 +382,25 @@ def test_new_window_argv_reaches_the_program_unparsed(tmp_path, monkeypatch):
         assert not marker.exists()
     finally:
         real(["tmux", "-S", sock, "kill-server"], check=False)
+
+
+def test_resume_card_says_which_session_past_its_title(history, monkeypatch):
+    """Titles repeat across sessions, so the consent card also carries the tool, the
+    directory under ~, the full last-active stamp and a short id."""
+    sessions, _ = history
+    sessions["live-1"] = {**LIVE, "cwd": os.path.expanduser("~/src/repo")}
+    meter = L._Meter("s1", "tester", L.live_providers._DEFAULT[0], text=True)
+
+    class Cancel(_WS):
+        async def send_json(self, obj):
+            await super().send_json(obj)
+            if obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(False)
+
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    ws = Cancel()
+    _run(L._handle_tool_call(ws, _Session(), _FC(name="resume_session",
+                                                 args={"session_id": "live-1"}), _Watcher(), meter))
+    assert ws.sent[0]["text"] == "Resume tmuxrc live mode"
+    assert ws.sent[0]["session"] == {"tool": "claude", "cwd": "~/src/repo",
+                                     "last_active": "2026-09-05T15:29:22Z", "id": "live-1"}

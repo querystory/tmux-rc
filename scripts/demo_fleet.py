@@ -75,6 +75,17 @@ MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("G
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
 
 
+# Plan limits, one Claude and one weekly-only Codex account, as a typical day reads: a
+# light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), and
+# Codex ahead of pace with no 5h window at all. provider | name | the sessions whose
+# panes draw on it | per window: name, seconds, share of it gone at NOW, % used at NOW.
+PLANS = [
+    ("claude", "claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
+                                    ("7d", 7 * 86400, 1 - 7.5 / 168, 89)]),
+    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 14)]),
+]
+
+
 # SGR helpers for the captures: the live view renders these as colored spans.
 def sgr(code: str, text: str) -> str:
     return f"\x1b[{code}m{text}\x1b[0m"
@@ -132,10 +143,15 @@ CAPTURES = {
         "", RULE, "❯ ", RULE,
         f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
     ]),
+    "backup verify": "\n".join([
+        f"{grn('dev@ops')}$ sudo ./verify-snapshots.sh", "[sudo] password for dev: "]),
 }
 
 # Extra card fields for the panes the screenshots open, so every section has something.
 DETAIL = {
+    # A sudo prompt: its tty stopped echoing, so the composer is a password field.
+    "backup verify": {"secret": True, "headline": "sudo is asking for a password.",
+                      "status_line": "sudo is asking for a password."},
     "e2e triage": {
         "model": "Opus 5", "context_pct": 41, "cost": "$3.12", "mode": "accept-edits",
         "session_summary": "The checkout flake reproduces only when the payment iframe loads "
@@ -156,7 +172,11 @@ DETAIL = {
               "title": "Stabilize checkout.spec under slow iframes"}],
         "links": [{"href": f"https://{ORG}/shop-web/actions/runs/1029384756", "text": "CI run"}]},
     "api contract diff": {
-        "model": "Sonnet 5", "context_pct": 39, "cost": "$0.84",
+        "model": "Sonnet 5", "context_pct": 39, "cost": "$0.84", "agents": 2,
+        "subagents": [{"label": "List clients of the two changed endpoints", "state": "running",
+                    "elapsed": "1m", "tokens": "7.4k"},
+                   {"label": "Draft the v3 migration note", "state": "running", "elapsed": "40s",
+                    "tokens": "3.1k"}],
         "session_summary": "Moving money fields to a structured type changed two public "
                         "endpoints. Both break existing clients, so versioning needs a call.",
         "prs": [{"repo": "example-org/shop-api", "number": 409,
@@ -166,14 +186,24 @@ DETAIL = {
     "terraform plan review": {
         "activity": "waiting", "waiting_on": "external", "model": "Opus 5", "context_pct": 58,
         "cost": "$2.05",
-        "mode": "plan", "agents": 2,
+        "mode": "plan", "agents": 3,
         "subagents": [{"label": "Check replacements for data loss", "state": "running",
-                    "elapsed": "3m"},
-                   {"label": "Cross-check IAM changes", "state": "running", "elapsed": "2m"}],
+                    "elapsed": "3m", "tokens": "21.7k"},
+                   {"label": "Cross-check IAM changes", "state": "running", "elapsed": "2m",
+                    "tokens": "12.3k"},
+                   {"label": "Summarize the 33 in-place changes", "state": "running",
+                    "elapsed": "48s", "tokens": "6.2k"}],
         "tables": [{"title": "Plan summary", "headers": ["Action", "Count"],
                  "rows": [["add", "6"], ["change", "33"], ["replace", "2"], ["destroy", "0"]]}]},
 }
-MENU = {"dependency audit"}  # questions answered with one keystroke rather than typed text
+# Questions answered with one keystroke rather than typed text, with the widget fields
+# classify() adds to one: its raw rows and their plain restatement.
+MENU = {"dependency audit": {
+    "context": "Bash command\nUpgrade three packages with breaking changes\n\n"
+               "npm install react@20 vite@8 eslint@10",
+    "ask": "The agent wants to upgrade React, Vite and ESLint to new major versions. "
+           "Continue?",
+}}
 
 # Activity feeds for the panes the screenshots open: (minutes before NOW, text).
 EVENTS = {
@@ -216,7 +246,8 @@ def _pane(i: int, line: str, window: int) -> dict:
         pane |= {"headline": extra, "status_line": extra, "session_summary": "",
                  "waiting_on": "user",
                  "question": {"prompt": extra, "options": text.split(","),
-                              "answer_style": "menu" if title in MENU else "text"}}
+                              "answer_style": "menu" if title in MENU else "text",
+                              **MENU.get(title, {})}}
     return pane | DETAIL.get(title, {})
 
 
@@ -285,3 +316,19 @@ def seed_history(history: History) -> History:
     with history.connect() as db:  # the shared goal line; inert on builds without one
         db.execute("INSERT OR REPLACE INTO metadata VALUES ('running_goal', ?)", (str(GOAL),))
     return history
+
+
+def seed_usage(usage):
+    """Five-minute samples of each PLANS window, rising a little faster late in it, ending
+    at its share at NOW; and the accounts the panes draw on, as discovery would find them."""
+    rows, panes = [], fleet()
+    for tool, name, sessions, windows in PLANS:
+        for window, seconds, share, pct in windows:
+            start = NOW - share * seconds
+            rows += [(tool, name, window, seconds, t,
+                      round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
+                     for t in range(int(NOW), int(start), -300)]
+        usage.accounts[(tool, name)] = {"short": name, "error": None, "panes": [
+            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions]}
+    usage.history.record_usage(rows)
+    return usage
