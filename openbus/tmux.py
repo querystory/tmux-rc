@@ -447,7 +447,7 @@ def select_pane(pane_id: str) -> None:
     _run(["select-pane", "-t", pane_id])
 
 
-def kill_window(pane_id: str, pid: str | None = None) -> bool:
+def kill_window(pane_id: str, pid: str | None = None) -> list[tuple[str, str]]:
     """Close the WINDOW that contains this pane (kill-window targets the pane's window),
     matching the phone's mental model: rows and cards are titled by window, and windows —
     not bare panes — are what "+ New window" creates. Any split panes in the window go with
@@ -456,13 +456,13 @@ def kill_window(pane_id: str, pid: str | None = None) -> bool:
 
     With `pid`, only while that process still owns the pane: tmux reuses pane ids, and the
     server checks and kills in one command, so a newer pane under the id is never hit. The
-    command's other branch says when it declined; whether it killed is returned."""
-    kill = ["kill-window", "-t", pane_id]
-    if pid is None:
-        _run(kill)
-        return True
-    return _run(["if-shell", "-F", "-t", pane_id, f"#{{==:#{{pane_pid}},{int(pid)}}}",
-                 shlex.join(kill), "display-message -p kept"]).strip() != "kept"
+    command's other branch says when it declined. Returns the panes it killed as (id, pid),
+    listed in the same command as the kill so the set is exact, or [] when it declined."""
+    kill = (shlex.join(["list-panes", "-t", pane_id, "-F", "#{pane_id} #{pane_pid}"])
+            + " ; " + shlex.join(["kill-window", "-t", pane_id]))
+    guard = f"#{{==:#{{pane_pid}},{int(pid)}}}" if pid is not None else "1"
+    out = _run(["if-shell", "-F", "-t", pane_id, guard, kill, "display-message -p kept"])
+    return [tuple(line.split(" ", 1)) for line in out.splitlines() if line not in ("", "kept")]
 
 
 def server_path() -> str | None:

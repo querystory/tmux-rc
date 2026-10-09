@@ -356,7 +356,7 @@ class Watcher:
         # version > 0) would never kick in.
         self._state_fp: str | None = None
         self._state_changed = asyncio.Event()
-        self._publish_lock = threading.Lock()  # deck writers vs. drop_window (a request thread)
+        self._publish_lock = threading.Lock()  # deck writers vs. drop_panes (a request thread)
 
     def state_version(self) -> int:
         """Monotonic version of the deck-relevant view; bumped only when it changes.
@@ -532,7 +532,7 @@ class Watcher:
         # briefly dropping the UI's active selection. The next full tick reconciles.
         if focused is None:
             return
-        with self._publish_lock:  # against drop_window publishing a smaller deck meanwhile
+        with self._publish_lock:  # against drop_panes publishing a smaller deck meanwhile
             cur = next((s.get("pane_id") for s in self.states if s.get("tmux_active")), None)
             if focused == cur:
                 return
@@ -557,18 +557,16 @@ class Watcher:
                 # in _force_parse and a running loop would pick it up on its next tick.
                 pass
 
-    def drop_window(self, pane_id: str) -> None:
-        """Unpublish the window the daemon just closed through this pane, every split of it,
-        so the next /api/state omits them rather than serving them until a tick notices; then
-        wake that tick to reconcile. A tick already running read tmux before the kill and may
-        publish them once more (the client hides those, app.js endPane)."""
+    def drop_panes(self, pane_ids: set[str]) -> None:
+        """Unpublish panes the daemon just killed, so the next /api/state omits them rather
+        than serving them until a tick notices; then wake that tick to reconcile. A tick
+        already running read tmux before the kill and may publish them once more (the client
+        hides those, app.js endPane)."""
         with self._publish_lock:  # a tick publishing meanwhile must not swallow the bump
-            win = next(((s.get("session"), s.get("window_index")) for s in self.states
-                        if s.get("pane_id") == pane_id), None)
-            self.states = [s for s in self.states if s.get("pane_id") != pane_id
-                           and (s.get("session"), s.get("window_index")) != win]
+            self.states = [s for s in self.states if s.get("pane_id") not in pane_ids]
             self._bump_state_if_changed(self.states)
-        self.request_reparse(pane_id)
+        for pane_id in pane_ids:
+            self.request_reparse(pane_id)
 
     def invalidate_input_actions(self, pane_id: str) -> None:
         """Invalidate actions before a pane-input transaction can take its send lock."""
