@@ -41,15 +41,19 @@ Agents only use scratch if they know it exists. Set `TMUXRC_SCRATCH_ADVERTISE=1`
 `TMUXRC_SCRATCH_URL` to the public base, such as `https://your-host/scratch`, since the
 daemon cannot know the hostname your tunnel gives it) and the daemon exports both variables
 to the tmux server's global environment at startup. Every pane opened after that inherits
-them; shells that were already running do not.
+them; shells that were already running do not. Each restart re-applies the setting, so a
+variable that is no longer configured is removed rather than left pointing at nothing.
+Turning the flag off stops the writes but leaves the last values in place until tmux
+restarts or you run `tmux set-environment -gu` on them.
 
 It is off by default because it writes to your tmux server's environment, which you may
 manage yourself. The variables only say where scratch is. To have agents use it, add a line
 like this to your `CLAUDE.md` or `AGENTS.md`:
 
     If TMUXRC_SCRATCH_DIR is set, put previews for the user in a subfolder there and
-    share $TMUXRC_SCRATCH_URL/<folder>/. Never put secrets or private data there; pages
-    can't make network requests.
+    share $TMUXRC_SCRATCH_URL/<folder>/ (or the folder's path, if that URL is unset).
+    Never put secrets or private data there. Make pages self-contained: their scripts
+    can't fetch data or post forms.
 
 ## What it exposes, and what it won't run
 

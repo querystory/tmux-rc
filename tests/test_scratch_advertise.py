@@ -35,6 +35,15 @@ def test_advertise_scratch_only_when_opted_in(tmp_path, monkeypatch):
         server._advertise_scratch()
         assert f"TMUXRC_SCRATCH_DIR={tmp_path}\n" in shown()
         assert "TMUXRC_SCRATCH_URL=https://host.example/scratch\n" in shown()
+        # tmux outlives the daemon: a restart with less configured clears what went away.
+        monkeypatch.delenv("TMUXRC_SCRATCH_URL")
+        server._advertise_scratch()
+        assert "TMUXRC_SCRATCH_URL" not in shown()
+        assert f"TMUXRC_SCRATCH_DIR={tmp_path}\n" in shown()
+        monkeypatch.setenv("TMUXRC_SCRATCH_URL", "https://host.example/scratch")
+        monkeypatch.setattr(server, "_scratch_dir", None)
+        server._advertise_scratch()
+        assert "TMUXRC_SCRATCH" not in shown()
     finally:
         # Ending the only pane ends this private server; never kill-server.
         run(["kill-pane", "-t", pane])

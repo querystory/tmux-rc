@@ -1388,14 +1388,14 @@ if _scratch_dir:
 def _advertise_scratch() -> None:
     """Opt-in (TMUXRC_SCRATCH_ADVERTISE=1): export the served scratch dir, and its public
     URL when TMUXRC_SCRATCH_URL is set, to tmux's global environment, which new panes (and
-    the agents in them) inherit. Off by default: it writes to the user's own tmux server."""
-    if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1" or not _scratch_dir:
+    the agents in them) inherit. Off by default: it writes to the user's own tmux server.
+    tmux outlives the daemon, so whatever is no longer configured is removed, not kept."""
+    if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1":
         return
-    url = os.environ.get("TMUXRC_SCRATCH_URL")
+    url = _scratch_dir and os.environ.get("TMUXRC_SCRATCH_URL")
     try:
         tmux.set_global_env("TMUXRC_SCRATCH_DIR", _scratch_dir)
-        if url:
-            tmux.set_global_env("TMUXRC_SCRATCH_URL", url)
+        tmux.set_global_env("TMUXRC_SCRATCH_URL", url)
     except subprocess.CalledProcessError:
         logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
