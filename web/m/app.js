@@ -894,16 +894,19 @@ function startState() {
     pollState(stateController.signal);
   }
 }
-// Panes of windows this page is closing, by pane id: { birth, label } while the request runs,
-// then { birth, done } once it succeeded. A closed pane stays hidden until its %N comes back
-// with another birth, not just until a poll omits it: a watcher tick that read tmux before
-// the kill can publish it again any time later, as slow as its classifications run.
+// Panes of windows this page is closing, by pane id: { birth, pane, label } while the request
+// runs, then { birth, pane, done } once it succeeded. A closed pane stays hidden until its %N
+// comes back as something else, not just until a poll omits it: a watcher tick that read tmux
+// before the kill can publish it again any time later, as slow as its classifications run.
+// Something else is another birth (tmux gave the id to a new pane) or another window (a split
+// moved out before the kill, so it survived).
 const ending = new Map();
+const closing = (e, p) => e && e.birth === p.birth && e.pane.session === p.session && e.pane.window_index === p.window_index;
 function showPanes() {
   panes = statePanes.flatMap((p) => {
     const e = ending.get(p.pane_id);
-    if (e?.birth !== p.birth && e?.done) ending.delete(p.pane_id); // tmux gave the id to a new pane
-    return !e || e.birth !== p.birth ? [p] : e.done ? [] : [{ ...p, ending: e.label }];
+    if (e?.done && !closing(e, p)) ending.delete(p.pane_id);
+    return !closing(e, p) ? [p] : e.done ? [] : [{ ...p, ending: e.label }];
   });
   // Until the request answers, keep a pane the server already unpublished (drop_window wakes
   // the poll mid-request): only endPane decides it is gone, so the page leaves it cleanly.
@@ -920,16 +923,22 @@ async function endPane(id, action, label, body, timeout) {
   const pane = statePanes.find((p) => p.pane_id === id); // kill-window takes all its splits too
   const splits = statePanes.filter((p) => pane && p.session === pane.session && p.window_index === pane.window_index);
   const mark = (e, of = splits) => { for (const p of of) if (e) ending.set(p.pane_id, { birth: p.birth, pane: p, ...e }); else ending.delete(p.pane_id); showPanes(); render(); };
-  // Leave whichever of them is on screen first (no "no longer available"), but never a newer
-  // pane tmux gave that %N. A 404 killed nothing: only the target is gone, not its splits.
+  // Leave whichever of them is on screen first (no "no longer available"), but never a pane
+  // that state now shows as something else. A 404 killed nothing: only the target is gone.
   const ended = (of = splits) => {
-    for (const p of of) if ((statePanes.find((q) => q.pane_id === p.pane_id)?.birth ?? p.birth) === p.birth) leavePane(p.pane_id);
+    for (const p of of) {
+      const now = statePanes.find((q) => q.pane_id === p.pane_id);
+      if (!now || closing(ending.get(p.pane_id), now)) leavePane(p.pane_id);
+    }
     mark({ done: true }, of);
   };
   mark({ label });
   try { const done = await post(paneUrl(id, action), body, timeout); ended(); return done; }
   catch (error) {
-    if (error.status === 404) { mark(null); ended(splits.filter((p) => p.pane_id === id)); }
+    if (error.status === 404) { // forget the splits quietly: ended() must leave before any render
+      for (const p of splits) if (p.pane_id !== id) ending.delete(p.pane_id);
+      ended(splits.filter((p) => p.pane_id === id));
+    }
     else if (error.status >= 400 && error.status < 500) mark(null); else ended();
     throw error;
   }
