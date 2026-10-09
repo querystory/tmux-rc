@@ -1366,7 +1366,7 @@ def test_provider_error_retry_is_deterministic(replies):
 
 def test_transcript_code_blocks_beat_the_models_retyping():
     reply = ("Run this on the desktop. It changes nothing.\n\n```bash\n{\n  lpstat -t\n"
-             "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n```\n")
+             "} 2>&1 | tee /tmp/report.txt\n```\n\nThen:\n\n```\ncat /tmp/report.txt\n````\n")
     retyped = {"copyables": [{"text": "{ lpstat -t; } 2>&1 | tee /tmp/report.txt"}]}
     shown = "  cat /tmp/report.txt"
     result = classify(_pane("node"), "  } 2>&1 | tee /tmp/report.txt\n" + shown,
