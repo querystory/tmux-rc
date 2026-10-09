@@ -1396,7 +1396,7 @@ def _advertise_scratch() -> None:
     try:
         tmux.set_global_env("TMUXRC_SCRATCH_DIR", _scratch_dir)
         tmux.set_global_env("TMUXRC_SCRATCH_URL", url)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
         logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
 # Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
