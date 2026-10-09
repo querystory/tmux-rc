@@ -391,16 +391,18 @@ const levelOption = (k, tab) => ({
     const LV = LEVELS[k], levels = new Set(shown.map((g) => lvlOf(k, g))), cur = levels.size === 1 ? [...levels][0] : -1;
     return `<div class="sb-bar2"><span>Show</span><span class="seg">${LV.map((l, i) => `<button data-act="lvlall" data-v="${i}" aria-pressed="${cur === i}" title="Every group: ${l.tip}">${licon(l.icon, 13)}${l.label}</button>`).join("")}</span></div>`;
   },
-  groupCtl: (g) => { const LV = LEVELS[k], l = lvlOf(k, g), next = LV[(l + 1) % 3]; return `<button class="sb-icon" data-act="lvlgrp" data-g="${esc(g.id)}" aria-pressed="${l > 0}" title="${esc(g.label)}: ${LV[l].label} (${LV[l].tip}). Click for ${next.label}">${licon(LV[l].icon, 15)}</button>`; },
+  groupCtl: (g) => { const LV = LEVELS[k], l = lvlOf(k, g), next = LV[(l + 1) % 3]; return `<button class="sb-icon" data-act="lvlgrp" data-g="${esc(g.id)}" aria-pressed="${l > 0}" ${named(`${esc(g.label)}: ${LV[l].label} (${LV[l].tip}). Click for ${next.label}`)}>${licon(LV[l].icon, 15)}</button>`; },
   row: (p, g) => { const L = LEVELS[k][lvlOf(k, g)], list = !!L.list || (O[k].sel && p.id === S.selected); return { card: !!L.card, list, ctl: list ? "" : "badge" }; },
 });
+// Icon-only buttons: the tooltip doubles as the accessible name, which title alone is not.
+const named = (label) => `title="${label}" aria-label="${label}"`;
 // The ⇕ expand/compact-all button of today's sidebar (E2 reinterprets what "expanded" means).
 const allButton = (o, shown, act = "all") => {
   const expand = shown.some((g) => !cardsOf(o, g));
   const tip = act === "e2all" ? (expand ? "Expand every group: activity and sub-agents" : "Compact every group and fold sub-agents") : (expand ? "Show the latest activity in every group" : "Compact every group");
-  return `<button class="sb-icon" data-act="${act}" data-v="${expand}" title="${tip}">${licon(expand ? "unfold" : "fold", 15)}</button>`;
+  return `<button class="sb-icon" data-act="${act}" data-v="${expand}" ${named(tip)}>${licon(expand ? "unfold" : "fold", 15)}</button>`;
 };
-const densityButton = (o, g, act = "cards", tip) => `<button class="sb-icon" data-act="${act}" data-g="${esc(g.id)}" aria-pressed="${cardsOf(o, g)}" title="${tip || (cardsOf(o, g) ? "Compact rows" : "Show the latest activity")} for ${esc(g.label)}">${licon("rows", 15)}</button>`;
+const densityButton = (o, g, act = "cards", tip) => `<button class="sb-icon" data-act="${act}" data-g="${esc(g.id)}" aria-pressed="${cardsOf(o, g)}" ${named(`${tip || (cardsOf(o, g) ? "Compact rows" : "Show the latest activity")} for ${esc(g.label)}`)}>${licon("rows", 15)}</button>`;
 
 const OPTS = {
   E1: levelOption("E1", "One axis"),
@@ -428,7 +430,7 @@ const OPTS = {
   },
   E5: {
     tab: "Selected pane expands",
-    barRight: () => `<button class="sb-icon" data-act="e5all" aria-pressed="${O.E5.cards}" title="${O.E5.cards ? "Compact rows" : "Show the latest activity"} everywhere">${licon(O.E5.cards ? "fold" : "unfold", 15)}</button>`,
+    barRight: () => `<button class="sb-icon" data-act="e5all" aria-pressed="${O.E5.cards}" ${named(`${O.E5.cards ? "Compact rows" : "Show the latest activity"} everywhere`)}>${licon(O.E5.cards ? "fold" : "unfold", 15)}</button>`,
     groupCtl: () => "",
     row: (p, g) => { const list = p.id === S.selected || (O.E5.hoverOpen && p.id === S.hover); return { card: O.E5.cards || g.id === "need", list, ctl: list ? "" : "badge" }; },
   },
@@ -485,7 +487,7 @@ function row(p, g, m) {
   const sess = S.by === "state" || g.id === "need" ? ` · ${p.session}` : "";
   const strip = m.ctl === "strip" && p.subs.length ? `<span class="strip" title="${plural(subs.filter((a) => a.state !== "done").length, "sub-agent")} working">${subsOf(p).slice(0, 6).map((a) => `<i class="${a.state}"></i>`).join("")}${n ? `<span>${n}</span>` : ""}</span>` : "";
   const badge = m.ctl === "badge" && n ? `<span class="sb-badge" title="${plural(n, "sub-agent")}">${licon("bot", 13)}${n}</span>` : "";
-  const twisty = m.tree ? (n ? `<button class="twisty" data-act="e3row" data-p="${p.id}" aria-expanded="${m.open}" title="${m.open ? "Hide" : "Show"} ${plural(n, "sub-agent")}">${licon(m.open ? "chevronDown" : "chevron", 13)}</button>` : `<span class="twisty"></span>`) : "";
+  const twisty = m.tree ? (n ? `<button class="twisty" data-act="e3row" data-p="${p.id}" aria-expanded="${m.open}" ${named(`${m.open ? "Hide" : "Show"} ${plural(n, "sub-agent")}`)}>${licon(m.open ? "chevronDown" : "chevron", 13)}</button>` : `<span class="twisty"></span>`) : "";
   const toggle = m.ctl === "toggle" && n ? `<button class="sb-sub" data-act="e2row" data-p="${p.id}" aria-expanded="${m.open}" title="${plural(n, "sub-agent")}: ${m.open ? "hide" : "show"}${m.override ? " (overrides its group)" : ""}">${licon("bot", 13)}${n}${licon(m.open ? "chevronDown" : "chevron", 12)}</button>` : "";
   const list = m.list && n ? `<div class="sb-agents${m.tree ? " tree" : ""}">${subs.map((a) => agentLine(a)).join("")}</div>` : "";
   const replies = m.card && need ? `<div class="sb-replies">${p.options.map((o) => `<button data-act="answer" data-p="${p.id}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}<button data-act="sel" data-p="${p.id}">Reply</button></div>` : "";
