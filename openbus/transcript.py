@@ -51,9 +51,13 @@ def _claude_file(pane: Pane) -> Path | None:
         try:
             data = json.loads(reg.read_text(encoding="utf-8"))
             pid, sid = int(data["pid"]), str(data["sessionId"])
-        except (OSError, ValueError, KeyError, TypeError):
+            # A crashed process leaves its file behind and its pid gets reused, so the
+            # process must also have started when the registration says (stat field 22).
+            started = tmux.proc_read(pid, "stat").rsplit(")", 1)[1].split()[19]
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
             continue
-        if pane.pid and int(pane.pid) in tmux.ancestors(pid) and _UUID_RE.fullmatch(sid):
+        if (pane.pid and int(pane.pid) in tmux.ancestors(pid) and _UUID_RE.fullmatch(sid)
+                and str(data.get("procStart", started)) == started):
             return next((home / "projects").glob(f"*/{sid}.jsonl"), None)
     return None
 

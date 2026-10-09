@@ -44,6 +44,10 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
         _say("assistant", [{"type": "thinking"}, {"type": "text", "text": "Done."}]),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") == "Done."
+    # The same pid registered by a process that started at another time is stale.
+    _write(homes / "claude/sessions/1.json",
+           [{"pid": os.getpid(), "sessionId": SID, "procStart": "1"}])
+    assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     # A process under some other pane is not this pane's agent.
     assert transcript.last_reply(_pane("999999999"), "") is None
 
