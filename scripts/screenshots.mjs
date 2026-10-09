@@ -39,6 +39,7 @@ const SHOTS = [
   ["mobile-expunge", PHONE, "light", "#pane=%259", confirmExpunge],
   ["mobile-shell-menu", PHONE, "dark", "#pane=%256", (page) => page.click("#pane-menu-button")],
   ["mobile-chat-resume", PHONE, "light", "", (page) => openChat(page, "Resume the checkout session")],
+  ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await openChat(page); await page.click("#voice-close"); }],
 ];
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:

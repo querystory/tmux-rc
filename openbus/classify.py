@@ -28,6 +28,7 @@ from .tmux import (
     VISIBLE_SCREEN,
     Pane,
     proc_read,
+    processes,
     strip_dim,
 )
 
@@ -108,15 +109,10 @@ _OMP_PROC_LIMIT = 64  # processes walked under one pane, bounding a pathological
 
 def _runs_omp(pid: str) -> bool:
     """Is omp among `pid` and its descendants: argv[0] `omp`, or bun/node running omp?"""
-    todo = [pid]
-    for _ in range(_OMP_PROC_LIMIT):
-        if not todo:
-            break
-        p = todo.pop()
+    for p in processes(pid, _OMP_PROC_LIMIT):
         argv = [os.path.basename(a) for a in proc_read(p, "cmdline").split("\0")[:2]]
         if argv[0] == "omp" or (argv[0] in ("bun", "node") and argv[1:] == ["omp"]):
             return True
-        todo += proc_read(p, f"task/{p}/children").split()
     return False
 
 
@@ -325,6 +321,20 @@ def _last_occurrence(prompt: str, visible: str) -> re.Match | None:
     return next(reversed(_occurrences(prompt, visible)), None)
 
 
+_ROW_RE = re.compile(".*")
+
+
+def _answered_prompt(question, visible: str) -> re.Match | None:
+    """The row of a shell program's typed-answer prompt that it has printed output below,
+    with the cursor on a blank row after that output (capture_pane's trailing empty row):
+    the prompt was answered and the program moved on."""
+    prompt = question.get("answer_style") == "text" and _question_prompt(question)
+    found = prompt and _last_occurrence(prompt, visible)
+    row = found and _ROW_RE.match(visible, visible.rfind("\n", 0, found.start()) + 1)
+    below = visible[row.end():].split("\n")[1:] if row else []
+    return row if any(map(str.strip, below)) and not below[-1] else None
+
+
 def _omp_asking_view(text: str) -> str:
     """The viewport minus omp text that never asks. Blocks are matched across the history
     boundary (a heading may have scrolled off) but only the visible part is kept."""
@@ -353,6 +363,8 @@ def _supported_question(question, text: str, tool, pane: Pane) -> bool:
             return False  # Right-aligned label above the idle footer, not assistant prose.
         visible = _omp_asking_view(text)
     found = _last_occurrence(prompt, visible)
+    if tool == "shell" and _answered_prompt(question, visible):
+        return False
     # The user's own turn or draft (a ❯/› row) or a gutter-numbered file line is not the
     # agent asking; a live spinner below the text means the agent is working again; and a
     # finished turn's question followed by typed input has been answered.
@@ -397,24 +409,31 @@ def _ground_visible_fields(
     bad_action = bad_question or bad_rewind
     identity_chrome = "\n".join(_session_chrome(identity))
     evidence = visible if bad_action else identity_chrome
+    receipt = None
     if bad_question and host_tool == "omp" and (
         (omp := OMP_TITLE_RE.match(pane.title)) and omp["state"] not in (None, "!")
     ):
         # Read beyond an answered Ask receipt; any other rejected text keeps the viewport.
-        asked = _question_prompt(result["question"])
+        asked, kind = _question_prompt(result["question"]), "Ask receipt"
         *_, receipt = [None, *(m for m in _OMP_RECEIPT_RE.finditer(visible)
                                if asked and _last_occurrence(asked, m[0]))]
+    elif bad_question and result.get("tool") == "shell":
+        receipt, kind = _answered_prompt(result["question"], visible), "prompt"
+    if receipt:
         evidence = (
-            "[Completed Ask receipt — question and chosen answer explain the resumed task;\n"
+            f"[Completed {kind} — question and chosen answer explain the resumed task;\n"
             "use them for the headline's goal, NEVER as a current input request]\n"
             f"{receipt[0]}\n[Current visible work]\n{visible[receipt.end():]}"
-        ) if receipt else visible
+        )
     if bad_action and bad_session and identity_chrome:
         evidence = f"{evidence}\n\n{identity_chrome}"
     retry = llm_fn(
         prompt, f"{_parser_context(pane, None, host_tool)}\n\n{evidence}",
     ) if llm_fn else None
     retry = dict(retry) if isinstance(retry, dict) else None
+    if retry and receipt and kind == "prompt":
+        # The cursor rests below everything printed since the answer: nothing there asks.
+        retry.pop("question", None)
     if bad_action:
         state_fields = ("activity", "waiting_on", "headline", "question", "rewind")
         if bad_question and result.get("tool") == "omp":

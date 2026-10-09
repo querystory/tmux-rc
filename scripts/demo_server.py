@@ -4,8 +4,9 @@
 
 This is openbus.server's own FastAPI app — its routes, static mount, middleware and
 History.query — with three things swapped out: the watcher (a fixed fleet instead of
-tmux), the history database (a seeded temp file instead of ~/.local/state), and every
-mutation (answered {"ok": true} without running a handler). tmux itself is unplugged
+tmux), the history database (a seeded temp file instead of ~/.local/state, plan limits
+included, so no real account is read or polled), and every mutation (answered
+{"ok": true} without running a handler). tmux itself is unplugged
 at the subprocess seam, so nothing served from here can read or touch a real pane.
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 
 # Before openbus.server loads .env: an existing variable wins over the file, so an empty
@@ -27,6 +29,11 @@ import uvicorn
 from fastapi.responses import JSONResponse
 
 from openbus import live, live_providers, server, tmux
+
+try:  # absent on a base that predates plan limits: screenshots_diff runs these scripts there
+    from openbus.plan_usage import PlanUsage
+except ImportError:
+    PlanUsage = None
 
 from . import demo_fleet as demo
 
@@ -94,6 +101,9 @@ async def lifespan(app):
             server._pane_session = _expunge_demo(Path(tmp) / "claude")  # noqa: SLF001
         app.state.history = demo.seed_history(DemoHistory(Path(tmp) / "history.sqlite3"))
         app.state.watcher, app.state.push = DemoWatcher(), None
+        if PlanUsage:
+            app.state.usage = demo.seed_usage(PlanUsage(app.state.history))
+            app.state.usage.report = partial(app.state.usage.report, demo.NOW)
         yield
 
 
