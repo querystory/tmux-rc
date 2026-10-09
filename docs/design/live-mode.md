@@ -454,8 +454,11 @@ page's chat session id, with what Send needs: the call, the pane process the car
 and the session's images. The phone keeps the card open, a tap reconnects at once, and the
 answer runs on the new connection. The model that asked went with the old connection (a
 reconnect starts a fresh one), so the outcome is shown and audited but not told to it, and
-a new message supersedes parked cards as it does live ones. Expiry is real now: thirty
-minutes parked, a daemon restart, or ending the chat. Keeping the whole session (model,
+a new message supersedes parked cards as it does live ones. A tap is resent on each new
+connection until answered, since a socket can die with it or its answer in flight, so the
+daemon also remembers each answer for as long and repeats it rather than running the card
+twice or calling it expired. Expiry is real now: thirty minutes parked, a daemon restart, or
+ending the chat (ended while offline, the next chat's first connection clears them). Keeping the whole session (model,
 queue, tool calls) alive across a reconnect would also save the model's history, but it
 would turn a per-socket task tree into a detachable one, far more than the card needs.
 

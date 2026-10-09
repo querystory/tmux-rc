@@ -452,14 +452,18 @@ _DECLINED = {"declined": "the user declined",
 # lock, the tunnel relay every hour) stays up on the phone, so the daemon keeps what Send
 # needs, for the same chat reconnecting: (actor, session, proposal) -> (parked at, call,
 # pid, rec, meter, watcher). Bounded in time, and in memory only: a restart expires them.
+# `_answered` keeps each card's answer as long, (decided at, ok), so a tap resent because
+# its "decided" died with a socket is told the answer again rather than "expired".
 PARKED_SECONDS = 30 * 60
 _parked: dict[tuple, tuple] = {}
+_answered: dict[tuple, tuple] = {}
 
 
 def _sweep() -> None:
     stale = time.monotonic() - PARKED_SECONDS
-    for key in [k for k, v in _parked.items() if v[0] < stale]:
-        del _parked[key]
+    for table in (_parked, _answered):
+        for key in [k for k, v in table.items() if v[0] < stale]:
+            del table[key]
 
 
 def _park(proposal: str, entry: tuple) -> None:
@@ -475,8 +479,11 @@ def _unpark(meter: _Meter, proposal: str | None = None) -> list[tuple[str, tuple
             if k[:2] == (meter.actor, meter.session) and proposal in {None, k[2]}]
 
 
-async def _decide(websocket: WebSocket, proposal: str, ok: bool | None, rec: dict) -> None:
+async def _decide(
+    websocket: WebSocket, meter: _Meter, proposal: str, ok: bool | None, rec: dict
+) -> None:
     rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
+    _answered[meter.actor, meter.session, proposal] = (time.monotonic(), ok)
     # The client shows the answer as final only on this, so a reconnect can't leave a
     # card claiming an action that no longer has anyone waiting on it.
     await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
@@ -489,7 +496,7 @@ async def _resume(websocket: WebSocket, session, proposal: str, parked: tuple, o
     started, result = time.monotonic(), {"status": "error", "reason": "aborted"}
     try:
         try:
-            await _decide(websocket, proposal, ok, rec)
+            await _decide(websocket, meter, proposal, ok, rec)
         except BaseException:  # this socket dropped too, before anything ran: keep the card
             _park(proposal, parked)
             raise
@@ -550,7 +557,7 @@ async def _approved(
     try:
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
-        await _decide(websocket, proposal, ok, rec)
+        await _decide(websocket, meter, proposal, ok, rec)
     except asyncio.CancelledError:  # the connection dropped under it, before anything ran
         rec["consent"] = "parked"
         _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
@@ -1079,8 +1086,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                 for answer in [a for a in meter.approvals.values() if not a.done()]:
                     meter.superseded = True
                     answer.set_result(None)
-                for proposal, _ in _unpark(meter):  # its model is gone: nothing to tell
-                    await websocket.send_json({"type": "decided", "id": proposal, "ok": None})
+                for proposal, parked in _unpark(meter):  # its model is gone: nothing to tell
+                    await _decide(websocket, meter, proposal, None, parked[3])
                 await _transcript(websocket, meter, "user", text, new_segment=True,
                                   images=len(images))
         elif action == "approve":  # the user's Send / Cancel on a proposed action
@@ -1091,6 +1098,8 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
                     answer.set_result(ok)
             elif parked := _unpark(meter, proposal):
                 await _resume(websocket, session, proposal, parked[0][1], ok)
+            elif done := _answered.get((meter.actor, meter.session, proposal)):
+                await websocket.send_json({"type": "decided", "id": proposal, "ok": done[1]})
             else:  # parked too long, or before a restart: nobody is left to act on it
                 await websocket.send_json({"type": "expired", "id": proposal})
         elif action == "stop":
@@ -1291,6 +1300,8 @@ async def live_mode(websocket: WebSocket) -> None:
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
+    if websocket.query_params.get("fresh"):  # a new chat: an earlier one ended offline
+        _unpark(meter)
     outcome, reason = "ok", "stop"
     try:
         if use_gpt:

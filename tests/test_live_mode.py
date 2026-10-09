@@ -366,7 +366,8 @@ async def _drop_while_proposed(monkeypatch, session="chat", *, answered=False):
 def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
     """A phone drops the socket on every lock: the card stays up, so the same chat
     reconnecting can still Send it, bound to the pane process it showed, or Cancel it,
-    even when a tap or its answer was lost in a drop, and over a second drop."""
+    even when a tap or its answer was lost in a drop, and over a second drop. It runs
+    once: a resent tap is told the answer again."""
     L._parked.clear()
     typed, audits = [], []
     monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append((a, k)))
@@ -384,12 +385,13 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
             await L._forward_client(Drops([{"action": "approve", "id": proposal, "ok": ok}]),
                                     _Session(), _chat())
         assert [k[2] for k in L._parked] == [proposal]
-        ws = _ScriptedWS([{"action": "approve", "id": proposal, "ok": ok}, {"action": "stop"}])
+        tap = {"action": "approve", "id": proposal, "ok": ok}
+        ws = _ScriptedWS([tap, tap, {"action": "stop"}])  # the second: its "decided" was lost
         await L._forward_client(ws, _Session(), _chat())
         return proposal, ws
 
     proposal, ws = _run(go())
-    assert ws.sent[0] == {"type": "decided", "id": proposal, "ok": ok}
+    assert ws.sent[0] == ws.sent[-1] == {"type": "decided", "id": proposal, "ok": ok}
     assert typed == ([(("%1", "rebase", True, True), {"expected_pid": "4242"})] if ok else [])
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
     assert L._parked == {}  # answered once

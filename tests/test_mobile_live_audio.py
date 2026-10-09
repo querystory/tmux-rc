@@ -582,6 +582,8 @@ def test_a_card_outlives_a_dropped_connection():
   card('p1').lastChild.children[0].onclick(); // Send, with the socket down
   assert.equal(card('p1').firstChild.textContent, 'Sending...');
   assert.equal(sockets.length, 2); // reconnecting now, not at the backoff's end
+  // Only a chat's first connection is fresh: it drops cards an offline end left parked.
+  assert.deepEqual(sockets.map((s) => /fresh=1/.test(s.url)), [true, false]);
   assert.equal(sockets[1].sent.length, 0); // nothing goes until the daemon is listening
   say(sockets[1], {type: 'status', status: 'listening'});
   assert.deepEqual(sockets[1].sent.map(JSON.parse), [{action: 'approve', id: 'p1', ok: true}]);

@@ -375,6 +375,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (session) query.set("session", session);
     if (current.model) query.set("model", current.model);
     if (current.text) query.set("mode", "text");
+    if (!current.up) query.set("fresh", "1"); // a new chat: drop any cards an offline end left parked
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop(`Could not connect to ${name(current)}.`); return; }
