@@ -82,14 +82,21 @@ _NOT_ASKING_ROW_RE = re.compile(f"{_PROMPT_ROW}|^[ \\t│├└─]*[+*-]?\\d+�
 # the frame, a radio and a digit. The model reads the highlight too but can misplace it
 # (it took a ❯ user turn above Claude's digitless No/Yes box for the cursor, so a tap on
 # Yes pressed Enter on No), so the screen decides wherever it shows one, and /send checks
-# it before a select. Below the prompt, so a turn in the scrollback is never the cursor.
+# it before a select. Only between the prompt and the widget's bottom edge (a ─── rule or
+# a ╰ corner), so neither a turn in the scrollback nor the input box under a picker that
+# has closed is ever the cursor.
 _HIGHLIGHT_RE = re.compile(
     _PROMPT_ROW + r"[ \t]*(?:[○●◉◯][ \t]*)?(?:\d+[.)][ \t]+)?(.*?)[\s│┃╎]*$", re.MULTILINE)
+_WIDGET_END_RE = re.compile(r"^\s*(?:[─━]{3,}|╰)", re.MULTILINE)
 
 
 def highlighted_row(visible: str, prompt: str) -> str | None:
     *_, asked = [None, *_occurrences(prompt, visible)]
-    *_, row = [None, *(_HIGHLIGHT_RE.finditer(visible, asked.end()) if asked else ())]
+    if not asked:
+        return None
+    end = _WIDGET_END_RE.search(visible, asked.end())
+    rows = _HIGHLIGHT_RE.finditer(visible, asked.end(), end.start() if end else len(visible))
+    *_, row = [None, *rows]
     return row and row[1]
 
 
