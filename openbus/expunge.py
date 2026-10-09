@@ -176,10 +176,16 @@ def targets(s: Session) -> tuple[list[Path], list[Path]]:
     return [p for _, p in found], [p for _, p in shared if p.exists()]
 
 
+def alive(s: Session) -> bool:
+    """Whether the identified agent itself (pid and start time; a zombie is gone) still runs."""
+    st = _stat(s.pid)
+    return st[19:20] == [s.start] and st[0] != "Z"
+
+
 def wait_gone(s: Session, timeout: float = 5.0) -> bool:
-    """Whether the agent exited (a zombie counts) within `timeout` of its window closing."""
+    """Whether the agent exited within `timeout` of its window closing."""
     deadline = time.monotonic() + timeout
-    while (st := _stat(s.pid))[19:20] == [s.start] and st[0] != "Z":
+    while alive(s):
         if time.monotonic() > deadline:
             return False
         time.sleep(0.1)

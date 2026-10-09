@@ -998,10 +998,16 @@ def expunge_session(pane_id: str, body: ExpungeBody, request: Request):
         _audit(request, "expunge", pane_id, detail, outcome="rejected: no tmux server id")
         raise HTTPException(409, "tmux can't name its server, so tmux-rc's own card for the "
                                  "pane couldn't be found: nothing was killed") from e
+    # The kill's guard is the pane's process, usually a shell; the agent it ran is checked
+    # here too, so one that was replaced since the preview never takes its successor down.
+    if not expunge.alive(s):
+        _audit(request, "expunge", pane_id, detail, outcome="rejected: agent exited")
+        raise HTTPException(409, "the agent exited before the window was killed: nothing was "
+                                 "touched")
     _kill_window(request, pane.id, "expunge", detail, pane.pid)
-    if not expunge.wait_gone(s):
+    if not expunge.wait_gone(s):  # the window is gone, so this is a failure, not a refusal
         _audit(request, "expunge", pane_id, detail, outcome="error: agent still running")
-        raise HTTPException(409, "the window closed, but the agent is still running: "
+        raise HTTPException(500, "the window closed, but the agent is still running: "
                                  "nothing was deleted")
     try:
         result = expunge.expunge(s)

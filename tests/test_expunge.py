@@ -231,6 +231,7 @@ def test_route_kills_first_then_deletes(monkeypatch, claude):
     monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
     monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
     monkeypatch.setattr(expunge, "wait_gone", lambda s: order.append("gone") or True)
+    monkeypatch.setattr(expunge, "alive", lambda s: True)
     server.app.state.watcher = SimpleNamespace(
         checkpoint_key=lambda pane_id, pid: f"boot:1:{pane_id}:{pid}",
         forget_checkpoint=lambda uid: order.append(uid) or True)
@@ -259,3 +260,15 @@ def test_an_unreadable_registration_refuses(monkeypatch, tmp_path):
         (tmp_path / "sessions" / "12.json").write_text(broken)
         with pytest.raises(Refused, match="can't be read"):
             expunge.identify("10", "")
+
+
+def test_route_refuses_when_the_identified_agent_is_gone(monkeypatch, claude):
+    killed = []
+    monkeypatch.setattr(tmux, "find_pane", lambda p: SimpleNamespace(id="%1", pid="1234"))
+    monkeypatch.setattr(tmux, "kill_window", lambda *a: killed.append(a))
+    monkeypatch.setattr(tmux, "capture_pane", lambda _p: "")
+    monkeypatch.setattr(expunge, "identify", lambda *_a: session("claude", claude))
+    monkeypatch.setattr(expunge, "alive", lambda s: False)  # the shell now runs another agent
+    server.app.state.watcher = SimpleNamespace(checkpoint_key=lambda *_a: "uid")
+    r = TestClient(server.app).post("/api/panes/%251/expunge", json={"session_id": A})
+    assert r.status_code == 409 and not killed
