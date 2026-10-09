@@ -483,6 +483,7 @@ async def _decide(
     websocket: WebSocket, meter: _Meter, proposal: str, ok: bool | None, rec: dict
 ) -> None:
     rec["consent"] = {True: "approved", False: "declined", None: "superseded"}[ok]
+    _sweep()  # here too: a steady connection answers cards without parking or claiming any
     _answered[meter.actor, meter.session, proposal] = (time.monotonic(), ok)
     # The client shows the answer as final only on this, so a reconnect can't leave a
     # card claiming an action that no longer has anyone waiting on it.
@@ -559,8 +560,10 @@ async def _approved(
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, meter, proposal, ok, rec)
     except asyncio.CancelledError:  # the connection dropped under it, before anything ran
-        rec["consent"] = "parked"
-        _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
+        # Not once superseded: `_answered` replays that, and a later Send must not undo it.
+        if answer.cancelled() or not answer.done() or answer.result() is not None:
+            rec["consent"] = "parked"
+            _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
         raise
     finally:
         meter.approvals.pop(proposal, None)

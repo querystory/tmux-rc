@@ -335,7 +335,10 @@ def _chat(session="chat"):
     return L._Meter(session, "tester", P._DEFAULT[0], text=True)
 
 
-async def _drop_while_proposed(monkeypatch, session="chat", *, answered=False):
+_UNANSWERED = object()
+
+
+async def _drop_while_proposed(monkeypatch, session="chat", *, answer=_UNANSWERED):
     """Propose a type_in_pane, then drop the connection (cancel the call) before anything
     ran: before any answer, or with one in hand and its "decided" in flight. Returns the
     card's id."""
@@ -344,8 +347,8 @@ async def _drop_while_proposed(monkeypatch, session="chat", *, answered=False):
     class Shown(_WS):
         async def send_json(self, obj):
             await super().send_json(obj)
-            if answered and obj["type"] == "propose":
-                meter.approvals[obj["id"]].set_result(True)
+            if answer is not _UNANSWERED and obj["type"] == "propose":
+                meter.approvals[obj["id"]].set_result(answer)
                 return
             shown.set()
             if obj["type"] == "decided":
@@ -374,7 +377,8 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: audits.append(k))
 
     async def go():
-        proposal = await _drop_while_proposed(monkeypatch, answered=answered)
+        proposal = await _drop_while_proposed(
+            monkeypatch, **({"answer": True} if answered else {}))
         assert audits[-1]["consent"] == "parked"
 
         class Drops(_ScriptedWS):
@@ -395,6 +399,25 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
     assert typed == ([(("%1", "rebase", True, True), {"expected_pid": "4242"})] if ok else [])
     assert audits[-1]["consent"] == ("approved" if ok else "declined")
     assert L._parked == {}  # answered once
+
+
+def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch):
+    """A new message answered the card, and its "decided" died with the socket: a later
+    Send is told so, and never runs what the user moved on from."""
+    L._parked.clear()
+    typed = []
+    monkeypatch.setattr(L.tmux, "send_keys", lambda *a, **k: typed.append(a))
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+
+    async def go():
+        proposal = await _drop_while_proposed(monkeypatch, answer=None)
+        ws = _ScriptedWS([{"action": "approve", "id": proposal, "ok": True}, {"action": "stop"}])
+        await L._forward_client(ws, _Session(), _chat())
+        return proposal, ws
+
+    proposal, ws = _run(go())
+    assert ws.sent == [{"type": "decided", "id": proposal, "ok": None}]
+    assert typed == [] and L._parked == {}
 
 
 def test_a_parked_card_expires_for_real(monkeypatch):
