@@ -1177,7 +1177,8 @@ class Watcher:
         # parse didn't have re-reads the card even though the screen is unchanged.
         reply = transcript.last_reply(pane, text)
         changed = (fp != self._prev_fp.get(pane.id)  # differs from what we last parsed
-                   or reply != self._parsed_reply.get(pane.id, reply))
+                   # A restored card has no parsed reply: the first one seen stands in.
+                   or reply != self._parsed_reply.setdefault(pane.id, reply))
         previous = self._state.get(pane.id)
         # Seed from tmux on restart; only observed content changes advance this clock.
         last_activity = (previous or {}).get("last_activity_at")

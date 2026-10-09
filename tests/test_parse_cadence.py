@@ -284,6 +284,14 @@ def test_reply_landing_after_the_screen_settled_reparses_once(monkeypatch):
         w._forced_this_tick = set()
         w._tick_pane(pane)
     assert calls["n"] == 2
+    # A restored card (no parse yet this run) takes the first reply it sees as the one
+    # it was parsed with, so a later one still re-parses.
+    w._parsed_reply.clear()
+    for r in ("first", "first", "second"):
+        reply[0] = r
+        w._forced_this_tick = set()
+        w._tick_pane(pane)
+    assert calls["n"] == 3
 
 
 def test_content_change_reparses(monkeypatch):
