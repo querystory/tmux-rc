@@ -68,4 +68,13 @@ def test_codex_reply_from_the_thread_named_in_the_status_bar(homes):
             item("AgentMessage", "new"), item("Reasoning")], junk='{"cut":')
     status = f"› Ask Codex to do anything\n  {SID} · gpt-6-sol medium · ~/src/app · Ready"
     assert transcript.last_reply(_pane(None), status) == "new"
+    # Resumed, the thread continues in a segment file, here in the older flat shapes.
+    resumed = homes / f"codex/sessions/2026/10/10/rollout-2026-10-10T09-00-00-{SID}_seg.jsonl"
+    flat = [{"type": "event_msg", "payload": {"type": t, "message": m}}
+            for t, m in (("agent_message", "stale"), ("user_message", "go on"),
+                         ("agent_message", "resumed"))]
+    _write(resumed, flat)
+    assert transcript.last_reply(_pane(None), status) == "resumed"
+    _write(resumed, flat[:2])
+    assert transcript.last_reply(_pane(None), status) is None
     assert transcript.last_reply(_pane(None), "› Ready\n  gpt-6-sol · ~/src/app") is None
