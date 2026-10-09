@@ -77,7 +77,7 @@ def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple
         # process must also have started when the registration says.
         started = _started(pid)
         if (started and pane_pid and int(pane_pid) in tmux.ancestors(pid)
-                and _UUID_RE.fullmatch(sid) and str(data.get("procStart", started)) == started):
+                and _UUID_RE.fullmatch(sid) and str(data.get("procStart")) == started):
             return pid, started, sid
     return None
 
