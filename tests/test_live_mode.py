@@ -7,6 +7,7 @@ tool call may touch a real terminal — the context builder and the reject paths
 import asyncio
 import logging
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -473,6 +474,42 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
     proposal, ws = _run(go())
     assert ws.sent == [{"type": "decided", "id": proposal, "ok": None}]
     assert typed == [] and L._parked == {}
+
+
+@pytest.mark.parametrize("back", [False, True])
+def test_a_card_parked_by_a_drop_still_pushes(monkeypatch, back):
+    """Locking the phone drops the socket, the moment a push matters most: the parked card
+    counts as out of view and still pushes once, unless the same chat reconnected and
+    shows it again."""
+    L._parked.clear()
+    pushed = []
+    monkeypatch.setattr(L, "_NUDGE_TICK", 0.01)
+    monkeypatch.setattr(L.push, "SETTLE_SECONDS", 0.05)
+    monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
+    monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
+    meter = _chat()
+    meter.push = SimpleNamespace(chat=pushed.append)  # in view when proposed
+
+    async def go():
+        shown = asyncio.Event()
+
+        class Shown(_WS):
+            async def send_json(self, obj):
+                await super().send_json(obj)
+                shown.set()
+
+        call = asyncio.create_task(L._handle_tool_call(
+            Shown(), _Session(), _FC(args={"pane_id": "%1", "text": "ls"}), _Watcher(), meter))
+        await shown.wait()
+        call.cancel()  # the socket dropped: the card is parked
+        await asyncio.gather(call, return_exceptions=True)
+        if back:
+            monkeypatch.setitem(L._chats, (meter.actor, meter.session), _chat())
+        await asyncio.sleep(0.2)
+
+    _run(go())
+    assert pushed == ([] if back else ['Send to window 3 "work": ls'])
+    L._parked.clear()
 
 
 def test_a_reconnected_phone_learns_what_became_of_its_untapped_cards(monkeypatch):

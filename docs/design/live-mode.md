@@ -544,6 +544,10 @@ sends a "Chat needs you" push through the same subscriptions as a pane that need
 client tells the daemon over the chat socket whenever the sheet goes in or out of view, so
 a card the user is reading stays quiet. A card must wait unseen for the same settle time
 as a pane's push, so minimizing for a moment does not buzz, and it pushes at most once.
+A dropped socket counts as out of view, and the wait belongs to the card rather than to
+the connection that showed it: locking a phone drops the socket and parks the card, and
+that is the moment a push matters most. Whether a parked card is in view again is the
+reconnected chat's word.
 The notification has no answer buttons: approving a pane action should happen where the
 card shows exactly what will be typed, not from a lock-screen line. Tapping it brings the
 chat back in the open page instead of navigating there, since a navigation would reload

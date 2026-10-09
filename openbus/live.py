@@ -460,6 +460,9 @@ _DECLINED = {"declined": "the user declined",
 PARKED_SECONDS = 30 * 60
 _parked: dict[tuple, tuple] = {}
 _answered: dict[tuple, tuple] = {}
+# Each chat's live connection, (actor, session) -> its meter: whether a parked card is in
+# view again is the reconnected chat's word, not the dropped connection's (_nudge).
+_chats: dict[tuple, _Meter] = {}
 
 
 def _sweep() -> None:
@@ -576,7 +579,8 @@ async def _approved(
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     if meter.superseded:  # a later call in a turn the user already moved on from
         answer.set_result(None)
-    nudge = meter.push and asyncio.create_task(_nudge(meter, summary))
+    if meter.push:  # outlives this call: a parked card still notifies
+        _background(asyncio.create_task(_nudge(meter, proposal, summary)))
     try:
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
@@ -586,29 +590,30 @@ async def _approved(
             _answer(meter, proposal, None, rec)  # superseded: replayed, and never undone by a Send
         else:
             rec["consent"] = "parked"
+            # A dead socket shows nothing: out of view until the chat reconnects (_nudge).
+            meter.unseen_since = meter.unseen_since or time.monotonic()
             _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
         raise
     finally:
         meter.approvals.pop(proposal, None)
-        if nudge:
-            nudge.cancel()
     return rec["consent"] == "approved", pid
 
 
 _NUDGE_TICK = 1.0
 
 
-async def _nudge(meter: _Meter, text: str) -> None:
+async def _nudge(meter: _Meter, proposal: str, text: str) -> None:
     """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
-    at the chat (sheet minimized, page hidden, phone locked) the whole time. Answering the
-    card cancels this, and it returns after one push, so a card notifies at most once."""
+    at the chat (sheet minimized, page hidden, phone locked: a dropped socket) the whole
+    time. It lasts as long as the card does, live or parked, so it ends with the answer, a
+    supersede or expiry, and it pushes at most once."""
     shown = time.monotonic()
-    while True:
-        since = meter.unseen_since
+    while proposal in meter.approvals or _key(meter, proposal) in _parked:
+        since = _chats.get((meter.actor, meter.session), meter).unseen_since
         if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
-            break
+            await asyncio.to_thread(meter.push.chat, text)
+            return
         await asyncio.sleep(_NUDGE_TICK)
-    await asyncio.to_thread(meter.push.chat, text)
 
 
 async def _dispatch(
@@ -1357,6 +1362,7 @@ async def live_mode(websocket: WebSocket) -> None:
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     meter.push = getattr(websocket.app.state, "push", None)
+    _chats[meter.actor, meter.session] = meter
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     if websocket.query_params.get("fresh"):  # a new chat: an earlier one ended offline
         _unpark(meter)
@@ -1388,6 +1394,8 @@ async def live_mode(websocket: WebSocket) -> None:
     finally:
         if reason == "stop":  # the user ended the chat, and its cards with it
             _unpark(meter)
+        if _chats.get((meter.actor, meter.session)) is meter:  # not a reconnect's newer one
+            del _chats[meter.actor, meter.session]
         meter.finish()  # final cumulative OTel record + fold cost into the status bar
         _audit(
             meter, "live_session", detail=f"end: {reason}", outcome=outcome, turns=meter.turns,
