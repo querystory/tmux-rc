@@ -824,3 +824,14 @@ def test_an_input_attempt_reparses_only_after_its_delivery():
     with pytest.raises(RuntimeError):
         server._input_attempt("%1", deliver, RuntimeError("send-keys failed"), watcher=watcher)
     assert order == ["bump", "deliver", "bump", "reparse"]  # a failed delivery too
+
+
+def test_chat_card_notifies_without_answer_actions(tmp_path: Path):
+    """A chat proposal is approved in the app, never from the notification: no nonce, no
+    actions, and the chat flag tells sw.js to bring the chat back rather than navigate."""
+    value, sender = manager(tmp_path, Watcher(), [0.0])
+    value.chat("Send to window 3: " + "x" * 500)
+    (payload,) = sender.payloads
+    assert payload["title"] == "Chat needs you" and payload["chat"] is True
+    assert payload["body"].startswith("Send to window 3: ") and len(payload["body"]) == 400
+    assert payload["actions"] == [] and "nonce" not in payload

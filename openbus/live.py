@@ -27,7 +27,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import agent_history, live_providers, llm, telemetry, tmux
+from . import agent_history, live_providers, llm, push, telemetry, tmux
 from .classify import _load_prompt
 from .expunge import codex_status_segments
 from .live_chat import TURNS_KEPT, TURNS_QUEUED
@@ -125,6 +125,9 @@ class _Meter:
         self.text = text  # typed turns, written replies: no mic, no playback
         self.approvals: dict[str, asyncio.Future] = {}  # proposal id -> the user's answer
         self.superseded = False  # the user typed past a card: the rest of its turn is declined
+        self.push = None  # the daemon's PushManager: a card left waiting unseen notifies (_nudge)
+        # When the chat last went out of view (sheet closed or page hidden), None while in view
+        self.unseen_since: float | None = None
         # Pasted images by conversation-wide number, kept for every turn the chat model's next
         # request can still show: the kept history, plus the queued turns and the one being
         # answered, which are numbered here before they enter that history.
@@ -490,6 +493,7 @@ async def _approved(
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     if meter.superseded:  # a later call in a turn the user already moved on from
         answer.set_result(None)
+    nudge = meter.push and asyncio.create_task(_nudge(meter, summary))
     try:
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
@@ -499,7 +503,25 @@ async def _approved(
         await websocket.send_json({"type": "decided", "id": proposal, "ok": ok})
     finally:
         meter.approvals.pop(proposal, None)
+        if nudge:
+            nudge.cancel()
     return rec["consent"] == "approved", pid
+
+
+_NUDGE_TICK = 1.0
+
+
+async def _nudge(meter: _Meter, text: str) -> None:
+    """Push "Chat needs you" once a card has waited push.SETTLE_SECONDS with nobody looking
+    at the chat (sheet minimized, page hidden, phone locked) the whole time. Answering the
+    card cancels this, and it returns after one push, so a card notifies at most once."""
+    shown = time.monotonic()
+    while True:
+        since = meter.unseen_since
+        if since is not None and time.monotonic() - max(since, shown) >= push.SETTLE_SECONDS:
+            break
+        await asyncio.sleep(_NUDGE_TICK)
+    await asyncio.to_thread(meter.push.chat, text)
 
 
 async def _dispatch(
@@ -1026,6 +1048,9 @@ async def _forward_client(websocket: WebSocket, session, meter: _Meter) -> None:
             answer = meter.approvals.get(str(data.get("id")))
             if answer and not answer.done():
                 answer.set_result(data.get("ok") is True)
+        elif action == "viewing":  # whether a card waiting now would be seen (_nudge)
+            meter.unseen_since = (None if data.get("on") is not False
+                                  else meter.unseen_since or time.monotonic())
         elif action == "stop":
             return
         else:
@@ -1223,6 +1248,7 @@ async def live_mode(websocket: WebSocket) -> None:
     # to its screen watch-time (emit_live). Accept the client's if it passes one, else mint one.
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
+    meter.push = getattr(websocket.app.state, "push", None)
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     outcome, reason = "ok", "stop"
     try:
