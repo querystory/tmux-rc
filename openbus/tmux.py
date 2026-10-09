@@ -451,8 +451,9 @@ def kill_window(pane_id: str, pid: str | None = None) -> list[tuple[str, str]]:
     """Close the WINDOW that contains this pane (kill-window targets the pane's window),
     matching the phone's mental model: rows and cards are titled by window, and windows —
     not bare panes — are what "+ New window" creates. Any split panes in the window go with
-    it, and whatever is running there is killed. The watcher's next tick sees the pane gone
-    and evicts it (watcher._gc), so no client-side cleanup is needed.
+    it, and whatever is running there is killed. The server unpublishes what this returns at
+    once (watcher.drop_panes) and the next tick evicts it (watcher._gc); a tick already
+    running may publish it once more, which the client hides by birth (app.js endPane).
 
     With `pid`, only while that process still owns the pane: tmux reuses pane ids, and the
     server checks and kills in one command, so a newer pane under the id is never hit. The
