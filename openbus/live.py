@@ -577,9 +577,10 @@ async def _approved(
         await websocket.send_json({**card, "id": proposal})
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, meter, proposal, ok, rec)
-    except asyncio.CancelledError:  # the connection dropped under it, before anything ran
-        # Not once superseded: `_answered` replays that, and a later Send must not undo it.
-        if answer.cancelled() or not answer.done() or answer.result() is not None:
+    except BaseException:  # the connection failed under it (a cancel or a send): nothing ran
+        if answer.done() and not answer.cancelled() and answer.result() is None:
+            _answer(meter, proposal, None, rec)  # superseded: replayed, and never undone by a Send
+        else:
             rec["consent"] = "parked"
             _park(proposal, (time.monotonic(), fc, pid, rec, meter, watcher))
         raise

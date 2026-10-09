@@ -338,20 +338,24 @@ def _chat(session="chat"):
 _UNANSWERED = object()
 
 
-async def _drop_while_proposed(monkeypatch, session="chat", *, answer=_UNANSWERED):
-    """Propose a type_in_pane, then drop the connection (cancel the call) before anything
-    ran: before any answer, or with one in hand and its "decided" in flight. Returns the
-    card's id."""
+async def _drop_while_proposed(monkeypatch, session="chat", *, answer=_UNANSWERED,
+                               how="cancel"):
+    """Propose a type_in_pane, then drop the connection before anything ran: before any
+    answer, or with `answer` in hand, `how`: the call cancelled with its "decided" in flight,
+    that send raising, or ("race") cancelled before the answer it was just given wakes it.
+    Returns the card's id."""
     shown, meter = asyncio.Event(), _chat(session)
 
     class Shown(_WS):
         async def send_json(self, obj):
             await super().send_json(obj)
-            if answer is not _UNANSWERED and obj["type"] == "propose":
+            if obj["type"] == "propose" and answer is not _UNANSWERED and how != "race":
                 meter.approvals[obj["id"]].set_result(answer)
                 return
             shown.set()
             if obj["type"] == "decided":
+                if how == "raise":
+                    raise ConnectionError
                 await asyncio.Event().wait()  # the socket died under it
 
     monkeypatch.setattr(L.tmux, "pane_pid", lambda pane: "4242")
@@ -359,14 +363,16 @@ async def _drop_while_proposed(monkeypatch, session="chat", *, answer=_UNANSWERE
     call = asyncio.create_task(L._handle_tool_call(
         ws, _Session(), _FC(args={"pane_id": "%1", "text": "rebase"}), _Watcher(), meter))
     await shown.wait()
+    if how == "race":
+        meter.approvals[ws.sent[0]["id"]].set_result(answer)
     call.cancel()
     await asyncio.gather(call, return_exceptions=True)
     return ws.sent[0]["id"]
 
 
-@pytest.mark.parametrize("answered", [False, True])
+@pytest.mark.parametrize("drop", [None, "cancel", "raise"])
 @pytest.mark.parametrize("ok", [True, False])
-def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
+def test_a_card_survives_its_connection_dropping(monkeypatch, ok, drop):
     """A phone drops the socket on every lock: the card stays up, so the same chat
     reconnecting can still Send it, bound to the pane process it showed, or Cancel it,
     even when a tap or its answer was lost in a drop, and over a second drop. It runs
@@ -379,7 +385,7 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
 
     async def go():
         proposal = await _drop_while_proposed(
-            monkeypatch, **({"answer": True} if answered else {}))
+            monkeypatch, **({"answer": True, "how": drop} if drop else {}))
         assert audits[-1]["consent"] == "parked"
 
         class Drops(_ScriptedWS):
@@ -403,7 +409,8 @@ def test_a_card_survives_its_connection_dropping(monkeypatch, ok, answered):
     assert refreshes == []  # no update tells the new model of an action it never took
 
 
-def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch):
+@pytest.mark.parametrize("how", ["cancel", "race"])
+def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch, how):
     """A new message answered the card, and its "decided" died with the socket: a later
     Send is told so, and never runs what the user moved on from."""
     L._parked.clear()
@@ -412,7 +419,7 @@ def test_a_superseded_card_stays_superseded_over_a_drop(monkeypatch):
     monkeypatch.setattr(L.telemetry, "audit", lambda *a, **k: None)
 
     async def go():
-        proposal = await _drop_while_proposed(monkeypatch, answer=None)
+        proposal = await _drop_while_proposed(monkeypatch, answer=None, how=how)
         ws = _ScriptedWS([{"action": "approve", "id": proposal, "ok": True}, {"action": "stop"}])
         await L._forward_client(ws, _Session(), _chat())
         return proposal, ws
