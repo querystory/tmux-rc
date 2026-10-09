@@ -15,6 +15,7 @@ import hashlib
 import io
 import logging
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -450,6 +451,25 @@ async def no_cache(request, call_next):
     # default Permissions-Policy even over HTTPS; explicitly allow it for self so the
     # browser prompts (and the PWA keeps the grant) instead of silently rejecting.
     resp.headers["Permissions-Policy"] = "microphone=(self)"
+    # Scratch previews (and the mocks promoted from them into the docs) are arbitrary HTML
+    # on the daemon's own origin, where a script could call /api/* (type into terminals)
+    # with the viewer's session. A CSP sandbox without
+    # allow-same-origin gives them an opaque origin instead: they still run, but the
+    # daemon's API is cross-origin to them, exactly as from any other site. That only stops
+    # reading responses, so also refuse the blind writes (form posts, no-cors fetches) that
+    # would still carry the front door's cookie. Resource loads stay open: a bundle needs
+    # them, the API's GETs only read, and 'self' is unreliable in an opaque origin. Match
+    # the path as StaticFiles resolves it, so /docs//mocks/ can't dodge the policy.
+    path = posixpath.normpath("/" + request.url.path.lstrip("/")) + "/"
+    if path.startswith(("/scratch/", "/docs/mocks/")):
+        resp.headers["Content-Security-Policy"] = (
+            "sandbox allow-scripts allow-popups; form-action 'none'; connect-src 'none'")
+    # StaticFiles redirects a directory without its slash to an absolute URL built from
+    # the request's own scheme — http:// behind the TLS-terminating tunnel, which the
+    # phone can't reach (#174). Make same-host redirects path-only.
+    base = str(request.base_url)
+    if resp.headers.get("location", "").startswith(base):
+        resp.headers["location"] = "/" + resp.headers["location"][len(base):]
     for h in ("etag", "last-modified"):
         if h in resp.headers:
             del resp.headers[h]
@@ -1321,11 +1341,28 @@ def _to_png(data: bytes) -> bytes:
     return buf.getvalue()
 
 
-# Docs site (Hugo build) at /docs, before the "/" mount so it wins. The site is built
-# with --baseURL /docs/ (see Makefile), so its assets already reference /docs/... —
-# mounting the tree here serves them verbatim; StaticFiles strips the /docs prefix on
-# lookup. Off by default (no dir = no mount), so dev — which runs Hugo's own hot-reload
-# server — isn't shadowed by stale built files. TMUXRC_DOCS_DIR overrides the location.
+def _mount_static(prefix: str, directory: str) -> None:
+    """Serve a directory read-only at prefix/, before the "/" mount so it wins. StaticFiles
+    confines lookups to the directory (no ../ or symlink escape) and lists nothing.
+    Bare prefix (no trailing slash) 404s under the real ASGI server — the mount only
+    answers prefix/… and the later "/" catch-all doesn't serve it either. (Note:
+    Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
+    unit test but is load-bearing in production — don't delete it.) Redirect to prefix/,
+    keeping the query."""
+
+    def slash(request: Request) -> RedirectResponse:
+        query = request.url.query
+        return RedirectResponse(prefix + "/" + (f"?{query}" if query else ""))
+
+    app.add_api_route(prefix, slash, include_in_schema=False)
+    app.mount(prefix, StaticFiles(directory=directory, html=True), name=prefix.strip("/"))
+
+
+# Docs site (Hugo build) at /docs. The site is built with --baseURL /docs/ (see
+# Makefile), so its assets already reference /docs/... — mounting the tree here serves
+# them verbatim; StaticFiles strips the /docs prefix on lookup. Off by default (no dir =
+# no mount), so dev — which runs Hugo's own hot-reload server — isn't shadowed by stale
+# built files. TMUXRC_DOCS_DIR overrides the location.
 # /api/version reports DOCS_MOUNTED so the client hides its Docs link instead of linking
 # to a 404 when the site was never built. index.html, not just the dir: an empty or
 # half-written build dir would mount yet still 404 at /docs/.
@@ -1334,15 +1371,16 @@ _docs_dir = os.environ.get("TMUXRC_DOCS_DIR") or str(
 )
 DOCS_MOUNTED = (Path(_docs_dir) / "index.html").is_file()
 if DOCS_MOUNTED:
-    # Bare /docs (no trailing slash) 404s under the real ASGI server — the /docs mount
-    # only answers /docs/… and the later "/" catch-all doesn't serve it either. (Note:
-    # Starlette's TestClient *does* auto-redirect it, so this route looks removable in a
-    # unit test but is load-bearing in production — don't delete it.) Redirect to /docs/.
-    @app.get("/docs", include_in_schema=False)
-    def _docs_slash():
-        return RedirectResponse("/docs/")
+    _mount_static("/docs", _docs_dir)
 
-    app.mount("/docs", StaticFiles(directory=_docs_dir, html=True), name="docs")
+# Throwaway previews (mocks, a built site under review) at /scratch/, so showing one on
+# the phone needs no second tunnel: it rides the same authenticated front door as /docs.
+# Only an explicitly configured dir is served — there is no default — because whatever
+# lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
+# docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
+_scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
+if _scratch_dir and Path(_scratch_dir).is_dir():
+    _mount_static("/scratch", _scratch_dir)
 
 # Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
 # web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
