@@ -1,6 +1,6 @@
 import pytest
 
-from openbus import tmux
+from openbus import tmux, transcript
 
 
 @pytest.fixture(autouse=True)
@@ -14,8 +14,7 @@ def _vertex_project(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_agent_transcripts(monkeypatch, tmp_path):
     """The watcher reads agent transcripts from these homes; never the dev's real ones."""
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setattr(transcript, "_home", lambda pane, tool: tmp_path / tool)
 
 
 @pytest.fixture(autouse=True)

@@ -16,7 +16,7 @@ import time
 from functools import lru_cache
 from pathlib import Path
 
-from . import tmux
+from . import plan_usage, tmux
 from .classify import _codex_model_segments, _runs, _session_chrome
 from .tmux import Pane
 
@@ -26,8 +26,10 @@ _TAIL = 1 << 20
 _UUID_RE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 
 
-def _home(var: str, default: str) -> Path:
-    return Path(os.environ.get(var) or Path.home() / default)
+def _home(pane: Pane, tool: str) -> Path:
+    """The config dir the pane's agent reads: CLAUDE_CONFIG_DIR / CODEX_HOME, else under
+    HOME, from the agent's own environment (an inline override sets it only there)."""
+    return plan_usage.home(tool, plan_usage.pane_env(pane.pid, tool) if pane.pid else {})
 
 
 def _stamp(path: Path) -> tuple[int, int]:
@@ -95,7 +97,7 @@ def _codex_file(pane: Pane, text: str) -> Path | None:
            for s in line.split("·") if _UUID_RE.fullmatch(s.strip())}
     if len(ids) != 1 or not (pane.pid and _runs(pane.pid, "codex")):
         return None
-    home = _home("CODEX_HOME", ".codex")
+    home = _home(pane, "codex")
     return _codex_rollout(home, ids.pop(), _stamp(home / "sessions" / time.strftime("%Y/%m/%d")))
 
 
@@ -109,7 +111,7 @@ def _text(blocks) -> str | None:
 def last_reply(pane: Pane, text: str) -> str | None:
     """The agent's latest message in its current turn: a new user message clears it, so
     a reply from an earlier turn is never mistaken for what is on screen now."""
-    claude = _home("CLAUDE_CONFIG_DIR", ".claude")
+    claude = _home(pane, "claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
     # Checked afresh: the process can exit (and its pid be reused) and the transcript
     # appear after its registration, all with the registry unchanged.
