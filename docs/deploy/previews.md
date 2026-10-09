@@ -89,17 +89,21 @@ dir looks like it works, then vanishes on the next `make docs`.
 ## If a preview needs its own hostname
 
 Sometimes a preview really needs more than scratch allows: a whole site with absolute
-links, one that needs a backend, or one shared without the daemon. Then run another
-tunnel client, and give it **the same credentials the tunnel service uses**, not your
-interactive login. A client that falls back to developer login credentials works for a day
-and then dies on the organization's reauthentication policy, and an unattended preview has
-nobody to notice. The service's env file already holds a self-refreshing credential, so
-point the extra client at that file and override only what differs (its name and port),
-under the user systemd manager so it is restarted and logged:
+links, one that needs a backend, or one shared without the daemon. Then it needs its own
+tunnel: a separate client instance with **its own configuration** (its own hostname and
+local port), so it cannot end up starting a second copy of the daemon's tunnel. How you
+give it a name and a port depends on your client; for Cloudflare that is a second named
+tunnel, not a second run of the [daemon's wrapper](cloudflare-tunnel.md). Gate the new
+hostname with the same kind of login as the daemon's: nothing else protects it.
+
+Whatever the client, give it **non-interactive credentials**, the same kind the tunnel
+service uses (a service account, a tunnel token), not your interactive login. A client that
+falls back to developer login credentials works for a day and then dies on the
+organization's reauthentication policy, and an unattended preview has nobody to notice.
+Run it under the user systemd manager so it is restarted and logged:
 
     systemd-run --user --unit=preview-<name> -p Restart=always \
-      -p EnvironmentFile=$HOME/.config/tmux-rc/tunnel.env \
-      ~/.local/bin/tunnel-client --slug <name> --port <port>
+      -p EnvironmentFile=<that preview's own env file> <the client command for it>
 
 Stop it with `systemctl --user stop preview-<name>` when the review is done. The
 [design note](../design/scratch-previews.md) has the reasoning behind these choices.

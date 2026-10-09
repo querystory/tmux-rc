@@ -53,7 +53,8 @@ not be what grants it the daemon's API.
 **A second tunnel per preview.** The status quo. Each one is another credential, process
 and hostname to keep alive, and the credential is the part that kept failing. It stays
 documented as the escape hatch for previews that genuinely need their own hostname, with
-the fix applied: reuse the tunnel service's self-refreshing credential.
+the fix applied: its own client configuration, and a non-interactive credential like the
+tunnel service's.
 
 **A reverse proxy to local dev servers.** It would preview live apps, not just builds, but
 it would put any local app and its unauthenticated API on the daemon's origin and behind
