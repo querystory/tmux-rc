@@ -176,17 +176,19 @@ export function setupSidebar(ctx) {
     reconcile(node.querySelector(".sb-replies"), items, (o) => o.reply ? "reply" : `${o.index}:${o.option}`, (o) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.onclick = () => o.reply ? openReply(node._p.pane_id) : ctx.answer(node._p.pane_id, o.option, o.index);
+      button.onclick = () => o.reply ? openReply(node._p.pane_id, node._p.secret) : ctx.answer(node._p.pane_id, o.option, o.index);
       return button;
     }, (button, o) => { text(button, o.reply ? "Reply" : o.option); button.title = o.reply ? "" : o.option; button.disabled = busy; });
-    const form = node.querySelector(".sb-compose");
-    form.hidden = replyTo !== p.pane_id;
+    const form = node.querySelector(".sb-compose"); // a secret pane's draft: see app.js pruneDrafts
+    form.hidden = replyTo !== p.pane_id || !!p.secret;
     if (form.hidden) return form.querySelector("#side-reply")?.remove();
     if (!form.contains(draft().editor)) form.prepend(draft().editor);
     form.querySelector("button[type=submit]").disabled = ctx.sending() || !draft().segments().length;
   }
-  function openReply(id) {
-    if (id === ctx.active()) { document.getElementById("reply").focus(); return; } // its own composer is on screen
+  // At a password prompt Reply opens the pane, whose own composer is the password field.
+  function openReply(id, secret) {
+    if (secret && id !== ctx.active()) ctx.navigate(id);
+    if (id === ctx.active()) { document.getElementById(secret ? "secret" : "reply").focus(); return; } // its own composer is on screen
     replyTo = id;
     if (!drafts.has(id)) drafts.set(id, new Composer(repaint, ctx.notice, { id: "side-reply", label: "Reply to this pane" }));
     repaint();

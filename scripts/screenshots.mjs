@@ -34,9 +34,11 @@ const SHOTS = [
   ["mobile-needs-you", PHONE, "light", "#pane=%254"],
   ["mobile-menu", PHONE, "dark", "#pane=%2540"],
   ["mobile-terminal", PHONE, "light", "#pane=%259&view=terminal"],
+  ["mobile-password", PHONE, "dark", "#pane=%2529&view=terminal"],
   ["mobile-chat-open", PHONE, "light", "", chat("Let's go back to window 1", "#voice-log .voice-open button")],
   ["mobile-chat-consent", PHONE, "light", "", chat("Tell e2e triage to rerun it headed", "#voice-log .propose .open")],
   ["mobile-chat-resume", PHONE, "light", "", chat("Resume the checkout session")],
+  ["mobile-chat-minimized", PHONE, "light", "", async (page) => { await chat("Which panes need me?")(page); await page.click("#voice-close"); }],
 ];
 
 // Motion off, and the UI font pinned to what Linux already renders for the app's stack:

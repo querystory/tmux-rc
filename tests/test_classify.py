@@ -4,6 +4,7 @@ with a waiting-override for question/rewind and a no-LLM heuristic fallback."""
 import pytest
 
 from openbus import classify as classify_mod
+from openbus import tmux
 from openbus.classify import bootstrap, classify
 from openbus.tmux import Pane
 
@@ -183,7 +184,8 @@ def test_omp_status_row_sets_cost_and_context(spend, cost, bar):
 def test_omp_behind_a_shell_is_proven_by_a_live_omp_process(monkeypatch, child, tool):
     proc = {("10", "cmdline"): "bash\0", ("10", "task/10/children"): "11 ",
             ("11", "cmdline"): child}
-    monkeypatch.setattr(classify_mod, "proc_read", lambda pid, name: proc.get((pid, name), ""))
+    for module in (classify_mod, tmux):  # the process walk lives in tmux
+        monkeypatch.setattr(module, "proc_read", lambda pid, name: proc.get((pid, name), ""))
     pane = Pane("work", "0", "bash", "0", "%0", "bash", "π ⠧ agent-history-omp", "/x", pid="10")
     r = classify(pane, "…", _llm({"tool": "opencode", "activity": "running"}))
     assert r["tool"] == tool
@@ -1355,3 +1357,20 @@ def test_provider_error_retry_is_deterministic(replies):
     screen = ("\x1e[visible screen]\x1f\n● Fixing.\n  ⎿  API Error: 529 overloaded_error\n\n❯\n")
     out = classify(_pane("claude"), screen, _llm({}), replies_fn=make({"options": ["a", "b"]}))
     assert out["question"]["options"] == ["try again"] and not calls
+
+
+@pytest.mark.parametrize(("sample", "tool", "style", "kept"), [
+    ("82_shell_answered_npx_prompt_then_output", "shell", "text", False),
+    ("82_shell_answered_npx_prompt_then_output", "shell", "menu", True),  # options follow it
+    ("82_shell_answered_npx_prompt_then_output", "claude", "text", True),  # agent widgets
+    ("83_shell_pending_npx_prompt", "shell", "text", True),  # the cursor is on it
+])
+def test_shell_prompt_with_output_after_it_was_answered(sample, tool, style, kept):
+    seen = []
+    result = classify(_pane("node"), _sample(sample), lambda system, text: seen.append(text) or {
+        "tool": tool, "activity": "waiting",
+        "question": {"prompt": "Ok to proceed? (y)", "answer_style": style},
+    })
+    assert bool(result.get("question")) is kept
+    assert result["activity"] == "waiting"
+    assert ("[Completed prompt" in seen[-1]) is not kept

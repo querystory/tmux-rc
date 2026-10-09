@@ -75,6 +75,17 @@ MODELS = {"claude": ("Opus 5", "Sonnet 5"), "codex": ("GPT-6.1",), "gemini": ("G
           "opencode": ("Claude Sonnet 5", "GPT-6.1"), "omp": ("GPT-6.1", "Claude Opus 5")}
 
 
+# Plan limits, one Claude and one weekly-only Codex account, as a typical day reads: a
+# light 5h window behind its even pace, a 7d window on pace to end in the 90s (amber), and
+# Codex ahead of pace with no 5h window at all. provider | name | the sessions whose
+# panes draw on it | per window: name, seconds, share of it gone at NOW, % used at NOW.
+PLANS = [
+    ("claude", "claude", SESSIONS, [("5h", 5 * 3600, 1 - 160 / 300, 16),
+                                    ("7d", 7 * 86400, 1 - 7.5 / 168, 89)]),
+    ("codex", "codex", SESSIONS, [("7d", 7 * 86400, 1 - 127 / 168, 14)]),
+]
+
+
 # SGR helpers for the captures: the live view renders these as colored spans.
 def sgr(code: str, text: str) -> str:
     return f"\x1b[{code}m{text}\x1b[0m"
@@ -132,10 +143,15 @@ CAPTURES = {
         "", RULE, "❯ ", RULE,
         f"{cyn('~/src/shop-api')} on {mag('feat/money-type')} | {blu('Sonnet 5')}",
     ]),
+    "backup verify": "\n".join([
+        f"{grn('dev@ops')}$ sudo ./verify-snapshots.sh", "[sudo] password for dev: "]),
 }
 
 # Extra card fields for the panes the screenshots open, so every section has something.
 DETAIL = {
+    # A sudo prompt: its tty stopped echoing, so the composer is a password field.
+    "backup verify": {"secret": True, "headline": "sudo is asking for a password.",
+                      "status_line": "sudo is asking for a password."},
     "e2e triage": {
         "model": "Opus 5", "context_pct": 41, "cost": "$3.12", "mode": "accept-edits",
         "session_summary": "The checkout flake reproduces only when the payment iframe loads "
@@ -300,3 +316,19 @@ def seed_history(history: History) -> History:
     with history.connect() as db:  # the shared goal line; inert on builds without one
         db.execute("INSERT OR REPLACE INTO metadata VALUES ('running_goal', ?)", (str(GOAL),))
     return history
+
+
+def seed_usage(usage):
+    """Five-minute samples of each PLANS window, rising a little faster late in it, ending
+    at its share at NOW; and the accounts the panes draw on, as discovery would find them."""
+    rows, panes = [], fleet()
+    for tool, name, sessions, windows in PLANS:
+        for window, seconds, share, pct in windows:
+            start = NOW - share * seconds
+            rows += [(tool, name, window, seconds, t,
+                      round(pct * ((t - start) / (NOW - start)) ** 1.2), start + seconds)
+                     for t in range(int(NOW), int(start), -300)]
+        usage.accounts[(tool, name)] = {"short": name, "error": None, "panes": [
+            p["pane_id"] for p in panes if p["tool"] == tool and p["session"] in sessions]}
+    usage.history.record_usage(rows)
+    return usage

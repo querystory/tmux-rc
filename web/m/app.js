@@ -10,6 +10,7 @@ import { needsYou, activityLabel, activityClass, isRunning, markWorking, isRecen
 import { parseHash, formatHash, historyMode } from "/m/url-state.js";
 import { overscroll, overscrollState, RESIST_PX, IDLE_MS } from "/m/overscroll.js";
 import { setupSidebar } from "/m/sidebar.js";
+import { renderUsage, paneAccount } from "/m/usage.js";
 
 const refreshViewPicker = headerPicker(document.getElementById("review-layout"));
 
@@ -230,6 +231,7 @@ function route() {
   $("sort").ariaLabel = `Sort: ${sort === "updated" ? "Last updated" : "Session order"}`;
   if (changed) {
     if (active) $("reply").replaceWith(draft().editor);
+    $("secret").value = ""; // a password is for the pane it was typed at
     $("overview").scrollTop = 0;
     text($("draft-status"), "");
     show("keys", false);
@@ -567,6 +569,15 @@ function renderFleetSplit() {
   renderFleet($("fleet"), panes, { open: fleetShown > STRIP, icon: licon, toggle: foldFleet, dashboard: openDashboard });
 }
 const refreshHistory = (force) => refreshAtlasHistory(request, () => { if (dashboardVisible()) renderLanding(); renderFleetSplit(); }, force);
+// Plan limits move on the daemon's minute poll (Claude's every five), so a minute is plenty.
+let usage = [], usageAt = 0;
+const paintUsage = () => renderUsage($("usage"), usage, WIDE.matches);
+async function refreshUsage() {
+  if (Date.now() - usageAt < 60000) return;
+  usageAt = Date.now();
+  try { usage = (await request("/api/usage")).accounts || []; } catch { return; }
+  paintUsage(); render();
+}
 
 function render() {
   const pane = panes.find((p) => p.pane_id === active);
@@ -616,7 +627,8 @@ function render() {
   const settled = booted && !awaitingLaunch(launched, active);
   if (settled && loaded && !pane) { leaveMissingPane(active); return; }
   text($("pane-title"), (pane && paneName(pane)) || (settled ? "Pane unavailable" : "Loading pane"));
-  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}` : "Waiting for session state");
+  const account = pane && paneAccount(usage, pane.pane_id); // which plan's limits it draws on
+  text($("pane-location"), pane ? `${pane.session} / ${pane.window_name || pane.pane_id}${account ? ` · ${account}` : ""}` : "Waiting for session state");
   for (const id of ["pane-title", "pane-location"]) $(id).title = $(id).textContent; // both ellipsize: hover shows the full text
   $("detail").dataset.layout = effectiveLayout();
   const layouts = [["summary", "Overview"], ["terminal", "Terminal"]];
@@ -671,7 +683,7 @@ function render() {
   updateComposer();
   if (focusPushComposer && pane?.question && needsYou(pane)) {
     focusPushComposer = false;
-    requestAnimationFrame(() => $("reply").focus({ preventScroll: true }));
+    requestAnimationFrame(() => $(pane.secret ? "secret" : "reply").focus({ preventScroll: true }));
   }
   if (pane && overviewVisible()) loadEvents(pane);
 }
@@ -865,7 +877,7 @@ function startState() {
   stateController?.abort();
   stateController = new AbortController();
   if (!document.hidden) {
-    refreshHistory();
+    refreshHistory(); refreshUsage();
     pollState(stateController.signal);
   }
 }
@@ -878,7 +890,7 @@ async function pollState(signal) {
       version = Number.isFinite(data.version) && data.version > 0 ? data.version : null;
       panes = data.panes || []; loaded = true; booted = data.booted !== false; prefix = data.prefix || "C-b";
       $("ctrl-b").hidden = data.prefix === "C-b"; // absent prefix: can't know it's C-b, so show it
-      refreshHistory();
+      refreshHistory(); refreshUsage();
       pruneDrafts();
       text($("connection"), data.stale ? "Stalled" : "Live");
       $("connection").classList.toggle("online", !data.stale);
@@ -900,6 +912,14 @@ async function pollState(signal) {
 // way Composer.edited does) but keep any with content, so text is not lost if the pane
 // reappears. The active pane's draft is the editor on screen, so it always stays.
 function pruneDrafts() {
+  // Text already in a pane's draft when its password prompt appeared was likely typed for
+  // it: in any composer, active or not, it must not wait to be sent in the clear later.
+  for (const p of panes) {
+    if (!p.secret) continue;
+    for (const value of [drafts.get(p.pane_id), renderSidebar.drafts.get(p.pane_id)]) {
+      if (value?.segments().length) value.replace([]);
+    }
+  }
   for (const [id, value] of drafts) {
     if (id === active || panes.some((p) => p.pane_id === id)) continue;
     if (value.segments().length || value.pendingEnter) continue;
@@ -911,11 +931,19 @@ function updateComposer() {
   if (!active) return;
   const available = panes.some((p) => p.pane_id === active);
   const value = draft();
+  // A pane at a password prompt (its tty stopped echoing) swaps the draft for a password
+  // field. Its value lives only in that input: never a draft, never stored, cleared
+  // when sent or when the prompt goes away.
+  const secret = !!panes.find((p) => p.pane_id === active)?.secret;
+  if (!secret) $("secret").value = ""; // and its draft is cleared by pruneDrafts
+  $("reply").hidden = secret;
+  $("secret").hidden = !secret;
+  $("attach").hidden = secret;
   // Editability depends only on the pane existing: a non-editable div loses focus and
   // dismisses the phone keyboard on every send, and `sending` already guards re-entry.
   $("reply").contentEditable = String(available);
   $("reply").setAttribute("aria-disabled", String(!available));
-  $("send").disabled = sending || !available || (!value.segments().length && !value.pendingEnter);
+  $("send").disabled = sending || !available || (secret ? !$("secret").value : !value.segments().length && !value.pendingEnter);
   $("attach").disabled = sending || !available;
   $("keys").querySelectorAll("button").forEach((button) => { button.disabled = sending || !available; });
 }
@@ -980,18 +1008,20 @@ function cursorIO(id) {
 }
 // Send a draft to pane `id`: the pane's own composer and a sidebar card's Reply both come
 // through here, so they share one endpoint and one confirmation. Resolves to delivered.
+// `value` is a Composer, or the password input, whose text goes as the one "secret" field.
 async function compose(id, value) {
-  const segments = value.segments();
+  const secret = value === $("secret");
   sending = true; notice(); render();
   try {
     const form = new FormData();
-    for (const segment of segments) {
+    if (secret) form.append("secret", value.value);
+    else for (const segment of value.segments()) {
       if (segment.file) form.append("image", segment.file);
       else form.append("text", segment.text);
     }
     await request(paneUrl(id, "compose"), { method: "POST", body: form }, 45000);
-    value.replace([]);
-    value.pendingEnter = false;
+    if (secret) value.value = "";
+    else { value.replace([]); value.pendingEnter = false; }
     if (active === id) text($("draft-status"), "Sent");
     startState();
     return true;
@@ -1000,8 +1030,9 @@ async function compose(id, value) {
 }
 $("reply-form").onsubmit = (event) => {
   event.preventDefault();
-  if (!sending && !$("send").disabled) compose(active, draft());
+  if (!sending && !$("send").disabled) compose(active, $("secret").hidden ? draft() : $("secret"));
 };
+$("secret").oninput = updateComposer;
 // Enter SENDS, Shift+Enter inserts a newline — the standard chat-composer contract.
 // It shipped requiring Cmd/Ctrl+Enter, a shortcut
 // a phone keyboard cannot type at all, so the most obvious way to send did nothing and
@@ -1259,9 +1290,7 @@ async function launchWindow(launcher, button) {
 }
 
 function fitViewport() {
-  // iOS resizes the visual viewport, not the layout viewport, when its keyboard opens.
-  const viewport = window.visualViewport;
-  if (!viewport || viewport.scale !== 1) return;
+  const viewport = window.visualViewport, root = document.documentElement;
   const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
   const focused = document.activeElement;
   const textInput = focused?.tagName === "INPUT"
@@ -1270,12 +1299,15 @@ function fitViewport() {
     || ((textInput || focused?.tagName === "TEXTAREA") && !focused.readOnly && !focused.disabled);
   // Installed mode lets iOS reserve the status bar outside the app. Fill that
   // available viewport while browsing; editors still follow the keyboard.
-  document.documentElement.classList.toggle("standalone-fill", !!standalone && !editing);
-  // Translucent installs expose a top safe area excluded from visualViewport;
-  // opaque-status-bar installs report zero. Preserve both without sniffing the installer.
-  const topInset = standalone && !editing ? parseFloat(getComputedStyle($("app")).paddingTop) || 0 : 0;
-  document.documentElement.style.setProperty("--app-height", `${viewport.height + topInset}px`);
-  document.documentElement.style.setProperty("--app-top", `${viewport.offsetTop}px`);
+  root.classList.toggle("standalone-fill", !!standalone && !editing);
+  // Only an editor measures: iOS resizes the visual viewport, not the layout viewport, for
+  // its keyboard. At rest CSS sizes the app from dvh, so a height measured with the keyboard
+  // up (or mid-dismissal, or while backgrounded) has nothing left to strand.
+  if (!editing) for (const name of ["--app-height", "--app-top"]) root.style.removeProperty(name);
+  else if (viewport?.scale === 1) {
+    root.style.setProperty("--app-height", `${viewport.height}px`);
+    root.style.setProperty("--app-top", `${viewport.offsetTop}px`);
+  }
 }
 window.visualViewport?.addEventListener("resize", fitViewport);
 window.visualViewport?.addEventListener("scroll", fitViewport);
@@ -1301,7 +1333,7 @@ function placeChrome() {
 }
 placeChrome();
 // route() again, not just render(): a pane URL without a view opens on a different tab once wide.
-const resizeWorkspace = () => { placeChrome(); route(); };
+const resizeWorkspace = () => { placeChrome(); paintUsage(); route(); };
 if (WIDE.addEventListener) WIDE.addEventListener("change", resizeWorkspace);
 else if (WIDE.addListener) WIDE.addListener(resizeWorkspace);
 // Kill the pane's whole tmux window. Buried in the overflow menu, not on the X: an X reads
@@ -1318,7 +1350,7 @@ $("kill-pane").onclick = async () => {
 window.addEventListener("hashchange", route);
 // Only catch up a frame that was held for a selection; composer keystrokes also fire this.
 document.addEventListener("selectionchange", () => { if (terminalVisible() && captureDirty) paintCapture(); });
-document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); });
+document.addEventListener("visibilitychange", () => { sendPresence(); startState(); restartDetail(); fitViewport(); });
 window.addEventListener("online", () => { startState(); restartDetail(); });
 window.addEventListener("pageshow", () => { startState(); restartDetail(); fitViewport(); });
 window.addEventListener("pagehide", () => { stateController?.abort(); detailController?.abort(); });

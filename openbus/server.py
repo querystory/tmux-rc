@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 # Load .env BEFORE importing the watcher/llm/telemetry chain — those read config from
@@ -77,6 +77,7 @@ from . import telemetry, tmux  # noqa: E402
 from .config import json_list  # noqa: E402
 from .history import History, default_path  # noqa: E402
 from .llm import last_error, usage_totals  # noqa: E402
+from .plan_usage import PlanUsage  # noqa: E402
 from .push import PushManager  # noqa: E402
 from .watcher import Watcher  # noqa: E402
 
@@ -393,17 +394,29 @@ async def lifespan(app: FastAPI):
     app.state.watcher.start()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
+    app.state.usage = PlanUsage(app.state.history)
+    usage_task = asyncio.create_task(app.state.usage.run(app.state.watcher))
     try:
         yield
     finally:
+        usage_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await usage_task
         await app.state.push.stop()
         await app.state.watcher.stop()
 
 
 # Swagger UI moves off /docs to /apidocs so /docs belongs to the Hugo docs site
 # (FastAPI's default /docs would otherwise shadow the bare /docs path). ReDoc follows.
+# auto_configure off: FastAPI would otherwise attach its own OTLP exporters, from the
+# OTEL_* env the session shares with Claude Code, and ship every request span, metric and
+# log to that receiver. Our export is telemetry.py's scoped records, on its own provider.
 app = FastAPI(
-    title="tmux-rc", lifespan=lifespan, docs_url="/apidocs", redoc_url="/apiredoc"
+    title="tmux-rc",
+    lifespan=lifespan,
+    docs_url="/apidocs",
+    redoc_url="/apiredoc",
+    telemetry={"auto_configure": False},
 )
 # Terminal frames are ~13KB raw but ~4.6x compressible (mostly repeated text/escapes).
 # The live stream sends one every screen change — gzip drops it to ~2.8KB, turning a
@@ -504,6 +517,13 @@ def put_goal(body: GoalBody, request: Request):
     _history().set_goal(body.goal)
     _audit(request, "set_goal", "-", f"goal={body.goal}")
     return {"goal": body.goal}
+
+
+@app.get("/api/usage")
+def get_usage():
+    """Each Claude and Codex account's plan windows, trend and projection."""
+    usage = getattr(app.state, "usage", None)
+    return {"accounts": usage.report() if usage else []}
 
 
 @app.get("/api/state")
@@ -786,9 +806,9 @@ def send(pane_id: str, body: SendBody, request: Request):
     try:
         tmux.send_keys(pane.id, body.keys, enter=body.enter, literal=body.literal)
     except Exception as e:
-        _audit(
-            request, "send_keys", pane_id, detail, body.keys, outcome=f"error: {e}"[:80]
-        )
+        # Keys refused at a password prompt are probably the password: never recorded.
+        keys = None if isinstance(e, tmux.PasswordPromptError) else body.keys
+        _audit(request, "send_keys", pane_id, detail, keys, outcome=f"error: {e}"[:80])
         if isinstance(e, tmux.PaneChangedError):
             raise HTTPException(409, str(e)) from e
         raise
@@ -1095,7 +1115,7 @@ async def _compose(pane_id: str, request: Request):
     pane = tmux.find_pane(pane_id)
     if pane is None:
         raise HTTPException(404, "pane not found")
-    segments = []
+    segments, secret = [], None
     # Multipart parsing finishes before delivery. Limits also bound the time a single
     # draft can occupy the pane lock; no client round trips happen inside that lock.
     async with request.form(max_files=16, max_fields=128, max_part_size=IMG_MAX_BYTES) as form:
@@ -1114,13 +1134,26 @@ async def _compose(pane_id: str, request: Request):
                 if not data or len(data) > IMG_MAX_BYTES:
                     raise HTTPException(413, "image empty or too large")
                 segments.append((data, _stage_image(data, mime)))
+            elif kind == "secret" and isinstance(value, str) and secret is None:
+                if len(value.encode()) > 4095:  # the tty's line, less its newline
+                    raise HTTPException(413, "password too long")
+                secret = value
             else:
                 raise HTTPException(400, "invalid composer segment")
-    if not segments:
-        raise HTTPException(400, "empty composer")
+    # A password answers a no-echo prompt alone, and never reaches an audit or log
+    # line: the record says only that one was sent. See tmux.send_secret. The
+    # converse, refusing plain text at that prompt, is send_keys' own guard.
+    if bool(segments) == bool(secret):
+        raise HTTPException(400, "send a draft or a secret")
+    if not (secret or "").isprintable():  # a newline or ^D would end the read early,
+        raise HTTPException(400, "a password is printable text")  # the rest run as input
     _invalidate_input_actions(pane.id)
-    await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
-    _audit(request, "compose", pane_id, detail=f"{len(segments)} segments")
+    if secret:
+        await asyncio.to_thread(tmux.send_secret, pane, secret)
+    else:
+        await asyncio.to_thread(_deliver_composer, pane.id, pane.pid, segments)
+    _audit(request, "compose", pane_id,
+           detail="secret" if secret else f"{len(segments)} segments")
     app.state.watcher.request_reparse(pane.id)
     return {"ok": True}
 

@@ -33,6 +33,7 @@
   <link rel="modulepreload" href="/m/url-state.js">
   <link rel="modulepreload" href="/m/overscroll.js">
   <link rel="modulepreload" href="/m/sidebar.js">
+  <link rel="modulepreload" href="/m/usage.js">
   <link rel="modulepreload" href="/cursor-pick.js">
 </head>
 <body>
@@ -69,6 +70,8 @@
       <!-- A phone's floating action button, pinned to the list's foot (sticky, so the list's
            end scrolls clear of it). -->
       <button id="new-window" class="icon-button" aria-label="New window" title="New window" disabled></button>
+      <!-- Plan limits (usage.js): pinned over a phone's list by CSS, above the wide foot. -->
+      <div id="usage" role="region" aria-label="Plan usage" hidden></div>
       <div id="sb-foot" class="sb-only"></div>
     </section>
     <!-- Shared dashboard: desktop main column or a selectable mobile destination. -->
@@ -115,7 +118,7 @@
         <!-- Empty until there is something to say ("Draft" / "Sent"), and :empty collapses
              it to zero height, so the status costs no space on a resting screen. -->
         <p id="draft-status" role="status"></p>
-        <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
+        <form id="reply-form"><button type="button" id="keyboard" class="icon-button" aria-expanded="false" aria-controls="keys" aria-label="Terminal keys" title="Terminal keys"></button><button type="button" id="attach" class="icon-button" aria-label="Attach image" title="Attach image"></button><div id="reply"></div><input id="secret" type="password" autocomplete="off" placeholder="Password for this pane only" aria-label="Password for this pane" hidden><button id="send" type="submit" class="icon-button primary" aria-label="Send message" title="Send message" disabled></button></form>
         <input id="image-file" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       </footer>
       <!-- Wide only: the fleet chart docked under the pane, sized by its seam (app.js). -->
