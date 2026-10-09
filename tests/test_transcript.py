@@ -52,6 +52,10 @@ def test_claude_reply_from_the_session_running_under_the_pane(homes):
         _say("user", "malformed", origin="human"),
     ])
     assert transcript.last_reply(_pane(str(os.getppid())), "") == "Done."
+    # The cached registration is rechecked: once its process is gone, so is its reply.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(transcript, "_started", lambda pid: None)
+        assert transcript.last_reply(_pane(str(os.getppid())), "") is None
     # The same pid registered by a process that started at another time is stale.
     _write(homes / "claude/sessions/1.json",
            [{"pid": os.getpid(), "sessionId": SID, "procStart": "1"}])

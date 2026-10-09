@@ -55,22 +55,28 @@ def _entries(path: Path) -> list[dict]:
     return [e for e in entries if isinstance(e, dict)]
 
 
+def _started(pid: int) -> str | None:
+    """When `pid` started (stat field 22): with the pid, a process's identity."""
+    fields = tmux.proc_read(pid, "stat").rsplit(")", 1)[-1].split()
+    return fields[19] if len(fields) > 19 else None
+
+
 @lru_cache(maxsize=256)
-def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> str | None:
+def _claude_session(home: Path, pane_pid: str | None, _registry: tuple) -> tuple | None:
     """Claude registers each running process in sessions/<pid>.json; the one running
-    under this pane names the session."""
+    under this pane names the session. Answers (pid, start, session id)."""
     for reg in (home / "sessions").glob("*.json"):
         try:
             data = json.loads(reg.read_text(encoding="utf-8"))
             pid, sid = int(data["pid"]), str(data["sessionId"])
-            # A crashed process leaves its file behind and its pid gets reused, so the
-            # process must also have started when the registration says (stat field 22).
-            started = tmux.proc_read(pid, "stat").rsplit(")", 1)[1].split()[19]
-        except (OSError, ValueError, KeyError, TypeError, IndexError):
+        except (OSError, ValueError, KeyError, TypeError):
             continue
-        if (pane_pid and int(pane_pid) in tmux.ancestors(pid) and _UUID_RE.fullmatch(sid)
-                and str(data.get("procStart", started)) == started):
-            return sid
+        # A crashed process leaves its file behind and its pid gets reused, so the
+        # process must also have started when the registration says.
+        started = _started(pid)
+        if (started and pane_pid and int(pane_pid) in tmux.ancestors(pid)
+                and _UUID_RE.fullmatch(sid) and str(data.get("procStart", started)) == started):
+            return pid, started, sid
     return None
 
 
@@ -103,9 +109,11 @@ def last_reply(pane: Pane, text: str) -> str | None:
     a reply from an earlier turn is never mistaken for what is on screen now."""
     claude = _home("CLAUDE_CONFIG_DIR", ".claude")
     registry = tuple((p.name, _stamp(p)) for p in sorted((claude / "sessions").glob("*.json")))
-    # Not cached: the transcript can appear after its registration does.
-    sid = _claude_session(claude, pane.pid, registry)
-    path = ((sid and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
+    # Checked afresh: the process can exit (and its pid be reused) and the transcript
+    # appear after its registration, all with the registry unchanged.
+    pid, started, sid = _claude_session(claude, pane.pid, registry) or (0, None, None)
+    path = ((sid and _started(pid) == started
+             and next((claude / "projects").glob(f"*/{sid}.jsonl"), None))
             or _codex_file(text))
     return path and _reply(path, _stamp(path))
 
