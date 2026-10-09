@@ -427,6 +427,7 @@ async def lifespan(app: FastAPI):
         app.state.history = None
     app.state.watcher = Watcher(target=target, use_llm=use_llm, history=app.state.history)
     app.state.watcher.start()
+    _advertise_scratch()
     app.state.push = PushManager(app.state.watcher)
     app.state.push.start()
     app.state.usage = PlanUsage(app.state.history)
@@ -1494,8 +1495,24 @@ if DOCS_MOUNTED:
 # lands in it is published to everyone the tunnel admits. Mocks worth keeping belong in
 # docs-site/static/mocks/ instead, which ships with the docs at /docs/mocks/.
 _scratch_dir = os.environ.get("TMUXRC_SCRATCH_DIR")
-if _scratch_dir and Path(_scratch_dir).is_dir():
+_scratch_dir = _scratch_dir if _scratch_dir and Path(_scratch_dir).is_dir() else None
+if _scratch_dir:
     _mount_static("/scratch", _scratch_dir)
+
+
+def _advertise_scratch() -> None:
+    """Opt-in (TMUXRC_SCRATCH_ADVERTISE=1): export the served scratch dir, and its public
+    URL when TMUXRC_SCRATCH_URL is set, to tmux's global environment, which new panes (and
+    the agents in them) inherit. Off by default: it writes to the user's own tmux server.
+    tmux outlives the daemon, so whatever is no longer configured is removed, not kept."""
+    if os.environ.get("TMUXRC_SCRATCH_ADVERTISE") != "1":
+        return
+    url = _scratch_dir and os.environ.get("TMUXRC_SCRATCH_URL")
+    try:
+        tmux.set_global_env("TMUXRC_SCRATCH_DIR", _scratch_dir)
+        tmux.set_global_env("TMUXRC_SCRATCH_URL", url)
+    except (subprocess.CalledProcessError, OSError):  # no server yet, or no tmux binary
+        logger.warning("Could not advertise the scratch dir to tmux", exc_info=True)
 
 # Bare /m needs its own route; /m/ does not. The "/" mount below (html=True) serves
 # web/m/index.html for /m/, but answers bare /m with a 307 built from the request's own
