@@ -45,6 +45,8 @@ preview would silently lose its own stylesheet on one phone and not another.
 **Committed mocks live in the docs site.** A mock that justifies a PR belongs with the PR,
 so `docs-site/static/mocks/` is the home for the ones worth keeping, and scratch stays
 explicitly disposable. Two places by lifetime keeps the scratch dir free to be wiped.
+`/docs/mocks/` gets the same sandbox: promoting an agent-written page into the repo should
+not be what grants it the daemon's API.
 
 ## Alternatives rejected
 
