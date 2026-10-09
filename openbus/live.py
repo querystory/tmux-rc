@@ -579,10 +579,10 @@ async def _approved(
     meter.approvals[proposal] = answer = asyncio.get_running_loop().create_future()
     if meter.superseded:  # a later call in a turn the user already moved on from
         answer.set_result(None)
-    if meter.push:  # outlives this call: a parked card still notifies
-        _background(asyncio.create_task(_nudge(meter, proposal, answer, summary)))
     try:
         await websocket.send_json({**card, "id": proposal})
+        if meter.push:  # once the phone has the card; outlives this call, so parked notifies
+            _background(asyncio.create_task(_nudge(meter, proposal, answer, summary)))
         ok = await answer  # True / False on a tap, None when a new message superseded it
         await _decide(websocket, meter, proposal, ok, rec)
     except BaseException:  # the connection failed under it (a cancel or a send): nothing ran
@@ -600,13 +600,13 @@ async def _approved(
 _NUDGE_TICK = 1.0
 
 
-def _connect(meter: _Meter) -> None:
-    """Make `meter` its chat's live connection. A reconnect carries on its parked cards'
-    unseen wait, rather than restarting it, until the client reports its view, which it
-    does on every new connection."""
+def _connect(meter: _Meter, *, viewing: bool) -> None:
+    """Make `meter` its chat's live connection, in view or not as its handshake says. A
+    hidden reconnect carries on its parked cards' unseen wait rather than restarting it."""
     chat = meter.actor, meter.session
-    meter.unseen_since = next(
-        (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None)
+    meter.unseen_since = None if viewing else next(
+        (v[4].unseen_since for k, v in _parked.items() if k[:2] == chat), None
+    ) or time.monotonic()
     _chats[chat] = meter
 
 
@@ -1389,7 +1389,7 @@ async def live_mode(websocket: WebSocket) -> None:
     session_id = websocket.query_params.get("session") or uuid.uuid4().hex
     meter = _Meter(session_id, telemetry.actor(websocket), model, text=text)
     meter.push = getattr(websocket.app.state, "push", None)
-    _connect(meter)
+    _connect(meter, viewing=websocket.query_params.get("viewing") != "0")
     _audit(meter, "live_session", detail="start", mode="text" if text else "voice")
     if websocket.query_params.get("fresh"):  # a new chat: an earlier one ended offline
         _unpark(meter)

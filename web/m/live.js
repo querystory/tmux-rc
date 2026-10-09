@@ -69,7 +69,7 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (follow) log.scrollTop = log.scrollHeight;
   }
   // A card left waiting while nobody looks pushes "Chat needs you" (live._nudge), so the
-  // daemon hears each change, and a fresh socket hears the current view once it listens.
+  // daemon hears each change, and a fresh socket the view at connect, in its handshake.
   function viewing(current = run) {
     const on = dialog.open && !document.hidden;
     if (!current?.listening || current.viewing === on) return;
@@ -390,10 +390,11 @@ export function setupLiveMode({ request, session, licon, wide, open, report = ()
     if (current.model) query.set("model", current.model);
     if (current.text) query.set("mode", "text");
     if (!current.up) query.set("fresh", "1"); // a new chat: drop any cards an offline end left parked
+    current.viewing = dialog.open && !document.hidden; query.set("viewing", current.viewing ? "1" : "0");
     let ws;
     try { ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live-mode?${query}`); }
     catch { stop(`Could not connect to ${name(current)}.`); return; }
-    current.ws = ws; current.thumbs = []; current.viewing = null; // an echo lost with the old socket never comes
+    current.ws = ws; current.thumbs = []; // an echo lost with the old socket never comes
     clearTimeout(current.deadline);
     current.deadline = setTimeout(() => { if (run === current && !current.listening) stop(`${name(current)} connection timed out. Try again.`); }, CONNECT_DEADLINE_MS);
     ws.onmessage = ({ data }) => {
